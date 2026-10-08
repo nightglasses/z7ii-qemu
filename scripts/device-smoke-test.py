@@ -1064,6 +1064,9 @@ def external_nor_fixtures():
             result.append((f"external-nor-window{index}-{label}",
                            constant(0, address) + [0xe5901000], {},
                            "uncovered-address"))
+        result.append((f"external-nor-window{index}-crossing-end",
+                       constant(0, end - 2) + [0xe5901000], {},
+                       "uncovered-address"))
     return result
 
 
