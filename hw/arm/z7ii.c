@@ -58,6 +58,7 @@ struct Z7IIClockGatesState {
     uint32_t known[6];
     uint32_t pll[3];
     uint32_t selector[10];
+    uint32_t bit_control[2];
     Z7IIClockChannel channel[9];
     bool reported_error;
 };
@@ -110,10 +111,10 @@ struct Z7IIMachineState {
     MemoryRegion bss_ram;
     MemoryRegion bss_storage;
     MemoryRegion kernel_arena;
-    MemoryRegion stack_ram[6];
+    MemoryRegion kernel_copy;
+    MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
-    MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
     Z7IIClockGatesState clock_gates;
     Z7IICompletionState completion;
@@ -361,6 +362,10 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
             *value = s->pll[(offset - 0x28) / 4];
             return MEMTX_OK;
         }
+        if (offset == 0x58 || offset == 0x5c) {
+            *value = s->bit_control[(offset - 0x58) / 4];
+            return MEMTX_OK;
+        }
     }
     if (size != 4 || bank < 0) {
         return z7ii_clock_error(s, offset, size, false, 0,
@@ -404,6 +409,12 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
             z7ii_pll_update(s, reg, before);
             return MEMTX_OK;
         }
+        if (offset == 0x58 || offset == 0x5c) {
+            /* Original O390914..960 is a mutex-protected word RMW request.
+             * Physical roles remain unbound; no rate/ready effect is invented. */
+            s->bit_control[(offset - 0x58) / 4] = value;
+            return MEMTX_OK;
+        }
     }
 
     if (!set) {
@@ -443,6 +454,7 @@ static void z7ii_clock_reset(DeviceState *dev)
     memset(s->stopped, 0, sizeof(s->stopped));
     memset(s->known, 0xff, sizeof(s->known));
     memset(s->selector, 0, sizeof(s->selector));
+    memset(s->bit_control, 0, sizeof(s->bit_control));
     s->pll[0] = 0xffe;
     s->pll[1] = 0x73;
     s->pll[2] = 3;
@@ -787,21 +799,22 @@ static void z7ii_init(MachineState *machine)
     memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
     /* Original descriptor lowmem bounds, not a physical DDR capacity. */
     z7ii_ram(&s->kernel_arena, "z7ii.kernel-lowmem", 0xb2c00000, 0x3300000);
+    /* Original usermain -> O348290 copies 0x21538 kernel bytes here.
+     * Finite backing only: guest performs the copy and any later MMU change. */
+    z7ii_ram(&s->kernel_copy, "z7ii.kernel-copy", 0xbab00000, 0x21538);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
     z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
-    if (machine->smp.cpus == 2) {
-        /* O0xac + O0x270 + O0xc0cc consume at most 72 bytes before kernel. */
-        z7ii_ram(&s->cpu1_startup_stack, "z7ii.cpu1-startup-stack",
-                 0xb2b83fb8, 0x48);
-    }
-    /* CPU0's six banked SP values are known. Slot extent is an assumption. */
-    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
-        g_autofree char *name = g_strdup_printf("z7ii.stack%u", i);
+    /* Each guest SP is top - (MPIDR selector << 14). The 16KiB backing
+     * per mode/core is a declared virtual capacity, not proven by that stride. */
+    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
+        unsigned core = i / ARRAY_SIZE(stack_top);
+        unsigned mode = i % ARRAY_SIZE(stack_top);
+        g_autofree char *name = g_strdup_printf("z7ii.cpu%u-stack%u", core, mode);
         z7ii_ram(&s->stack_ram[i], name,
-                 stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
+                 stack_top[mode] - (core + 1) * STACK_SLOT_SIZE, STACK_SLOT_SIZE);
     }
 
     {
@@ -815,13 +828,12 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
     z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
+    z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
-    if (machine->smp.cpus == 2) {
-        z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);
-    }
-    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
+    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
         z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],
-                            stack_top[i] - STACK_SLOT_SIZE);
+                            stack_top[i % ARRAY_SIZE(stack_top)] -
+                            (i / ARRAY_SIZE(stack_top) + 1) * STACK_SLOT_SIZE);
     }
 
     sysbus_create_simple(TYPE_Z7II_FILL, 0x20070000, NULL);
@@ -907,11 +919,11 @@ static void z7ii_init(MachineState *machine)
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
-                 "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
+                 "image-bytes=%" PRId64 " per-core-mode-stack-slot=0x4000; "
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
-                 "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
-                 "further CPU1 stack extent uncovered",
+                 "six modes/core, virtual stack capacity; "
+                 "no NOR writer/IPC devices/BootROM",
                  machine->cpu_type, s->num_cpus, image_size);
 }
 
