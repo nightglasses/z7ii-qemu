@@ -880,10 +880,12 @@ static void z7ii_init(MachineState *machine)
      * Finite backing only: guest performs the copy and any later MMU change. */
     z7ii_ram(&s->kernel_copy, "z7ii.kernel-copy", 0xbab00000, 0x21538);
     /*
-     * Original bump initializer and first 0x3a0000 request. Virtual backing
-     * for this entire allocation only; guest owns all copies and metadata.
+     * Four original bump requests observed from reset: 0x3a0000, 0x31f28,
+     * 6 and 0xa410 bytes, each aligned to 64 bytes by the guest allocator.
+     * Their contiguous union is finite virtual backing, not heap capacity.
+     * The guest owns all copies, allocation pointers and object metadata.
      */
-    z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3a0000);
+    z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3dc3c0);
     /* Original sender: 0x18 header + 0xc0 slots * 0x108 stride.
      * Cold RAM is virtual; guest owns header, producer and consumer state.
      * No host peer consumes messages or supplies a reply. */

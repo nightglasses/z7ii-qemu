@@ -433,10 +433,18 @@ def fixtures():
          {4: 0x1234, 5: 0x1234}, None),
         ("module-buffer-below", constant(0, 0xb7cffffc) + [0xe5801000], {},
          "uncovered-address"),
-        ("module-buffer-above", constant(0, 0xb80a0000) + [0xe5801000], {},
+        ("module-buffer-above", constant(0, 0xb80dc3c0) + [0xe5801000], {},
          "uncovered-address"),
+        ("module-buffer-next-three-allocations", constant(1, 0x1234) +
+         constant(0, 0xb80a0000) + [0xe5801000, 0xe5904000] +
+         constant(0, 0xb80d1f3c) + [0xe5801000, 0xe5905000] +
+         constant(0, 0xb80d1f40) + [0xe5801000, 0xe5906000] +
+         constant(0, 0xb80d1f7c) + [0xe5801000, 0xe5907000] +
+         constant(0, 0xb80d1f80) + [0xe5801000, 0xe5908000] +
+         constant(0, 0xb80dc3bc) + [0xe5801000, 0xe5909000],
+         {i: 0x1234 for i in range(4, 10)}, None),
         ("module-buffer-region-withdrawn", mxic_contract(disable=True) +
-         constant(0, 0xb7d00000) + [0xe5801000], {}, "uncovered-address"),
+         constant(0, 0xb80dc3bc) + [0xe5801000], {}, "uncovered-address"),
         ("clock-bitcontrol-rmw", constant(0, CLOCK + 0x58) + [0xe5902000] +
          [0xe3823008, 0xe5803000, 0xe5904000, 0xe3843080, 0xe5803000,
           0xe5904000, 0xe3c43008, 0xe5803000, 0xe5905000] +
