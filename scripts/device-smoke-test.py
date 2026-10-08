@@ -172,12 +172,22 @@ def mxic_config_fixtures():
     direct += read(base + 0x2000, 5) + read(base + 0x38, 6)
     arrays = write(MXIC + 0xa00, 1) + read(MXIC + 0xa00, 4)
     arrays += read(MXIC + 0xa7c, 5)
+    selectors = []
+    for bank in range(4):
+        for offset in (*range(0, 0x5c, 4), *range(0xbc, 0xdc, 4)):
+            selectors += write(base + 0x3000 + bank * 0x100 + offset, 0x32)
+    selectors += read(base + 0x3000, 4) + read(base + 0x33d8, 5)
     return [
         ("mxic-config-transaction", transaction,
          {4: 1, 5: 0, 6: 0, 7: 1, 8: 1}, None),
         ("mxic-config-direct-parameters", direct,
          {4: 0x500002, 5: 0x18080000, 6: 1}, None),
         ("mxic-config-arrays", arrays, {4: 1, 5: 0}, None),
+        ("mxic-config-selectors", selectors, {4: 0x32, 5: 0x32}, None),
+        ("mxic-config-selector-hole", read(base + 0x305c, 4), {},
+         "mxic-config-access-not-supported"),
+        ("mxic-config-selector-field", write(base + 0x3000, 4), {},
+         "mxic-config-access-not-supported"),
         ("mxic-config-incomplete", write(base + 0x60, 1) +
          write(base + 0x34, 1), {}, "mxic-config-incomplete-transaction"),
         ("mxic-config-access-gate", write(0x24074000, 1), {},

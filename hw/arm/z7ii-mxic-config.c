@@ -25,7 +25,7 @@ struct Z7IIMXICConfigState {
     QEMUTimer *timer;
     uint32_t draft[19], active[19];
     uint32_t draft_slots[512], active_slots[512];
-    uint32_t routing[4], levels[36], rates[10];
+    uint32_t routing[4], levels[36], rates[10], selectors[124];
     uint32_t written;
     bool slot_written[512];
     unsigned slots_written;
@@ -72,6 +72,23 @@ static uint32_t config_mask(unsigned index)
     }
     /* Nikon +5004/+5020 group has no public field binding: full word state. */
     return UINT32_MAX;
+}
+
+static int selector_index(hwaddr offset)
+{
+    unsigned bank, word;
+    if (offset < 0x3000 || offset >= 0x33dc) {
+        return -1;
+    }
+    bank = (offset - 0x3000) / 0x100;
+    word = (offset - 0x3000) % 0x100;
+    if (word <= 0x58) {
+        return bank * 31 + word / 4;
+    }
+    if (word >= 0xbc && word <= 0xd8) {
+        return bank * 31 + 23 + (word - 0xbc) / 4;
+    }
+    return -1;
 }
 
 static MemTxResult config_error(Z7IIMXICConfigState *s, hwaddr address,
@@ -133,6 +150,11 @@ static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
     index = field_index(offset, rate_offsets, G_N_ELEMENTS(rate_offsets));
     if (index >= 0) {
         *value = s->rates[index];
+        return MEMTX_OK;
+    }
+    index = selector_index(offset);
+    if (index >= 0) {
+        *value = s->selectors[index];
         return MEMTX_OK;
     }
 unsupported:
@@ -203,10 +225,19 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
     }
     index = field_index(offset, rate_offsets, G_N_ELEMENTS(rate_offsets));
     if (index >= 0) {
-        if ((value & ~0x0fff0003U) || (value & 3) == 3) {
+        if (value & ~0x0fff0003U) {
             goto unsupported;
         }
         s->rates[index] = value;
+        return MEMTX_OK;
+    }
+    index = selector_index(offset);
+    if (index >= 0) {
+        /* Candidate port/level selectors, not assigned physical master IDs. */
+        if (value & ~0x33U) {
+            goto unsupported;
+        }
+        s->selectors[index] = value;
         return MEMTX_OK;
     }
 unsupported:
@@ -261,6 +292,7 @@ static void config_reset(DeviceState *dev)
     memset(s->routing, 0, sizeof(s->routing));
     memset(s->levels, 0, sizeof(s->levels));
     memset(s->rates, 0, sizeof(s->rates));
+    memset(s->selectors, 0, sizeof(s->selectors));
     memset(s->slot_written, 0, sizeof(s->slot_written));
     s->written = s->slots_written = 0;
     s->active_view = s->access = s->busy = s->reported_error = false;
