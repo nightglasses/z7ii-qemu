@@ -1471,10 +1471,10 @@ def bridge_fixtures():
     control += delay() + read(0x4908, 4) + read(0xd020, 5)
     control += write(0xd028, 2) + read(0xd020, 6)
     control += write(0xc90c, 4) + delay() + read(0xd020, 7)
-    mapping = ready.copy()
+    packet = ready.copy()
     for index in range(40):
-        mapping += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
-    mapping += write(0xc13c, 2) + delay() + read(0xd020, 4)
+        packet += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
+    mapping = packet + write(0xc13c, 2) + delay() + read(0xd020, 4)
     mapping += read(0xd0b0, 5) + read(0xd10c, 6)
     mapping += write(0xd028, 0x40) + read(0xd020, 7)
     cancelled = prepare() + write(0xc128, 0xf00f)
@@ -1483,6 +1483,8 @@ def bridge_fixtures():
     cancelled_control = ready + write(0xc90c, 6)
     cancelled_control += write(0xc5e0, 0xf000f) + delay()
     cancelled_control += read(0x4908, 4) + read(0xd020, 5)
+    cancelled_map = packet + write(0xc13c, 2) + write(0xc5e0, 0xf000f)
+    cancelled_map += delay() + read(0xd020, 4) + read(0xd0b0, 5)
     irq = write(0xd024, 2) + ready
     irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
     irq += constant(2, 0xf8101000) + [0xe5c2187f]
@@ -1505,6 +1507,12 @@ def bridge_fixtures():
         ("bridge-real-gic-irq127", irq, {4: 127, 5: 1023}, None),
         ("bridge-reset-cancels-lanes", cancelled, {4: 0, 5: 0}, None),
         ("bridge-reset-cancels-control", cancelled_control, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-map", cancelled_map, {4: 0, 5: 0}, None),
+        ("bridge-board-reset", read(0xc5e0, 2) + write(0xc5e0, 0xf000f),
+         {2: 0}, None),
+        ("bridge-control-overlap-rejected", ready + write(0xc90c, 6) +
+         write(0xc90c, 4), {}, error),
+        ("bridge-map-trailing-array-profile", write(0xd110, 1), {}, error),
         ("bridge-request-before-configuration", write(0xc128, 0xf00f), {}, error),
         ("bridge-map-before-whole-packet", ready + write(0xc13c, 2), {}, error),
         ("bridge-low-selector-unsupported", write(0xc5f0, 1), {}, error),
@@ -1635,7 +1643,7 @@ def run(binary, output, name, words, expected, reason):
                             "record-slot-alternate-board-reset",
                             "timing-board-reset",
                             "copy-board-reset", "record-footer-board-reset",
-                            "external-nor-board-reset"):
+                            "external-nor-board-reset", "bridge-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
