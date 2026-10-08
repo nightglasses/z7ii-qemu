@@ -804,6 +804,12 @@ static void z7ii_init(MachineState *machine)
                  stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
     }
 
+    {
+        DeviceState *config = qdev_new(TYPE_Z7II_MXIC_CONFIG);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(config), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(config), 0, 0x20010000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(config), 1, 0x24074000);
+    }
     mxic = sysbus_create_simple(TYPE_Z7II_MXIC, 0x20016000, NULL);
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[0], 0xb1800000);
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
