@@ -56,6 +56,7 @@ def main():
             "independent virtual timestamp Clock 48MHz; reset count zero, enabled",
             "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",
             "completion request/done/enable/domain state reset zero; causal deferred transactions, GIC SPI250",
+            "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
             "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         ],
         "whole_boot_verified": False,
