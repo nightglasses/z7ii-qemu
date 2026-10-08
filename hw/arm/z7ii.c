@@ -31,7 +31,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
 #define COMPLETION_BASE 0x04287000ULL
-#define CBAR_BASE 0x1d000000ULL
+#define CBAR_BASE 0xf8100000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
 
@@ -869,7 +869,7 @@ static void z7ii_init(MachineState *machine)
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
                  "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
-                 "MEMC=0x04264000 profile-only CBAR=0x1d000000 GICv2=256 "
+                 "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv2=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
                  "further CPU1 stack extent uncovered",

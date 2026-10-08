@@ -150,9 +150,9 @@ def fixtures():
 
     # Enable secure PPI 29, let the upstream timer expire with CPU IRQ masked,
     # acknowledge it, disable the level, EOI, and inspect active state.
-    timer = constant(2, 0x1d001000) + constant(1, 1) + [0xe5821000]
+    timer = constant(2, 0xf8101000) + constant(1, 1) + [0xe5821000]
     timer += constant(1, 1 << 29) + [0xe5821100]
-    timer += constant(0, 0x1d002000) + constant(1, 0xff) + [0xe5801004]
+    timer += constant(0, 0xf8102000) + constant(1, 0xff) + [0xe5801004]
     timer += constant(1, 1) + [0xe5801000]
     timer += constant(1, 48000) + [0xee0e1f12]  # CNTP_TVAL
     timer += constant(1, 1) + [0xee0e1f32]  # CNTP_CTL.ENABLE
@@ -209,10 +209,10 @@ def fixtures():
 
     # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
     # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
-    completion = constant(2, 0x1d001000) + constant(1, 1) + [0xe5821000]
+    completion = constant(2, 0xf8101000) + constant(1, 1) + [0xe5821000]
     completion += [0xe5c218fa]  # GICD_ITARGETSR byte for IRQ250 = CPU0.
     completion += constant(1, 1 << 26) + [0xe582111c]
-    completion += constant(3, 0x1d002000) + constant(1, 0xff) + [0xe5831004]
+    completion += constant(3, 0xf8102000) + constant(1, 0xff) + [0xe5831004]
     completion += constant(1, 1) + [0xe5831000]
     completion += constant(0, COMPLETION) + [0xe5801008]
     completion += constant(1, 0x1110) + [0xe5801000, 0xe5906000]
@@ -231,7 +231,7 @@ def fixtures():
     polling += constant(1, 0x3100) + [0xe5801000]
     polling += constant(1, 0xa1) + [0xe5801010]
     polling += [0xe5904004, 0xe3140001, 0x0afffffc]
-    polling += constant(2, 0x1d001000) + [0xe592721c]
+    polling += constant(2, 0xf8101000) + [0xe592721c]
     polling += constant(1, 1) + [0xe5801004, 0xe5905004]
 
     completion_reset = constant(0, 0xb1800000)
@@ -250,7 +250,7 @@ def fixtures():
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
           8: 0x13579bdf, 9: 0x13579bdf}, None),
         ("secure-timer", timer,
-         {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0x1d000000}, None),
+         {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0xf8100000}, None),
         ("clock-six-banks", gates, gate_values, None),
         ("clock-reset", gate_reset, {}, None),
         ("clock-reset-state", constant(0, CLOCK) + [0xe5901048], {1: 0}, None),

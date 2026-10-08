@@ -48,7 +48,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
-            "two upstream Cortex-A7; CBAR=0x1d000000; CNTFRQ=48MHz",
+            "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
             "upstream A15MPCore GICv2; 256 total SGI/PPI/SPI IDs",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "upstream CPU reset state; guest copies all copy destinations",
