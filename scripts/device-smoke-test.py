@@ -1471,7 +1471,7 @@ def bridge_fixtures():
     control += delay() + read(0x4908, 4) + read(0xd020, 5)
     control += write(0xd028, 2) + read(0xd020, 6)
     control += write(0xc90c, 4) + delay() + read(0xd020, 7)
-    mapping = ready
+    mapping = ready.copy()
     for index in range(40):
         mapping += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
     mapping += write(0xc13c, 2) + delay() + read(0xd020, 4)
