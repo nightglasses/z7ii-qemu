@@ -1287,7 +1287,8 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
                     after_reset = registers(vm)
-                    if name in ("mxic-config-reset", "record-slot-board-reset"):
+                    if name in ("mxic-config-reset", "record-slot-board-reset",
+                                "record-slot-alternate-board-reset"):
                         for reg, value in expected.items():
                             assert after_reset[reg] == value, after_reset
                     else:
