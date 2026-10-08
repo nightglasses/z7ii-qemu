@@ -1033,6 +1033,20 @@ def i2c_fixtures():
     cancel += read(0x10, 4) + read(4, 5)
     timeout = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(8)
     timeout += read(0x10, 4) + read(4, 5)
+    pending_release = write(0, 0x16) + write(8, 0x50) + write(0, 6) + wait(4)
+    pending_release += read(0x10, 4) + read(4, 5)
+
+    def delay(ticks):
+        return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    timeout_disable = write(0, 0x16) + write(0x1c, 255) + write(8, 0x50) + wait(2)
+    timeout_disable += write(0x1c, 0) + delay(24000)
+    timeout_disable += read(0x10, 4) + read(4, 5)
+    timeout_disable += write(0x1c, 2) + wait(8) + read(0x10, 6) + read(4, 7)
+    timeout_extend = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(2)
+    timeout_extend += write(0x1c, 255) + delay(1000) + read(0x10, 4)
+    timeout_extend += read(4, 5) + wait(8) + read(0x10, 6) + read(4, 7)
     irq = write(0, 6, 3) + write(0x24, 4, 3)
     irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
     irq += constant(2, 0xf8101000) + [0xe5c218d9]  # IRQ217 -> CPU0.
@@ -1049,6 +1063,11 @@ def i2c_fixtures():
         ("i2c-four-instance-idr-and-nack", geometry, {4: 4, 5: 4, 6: 4, 7: 4}, None),
         ("i2c-endpoint-tx-rx-repeated-start", endpoint, {4: 0x100, 5: 0x5a, 6: 0xa5, 7: 8}, None),
         ("i2c-endpoint-starvation-timeout", timeout, {4: 10, 5: 0}, None),
+        ("i2c-pending-hold-release-real-nack", pending_release, {4: 4, 5: 0}, None),
+        ("i2c-endpoint-timeout-disable-reenable", timeout_disable,
+         {4: 2, 5: 0x100, 6: 10, 7: 0}, None),
+        ("i2c-endpoint-timeout-deadline-replaced", timeout_extend,
+         {4: 2, 5: 0x100, 6: 10, 7: 0}, None),
         ("i2c-fifo-overflow-underflow-clear", fifo, {4: 15, 5: 0x40, 6: 0, 7: 0, 8: 0xc0}, None),
         ("i2c-cancel-before-address", cancel, {4: 0, 5: 0}, None),
         ("i2c-real-gic-irq217", irq, {4: 217, 5: 1023}, None),

@@ -236,7 +236,7 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
             s->remaining = 0;
         }
         s->control = value & ~0x40U;
-        if (s->active && !(s->control & I2C_HOLD) &&
+        if (s->active && s->addressed && !(s->control & I2C_HOLD) &&
             (s->transfer_done || (!s->receiving && fifo8_is_empty(&s->tx)))) {
             if (s->transfer_done) {
                 z7ii_i2c_stop(s);
@@ -308,6 +308,10 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
             goto error;
         }
         s->timeout = value;
+        if (s->active && s->waiting) {
+            timer_del(s->timer);
+            z7ii_i2c_schedule(s);
+        }
         break;
     case 0x24:
         if (value & ~I2C_IRQ_MASK) {
