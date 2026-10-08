@@ -22,6 +22,8 @@ def main():
                         help="upstream TCG thread mode, recorded in the receipt")
     parser.add_argument("--trace-kernel", action="store_true",
                         help="upstream CPU/instruction trace for MAS kernel prefix only")
+    parser.add_argument("--trace-irqs", action="store_true",
+                        help="upstream GIC enable, input, acknowledge and control trace")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -38,6 +40,10 @@ def main():
     if args.trace_kernel:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
         vm_args += ["-dfilter", "0x10100000+0x20000"]
+    if args.trace_irqs:
+        for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
+                      "gic_cpu_write", "gic_dist_write"):
+            vm_args += ["-trace", f"enable={event}"]
     receipt = {
         "machine_revision": args.machine_revision,
         "upstream_revision": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
