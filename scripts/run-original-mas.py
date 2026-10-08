@@ -26,6 +26,8 @@ def main():
                         help="upstream GIC enable, input, acknowledge and control trace")
     parser.add_argument("--trace-pkgb", action="store_true",
                         help="upstream trace of PKGB constructor and SPI init candidates")
+    parser.add_argument("--trace-records", action="store_true",
+                        help="upstream trace of original record scanner and bank coordinator")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -39,12 +41,15 @@ def main():
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
-    if args.trace_kernel or args.trace_pkgb:
+    if args.trace_kernel or args.trace_pkgb or args.trace_records:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
         filters = ["0x10100000+0x20000"] if args.trace_kernel else []
         if args.trace_pkgb:
             filters += ["0x10200c8c+0x94", "0x10200684+0x2e",
                         "0x10201010+0x40", "0x10242fda+0x68"]
+        if args.trace_records:
+            filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
+                        "0x102a85f4+0xb0"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
