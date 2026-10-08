@@ -1540,19 +1540,8 @@ def copy_fixtures():
     destination_crossing = seed + setup(length=8, da=0xbb2ffffc)
     destination_crossing += start() + wait() + read(base + 0x30, 4)
     destination_crossing += read(0xbb2ffffc, 5)
-    large_rom = relocation_irq + setup(length=0x300000, sa=BASE,
-                                       da=0xbac00000)
-    # Real GIC45 wakes WFI after the DMA deadline; avoid 65 ms of busy polling.
-    large_rom += start() + [0xe320f003] + wait() + read(base + 0x30, 4)
-    large_rom += read(0xbadc5afc, 5) + read(0xbaeffffc, 6)
-    branch_index = len(large_rom)
-    large_rom.append(0xea000000 | (0x300000 // 4 - branch_index - 2))
-    large_rom += [0x5a000000 ^ index for index in
-                  range(len(large_rom), 0x300000 // 4)]
-    large_rom[0x1c5afc // 4] = 0xb2b4145c
     cases = [
-        ("copy-romd-three-mib-exact-bytes", large_rom,
-         {4: 8, 5: 0xb2b4145c, 6: 0x5a0bffff}, None),
+        ("copy-romd-three-mib-exact-bytes", [], {}, None),
         ("copy-romd-source-real-bytes", rom,
          {4: rom_words[0], 5: rom_words[1], 6: 8}, None),
         ("copy-romd-external-source-byte-tail", external_rom,
@@ -1932,7 +1921,73 @@ def run_timing_capture(binary, output, name):
             "scope": "qtest external capture inputs and official virtual clock only"}
 
 
+def run_copy_romd_large(binary, output, name):
+    """Exercise the complete bus extent with official qtest virtual time."""
+    output.mkdir()
+    image = output / "synthetic.bin"
+    words = [0x5a000000 ^ index for index in range(0x300000 // 4)]
+    words[0x1c5afc // 4] = 0xb2b4145c
+    payload = struct.pack("<" + "I" * len(words), *words)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    commands = []
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="copy", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                assert response.startswith("OK"), response
+                commands.append([text, response])
+                return response
+
+            def write(address, value):
+                command(f"writel {address:#x} {value:#x}")
+
+            def read(address):
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            write(0x04251000, 0x10000000)
+            for offset, value in ((0, 0x2fffff), (4, BASE), (8, 0xbac00000),
+                                  (12, 0x30f00), (16, 0x30f00), (20, 0),
+                                  (24, 0x9000)):
+                write(0x04251010 + offset, value)
+            write(0x04251028, 0x11109003)
+            assert read(0x04251030) == 0
+            # Each 256-byte deadline is floor(256/48MHz) ns + one ns.
+            for beat in range(0x300000 // 256):
+                command("clock_step 5334")
+                if not beat:
+                    assert read(0x04251010) == 0x2ffeff
+                    assert read(0x04251030) == 0
+            assert read(0x04251030) == 8
+            assert read(0x04251010) == 0
+            assert read(0x04251014) == BASE + 0x300000
+            assert read(0x04251018) == 0xbaf00000
+            destination = output / "dma-destination.bin"
+            vm.cmd("human-monitor-command", command_line=
+                   f'pmemsave 0xbac00000 0x300000 "{destination}"')
+            assert destination.read_bytes() == payload
+            source = output / "rom-readback.bin"
+            vm.cmd("human-monitor-command", command_line=
+                   f'pmemsave {BASE} 0x300000 "{source}"')
+            assert source.read_bytes() == payload
+        assert vm.exitcode() == 0, vm.get_log()
+    (output / "qtest-commands.json").write_text(json.dumps(commands) + "\n")
+    assert image.read_bytes() == payload
+    assert "transaction=error" not in trace.read_text()
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "qtest real DMA, virtual deadlines and full byte equality"}
+
+
 def run(binary, output, name, words, expected, reason):
+    if name == "copy-romd-three-mib-exact-bytes":
+        return run_copy_romd_large(binary, output, name)
     if name.startswith("timing-capture-input-"):
         return run_timing_capture(binary, output, name)
     output.mkdir()
@@ -2042,11 +2097,6 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
-                if name == "copy-romd-three-mib-exact-bytes":
-                    destination_file = output / "dma-destination.bin"
-                    vm.cmd("human-monitor-command", command_line=
-                           f'pmemsave 0xbac00000 0x300000 "{destination_file}"')
-                    assert destination_file.read_bytes() == payload[:0x300000]
                 if name == "timestamp-whole-guest-init":
                     assert actual[5] > actual[4], actual
                 if name == "timestamp-elapsed-freeze-carry":
