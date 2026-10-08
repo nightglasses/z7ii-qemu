@@ -736,6 +736,8 @@ def spi_fixtures():
         channels += constant(0, SPI + channel * 0x100)
         channels += constant(1, 1) + [0xe5801060, 0xe5900000 | (channel + 2) << 12 | 0x48]
     return [
+        ("spi-board-reset", constant(0, SPI) + [0xe5902008] +
+         write(8, 7), {2: 0}, None),
         ("spi-all-eleven-channel-depths", channels,
          {reg: 32 for reg in range(2, 13)}, None),
         ("spi-common-irq-through-gic", irq, {4: 193, 5: 1023}, None),
@@ -818,7 +820,7 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
-                            "clock-bitcontrol-reset"):
+                            "clock-bitcontrol-reset", "spi-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
