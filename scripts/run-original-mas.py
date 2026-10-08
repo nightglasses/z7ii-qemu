@@ -63,6 +63,7 @@ def main():
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
+            "original registry NV slot69 [133e0000,13400000) has virtual erased-FF read-only cells, absent original NV bytes; MEMC-protected unsupported programming, no complete CFI model",
             "upstream CPU reset state; guest copies all copy destinations",
             "six modes per guest core, virtual 16KiB stack capacity per mode; early temporary RAM exactly88B",
             "early shared release RAM exactly four bytes; no host magic",

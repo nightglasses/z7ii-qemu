@@ -29,6 +29,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 #define MAS_BASE 0x10020000ULL
 #define MAS_MAX_SIZE 0x2477b78ULL
+#define NV_SLOT_BASE 0x133e0000ULL
+#define NV_SLOT_SIZE 0x20000
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
@@ -105,6 +107,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
+    MemoryRegion nv_slot;
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -722,6 +725,29 @@ static const MemoryRegionOps z7ii_nor_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
+static MemTxResult z7ii_nv_write(void *opaque, hwaddr offset, uint64_t value,
+                               unsigned size, MemTxAttrs attrs)
+{
+    /* Same MEMC protection and unsupported-command contract, correct PA. */
+    return z7ii_nor_write(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+                         value, size, attrs);
+}
+
+static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
+                              unsigned size, MemTxAttrs attrs)
+{
+    return z7ii_nor_read(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+                        value, size, attrs);
+}
+
+static const MemoryRegionOps z7ii_nv_ops = {
+    .read_with_attrs = z7ii_nv_read,
+    .write_with_attrs = z7ii_nv_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
 static void z7ii_reset(void *opaque)
 {
     Z7IIMachineState *s = opaque;
@@ -787,6 +813,16 @@ static void z7ii_init(MachineState *machine)
         error_report("failed to load the complete MAS diagnostic image");
         exit(EXIT_FAILURE);
     }
+    /*
+     * Original registry ID69 is a distinct 128KiB data slot, absent from the
+     * update payload. Explicit erased-cell profile, not original NV contents
+     * or a complete CFI device. Guest validation/error paths remain intact.
+     */
+    memory_region_init_rom_device(&s->nv_slot, NULL, &z7ii_nv_ops, s,
+                                  "z7ii.nor-slot69-erased", NV_SLOT_SIZE,
+                                  &error_fatal);
+    memset(memory_region_get_ram_ptr(&s->nv_slot), 0xff, NV_SLOT_SIZE);
+    memory_region_add_subregion(get_system_memory(), NV_SLOT_BASE, &s->nv_slot);
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
