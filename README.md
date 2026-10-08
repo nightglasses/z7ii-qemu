@@ -12,3 +12,48 @@ The update package contains five components, not a complete board flash/BootROM 
 
 Issues are managed through [the Nightglass delivery map](https://github.com/mashiro01/nightglass/issues/67). No firmware bytes, generated binaries or private credentials are committed. CI will build the pinned QEMU integration and synthetic tests; it will not download camera firmware or call models.
 
+## MAS diagnostic machine
+
+The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) is `hw/arm/z7ii.c`. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. No Nikon interrupt controller, timer, IPC, boot handshake or display is implemented yet. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+
+With a clean checkout of the pinned upstream revision and an empty build directory:
+
+```sh
+scripts/build-qemu.sh /absolute/path/to/qemu-11.1.2 /absolute/path/to/work/build/mas-diagnostic
+```
+
+The script modifies only upstream `hw/arm/Kconfig`, `hw/arm/meson.build` and the new `hw/arm/z7ii.c`, then verifies that `-M help` exposes the machine. The QOM type uses the upstream `arm_machine_interfaces` target registration, as existing ARM machines do. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
+
+Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
+
+```sh
+# Run from this repository; choose another short unused name for later runs.
+mkdir -p work
+mkdir work/r1
+/absolute/path/to/work/build/mas-diagnostic/qemu-system-arm \
+  -M z7ii-mas-diagnostic -accel tcg,thread=single \
+  -bios /absolute/path/to/02_eg1840_mas_01700.payload.bin \
+  -display none -serial none -monitor none -S \
+  -gdb unix:work/r1/gdb.sock,server=on,wait=off \
+  -qmp unix:work/r1/qmp.sock,server=on,wait=off \
+  -D work/r1/qemu.log -d guest_errors,int
+```
+
+Use an ARM-capable GDB to connect to the socket, inspect reset registers and use `hbreak *0x10020178` before continuing. A hardware breakpoint observes the original self-loop without changing its bytes. The original C1.70 entry word is `20 2f 00 ea`; `O0x178` remains `fe ff ff ea`. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish a stopped access, an architectural exception, a wait and a running loop. `-d in_asm,cpu` may be added for a short controlled trace; it produces substantially more output.
+
+Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/un.h#L74-L78), so absolute worktree paths containing full Git revisions can exceed it. The relative socket paths above avoid that problem. [The first original MAS run](docs/original-mas-first-run.md) reached the first uncovered write at `0x04264000`; it has not reached whole-camera boot or `O0x178`.
+
+| Initial condition | Evidence or explicit diagnostic assumption |
+|---|---|
+| One Cortex-A9, selector 0 | Hypothesis, not identified Nikon silicon or core count. Upstream reset values, CP15 and exception behavior are retained. No registers are filled with guessed ready values. |
+| Reset PC `0x10020000`, ARM state, read-only raw image of exactly the input length | MAS entry relative branch, VBAR/absolute literals support the candidate program mapping. Placing it in QEMU physical space is an assumption; neither BootROM nor the real loader is present. PC is set in the reset callback. |
+| Zero-initialized RAM `0xb1800000 + 0xaedb8`, `0xb2bb0000 + 0x105c` | MAS literals at `O0xc018..0xc030` describe two copy destinations and lengths. The unchanged guest must perform both copies; host code does not prefill them. No third zero-length copy creates RAM. |
+| Zero-initialized RAM `0xb2b74000 + 0x4000` | Guest code at `O0x270..0x290` copies the translation table and then writes TTBR0. The machine does not enable the MMU or manufacture translations. |
+| Six CPU0 banked stack slots, each `0x4000` bytes below its top | Tops from literals `[O0xbfd8,O0xbff0)`: `b2bb0000/b2ba8000/b2ba0000/b2b98000/b2b90000/b2b88000`. Slot extent is a bounded hypothesis suggested by selector displacement `selector << 14`, not a proven physical RAM capacity. Gaps remain uncovered. |
+| All other addresses fail | A low-priority trap returns `MEMTX_ERROR`; the first guest access records CPU, PC, address, direction, width and write value, then requests QEMU's debug stop. The invalid read output is not a successful zero response. Debugger probes do not count as guest accesses. |
+
+Unknown transactions can trigger an upstream architectural abort before the asynchronous VM stop is processed; inspect both the recorded offending PC and post-stop registers. Instruction fetches outside executable memory and CPU exceptions remain governed by upstream TCG/ARM and may appear in the exception log rather than the MMIO callback. The machine does not promise an automatic stop on every CPU exception. A GDB breakpoint on the vector entry is available when diagnosing one.
+
+The static evidence is documented in [MAS mapping](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-mapping.md), [hardware configuration](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-hardware-configuration.md), [translation source](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-translation-source.md) and [nested images](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/subimages.md). Upstream API reference: [ARM PC semantics](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/target/arm/cpu.c#L59-L70), [loader](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/loader.h#L55-L72), [memory transaction API](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/memory.h#L292-L351), [VM stop request](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/runstate.h#L138-L141).
+
+This is a diagnostic machine for unchanged instruction execution under stated assumptions. A build or a stop at `O0x178` does not establish whole-camera boot. Successful execution can only reduce software risks covered by this model; it does not prove flash, BootROM, calibration or physical hardware health, or measure EXPEED performance. Actual build/run commands, exit codes, stop registers and missing hardware contracts belong in ignored per-run receipts before any stronger claim.
