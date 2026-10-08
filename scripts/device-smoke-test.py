@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from qemu.machine import QEMUMachine
+from qemu.qmp import ExecuteError
 
 BASE = 0x10020000
 MEMC = 0x04264000
@@ -32,7 +33,7 @@ def initialized(mode=0x21):
             constant(1, TIM) + [0xe5801020])
 
 
-def sdi_contract():
+def sdi_contract(arb_reset=None):
     """Synthetic whole bring-up from the independently recovered guest profile."""
     profile = json.loads((Path(__file__).resolve().parents[1] /
                           "tests/sdi-init-profiles.json").read_text())
@@ -68,6 +69,21 @@ def sdi_contract():
         words += configure(lambda o: 0x1020 <= o < 0x2000 or
                            0x4400 <= o < 0x4500)
         words += write(0x4000, 0) + submit(0x4100, 1, 0x4300)
+        if arb_reset is not None:
+            words += configure(lambda o: 0x8000 < o < 0x8800)
+            words += write(0x8000, 0) + write(0x8010, 1)
+            if arb_reset == "completed":
+                words += constant(0, base + 0x8030)
+                words += [0xe5902000, 0xe3120001, 0x0afffffc]
+            words += write(0x4000, 1)
+            # Deterministic icount fixture: let any stale callback expire.
+            words += constant(1, 48000) + [0xee0e1f12]
+            words += constant(1, 1) + [0xee0e1f32]
+            words += [0xee1e1f32, 0xe3110004, 0x0afffffc]
+            words += constant(0, base + 0x8030) + [0xe5904000]
+            words += constant(0, base + 0x8000) + [0xe5905000]
+            words += constant(0, base + 0xe300) + [0xe5906000]
+            return words
         for index, port in enumerate(ports):
             end = ports[index + 1] if index + 1 < len(ports) else 0xe000
             words += configure(lambda o, start=port, limit=end: start < o < limit)
@@ -230,6 +246,10 @@ def fixtures():
          "timestamp-access-not-supported"),
         ("sdi-two-bank-bringup", sdi_contract(),
          {8: 0, 9: 1, 10: 0, 11: 0}, None),
+        ("sdi-arb-reset-pending", sdi_contract("pending"),
+         {4: 0, 5: 1, 6: 0}, None),
+        ("sdi-arb-reset-completed", sdi_contract("completed"),
+         {4: 0, 5: 1, 6: 0}, None),
         ("sdi-reset-state", constant(0, SDI) + [0xe5904000] +
          constant(0, SDI + 0x2000) + [0xe5905000] +
          constant(0, SDI + 0x2300) + [0xe5906000], {4: 1, 5: 1, 6: 0}, None),
@@ -325,6 +345,8 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
+    if name.startswith("sdi-arb-reset-"):
+        vm_args += ["-icount", "shift=0"]
     with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
         with QEMUMachine(str(binary), args=vm_args, name="device",
                          base_temp_dir=sockets, log_dir=str(output),
@@ -333,6 +355,14 @@ def run(binary, output, name, words, expected, reason):
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             assert registers(vm)[15] == BASE
+            if name == "clock-reset":
+                try:
+                    vm.cmd("migrate", uri="unix:/tmp/ng-no-migration-peer.sock")
+                except ExecuteError as error:
+                    assert "unmigratable" in str(error).lower() or \
+                           "non-migratable" in str(error).lower(), error
+                else:
+                    raise AssertionError("stateful diagnostic board allowed migration")
             vm.cmd("cont")
             vm.event_wait("RESUME", timeout=5)
             if reason:
@@ -358,6 +388,14 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
+            if name == "clock-reset":
+                try:
+                    vm.cmd("migrate", uri="unix:/tmp/ng-no-migration-peer.sock")
+                except ExecuteError as error:
+                    assert "unmigratable" in str(error).lower() or \
+                           "non-migratable" in str(error).lower(), error
+                else:
+                    raise AssertionError("stateful diagnostic board allowed migration")
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
                     deadline = time.monotonic() + 5

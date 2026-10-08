@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "migration/vmstate.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-clock.h"
@@ -152,10 +153,16 @@ static void z7ii_timestamp_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 
+static const VMStateDescription z7ii_timestamp_vmstate = {
+    .name = "z7ii-timestamp",
+    .unmigratable = true,
+};
+
 static void z7ii_timestamp_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_timestamp_vmstate;
     device_class_set_legacy_reset(dc, z7ii_timestamp_reset);
     dc->user_creatable = false;
 }

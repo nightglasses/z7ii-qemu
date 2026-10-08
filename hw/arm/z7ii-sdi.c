@@ -4,6 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "migration/vmstate.h"
 #include "qemu/timer.h"
 #include "qapi/error.h"
 #include "hw/core/sysbus.h"
@@ -612,16 +613,18 @@ static MemTxResult z7ii_sdi_write(void *opaque, hwaddr offset,
             }
             if (value) {
                 z7ii_sdi_clear_channel(channel);
-                if (i <= 1) {
+                if (i <= 1 || i == 3) {
                     unsigned dependent;
 
                     for (dependent = i + 1;
                          dependent < ARRAY_SIZE(channel_map); dependent++) {
                         z7ii_sdi_clear_channel(&s->channel[dependent]);
                     }
-                    s->training_modes = 0;
-                    s->next_training_mode = 0;
-                    s->training_result_known = false;
+                    if (i <= 1) {
+                        s->training_modes = 0;
+                        s->next_training_mode = 0;
+                        s->training_result_known = false;
+                    }
                 }
             } else {
                 channel->reset = false;
@@ -708,12 +711,18 @@ static void z7ii_sdi_realize(DeviceState *dev, Error **errp)
     }
 }
 
+static const VMStateDescription z7ii_sdi_vmstate = {
+    .name = "z7ii-sdi",
+    .unmigratable = true,
+};
+
 static void z7ii_sdi_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = z7ii_sdi_realize;
     device_class_set_props(dc, z7ii_sdi_properties);
+    dc->vmsd = &z7ii_sdi_vmstate;
     device_class_set_legacy_reset(dc, z7ii_sdi_reset);
     dc->user_creatable = false;
 }

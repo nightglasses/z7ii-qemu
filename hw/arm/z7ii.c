@@ -4,6 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "migration/vmstate.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "qemu/main-loop.h"
@@ -255,10 +256,16 @@ static void z7ii_memc_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 
+static const VMStateDescription z7ii_memc_vmstate = {
+    .name = "z7ii-memc",
+    .unmigratable = true,
+};
+
 static void z7ii_memc_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_memc_vmstate;
     device_class_set_legacy_reset(dc, z7ii_memc_reset);
     dc->user_creatable = false;
 }
@@ -470,10 +477,16 @@ static void z7ii_clock_finalize(Object *obj)
     }
 }
 
+static const VMStateDescription z7ii_clock_vmstate = {
+    .name = "z7ii-clock",
+    .unmigratable = true,
+};
+
 static void z7ii_clock_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_clock_vmstate;
     device_class_set_legacy_reset(dc, z7ii_clock_reset);
     dc->user_creatable = false;
 }
@@ -636,10 +649,16 @@ static void z7ii_completion_finalize(Object *obj)
     qemu_bh_delete(s->bh);
 }
 
+static const VMStateDescription z7ii_completion_vmstate = {
+    .name = "z7ii-completion",
+    .unmigratable = true,
+};
+
 static void z7ii_completion_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_completion_vmstate;
     device_class_set_legacy_reset(dc, z7ii_completion_reset);
     dc->user_creatable = false;
 }

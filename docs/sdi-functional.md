@@ -15,3 +15,5 @@ TOP/子块 reset 初值为 asserted，具名配置字初值0但配置完成标�
 第一次源码14d3ada 原版收据 `original-sdi-14d3ada-first` 保留：port6拒绝是本模型把8c00配置范围错误延伸到9400、包含下一port的配置。07342da已统一按各真实下一port边界确定配置前提，未添加成功值或绕过guest。原bank1最后真实poll E300、却ack CC30的不对称也保留；模型不会替guest清E300。
 
 `work/issue331/sdi-functional-smoke-reset/result.json` 的62个当前合成契约通过。整双bank夹具覆盖配置、PHY/DDR初始化、五训练mode、仲裁、十五port和最后interface，验证bank1 E300仍done1；拒绝夹具覆盖未配置request、训练前读取、错误mode/配置/ack、宽度和保留offset。配置夹具来自独立官方静态观察，未从C实现读取表构造期望；没有原厂指令数组。
+
+Review correction: asserting arbitration reset at `+0x4000` also cancels every downstream port/final timer and clears their reset, completion and applied states; the PHY/DDR training result is retained. Two deterministic synthetic fixtures cover reset before a port timer expires and after port completion. These are device reset checks, not a new original-firmware run.

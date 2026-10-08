@@ -15,3 +15,5 @@
 `work/issue330/functional-pll-smoke-first/result.json` 的 45 个小型合成夹具实际全部通过，包括六 bank mask、功能复位、PLL 初态与 guest 启动写序列、10us 虚拟 lock callback、保留的 MEMC/NOR 拒绝、GIC/timer 和严格阶段 completion 合同。旧 unknown-reset 断言已改为此唯一功能模型的复位断言，没有增添兼容模式。编译、此首停点与合成合同都不证明菜单、真实 flash/calibration 或整个机身启动。
 
 完成器功能复位增量native exit0，`work/issue330/completion-functional-reset-first/result.json` 的60个当前合成契约全通过。默认request事务、域3状态真实变化、reset清状态、原GIC250 start/stop/ack/EOI及不支持profile都实际检查；只替换历史unknown-reset夹具，没有声称原版已经到该完成器。
+
+The current MEMC, PLL/gate, completion, timestamp and SDI state is not serialized. Each device uses upstream `VMStateDescription.unmigratable` and `DeviceClass.vmsd` to reject migration and VM snapshots instead of silently losing its pending requests, clocks or applied state. The synthetic clock-reset fixture verifies QMP migration rejection.
