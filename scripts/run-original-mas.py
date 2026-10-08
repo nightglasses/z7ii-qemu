@@ -55,6 +55,7 @@ def main():
             "PLL outputs nominal 48MHz after modeled 10us virtual lock; not physical rates",
             "independent virtual timestamp Clock 48MHz; reset count zero, enabled",
             "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",
+            "completion request/done/enable/domain state reset zero; causal deferred transactions, GIC SPI250",
         ],
         "whole_boot_verified": False,
     }

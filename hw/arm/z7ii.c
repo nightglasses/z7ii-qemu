@@ -80,11 +80,7 @@ struct Z7IICompletionState {
     QEMUBH *bh;
     uint32_t request;
     uint32_t applied_domains;
-    uint32_t known_domains;
-    bool request_known;
-    bool irq_known;
     bool irq_enabled;
-    bool done_known;
     bool done;
     bool pending;
     bool reported_error;
@@ -493,8 +489,7 @@ static MemTxResult z7ii_completion_error(Z7IICompletionState *s, hwaddr offset,
 
 static void z7ii_completion_irq(Z7IICompletionState *s)
 {
-    qemu_set_irq(s->irq, s->irq_known && s->irq_enabled &&
-                        s->done_known && s->done);
+    qemu_set_irq(s->irq, s->irq_enabled && s->done);
 }
 
 static void z7ii_completion_apply(void *opaque)
@@ -511,13 +506,11 @@ static void z7ii_completion_apply(void *opaque)
     } else {
         s->applied_domains &= ~bit;
     }
-    s->known_domains |= bit;
     s->pending = false;
     s->done = true;
     qemu_log_mask(LOG_GUEST_ERROR,
                   "z7ii-completion: deferred request=0x%08x applied=0x%08x "
-                  "known=0x%08x done=1\n", s->request,
-                  s->applied_domains, s->known_domains);
+                  "done=1\n", s->request, s->applied_domains);
     z7ii_completion_irq(s);
 }
 
@@ -534,17 +527,8 @@ static MemTxResult z7ii_completion_read(void *opaque, hwaddr offset,
                                      "completion-access-not-supported");
     }
     if (offset == 12) {
-        /* Only selected domain bits are determined by our supported requests.
-         * Other status fields have no reset/producer; never return zeros for
-         * the unknown remainder of the word. */
-        return z7ii_completion_error(s, offset, size, false, 0,
-                                     "completion-domain-status-not-supported");
-    }
-    if ((offset == 0 && !s->request_known) ||
-        (offset == 4 && !s->done_known) ||
-        (offset == 8 && !s->irq_known)) {
-        return z7ii_completion_error(s, offset, size, false, 0,
-                                     "completion-uninitialized-read");
+        *value = s->applied_domains;
+        return MEMTX_OK;
     }
     *value = offset == 0 ? s->request :
              offset == 4 ? s->done : s->irq_enabled;
@@ -578,10 +562,9 @@ static MemTxResult z7ii_completion_write(void *opaque, hwaddr offset,
                 "completion-request-profile-not-supported");
         }
         s->request = value;
-        s->request_known = true;
         break;
     case 4:
-        if (value != 1 || !s->done_known) {
+        if (value != 1) {
             return z7ii_completion_error(s, offset, size, true, value,
                                          "completion-ack-not-supported");
         }
@@ -595,7 +578,6 @@ static MemTxResult z7ii_completion_write(void *opaque, hwaddr offset,
                 s, offset, size, true, value,
                 "completion-irq-profile-not-supported");
         }
-        s->irq_known = true;
         s->irq_enabled = value;
         z7ii_completion_irq(s);
         break;
@@ -604,12 +586,7 @@ static MemTxResult z7ii_completion_write(void *opaque, hwaddr offset,
             return z7ii_completion_error(s, offset, size, true, value,
                                          "completion-command-not-supported");
         }
-        if (!s->request_known || !s->irq_known) {
-            return z7ii_completion_error(s, offset, size, true, value,
-                                         "completion-submit-state-unknown");
-        }
         s->pending = true;
-        s->done_known = true;
         s->done = false;
         z7ii_completion_irq(s);
         qemu_bh_schedule(s->bh);
@@ -632,9 +609,11 @@ static void z7ii_completion_reset(DeviceState *dev)
 
     qemu_bh_cancel(s->bh);
     s->pending = false;
-    s->request_known = s->irq_known = s->done_known = false;
-    s->known_domains = 0;
-    s->applied_domains = 0; /* Not a readable hardware reset word. */
+    /* Coherent virtual domain-off/reset profile, not a measured Nikon reset. */
+    s->request = 0;
+    s->irq_enabled = false;
+    s->done = false;
+    s->applied_domains = 0;
     s->reported_error = false;
     z7ii_completion_irq(s);
 }

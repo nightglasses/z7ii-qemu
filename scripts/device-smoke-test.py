@@ -181,6 +181,10 @@ def fixtures():
     completion_reset += [0xe3a01000, 0xe5801000, 0xe5801008, 0xea000002]
     completion_reset += constant(0, COMPLETION) + [0xe5902008]
 
+    completion_default = constant(0, COMPLETION) + constant(1, 0xa1)
+    completion_default += [0xe5801010, 0xe5904004, 0xe3140001, 0x0afffffc]
+    completion_default += [0xe5905008, 0xe590600c]
+
     return [
         ("profile-stack", profile,
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
@@ -251,22 +255,16 @@ def fixtures():
           9: 1 << 26, 10: 0, 11: 1023, 12: 1, 13: 0}, None),
         ("completion-poll", polling, {4: 1, 5: 0, 7: 0}, None),
         ("completion-reset", completion_reset, {}, None),
-        ("completion-done-unknown", constant(0, COMPLETION) + [0xe5901004],
-         {}, "completion-uninitialized-read"),
-        ("completion-request-unknown", constant(0, COMPLETION) + [0xe5901000],
-         {}, "completion-uninitialized-read"),
-        ("completion-enable-unknown", constant(0, COMPLETION) + [0xe5901008],
-         {}, "completion-uninitialized-read"),
-        ("completion-unknown-submit", constant(0, COMPLETION) +
-         constant(1, 0xa1) + [0xe5801010], {}, "completion-submit-state-unknown"),
-        ("completion-early-poll-enable-unknown", constant(0, COMPLETION) +
-         constant(1, 0) + [0xe5801000] + constant(1, 0xa1) + [0xe5801010],
-         {}, "completion-submit-state-unknown"),
-        ("completion-submit-request-unknown", constant(0, COMPLETION) +
-         constant(1, 0) + [0xe5801008] + constant(1, 0xa1) + [0xe5801010],
-         {}, "completion-submit-state-unknown"),
-        ("completion-unknown-domain", polling + [0xe590600c], {},
-         "completion-domain-status-not-supported"),
+        ("completion-reset-done", constant(0, COMPLETION) + [0xe5901004],
+         {1: 0}, None),
+        ("completion-reset-request", constant(0, COMPLETION) + [0xe5901000],
+         {1: 0}, None),
+        ("completion-reset-enable", constant(0, COMPLETION) + [0xe5901008],
+         {1: 0}, None),
+        ("completion-default-transaction", completion_default,
+         {4: 1, 5: 0, 6: 0}, None),
+        ("completion-applied-domain", polling + [0xe590600c],
+         {4: 1, 5: 0, 6: 8, 7: 0}, None),
         ("completion-bad-command", constant(0, COMPLETION) +
          constant(1, 0xa0) + [0xe5801010], {}, "completion-command-not-supported"),
         ("completion-bad-domain", constant(0, COMPLETION) +
@@ -277,8 +275,8 @@ def fixtures():
          "completion-request-profile-not-supported"),
         ("completion-bad-enable", constant(0, COMPLETION) +
          constant(1, 2) + [0xe5801008], {}, "completion-irq-profile-not-supported"),
-        ("completion-unknown-ack", constant(0, COMPLETION) +
-         constant(1, 1) + [0xe5801004], {}, "completion-ack-not-supported"),
+        ("completion-bad-ack", constant(0, COMPLETION) +
+         constant(1, 2) + [0xe5801004], {}, "completion-ack-not-supported"),
         ("completion-byte-write", constant(0, COMPLETION) + [0xe5c01000], {},
          "completion-access-not-supported"),
         ("completion-command-read", constant(0, COMPLETION) + [0xe5901010], {},
@@ -362,19 +360,14 @@ def run(binary, output, name, words, expected, reason):
                     assert registers(vm)[15] == BASE
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
-                    if name == "clock-reset":
-                        deadline = time.monotonic() + 5
-                        while registers(vm)[15] != loop_pc:
-                            assert vm.cmd("query-status")["running"], vm.get_log()
-                            assert time.monotonic() < deadline, "reset loop not reached"
-                            time.sleep(0.01)
-                        vm.cmd("stop")
-                        vm.event_wait("STOP", timeout=5)
-                        assert registers(vm)[2] == 0
-                    else:
-                        vm.event_wait("STOP", timeout=5)
-                        assert vm.cmd("query-status")["status"] == "debug"
-                        reason = "completion-uninitialized-read"
+                    deadline = time.monotonic() + 5
+                    while registers(vm)[15] != loop_pc:
+                        assert vm.cmd("query-status")["running"], vm.get_log()
+                        assert time.monotonic() < deadline, "reset loop not reached"
+                        time.sleep(0.01)
+                    vm.cmd("stop")
+                    vm.event_wait("STOP", timeout=5)
+                    assert registers(vm)[2] == 0
             # Read the original ROM bytes through upstream HMP before shutdown.
             copied = output / "rom-readback.bin"
             vm.cmd("human-monitor-command",
@@ -389,8 +382,8 @@ def run(binary, output, name, words, expected, reason):
             assert "transaction=error" not in logs, logs
             assert "Data Abort" not in logs, logs
             if name == "completion-irq":
-                assert "applied=0x00000002 known=0x00000002 done=1" in logs
-                assert "applied=0x00000000 known=0x00000002 done=1" in logs
+                assert "applied=0x00000002 done=1" in logs
+                assert "applied=0x00000000 done=1" in logs
             if name == "clock-pll-start":
                 assert "PLL group=6 modeled-lock nominal-Hz=48000000" in logs
     return {"fixture": name, "expected_error": reason, "qemu_exit_code": 0}
