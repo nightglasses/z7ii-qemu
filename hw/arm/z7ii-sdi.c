@@ -469,7 +469,9 @@ static bool z7ii_sdi_configuration_complete(Z7IISDIState *s, unsigned channel)
             required = offset >= 0x4400 && offset < 0x4500;
         } else if (channel >= 4) {
             uint32_t base = channel_map[channel].reset;
-            required = offset > base && offset < base + 0x800;
+            uint32_t end = channel + 1 < ARRAY_SIZE(channel_map) ?
+                           channel_map[channel + 1].reset : 0x10000;
+            required = offset > base && offset < end;
         }
         if (required && !s->configured[i]) {
             return false;
