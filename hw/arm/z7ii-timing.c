@@ -1,8 +1,10 @@
 /*
  * Original twelve-channel timing interface, explicitly functional semantics.
  * Period/current-count geometry comes from guest tables and setup callers.
- * Opcode0 periodic / opcode31 one-shot, 3GHz, expiry bit0 and W1C are virtual
- * board assumptions. Unknown feature requests fail; this is not a DMA engine.
+ * Opcode0 periodic / opcode31 one-shot / opcode1 free-running source, 3GHz,
+ * threshold bit0 and W1C are virtual board assumptions. Opcode1 reports its
+ * configured threshold once and keeps counting; it is not a periodic alias.
+ * Unknown feature requests fail; this is not a DMA engine.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -23,7 +25,7 @@ typedef struct Z7IITimingChannel {
     uint64_t count;
     int64_t epoch;
     unsigned index;
-    bool configured, running, complete;
+    bool configured, running, complete, threshold_reported;
 } Z7IITimingChannel;
 
 struct Z7IITimingState {
@@ -57,6 +59,9 @@ static void z7ii_timing_schedule(Z7IITimingChannel *c)
     uint64_t count = z7ii_timing_count(c);
     uint64_t remaining = count < period ? period - count : 1;
 
+    if (c->opcode == 1 && c->threshold_reported) {
+        return;
+    }
     /* Ceil to a nanosecond: no premature expiry from sub-ns nominal ticks. */
     timer_mod(c->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                         clock_ticks_to_ns(c->owner->clock, remaining) + 1);
@@ -95,7 +100,9 @@ static void z7ii_timing_expire(void *opaque)
         return;
     }
     c->status |= 1;
-    if (c->opcode == 0x31) {
+    if (c->opcode == 1) {
+        c->threshold_reported = true;
+    } else if (c->opcode == 0x31) {
         c->count = period;
         c->running = false;
         c->complete = true;
@@ -112,7 +119,7 @@ static void z7ii_timing_channel_reset(Z7IITimingChannel *c)
     timer_del(c->timer);
     c->control = c->opcode = c->period = c->status = 0;
     c->count = 0;
-    c->configured = c->running = c->complete = false;
+    c->configured = c->running = c->complete = c->threshold_reported = false;
     z7ii_timing_irq(c);
 }
 
@@ -165,8 +172,12 @@ static MemTxResult z7ii_timing_read_bank(Z7IITimingState *s, unsigned bank,
             goto error;
         }
         count = z7ii_timing_count(c);
-        *value = c->opcode == 0x31 ? MIN(count, (uint64_t)c->period + 1) :
-                                    count % ((uint64_t)c->period + 1);
+        if (c->opcode == 1) {
+            *value = (uint32_t)count;
+        } else {
+            *value = c->opcode == 0x31 ? MIN(count, (uint64_t)c->period + 1) :
+                                        count % ((uint64_t)c->period + 1);
+        }
         break;
     case 16:
         if (bank) {
@@ -232,7 +243,7 @@ static MemTxResult z7ii_timing_write_bank(Z7IITimingState *s, unsigned bank,
         break;
     case 4:
         if (bank) {
-            if (value != 0 && value != 0x31) {
+            if (value != 0 && value != 1 && value != 0x31) {
                 goto error;
             }
             if (c->running && value != c->opcode) {
@@ -249,7 +260,7 @@ static MemTxResult z7ii_timing_write_bank(Z7IITimingState *s, unsigned bank,
             c->period = value;
             c->count = 0;
             c->configured = true;
-            c->running = c->complete = false;
+            c->running = c->complete = c->threshold_reported = false;
         } else if (value) {
             goto error;
         }

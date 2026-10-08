@@ -1207,7 +1207,61 @@ def timing_fixtures():
     irq += write(0xf8102010, 183) + read(0xf810200c, 5)
     disabled = setup() + write(a + 0x100, 0) + delay()
     disabled += read(a + 0x110, 4)
+    # Source1 is free-running with a once-per-programmed-threshold report.
+    # MAX encodes 2**32 ticks; a short observation must not wrap it to zero.
+    direct = setup(5, 1, 0xffffffff) + delay()
+    direct += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct += [0xe3550000, 0x13a06001, 0x03a06000]
+    direct += read(b + 0x604, 7) + read(b + 0x608, 8)
+    threshold = setup(5, 1) + wait(5) + write(a + 0x610, 1) + delay()
+    threshold += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    threshold += constant(0, 30000) + [0xe1550000, 0x83a06001, 0x93a06000]
+    gates = setup(5, 1, 0xffffffff) + write(b, 0) + read(b + 0x60c, 4)
+    gates += delay() + read(b + 0x60c, 5)
+    gates += [0xe1540005, 0x03a06001, 0x13a06000]
+    gates += write(b, 0x20) + delay() + write(a + 4, 0) + read(b + 0x60c, 7)
+    gates += delay() + read(b + 0x60c, 8)
+    gates += [0xe1570008, 0x03a09001, 0x13a09000, 0xe1570004,
+              0x83a0a001, 0x93a0a000]
+    local = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    local += write(a + 0x600, 0) + read(b + 0x60c, 4) + delay()
+    local += read(b + 0x60c, 5) + [0xe1540005, 0x03a06001, 0x13a06000]
+    local += write(a + 0x600, 1) + delay() + read(a + 0x610, 7)
+    local += read(b + 0x60c, 8) + [0xe1580005, 0x83a09001, 0x93a09000]
+    reprogram = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    reprogram += write(b + 0x608, 59999) + wait(5) + read(a + 0x610, 4)
+    reprogram += write(a + 0x610, 1) + delay() + read(a + 0x610, 5)
+    reset_direct = setup(5, 1) + write(b + 0x600, 1) + write(b + 0x600, 0)
+    reset_direct += delay() + read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct_irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    direct_irq += constant(1, 1) + [0xe5c218b1]
+    direct_irq += write(0xf8101114, 0x20000) + write(0xf8102004, 0xff)
+    direct_irq += write(0xf8102000, 1) + setup(5, 1) + wait(5)
+    direct_irq += read(0xf810200c, 4) + write(a + 0x610, 1)
+    direct_irq += write(0xf8102010, 177) + read(0xf810200c, 5)
+    error = "timing-access-or-feature-not-supported"
     return [
+        ("timing-source1-max-is-not-immediate", direct,
+         {4: 0, 6: 1, 7: 1, 8: 0xffffffff}, None),
+        ("timing-source1-threshold-once-keeps-counting", threshold,
+         {4: 0, 6: 1}, None),
+        ("timing-source1-bitmap-and-master-pause", gates,
+         {6: 1, 9: 1, 10: 1}, None),
+        ("timing-source1-local-resume-no-repeat", local,
+         {6: 1, 7: 0, 9: 1}, None),
+        ("timing-source1-reprogram-new-threshold", reprogram,
+         {4: 1, 5: 0}, None),
+        ("timing-source1-reset-cancels-threshold", reset_direct,
+         {4: 0, 5: 0}, None),
+        ("timing-source1-real-irq177", direct_irq, {4: 177, 5: 1023}, None),
+        ("timing-source1-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 2), {}, error),
+        ("timing-source1-active-change-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 0x31), {}, error),
+        ("timing-source1-capture-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1), {}, error),
+        ("timing-source1-bitmap-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b, 0x1020), {}, error),
         ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
         ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
         ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
@@ -1647,6 +1701,14 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave {address} 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == value
+                if name.startswith("timing-source1-") and "reject-preserves" in name:
+                    state_file = output / "timing-source1-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011604 8 "{state_file}"')
+                    assert struct.unpack("<II", state_file.read_bytes()) == (1, 0xffffffff)
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011000 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == 0x20
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
