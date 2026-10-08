@@ -431,8 +431,8 @@ def fixtures():
          constant(1, 0x1234) + [0xe5801000, 0xe5904000] +
          constant(0, 0xb809fffc) + [0xe5801000, 0xe5905000],
          {4: 0x1234, 5: 0x1234}, None),
-        ("module-buffer-below", constant(0, 0xb7cffffc) + [0xe5801000], {},
-         "uncovered-address"),
+        ("module-buffer-previous-declared-class", constant(0, 0xb7cffffc) +
+         constant(1, 0x5678) + [0xe5801000, 0xe5904000], {4: 0x5678}, None),
         ("module-buffer-above", constant(0, 0xb80dc3c0) + [0xe5801000], {},
          "uncovered-address"),
         ("module-buffer-next-three-allocations", constant(1, 0x1234) +
@@ -585,8 +585,8 @@ def fixtures():
          [0xe5801000, 0xe5905000], {4: 0x11223344, 5: 0xaabbccdd}, None),
         ("kernel-arena-before", constant(0, 0xb2bffffc) + [0xe5901000], {},
          "uncovered-address"),
-        ("kernel-arena-after", constant(0, 0xb5f00000) + [0xe5901000], {},
-         "uncovered-address"),
+        ("kernel-arena-next-declared-class", constant(0, 0xb5f00000) +
+         constant(1, 0x5678) + [0xe5801000, 0xe5904000], {4: 0x5678}, None),
         ("fill-bss-before-exact-window", constant(0, 0xb18aedbc) +
          [0xe5901000], {}, "uncovered-address"),
         ("fill-bss-after-exact-window", constant(0, 0xb2b5edc0) +
