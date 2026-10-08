@@ -218,6 +218,12 @@ def mxic_config_fixtures():
 
 
 def fixtures():
+    percore = []
+    for top in (0xb2bb0000, 0xb2ba8000, 0xb2ba0000,
+                0xb2b98000, 0xb2b90000, 0xb2b88000):
+        for address in (top - 0x8000, top - 0x4004):
+            percore += constant(0, address) + constant(1, 0x1234) + [0xe5801000]
+    percore += constant(0, 0xb2b93ff8) + [0xe5801000, 0xe5904000]
     sys_boot = []
     boot_values = (0x73ffffff, 0xffffffff, 0x1ffc1ff, 0x31ffffff, 0x4ee)
     for bank, value in enumerate(boot_values):
@@ -405,6 +411,11 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return mxic_config_fixtures() + [
+        ("percore-stack-two-banks", percore, {4: 0x1234}, None),
+        ("percore-stack-two-below", constant(0, 0xb2b7fffc) + [0xe5801000], {},
+         "uncovered-address"),
+        ("percore-stack-single-gap", constant(0, 0xb2b80000) + [0xe5801000], {},
+         "uncovered-address"),
         ("kernel-copy-bounds", constant(0, 0xbab00000) + constant(1, 0x1234) +
          [0xe5801000, 0xe5904000] + constant(0, 0xbab21534) +
          [0xe5801000, 0xe5905000], {4: 0x1234, 5: 0x1234}, None),
@@ -671,7 +682,8 @@ def run(binary, output, name, words, expected, reason):
     loop_pc = BASE + len(words) * 4
     payload = struct.pack("<" + "I" * (len(words) + 1), *words, 0xeafffffe)
     image.write_bytes(payload)
-    vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
+    cores = "2" if name.startswith("percore-stack-two-") else "1"
+    vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
     if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-")):

@@ -111,10 +111,9 @@ struct Z7IIMachineState {
     MemoryRegion bss_storage;
     MemoryRegion kernel_arena;
     MemoryRegion kernel_copy;
-    MemoryRegion stack_ram[6];
+    MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
-    MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
     Z7IIClockGatesState clock_gates;
     Z7IICompletionState completion;
@@ -796,16 +795,14 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
     z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
-    if (machine->smp.cpus == 2) {
-        /* O0xac + O0x270 + O0xc0cc consume at most 72 bytes before kernel. */
-        z7ii_ram(&s->cpu1_startup_stack, "z7ii.cpu1-startup-stack",
-                 0xb2b83fb8, 0x48);
-    }
-    /* CPU0's six banked SP values are known. Slot extent is an assumption. */
-    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
-        g_autofree char *name = g_strdup_printf("z7ii.stack%u", i);
+    /* Each guest SP is top - (MPIDR selector << 14). The 16KiB backing
+     * per mode/core is a declared virtual capacity, not proven by that stride. */
+    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
+        unsigned core = i / ARRAY_SIZE(stack_top);
+        unsigned mode = i % ARRAY_SIZE(stack_top);
+        g_autofree char *name = g_strdup_printf("z7ii.cpu%u-stack%u", core, mode);
         z7ii_ram(&s->stack_ram[i], name,
-                 stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
+                 stack_top[mode] - (core + 1) * STACK_SLOT_SIZE, STACK_SLOT_SIZE);
     }
 
     {
@@ -821,12 +818,10 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
     z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
-    if (machine->smp.cpus == 2) {
-        z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);
-    }
-    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
+    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
         z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],
-                            stack_top[i] - STACK_SLOT_SIZE);
+                            stack_top[i % ARRAY_SIZE(stack_top)] -
+                            (i / ARRAY_SIZE(stack_top) + 1) * STACK_SLOT_SIZE);
     }
 
     sysbus_create_simple(TYPE_Z7II_FILL, 0x20070000, NULL);
@@ -912,11 +907,11 @@ static void z7ii_init(MachineState *machine)
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
-                 "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
+                 "image-bytes=%" PRId64 " per-core-mode-stack-slot=0x4000; "
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
-                 "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
-                 "further CPU1 stack extent uncovered",
+                 "six modes/core, virtual stack capacity; "
+                 "no NOR writer/IPC devices/BootROM",
                  machine->cpu_type, s->num_cpus, image_size);
 }
 
