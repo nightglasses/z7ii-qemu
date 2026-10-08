@@ -276,7 +276,9 @@ def fixtures():
     uart_flush = usio_contract() + constant(0, USIO + 4) + constant(1, 0x41)
     uart_flush += [0xe1c010b0] + constant(0, USIO + 1)
     uart_flush += constant(1, 0x80) + [0xe5c01000]
-    uart_flush += constant(1, 48000) + [0xee0e1f12]
+    # BGR 0x363 at the virtual 100 MHz input gives an 86.8 us frame.
+    # Observe beyond that cancelled deadline, without a 1 ms busy wait.
+    uart_flush += constant(1, 4800) + [0xee0e1f12]
     uart_flush += constant(1, 1) + [0xee0e1f32]
     uart_flush += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     uart_flush += constant(0, USIO + 3) + [0xe5d04000]
@@ -726,15 +728,16 @@ def spi_fixtures():
     # A slave has no external clock: queued TX remains, with no RX/done.
     slave = write(0x60, 0) + write(0x10, 0xf00) + write(0, 0x1234)
     slave += write(0x3c, 1) + write(0x64, 1)
-    slave += constant(1, 48000) + [0xee0e1f12]
+    slave += constant(1, 960) + [0xee0e1f12]  # 20 us, no external clock.
     slave += constant(1, 1) + [0xee0e1f32]
     slave += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     slave += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe590603c]
 
     # Pending master frame is cancelled by reset; configuration survives reopen.
-    cancel = setup + write(8, 255) + write(0, 0x1234) + write(0x3c, 1)
+    # DIV 7 makes this 16-bit frame 5.334 us; reset precedes expiry.
+    cancel = setup + write(8, 7) + write(0, 0x1234) + write(0x3c, 1)
     cancel += write(0x60, 1) + write(0x60, 0)
-    cancel += constant(1, 48000) + [0xee0e1f12]
+    cancel += constant(1, 960) + [0xee0e1f12]  # Beyond the old frame deadline.
     cancel += constant(1, 1) + [0xee0e1f32]
     cancel += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     cancel += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe5906024,
@@ -1056,12 +1059,16 @@ def i2c_fixtures():
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
-    timeout_disable = write(0, 0x16) + write(0x1c, 255) + write(8, 0x50) + wait(2)
-    timeout_disable += write(0x1c, 0) + delay(24000)
+    # At 48 MHz / 22, timeout 15 expires after 7.334 us. The 20 us
+    # observation must cross that old deadline after disabling it.
+    timeout_disable = write(0, 0x16) + write(0x1c, 15) + write(8, 0x50) + wait(2)
+    timeout_disable += write(0x1c, 0) + delay(960)
     timeout_disable += read(0x10, 4) + read(4, 5)
     timeout_disable += write(0x1c, 2) + wait(8) + read(0x10, 6) + read(4, 7)
     timeout_extend = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(2)
-    timeout_extend += write(0x1c, 255) + delay(1000) + read(0x10, 4)
+    # Replacement 31 gives 14.667 us: sample at 10 us, after the old
+    # timeout 2 deadline (1.375 us), before the replacement deadline.
+    timeout_extend += write(0x1c, 31) + delay(480) + read(0x10, 4)
     timeout_extend += read(4, 5) + wait(8) + read(0x10, 6) + read(4, 7)
     irq = write(0, 6, 3) + write(0x24, 4, 3)
     irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
@@ -1107,11 +1114,13 @@ def timing_fixtures():
     def read(address, reg):
         return constant(0, address) + [0xe5900000 | reg << 12]
 
-    def delay(ticks=48000):
+    # Independent 3 GHz timing device: a 30,000-tick period is 10 us.
+    # Settle for 20 us using the upstream 48 MHz architectural timer.
+    def delay(ticks=960):
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
-    def setup(channel=0, opcode=0x31, period=299999):
+    def setup(channel=0, opcode=0x31, period=29999):
         offset = 0x100 + channel * 0x100
         return (write(a + 4, 1) + write(b + offset, 1) +
                 write(b + offset, 0) + write(b + offset + 4, opcode) +
@@ -1126,11 +1135,11 @@ def timing_fixtures():
     once += write(a + 0x110, 1) + delay() + read(a + 0x110, 5)
     periodic = setup(opcode=0) + wait() + write(a + 0x110, 1)
     periodic += wait() + read(a + 0x110, 4)
-    paused = setup(period=29999999) + write(b, 0) + read(b + 0x10c, 4)
+    paused = setup() + write(b, 0) + read(b + 0x10c, 4)
     paused += delay() + read(b + 0x10c, 5)
     paused += [0xe1540005, 0x03a06001, 0x13a06000] + read(a + 0x110, 7)
-    reset = setup(period=2999999) + write(a, 1) + write(a, 0)
-    reset += write(a + 4, 1) + write(b, 1) + delay(96000)
+    reset = setup() + write(a, 1) + write(a, 0)
+    reset += write(a + 4, 1) + write(b, 1) + delay()
     reset += read(a + 0x110, 4) + read(b + 0x108, 5)
     irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
     irq += constant(1, 1) + [0xe5c218b7]
@@ -1141,7 +1150,7 @@ def timing_fixtures():
     disabled = setup() + write(a + 0x100, 0) + delay()
     disabled += read(a + 0x110, 4)
     return [
-        ("timing-one-shot-expiry-ack", once, {4: 300000, 5: 0}, None),
+        ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
         ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
         ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
         ("timing-reset-cancels-pending", reset, {4: 0, 5: 0}, None),
@@ -1172,7 +1181,9 @@ def audio_fixtures():
     def read(address, reg):
         return constant(0, address) + [0xe5900000 | reg << 12]
 
-    def delay(ticks=4800):
+    # A virtual audio word drains in 64 / 48 MHz = 1.334 us. Even the
+    # two-channel fixture drains within 20 us, including DMA beat delays.
+    def delay(ticks=960):
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
@@ -1262,6 +1273,103 @@ def audio_fixtures():
     ]
 
 
+def copy_fixtures():
+    base, source, destination = 0x04251000, 0xb1800100, 0xb1800400
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    def setup(channel=0, length=7, sa=source, da=destination):
+        regs = base + 0x10 + channel * 0x30
+        code = write(base, 0x10000000)
+        for offset, value in ((0, length - 1), (4, sa), (8, da),
+                              (12, 0x30f00), (16, 0x30f00), (20, 0),
+                              (24, 0x9000)):
+            code += write(regs + offset, value)
+        return code
+
+    def start(channel=0):
+        return write(base + 0x28 + channel * 0x30, 0x11109003)
+
+    def wait(channel=0):
+        return constant(0, base + 0x30 + channel * 0x30) + [
+            0xe5902000, 0xe312000f, 0x0afffffc]
+
+    def delay():
+        # 513 bytes in <=256-byte chunks finish in about 10.7 us if
+        # cancellation fails. Observe after that deadline, not at 1 ms.
+        return (constant(1, 960) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    seed = write(source, 0x11223344) + write(source + 4, 0x55667788)
+    unaligned = seed + setup(sa=source + 1, da=destination + 1, length=6)
+    unaligned += start() + wait() + read(destination, 4)
+    unaligned += read(destination + 4, 5)
+    exact = seed + setup() + start() + wait()
+    exact += read(destination, 4) + read(destination + 4, 5)
+    exact += read(base + 0x30, 6) + read(base + 0x10, 7)
+    exact += write(base + 0x30, 0) + read(base + 0x30, 8)
+    cancelled = seed + setup(length=513) + start() + write(base, 0) + delay()
+    cancelled += read(destination, 4) + read(base + 0x30, 5)
+    channels = seed + setup(0) + setup(3, da=destination + 16)
+    channels += start(0) + start(3) + wait(0) + wait(3)
+    channels += read(destination, 4) + read(destination + 16, 5)
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c21830]  # IRQ48 CPU0 target byte.
+    irq += write(0xf8101104, 0x10000) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + seed + setup(3) + start(3) + wait(3)
+    irq += read(0xf810200c, 4) + write(base + 0xc0, 0)
+    irq += write(0xf8102010, 48) + read(0xf810200c, 5)
+    reset = read(base, 2) + setup(length=513) + start()
+    chunks = seed + write(source + 512, 0xabcdef01) + setup(length=513)
+    chunks += start() + wait() + read(destination, 4)
+    chunks += read(destination + 512, 5) + read(base + 0x14, 6)
+    selectors = seed + setup() + write(base, 0x11100000) + read(base, 4)
+    selectors += read(base + 0x30, 5) + start() + wait()
+    selectors += read(destination, 6) + read(base, 7)
+    cases = [
+        ("copy-default-byte-tail-and-ack", exact,
+         {4: 0x11223344, 5: 0x00667788, 6: 8, 7: 0, 8: 0}, None),
+        ("copy-unaligned-byte-addresses", unaligned,
+         {4: 0x11223300, 5: 0x00667788}, None),
+        ("copy-independent-first-last-channels", channels,
+         {4: 0x11223344, 5: 0x11223344}, None),
+        ("copy-multiple-chunks-exact-final-byte", chunks,
+         {4: 0x11223344, 5: 1, 6: source + 513}, None),
+        ("copy-global-selectors-retained-no-submit", selectors,
+         {4: 0x11100000, 5: 0, 6: 0x11223344, 7: 0x11100000}, None),
+        ("copy-real-gic-irq48", irq, {4: 48, 5: 1023}, None),
+        ("copy-global-disable-cancels", cancelled, {4: 0, 5: 1}, None),
+        ("copy-board-reset", reset, {2: 0}, None),
+        ("copy-unmapped-source-causal-error", setup(sa=0xdead0000) + start() +
+         wait() + read(base + 0x30, 4) + read(destination, 5),
+         {4: 1, 5: 0}, None),
+        ("copy-unmapped-destination-causal-error", seed + setup(da=0xdead0000) +
+         start() + wait() + read(base + 0x30, 4), {4: 1}, None),
+        ("copy-mmio-source-not-default-memory", setup(sa=base) + start() +
+         wait() +
+         read(base + 0x30, 4), {4: 1}, None),
+        ("copy-fixed-pattern-unsupported", setup() +
+         write(base + 0x20, 0x30f04),
+         {}, "copy-access-or-profile-not-supported"),
+        ("copy-start-before-config", write(base, 0x10000000) + start(), {},
+         "copy-access-or-profile-not-supported"),
+        ("copy-overflow-preflight", setup(length=7, da=0xfffffffc) + start(),
+         {},
+         "copy-access-or-profile-not-supported"),
+        ("copy-unknown-channel-hole", read(base + 0x34, 4), {},
+         "copy-access-or-profile-not-supported"),
+        ("copy-unknown-width", constant(0, base) + [0xe5d01000], {},
+         "copy-access-or-profile-not-supported"),
+        ("copy-unknown-global-selector", write(base, 0x11100001), {},
+         "copy-access-or-profile-not-supported"),
+    ]
+    return cases
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -1278,7 +1386,8 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-", "audio-", "timing-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-",
+                        "hdmac-", "i2c-", "audio-", "timing-", "copy-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -1327,9 +1436,14 @@ def run(binary, output, name, words, expected, reason):
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
             else:
                 deadline = time.monotonic() + 5
-                while registers(vm)[15] != loop_pc:
+                while (actual := registers(vm))[15] != loop_pc:
                     assert vm.cmd("query-status")["running"], vm.get_log()
                     if time.monotonic() >= deadline:
+                        (output / "wait-failure.json").write_text(json.dumps({
+                            "phase": "initial", "loop_pc": loop_pc,
+                            "registers": actual,
+                            "status": vm.cmd("query-status"),
+                        }, indent=2) + "\n")
                         raise AssertionError(f"{name}: final loop not reached")
                     time.sleep(0.01)
                 vm.cmd("stop")
@@ -1347,16 +1461,24 @@ def run(binary, output, name, words, expected, reason):
                             "clock-bitcontrol-reset", "spi-board-reset",
                             "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
                             "record-slot-board-reset", "audio-board-reset",
-                            "record-slot-alternate-board-reset", "timing-board-reset"):
+                            "record-slot-alternate-board-reset",
+                            "timing-board-reset",
+                            "copy-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
                     deadline = time.monotonic() + 5
-                    while registers(vm)[15] != loop_pc:
+                    while (after_reset := registers(vm))[15] != loop_pc:
                         assert vm.cmd("query-status")["running"], vm.get_log()
-                        assert time.monotonic() < deadline, "reset loop not reached"
+                        if time.monotonic() >= deadline:
+                            (output / "wait-failure.json").write_text(json.dumps({
+                                "phase": "after-reset", "loop_pc": loop_pc,
+                                "registers": after_reset,
+                                "status": vm.cmd("query-status"),
+                            }, indent=2) + "\n")
+                            raise AssertionError("reset loop not reached")
                         time.sleep(0.01)
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
@@ -1402,7 +1524,7 @@ def main():
                    expected, reason) for name, words, expected, reason in
                fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
                i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures()]
+               timing_fixtures() + copy_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
