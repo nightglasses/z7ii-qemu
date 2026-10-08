@@ -17,18 +17,15 @@
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIBridgeState, Z7II_BRIDGE)
 
 typedef struct Z7IIBridgeBank {
-    unsigned index;
     QEMUTimer *timer;
     uint32_t request;
     uint32_t pending;
     uint32_t lane_status[8];
-    uint32_t context[8][14];
+    uint32_t context[8][15];
     uint32_t selector;
     uint32_t window[4][3];
-    uint32_t configuration[12];
-    uint32_t draft_map[40];
-    uint32_t active_map[40];
-    uint64_t map_known;
+    uint32_t configuration[15];
+    uint32_t mapping[40];
 } Z7IIBridgeBank;
 
 struct Z7IIBridgeState {
@@ -37,7 +34,7 @@ struct Z7IIBridgeState {
     Clock *clock;
     qemu_irq irq;
     QEMUTimer *control_timer;
-    QEMUTimer *map_timer;
+    QEMUTimer *configuration_timer;
     Z7IIBridgeBank bank[2];
     uint32_t reset;
     uint32_t routing[2];
@@ -45,7 +42,7 @@ struct Z7IIBridgeState {
     uint32_t ready;
     uint32_t irq_status;
     uint32_t irq_enable;
-    unsigned map_pending;
+    bool configuration_pending;
     bool reported_error;
 };
 
@@ -57,7 +54,7 @@ static const struct {
     { 0x84, 2 }, { 0x88, 2 }, { 0x8c, 3 }, { 0x90, 1 },
     { 0xa0, 0x48 }, { 0xa4, 5 }, { 0xa8, 4 }, { 0xb0, 0 },
     { 0xb4, 0x20 }, { 0xbc, 1 }, { 0xcc, 8 }, { 0xdc, 0 },
-    { 0xe0, 0xf }, { 0xe4, 0x36 },
+    { 0xe0, 0xf }, { 0xe4, 0x36 }, { 0xac, 0 },
 };
 static const struct {
     unsigned offset;
@@ -67,6 +64,7 @@ static const struct {
     { 0x4134, 0xa }, { 0x4140, 1 }, { 0x4400, 0x37 },
     { 0x4504, 0xd4d }, { 0x450c, 0x128 }, { 0x4520, 0x1b },
     { 0x45fc, 0 }, { 0x5004, 0x10cc3200 }, { 0x504c, 0x11f },
+    { 0x4120, 4 }, { 0x4124, 4 }, { 0x4910, 4 },
 };
 
 static void z7ii_bridge_irq(Z7IIBridgeState *s)
@@ -106,18 +104,12 @@ static void z7ii_bridge_control_done(void *opaque)
     z7ii_bridge_irq(s);
 }
 
-static void z7ii_bridge_map_done(void *opaque)
+static void z7ii_bridge_configuration_done(void *opaque)
 {
     Z7IIBridgeState *s = opaque;
-    unsigned bank;
 
-    for (bank = 0; bank < 2; bank++) {
-        if (s->map_pending & (1U << bank)) {
-            memcpy(s->bank[bank].active_map, s->bank[bank].draft_map,
-                   sizeof(s->bank[bank].active_map));
-        }
-    }
-    s->map_pending = 0;
+    /* Command2 precedes array publication in the original caller. */
+    s->configuration_pending = false;
     s->irq_status |= 0x40;
     z7ii_bridge_irq(s);
 }
@@ -127,8 +119,9 @@ static void z7ii_bridge_cancel(Z7IIBridgeState *s)
     unsigned bank;
 
     timer_del(s->control_timer);
-    timer_del(s->map_timer);
-    s->command = s->ready = s->irq_status = s->map_pending = 0;
+    timer_del(s->configuration_timer);
+    s->command = s->ready = s->irq_status = 0;
+    s->configuration_pending = false;
     for (bank = 0; bank < 2; bank++) {
         Z7IIBridgeBank *b = &s->bank[bank];
 
@@ -138,9 +131,7 @@ static void z7ii_bridge_cancel(Z7IIBridgeState *s)
         memset(b->context, 0, sizeof(b->context));
         memset(b->window, 0, sizeof(b->window));
         memset(b->configuration, 0, sizeof(b->configuration));
-        memset(b->draft_map, 0, sizeof(b->draft_map));
-        memset(b->active_map, 0, sizeof(b->active_map));
-        b->map_known = 0;
+        memset(b->mapping, 0, sizeof(b->mapping));
     }
     z7ii_bridge_irq(s);
 }
@@ -215,7 +206,7 @@ static MemTxResult z7ii_bridge_access(Z7IIBridgeState *s, hwaddr offset,
             if ((*value != 4 && *value != 6) || s->reset ||
                 timer_pending(s->control_timer) || !s->routing[0] ||
                 s->routing[0] != s->routing[1] ||
-                s->bank[1].request != 0xf00f ||
+                !s->bank[1].request ||
                 s->bank[1].pending) {
                 goto error;
             }
@@ -288,7 +279,8 @@ static MemTxResult z7ii_bridge_access(Z7IIBridgeState *s, hwaddr offset,
             goto error;
         }
         if (write) {
-            if (*value != profile || s->reset || b->pending) {
+            if ((reg == 0xac ? *value > 1 : *value != profile) ||
+                s->reset || b->pending) {
                 goto error;
             }
             b->context[context][field] = *value;
@@ -346,24 +338,22 @@ static MemTxResult z7ii_bridge_access(Z7IIBridgeState *s, hwaddr offset,
         i = (local - 0x50b0) / 4;
         if (write) {
             if ((*value & ~0xfffffU) || (i >= 24 && *value) ||
-                s->reset || s->map_pending) {
+                s->reset || s->configuration_pending) {
                 goto error;
             }
-            b->draft_map[i] = *value;
-            b->map_known |= 1ULL << i;
+            b->mapping[i] = *value;
         } else {
-            *value = b->draft_map[i];
+            *value = b->mapping[i];
         }
         return MEMTX_OK;
     }
     if (local == 0x413c) {
-        if (!write || *value != 2 || s->reset || s->map_pending ||
-            s->bank[1].request != 0xf00f || s->bank[1].pending ||
-            b->map_known != ((1ULL << 40) - 1)) {
+        if (!write || *value != 2 || s->reset || s->configuration_pending ||
+            !s->bank[1].request || s->bank[1].pending) {
             goto error;
         }
-        s->map_pending = 1U << b->index;
-        timer_mod(s->map_timer, z7ii_bridge_deadline(s));
+        s->configuration_pending = true;
+        timer_mod(s->configuration_timer, z7ii_bridge_deadline(s));
         return MEMTX_OK;
     }
     for (i = 0; i < ARRAY_SIZE(bank_profile); i++) {
@@ -424,9 +414,9 @@ static void z7ii_bridge_init(Object *obj)
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-bridge-clock");
     s->control_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                     z7ii_bridge_control_done, s);
-    s->map_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, z7ii_bridge_map_done, s);
+    s->configuration_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                         z7ii_bridge_configuration_done, s);
     for (i = 0; i < 2; i++) {
-        s->bank[i].index = i;
         s->bank[i].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                        z7ii_bridge_lanes_done, &s->bank[i]);
     }
@@ -442,7 +432,7 @@ static void z7ii_bridge_finalize(Object *obj)
     unsigned i;
 
     timer_free(s->control_timer);
-    timer_free(s->map_timer);
+    timer_free(s->configuration_timer);
     for (i = 0; i < 2; i++) {
         timer_free(s->bank[i].timer);
     }

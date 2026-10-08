@@ -1442,10 +1442,12 @@ def bridge_fixtures():
         return (constant(1, 960) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
-    def prepare(bank=1):
-        words = write(0xc5e0, 0xf000f)
-        words += write(0xc5f4, 0x1b) + write(0xc5f8, 0x1b)
-        words += write(0xc5e0, 0)
+    def prepare(bank=1, reset=True):
+        words = []
+        if reset:
+            words += write(0xc5e0, 0xf000f)
+            words += write(0xc5f4, 0x1b) + write(0xc5f8, 0x1b)
+            words += write(0xc5e0, 0)
         for context in range(4):
             for group in range(2):
                 offset = bank * 0x8000 + context * 0x400 + group * 0x200
@@ -1474,17 +1476,34 @@ def bridge_fixtures():
     packet = ready.copy()
     for index in range(40):
         packet += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
-    mapping = packet + write(0xc13c, 2) + delay() + read(0xd020, 4)
-    mapping += read(0xd0b0, 5) + read(0xd10c, 6)
-    mapping += write(0xd028, 0x40) + read(0xd020, 7)
+    handshake = ready + write(0xc13c, 2) + delay() + read(0xd020, 4)
+    mapping = handshake + write(0xd028, 0x40)
+    mapping += packet[len(ready):] + read(0xd0b0, 5) + read(0xd10c, 6)
+    mapping += read(0xd020, 7)
     cancelled = prepare() + write(0xc128, 0xf00f)
     cancelled += write(0xc5e0, 0xf000f) + write(0xc5e0, 0) + delay()
     cancelled += read(0x8104, 4) + read(0xd020, 5)
     cancelled_control = ready + write(0xc90c, 6)
     cancelled_control += write(0xc5e0, 0xf000f) + delay()
     cancelled_control += read(0x4908, 4) + read(0xd020, 5)
-    cancelled_map = packet + write(0xc13c, 2) + write(0xc5e0, 0xf000f)
-    cancelled_map += delay() + read(0xd020, 4) + read(0xd0b0, 5)
+    cancelled_configuration = ready + write(0xc13c, 2) + write(0xc5e0, 0xf000f)
+    cancelled_configuration += delay() + read(0xd020, 4) + read(0xd0b0, 5)
+    lifecycle = prepare(0) + prepare(1, reset=False)
+    for bank in range(2):
+        for context in range(4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 1)
+    lifecycle += write(0xc910, 4) + read(0xc910, 4) + read(0x8cac, 5)
+    for bank in range(2):
+        for context in range(1, 4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 0)
+        lifecycle += write(bank * 0x8000 + 0x4128, 0xe00e)
+    lifecycle += wait_lane(0x504) + wait_lane(0x8504)
+    for bank in range(2):
+        lifecycle += write(bank * 0x8000 + 0x4120, 4)
+        lifecycle += write(bank * 0x8000 + 0x4124, 4)
+    lifecycle += write(0xc13c, 2) + delay() + read(0xd020, 6)
+    lifecycle += write(0xd028, 0x40) + read(0x8cac, 7)
+    lifecycle += read(0xc120, 8) + read(0xc124, 9)
     irq = write(0xd024, 2) + ready
     irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
     irq += constant(2, 0xf8101000) + [0xe5c2187f]
@@ -1503,18 +1522,25 @@ def bridge_fixtures():
          {4: 3, 5: 3, 6: 0, 7: 0, 8: 0}, None),
         ("bridge-high-selector-window", windows, {4: 0x44, 5: 0x1c, 6: 0x20}, None),
         ("bridge-control-command-and-w1c", control, {4: 1, 5: 2, 6: 0, 7: 2}, None),
-        ("bridge-whole-map-apply-and-w1c", mapping, {4: 0x40, 5: 1, 6: 24, 7: 0}, None),
+        ("bridge-handshake-before-arrays-no-array-irq", mapping,
+         {4: 0x40, 5: 1, 6: 24, 7: 0}, None),
+        ("bridge-late-whole-lifecycle", lifecycle,
+         {4: 4, 5: 1, 6: 0x40, 7: 0, 8: 4, 9: 4}, None),
         ("bridge-real-gic-irq127", irq, {4: 127, 5: 1023}, None),
         ("bridge-reset-cancels-lanes", cancelled, {4: 0, 5: 0}, None),
         ("bridge-reset-cancels-control", cancelled_control, {4: 0, 5: 0}, None),
-        ("bridge-reset-cancels-map", cancelled_map, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-configuration", cancelled_configuration, {4: 0, 5: 0}, None),
         ("bridge-board-reset", read(0xc5e0, 2) + write(0xc5e0, 0xf000f),
          {2: 0}, None),
         ("bridge-control-overlap-rejected", ready + write(0xc90c, 6) +
          write(0xc90c, 4), {}, error),
         ("bridge-map-trailing-array-profile", write(0xd110, 1), {}, error),
         ("bridge-request-before-configuration", write(0xc128, 0xf00f), {}, error),
-        ("bridge-map-before-whole-packet", ready + write(0xc13c, 2), {}, error),
+        ("bridge-configuration-before-lanes", write(0xc13c, 2), {}, error),
+        ("bridge-context-mode-reject-preserves-state", write(0x80ac, 1) +
+         write(0x80ac, 2), {}, error),
+        ("bridge-late-field-reject-preserves-state", write(0xc120, 4) +
+         write(0xc120, 5), {}, error),
         ("bridge-low-selector-unsupported", write(0xc5f0, 1), {}, error),
         ("bridge-unknown-config-value", write(0x8088, 9), {}, error),
         ("bridge-unknown-command", ready + write(0xc90c, 5), {}, error),
@@ -1613,6 +1639,14 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c08010c 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
+                if name in ("bridge-context-mode-reject-preserves-state",
+                            "bridge-late-field-reject-preserves-state"):
+                    address, value = ((0x201380ac, 1) if "context" in name
+                                      else (0x2013c120, 4))
+                    state_file = output / "bridge-configuration.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave {address} 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == value
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
