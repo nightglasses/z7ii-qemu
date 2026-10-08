@@ -25,6 +25,7 @@ struct Z7IIMXICState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     Z7IIRegionUnit unit[2];
+    uint32_t configuration[32];
     GArray *endpoints;
     bool reported_error;
 };
@@ -121,6 +122,10 @@ static MemTxResult z7ii_mxic_read(void *opaque, hwaddr offset,
         *value = s->unit[unit].draft[word];
         return MEMTX_OK;
     }
+    if (offset >= 0xa00 && offset < 0xa80) {
+        *value = s->configuration[(offset - 0xa00) / 4];
+        return MEMTX_OK;
+    }
     return z7ii_mxic_error(s, offset, size, false, 0,
                            "mxic-access-not-supported");
 }
@@ -140,6 +145,10 @@ static MemTxResult z7ii_mxic_write(void *opaque, hwaddr offset,
     if (unit >= 0) {
         s->unit[unit].draft[word] = value;
         s->unit[unit].written |= 1U << word;
+        return MEMTX_OK;
+    }
+    if (offset >= 0xa00 && offset < 0xa80 && value <= 1) {
+        s->configuration[(offset - 0xa00) / 4] = value;
         return MEMTX_OK;
     }
     if (offset != 0 && offset != 0xd40) {
@@ -198,6 +207,7 @@ static void z7ii_mxic_reset(DeviceState *dev)
         s->unit[unit].written = 0;
     }
     s->reported_error = false;
+    memset(s->configuration, 0, sizeof(s->configuration));
     z7ii_mxic_apply(s);
 }
 

@@ -141,6 +141,60 @@ def usio_contract():
     return words
 
 
+def mxic_config_fixtures():
+    base = 0x20010000
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    offsets = (0x38, 0x3c, *range(0x100, 0x120, 4),
+               0x5004, *range(0x5020, 0x5040, 4))
+    prepare = write(base + 0x60, 1)
+    for offset in offsets:
+        prepare += write(base + offset, 1 if offset == 0x100 else 0)
+    for index in range(512):
+        prepare += write(0x24074000 + index * 4, 1 if index == 0 else 0)
+    transaction = prepare + read(base + 0x100, 4)
+    transaction += write(base + 0x44, 1) + read(base + 0x100, 5)
+    transaction += write(base + 0x44, 0) + write(base + 0x34, 1)
+    transaction += read(base + 0x38, 6)
+    transaction += constant(0, base + 0x38)
+    transaction += [0xe5902000, 0xe3120001, 0x0afffffc]
+    transaction += write(base + 0x60, 0) + write(base + 0x44, 1)
+    transaction += read(base + 0x100, 7) + read(base + 0x4800, 8)
+    direct = write(base + 0x2000, 0x18080000)
+    direct += write(base + 0x2004, 0x100800)
+    direct += write(base + 0x2008, 0x80800)
+    direct += write(base + 0x2490, 0x500002) + read(base + 0x2490, 4)
+    direct += read(base + 0x2000, 5) + read(base + 0x38, 6)
+    arrays = write(MXIC + 0xa00, 1) + read(MXIC + 0xa00, 4)
+    arrays += read(MXIC + 0xa7c, 5)
+    return [
+        ("mxic-config-transaction", transaction,
+         {4: 1, 5: 0, 6: 0, 7: 1, 8: 1}, None),
+        ("mxic-config-direct-parameters", direct,
+         {4: 0x500002, 5: 0x18080000, 6: 1}, None),
+        ("mxic-config-arrays", arrays, {4: 1, 5: 0}, None),
+        ("mxic-config-incomplete", write(base + 0x60, 1) +
+         write(base + 0x34, 1), {}, "mxic-config-incomplete-transaction"),
+        ("mxic-config-access-gate", write(0x24074000, 1), {},
+         "mxic-slot-access-not-supported"),
+        ("mxic-config-active-view", write(base + 0x44, 1) +
+         write(base + 0x100, 1), {}, "mxic-config-active-view-write"),
+        ("mxic-config-busy-write", prepare + write(base + 0x34, 1) +
+         write(base + 0x38, 1), {}, "mxic-config-busy"),
+        ("mxic-config-slot-field", write(base + 0x60, 1) +
+         write(0x24074000, 0x80), {}, "mxic-slot-access-not-supported"),
+        ("mxic-config-hole", read(base + 0x48, 4), {},
+         "mxic-config-access-not-supported"),
+        ("mxic-config-width", constant(0, base + 0x44) + [0xe5c01000], {},
+         "mxic-config-access-not-supported"),
+    ]
+
+
 def fixtures():
     sys_boot = []
     boot_values = (0x73ffffff, 0xffffffff, 0x1ffc1ff, 0x31ffffff, 0x4ee)
@@ -328,7 +382,7 @@ def fixtures():
     completion_default += [0xe5801010, 0xe5904004, 0xe3140001, 0x0afffffc]
     completion_default += [0xe5905008, 0xe590600c]
 
-    return [
+    return mxic_config_fixtures() + [
         ("sysconfig-whole-bootstrap-preserve", sys_boot,
          {4: boot_values[0], 5: boot_values[1], 6: boot_values[2],
           7: boot_values[3], 8: boot_values[4], 9: 0xfffffffe}, None),
@@ -589,7 +643,7 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith("sdi-arb-reset-") or name.startswith("usio-"):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
