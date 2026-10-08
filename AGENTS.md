@@ -18,3 +18,4 @@
 | [docs/mxic-regions-functional.md](docs/mxic-regions-functional.md) | 有限 DDR backing 的区域事务、虚拟初态与真实总线约束 |
 | [docs/fill-functional.md](docs/fill-functional.md) | 原版填充协议、有限 virtual BSS、DMA 总线结果和 ACK |
 | [docs/private-peripherals-functional.md](docs/private-peripherals-functional.md) | 原首异常与页表相容 CBAR/GIC 候选、成熟 IRQ/timer 接线 |
+| [docs/kernel-lowmem-functional.md](docs/kernel-lowmem-functional.md) | 原分配器软件 arena、精确边界和 guest 元数据生产 |

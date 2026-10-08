@@ -288,6 +288,14 @@ def fixtures():
          "timestamp-access-not-supported"),
         ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
          "timestamp-access-not-supported"),
+        ("kernel-arena-endpoints", constant(0, 0xb2c00000) +
+         constant(1, 0x11223344) + [0xe5801000, 0xe5904000] +
+         constant(0, 0xb5effffc) + constant(1, 0xaabbccdd) +
+         [0xe5801000, 0xe5905000], {4: 0x11223344, 5: 0xaabbccdd}, None),
+        ("kernel-arena-before", constant(0, 0xb2bffffc) + [0xe5901000], {},
+         "uncovered-address"),
+        ("kernel-arena-after", constant(0, 0xb5f00000) + [0xe5901000], {},
+         "uncovered-address"),
         ("fill-bss-before-exact-window", constant(0, 0xb18aedbc) +
          [0xe5901000], {}, "uncovered-address"),
         ("fill-bss-after-exact-window", constant(0, 0xb2b5edc0) +
