@@ -33,3 +33,4 @@
 | [docs/exiu-functional.md](docs/exiu-functional.md) | 十六GPIO pad外部IRQ、边沿/电平/W1C和原版下一设备 |
 | [docs/hdmac-functional.md](docs/hdmac-functional.md) | 双八通道真实DMA总线/仲裁/IRQ和原版两核后继异常 |
 | [docs/i2c-functional.md](docs/i2c-functional.md) | 四通道真实I2CBus/FIFO/IRQ、断连NACK与未绑定变体拒绝 |
+| [docs/nv-record-aperture.md](docs/nv-record-aperture.md) | 独立256KiB记录输入、擦除态假设与原空记录/恢复失败边界 |

@@ -845,7 +845,8 @@ static void z7ii_init(MachineState *machine)
      * update payload. Explicit erased-cell profile, not original NV contents
      * or a complete CFI device. Guest validation/error paths remain intact.
      */
-    z7ii_erased_slot(s, 0, "z7ii.nor-slot69-erased", NV_SLOT_BASE, NV_SLOT_SIZE);
+    z7ii_erased_slot(s, 0, "z7ii.nor-slot69-erased", NV_SLOT_BASE,
+                     NV_SLOT_SIZE);
     /*
      * Descriptor15 primary record aperture. Original bytes are unavailable;
      * FF cells are an explicit input, not ENDM or valid factory records.
