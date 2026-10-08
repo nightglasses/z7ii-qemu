@@ -90,11 +90,17 @@ def fixtures():
     completion += [0xe592721c, 0xe593800c, 0xe592931c]
     completion += constant(1, 1) + [0xe5801004, 0xe5905004, 0xe5838010]
     completion += [0xe592a31c, 0xe593b00c]
+    completion += constant(1, 0) + [0xe5801008]  # Disable notification.
+    completion += constant(1, 0x1010) + [0xe5801000]
+    completion += constant(1, 0xa1) + [0xe5801010]
+    completion += [0xe590c004, 0xe31c0001, 0x0afffffc]
+    completion += constant(1, 1) + [0xe5801004, 0xe590d004]
 
     polling = constant(0, COMPLETION) + constant(1, 0) + [0xe5801008]
     polling += constant(1, 0x3100) + [0xe5801000]
     polling += constant(1, 0xa1) + [0xe5801010]
     polling += [0xe5904004, 0xe3140001, 0x0afffffc]
+    polling += constant(2, 0x1d001000) + [0xe592721c]
     polling += constant(1, 1) + [0xe5801004, 0xe5905004]
 
     completion_reset = constant(0, 0xb1800000)
@@ -130,8 +136,8 @@ def fixtures():
          "clock-access-not-supported"),
         ("completion-irq", completion,
          {4: 1, 5: 0, 6: 0x1110, 7: 1 << 26, 8: 250,
-          9: 1 << 26, 10: 0, 11: 1023}, None),
-        ("completion-poll", polling, {4: 1, 5: 0}, None),
+          9: 1 << 26, 10: 0, 11: 1023, 12: 1, 13: 0}, None),
+        ("completion-poll", polling, {4: 1, 5: 0, 7: 0}, None),
         ("completion-reset", completion_reset, {}, None),
         ("completion-done-unknown", constant(0, COMPLETION) + [0xe5901004],
          {}, "completion-uninitialized-read"),
@@ -252,6 +258,9 @@ def run(binary, output, name, words, expected, reason):
         else:
             assert "transaction=error" not in logs, logs
             assert "Data Abort" not in logs, logs
+            if name == "completion-irq":
+                assert "applied=0x00000002 known=0x00000002 done=1" in logs
+                assert "applied=0x00000000 known=0x00000002 done=1" in logs
     return {"fixture": name, "expected_error": reason, "qemu_exit_code": 0}
 
 

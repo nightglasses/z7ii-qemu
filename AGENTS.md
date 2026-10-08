@@ -11,3 +11,4 @@
 | [docs/original-mas-memc-run.md](docs/original-mas-memc-run.md) | 原版越过 MEMC 与临时栈、下一时钟读阻断的实际证据 |
 | [docs/original-mas-smp-run.md](docs/original-mas-smp-run.md) | 两核软件合同、精确 RAM、原版 MTTCG 等待与时钟阻断 |
 | [docs/clock-gates-diagnostic.md](docs/clock-gates-diagnostic.md) | 六组时钟停止位别名、未知复位与合成合同验证 |
+| [docs/completion-diagnostic.md](docs/completion-diagnostic.md) | 因果请求/延后完成/IRQ250/ack 合同、未知状态与实际验证 |
