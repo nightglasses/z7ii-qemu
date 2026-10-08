@@ -24,3 +24,4 @@
 | [docs/sysconfig-functional.md](docs/sysconfig-functional.md) | 第二系统配置对象、有限字段和四bank原RMW请求状态 |
 | [docs/gic-original-init.md](docs/gic-original-init.md) | 原active/EOI初始化与成熟GIC版本选择、真实PPI轨迹 |
 | [docs/gpio-functional.md](docs/gpio-functional.md) | 十二port掩码输出、方向/功能/pull输入与启动选择字段 |
+| [docs/mxic-config-functional.md](docs/mxic-config-functional.md) | active快照、draft槽表事务和独立live参数、原版下一控制组 |

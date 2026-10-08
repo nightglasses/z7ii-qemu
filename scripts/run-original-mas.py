@@ -73,6 +73,7 @@ def main():
         "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
         "finite second system configuration; virtual strap/control reset zero, guest five-bank bootstrap and bounded four-bank field RMW",
         "twelve GPIO ports with masked latch/direction/function/pull; unconnected pads follow pulls or virtual low, no key matrix",
+        "MXIC active/draft config and 512 slots reset zero; idle available, TAEN-gated complete transaction, 10us virtual apply; independent live parameters",
         ],
         "whole_boot_verified": False,
     }
