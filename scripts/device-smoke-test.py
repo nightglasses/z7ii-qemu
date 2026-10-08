@@ -51,8 +51,7 @@ def fixtures():
     timer += constant(1, 0) + [0xee0e1f32, 0xe5808010, 0xe592a300]
     timer += [0xee1ebf10, 0xee9fcf10]  # CNTFRQ; CBAR
 
-    # All six gate banks: CLEAR determines every bit, SET and CLEAR aliases
-    # then modify that same word. No reset value is supplied by the device.
+    # All six virtual gate banks start ungated. SET/CLEAR share the same state.
     gates, gate_values = [], {}
     for bank in range(6):
         pattern = 0x13579bdf ^ (bank << 8)
@@ -69,12 +68,19 @@ def fixtures():
         gate_values[bank + 8] = pattern & ~0x0f0f0f0f
 
     # RAM survives system_reset; the second entry therefore reads a gate word
-    # before writing it, proving known bits from the first entry were cleared.
+    # before writing it, proving the virtual reset restores ungated state.
     gate_reset = constant(0, 0xb1800000) + [0xe5901000, 0xe3510001,
                                          0x0a000007, 0xe3a01001, 0xe5801000]
     gate_reset += constant(0, CLOCK) + constant(1, 0xffffffff)
     gate_reset += [0xe5801148, 0xea000002]
     gate_reset += constant(0, CLOCK) + [0xe5902048]
+
+    pll = constant(0, CLOCK) + [0xe5904028, 0xe590502c, 0xe5906030]
+    pll += constant(1, 0x72) + [0xe580102c]  # Start group6, still output gated.
+    pll += constant(1, 0x70) + [0xe580102c]  # Guest removes output gate.
+    pll += constant(1, 48000) + [0xee0e1f12]
+    pll += constant(1, 1) + [0xee0e1f32]
+    pll += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590702c]
 
     # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
     # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
@@ -118,12 +124,11 @@ def fixtures():
          {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0x1d000000}, None),
         ("clock-six-banks", gates, gate_values, None),
         ("clock-reset", gate_reset, {}, None),
-        ("clock-unknown-reset", constant(0, CLOCK) + [0xe5901048], {},
-         "clock-stop-bits-uninitialized"),
+        ("clock-reset-state", constant(0, CLOCK) + [0xe5901048], {1: 0}, None),
         ("clock-partial-mask", constant(0, CLOCK) + constant(1, 1) +
-         [0xe5801148, 0xe5901048], {}, "clock-stop-bits-uninitialized"),
+         [0xe5801148, 0xe5901048], {1: 1}, None),
         ("clock-zero-mask", constant(0, CLOCK) + constant(1, 0) +
-         [0xe5801248, 0xe5901048], {}, "clock-stop-bits-uninitialized"),
+         [0xe5801248, 0xe5901048], {1: 0}, None),
         ("clock-alias-read", constant(0, CLOCK) + [0xe5901138], {},
          "clock-access-not-supported"),
         ("clock-direct-write", constant(0, CLOCK) + [0xe5801038], {},
@@ -132,7 +137,12 @@ def fixtures():
          "clock-access-not-supported"),
         ("clock-bank-boundary", constant(0, CLOCK) + [0xe5801150], {},
          "clock-access-not-supported"),
-        ("clock-pll-unknown", constant(0, CLOCK) + [0xe590102c], {},
+        ("clock-pll-start", pll, {4: 0xffe, 5: 0x73, 6: 3, 7: 0x70}, None),
+        ("clock-pll-bad-fields", constant(0, CLOCK) + constant(1, 1) +
+         [0xe5801028], {}, "clock-control-fields-not-supported"),
+        ("clock-selector-bad-profile", constant(0, CLOCK) + constant(1, 1) +
+         [0xe5801000], {}, "clock-selector-profile-not-supported"),
+        ("clock-reserved-offset", constant(0, CLOCK) + [0xe5901034], {},
          "clock-access-not-supported"),
         ("completion-irq", completion,
          {4: 1, 5: 0, 6: 0x1110, 7: 1 << 26, 8: 250,
@@ -247,10 +257,19 @@ def run(binary, output, name, words, expected, reason):
                     assert registers(vm)[15] == BASE
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
-                    vm.event_wait("STOP", timeout=5)
-                    assert vm.cmd("query-status")["status"] == "debug"
-                    reason = ("clock-stop-bits-uninitialized" if name == "clock-reset"
-                              else "completion-uninitialized-read")
+                    if name == "clock-reset":
+                        deadline = time.monotonic() + 5
+                        while registers(vm)[15] != loop_pc:
+                            assert vm.cmd("query-status")["running"], vm.get_log()
+                            assert time.monotonic() < deadline, "reset loop not reached"
+                            time.sleep(0.01)
+                        vm.cmd("stop")
+                        vm.event_wait("STOP", timeout=5)
+                        assert registers(vm)[2] == 0
+                    else:
+                        vm.event_wait("STOP", timeout=5)
+                        assert vm.cmd("query-status")["status"] == "debug"
+                        reason = "completion-uninitialized-read"
             # Read the original ROM bytes through upstream HMP before shutdown.
             copied = output / "rom-readback.bin"
             vm.cmd("human-monitor-command",
@@ -267,6 +286,8 @@ def run(binary, output, name, words, expected, reason):
             if name == "completion-irq":
                 assert "applied=0x00000002 known=0x00000002 done=1" in logs
                 assert "applied=0x00000000 known=0x00000002 done=1" in logs
+            if name == "clock-pll-start":
+                assert "PLL group=6 modeled-lock nominal-Hz=48000000" in logs
     return {"fixture": name, "expected_error": reason, "qemu_exit_code": 0}
 
 

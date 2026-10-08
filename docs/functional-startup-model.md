@@ -8,4 +8,6 @@
 
 32 位小端访问限定于已有配置、控制和 gate 接口；配置只支持当前原初始化 profile，控制拒绝尚未实现的字段，其他 offset、宽度、命令仍返回 `MEMTX_ERROR` 并记录首个 CPU/PC/地址。PLL 软件接口和 SET/CLEAR 地址来源见研究固定提交 [943873c 的系统控制合同](https://github.com/mashiro01/nightglass/blob/943873c/research/z7ii/qemu-system-control-contract.md)；同族公开源码只支撑 IP 对照，不能证明 Nikon 芯片身份。
 
-本组已完成增量 native 编译。原版执行与当前合成验证结果在完成后追加；编译通过本身不证明 RTOS 首派、菜单、真实 flash/calibration 或整个机身启动。
+源码 `857ce78` 增量 native 编译 exit 0。实际 MTTCG 原版运行保存于 `work/issue330/original-functional-pll-857ce78/receipt.json`，QEMU exit 0、debug stop，38,239,096 B 原载荷直接内容比较未变，O178 仍 `fe ff ff ea`。CPU0 已越过以前 `PC1002d70c / READ32 0428102c` 的阻断；新首个未知访问是 `PC10024c9c / WRITE32 PA20023000 / value1`，对应原 SDI/DDR reset assert。CPU1 仍在早期 release 等待，没有声称已完成 SMP 释放或 RTOS 首派。
+
+`work/issue330/functional-pll-smoke-first/result.json` 的 45 个小型合成夹具实际全部通过，包括六 bank mask、功能复位、PLL 初态与 guest 启动写序列、10us 虚拟 lock callback、保留的 MEMC/NOR 拒绝、GIC/timer 和严格阶段 completion 合同。旧 unknown-reset 断言已改为此唯一功能模型的复位断言，没有增添兼容模式。编译、此首停点与合成合同都不证明菜单、真实 flash/calibration 或整个机身启动。
