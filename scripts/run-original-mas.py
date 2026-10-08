@@ -51,7 +51,10 @@ def main():
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
                         "0x102a85f4+0xb0", "0x1010261e+0x76",
                         "0x10101cc2+0x4e", "0x10101cb8+0xa",
-                        "0x10101f1e+0x18", "0x102a87ae+0xe"]
+                        "0x10101f1e+0x18", "0x102a87ae+0xe",
+                        "0x102a7d56+0x2c", "0x102a874e+0x2c",
+                        "0x102a807e+0x2a", "0x102a80a8+0x4e",
+                        "0x102a84a2+0x5a", "0x103bf3c6+0x6c"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
@@ -76,8 +79,7 @@ def main():
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
-            "original registry NV slot69 [133e0000,13400000) has virtual erased-FF read-only cells, absent original NV bytes; MEMC-protected unsupported programming, no complete CFI model",
-            "original descriptor15 primary records [12e00000,12e40000) and observed alternate [131e0000,13220000) have independent finite erased-FF input; no real NV bytes/ENDM header; original empty/error/program paths unchanged",
+            "whole external NOR descriptor-erased-FF input:33 source descriptors/81 default IDs, exclude0/1/2/zero4; 35 views share five finite physical windows [12960000,13240000),[132c0000,13380000),[133a0000,13500000),[13540000,13e40000),[13e80000,14000000),22544384B; aliases share cells, alternatives independent; actual MAS ROM/holes preserved, no real NV/ENDM/calibration/CFI writer; MEMC rejects programming",
             "upstream CPU reset state; guest copies all copy destinations",
             "six modes per guest core, virtual 16KiB stack capacity per mode; early temporary RAM exactly88B",
             "early shared release RAM exactly four bytes; no host magic",
