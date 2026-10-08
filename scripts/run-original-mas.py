@@ -60,6 +60,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
+            "16 EXIU inputs from original GPIO5[7:15]/GPIO6[0:6], GIC65..80; virtual masked/rising-edge reset, pending mask-filter convention; no software source or physical key provider",
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",

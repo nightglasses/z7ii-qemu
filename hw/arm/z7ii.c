@@ -774,6 +774,8 @@ static void z7ii_init(MachineState *machine)
     Z7IIMachineState *s = Z7II_MACHINE(machine);
     DeviceState *gic;
     DeviceState *mxic;
+    DeviceState *gpio;
+    DeviceState *exiu;
     SysBusDevice *gic_bus;
     int64_t image_size;
     unsigned i;
@@ -901,7 +903,7 @@ static void z7ii_init(MachineState *machine)
 
     sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
     sysbus_create_simple(TYPE_Z7II_SYSCONFIG, 0x04280000, NULL);
-    sysbus_create_simple(TYPE_Z7II_GPIO, 0x04282000, NULL);
+    gpio = sysbus_create_simple(TYPE_Z7II_GPIO, 0x04282000, NULL);
     {
         DeviceState *usio = qdev_new(TYPE_Z7II_USIO);
 
@@ -931,6 +933,16 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
     sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
+    exiu = sysbus_create_simple(TYPE_Z7II_EXIU, 0x0426f000, NULL);
+    /* Original 16 EXIU objects map GPIO5[7:15]/GPIO6[0:6] to IRQ65..80. */
+    for (i = 0; i < 16; i++) {
+        unsigned pad = i < 9 ? 5 * 16 + 7 + i : 6 * 16 + i - 9;
+
+        qdev_connect_gpio_out_named(gpio, "pad", pad,
+                                    qdev_get_gpio_in(exiu, i));
+        sysbus_connect_irq(SYS_BUS_DEVICE(exiu), i,
+                           qdev_get_gpio_in(gic, 65 + i - 32));
+    }
     for (i = 0; i < 11; i++) {
         DeviceState *spi = qdev_new(TYPE_Z7II_SPI);
 

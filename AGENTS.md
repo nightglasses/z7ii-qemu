@@ -30,3 +30,4 @@
 | [docs/spi-functional.md](docs/spi-functional.md) | 十一通道SSI/FIFO/时钟/IRQ功能合同与PKGB构造真实轨迹 |
 | [docs/first-module-buffer.md](docs/first-module-buffer.md) | 原动态bump首个完整分配、只读调试观测和下一NOR数据来源 |
 | [docs/nv-slot69-functional.md](docs/nv-slot69-functional.md) | 原registry独立NV槽、有限擦除态输入与原数据读后续停点 |
+| [docs/exiu-functional.md](docs/exiu-functional.md) | 十六GPIO pad外部IRQ、边沿/电平/W1C和原版下一设备 |
