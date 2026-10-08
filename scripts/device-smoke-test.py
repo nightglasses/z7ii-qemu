@@ -177,8 +177,15 @@ def mxic_config_fixtures():
         for offset in (*range(0, 0x5c, 4), *range(0xbc, 0xdc, 4)):
             selectors += write(base + 0x3000 + bank * 0x100 + offset, 0x32)
     selectors += read(base + 0x3000, 4) + read(base + 0x33d8, 5)
+    rates = []
+    for offset in (0x2648, 0x2490, 0x24a0, 0x2790, 0x2798,
+                   0x2628, 0x2658, 0x2660, 0x27b0, 0x2618):
+        rates += write(base + offset, 0x500002)
+    rates += read(base + 0x2658, 4) + read(base + 0x2660, 5)
     return [
         ("mxic-config-transaction", transaction,
+         {4: 1, 5: 0, 6: 0, 7: 1, 8: 1}, None),
+        ("mxic-config-reset", transaction,
          {4: 1, 5: 0, 6: 0, 7: 1, 8: 1}, None),
         ("mxic-config-direct-parameters", direct,
          {4: 0x500002, 5: 0x18080000, 6: 1}, None),
@@ -187,6 +194,11 @@ def mxic_config_fixtures():
         ("mxic-config-selector-hole", read(base + 0x305c, 4), {},
          "mxic-config-access-not-supported"),
         ("mxic-config-selector-field", write(base + 0x3000, 4), {},
+         "mxic-config-access-not-supported"),
+        ("mxic-config-rate-family", rates, {4: 0x500002, 5: 0x500002}, None),
+        ("mxic-config-rate-field", write(base + 0x2660, 4), {},
+         "mxic-config-access-not-supported"),
+        ("mxic-config-old-address", read(base + 0x24a8, 4), {},
          "mxic-config-access-not-supported"),
         ("mxic-config-incomplete", write(base + 0x60, 1) +
          write(base + 0x34, 1), {}, "mxic-config-incomplete-transaction"),
@@ -697,7 +709,7 @@ def run(binary, output, name, words, expected, reason):
                 if name == "timestamp-elapsed-freeze-carry":
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
-                if name in ("clock-reset", "completion-reset"):
+                if name in ("clock-reset", "completion-reset", "mxic-config-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -710,7 +722,12 @@ def run(binary, output, name, words, expected, reason):
                         time.sleep(0.01)
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
-                    assert registers(vm)[2] == 0
+                    after_reset = registers(vm)
+                    if name == "mxic-config-reset":
+                        for reg, value in expected.items():
+                            assert after_reset[reg] == value, after_reset
+                    else:
+                        assert after_reset[2] == 0
             # Read the original ROM bytes through upstream HMP before shutdown.
             copied = output / "rom-readback.bin"
             vm.cmd("human-monitor-command",
