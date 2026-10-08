@@ -33,6 +33,7 @@ typedef struct Z7IIHDMACChannel {
     bool running;
     int64_t ready_at;
     uint64_t generation;
+    uint32_t remaining;
 } Z7IIHDMACChannel;
 
 struct Z7IIHDMACState {
@@ -44,7 +45,15 @@ struct Z7IIHDMACState {
     unsigned cursor;
     Z7IIHDMACChannel channel[8];
     bool reported_error;
+    bool request[32];
 };
+
+static bool z7ii_hdmac_requested(Z7IIHDMACChannel *c)
+{
+    unsigned selection = (c->ca >> 24) & 31;
+
+    return !selection || c->owner->request[selection];
+}
 
 static void z7ii_hdmac_irq(Z7IIHDMACChannel *c)
 {
@@ -82,7 +91,8 @@ static void z7ii_hdmac_transfer(void *opaque)
     for (candidate = 0; candidate < 8; candidate++) {
         unsigned index = (start + candidate) % 8;
 
-        if (s->channel[index].running && s->channel[index].ready_at <= now) {
+        if (s->channel[index].running && s->channel[index].ready_at <= now &&
+            z7ii_hdmac_requested(&s->channel[index])) {
             c = &s->channel[index];
             s->cursor = (index + 1) % 8;
             break;
@@ -95,7 +105,8 @@ static void z7ii_hdmac_transfer(void *opaque)
         timer_mod(trigger->timer, now);
     }
     width = 1U << ((c->cb >> 26) & 3);
-    beats = (((c->ca >> 16) & 15) + 1) * ((c->ca & 0xffff) + 1);
+    /* Demand requests accept one beat, then re-evaluate the actual wire. */
+    beats = ((c->ca >> 24) & 31) ? 1 : c->remaining;
     fixed_source = c->cb & (1U << 25);
     fixed_destination = c->cb & (1U << 24);
     generation = c->generation;
@@ -132,7 +143,7 @@ static void z7ii_hdmac_transfer(void *opaque)
             return;
         }
         if (!fixed_source) {
-            if ((uint64_t)c->source + width == 1ULL << 32 && i + 1 < beats) {
+            if ((uint64_t)c->source + width == 1ULL << 32 && c->remaining > 1) {
                 z7ii_hdmac_finish(c, 1);
                 return;
             }
@@ -140,12 +151,20 @@ static void z7ii_hdmac_transfer(void *opaque)
         }
         if (!fixed_destination) {
             if ((uint64_t)c->destination + width == 1ULL << 32 &&
-                i + 1 < beats) {
+                c->remaining > 1) {
                 z7ii_hdmac_finish(c, 1);
                 return;
             }
             c->destination += width;
         }
+        c->remaining--;
+    }
+    if (c->remaining) {
+        if (z7ii_hdmac_requested(c)) {
+            c->ready_at = now + MAX(1, clock_ticks_to_ns(s->clock, 1));
+            timer_mod(c->timer, c->ready_at);
+        }
+        return;
     }
     /* End counters are a functional convention, not measured readback. */
     c->ca &= ~0xfffffU;
@@ -172,16 +191,42 @@ static void z7ii_hdmac_schedule(Z7IIHDMACChannel *c)
     Z7IIHDMACState *s = c->owner;
     uint32_t beats = (((c->ca >> 16) & 15) + 1) * ((c->ca & 0xffff) + 1);
 
+    unsigned selection = (c->ca >> 24) & 31;
+
     if (c->running || !(s->control & HDMAC_DE) || !(c->ca & HDMAC_EB) ||
-        ((c->ca >> 24) & 31) || !(c->ca & HDMAC_ST)) {
-        /* External request selections remain armed, with no invented DREQ. */
+        (!selection && !(c->ca & HDMAC_ST))) {
         return;
     }
     c->running = true;
     c->generation++;
+    c->remaining = beats;
     c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                  MAX(1, clock_ticks_to_ns(s->clock, beats));
-    timer_mod(c->timer, c->ready_at);
+                  MAX(1, clock_ticks_to_ns(s->clock, selection ? 1 : beats));
+    if (z7ii_hdmac_requested(c)) {
+        timer_mod(c->timer, c->ready_at);
+    }
+}
+
+static void z7ii_hdmac_request(void *opaque, int selection, int level)
+{
+    Z7IIHDMACState *s = opaque;
+    unsigned i;
+
+    s->request[selection] = level;
+    for (i = 0; i < 8; i++) {
+        Z7IIHDMACChannel *c = &s->channel[i];
+
+        if (!c->running || ((c->ca >> 24) & 31) != selection) {
+            continue;
+        }
+        if (!level) {
+            timer_del(c->timer);
+        } else {
+            c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                          MAX(1, clock_ticks_to_ns(s->clock, 1));
+            timer_mod(c->timer, c->ready_at);
+        }
+    }
 }
 
 static MemTxResult z7ii_hdmac_error(Z7IIHDMACState *s, hwaddr offset,
@@ -356,6 +401,7 @@ static void z7ii_hdmac_init(Object *obj)
     unsigned i;
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-hdmac-clock");
+    qdev_init_gpio_in(DEVICE(obj), z7ii_hdmac_request, 32);
     memory_region_init_io(&s->regs, obj, &z7ii_hdmac_ops, s,
                           "z7ii.hdmac", 0x90);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);

@@ -49,7 +49,9 @@ def main():
                         "0x10201010+0x40", "0x10242fda+0x68"]
         if args.trace_records:
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
-                        "0x102a85f4+0xb0"]
+                        "0x102a85f4+0xb0", "0x1010261e+0x76",
+                        "0x10101cc2+0x4e", "0x10101cb8+0xa",
+                        "0x10101f1e+0x18", "0x102a87ae+0xe"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
@@ -66,13 +68,14 @@ def main():
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
             "four finite I2C instances at2c018000..2c01b000/GIC214..217; idle zero control, empty16-byte FIFOs, mask2ff, disconnected official I2CBus, nominal independent48MHz; monitor/bit7/10-bit operations unsupported",
-            "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, software-triggered non-reload real bus copies; no external DREQ, unsupported transforms/pause/halt",
+            "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, real non-reload bus copies; external requests rechecked per beat, Audio bank1 selectors3/7/5; unsupported transforms/pause/halt",
+            "two Audio channels at2c080100/200, GIC167/168; virtual zero reset, opaque32-bit FIFO words, disconnected input, independent48MHz divided output sink; original AUCR enable-command variant and unknown AUMD23/26 retained; no physical PCM packing/codec inference",
             "16 EXIU inputs from original GPIO5[7:15]/GPIO6[0:6], GIC65..80; virtual masked/rising-edge reset, pending mask-filter convention; no software source or physical key provider",
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "original registry NV slot69 [133e0000,13400000) has virtual erased-FF read-only cells, absent original NV bytes; MEMC-protected unsupported programming, no complete CFI model",
-            "original descriptor15 primary records [12e00000,12e40000) have finite erased-FF input; no real NV bytes/ENDM header, alternate131e0000 absent; original empty/error/program paths unchanged",
+            "original descriptor15 primary records [12e00000,12e40000) and observed alternate [131e0000,13220000) have independent finite erased-FF input; no real NV bytes/ENDM header; original empty/error/program paths unchanged",
             "upstream CPU reset state; guest copies all copy destinations",
             "six modes per guest core, virtual 16KiB stack capacity per mode; early temporary RAM exactly88B",
             "early shared release RAM exactly four bytes; no host magic",
