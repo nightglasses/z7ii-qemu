@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
-    if args.seconds <= 0 or args.seconds > 60:
+    if not 0 < args.seconds <= 60:
         parser.error("--seconds must be in (0, 60]")
     binary, payload, output = (p.resolve() for p in
                                (args.binary, args.payload, args.output))
