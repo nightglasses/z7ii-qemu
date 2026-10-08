@@ -6,8 +6,10 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
+#include "qemu/main-loop.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
+#include "hw/core/irq.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/cpu/a15mpcore.h"
@@ -24,6 +26,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
+#define COMPLETION_BASE 0x04287000ULL
 #define CBAR_BASE 0x1d000000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
@@ -39,6 +42,26 @@ struct Z7IIClockGatesState {
     MemoryRegion regs;
     uint32_t stopped[6];
     uint32_t known[6];
+    bool reported_error;
+};
+
+#define TYPE_Z7II_COMPLETION "z7ii-completion-diagnostic"
+OBJECT_DECLARE_SIMPLE_TYPE(Z7IICompletionState, Z7II_COMPLETION)
+
+struct Z7IICompletionState {
+    SysBusDevice parent_obj;
+    MemoryRegion regs;
+    qemu_irq irq;
+    QEMUBH *bh;
+    uint32_t request;
+    uint32_t applied_domains;
+    uint32_t known_domains;
+    bool request_known;
+    bool irq_known;
+    bool irq_enabled;
+    bool done_known;
+    bool done;
+    bool pending;
     bool reported_error;
 };
 
@@ -66,6 +89,7 @@ struct Z7IIMachineState {
     MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
     Z7IIClockGatesState clock_gates;
+    Z7IICompletionState completion;
     bool reported_unknown;
 };
 
@@ -320,6 +344,189 @@ static void z7ii_clock_class_init(ObjectClass *oc, const void *data)
     dc->user_creatable = false;
 }
 
+static MemTxResult z7ii_completion_error(Z7IICompletionState *s, hwaddr offset,
+                                        unsigned size, bool write,
+                                        uint64_t value, const char *reason)
+{
+    z7ii_access_error(&s->reported_error, COMPLETION_BASE + offset, size,
+                      write, value, reason);
+    return MEMTX_ERROR;
+}
+
+static void z7ii_completion_irq(Z7IICompletionState *s)
+{
+    qemu_set_irq(s->irq, s->irq_known && s->irq_enabled &&
+                        s->done_known && s->done);
+}
+
+static void z7ii_completion_apply(void *opaque)
+{
+    Z7IICompletionState *s = opaque;
+    uint32_t bit = 1U << ((s->request >> 12) & 7);
+
+    if (!s->pending) {
+        return;
+    }
+    /* Functional request effects; physical domains and latency are unknown. */
+    if (s->request & 0x100) {
+        s->applied_domains |= bit;
+    } else {
+        s->applied_domains &= ~bit;
+    }
+    s->known_domains |= bit;
+    s->pending = false;
+    s->done = true;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "z7ii-completion: deferred request=0x%08x applied=0x%08x "
+                  "known=0x%08x done=1\n", s->request,
+                  s->applied_domains, s->known_domains);
+    z7ii_completion_irq(s);
+}
+
+static MemTxResult z7ii_completion_read(void *opaque, hwaddr offset,
+                                       uint64_t *value, unsigned size,
+                                       MemTxAttrs attrs)
+{
+    Z7IICompletionState *s = opaque;
+
+    *value = 0;
+    if (size != 4 ||
+        (offset != 0 && offset != 4 && offset != 8 && offset != 12)) {
+        return z7ii_completion_error(s, offset, size, false, 0,
+                                     "completion-access-not-supported");
+    }
+    if (offset == 12) {
+        /* Only selected domain bits are determined by our supported requests.
+         * Other status fields have no reset/producer; never return zeros for
+         * the unknown remainder of the word. */
+        return z7ii_completion_error(s, offset, size, false, 0,
+                                     "completion-domain-status-not-supported");
+    }
+    if ((offset == 0 && !s->request_known) ||
+        (offset == 4 && !s->done_known) ||
+        (offset == 8 && !s->irq_known)) {
+        return z7ii_completion_error(s, offset, size, false, 0,
+                                     "completion-uninitialized-read");
+    }
+    *value = offset == 0 ? s->request :
+             offset == 4 ? s->done : s->irq_enabled;
+    return MEMTX_OK;
+}
+
+static MemTxResult z7ii_completion_write(void *opaque, hwaddr offset,
+                                        uint64_t value, unsigned size,
+                                        MemTxAttrs attrs)
+{
+    Z7IICompletionState *s = opaque;
+    unsigned domain = (value >> 12) & 7;
+
+    if (size != 4 ||
+        (offset != 0 && offset != 4 && offset != 8 && offset != 16)) {
+        return z7ii_completion_error(s, offset, size, true, value,
+                                     "completion-access-not-supported");
+    }
+    if (s->pending) {
+        return z7ii_completion_error(
+            s, offset, size, true, value,
+            "completion-concurrent-request-not-supported");
+    }
+    switch (offset) {
+    case 0:
+        /* Observed domain and request-mode profiles, not full IP legality. */
+        if ((value & ~0x7110U) ||
+            (domain != 0 && domain != 1 && domain != 3)) {
+            return z7ii_completion_error(
+                s, offset, size, true, value,
+                "completion-request-profile-not-supported");
+        }
+        s->request = value;
+        s->request_known = true;
+        break;
+    case 4:
+        if (value != 1 || !s->done_known) {
+            return z7ii_completion_error(s, offset, size, true, value,
+                                         "completion-ack-not-supported");
+        }
+        /* W1C diagnostic binding; no host RTOS flag mutation. */
+        s->done = false;
+        z7ii_completion_irq(s);
+        break;
+    case 8:
+        if (value > 1) {
+            return z7ii_completion_error(
+                s, offset, size, true, value,
+                "completion-irq-profile-not-supported");
+        }
+        s->irq_known = true;
+        s->irq_enabled = value;
+        z7ii_completion_irq(s);
+        break;
+    case 16:
+        if (value != 0xa1) {
+            return z7ii_completion_error(s, offset, size, true, value,
+                                         "completion-command-not-supported");
+        }
+        if (!s->request_known || !s->irq_known) {
+            return z7ii_completion_error(s, offset, size, true, value,
+                                         "completion-submit-state-unknown");
+        }
+        s->pending = true;
+        s->done_known = true;
+        s->done = false;
+        z7ii_completion_irq(s);
+        qemu_bh_schedule(s->bh);
+        break;
+    }
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps z7ii_completion_ops = {
+    .read_with_attrs = z7ii_completion_read,
+    .write_with_attrs = z7ii_completion_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+static void z7ii_completion_reset(DeviceState *dev)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(dev);
+
+    qemu_bh_cancel(s->bh);
+    s->pending = false;
+    s->request_known = s->irq_known = s->done_known = false;
+    s->known_domains = 0;
+    s->applied_domains = 0; /* Not a readable hardware reset word. */
+    s->reported_error = false;
+    z7ii_completion_irq(s);
+}
+
+static void z7ii_completion_init(Object *obj)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(obj);
+
+    s->bh = qemu_bh_new(z7ii_completion_apply, s);
+    memory_region_init_io(&s->regs, obj, &z7ii_completion_ops, s,
+                          "z7ii.completion", 0x14);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+}
+
+static void z7ii_completion_finalize(Object *obj)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(obj);
+
+    qemu_bh_delete(s->bh);
+}
+
+static void z7ii_completion_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    device_class_set_legacy_reset(dc, z7ii_completion_reset);
+    dc->user_creatable = false;
+}
+
 static MemTxResult z7ii_nor_write(void *opaque, hwaddr offset,
                                  uint64_t value, unsigned size,
                                  MemTxAttrs attrs)
@@ -470,6 +677,13 @@ static void z7ii_init(MachineState *machine)
     qdev_prop_set_uint32(gic, "num-irq", 256); /* SGI/PPI + 224 SPIs. */
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE);
+    object_initialize_child(OBJECT(s), "completion", &s->completion,
+                            TYPE_Z7II_COMPLETION);
+    sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->completion), 0, COMPLETION_BASE);
+    /* The guest registers/enables IRQ250; this is its external SPI input. */
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->completion), 0,
+                       qdev_get_gpio_in(gic, 250 - 32));
     for (i = 0; i < s->num_cpus; i++) {
         DeviceState *cpu = DEVICE(&s->cpu[i]);
         sysbus_connect_irq(gic_bus, i, qdev_get_gpio_in(cpu, ARM_CPU_IRQ));
@@ -528,8 +742,17 @@ static void z7ii_register_types(void)
         .instance_init = z7ii_clock_init,
         .class_init = z7ii_clock_class_init,
     };
+    static const TypeInfo completion_type = {
+        .name = TYPE_Z7II_COMPLETION,
+        .parent = TYPE_SYS_BUS_DEVICE,
+        .instance_size = sizeof(Z7IICompletionState),
+        .instance_init = z7ii_completion_init,
+        .instance_finalize = z7ii_completion_finalize,
+        .class_init = z7ii_completion_class_init,
+    };
     type_register_static(&memc_type);
     type_register_static(&clock_type);
+    type_register_static(&completion_type);
     type_register_static(&z7ii_machine_type);
 }
 type_init(z7ii_register_types)

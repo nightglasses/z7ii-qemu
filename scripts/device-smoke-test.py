@@ -15,6 +15,7 @@ BASE = 0x10020000
 MEMC = 0x04264000
 TIM = 0x153b0902
 CLOCK = 0x04281000
+COMPLETION = 0x04287000
 
 
 def constant(reg, value):
@@ -75,6 +76,34 @@ def fixtures():
     gate_reset += [0xe5801148, 0xea000002]
     gate_reset += constant(0, CLOCK) + [0xe5902048]
 
+    # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
+    # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
+    completion = constant(2, 0x1d001000) + constant(1, 1) + [0xe5821000]
+    completion += [0xe5c218fa]  # GICD_ITARGETSR byte for IRQ250 = CPU0.
+    completion += constant(1, 1 << 26) + [0xe582111c]
+    completion += constant(3, 0x1d002000) + constant(1, 0xff) + [0xe5831004]
+    completion += constant(1, 1) + [0xe5831000]
+    completion += constant(0, COMPLETION) + [0xe5801008]
+    completion += constant(1, 0x1110) + [0xe5801000, 0xe5906000]
+    completion += constant(1, 0xa1) + [0xe5801010]
+    completion += [0xe5904004, 0xe3140001, 0x0afffffc]
+    completion += [0xe592721c, 0xe593800c, 0xe592931c]
+    completion += constant(1, 1) + [0xe5801004, 0xe5905004, 0xe5838010]
+    completion += [0xe592a31c, 0xe593b00c]
+
+    polling = constant(0, COMPLETION) + constant(1, 0) + [0xe5801008]
+    polling += constant(1, 0x3100) + [0xe5801000]
+    polling += constant(1, 0xa1) + [0xe5801010]
+    polling += [0xe5904004, 0xe3140001, 0x0afffffc]
+    polling += constant(1, 1) + [0xe5801004, 0xe5905004]
+
+    completion_reset = constant(0, 0xb1800000)
+    completion_reset += [0xe5901000, 0xe3510001, 0x0a000007,
+                         0xe3a01001, 0xe5801000]
+    completion_reset += constant(0, COMPLETION)
+    completion_reset += [0xe3a01000, 0xe5801000, 0xe5801008, 0xea000002]
+    completion_reset += constant(0, COMPLETION) + [0xe5902008]
+
     return [
         ("profile-stack", profile,
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
@@ -99,6 +128,37 @@ def fixtures():
          "clock-access-not-supported"),
         ("clock-pll-unknown", constant(0, CLOCK) + [0xe590102c], {},
          "clock-access-not-supported"),
+        ("completion-irq", completion,
+         {4: 1, 5: 0, 6: 0x1110, 7: 1 << 26, 8: 250,
+          9: 1 << 26, 10: 0, 11: 1023}, None),
+        ("completion-poll", polling, {4: 1, 5: 0}, None),
+        ("completion-reset", completion_reset, {}, None),
+        ("completion-done-unknown", constant(0, COMPLETION) + [0xe5901004],
+         {}, "completion-uninitialized-read"),
+        ("completion-request-unknown", constant(0, COMPLETION) + [0xe5901000],
+         {}, "completion-uninitialized-read"),
+        ("completion-enable-unknown", constant(0, COMPLETION) + [0xe5901008],
+         {}, "completion-uninitialized-read"),
+        ("completion-unknown-submit", constant(0, COMPLETION) +
+         constant(1, 0xa1) + [0xe5801010], {}, "completion-submit-state-unknown"),
+        ("completion-unknown-domain", polling + [0xe590600c], {},
+         "completion-domain-status-not-supported"),
+        ("completion-bad-command", constant(0, COMPLETION) +
+         constant(1, 0xa0) + [0xe5801010], {}, "completion-command-not-supported"),
+        ("completion-bad-domain", constant(0, COMPLETION) +
+         constant(1, 0x2100) + [0xe5801000], {},
+         "completion-request-profile-not-supported"),
+        ("completion-bad-request-bits", constant(0, COMPLETION) +
+         constant(1, 2) + [0xe5801000], {},
+         "completion-request-profile-not-supported"),
+        ("completion-bad-enable", constant(0, COMPLETION) +
+         constant(1, 2) + [0xe5801008], {}, "completion-irq-profile-not-supported"),
+        ("completion-unknown-ack", constant(0, COMPLETION) +
+         constant(1, 1) + [0xe5801004], {}, "completion-ack-not-supported"),
+        ("completion-byte-write", constant(0, COMPLETION) + [0xe5c01000], {},
+         "completion-access-not-supported"),
+        ("completion-command-read", constant(0, COMPLETION) + [0xe5901010], {},
+         "completion-access-not-supported"),
         ("mode-uninitialized", constant(0, MEMC) + [0xe5901000], {},
          "memc-uninitialized-read"),
         ("tim-uninitialized", constant(0, MEMC) + [0xe5901020], {},
@@ -169,7 +229,7 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
-                if name == "clock-reset":
+                if name in ("clock-reset", "completion-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -177,7 +237,8 @@ def run(binary, output, name, words, expected, reason):
                     vm.event_wait("RESUME", timeout=5)
                     vm.event_wait("STOP", timeout=5)
                     assert vm.cmd("query-status")["status"] == "debug"
-                    reason = "clock-stop-bits-uninitialized"
+                    reason = ("clock-stop-bits-uninitialized" if name == "clock-reset"
+                              else "completion-uninitialized-read")
             # Read the original ROM bytes through upstream HMP before shutdown.
             copied = output / "rom-readback.bin"
             vm.cmd("human-monitor-command",
