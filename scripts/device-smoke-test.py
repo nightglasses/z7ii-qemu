@@ -14,6 +14,7 @@ from qemu.machine import QEMUMachine
 BASE = 0x10020000
 MEMC = 0x04264000
 TIM = 0x153b0902
+CLOCK = 0x04281000
 
 
 def constant(reg, value):
@@ -49,12 +50,46 @@ def fixtures():
     timer += constant(1, 0) + [0xee0e1f32, 0xe5808010, 0xe592a300]
     timer += [0xee1ebf10, 0xee9fcf10]  # CNTFRQ; CBAR
 
+    # All six gate banks: CLEAR determines every bit, SET and CLEAR aliases
+    # then modify that same word. No reset value is supplied by the device.
+    gates, gate_values = [], {}
+    for bank in range(6):
+        pattern = 0x13579bdf ^ (bank << 8)
+        gates += constant(0, CLOCK + 0x38 + bank * 4)
+        gates += constant(1, 0xffffffff) + [0xe5801200]
+        gates += constant(1, pattern) + [0xe5801100]
+        gates += [0xe5900000 | (bank + 2) << 12]
+        gate_values[bank + 2] = pattern
+    for bank in range(6):
+        pattern = 0x13579bdf ^ (bank << 8)
+        gates += constant(0, CLOCK + 0x38 + bank * 4)
+        gates += constant(1, 0x0f0f0f0f) + [0xe5801200]
+        gates += [0xe5900000 | (bank + 8) << 12]
+        gate_values[bank + 8] = pattern & ~0x0f0f0f0f
+
     return [
         ("profile-stack", profile,
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
           8: 0x13579bdf, 9: 0x13579bdf}, None),
         ("secure-timer", timer,
          {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0x1d000000}, None),
+        ("clock-six-banks", gates, gate_values, None),
+        ("clock-unknown-reset", constant(0, CLOCK) + [0xe5901048], {},
+         "clock-stop-bits-uninitialized"),
+        ("clock-partial-mask", constant(0, CLOCK) + constant(1, 1) +
+         [0xe5801148, 0xe5901048], {}, "clock-stop-bits-uninitialized"),
+        ("clock-zero-mask", constant(0, CLOCK) + constant(1, 0) +
+         [0xe5801248, 0xe5901048], {}, "clock-stop-bits-uninitialized"),
+        ("clock-alias-read", constant(0, CLOCK) + [0xe5901138], {},
+         "clock-access-not-supported"),
+        ("clock-direct-write", constant(0, CLOCK) + [0xe5801038], {},
+         "clock-access-not-supported"),
+        ("clock-byte-write", constant(0, CLOCK) + [0xe5c01138], {},
+         "clock-access-not-supported"),
+        ("clock-unaligned-write", constant(0, CLOCK) + [0xe5801139], {},
+         "clock-access-not-supported"),
+        ("clock-pll-unknown", constant(0, CLOCK) + [0xe590102c], {},
+         "clock-access-not-supported"),
         ("mode-uninitialized", constant(0, MEMC) + [0xe5901000], {},
          "memc-uninitialized-read"),
         ("tim-uninitialized", constant(0, MEMC) + [0xe5901020], {},

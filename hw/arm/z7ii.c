@@ -23,12 +23,24 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define MAS_MAX_SIZE 0x2477b78ULL
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
+#define CLOCK_BASE 0x04281000ULL
 #define CBAR_BASE 0x1d000000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
 
 #define TYPE_Z7II_MEMC "z7ii-memc-diagnostic"
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMemcState, Z7II_MEMC)
+
+#define TYPE_Z7II_CLOCK_GATES "z7ii-clock-gates-diagnostic"
+OBJECT_DECLARE_SIMPLE_TYPE(Z7IIClockGatesState, Z7II_CLOCK_GATES)
+
+struct Z7IIClockGatesState {
+    SysBusDevice parent_obj;
+    MemoryRegion regs;
+    uint32_t stopped[6];
+    uint32_t known[6];
+    bool reported_error;
+};
 
 struct Z7IIMemcState {
     SysBusDevice parent_obj;
@@ -53,6 +65,7 @@ struct Z7IIMachineState {
     MemoryRegion early_release;
     MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
+    Z7IIClockGatesState clock_gates;
     bool reported_unknown;
 };
 
@@ -205,6 +218,108 @@ static void z7ii_memc_class_init(ObjectClass *oc, const void *data)
     dc->user_creatable = false;
 }
 
+static MemTxResult z7ii_clock_error(Z7IIClockGatesState *s, hwaddr offset,
+                                   unsigned size, bool write, uint64_t value,
+                                   const char *reason)
+{
+    z7ii_access_error(&s->reported_error, CLOCK_BASE + offset, size,
+                      write, value, reason);
+    return MEMTX_ERROR;
+}
+
+/* Six stop banks share SET(+0x100) and CLEAR(+0x200) mask aliases. */
+static int z7ii_clock_bank(hwaddr offset, hwaddr first)
+{
+    if (offset < first || offset >= first + 6 * 4 || (offset & 3)) {
+        return -1;
+    }
+    return (offset - first) / 4;
+}
+
+static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
+                                  uint64_t *value, unsigned size,
+                                  MemTxAttrs attrs)
+{
+    Z7IIClockGatesState *s = opaque;
+    int bank = z7ii_clock_bank(offset, 0x38);
+
+    *value = 0; /* Invalid unless the complete word is known. */
+    if (size != 4 || bank < 0) {
+        return z7ii_clock_error(s, offset, size, false, 0,
+                                "clock-access-not-supported");
+    }
+    if (s->known[bank] != UINT32_MAX) {
+        return z7ii_clock_error(s, offset, size, false, 0,
+                                "clock-stop-bits-uninitialized");
+    }
+    *value = s->stopped[bank];
+    return MEMTX_OK;
+}
+
+static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
+                                   uint64_t value, unsigned size,
+                                   MemTxAttrs attrs)
+{
+    Z7IIClockGatesState *s = opaque;
+    int bank = z7ii_clock_bank(offset, 0x138);
+    bool set = bank >= 0;
+    uint32_t mask = value;
+
+    if (!set) {
+        bank = z7ii_clock_bank(offset, 0x238);
+    }
+    if (size != 4 || bank < 0) {
+        return z7ii_clock_error(s, offset, size, true, value,
+                                "clock-access-not-supported");
+    }
+    if (set) {
+        s->stopped[bank] |= mask;
+    } else {
+        s->stopped[bank] &= ~mask;
+    }
+    s->known[bank] |= mask;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "z7ii-clock-gates: bank=%d operation=%s mask=0x%08x "
+                  "known=0x%08x\n", bank, set ? "set" : "clear", mask,
+                  s->known[bank]);
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps z7ii_clock_ops = {
+    .read_with_attrs = z7ii_clock_read,
+    .write_with_attrs = z7ii_clock_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+static void z7ii_clock_reset(DeviceState *dev)
+{
+    Z7IIClockGatesState *s = Z7II_CLOCK_GATES(dev);
+
+    /* Storage zero is never a supplied hardware reset value. */
+    memset(s->stopped, 0, sizeof(s->stopped));
+    memset(s->known, 0, sizeof(s->known));
+    s->reported_error = false;
+}
+
+static void z7ii_clock_init(Object *obj)
+{
+    Z7IIClockGatesState *s = Z7II_CLOCK_GATES(obj);
+
+    memory_region_init_io(&s->regs, obj, &z7ii_clock_ops, s,
+                          "z7ii.clock-gates", 0x250);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+}
+
+static void z7ii_clock_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    device_class_set_legacy_reset(dc, z7ii_clock_reset);
+    dc->user_creatable = false;
+}
+
 static MemTxResult z7ii_nor_write(void *opaque, hwaddr offset,
                                  uint64_t value, unsigned size,
                                  MemTxAttrs attrs)
@@ -343,6 +458,11 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&s->memc), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->memc), 0, MEMC_BASE);
 
+    object_initialize_child(OBJECT(s), "clock-gates", &s->clock_gates,
+                            TYPE_Z7II_CLOCK_GATES);
+    sysbus_realize(SYS_BUS_DEVICE(&s->clock_gates), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
+
     /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
     gic = qdev_new(TYPE_A15MPCORE_PRIV);
     gic_bus = SYS_BUS_DEVICE(gic);
@@ -401,7 +521,15 @@ static void z7ii_register_types(void)
         .instance_init = z7ii_memc_init,
         .class_init = z7ii_memc_class_init,
     };
+    static const TypeInfo clock_type = {
+        .name = TYPE_Z7II_CLOCK_GATES,
+        .parent = TYPE_SYS_BUS_DEVICE,
+        .instance_size = sizeof(Z7IIClockGatesState),
+        .instance_init = z7ii_clock_init,
+        .class_init = z7ii_clock_class_init,
+    };
     type_register_static(&memc_type);
+    type_register_static(&clock_type);
     type_register_static(&z7ii_machine_type);
 }
 type_init(z7ii_register_types)
