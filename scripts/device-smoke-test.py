@@ -414,7 +414,7 @@ def fixtures():
     completion_default += [0xe5801010, 0xe5904004, 0xe3140001, 0x0afffffc]
     completion_default += [0xe5905008, 0xe590600c]
 
-    return mxic_config_fixtures() + [
+    return mxic_config_fixtures() + ring_fixtures() + [
         ("nv-slot69-erased-bounds", constant(0, 0x133e0000) +
          [0xe5904000, 0xe5d05000, 0xe1d060b0] +
          constant(0, 0x133ffffc) + [0xe5907000],
@@ -1432,6 +1432,31 @@ def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
             re.findall(r"\bR(\d+)=([0-9a-fA-F]+)", response)}
+
+
+def ring_fixtures():
+    base, size = 0xb7cf0000, 0xc618
+    header = constant(0, base) + constant(1, 0x00c00108)
+    header += [0xe5801000] + constant(1, 0xaa550001)
+    header += [0xe5801004, 0xe3a01000, 0xe5801008, 0xe5801010]
+    header += [0xe5904000, 0xe5905004, 0xe5906008, 0xe5907010]
+    slots = constant(0, base + 0x18) + constant(1, 0x1234)
+    slots += [0xe5801000, 0xe5904000]
+    slots += constant(0, base + size - 4) + [0xe5801000, 0xe5905000]
+    producer = constant(0, base) + constant(1, 1)
+    producer += [0xe5801008, 0xe5904008, 0xe5905010]
+    return [
+        ("ring-original-header", header,
+         {4: 0x00c00108, 5: 0xaa550001, 6: 0, 7: 0}, None),
+        ("ring-entire-slot-capacity", slots, {4: 0x1234, 5: 0x1234}, None),
+        ("ring-no-host-consumer", producer, {4: 1, 5: 0}, None),
+        ("ring-below", constant(0, base - 4) + [0xe5801000], {},
+         "uncovered-address"),
+        ("ring-above", constant(0, base + size) + [0xe5801000], {},
+         "uncovered-address"),
+        ("ring-region-withdrawn", mxic_contract(disable=True) +
+         constant(0, base) + [0xe5801000], {}, "uncovered-address"),
+    ]
 
 
 def run(binary, output, name, words, expected, reason):
