@@ -1,5 +1,7 @@
 # Twelve-channel functional timing controller
 
+This document freezes the source1 checkpoint. The later [external capture extension](timing-capture-functional.md) separately records its interface, native checks and next original dependency; earlier receipts below keep their original scope.
+
 Code/native/fixture recipe `51b8e37ee709040fdc7328a53362fc6fc7fef3b6` implements the finite timing/control protocol at2c010000/2c011000, including an independent direct-source1 virtual counter profile. The [fixed whole source contract](https://github.com/mashiro01/nightglass/blob/69c9345438b35c459f569b3bc50bf66af8012a72/research/z7ii/qemu-multichannel-timing-contract.md) exports12 original objects/register-pointer tables, IRQ172..183 and setup/callback callers. Saved-native coverage remains partial; bounded original-byte methods are not all accepted native CFGs. The high caller's3,000,000,000/period arithmetic supports a timing role. No source/destination/descriptor producer exists in this evidence. The manufacturer XDMA layout differs and is rejected; this module performs no DMA memory copy.
 
 ## Source interfaces and named virtual assumptions
