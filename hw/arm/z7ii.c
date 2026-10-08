@@ -115,7 +115,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
-    Z7IINorSlot nv_slot[2];
+    Z7IINorSlot nv_slot[3];
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -850,9 +850,11 @@ static void z7ii_init(MachineState *machine)
     /*
      * Descriptor15 primary record aperture. Original bytes are unavailable;
      * FF cells are an explicit input, not ENDM or valid factory records.
-     * The unobserved alternative at131e0000 remains inaccessible.
      */
     z7ii_erased_slot(s, 1, "z7ii.record-slot15-erased", RECORD_SLOT_BASE,
+                     RECORD_SLOT_SIZE);
+    /* Original180d7e4 then actually reads this descriptor15 alternate bank. */
+    z7ii_erased_slot(s, 2, "z7ii.record-slot15-alternate-erased", 0x131e0000,
                      RECORD_SLOT_SIZE);
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */

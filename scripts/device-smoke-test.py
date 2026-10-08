@@ -984,8 +984,23 @@ def record_slot_fixtures():
          "uncovered-address"),
         ("record-slot-above", constant(0, 0x12e40000) + [0xe5901000], {},
          "uncovered-address"),
-        ("record-slot-alternate-unavailable", constant(0, 0x131e0000) + [0xe5901000], {},
+        ("record-slot-alternate-erased", constant(0, 0x131e0000) +
+         [0xe5904000, 0xe5905004] + constant(0, 0x1321fffc) + [0xe5906000],
+         {4: 0xffffffff, 5: 0xffffffff, 6: 0xffffffff}, None),
+        ("record-slot-alternate-below", constant(0, 0x131dfffc) + [0xe5901000], {},
          "uncovered-address"),
+        ("record-slot-alternate-above", constant(0, 0x13220000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-alternate-board-reset", constant(0, 0x131e0000) +
+         [0xe5902000] + constant(0, 0x1321fffc) + [0xe5904000],
+         {2: 0xffffffff, 4: 0xffffffff}, None),
+        ("record-slot-alternate-before-memc", constant(0, 0x131e0000) +
+         [0xe1c010b0], {}, "nor-memc-not-initialized"),
+        ("record-slot-alternate-protected", initialized(0x29) +
+         constant(0, 0x131e0000) + [0xe1c010b0], {}, "nor-write-protected"),
+        ("record-slot-alternate-command-unsupported", initialized() +
+         constant(0, 0x131e0aaa) + constant(1, 0xaa) + [0xe1c010b0], {},
+         "nor-backend-not-supported"),
         ("record-slot-before-memc", constant(0, 0x12e00000) + [0xe1c010b0], {},
          "nor-memc-not-initialized"),
         ("record-slot-write-protected", initialized(0x29) +
@@ -1257,7 +1272,8 @@ def run(binary, output, name, words, expected, reason):
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
                             "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
-                            "record-slot-board-reset", "audio-board-reset"):
+                            "record-slot-board-reset", "audio-board-reset",
+                            "record-slot-alternate-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
