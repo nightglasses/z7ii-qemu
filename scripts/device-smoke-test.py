@@ -784,6 +784,58 @@ def spi_fixtures():
     ]
 
 
+def exiu_fixtures():
+    exiu = 0x0426f000
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    # Actual GPIO5 pin7 route generates a rising transition, not a host IRQ.
+    high = write(GPIO + 0x114, 0x80) + write(GPIO + 0x14, 0x00800080)
+    low = write(GPIO + 0x14, 0x00800000)
+    edge = high + read(exiu + 0xc, 4) + read(exiu + 8, 5)
+    edge += write(exiu, 0xfffe) + read(exiu + 8, 6)
+    edge += write(exiu + 0x10, 1) + read(exiu + 8, 7)
+    edge += low + read(exiu + 0xc, 8)
+
+    level = write(exiu + 0x18, 0xfffe) + write(exiu, 0xfffe) + high
+    level += write(exiu + 0x10, 1) + read(exiu + 8, 4)
+    level += low + read(exiu + 8, 5)
+    level += write(exiu + 0x10, 1) + read(exiu + 8, 6)
+
+    routes = write(GPIO + 0x114, 0xff80) + write(GPIO + 0x118, 0x7f)
+    routes += write(GPIO + 0x14, 0xff80ff80) + write(GPIO + 0x18, 0x007f007f)
+    routes += write(exiu, 0) + read(exiu + 8, 4)
+
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c21841]  # IRQ65 target CPU0.
+    irq += write(0xf8101108, 2) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + write(exiu, 0xfffe) + high
+    irq += read(0xf810200c, 4) + write(exiu + 0x10, 1)
+    irq += write(0xf8102010, 65) + read(0xf810200c, 5)
+    return [
+        ("exiu-edge-mask-latch-ack", edge, {4: 1, 5: 0, 6: 1, 7: 0, 8: 0}, None),
+        ("exiu-level-reassert-and-clear", level, {4: 1, 5: 1, 6: 0}, None),
+        ("exiu-all-sixteen-pad-routes", routes, {4: 0xffff}, None),
+        ("exiu-real-gic-route65", irq, {4: 65, 5: 1023}, None),
+        ("exiu-config-no-edge", write(exiu + 0x14, 0) +
+         read(exiu + 0xc, 4), {4: 0}, None),
+        ("exiu-unknown-width", constant(0, exiu) + [0xe5d01000], {},
+         "exiu-access-not-supported"),
+        ("exiu-unknown-channel", write(exiu, 0x10000), {},
+         "exiu-access-not-supported"),
+        ("exiu-software-source-unsupported", write(exiu + 4, 1), {},
+         "exiu-access-not-supported"),
+        ("exiu-software-command-unsupported", write(exiu + 0x1c, 1), {},
+         "exiu-access-not-supported"),
+        ("exiu-status-write-unsupported", write(exiu + 8, 1), {},
+         "exiu-access-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -897,7 +949,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures()]
+               fixtures() + spi_fixtures() + exiu_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")

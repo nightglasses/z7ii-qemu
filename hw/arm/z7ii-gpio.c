@@ -6,6 +6,7 @@
  */
 #include "qemu/osdep.h"
 #include "migration/vmstate.h"
+#include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
 #include "z7ii.h"
 
@@ -18,8 +19,27 @@ struct Z7IIGPIOState {
     MemoryRegion regs;
     /* PDR output latch, DDR, EPCR, PUDER, PUDCR. */
     uint16_t ports[5][GPIO_PORTS];
+    qemu_irq pads[GPIO_PORTS * 16];
     bool reported_error;
 };
+
+static uint16_t z7ii_gpio_levels(Z7IIGPIOState *s, unsigned port)
+{
+    uint16_t outputs = s->ports[1][port] & ~s->ports[2][port];
+    uint16_t input = s->ports[3][port] & s->ports[4][port];
+
+    return (s->ports[0][port] & outputs) | (input & ~outputs);
+}
+
+static void z7ii_gpio_update(Z7IIGPIOState *s, unsigned port)
+{
+    uint16_t levels = z7ii_gpio_levels(s, port);
+    unsigned pin;
+
+    for (pin = 0; pin < 16; pin++) {
+        qemu_set_irq(s->pads[port * 16 + pin], !!(levels & (1U << pin)));
+    }
+}
 
 static MemTxResult z7ii_gpio_error(Z7IIGPIOState *s, hwaddr offset,
                                   unsigned size, bool write, uint64_t value,
@@ -50,11 +70,8 @@ static MemTxResult z7ii_gpio_read(void *opaque, hwaddr offset, uint64_t *value,
                                "gpio-access-not-supported");
     }
     if (bank == 0) {
-        uint16_t outputs = s->ports[1][port] & ~s->ports[2][port];
-        uint16_t input = s->ports[3][port] & s->ports[4][port];
-
         /* Unconnected input/alternate pads follow pull, otherwise virtual low. */
-        *value = (s->ports[0][port] & outputs) | (input & ~outputs);
+        *value = z7ii_gpio_levels(s, port);
     } else {
         *value = s->ports[bank][port];
     }
@@ -83,6 +100,7 @@ static MemTxResult z7ii_gpio_write(void *opaque, hwaddr offset, uint64_t value,
         }
         s->ports[bank][port] = value;
     }
+    z7ii_gpio_update(s, port);
     return MEMTX_OK;
 }
 
@@ -97,10 +115,14 @@ static const MemoryRegionOps z7ii_gpio_ops = {
 static void z7ii_gpio_reset(DeviceState *dev)
 {
     Z7IIGPIOState *s = Z7II_GPIO(dev);
+    unsigned port;
 
     /* Virtual unconnected GPIO profile: input, no pull, latch low. */
     memset(s->ports, 0, sizeof(s->ports));
     s->reported_error = false;
+    for (port = 0; port < GPIO_PORTS; port++) {
+        z7ii_gpio_update(s, port);
+    }
 }
 
 static void z7ii_gpio_init(Object *obj)
@@ -109,6 +131,7 @@ static void z7ii_gpio_init(Object *obj)
 
     memory_region_init_io(&s->regs, obj, &z7ii_gpio_ops, s, "z7ii.gpio", 0x430);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    qdev_init_gpio_out_named(DEVICE(obj), s->pads, "pad", GPIO_PORTS * 16);
 }
 
 static const VMStateDescription z7ii_gpio_vmstate = {
