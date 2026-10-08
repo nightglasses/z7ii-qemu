@@ -30,7 +30,7 @@ def main():
     # ARM little-endian B .; synthetic test bytes, not recovered firmware.
     image.write_bytes(bytes.fromhex("fe ff ff ea"))
     trace = output / "guest.log"
-    vm_args = ["-accel", "tcg,thread=single", "-bios", str(image),
+    vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(trace), "-d", "in_asm,guest_errors,int"]
 

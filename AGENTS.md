@@ -9,3 +9,5 @@
 | [docs/AGENTS.md](docs/AGENTS.md) | 运行证据和模型边界规范 |
 | [docs/memc-a7-diagnostic.md](docs/memc-a7-diagnostic.md) | MEMC/A7/GIC/timer 合同、初始假设和合成测试范围 |
 | [docs/original-mas-memc-run.md](docs/original-mas-memc-run.md) | 原版越过 MEMC 与临时栈、下一时钟读阻断的实际证据 |
+| [docs/original-mas-smp-run.md](docs/original-mas-smp-run.md) | 两核软件合同、精确 RAM、原版 MTTCG 等待与时钟阻断 |
+| [docs/clock-gates-diagnostic.md](docs/clock-gates-diagnostic.md) | 六组时钟停止位别名、未知复位与合成合同验证 |
