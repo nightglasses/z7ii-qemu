@@ -50,7 +50,8 @@ def main():
                         "0x10200c62+0x4", "0x10200c10+0x4",
                         "0x1020081c+0x4", "0x10200972+0x4",
                         "0x10200c48+0x2", "0x10201458+0x10",
-                        "0x10387e08+0x2a"]
+                        "0x10387e08+0x2a", "0x10387e36+0x64",
+                        "0x102ddfe6+0x4", "0x10200bca+0x46"]
         if args.trace_records:
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
                         "0x102a85f4+0xb0", "0x1010261e+0x76",
@@ -74,6 +75,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
+            "2013 finite bridge control protocol at20130000, GIC127; named cold-zero supported config/reset, exact current-profile words, high16 one-context selector, independent48MHz/10us lane/control/configuration apply; lane status3, command4/6 event2 and configuration-command2 event4 are virtual causal conventions; five arrays are independent configuration and generate no IRQ/backing; no peer event1/signature/backing or physical IP identity",
             "four finite I2C instances at2c018000..2c01b000/GIC214..217; idle zero control, empty16-byte FIFOs, mask2ff, disconnected official I2CBus, nominal independent48MHz; monitor/bit7/10-bit operations unsupported",
             "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, real non-reload bus copies; external requests rechecked per beat, Audio bank1 selectors3/7/5; unsupported transforms/pause/halt",
             "two Audio channels at2c080100/200, GIC167/168; virtual zero reset, opaque32-bit FIFO words, disconnected input, independent48MHz divided output sink; original AUCR enable-command variant and unknown AUMD23/26 retained; no physical PCM packing/codec inference",

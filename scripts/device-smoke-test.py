@@ -1428,6 +1428,128 @@ def copy_fixtures():
     return cases
 
 
+def bridge_fixtures():
+    base = 0x20130000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | reg << 12]
+
+    def delay():
+        # 20 us observes after the named 10 us apply deadline.
+        return (constant(1, 960) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    def prepare(bank=1, reset=True):
+        words = []
+        if reset:
+            words += write(0xc5e0, 0xf000f)
+            words += write(0xc5f4, 0x1b) + write(0xc5f8, 0x1b)
+            words += write(0xc5e0, 0)
+        for context in range(4):
+            for group in range(2):
+                offset = bank * 0x8000 + context * 0x400 + group * 0x200
+                words += write(offset + 0x88, 2) + write(offset + 0x8c, 3)
+        return words
+
+    def wait_lane(offset=0x8104):
+        return constant(0, base + offset) + [
+            0xe5902000, 0xe3520003, 0x1afffffc]
+
+    ready = prepare() + write(0xc128, 0xf00f) + wait_lane()
+    cold = read(0x8104, 4) + read(0x8304, 5) + read(0xd020, 6)
+    selected = prepare() + write(0xc128, 0x1002) + wait_lane(0x8504)
+    selected += read(0x8304, 4) + read(0x8504, 5) + read(0x8104, 6)
+    selected += read(0x8704, 7) + read(0xd020, 8)
+    windows = prepare()
+    for context in range(4):
+        windows += write(0xc5f0, 0x10000 << context)
+        for offset, value in ((0x81c8, 0x44), (0x81cc, 0x1c), (0x81ec, 0x20)):
+            windows += write(offset, value)
+    windows += read(0x81c8, 4) + read(0x81cc, 5) + read(0x81ec, 6)
+    control = ready + write(0xd024, 0xffff) + write(0xc90c, 6)
+    control += delay() + read(0x4908, 4) + read(0xd020, 5)
+    control += write(0xd028, 2) + read(0xd020, 6)
+    control += write(0xc90c, 4) + delay() + read(0xd020, 7)
+    packet = ready.copy()
+    for index in range(40):
+        packet += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
+    handshake = ready + write(0xc13c, 2) + delay() + read(0xd020, 4)
+    mapping = handshake + write(0xd028, 0x40)
+    mapping += packet[len(ready):] + read(0xd0b0, 5) + read(0xd10c, 6)
+    mapping += read(0xd020, 7)
+    cancelled = prepare() + write(0xc128, 0xf00f)
+    cancelled += write(0xc5e0, 0xf000f) + write(0xc5e0, 0) + delay()
+    cancelled += read(0x8104, 4) + read(0xd020, 5)
+    cancelled_control = ready + write(0xc90c, 6)
+    cancelled_control += write(0xc5e0, 0xf000f) + delay()
+    cancelled_control += read(0x4908, 4) + read(0xd020, 5)
+    cancelled_configuration = ready + write(0xc13c, 2) + write(0xc5e0, 0xf000f)
+    cancelled_configuration += delay() + read(0xd020, 4) + read(0xd0b0, 5)
+    lifecycle = prepare(0) + prepare(1, reset=False)
+    for bank in range(2):
+        for context in range(4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 1)
+    lifecycle += write(0xc910, 4) + read(0xc910, 4) + read(0x8cac, 5)
+    for bank in range(2):
+        for context in range(1, 4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 0)
+        lifecycle += write(bank * 0x8000 + 0x4128, 0xe00e)
+    lifecycle += wait_lane(0x504) + wait_lane(0x8504)
+    for bank in range(2):
+        lifecycle += write(bank * 0x8000 + 0x4120, 4)
+        lifecycle += write(bank * 0x8000 + 0x4124, 4)
+    lifecycle += write(0xc13c, 2) + delay() + read(0xd020, 6)
+    lifecycle += write(0xd028, 0x40) + read(0x8cac, 7)
+    lifecycle += read(0xc120, 8) + read(0xc124, 9)
+    irq = write(0xd024, 2) + ready
+    irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
+    irq += constant(2, 0xf8101000) + [0xe5c2187f]
+    irq += constant(0, 0xf810110c) + constant(1, 0x80000000) + [0xe5801000]
+    irq += constant(0, 0xf8102004) + constant(1, 0xff) + [0xe5801000]
+    irq += constant(0, 0xf8102000) + constant(1, 1) + [0xe5801000]
+    irq += write(0xc90c, 6) + delay()
+    irq += constant(0, 0xf810200c) + [0xe5904000]
+    irq += write(0xd028, 2)
+    irq += constant(0, 0xf8102010) + constant(1, 127) + [0xe5801000]
+    irq += constant(0, 0xf810200c) + [0xe5905000]
+    error = "bridge-access-or-protocol-not-supported"
+    return [
+        ("bridge-cold-no-ready-or-peer-event", cold, {4: 0, 5: 0, 6: 0}, None),
+        ("bridge-selected-lanes-only-no-event1", selected,
+         {4: 3, 5: 3, 6: 0, 7: 0, 8: 0}, None),
+        ("bridge-high-selector-window", windows, {4: 0x44, 5: 0x1c, 6: 0x20}, None),
+        ("bridge-control-command-and-w1c", control, {4: 1, 5: 2, 6: 0, 7: 2}, None),
+        ("bridge-handshake-before-arrays-no-array-irq", mapping,
+         {4: 0x40, 5: 1, 6: 24, 7: 0}, None),
+        ("bridge-late-whole-lifecycle", lifecycle,
+         {4: 4, 5: 1, 6: 0x40, 7: 0, 8: 4, 9: 4}, None),
+        ("bridge-real-gic-irq127", irq, {4: 127, 5: 1023}, None),
+        ("bridge-reset-cancels-lanes", cancelled, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-control", cancelled_control, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-configuration", cancelled_configuration, {4: 0, 5: 0}, None),
+        ("bridge-board-reset", read(0xc5e0, 2) + write(0xc5e0, 0xf000f),
+         {2: 0}, None),
+        ("bridge-control-overlap-rejected", ready + write(0xc90c, 6) +
+         write(0xc90c, 4), {}, error),
+        ("bridge-map-trailing-array-profile", write(0xd110, 1), {}, error),
+        ("bridge-request-before-configuration", write(0xc128, 0xf00f), {}, error),
+        ("bridge-configuration-before-lanes", write(0xc13c, 2), {}, error),
+        ("bridge-context-mode-reject-preserves-state", write(0x80ac, 1) +
+         write(0x80ac, 2), {}, error),
+        ("bridge-late-field-reject-preserves-state", write(0xc120, 4) +
+         write(0xc120, 5), {}, error),
+        ("bridge-low-selector-unsupported", write(0xc5f0, 1), {}, error),
+        ("bridge-unknown-config-value", write(0x8088, 9), {}, error),
+        ("bridge-unknown-command", ready + write(0xc90c, 5), {}, error),
+        ("bridge-other-bank-ready-not-alias", read(0xc908, 4), {}, error),
+        ("bridge-unknown-offset", read(0x829c, 4), {}, error),
+        ("bridge-unknown-width", constant(0, base + 0xd020) + [0xe5d01000], {}, error),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -1470,7 +1592,7 @@ def run(binary, output, name, words, expected, reason):
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
     if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-",
-                        "hdmac-", "i2c-", "audio-", "timing-", "copy-")):
+                        "hdmac-", "i2c-", "audio-", "timing-", "copy-", "bridge-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -1517,6 +1639,14 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c08010c 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
+                if name in ("bridge-context-mode-reject-preserves-state",
+                            "bridge-late-field-reject-preserves-state"):
+                    address, value = ((0x201380ac, 1) if "context" in name
+                                      else (0x2013c120, 4))
+                    state_file = output / "bridge-configuration.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave {address} 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == value
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
@@ -1547,7 +1677,7 @@ def run(binary, output, name, words, expected, reason):
                             "record-slot-alternate-board-reset",
                             "timing-board-reset",
                             "copy-board-reset", "record-footer-board-reset",
-                            "external-nor-board-reset"):
+                            "external-nor-board-reset", "bridge-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1604,14 +1734,16 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path, help="new output directory")
     args = parser.parse_args()
+    cases = (fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
+             i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
+             timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
+             external_nor_fixtures() + bridge_fixtures())
+    names = [case[0] for case in cases]
+    assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
-                   expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
-               i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
-               external_nor_fixtures()]
+                   expected, reason) for name, words, expected, reason in cases]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")

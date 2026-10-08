@@ -976,6 +976,8 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
     sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
+    sysbus_create_simple(TYPE_Z7II_BRIDGE, 0x20130000,
+                         qdev_get_gpio_in(gic, 127 - 32));
     exiu = sysbus_create_simple(TYPE_Z7II_EXIU, 0x0426f000, NULL);
     /* Original 16 EXIU objects map GPIO5[7:15]/GPIO6[0:6] to IRQ65..80. */
     for (i = 0; i < 16; i++) {
