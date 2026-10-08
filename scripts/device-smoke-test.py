@@ -972,6 +972,30 @@ def hdmac_fixtures():
     ]
 
 
+def record_slot_fixtures():
+    readback = constant(0, 0x12e00000) + [0xe5902000, 0xe5904004]
+    readback += constant(0, 0x12e3fffc) + [0xe5905000]
+    return [
+        ("record-slot-erased-header-and-end", readback,
+         {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
+        ("record-slot-board-reset", readback,
+         {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
+        ("record-slot-below", constant(0, 0x12dffffc) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-above", constant(0, 0x12e40000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-alternate-unavailable", constant(0, 0x131e0000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-before-memc", constant(0, 0x12e00000) + [0xe1c010b0], {},
+         "nor-memc-not-initialized"),
+        ("record-slot-write-protected", initialized(0x29) +
+         constant(0, 0x12e00000) + [0xe1c010b0], {}, "nor-write-protected"),
+        ("record-slot-command-unsupported", initialized() +
+         constant(0, 0x12e00aaa) + constant(1, 0xaa) + [0xe1c010b0], {},
+         "nor-backend-not-supported"),
+    ]
+
+
 def i2c_fixtures():
     base = 0x2c018000
 
@@ -1117,7 +1141,8 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
-                            "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset"):
+                            "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
+                            "record-slot-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1131,7 +1156,7 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
                     after_reset = registers(vm)
-                    if name == "mxic-config-reset":
+                    if name in ("mxic-config-reset", "record-slot-board-reset"):
                         for reg, value in expected.items():
                             assert after_reset[reg] == value, after_reset
                     else:
@@ -1169,7 +1194,8 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() + i2c_fixtures()]
+               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
+               i2c_fixtures() + record_slot_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
