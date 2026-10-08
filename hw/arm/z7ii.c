@@ -105,6 +105,8 @@ struct Z7IIMachineState {
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
+    MemoryRegion bss_ram;
+    MemoryRegion bss_storage;
     MemoryRegion stack_ram[6];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
@@ -729,6 +731,7 @@ static void z7ii_init(MachineState *machine)
 {
     Z7IIMachineState *s = Z7II_MACHINE(machine);
     DeviceState *gic;
+    DeviceState *mxic;
     SysBusDevice *gic_bus;
     int64_t image_size;
     unsigned i;
@@ -772,6 +775,13 @@ static void z7ii_init(MachineState *machine)
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
     z7ii_ram(&s->copy_ram[1], "z7ii.copy1", 0xb2bb0000, 0x105c);
+    /* Explicit byte-block fill profile: count 0x4ac * width 0x4000. */
+    /* Preserve RAM/guest page-offset congruence without mapping padding. */
+    memory_region_init_ram(&s->bss_storage, NULL, "z7ii.fill-bss-storage",
+                           0x12b0dc0, &error_fatal);
+    memory_region_init_alias(&s->bss_ram, NULL, "z7ii.fill-bss",
+                             &s->bss_storage, 0xdc0, 0x12b0000);
+    memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
@@ -788,6 +798,21 @@ static void z7ii_init(MachineState *machine)
         z7ii_ram(&s->stack_ram[i], name,
                  stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
     }
+
+    mxic = sysbus_create_simple(TYPE_Z7II_MXIC, 0x20016000, NULL);
+    z7ii_mxic_attach_ram(mxic, &s->copy_ram[0], 0xb1800000);
+    z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
+    z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
+    z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
+    if (machine->smp.cpus == 2) {
+        z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);
+    }
+    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
+        z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],
+                            stack_top[i] - STACK_SLOT_SIZE);
+    }
+
+    sysbus_create_simple(TYPE_Z7II_FILL, 0x20070000, NULL);
 
     s->num_cpus = machine->smp.cpus;
     for (i = 0; i < s->num_cpus; i++) {

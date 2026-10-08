@@ -15,3 +15,5 @@
 | [docs/functional-startup-model.md](docs/functional-startup-model.md) | 功能复位/时序假设、原版 PLL 越过与下一实际阻断 |
 | [docs/timestamp-functional.md](docs/timestamp-functional.md) | 独立 Clock 时间计数、88B 精确栈和合成验证 |
 | [docs/sdi-functional.md](docs/sdi-functional.md) | 双bank SDI/PHY/DDR 训练/port 状态机与原版下一阻断 |
+| [docs/mxic-regions-functional.md](docs/mxic-regions-functional.md) | 有限 DDR backing 的区域事务、虚拟初态与真实总线约束 |
+| [docs/fill-functional.md](docs/fill-functional.md) | 原版填充协议、有限 virtual BSS、DMA 总线结果和 ACK |

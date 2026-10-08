@@ -19,6 +19,8 @@ CLOCK = 0x04281000
 COMPLETION = 0x04287000
 TIMESTAMP = 0x04266000
 SDI = 0x20020000
+MXIC = 0x20016000
+FILL = 0x20070000
 
 
 def constant(reg, value):
@@ -96,7 +98,49 @@ def sdi_contract(arb_reset=None):
     return words
 
 
+def mxic_contract(disable=False, bad_geometry=False):
+    # Independent original boot profile, not a read of device implementation.
+    values = [0x60000000, 0x50000000, 0x50000000, 0xb0000000,
+              0x50000000, 0, 0x30000, 0x40000000]
+    if disable:
+        values[2] = 0
+    if bad_geometry:
+        values[0] += 1
+    words = []
+    for index, value in enumerate(values):
+        words += constant(0, MXIC + 0x20 + index * 4)
+        words += constant(1, value) + [0xe5801000]
+    words += constant(0, MXIC) + constant(1, 1) + [0xe5801000]
+    for index, value in enumerate((0x60000000, 0x50000000, 0x50000000, 0xb0000000)):
+        words += constant(0, MXIC + 0xd50 + index * 4)
+        words += constant(1, value) + [0xe5801000]
+    words += constant(0, MXIC + 0xd40) + constant(1, 1) + [0xe5801000]
+    return words
+
+
+def fill_contract(destination=0xb18aedc0, count=0x4ac):
+    words = []
+    for offset, value in ((0, 0), (0x14, 1), (0x20, 0x4000),
+                          (0x24, 0x4000), (0x28, count), (0x18, 0),
+                          (4, 0), (0x30, destination), (0x10, 1)):
+        words += constant(0, FILL + offset) + constant(1, value) + [0xe5801000]
+    return words
+
+
 def fixtures():
+    fill = []
+    for address in (0xb18aedc0, 0xb2b5edbc, 0xb2b5e510,
+                    0xb18aedb4, 0xb2b74000):
+        fill += constant(0, address) + constant(1, 0x12345678) + [0xe5801000]
+    fill += fill_contract()
+    for reg, address in ((4, 0xb18aedc0), (5, 0xb2b5edbc),
+                         (6, 0xb2b5e510), (9, 0xb18aedb4), (10, 0xb2b74000)):
+        fill += constant(0, address) + [0xe5900000 | reg << 12]
+    fill += constant(0, FILL + 8) + [0xe5907000]
+    fill += constant(1, 1) + [0xe5801000, 0xe5908000]
+    fill_error = fill_contract(0x04000000, 1)
+    fill_error += constant(0, FILL + 8) + [0xe5904000]
+    fill_error += constant(1, 0x10) + [0xe5801000, 0xe5905000]
     # MODE read/modify/write; TIM readback; both ends of exactly 88 bytes RAM.
     profile = initialized() + [0xe5904000, 0xe5905020, 0xe3841008,
                                0xe5801000, 0xe5906000, 0xe3c11008,
@@ -244,6 +288,56 @@ def fixtures():
          "timestamp-access-not-supported"),
         ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
          "timestamp-access-not-supported"),
+        ("fill-bss-before-exact-window", constant(0, 0xb18aedbc) +
+         [0xe5901000], {}, "uncovered-address"),
+        ("fill-bss-after-exact-window", constant(0, 0xb2b5edc0) +
+         [0xe5901000], {}, "uncovered-address"),
+        ("fill-control-does-not-reset", fill_contract(0xb1800000, 1)[:-5] +
+         constant(0, FILL) + constant(1, 1) + [0xe5801000, 0xe5904014,
+                                              0xe5905020, 0xe5906024],
+         {4: 1, 5: 0x4000, 6: 0x4000}, None),
+        ("fill-virtual-rmw-reset", constant(0, FILL) +
+         [0xe5904014, 0xe5905020, 0xe5906024], {4: 0, 5: 0, 6: 0}, None),
+        ("fill-unsupported-ack", constant(0, FILL + 8) +
+         constant(1, 0x11) + [0xe5801000], {}, "fill-ack-not-supported"),
+        ("fill-real-bss-and-tail", fill,
+         {4: 0, 5: 0, 6: 0, 7: 1, 8: 0, 9: 0x12345678, 10: 0x12345678}, None),
+        ("fill-bus-error-ack", fill_error, {4: 0x10, 5: 0}, None),
+        ("fill-withdrawn-ddr-error", mxic_contract(disable=True) +
+         fill_contract(0xb1800000, 1) + constant(0, FILL + 8) + [0xe5904000],
+         {4: 0x10}, None),
+        ("fill-unacknowledged-result", fill_contract(0xb1800000, 1) +
+         constant(0, FILL + 0x10) + constant(1, 1) + [0xe5801000], {},
+         "fill-result-not-acknowledged"),
+        ("fill-incomplete-request", constant(0, FILL + 0x10) +
+         constant(1, 1) + [0xe5801000], {}, "fill-request-profile-not-supported"),
+        ("fill-unsupported-count", constant(0, FILL + 0x28) +
+         constant(1, 0) + [0xe5801000], {}, "fill-value-profile-not-supported"),
+        ("fill-unsupported-pattern", constant(0, FILL + 0x18) +
+         constant(1, 1) + [0xe5801000], {}, "fill-value-profile-not-supported"),
+        ("fill-reserved-offset", constant(0, FILL + 0x0c) + [0xe5901000], {},
+         "fill-access-not-supported"),
+        ("fill-byte-write", constant(0, FILL + 0x10) + [0xe5c01000], {},
+         "fill-access-not-supported"),
+        ("mxic-region-commit-readback", mxic_contract() +
+         constant(0, MXIC + 0x20) + [0xe5904000, 0xe590501c] +
+         constant(0, MXIC + 0xd50) + [0xe5906000, 0xe590700c] +
+         constant(0, 0xb1800000) + constant(1, 0x12345678) +
+         [0xe5801000, 0xe5908000],
+         {4: 0x60000000, 5: 0x40000000, 6: 0x60000000,
+          7: 0xb0000000, 8: 0x12345678}, None),
+        ("mxic-region-withdraw-backing", mxic_contract(disable=True) +
+         constant(0, 0xb1800000) + [0xe5901000], {}, "uncovered-address"),
+        ("mxic-incomplete-commit", constant(0, MXIC) + constant(1, 1) +
+         [0xe5801000], {}, "mxic-incomplete-region-transaction"),
+        ("mxic-bad-geometry", mxic_contract(bad_geometry=True), {},
+         "mxic-region-geometry-not-supported"),
+        ("mxic-bad-command", constant(0, MXIC) + constant(1, 2) +
+         [0xe5801000], {}, "mxic-command-not-supported"),
+        ("mxic-reserved-offset", constant(0, MXIC + 4) + [0xe5901000], {},
+         "mxic-access-not-supported"),
+        ("mxic-byte-write", constant(0, MXIC + 0x20) + [0xe5c01000], {},
+         "mxic-access-not-supported"),
         ("sdi-two-bank-bringup", sdi_contract(),
          {8: 0, 9: 1, 10: 0, 11: 0}, None),
         ("sdi-arb-reset-pending", sdi_contract("pending"),
