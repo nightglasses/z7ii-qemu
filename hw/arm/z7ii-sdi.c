@@ -23,7 +23,9 @@ typedef struct Z7IISDIChannel {
     bool initialized;
 } Z7IISDIChannel;
 
-/* Typed original whole-wrapper configuration profiles, including retry values.
+/* Official Ghidra getPcode/SymbolicPropogator whole-wrapper observations,
+ * validated against original bytes in research commit 6a6b721.
+ * Configuration profiles include retry values.
  * Values are applied configuration, not firmware instruction/data bytes.
  * Unlisted offsets and values remain unsupported. */
 static const struct {

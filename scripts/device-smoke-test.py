@@ -17,6 +17,7 @@ TIM = 0x153b0902
 CLOCK = 0x04281000
 COMPLETION = 0x04287000
 TIMESTAMP = 0x04266000
+SDI = 0x20020000
 
 
 def constant(reg, value):
@@ -29,6 +30,54 @@ def constant(reg, value):
 def initialized(mode=0x21):
     return (constant(0, MEMC) + constant(1, mode) + [0xe5801000] +
             constant(1, TIM) + [0xe5801020])
+
+
+def sdi_contract():
+    """Synthetic whole bring-up from the independently recovered guest profile."""
+    profile = json.loads((Path(__file__).resolve().parents[1] /
+                          "tests/sdi-init-profiles.json").read_text())
+    ports = (0x8000, 0x8800, 0x8c00, 0x9000, 0x9800, 0x9c00, 0xa000,
+             0xa800, 0xac00, 0xb000, 0xb800, 0xbc00, 0xc000, 0xc800, 0xcc00)
+    words = []
+    for bank in range(2):
+        base = SDI + bank * 0x20000
+
+        def write(offset, value):
+            return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+        def configure(predicate):
+            return [word for offset, *values in profile["configurations"]
+                    if predicate(offset) for word in write(offset, values[bank])]
+
+        def submit(request, value, status, ack=None):
+            code = write(request, value) + constant(0, base + status)
+            code += [0xe5902000, 0xe3120001, 0x0afffffc]
+            code += write(status if ack is None else ack, 1)
+            return code
+
+        words += write(0x3000, 1) + write(0x2000, 1)
+        words += configure(lambda o: o in (0x100, 0x10c, 0x2408, 0x2414) or
+                           0x1004 <= o <= 0x1014 or o >= 0x10000)
+        words += write(0, 0) + write(0x2000, 0)
+        words += submit(0x2100, 1, 0x2300)
+        words += configure(lambda o: 0x3400 <= o < 0x4000)
+        words += write(0x3000, 0) + submit(0x3100, 0x10001, 0x3300)
+        for mode in range(5):
+            words += submit(0x3118, 1 | mode << 16, 0x3318)
+        words += constant(0, base + 0x1016c) + [0xe5900000 | (10 + bank) << 12]
+        words += configure(lambda o: 0x1020 <= o < 0x2000 or
+                           0x4400 <= o < 0x4500)
+        words += write(0x4000, 0) + submit(0x4100, 1, 0x4300)
+        for index, port in enumerate(ports):
+            end = ports[index + 1] if index + 1 < len(ports) else 0xe000
+            words += configure(lambda o, start=port, limit=end: start < o < limit)
+            words += write(port, 0) + submit(port + 0x10, 1, port + 0x30)
+        words += configure(lambda o: 0xe000 < o < 0x10000)
+        words += write(0xe000, 0)
+        # Preserve the original bank1 asymmetry: poll E300, ack CC30.
+        words += submit(0xe100, 1, 0xe300, 0xcc30 if bank else 0xe300)
+        words += constant(0, base + 0xe300) + [0xe5900000 | (8 + bank) << 12]
+    return words
 
 
 def fixtures():
@@ -175,6 +224,28 @@ def fixtures():
          "timestamp-access-not-supported"),
         ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
          "timestamp-access-not-supported"),
+        ("sdi-two-bank-bringup", sdi_contract(),
+         {8: 0, 9: 1, 10: 0, 11: 0}, None),
+        ("sdi-reset-state", constant(0, SDI) + [0xe5904000] +
+         constant(0, SDI + 0x2000) + [0xe5905000] +
+         constant(0, SDI + 0x2300) + [0xe5906000], {4: 1, 5: 1, 6: 0}, None),
+        ("sdi-request-before-configuration", constant(0, SDI + 0x2100) +
+         constant(1, 1) + [0xe5801000], {}, "sdi-request-phase-not-supported"),
+        ("sdi-training-before-init", constant(0, SDI + 0x3118) +
+         constant(1, 1) + [0xe5801000], {}, "sdi-request-phase-not-supported"),
+        ("sdi-training-bad-mode", constant(0, SDI + 0x3118) +
+         constant(1, 0x50001) + [0xe5801000], {},
+         "sdi-request-profile-not-supported"),
+        ("sdi-training-result-before-request", constant(0, SDI + 0x1016c) +
+         [0xe5901000], {}, "sdi-training-result-uninitialized"),
+        ("sdi-unsupported-config", constant(0, SDI + 0x10010) +
+         constant(1, 6) + [0xe5801000], {}, "sdi-config-profile-not-supported"),
+        ("sdi-unsupported-ack", constant(0, SDI + 0x2300) +
+         constant(1, 2) + [0xe5801000], {}, "sdi-ack-profile-not-supported"),
+        ("sdi-reserved-offset", constant(0, SDI + 0x104) +
+         [0xe5901000], {}, "sdi-access-not-supported"),
+        ("sdi-byte-write", constant(0, SDI + 0x2100) + [0xe5c01000], {},
+         "sdi-access-not-supported"),
         ("completion-irq", completion,
          {4: 1, 5: 0, 6: 0x1110, 7: 1 << 26, 8: 250,
           9: 1 << 26, 10: 0, 11: 1023, 12: 1, 13: 0}, None),
