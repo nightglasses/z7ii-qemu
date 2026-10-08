@@ -1520,7 +1520,39 @@ def copy_fixtures():
     missing_loader += read(base + 0x30, 4) + read(0xf810200c, 5)
     missing_loader += write(base + 0x30, 0) + write(0xf8102010, 45)
     missing_loader += read(base + 0x30, 6) + read(0xbaa00000, 7)
+    rom = setup(length=8, sa=BASE) + start() + wait()
+    rom += read(base + 0x30, 6) + read(destination, 4)
+    rom += read(destination + 4, 5)
+    rom_words = constant(0, base)
+    external_rom = setup(length=7, sa=0x12960000) + start() + wait()
+    external_rom += read(base + 0x30, 6) + read(destination, 4)
+    external_rom += read(destination + 4, 5)
+    protected_rom = seed + setup(length=8, da=BASE) + start() + wait()
+    protected_rom += read(base + 0x30, 4) + read(BASE, 5)
+    protected_external = seed + setup(length=8, da=0x12960000)
+    protected_external += start() + wait() + read(base + 0x30, 4)
+    protected_external += read(0x12960000, 5)
+    crossing = setup(length=8, sa=0) + start() + wait()
+    crossing += read(base + 0x30, 4) + read(destination, 5)
+    # First word is the final loop instruction; the next word is unmapped.
+    crossing = setup(length=8, sa=BASE + len(crossing) * 4) + crossing[
+        len(setup(length=8, sa=0)):]
+    destination_crossing = seed + setup(length=8, da=0xbb2ffffc)
+    destination_crossing += start() + wait() + read(base + 0x30, 4)
+    destination_crossing += read(0xbb2ffffc, 5)
     cases = [
+        ("copy-romd-source-real-bytes", rom,
+         {4: rom_words[0], 5: rom_words[1], 6: 8}, None),
+        ("copy-romd-external-source-byte-tail", external_rom,
+         {4: 0xffffffff, 5: 0x00ffffff, 6: 8}, None),
+        ("copy-romd-destination-protected", protected_rom,
+         {4: 1, 5: constant(0, source)[0]}, None),
+        ("copy-romd-external-destination-protected", protected_external,
+         {4: 1, 5: 0xffffffff}, None),
+        ("copy-romd-source-crossing-hole-no-partial-write", crossing,
+         {4: 1, 5: 0}, None),
+        ("copy-destination-crossing-hole-no-partial-write",
+         destination_crossing, {4: 1, 5: 0}, None),
         ("copy-relocation-dma-and-execution", relocated,
          {4: 0x5a, 5: 45, 6: 8}, None),
         ("copy-relocation-unknown-loader-source", missing_loader,

@@ -59,6 +59,32 @@ static void z7ii_copy_schedule(Z7IICopyChannel *c)
               clock_ticks_to_ns(c->owner->clock, MIN(c->remaining, 256)) + 1);
 }
 
+static bool z7ii_copy_memory_range(hwaddr addr, uint64_t length, bool write)
+{
+    while (length) {
+        MemoryRegionSection section = memory_region_find(get_system_memory(),
+                                                        addr, length);
+        uint64_t span;
+        bool direct;
+
+        if (!section.mr) {
+            return false;
+        }
+        span = int128_get64(section.size);
+        direct = section.offset_within_address_space == addr && span &&
+                 memory_access_is_direct(section.mr, write,
+                                         MEMTXATTRS_UNSPECIFIED) &&
+                 (!write || !section.readonly);
+        memory_region_unref(section.mr);
+        if (!direct) {
+            return false;
+        }
+        addr += span;
+        length -= span;
+    }
+    return true;
+}
+
 static void z7ii_copy_step(void *opaque)
 {
     Z7IICopyChannel *c = opaque;
@@ -70,11 +96,17 @@ static void z7ii_copy_step(void *opaque)
     if (!c->running) {
         return;
     }
-    /* This exact profile supports ordinary memory, not MMIO/self commands. */
-    attrs.memory = true;
+    /* ROMD is a direct source, but QEMU's memory attribute only admits RAM. */
+    if (!z7ii_copy_memory_range(c->reg[1], c->remaining, false) ||
+        !z7ii_copy_memory_range(c->reg[2], c->remaining, true)) {
+        z7ii_copy_finish(c, 1);
+        return;
+    }
     result = dma_memory_read(&address_space_memory, c->reg[1], buffer,
                              length, attrs);
     if (result == MEMTX_OK) {
+        /* Destinations remain ordinary writable RAM, never ROMD or MMIO. */
+        attrs.memory = true;
         result = dma_memory_write(&address_space_memory, c->reg[2], buffer,
                                   length, attrs);
     }
