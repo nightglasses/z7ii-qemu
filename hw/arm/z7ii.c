@@ -10,6 +10,8 @@
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-clock.h"
+#include "qemu/timer.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/cpu/a15mpcore.h"
@@ -37,12 +39,35 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMemcState, Z7II_MEMC)
 #define TYPE_Z7II_CLOCK_GATES "z7ii-clock-gates-diagnostic"
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIClockGatesState, Z7II_CLOCK_GATES)
 
+typedef struct Z7IIClockChannel {
+    Z7IIClockGatesState *owner;
+    unsigned index;
+    Clock *output;
+    QEMUTimer *lock_timer;
+    bool locked;
+} Z7IIClockChannel;
+
 struct Z7IIClockGatesState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     uint32_t stopped[6];
     uint32_t known[6];
+    uint32_t pll[3];
+    uint32_t selector[6];
+    uint32_t auxiliary[2];
+    Z7IIClockChannel channel[9];
     bool reported_error;
+};
+
+/* Original nine-record group table; sentinel 0x20 means no such field. */
+static const struct {
+    unsigned reg;
+    uint32_t stop_mask;
+    uint32_t output_mask;
+} z7ii_pll_group[] = {
+    { 0, 4, 8 }, { 0, 0, 2 }, { 0, 0x10, 0x20 },
+    { 0, 0x40, 0x80 }, { 0, 0x100, 0x200 }, { 0, 0x400, 0x800 },
+    { 1, 1, 2 }, { 1, 0x70, 0 }, { 2, 1, 2 },
 };
 
 #define TYPE_Z7II_COMPLETION "z7ii-completion-diagnostic"
@@ -260,6 +285,55 @@ static int z7ii_clock_bank(hwaddr offset, hwaddr first)
     return (offset - first) / 4;
 }
 
+static void z7ii_pll_output(Z7IIClockChannel *channel)
+{
+    unsigned i = channel->index;
+    uint32_t word = channel->owner->pll[z7ii_pll_group[i].reg];
+    bool enabled = channel->locked &&
+                   !(word & z7ii_pll_group[i].stop_mask) &&
+                   !(word & z7ii_pll_group[i].output_mask);
+
+    /* Independent nominal virtual rates, never inferred from multiplier 0x163. */
+    clock_update_hz(channel->output, enabled ? TIMER_HZ : 0);
+}
+
+static void z7ii_pll_locked(void *opaque)
+{
+    Z7IIClockChannel *channel = opaque;
+
+    channel->locked = true;
+    z7ii_pll_output(channel);
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "z7ii-syscontrol: PLL group=%u modeled-lock nominal-Hz=%u\n",
+                  channel->index, (unsigned)TIMER_HZ);
+}
+
+static void z7ii_pll_update(Z7IIClockGatesState *s, unsigned reg,
+                           uint32_t before)
+{
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(z7ii_pll_group); i++) {
+        Z7IIClockChannel *channel = &s->channel[i];
+        uint32_t mask = z7ii_pll_group[i].stop_mask;
+
+        if (z7ii_pll_group[i].reg != reg) {
+            continue;
+        }
+        if (s->pll[reg] & mask) {
+            timer_del(channel->lock_timer);
+            channel->locked = false;
+        } else if ((before & mask) || !mask) {
+            /* A 10us virtual lock interval is an explicit functional assumption.
+             * No register is auto-cleared; output still follows guest gating. */
+            channel->locked = false;
+            timer_mod(channel->lock_timer,
+                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 10000);
+        }
+        z7ii_pll_output(channel);
+    }
+}
+
 static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
                                   uint64_t *value, unsigned size,
                                   MemTxAttrs attrs)
@@ -268,6 +342,20 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
     int bank = z7ii_clock_bank(offset, 0x38);
 
     *value = 0; /* Invalid unless the complete word is known. */
+    if (size == 4 && !(offset & 3)) {
+        if (offset <= 0x14) {
+            *value = s->selector[offset / 4];
+            return MEMTX_OK;
+        }
+        if (offset == 0x20 || offset == 0x24) {
+            *value = s->auxiliary[(offset - 0x20) / 4];
+            return MEMTX_OK;
+        }
+        if (offset >= 0x28 && offset <= 0x30) {
+            *value = s->pll[(offset - 0x28) / 4];
+            return MEMTX_OK;
+        }
+    }
     if (size != 4 || bank < 0) {
         return z7ii_clock_error(s, offset, size, false, 0,
                                 "clock-access-not-supported");
@@ -288,6 +376,44 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
     int bank = z7ii_clock_bank(offset, 0x138);
     bool set = bank >= 0;
     uint32_t mask = value;
+
+    if (size == 4 && !(offset & 3)) {
+        static const uint32_t profiles[] = {
+            0x00508880, 0x80808888, 0x80300000,
+            0x00008008, 0xb0100010, 0x00980009,
+        };
+        static const uint32_t writable[] = {
+            0x7ffffffe, 0xffff0073, 0x3f07ff07,
+        };
+        if (offset <= 0x14) {
+            unsigned reg = offset / 4;
+            if (value != profiles[reg]) {
+                return z7ii_clock_error(s, offset, size, true, value,
+                                        "clock-selector-profile-not-supported");
+            }
+            s->selector[reg] = value;
+            return MEMTX_OK;
+        }
+        if (offset == 0x20 || offset == 0x24) {
+            if (value != (offset == 0x20 ? 0x90000 : 1)) {
+                return z7ii_clock_error(s, offset, size, true, value,
+                                        "clock-config-profile-not-supported");
+            }
+            s->auxiliary[(offset - 0x20) / 4] = value;
+            return MEMTX_OK;
+        }
+        if (offset >= 0x28 && offset <= 0x30) {
+            unsigned reg = (offset - 0x28) / 4;
+            uint32_t before = s->pll[reg];
+            if (value & ~writable[reg]) {
+                return z7ii_clock_error(s, offset, size, true, value,
+                                        "clock-control-fields-not-supported");
+            }
+            s->pll[reg] = value;
+            z7ii_pll_update(s, reg, before);
+            return MEMTX_OK;
+        }
+    }
 
     if (!set) {
         bank = z7ii_clock_bank(offset, 0x238);
@@ -320,20 +446,50 @@ static const MemoryRegionOps z7ii_clock_ops = {
 static void z7ii_clock_reset(DeviceState *dev)
 {
     Z7IIClockGatesState *s = Z7II_CLOCK_GATES(dev);
+    unsigned i;
 
-    /* Storage zero is never a supplied hardware reset value. */
+    /* Canonical virtual-board assumptions, not measured hardware reset words. */
     memset(s->stopped, 0, sizeof(s->stopped));
-    memset(s->known, 0, sizeof(s->known));
+    memset(s->known, 0xff, sizeof(s->known));
+    memset(s->selector, 0, sizeof(s->selector));
+    memset(s->auxiliary, 0, sizeof(s->auxiliary));
+    s->pll[0] = 0xffe;
+    s->pll[1] = 0x73;
+    s->pll[2] = 3;
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        timer_del(s->channel[i].lock_timer);
+        s->channel[i].locked = false;
+        clock_update_hz(s->channel[i].output, 0);
+    }
     s->reported_error = false;
 }
 
 static void z7ii_clock_init(Object *obj)
 {
     Z7IIClockGatesState *s = Z7II_CLOCK_GATES(obj);
+    unsigned i;
 
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        g_autofree char *name = g_strdup_printf("pll%u", i);
+        s->channel[i].owner = s;
+        s->channel[i].index = i;
+        s->channel[i].output = qdev_init_clock_out(DEVICE(obj), name);
+        s->channel[i].lock_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                               z7ii_pll_locked, &s->channel[i]);
+    }
     memory_region_init_io(&s->regs, obj, &z7ii_clock_ops, s,
                           "z7ii.clock-gates", 0x250);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+}
+
+static void z7ii_clock_finalize(Object *obj)
+{
+    Z7IIClockGatesState *s = Z7II_CLOCK_GATES(obj);
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        timer_free(s->channel[i].lock_timer);
+    }
 }
 
 static void z7ii_clock_class_init(ObjectClass *oc, const void *data)
@@ -740,6 +896,7 @@ static void z7ii_register_types(void)
         .parent = TYPE_SYS_BUS_DEVICE,
         .instance_size = sizeof(Z7IIClockGatesState),
         .instance_init = z7ii_clock_init,
+        .instance_finalize = z7ii_clock_finalize,
         .class_init = z7ii_clock_class_init,
     };
     static const TypeInfo completion_type = {

@@ -51,6 +51,8 @@ def main():
             "early shared release RAM exactly four bytes; no host magic",
             "CPU1 pre-kernel SVC stack exactly 72 bytes; further extent uncovered",
             "same-IP MEMC binding with only documented functional profiles",
+            "virtual PLL reset words 0xffe/0x73/3; six gate banks start ungated",
+            "PLL outputs nominal 48MHz after modeled 10us virtual lock; not physical rates",
         ],
         "whole_boot_verified": False,
     }
