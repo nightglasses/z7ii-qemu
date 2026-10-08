@@ -50,4 +50,3 @@ jobs:
           mkdir "$target"
           printf 'repository=%s\nsha=%s\nrun=%s\nattempt=%s\njob=%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" > "$target/run.txt"
           if test -e work; then mv work "$target/"; fi
-
