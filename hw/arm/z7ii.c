@@ -110,6 +110,7 @@ struct Z7IIMachineState {
     MemoryRegion bss_ram;
     MemoryRegion bss_storage;
     MemoryRegion kernel_arena;
+    MemoryRegion kernel_copy;
     MemoryRegion stack_ram[6];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
@@ -787,6 +788,9 @@ static void z7ii_init(MachineState *machine)
     memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
     /* Original descriptor lowmem bounds, not a physical DDR capacity. */
     z7ii_ram(&s->kernel_arena, "z7ii.kernel-lowmem", 0xb2c00000, 0x3300000);
+    /* Original usermain -> O348290 copies 0x21538 kernel bytes here.
+     * Finite backing only: guest performs the copy and any later MMU change. */
+    z7ii_ram(&s->kernel_copy, "z7ii.kernel-copy", 0xbab00000, 0x21538);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
@@ -815,6 +819,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
     z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
+    z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
     if (machine->smp.cpus == 2) {
         z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);

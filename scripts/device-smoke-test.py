@@ -405,6 +405,15 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return mxic_config_fixtures() + [
+        ("kernel-copy-bounds", constant(0, 0xbab00000) + constant(1, 0x1234) +
+         [0xe5801000, 0xe5904000] + constant(0, 0xbab21534) +
+         [0xe5801000, 0xe5905000], {4: 0x1234, 5: 0x1234}, None),
+        ("kernel-copy-below", constant(0, 0xbaaffffc) + [0xe5801000], {},
+         "uncovered-address"),
+        ("kernel-copy-above", constant(0, 0xbab21538) + [0xe5801000], {},
+         "uncovered-address"),
+        ("kernel-copy-region-withdrawn", mxic_contract(disable=True) +
+         constant(0, 0xbab00000) + [0xe5801000], {}, "uncovered-address"),
         ("sysconfig-whole-bootstrap-preserve", sys_boot,
          {4: boot_values[0], 5: boot_values[1], 6: boot_values[2],
           7: boot_values[3], 8: boot_values[4], 9: 0xfffffffe}, None),
