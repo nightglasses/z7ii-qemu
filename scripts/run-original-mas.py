@@ -63,7 +63,8 @@ def main():
             "completion request/done/enable/domain state reset zero; causal deferred transactions, GIC SPI250",
             "original lowmem allocator arena [b2c00000,b5f00000), 51MiB virtual RAM, no host metadata",
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
-            "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
+        "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
+        "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
         ],
         "whole_boot_verified": False,
     }
