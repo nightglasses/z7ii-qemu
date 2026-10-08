@@ -958,6 +958,20 @@ static void z7ii_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
                            qdev_get_gpio_in(gic, 192 + i * 2 - 32));
     }
+    for (i = 0; i < 2; i++) {
+        DeviceState *hdmac = qdev_new(TYPE_Z7II_HDMAC);
+        unsigned channel;
+
+        qdev_prop_set_uint32(hdmac, "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(hdmac), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(hdmac), 0, 0x2c020000 + i * 0x10000);
+        for (channel = 0; channel < 8; channel++) {
+            unsigned irq = (i ? 142 : 150) + channel;
+
+            sysbus_connect_irq(SYS_BUS_DEVICE(hdmac), channel,
+                               qdev_get_gpio_in(gic, irq - 32));
+        }
+    }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
     sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);

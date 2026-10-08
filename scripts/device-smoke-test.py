@@ -848,6 +848,66 @@ def exiu_fixtures():
     ]
 
 
+def hdmac_fixtures():
+    dma = 0x2c020000
+    source, destination = 0xb1800100, 0xb1800200
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    def setup(cb=0x08180000, sa=source, da=destination, ca=0xa0000001):
+        return (write(dma, 0x90000000) + write(dma + 0x18, sa) +
+                write(dma + 0x1c, da) + write(dma + 0x14, cb) +
+                write(dma + 0x10, ca))
+
+    def wait_status():
+        return constant(0, dma + 0x14) + [0xe5902000, 0xe3120807, 0x0afffffc]
+
+    seed = write(source, 0x11223344) + write(source + 4, 0x55667788)
+    copy = seed + setup() + wait_status()
+    copy += read(destination, 4) + read(destination + 4, 5) + read(dma + 0x14, 6)
+    copy += write(dma + 0x14, 0x08000000) + read(dma + 0x14, 7)
+    fixed = seed + setup(cb=0x0a180000) + wait_status()
+    fixed += read(destination, 4) + read(destination + 4, 5)
+    fixed += read(dma + 0x18, 6) + read(dma + 0x1c, 7)
+    external = setup(cb=0x28180000, ca=0x81000001)
+    external += read(dma + 0x14, 4) + read(dma + 0x10, 5) + read(destination, 6)
+    cancel = seed + setup(ca=0xa000ffff) + write(dma + 0x10, 0x2000ffff)
+    cancel += read(dma + 0x14, 4) + read(destination, 5)
+    globals = write(dma, 0x10000000) + read(dma, 4)
+    globals += write(dma + 0x10000, 0x90000000) + read(dma + 0x10000, 5)
+    globals += write(dma + 0x80, 7) + read(dma + 0x80, 6)
+    globals += write(dma + 0x10080, 9) + read(dma + 0x10080, 7)
+    return [
+        ("hdmac-real-word-copy-and-ack", copy,
+         {4: 0x11223344, 5: 0x55667788, 6: 0x081d0000, 7: 0x08000000}, None),
+        ("hdmac-fixed-source", fixed,
+         {4: 0x11223344, 5: 0x11223344, 6: source, 7: destination + 8}, None),
+        ("hdmac-external-request-does-not-complete", external,
+         {4: 0x28180000, 5: 0x81000001, 6: 0}, None),
+        ("hdmac-cancel-before-copy", cancel, {4: 0x081a0000, 5: 0}, None),
+        ("hdmac-both-banks-last-channel", globals,
+         {4: 0x10000000, 5: 0x90000000, 6: 7, 7: 9}, None),
+        ("hdmac-source-bus-error", setup(sa=0xdead0000) + wait_status() +
+         read(dma + 0x14, 4), {4: 0x081b0000}, None),
+        ("hdmac-destination-bus-error", seed + setup(da=0xdead0000) +
+         wait_status() + read(dma + 0x14, 4), {4: 0x081c0000}, None),
+        ("hdmac-unknown-width", constant(0, dma) + [0xe5d01000], {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-hole", read(dma + 4, 4), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-ds-unsupported", write(dma, 0x40000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-reload-unsupported", write(dma + 0x14, 0x00800000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-transform-unsupported", write(dma + 0x14, 0x40000000), {},
+         "hdmac-access-or-command-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -864,7 +924,7 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
@@ -962,7 +1022,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures()]
+               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
