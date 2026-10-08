@@ -21,6 +21,7 @@ TIMESTAMP = 0x04266000
 SDI = 0x20020000
 MXIC = 0x20016000
 FILL = 0x20070000
+USIO = 0x2c090000
 
 
 def constant(reg, value):
@@ -127,7 +128,29 @@ def fill_contract(destination=0xb18aedc0, count=0x4ac):
     return words
 
 
+def usio_contract():
+    words = []
+    for offset, value, store in ((1, 0, 0xe5c01000), (1, 0x80, 0xe5c01000),
+                                 (0, 1, 0xe5c01000), (2, 0, 0xe5c01000),
+                                 (3, 0x80, 0xe5c01000), (0xc, 0, 0xe1c010b0),
+                                 (6, 0x363, 0xe1c010b0), (0xc, 0xc, 0xe1c010b0),
+                                 (0xc, 0x405, 0xe1c010b0), (1, 1, 0xe5c01000)):
+        words += constant(0, USIO + offset) + constant(1, value) + [store]
+    return words
+
+
 def fixtures():
+    uart_tx = usio_contract() + constant(0, USIO + 4) + constant(1, 0x41)
+    uart_tx += [0xe1c010b0] + constant(0, USIO + 3) + [0xe5d04000]
+    # TDRE must be pending first, then timer/backend completion produces empty.
+    uart_tx += [0xe5d05000, 0xe3150002, 0x0afffffc]
+    uart_flush = usio_contract() + constant(0, USIO + 4) + constant(1, 0x41)
+    uart_flush += [0xe1c010b0] + constant(0, USIO + 1)
+    uart_flush += constant(1, 0x80) + [0xe5c01000]
+    uart_flush += constant(1, 48000) + [0xee0e1f12]
+    uart_flush += constant(1, 1) + [0xee0e1f32]
+    uart_flush += [0xee1e1f32, 0xe3110004, 0x0afffffc]
+    uart_flush += constant(0, USIO + 3) + [0xe5d04000]
     fill = []
     for address in (0xb18aedc0, 0xb2b5edbc, 0xb2b5e510,
                     0xb18aedb4, 0xb2b74000):
@@ -256,6 +279,21 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return [
+        ("usio-whole-init", usio_contract() + constant(0, USIO) +
+         [0xe5d04001, 0xe5d05003, 0xe1d060b6, 0xe1d070bc],
+         {4: 1, 5: 2, 6: 0x363, 7: 0x401}, None),
+        ("usio-real-transmit", uart_tx, {4: 0, 5: 2}, None),
+        ("usio-reset-pending", uart_flush, {4: 2}, None),
+        ("usio-disabled-transmit", constant(0, USIO + 4) +
+         constant(1, 0x41) + [0xe1c010b0], {}, "usio-transmit-phase-not-supported"),
+        ("usio-unsupported-baud", constant(0, USIO + 6) +
+         constant(1, 1) + [0xe1c010b0], {}, "usio-value-profile-not-supported"),
+        ("usio-uncovered-irq-mode", constant(0, USIO + 1) +
+         constant(1, 5) + [0xe5c01000], {}, "usio-value-profile-not-supported"),
+        ("usio-word-width", constant(0, USIO) + [0xe5901000], {},
+         "usio-access-not-supported"),
+        ("usio-hole", constant(0, USIO + 8) + [0xe1d010b0], {},
+         "usio-access-not-supported"),
         ("profile-stack", profile,
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
           8: 0x13579bdf, 9: 0x13579bdf}, None),
@@ -462,8 +500,11 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith("sdi-arb-reset-"):
+    if name.startswith("sdi-arb-reset-") or name.startswith("usio-"):
         vm_args += ["-icount", "shift=0"]
+    if name.startswith("usio-"):
+        serial = output / "serial.bin"
+        vm_args[vm_args.index("-serial") + 1] = f"file:{serial}"
     with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
         with QEMUMachine(str(binary), args=vm_args, name="device",
                          base_temp_dir=sockets, log_dir=str(output),
@@ -523,6 +564,9 @@ def run(binary, output, name, words, expected, reason):
                    command_line=f'pmemsave {BASE} {len(payload)} "{copied}"')
             assert copied.read_bytes() == payload, "guest changed synthetic ROM"
         assert vm.exitcode() == 0, vm.get_log()
+        if name.startswith("usio-"):
+            expected_serial = b"A" if name == "usio-real-transmit" else b""
+            assert serial.read_bytes() == expected_serial, (name, serial.read_bytes())
         logs = (vm.get_log() or "") + trace.read_text()
         if reason:
             assert f"reason={reason}" in logs, logs

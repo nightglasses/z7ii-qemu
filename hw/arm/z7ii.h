@@ -7,6 +7,7 @@
 #include "hw/core/qdev.h"
 
 #define TYPE_Z7II_FILL "z7ii-fill-functional"
+#define TYPE_Z7II_USIO "z7ii-usio-functional"
 #define TYPE_Z7II_SDI "z7ii-sdi-functional"
 #define TYPE_Z7II_MXIC "z7ii-mxic-regions-functional"
 

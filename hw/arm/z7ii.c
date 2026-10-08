@@ -15,10 +15,12 @@
 #include "qemu/timer.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
 #include "hw/cpu/a15mpcore.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/runstate.h"
+#include "system/system.h"
 #include "target/arm/cpu.h"
 #include "z7ii.h"
 
@@ -837,6 +839,15 @@ static void z7ii_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
 
     sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
+    {
+        DeviceState *usio = qdev_new(TYPE_Z7II_USIO);
+
+        if (serial_hd(0)) {
+            qdev_prop_set_chr(usio, "chardev", serial_hd(0));
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(usio), 0, 0x2c090000);
+    }
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_Z7II_SDI);
 
