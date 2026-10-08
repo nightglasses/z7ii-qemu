@@ -17,6 +17,7 @@
 #define TYPE_Z7II_AUDIO "z7ii-audio-functional"
 #define TYPE_Z7II_TIMING "z7ii-timing-functional"
 #define TYPE_Z7II_COPY "z7ii-copy-functional"
+#define TYPE_Z7II_BRIDGE "z7ii-bridge-functional"
 #define TYPE_Z7II_SDI "z7ii-sdi-functional"
 #define TYPE_Z7II_MXIC "z7ii-mxic-regions-functional"
 #define TYPE_Z7II_MXIC_CONFIG "z7ii-mxic-config-functional"
