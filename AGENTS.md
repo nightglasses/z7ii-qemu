@@ -13,3 +13,4 @@
 | [docs/clock-gates-diagnostic.md](docs/clock-gates-diagnostic.md) | 六组时钟停止位别名、未知复位与合成合同验证 |
 | [docs/completion-diagnostic.md](docs/completion-diagnostic.md) | 因果请求/延后完成/IRQ250/ack 合同、未知状态与实际验证 |
 | [docs/functional-startup-model.md](docs/functional-startup-model.md) | 功能复位/时序假设、原版 PLL 越过与下一实际阻断 |
+| [docs/timestamp-functional.md](docs/timestamp-functional.md) | 独立 Clock 时间计数、88B 精确栈和合成验证 |

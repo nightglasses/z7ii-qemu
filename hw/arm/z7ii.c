@@ -19,6 +19,7 @@
 #include "system/reset.h"
 #include "system/runstate.h"
 #include "target/arm/cpu.h"
+#include "z7ii.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -53,8 +54,7 @@ struct Z7IIClockGatesState {
     uint32_t stopped[6];
     uint32_t known[6];
     uint32_t pll[3];
-    uint32_t selector[6];
-    uint32_t auxiliary[2];
+    uint32_t selector[10];
     Z7IIClockChannel channel[9];
     bool reported_error;
 };
@@ -118,8 +118,8 @@ struct Z7IIMachineState {
     bool reported_unknown;
 };
 
-static void z7ii_access_error(bool *reported, hwaddr addr, unsigned size,
-                              bool write, uint64_t value, const char *reason)
+void z7ii_access_error(bool *reported, hwaddr addr, unsigned size,
+                       bool write, uint64_t value, const char *reason)
 {
     CPUState *cpu = current_cpu;
     g_autofree char *message = NULL;
@@ -323,7 +323,9 @@ static void z7ii_pll_update(Z7IIClockGatesState *s, unsigned reg,
         if (s->pll[reg] & mask) {
             timer_del(channel->lock_timer);
             channel->locked = false;
-        } else if ((before & mask) || !mask) {
+        } else if ((before & mask) ||
+                   (!mask && (before & z7ii_pll_group[i].output_mask) &&
+                    !(s->pll[reg] & z7ii_pll_group[i].output_mask))) {
             /* A 10us virtual lock interval is an explicit functional assumption.
              * No register is auto-cleared; output still follows guest gating. */
             channel->locked = false;
@@ -343,12 +345,8 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
 
     *value = 0; /* Invalid unless the complete word is known. */
     if (size == 4 && !(offset & 3)) {
-        if (offset <= 0x14) {
+        if (offset <= 0x24) {
             *value = s->selector[offset / 4];
-            return MEMTX_OK;
-        }
-        if (offset == 0x20 || offset == 0x24) {
-            *value = s->auxiliary[(offset - 0x20) / 4];
             return MEMTX_OK;
         }
         if (offset >= 0x28 && offset <= 0x30) {
@@ -378,28 +376,13 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
     uint32_t mask = value;
 
     if (size == 4 && !(offset & 3)) {
-        static const uint32_t profiles[] = {
-            0x00508880, 0x80808888, 0x80300000,
-            0x00008008, 0xb0100010, 0x00980009,
-        };
         static const uint32_t writable[] = {
             0x7ffffffe, 0xffff0073, 0x3f07ff07,
         };
-        if (offset <= 0x14) {
-            unsigned reg = offset / 4;
-            if (value != profiles[reg]) {
-                return z7ii_clock_error(s, offset, size, true, value,
-                                        "clock-selector-profile-not-supported");
-            }
-            s->selector[reg] = value;
-            return MEMTX_OK;
-        }
-        if (offset == 0x20 || offset == 0x24) {
-            if (value != (offset == 0x20 ? 0x90000 : 1)) {
-                return z7ii_clock_error(s, offset, size, true, value,
-                                        "clock-config-profile-not-supported");
-            }
-            s->auxiliary[(offset - 0x20) / 4] = value;
+        if (offset <= 0x24) {
+            /* The original indexed API replaces the entire configuration word.
+             * Rates remain explicit nominal inputs; selectors are not dividers. */
+            s->selector[offset / 4] = value;
             return MEMTX_OK;
         }
         if (offset >= 0x28 && offset <= 0x30) {
@@ -452,7 +435,6 @@ static void z7ii_clock_reset(DeviceState *dev)
     memset(s->stopped, 0, sizeof(s->stopped));
     memset(s->known, 0xff, sizeof(s->known));
     memset(s->selector, 0, sizeof(s->selector));
-    memset(s->auxiliary, 0, sizeof(s->auxiliary));
     s->pll[0] = 0xffe;
     s->pll[1] = 0x73;
     s->pll[2] = 3;
@@ -793,7 +775,8 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
     z7ii_ram(&s->copy_ram[1], "z7ii.copy1", 0xb2bb0000, 0x105c);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
-    z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ed0, 0x30);
+    /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
+    z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
     z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
     if (machine->smp.cpus == 2) {
@@ -825,6 +808,8 @@ static void z7ii_init(MachineState *machine)
                             TYPE_Z7II_CLOCK_GATES);
     sysbus_realize(SYS_BUS_DEVICE(&s->clock_gates), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
+
+    sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
 
     /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
     gic = qdev_new(TYPE_A15MPCORE_PRIV);

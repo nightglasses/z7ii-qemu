@@ -16,6 +16,7 @@ MEMC = 0x04264000
 TIM = 0x153b0902
 CLOCK = 0x04281000
 COMPLETION = 0x04287000
+TIMESTAMP = 0x04266000
 
 
 def constant(reg, value):
@@ -31,12 +32,12 @@ def initialized(mode=0x21):
 
 
 def fixtures():
-    # MODE read/modify/write; TIM readback; both ends of exactly 48 bytes RAM.
+    # MODE read/modify/write; TIM readback; both ends of exactly 88 bytes RAM.
     profile = initialized() + [0xe5904000, 0xe5905020, 0xe3841008,
                                0xe5801000, 0xe5906000, 0xe3c11008,
                                0xe5801000, 0xe5907000]
-    profile += constant(0, 0x04008ed0) + constant(1, 0x13579bdf)
-    profile += [0xe5801000, 0xe580102c, 0xe5908000, 0xe590902c]
+    profile += constant(0, 0x04008ea8) + constant(1, 0x13579bdf)
+    profile += [0xe5801000, 0xe5801054, 0xe5908000, 0xe5909054]
 
     # Enable secure PPI 29, let the upstream timer expire with CPU IRQ masked,
     # acknowledge it, disable the level, EOI, and inspect active state.
@@ -81,6 +82,21 @@ def fixtures():
     pll += constant(1, 48000) + [0xee0e1f12]
     pll += constant(1, 1) + [0xee0e1f32]
     pll += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590702c]
+
+    # Independent nominal Clock, elapsed-time counter, disable/freeze and carry.
+    timestamp = constant(0, TIMESTAMP) + [0xe5907000, 0xe590b020, 0xe5904008]
+    timestamp += constant(3, 4800)
+    timestamp += [0xe5901008, 0xe0412004, 0xe1520003, 0x3afffffb]
+    timestamp += constant(1, 0) + [0xe5801000, 0xe5905008]
+    timestamp += constant(1, 48000) + [0xee0e1f12]
+    timestamp += constant(1, 1) + [0xee0e1f32]
+    timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe5906008]
+    timestamp += constant(1, 0x11223344) + [0xe580100c]
+    timestamp += constant(1, 0xfffffff0) + [0xe5801008]
+    timestamp += constant(1, 48000000) + [0xe5801020]
+    timestamp += constant(1, 1) + [0xe5801000]
+    timestamp += constant(1, 48000) + [0xee0e1f12]
+    timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590800c]
 
     # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
     # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
@@ -140,10 +156,25 @@ def fixtures():
         ("clock-pll-start", pll, {4: 0xffe, 5: 0x73, 6: 3, 7: 0x70}, None),
         ("clock-pll-bad-fields", constant(0, CLOCK) + constant(1, 1) +
          [0xe5801028], {}, "clock-control-fields-not-supported"),
-        ("clock-selector-bad-profile", constant(0, CLOCK) + constant(1, 1) +
-         [0xe5801000], {}, "clock-selector-profile-not-supported"),
+        ("clock-selector-word", constant(0, CLOCK) + constant(1, 0x82808888) +
+         [0xe580101c, 0xe590201c], {2: 0x82808888}, None),
         ("clock-reserved-offset", constant(0, CLOCK) + [0xe5901034], {},
          "clock-access-not-supported"),
+        ("timestamp-elapsed-freeze-carry", timestamp,
+         {7: 1, 8: 0x11223345, 11: 48000000}, None),
+        ("timestamp-count-while-enabled", constant(0, TIMESTAMP) +
+         [0xe5801008], {}, "timestamp-count-write-while-enabled"),
+        ("timestamp-bad-frequency", constant(0, TIMESTAMP) +
+         constant(1, 0) + [0xe5801000] + constant(1, 1) + [0xe5801020], {},
+         "timestamp-frequency-profile-not-supported"),
+        ("timestamp-bad-control", constant(0, TIMESTAMP) +
+         constant(1, 4) + [0xe5801000], {}, "timestamp-control-not-supported"),
+        ("timestamp-reserved-read", constant(0, TIMESTAMP) + [0xe5901010], {},
+         "timestamp-access-not-supported"),
+        ("timestamp-readonly-status", constant(0, TIMESTAMP) + [0xe5801004], {},
+         "timestamp-access-not-supported"),
+        ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
+         "timestamp-access-not-supported"),
         ("completion-irq", completion,
          {4: 1, 5: 0, 6: 0x1110, 7: 1 << 26, 8: 250,
           9: 1 << 26, 10: 0, 11: 1023, 12: 1, 13: 0}, None),
@@ -199,7 +230,7 @@ def fixtures():
          [0xe1c010b0], {}, "nor-write-protected"),
         ("nor-no-backend", initialized() + constant(0, BASE) +
          [0xe1c010b0], {}, "nor-backend-not-supported"),
-        ("stack-below", constant(0, 0x04008ecc) + [0xe5801000], {},
+        ("stack-below", constant(0, 0x04008ea4) + [0xe5801000], {},
          "uncovered-address"),
         ("stack-above", constant(0, 0x04008f00) + [0xe5801000], {},
          "uncovered-address"),
@@ -251,6 +282,9 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
+                if name == "timestamp-elapsed-freeze-carry":
+                    assert actual[2] >= 4800, actual
+                    assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
