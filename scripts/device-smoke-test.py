@@ -193,7 +193,7 @@ def fixtures():
     pll += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590702c]
 
     # Independent nominal Clock, elapsed-time counter, disable/freeze and carry.
-    timestamp = constant(0, TIMESTAMP) + [0xe5907000, 0xe590b020, 0xe5904008]
+    timestamp = constant(0, TIMESTAMP) + [0xe5907000, 0xe590b010, 0xe5904008]
     timestamp += constant(3, 4800)
     timestamp += [0xe5901008, 0xe0412004, 0xe1520003, 0x3afffffb]
     timestamp += constant(1, 0) + [0xe5801000, 0xe5905008]
@@ -202,10 +202,20 @@ def fixtures():
     timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe5906008]
     timestamp += constant(1, 0x11223344) + [0xe580100c]
     timestamp += constant(1, 0xfffffff0) + [0xe5801008]
-    timestamp += constant(1, 48000000) + [0xe5801020]
-    timestamp += constant(1, 1) + [0xe5801000]
+    timestamp += constant(1, 48000000) + [0xe5801010]
+    timestamp += constant(1, 3) + [0xe5801000]
     timestamp += constant(1, 48000) + [0xee0e1f12]
     timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590800c]
+
+    counter_init = constant(0, TIMESTAMP)
+    counter_init += [0xe5901000, 0xe3c11003, 0xe5801000, 0xe3a01000,
+                     0xe5801008, 0xe580100c]
+    counter_init += constant(1, 48000000) + [0xe5801010]
+    counter_init += constant(2, 48000) + [0xee0e2f12]
+    counter_init += constant(2, 1) + [0xee0e2f32]
+    counter_init += [0xe5901000, 0xe3811003, 0xe5801000, 0xe5904008]
+    counter_init += [0xee1e2f32, 0xe3120004, 0x0afffffc]
+    counter_init += [0xe5905008, 0xe5906010, 0xe5907000]
 
     # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
     # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
@@ -273,16 +283,21 @@ def fixtures():
          [0xe580101c, 0xe590201c], {2: 0x82808888}, None),
         ("clock-reserved-offset", constant(0, CLOCK) + [0xe5901034], {},
          "clock-access-not-supported"),
+        ("timestamp-whole-guest-init", counter_init, {6: 48000000, 7: 3}, None),
+        ("timestamp-unsupported-single-control-bit", constant(0, TIMESTAMP) +
+         constant(1, 1) + [0xe5801000], {}, "timestamp-control-not-supported"),
+        ("timestamp-removed-vendor-frequency", constant(0, TIMESTAMP + 0x20) +
+         [0xe5901000], {}, "uncovered-address"),
         ("timestamp-elapsed-freeze-carry", timestamp,
-         {7: 1, 8: 0x11223345, 11: 48000000}, None),
+         {7: 3, 8: 0x11223345, 11: 48000000}, None),
         ("timestamp-count-while-enabled", constant(0, TIMESTAMP) +
          [0xe5801008], {}, "timestamp-count-write-while-enabled"),
         ("timestamp-bad-frequency", constant(0, TIMESTAMP) +
-         constant(1, 0) + [0xe5801000] + constant(1, 1) + [0xe5801020], {},
+         constant(1, 0) + [0xe5801000] + constant(1, 1) + [0xe5801010], {},
          "timestamp-frequency-profile-not-supported"),
         ("timestamp-bad-control", constant(0, TIMESTAMP) +
          constant(1, 4) + [0xe5801000], {}, "timestamp-control-not-supported"),
-        ("timestamp-reserved-read", constant(0, TIMESTAMP) + [0xe5901010], {},
+        ("timestamp-reserved-read", constant(0, TIMESTAMP) + [0xe5901004], {},
          "timestamp-access-not-supported"),
         ("timestamp-readonly-status", constant(0, TIMESTAMP) + [0xe5801004], {},
          "timestamp-access-not-supported"),
@@ -483,6 +498,8 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
+                if name == "timestamp-whole-guest-init":
+                    assert actual[5] > actual[4], actual
                 if name == "timestamp-elapsed-freeze-carry":
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
