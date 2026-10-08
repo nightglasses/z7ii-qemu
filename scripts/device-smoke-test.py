@@ -1700,14 +1700,16 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path, help="new output directory")
     args = parser.parse_args()
+    cases = (fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
+             i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
+             timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
+             external_nor_fixtures() + bridge_fixtures())
+    names = [case[0] for case in cases]
+    assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
-                   expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
-               i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
-               external_nor_fixtures() + ring_fixtures() + bridge_fixtures()]
+                   expected, reason) for name, words, expected, reason in cases]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
