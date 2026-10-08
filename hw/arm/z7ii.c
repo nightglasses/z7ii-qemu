@@ -889,7 +889,8 @@ static void z7ii_init(MachineState *machine)
      * The guest owns all copies, allocation pointers and object metadata.
      */
     z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3dc3c0);
-    /* Original address-class pair: [14000000,15e00000) <-> [b5f00000,b7d00000).
+    /*
+     * Original address-class pair: [14000000,15e00000) <-> [b5f00000,b7d00000).
      * This declared 30MiB virtual storage includes the original message ring.
      * Cold zero is a functional assumption, not physical heap capacity.
      * CPU logical views use the guest MMU, without a new physical bus alias.
