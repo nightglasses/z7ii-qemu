@@ -145,12 +145,14 @@ static MemTxResult z7ii_copy_write(void *opaque, hwaddr offset,
         goto error;
     }
     if (!offset) {
-        /* Only the original initialization enable is bound in this profile. */
-        if (value & ~(1U << 28)) {
+        /* Bit20/24 are original RMW selectors with unknown physical roles.
+         * The virtual profile retains them as configuration inputs; they
+         * neither submit a copy nor manufacture status or IRQ. */
+        if (value & ~0x11100000U) {
             goto error;
         }
         s->control = value;
-        if (!value) {
+        if (!(value & (1U << 28))) {
             for (i = 0; i < 4; i++) {
                 c = &s->channel[i];
                 if (c->running) {
@@ -185,7 +187,7 @@ static MemTxResult z7ii_copy_write(void *opaque, hwaddr offset,
     if (index == 6 && (value & 3)) {
         uint64_t length = (uint64_t)c->reg[0] + 1;
 
-        if (value != 0x11109003 || s->control != (1U << 28) ||
+        if (value != 0x11109003 || !(s->control & (1U << 28)) ||
             c->configured != 0x3f || c->reg[3] != 0x30f00 ||
             c->reg[4] != 0x30f00 || c->reg[5] || c->reg[8] ||
             (uint64_t)c->reg[1] + length > (1ULL << 32) ||
