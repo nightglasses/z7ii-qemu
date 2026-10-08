@@ -198,6 +198,11 @@ def fixtures():
     timer += [0xe590800c, 0xe5929300]  # IAR; GICD_ISACTIVER0
     timer += constant(1, 0) + [0xee0e1f32, 0xe5808010, 0xe592a300]
     timer += [0xee1ebf10, 0xee9fcf10]  # CNTFRQ; CBAR
+    # Original init writes active29 and then EOIR29 without an IAR.
+    # On the selected mature pre-v2 interface, active registers are read-only.
+    legacy_timer = constant(2, 0xf8101000) + constant(1, 1 << 29)
+    legacy_timer += [0xe5821300] + constant(0, 0xf8102000)
+    legacy_timer += constant(1, 29) + [0xe5801010] + timer
 
     # All six virtual gate banks start ungated. SET/CLEAR share the same state.
     gates, gate_values = [], {}
@@ -326,6 +331,8 @@ def fixtures():
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
           8: 0x13579bdf, 9: 0x13579bdf}, None),
         ("secure-timer", timer,
+         {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0xf8100000}, None),
+        ("secure-timer-original-active-init", legacy_timer,
          {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0xf8100000}, None),
         ("clock-six-banks", gates, gate_values, None),
         ("clock-reset", gate_reset, {}, None),

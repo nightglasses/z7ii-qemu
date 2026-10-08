@@ -22,3 +22,4 @@
 | [docs/timestamp-guest-protocol.md](docs/timestamp-guest-protocol.md) | 原guest stop/reset/program/start 对外部counter的完整接口 |
 | [docs/usio-functional.md](docs/usio-functional.md) | 原串口初始化、真实发送缓冲/TDRE、chardev和功能时基 |
 | [docs/sysconfig-functional.md](docs/sysconfig-functional.md) | 第二系统配置对象、有限字段和四bank原RMW请求状态 |
+| [docs/gic-original-init.md](docs/gic-original-init.md) | 原active/EOI初始化与成熟GIC版本选择、真实PPI轨迹 |

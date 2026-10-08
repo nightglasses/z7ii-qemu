@@ -55,7 +55,7 @@ def main():
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
-            "upstream A15MPCore GICv2; 256 total SGI/PPI/SPI IDs",
+        "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "upstream CPU reset state; guest copies all copy destinations",
             "six CPU0 stack slots each 16KiB; early stack RAM exactly 88B",

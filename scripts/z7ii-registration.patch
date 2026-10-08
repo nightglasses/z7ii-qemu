@@ -6,7 +6,7 @@ diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
 +    bool
 +    default y
 +    depends on TCG && ARM
-+    select A15MPCORE
++    select ARM_GIC
 +
  config ARM_VIRT
      bool
