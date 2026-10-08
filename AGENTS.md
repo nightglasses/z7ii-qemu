@@ -37,3 +37,4 @@
 | [docs/audio-functional.md](docs/audio-functional.md) | 双Audio不解释布局的FIFO与每beat HDMAC请求、原版下一双核依赖 |
 | [docs/timing-functional.md](docs/timing-functional.md) | 十二通道具名计时假设、真实Clock/IRQ与原版下一四通道设备 |
 | [docs/four-channel-copy-functional.md](docs/four-channel-copy-functional.md) | 四通道默认字节复制、真实DMA总线/IRQ与全局控制边界 |
+| [docs/nor-footer-input.md](docs/nor-footer-input.md) | 原尾部ENDM比较、有限擦除态输入与下一真实外部槽 |
