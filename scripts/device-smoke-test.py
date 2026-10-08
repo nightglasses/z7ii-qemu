@@ -1293,7 +1293,7 @@ def timing_fixtures():
         ("timing-unknown-width", constant(0, a) + [0xe5d01000], {},
          "timing-access-or-feature-not-supported"),
     ] + [("timing-capture-input-" + name, [], {}, None) for name in (
-        "disconnected", "edges-and-real-irq", "two-channels-disable",
+        "disconnected", "edges-and-irq-output", "two-channels-disable",
         "gates-no-config-edge", "reset-retains-external-level",
         "period-reprogram-clears-samples")]
 
@@ -1658,6 +1658,7 @@ def run_timing_capture(binary, output, name):
     trace = output / "guest.log"
     a, b = 0x2c010000, 0x2c011000
     commands = []
+    irq_levels = {}
     with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
@@ -1674,7 +1675,18 @@ def run_timing_capture(binary, output, name):
 
             def command(text):
                 response = vm.qtest(text).strip()
-                commands.append([text, response])
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    irq_levels[int(index)] = action == "raise"
+                    # The official Python client returns one protocol line.
+                    # A qtest comment has no response or side effect, so it
+                    # lets us consume asynchronous IRQs before the queued OK.
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                (output / "qtest-commands.json").write_text(
+                    json.dumps(commands, indent=2) + "\n")
                 assert response.startswith("OK"), response
                 return response
 
@@ -1709,27 +1721,25 @@ def run_timing_capture(binary, output, name):
                     assert read(b + offset) == 0
                 assert read(a + 0x610) == read(a + 0x710) == 0
                 assert read(b + 0x60c) > 0
-            elif name.endswith("edges-and-real-irq"):
-                write(0xf8101000, 1)
-                command("writeb 0xf81018b1 1")
-                write(0xf8101114, 0x20000)
-                write(0xf8102004, 0xff)
-                write(0xf8102000, 1)
+            elif name.endswith("edges-and-irq-output"):
+                # qtest bus requests are Non-secure; GIC Group0 IAR tests
+                # use the separate executing secure ARM IRQ177 fixture.
+                command(f"irq_intercept_out {path}")
                 step()
                 count = read(b + 0x60c)
                 pin(0, 1)
                 assert read(b + 0x614) == count > 0
                 assert read(b + 0x618) == 0 and read(a + 0x610) == 2
-                assert read(0xf810200c) == 177
+                assert irq_levels[5]
                 write(a + 0x610, 2)
-                write(0xf8102010, 177)
-                assert read(0xf810200c) == 1023
+                assert not irq_levels[5]
                 step()
                 pin(0, 1)
                 assert read(b + 0x614) == count and read(a + 0x610) == 0
                 count = read(b + 0x60c)
                 pin(0, 0)
                 assert read(b + 0x618) == count and read(a + 0x610) == 4
+                assert irq_levels[5]
             elif name.endswith("two-channels-disable"):
                 setup(6)
                 step()
