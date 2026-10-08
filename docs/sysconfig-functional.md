@@ -1,5 +1,7 @@
 # Original second system-configuration object
 
+The initial fixed stage below is extended only by the [original GPIO boot selector fields](gpio-functional.md) at34/38. Their bounded masks and virtual reset are documented there; the earlier receipts are preserved.
+
 This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). After UART initialization, original CPU0 issued `PC10200ef0 / WRITE32 PA04280030 / value410`. The [fixed whole object and indexed-caller contract](https://github.com/mashiro01/nightglass/blob/6bde4c6/research/z7ii/qemu-system-control-contract.md) identifies a separate `04280004`-based API, not the `04281000` PLL controller: full-word input configuration stores, restricted bit0/two-nibble setters, two low-field getters and mutex-protected indexed control-word RMW. The implementation covers that distinct object as one finite device.
 
 Absolute configuration fields `04/08/28/30` accept the helper's full word; `24` accepts bit0 and `74` accepts two nibbles. Their readback requires a prior guest store, not an invented manufacturer reset. Low-field getter words `20/2c` use an explicit virtual strap-zero profile (physical meaning and reset unbound). The chip-identification word0 and unspecified indexed-helper ranges remain unsupported. No frequency is inferred from these configuration words, and no autonomous ready, completion, IRQ or physical module effect is invented.

@@ -23,6 +23,7 @@ MXIC = 0x20016000
 FILL = 0x20070000
 USIO = 0x2c090000
 SYSCONFIG = 0x04280000
+GPIO = 0x04282000
 
 
 def constant(reg, value):
@@ -141,6 +142,27 @@ def usio_contract():
 
 
 def fixtures():
+    gpio_all, gpio_expected = [], {}
+    for port in range(12):
+        for bank, value in enumerate((0xffff0000 | (0x100 + port),
+                                      0xffff, 0, 0, 0)):
+            gpio_all += constant(0, GPIO + bank * 0x100 + port * 4)
+            gpio_all += constant(1, value) + [0xe5801000]
+    for port in range(12):
+        reg = port + 2
+        gpio_all += constant(0, GPIO + port * 4) + [0xe5900000 | reg << 12]
+        gpio_expected[reg] = 0x100 + port
+    gpio_pads = []
+    for offset, value in ((0, 0xffff0003), (0x100, 3), (0x200, 2),
+                          (0x300, 6), (0x400, 4)):
+        gpio_pads += constant(0, GPIO + offset) + constant(1, value) + [0xe5801000]
+    gpio_pads += constant(0, GPIO) + [0xe5904000]
+    # Unselected data bits do not overwrite the latch, and direction changes
+    # expose the actual stored latch rather than caching the last PDR read.
+    gpio_pads += constant(1, 0x00010002) + [0xe5801000]
+    gpio_pads += constant(0, GPIO + 0x100) + constant(1, 0xffff) + [0xe5801000]
+    gpio_pads += constant(0, GPIO + 0x200) + constant(1, 0) + [0xe5801000]
+    gpio_pads += constant(0, GPIO) + [0xe5905000]
     sysconfig = []
     for offset, value in ((4, 0x12345678), (8, 0xabcdef01), (0x24, 1),
                           (0x28, 0x123), (0x30, 0x410), (0x74, 0x21)):
@@ -299,6 +321,21 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return [
+        ("gpio-all-twelve-ports", gpio_all, gpio_expected, None),
+        ("gpio-direction-function-pull-and-mask", gpio_pads, {4: 5, 5: 2}, None),
+        ("gpio-boot-pinmux-selectors", constant(0, SYSCONFIG + 0x34) +
+         [0xe5901000] + constant(2, 0x50000000) + [0xe1811002, 0xe5801000,
+                                                        0xe5904000] +
+         constant(0, SYSCONFIG + 0x38) + constant(1, 0x660000) +
+         [0xe5801000, 0xe5905000], {4: 0x50000000, 5: 0x660000}, None),
+        ("gpio-unimplemented-port", constant(0, GPIO + 0x30) + [0xe5901000], {},
+         "gpio-access-not-supported"),
+        ("gpio-bank-hole", constant(0, GPIO + 0x40) + [0xe5901000], {},
+         "gpio-access-not-supported"),
+        ("gpio-unknown-width", constant(0, GPIO) + [0xe5c01000], {},
+         "gpio-access-not-supported"),
+        ("gpio-high-config-bits", constant(0, GPIO + 0x100) +
+         constant(1, 0x10000) + [0xe5801000], {}, "gpio-field-not-supported"),
         ("sysconfig-direct-interface", sysconfig, {4: 0x410, 5: 0x21}, None),
         ("sysconfig-four-bank-rmw", sys_banks,
          {4: 0x1001e07, 5: 0x1ff01c0, 6: 0x1803dfc0, 7: 0x444, 8: 0}, None),
