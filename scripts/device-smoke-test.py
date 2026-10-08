@@ -1540,8 +1540,10 @@ def copy_fixtures():
     destination_crossing = seed + setup(length=8, da=0xbb2ffffc)
     destination_crossing += start() + wait() + read(base + 0x30, 4)
     destination_crossing += read(0xbb2ffffc, 5)
-    large_rom = setup(length=0x300000, sa=BASE, da=0xbac00000)
-    large_rom += start() + wait() + read(base + 0x30, 4)
+    large_rom = relocation_irq + setup(length=0x300000, sa=BASE,
+                                       da=0xbac00000)
+    # Real GIC45 wakes WFI after the DMA deadline; avoid 65 ms of busy polling.
+    large_rom += start() + [0xe320f003] + wait() + read(base + 0x30, 4)
     large_rom += read(0xbadc5afc, 5) + read(0xbaeffffc, 6)
     branch_index = len(large_rom)
     large_rom.append(0xea000000 | (0x300000 // 4 - branch_index - 2))
