@@ -816,7 +816,19 @@ def exiu_fixtures():
     irq += write(0xf8102000, 1) + write(exiu, 0xfffe) + high
     irq += read(0xf810200c, 4) + write(exiu + 0x10, 1)
     irq += write(0xf8102010, 65) + read(0xf810200c, 5)
+    falling = high + write(exiu + 0x14, 0xfffe) + write(exiu + 0x10, 1)
+    falling += low + read(exiu + 0xc, 4)
+    irq80 = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq80 += constant(1, 1) + [0xe5c21850]
+    irq80 += write(0xf8101108, 0x10000) + write(0xf8102004, 0xff)
+    irq80 += write(0xf8102000, 1) + write(exiu, 0x7fff)
+    irq80 += write(GPIO + 0x118, 0x40) + write(GPIO + 0x18, 0x00400040)
+    irq80 += read(0xf810200c, 4) + write(exiu + 0x10, 0x8000)
+    irq80 += write(0xf8102010, 80) + read(0xf810200c, 5)
     return [
+        ("exiu-board-reset", read(exiu + 0xc, 2) + high, {2: 0}, None),
+        ("exiu-falling-transition", falling, {4: 1}, None),
+        ("exiu-real-gic-route80", irq80, {4: 80, 5: 1023}, None),
         ("exiu-edge-mask-latch-ack", edge, {4: 1, 5: 0, 6: 1, 7: 0, 8: 0}, None),
         ("exiu-level-reassert-and-clear", level, {4: 1, 5: 1, 6: 0}, None),
         ("exiu-all-sixteen-pad-routes", routes, {4: 0xffff}, None),
@@ -897,7 +909,8 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
-                            "clock-bitcontrol-reset", "spi-board-reset"):
+                            "clock-bitcontrol-reset", "spi-board-reset",
+                            "exiu-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE

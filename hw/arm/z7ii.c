@@ -938,7 +938,8 @@ static void z7ii_init(MachineState *machine)
     for (i = 0; i < 16; i++) {
         unsigned pad = i < 9 ? 5 * 16 + 7 + i : 6 * 16 + i - 9;
 
-        qdev_connect_gpio_out_named(gpio, "pad", pad, qdev_get_gpio_in(exiu, i));
+        qdev_connect_gpio_out_named(gpio, "pad", pad,
+                                    qdev_get_gpio_in(exiu, i));
         sysbus_connect_irq(SYS_BUS_DEVICE(exiu), i,
                            qdev_get_gpio_in(gic, 65 + i - 32));
     }
