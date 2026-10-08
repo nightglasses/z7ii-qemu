@@ -411,6 +411,19 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return mxic_config_fixtures() + [
+        ("clock-bitcontrol-rmw", constant(0, CLOCK + 0x58) + [0xe5902000] +
+         [0xe3823008, 0xe5803000, 0xe5904000, 0xe3843080, 0xe5803000,
+          0xe5904000, 0xe3c43008, 0xe5803000, 0xe5905000] +
+         constant(0, CLOCK + 0x5c) + constant(1, 0x80000000) +
+         [0xe5801000, 0xe5906000], {2: 0, 4: 0x88, 5: 0x80, 6: 0x80000000}, None),
+        ("clock-bitcontrol-reset", constant(0, CLOCK + 0x58) + [0xe5902000] +
+         constant(1, 0x20) + [0xe5801000], {2: 0}, None),
+        ("clock-bitcontrol-width", constant(0, CLOCK + 0x58) + [0xe5c01000], {},
+         "clock-access-not-supported"),
+        ("clock-bitcontrol-hole", constant(0, CLOCK + 0x54) + [0xe5901000], {},
+         "clock-access-not-supported"),
+        ("clock-bitcontrol-no-alias", constant(0, CLOCK + 0x158) + [0xe5801000], {},
+         "clock-access-not-supported"),
         ("percore-stack-two-banks", percore, {4: 0x1234}, None),
         ("percore-stack-two-below", constant(0, 0xb2b7fffc) + [0xe5801000], {},
          "uncovered-address"),
@@ -730,7 +743,8 @@ def run(binary, output, name, words, expected, reason):
                 if name == "timestamp-elapsed-freeze-carry":
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
-                if name in ("clock-reset", "completion-reset", "mxic-config-reset"):
+                if name in ("clock-reset", "completion-reset", "mxic-config-reset",
+                            "clock-bitcontrol-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE

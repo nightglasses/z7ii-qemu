@@ -62,6 +62,7 @@ def main():
             "early shared release RAM exactly four bytes; no host magic",
             "same-IP MEMC binding with only documented functional profiles",
             "virtual PLL reset words 0xffe/0x73/3; six gate banks start ungated",
+            "two runtime system-control RMW request banks+58/+5c reset zero; physical roles unbound, no inferred rate/ready",
             "PLL outputs nominal 48MHz after modeled 10us virtual lock; not physical rates",
             "independent virtual timestamp Clock 48MHz; reset count zero, control3 enabled; guest config at +10",
             "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",

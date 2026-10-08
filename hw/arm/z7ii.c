@@ -58,6 +58,7 @@ struct Z7IIClockGatesState {
     uint32_t known[6];
     uint32_t pll[3];
     uint32_t selector[10];
+    uint32_t bit_control[2];
     Z7IIClockChannel channel[9];
     bool reported_error;
 };
@@ -361,6 +362,10 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
             *value = s->pll[(offset - 0x28) / 4];
             return MEMTX_OK;
         }
+        if (offset == 0x58 || offset == 0x5c) {
+            *value = s->bit_control[(offset - 0x58) / 4];
+            return MEMTX_OK;
+        }
     }
     if (size != 4 || bank < 0) {
         return z7ii_clock_error(s, offset, size, false, 0,
@@ -404,6 +409,12 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
             z7ii_pll_update(s, reg, before);
             return MEMTX_OK;
         }
+        if (offset == 0x58 || offset == 0x5c) {
+            /* Original O390914..960 is a mutex-protected word RMW request.
+             * Physical roles remain unbound; no rate/ready effect is invented. */
+            s->bit_control[(offset - 0x58) / 4] = value;
+            return MEMTX_OK;
+        }
     }
 
     if (!set) {
@@ -443,6 +454,7 @@ static void z7ii_clock_reset(DeviceState *dev)
     memset(s->stopped, 0, sizeof(s->stopped));
     memset(s->known, 0xff, sizeof(s->known));
     memset(s->selector, 0, sizeof(s->selector));
+    memset(s->bit_control, 0, sizeof(s->bit_control));
     s->pll[0] = 0xffe;
     s->pll[1] = 0x73;
     s->pll[2] = 3;
