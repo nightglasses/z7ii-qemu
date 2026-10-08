@@ -26,3 +26,4 @@
 | [docs/gpio-functional.md](docs/gpio-functional.md) | 十二port掩码输出、方向/功能/pull输入与启动选择字段 |
 | [docs/mxic-config-functional.md](docs/mxic-config-functional.md) | active快照、draft槽表事务和独立live参数、原版下一控制组 |
 | [docs/kernel-copy-and-percore-stacks.md](docs/kernel-copy-and-percore-stacks.md) | 原内核精确复制、每核虚拟模式栈和真实SGI/IRQ后继 |
+| [docs/runtime-bit-control.md](docs/runtime-bit-control.md) | 两bank运行时位请求、原RMW合同和下一真实外设 |
