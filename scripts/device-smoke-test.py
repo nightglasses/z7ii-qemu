@@ -1082,6 +1082,82 @@ def i2c_fixtures():
     ]
 
 
+def audio_fixtures():
+    audio, dma, source = 0x2c080000, 0x2c030000, 0xb1800100
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    def delay(ticks=4800):
+        return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    def request(channel=0, selector=3, destination=audio + 0x13c):
+        base = dma + 0x10 + channel * 16
+        return (write(dma, 0x80000000) + write(base + 8, source) +
+                write(base + 12, destination) + write(base + 4, 0x29180000) +
+                write(base, 0x80000001 | selector << 24))
+
+    seed = write(source, 0x11223344) + write(source + 4, 0x55667788)
+    enabled = write(audio + 0x108, 0xa000)
+    pressure = seed + enabled + request() + delay()
+    pressure += read(dma + 0x14, 4) + read(dma + 0x18, 5)
+    pressure += read(audio + 0x120, 6)
+    resumed = pressure + write(audio + 0x114, 0x40000000) + delay()
+    resumed += read(dma + 0x14, 7) + read(dma + 0x10, 8)
+    canceled = pressure + write(dma + 0x10, 0x03000001)
+    canceled += write(audio + 0x114, 0x40000000) + delay()
+    canceled += read(dma + 0x14, 7) + read(dma + 0x18, 8)
+    reset = pressure + write(audio, 1) + write(audio, 0) + delay()
+    reset += read(dma + 0x14, 7) + read(audio + 0x120, 8)
+    reset += enabled + write(audio + 0x114, 0x40000000) + delay()
+    reset += read(dma + 0x14, 9)
+    deassert = pressure + write(audio + 0x108, 0)
+    deassert += write(audio + 0x114, 0x40000000) + delay()
+    deassert += read(dma + 0x14, 7) + read(dma + 0x18, 8)
+    multiple = seed + enabled + request() + request(1) + delay()
+    multiple += read(dma + 0x14, 4) + read(dma + 0x24, 5)
+    multiple += write(audio + 0x114, 0x40000000) + delay()
+    multiple += read(dma + 0x14, 6) + read(dma + 0x24, 7)
+    drain = write(audio + 0x10c, 0x04800000) + enabled
+    drain += write(audio + 0x104, 0xabcdef01) + read(audio + 0x120, 4)
+    drain += write(audio + 0x114, 0x40000000) + delay()
+    drain += read(audio + 0x120, 5) + read(audio + 0x110, 6)
+    drain += write(audio + 0x108, 0) + write(audio + 0x110, 0)
+    drain += read(audio + 0x110, 7)
+    rx_wait = seed + write(audio + 0x108, 0x5000)
+    rx_wait += request(selector=5, destination=audio + 0x13c) + delay()
+    rx_wait += read(dma + 0x14, 4) + read(dma + 0x18, 5)
+    return [
+        ("audio-fifo-pressure-pauses-demand", pressure,
+         {4: 0x29180000, 5: source + 4, 6: 3}, None),
+        ("audio-real-clock-resumes-demand", resumed,
+         {7: 0x291d0000, 8: 0x03000000}, None),
+        ("audio-cancel-paused-demand", canceled,
+         {7: 0x291a0000, 8: source + 4}, None),
+        ("audio-reset-deasserts-and-resumes-demand", reset,
+         {7: 0x29180000, 8: 0, 9: 0x291d0000}, None),
+        ("audio-disabled-request-remains-paused", deassert,
+         {7: 0x29180000, 8: source + 4}, None),
+        ("audio-multiple-channel-fifo-pressure", multiple,
+         {4: 0x29180000, 5: 0x29180000, 6: 0x291d0000, 7: 0x291d0000}, None),
+        ("audio-opaque-fifo-drain-and-w0c", drain,
+         {4: 3, 5: 0, 6: 0x2020000, 7: 0x2000000}, None),
+        ("audio-disconnected-input-no-demand", rx_wait,
+         {4: 0x29180000, 5: source}, None),
+        ("audio-board-reset", read(audio, 2) + write(audio, 3), {2: 0}, None),
+        ("audio-extension-unsupported", read(audio + 0x15c, 4), {},
+         "audio-access-or-profile-not-supported"),
+        ("audio-empty-input-unsupported", read(audio + 0x100, 4), {},
+         "audio-access-or-profile-not-supported"),
+        ("audio-unknown-width", constant(0, audio) + [0xe5d01000], {},
+         "audio-access-or-profile-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -1098,7 +1174,7 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-", "audio-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -1161,7 +1237,7 @@ def run(binary, output, name, words, expected, reason):
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
                             "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
-                            "record-slot-board-reset"):
+                            "record-slot-board-reset", "audio-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1214,7 +1290,7 @@ def main():
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
                fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
-               i2c_fixtures() + record_slot_fixtures()]
+               i2c_fixtures() + record_slot_fixtures() + audio_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")

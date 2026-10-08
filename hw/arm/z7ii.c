@@ -1009,6 +1009,20 @@ static void z7ii_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(hdmac), channel,
                                qdev_get_gpio_in(gic, irq - 32));
         }
+        if (i == 1) {
+            DeviceState *audio = qdev_new(TYPE_Z7II_AUDIO);
+
+            sysbus_realize_and_unref(SYS_BUS_DEVICE(audio), &error_fatal);
+            sysbus_mmio_map(SYS_BUS_DEVICE(audio), 0, 0x2c080000);
+            sysbus_connect_irq(SYS_BUS_DEVICE(audio), 0,
+                               qdev_get_gpio_in(gic, 167 - 32));
+            sysbus_connect_irq(SYS_BUS_DEVICE(audio), 1,
+                               qdev_get_gpio_in(gic, 168 - 32));
+            /* Original logical DMA IDs132..139 select bank1 dynamically. */
+            qdev_connect_gpio_out(audio, 0, qdev_get_gpio_in(hdmac, 3));
+            qdev_connect_gpio_out(audio, 1, qdev_get_gpio_in(hdmac, 7));
+            qdev_connect_gpio_out(audio, 2, qdev_get_gpio_in(hdmac, 5));
+        }
     }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
