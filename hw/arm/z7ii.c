@@ -120,6 +120,7 @@ struct Z7IIMachineState {
     MemoryRegion kernel_arena;
     MemoryRegion kernel_copy;
     MemoryRegion module_buffer;
+    MemoryRegion message_ring;
     MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
@@ -883,6 +884,10 @@ static void z7ii_init(MachineState *machine)
      * for this entire allocation only; guest owns all copies and metadata.
      */
     z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3a0000);
+    /* Original sender: 0x18 header + 0xc0 slots * 0x108 stride.
+     * Cold RAM is virtual; guest owns header, producer and consumer state.
+     * No host peer consumes messages or supplies a reply. */
+    z7ii_ram(&s->message_ring, "z7ii.message-ring", 0xb7cf0000, 0xc618);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
@@ -911,6 +916,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
     z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
     z7ii_mxic_attach_ram(mxic, &s->module_buffer, 0xb7d00000);
+    z7ii_mxic_attach_ram(mxic, &s->message_ring, 0xb7cf0000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
     for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
         z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],

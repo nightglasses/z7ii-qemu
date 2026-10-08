@@ -97,6 +97,7 @@ def main():
             "original lowmem allocator arena [b2c00000,b5f00000), 51MiB virtual RAM, no host metadata",
             "original kernel copy destination [bab00000,bab21538), finite virtual RAM; guest performs copy and MMU changes",
             "first original bump module allocation [b7d00000,b80a0000), 0x3a0000 virtual RAM with original identity-section hypothesis; no host allocation metadata",
+            "original shared sending ring [b7cf0000,b7cfc618): header18 + 192 slots*108, maximum body100; virtual cold-zero RAM, guest header/magic/producer/consumer, no host peer consumption or reply",
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
         "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
