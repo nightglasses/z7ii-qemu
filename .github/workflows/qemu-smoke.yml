@@ -1,0 +1,43 @@
+name: QEMU synthetic smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev ninja-build pkg-config python3-venv
+      - name: Fetch pinned upstream QEMU
+        run: |
+          mkdir -p work/upstream
+          git init work/upstream/qemu
+          git -C work/upstream/qemu remote add origin https://github.com/qemu/qemu.git
+          git -C work/upstream/qemu fetch --depth 1 origin 4fc49f46dc95d4a27de2509e7fceb2931e91faeb
+          git -C work/upstream/qemu checkout --detach FETCH_HEAD
+      - name: Integrate and build ARM system emulator
+        run: scripts/build-qemu.sh "$GITHUB_WORKSPACE/work/upstream/qemu" "$GITHUB_WORKSPACE/work/build/mas-diagnostic"
+      - name: Execute synthetic ARM self-loop
+        env:
+          PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
+        run: work/build/mas-diagnostic/pyvenv/bin/python scripts/smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/smoke
+      - name: Preserve synthetic test logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-arm-smoke
+          path: work/smoke/
+          if-no-files-found: ignore
