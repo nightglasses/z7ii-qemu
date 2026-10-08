@@ -6,6 +6,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/timer.h"
+#include "qemu/log.h"
 #include "migration/vmstate.h"
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
@@ -30,6 +31,7 @@ typedef struct Z7IIHDMACChannel {
     QEMUTimer *timer;
     qemu_irq irq;
     bool running;
+    int64_t ready_at;
 } Z7IIHDMACChannel;
 
 struct Z7IIHDMACState {
@@ -38,6 +40,7 @@ struct Z7IIHDMACState {
     Clock *clock;
     uint32_t bank;
     uint32_t control;
+    unsigned cursor;
     Z7IIHDMACChannel channel[8];
     bool reported_error;
 };
@@ -61,13 +64,37 @@ static void z7ii_hdmac_finish(Z7IIHDMACChannel *c, unsigned status)
 
 static void z7ii_hdmac_transfer(void *opaque)
 {
-    Z7IIHDMACChannel *c = opaque;
-    unsigned width = 1U << ((c->cb >> 26) & 3);
-    uint32_t beats = (((c->ca >> 16) & 15) + 1) * ((c->ca & 0xffff) + 1);
-    bool fixed_source = c->cb & (1U << 25);
-    bool fixed_destination = c->cb & (1U << 24);
+    Z7IIHDMACChannel *trigger = opaque;
+    Z7IIHDMACState *s = trigger->owner;
+    Z7IIHDMACChannel *c = NULL;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    unsigned start = (s->control & (1U << 28)) ? s->cursor : 0;
+    unsigned candidate;
+    unsigned width, i;
+    uint32_t beats;
+    bool fixed_source, fixed_destination;
     uint8_t data[4];
-    unsigned i;
+
+    /* Fixed low-index or rotating arbitration among ready virtual requests. */
+    for (candidate = 0; candidate < 8; candidate++) {
+        unsigned index = (start + candidate) % 8;
+
+        if (s->channel[index].running && s->channel[index].ready_at <= now) {
+            c = &s->channel[index];
+            s->cursor = (index + 1) % 8;
+            break;
+        }
+    }
+    if (!c) {
+        return;
+    }
+    if (c != trigger && trigger->running) {
+        timer_mod(trigger->timer, now);
+    }
+    width = 1U << ((c->cb >> 26) & 3);
+    beats = (((c->ca >> 16) & 15) + 1) * ((c->ca & 0xffff) + 1);
+    fixed_source = c->cb & (1U << 25);
+    fixed_destination = c->cb & (1U << 24);
 
     for (i = 0; i < beats; i++) {
         if ((uint64_t)c->source + width > 1ULL << 32 ||
@@ -77,11 +104,15 @@ static void z7ii_hdmac_transfer(void *opaque)
         }
         if (dma_memory_read(&address_space_memory, c->source, data, width,
                             MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            qemu_log_mask(LOG_GUEST_ERROR, "z7ii.hdmac: bank%u source bus error "
+                          "at 0x%08x; SS3\n", s->bank, c->source);
             z7ii_hdmac_finish(c, 3);
             return;
         }
         if (dma_memory_write(&address_space_memory, c->destination, data, width,
                              MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            qemu_log_mask(LOG_GUEST_ERROR, "z7ii.hdmac: bank%u destination bus "
+                          "error at 0x%08x; SS4\n", s->bank, c->destination);
             z7ii_hdmac_finish(c, 4);
             return;
         }
@@ -130,8 +161,9 @@ static void z7ii_hdmac_schedule(Z7IIHDMACChannel *c)
         return;
     }
     c->running = true;
-    timer_mod(c->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              MAX(1, clock_ticks_to_ns(s->clock, beats)));
+    c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                  MAX(1, clock_ticks_to_ns(s->clock, beats));
+    timer_mod(c->timer, c->ready_at);
 }
 
 static MemTxResult z7ii_hdmac_error(Z7IIHDMACState *s, hwaddr offset,
@@ -261,6 +293,7 @@ static void z7ii_hdmac_reset(DeviceState *dev)
     unsigned i;
 
     s->control = 0;
+    s->cursor = 0;
     s->reported_error = false;
     clock_update_hz(s->clock, 48000000);
     for (i = 0; i < 8; i++) {

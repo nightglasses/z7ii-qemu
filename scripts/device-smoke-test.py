@@ -892,9 +892,9 @@ def hdmac_fixtures():
         ("hdmac-both-banks-last-channel", globals,
          {4: 0x10000000, 5: 0x90000000, 6: 7, 7: 9}, None),
         ("hdmac-source-bus-error", setup(sa=0xdead0000) + wait_status() +
-         read(dma + 0x14, 4), {4: 0x081b0000}, None),
+         read(dma + 0x14, 4), {}, "uncovered-address"),
         ("hdmac-destination-bus-error", seed + setup(da=0xdead0000) +
-         wait_status() + read(dma + 0x14, 4), {4: 0x081c0000}, None),
+         wait_status() + read(dma + 0x14, 4), {}, "uncovered-address"),
         ("hdmac-unknown-width", constant(0, dma) + [0xe5d01000], {},
          "hdmac-access-or-command-not-supported"),
         ("hdmac-hole", read(dma + 4, 4), {},
@@ -950,6 +950,12 @@ def run(binary, output, name, words, expected, reason):
             if reason:
                 vm.event_wait("STOP", timeout=5)
                 assert vm.cmd("query-status")["status"] == "debug"
+                if name in ("hdmac-source-bus-error", "hdmac-destination-bus-error"):
+                    status_file = output / "dma-status.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c020014 4 "{status_file}"')
+                    expected_status = 0x081b0000 if "source" in name else 0x081c0000
+                    assert struct.unpack("<I", status_file.read_bytes())[0] == expected_status
             else:
                 deadline = time.monotonic() + 5
                 while registers(vm)[15] != loop_pc:
