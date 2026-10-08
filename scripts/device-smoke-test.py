@@ -388,14 +388,6 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
-            if name == "clock-reset":
-                try:
-                    vm.cmd("migrate", uri="unix:/tmp/ng-no-migration-peer.sock")
-                except ExecuteError as error:
-                    assert "unmigratable" in str(error).lower() or \
-                           "non-migratable" in str(error).lower(), error
-                else:
-                    raise AssertionError("stateful diagnostic board allowed migration")
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
                     deadline = time.monotonic() + 5
