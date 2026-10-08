@@ -35,3 +35,4 @@
 | [docs/i2c-functional.md](docs/i2c-functional.md) | 四通道真实I2CBus/FIFO/IRQ、断连NACK与未绑定变体拒绝 |
 | [docs/nv-record-aperture.md](docs/nv-record-aperture.md) | 独立256KiB记录输入、擦除态假设与原空记录/恢复失败边界 |
 | [docs/audio-functional.md](docs/audio-functional.md) | 双Audio不解释布局的FIFO与每beat HDMAC请求、原版下一双核依赖 |
+| [docs/timing-functional.md](docs/timing-functional.md) | 十二通道具名计时假设、真实Clock/IRQ与原版下一四通道设备 |

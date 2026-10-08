@@ -301,7 +301,8 @@ static const MemoryRegionOps z7ii_timing_ops##n = { \
     .read_with_attrs = z7ii_timing_read##n, \
     .write_with_attrs = z7ii_timing_write##n, \
     .endianness = DEVICE_LITTLE_ENDIAN, \
-    .valid = { .min_access_size = 1, .max_access_size = 4, .unaligned = true }, \
+    .valid = { .min_access_size = 1, .max_access_size = 4, \
+               .unaligned = true }, \
     .impl = { .min_access_size = 1, .max_access_size = 4, .unaligned = true }, \
 };
 TIMING_BANK_OPS(0)
