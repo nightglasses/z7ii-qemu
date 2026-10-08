@@ -82,8 +82,9 @@ def sdi_contract(arb_reset=None):
                 words += constant(0, base + 0x8030)
                 words += [0xe5902000, 0xe3120001, 0x0afffffc]
             words += write(0x4000, 1)
-            # Deterministic icount fixture: let any stale callback expire.
-            words += constant(1, 48000) + [0xee0e1f12]
+            # SDI completion is10us: settle for20us, not1ms of icount polls.
+            # This still detects a stale callback surviving the reset.
+            words += constant(1, 960) + [0xee0e1f12]
             words += constant(1, 1) + [0xee0e1f32]
             words += [0xee1e1f32, 0xe3110004, 0x0afffffc]
             words += constant(0, base + 0x8030) + [0xe5904000]
