@@ -11,3 +11,7 @@
 | [docs/original-mas-memc-run.md](docs/original-mas-memc-run.md) | 原版越过 MEMC 与临时栈、下一时钟读阻断的实际证据 |
 | [docs/original-mas-smp-run.md](docs/original-mas-smp-run.md) | 两核软件合同、精确 RAM、原版 MTTCG 等待与时钟阻断 |
 | [docs/clock-gates-diagnostic.md](docs/clock-gates-diagnostic.md) | 六组时钟停止位别名、未知复位与合成合同验证 |
+| [docs/completion-diagnostic.md](docs/completion-diagnostic.md) | 因果请求/延后完成/IRQ250/ack 合同、未知状态与实际验证 |
+| [docs/functional-startup-model.md](docs/functional-startup-model.md) | 功能复位/时序假设、原版 PLL 越过与下一实际阻断 |
+| [docs/timestamp-functional.md](docs/timestamp-functional.md) | 独立 Clock 时间计数、88B 精确栈和合成验证 |
+| [docs/sdi-functional.md](docs/sdi-functional.md) | 双bank SDI/PHY/DDR 训练/port 状态机与原版下一阻断 |

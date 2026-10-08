@@ -4,10 +4,15 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "migration/vmstate.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
+#include "qemu/main-loop.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
+#include "hw/core/irq.h"
+#include "hw/core/qdev-clock.h"
+#include "qemu/timer.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/cpu/a15mpcore.h"
@@ -15,6 +20,7 @@
 #include "system/reset.h"
 #include "system/runstate.h"
 #include "target/arm/cpu.h"
+#include "z7ii.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -24,6 +30,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
+#define COMPLETION_BASE 0x04287000ULL
 #define CBAR_BASE 0x1d000000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
@@ -34,11 +41,49 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMemcState, Z7II_MEMC)
 #define TYPE_Z7II_CLOCK_GATES "z7ii-clock-gates-diagnostic"
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIClockGatesState, Z7II_CLOCK_GATES)
 
+typedef struct Z7IIClockChannel {
+    Z7IIClockGatesState *owner;
+    unsigned index;
+    Clock *output;
+    QEMUTimer *lock_timer;
+    bool locked;
+} Z7IIClockChannel;
+
 struct Z7IIClockGatesState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     uint32_t stopped[6];
     uint32_t known[6];
+    uint32_t pll[3];
+    uint32_t selector[10];
+    Z7IIClockChannel channel[9];
+    bool reported_error;
+};
+
+/* Original nine-record group table; sentinel 0x20 means no such field. */
+static const struct {
+    unsigned reg;
+    uint32_t stop_mask;
+    uint32_t output_mask;
+} z7ii_pll_group[] = {
+    { 0, 4, 8 }, { 0, 0, 2 }, { 0, 0x10, 0x20 },
+    { 0, 0x40, 0x80 }, { 0, 0x100, 0x200 }, { 0, 0x400, 0x800 },
+    { 1, 1, 2 }, { 1, 0x70, 0 }, { 2, 1, 2 },
+};
+
+#define TYPE_Z7II_COMPLETION "z7ii-completion-diagnostic"
+OBJECT_DECLARE_SIMPLE_TYPE(Z7IICompletionState, Z7II_COMPLETION)
+
+struct Z7IICompletionState {
+    SysBusDevice parent_obj;
+    MemoryRegion regs;
+    qemu_irq irq;
+    QEMUBH *bh;
+    uint32_t request;
+    uint32_t applied_domains;
+    bool irq_enabled;
+    bool done;
+    bool pending;
     bool reported_error;
 };
 
@@ -66,11 +111,12 @@ struct Z7IIMachineState {
     MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
     Z7IIClockGatesState clock_gates;
+    Z7IICompletionState completion;
     bool reported_unknown;
 };
 
-static void z7ii_access_error(bool *reported, hwaddr addr, unsigned size,
-                              bool write, uint64_t value, const char *reason)
+void z7ii_access_error(bool *reported, hwaddr addr, unsigned size,
+                       bool write, uint64_t value, const char *reason)
 {
     CPUState *cpu = current_cpu;
     g_autofree char *message = NULL;
@@ -210,10 +256,16 @@ static void z7ii_memc_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 
+static const VMStateDescription z7ii_memc_vmstate = {
+    .name = "z7ii-memc",
+    .unmigratable = true,
+};
+
 static void z7ii_memc_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_memc_vmstate;
     device_class_set_legacy_reset(dc, z7ii_memc_reset);
     dc->user_creatable = false;
 }
@@ -236,6 +288,57 @@ static int z7ii_clock_bank(hwaddr offset, hwaddr first)
     return (offset - first) / 4;
 }
 
+static void z7ii_pll_output(Z7IIClockChannel *channel)
+{
+    unsigned i = channel->index;
+    uint32_t word = channel->owner->pll[z7ii_pll_group[i].reg];
+    bool enabled = channel->locked &&
+                   !(word & z7ii_pll_group[i].stop_mask) &&
+                   !(word & z7ii_pll_group[i].output_mask);
+
+    /* Independent nominal virtual rates, never inferred from multiplier 0x163. */
+    clock_update_hz(channel->output, enabled ? TIMER_HZ : 0);
+}
+
+static void z7ii_pll_locked(void *opaque)
+{
+    Z7IIClockChannel *channel = opaque;
+
+    channel->locked = true;
+    z7ii_pll_output(channel);
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "z7ii-syscontrol: PLL group=%u modeled-lock nominal-Hz=%u\n",
+                  channel->index, (unsigned)TIMER_HZ);
+}
+
+static void z7ii_pll_update(Z7IIClockGatesState *s, unsigned reg,
+                           uint32_t before)
+{
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(z7ii_pll_group); i++) {
+        Z7IIClockChannel *channel = &s->channel[i];
+        uint32_t mask = z7ii_pll_group[i].stop_mask;
+
+        if (z7ii_pll_group[i].reg != reg) {
+            continue;
+        }
+        if (s->pll[reg] & mask) {
+            timer_del(channel->lock_timer);
+            channel->locked = false;
+        } else if ((before & mask) ||
+                   (!mask && (before & z7ii_pll_group[i].output_mask) &&
+                    !(s->pll[reg] & z7ii_pll_group[i].output_mask))) {
+            /* A 10us virtual lock interval is an explicit functional assumption.
+             * No register is auto-cleared; output still follows guest gating. */
+            channel->locked = false;
+            timer_mod(channel->lock_timer,
+                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 10000);
+        }
+        z7ii_pll_output(channel);
+    }
+}
+
 static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
                                   uint64_t *value, unsigned size,
                                   MemTxAttrs attrs)
@@ -244,6 +347,16 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
     int bank = z7ii_clock_bank(offset, 0x38);
 
     *value = 0; /* Invalid unless the complete word is known. */
+    if (size == 4 && !(offset & 3)) {
+        if (offset <= 0x24) {
+            *value = s->selector[offset / 4];
+            return MEMTX_OK;
+        }
+        if (offset >= 0x28 && offset <= 0x30) {
+            *value = s->pll[(offset - 0x28) / 4];
+            return MEMTX_OK;
+        }
+    }
     if (size != 4 || bank < 0) {
         return z7ii_clock_error(s, offset, size, false, 0,
                                 "clock-access-not-supported");
@@ -264,6 +377,29 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
     int bank = z7ii_clock_bank(offset, 0x138);
     bool set = bank >= 0;
     uint32_t mask = value;
+
+    if (size == 4 && !(offset & 3)) {
+        static const uint32_t writable[] = {
+            0x7ffffffe, 0xffff0073, 0x3f07ff07,
+        };
+        if (offset <= 0x24) {
+            /* The original indexed API replaces the entire configuration word.
+             * Rates remain explicit nominal inputs; selectors are not dividers. */
+            s->selector[offset / 4] = value;
+            return MEMTX_OK;
+        }
+        if (offset >= 0x28 && offset <= 0x30) {
+            unsigned reg = (offset - 0x28) / 4;
+            uint32_t before = s->pll[reg];
+            if (value & ~writable[reg]) {
+                return z7ii_clock_error(s, offset, size, true, value,
+                                        "clock-control-fields-not-supported");
+            }
+            s->pll[reg] = value;
+            z7ii_pll_update(s, reg, before);
+            return MEMTX_OK;
+        }
+    }
 
     if (!set) {
         bank = z7ii_clock_bank(offset, 0x238);
@@ -296,27 +432,234 @@ static const MemoryRegionOps z7ii_clock_ops = {
 static void z7ii_clock_reset(DeviceState *dev)
 {
     Z7IIClockGatesState *s = Z7II_CLOCK_GATES(dev);
+    unsigned i;
 
-    /* Storage zero is never a supplied hardware reset value. */
+    /* Canonical virtual-board assumptions, not measured hardware reset words. */
     memset(s->stopped, 0, sizeof(s->stopped));
-    memset(s->known, 0, sizeof(s->known));
+    memset(s->known, 0xff, sizeof(s->known));
+    memset(s->selector, 0, sizeof(s->selector));
+    s->pll[0] = 0xffe;
+    s->pll[1] = 0x73;
+    s->pll[2] = 3;
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        timer_del(s->channel[i].lock_timer);
+        s->channel[i].locked = false;
+        clock_update_hz(s->channel[i].output, 0);
+    }
     s->reported_error = false;
 }
 
 static void z7ii_clock_init(Object *obj)
 {
     Z7IIClockGatesState *s = Z7II_CLOCK_GATES(obj);
+    unsigned i;
 
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        g_autofree char *name = g_strdup_printf("pll%u", i);
+        s->channel[i].owner = s;
+        s->channel[i].index = i;
+        s->channel[i].output = qdev_init_clock_out(DEVICE(obj), name);
+        s->channel[i].lock_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                               z7ii_pll_locked, &s->channel[i]);
+    }
     memory_region_init_io(&s->regs, obj, &z7ii_clock_ops, s,
                           "z7ii.clock-gates", 0x250);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 
+static void z7ii_clock_finalize(Object *obj)
+{
+    Z7IIClockGatesState *s = Z7II_CLOCK_GATES(obj);
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
+        timer_free(s->channel[i].lock_timer);
+    }
+}
+
+static const VMStateDescription z7ii_clock_vmstate = {
+    .name = "z7ii-clock",
+    .unmigratable = true,
+};
+
 static void z7ii_clock_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->vmsd = &z7ii_clock_vmstate;
     device_class_set_legacy_reset(dc, z7ii_clock_reset);
+    dc->user_creatable = false;
+}
+
+static MemTxResult z7ii_completion_error(Z7IICompletionState *s, hwaddr offset,
+                                        unsigned size, bool write,
+                                        uint64_t value, const char *reason)
+{
+    z7ii_access_error(&s->reported_error, COMPLETION_BASE + offset, size,
+                      write, value, reason);
+    return MEMTX_ERROR;
+}
+
+static void z7ii_completion_irq(Z7IICompletionState *s)
+{
+    qemu_set_irq(s->irq, s->irq_enabled && s->done);
+}
+
+static void z7ii_completion_apply(void *opaque)
+{
+    Z7IICompletionState *s = opaque;
+    uint32_t bit = 1U << ((s->request >> 12) & 7);
+
+    if (!s->pending) {
+        return;
+    }
+    /* Functional request effects; physical domains and latency are unknown. */
+    if (s->request & 0x100) {
+        s->applied_domains |= bit;
+    } else {
+        s->applied_domains &= ~bit;
+    }
+    s->pending = false;
+    s->done = true;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "z7ii-completion: deferred request=0x%08x applied=0x%08x "
+                  "done=1\n", s->request, s->applied_domains);
+    z7ii_completion_irq(s);
+}
+
+static MemTxResult z7ii_completion_read(void *opaque, hwaddr offset,
+                                       uint64_t *value, unsigned size,
+                                       MemTxAttrs attrs)
+{
+    Z7IICompletionState *s = opaque;
+
+    *value = 0;
+    if (size != 4 ||
+        (offset != 0 && offset != 4 && offset != 8 && offset != 12)) {
+        return z7ii_completion_error(s, offset, size, false, 0,
+                                     "completion-access-not-supported");
+    }
+    if (offset == 12) {
+        *value = s->applied_domains;
+        return MEMTX_OK;
+    }
+    *value = offset == 0 ? s->request :
+             offset == 4 ? s->done : s->irq_enabled;
+    return MEMTX_OK;
+}
+
+static MemTxResult z7ii_completion_write(void *opaque, hwaddr offset,
+                                        uint64_t value, unsigned size,
+                                        MemTxAttrs attrs)
+{
+    Z7IICompletionState *s = opaque;
+    unsigned domain = (value >> 12) & 7;
+
+    if (size != 4 ||
+        (offset != 0 && offset != 4 && offset != 8 && offset != 16)) {
+        return z7ii_completion_error(s, offset, size, true, value,
+                                     "completion-access-not-supported");
+    }
+    if (s->pending) {
+        return z7ii_completion_error(
+            s, offset, size, true, value,
+            "completion-concurrent-request-not-supported");
+    }
+    switch (offset) {
+    case 0:
+        /* Observed domain and request-mode profiles, not full IP legality. */
+        if ((value & ~0x7110U) ||
+            (domain != 0 && domain != 1 && domain != 3)) {
+            return z7ii_completion_error(
+                s, offset, size, true, value,
+                "completion-request-profile-not-supported");
+        }
+        s->request = value;
+        break;
+    case 4:
+        if (value != 1) {
+            return z7ii_completion_error(s, offset, size, true, value,
+                                         "completion-ack-not-supported");
+        }
+        /* W1C diagnostic binding; no host RTOS flag mutation. */
+        s->done = false;
+        z7ii_completion_irq(s);
+        break;
+    case 8:
+        if (value > 1) {
+            return z7ii_completion_error(
+                s, offset, size, true, value,
+                "completion-irq-profile-not-supported");
+        }
+        s->irq_enabled = value;
+        z7ii_completion_irq(s);
+        break;
+    case 16:
+        if (value != 0xa1) {
+            return z7ii_completion_error(s, offset, size, true, value,
+                                         "completion-command-not-supported");
+        }
+        s->pending = true;
+        s->done = false;
+        z7ii_completion_irq(s);
+        qemu_bh_schedule(s->bh);
+        break;
+    }
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps z7ii_completion_ops = {
+    .read_with_attrs = z7ii_completion_read,
+    .write_with_attrs = z7ii_completion_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+static void z7ii_completion_reset(DeviceState *dev)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(dev);
+
+    qemu_bh_cancel(s->bh);
+    s->pending = false;
+    /* Coherent virtual domain-off/reset profile, not a measured Nikon reset. */
+    s->request = 0;
+    s->irq_enabled = false;
+    s->done = false;
+    s->applied_domains = 0;
+    s->reported_error = false;
+    z7ii_completion_irq(s);
+}
+
+static void z7ii_completion_init(Object *obj)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(obj);
+
+    s->bh = qemu_bh_new(z7ii_completion_apply, s);
+    memory_region_init_io(&s->regs, obj, &z7ii_completion_ops, s,
+                          "z7ii.completion", 0x14);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+}
+
+static void z7ii_completion_finalize(Object *obj)
+{
+    Z7IICompletionState *s = Z7II_COMPLETION(obj);
+
+    qemu_bh_delete(s->bh);
+}
+
+static const VMStateDescription z7ii_completion_vmstate = {
+    .name = "z7ii-completion",
+    .unmigratable = true,
+};
+
+static void z7ii_completion_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    dc->vmsd = &z7ii_completion_vmstate;
+    device_class_set_legacy_reset(dc, z7ii_completion_reset);
     dc->user_creatable = false;
 }
 
@@ -430,7 +773,8 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
     z7ii_ram(&s->copy_ram[1], "z7ii.copy1", 0xb2bb0000, 0x105c);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
-    z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ed0, 0x30);
+    /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
+    z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
     z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
     if (machine->smp.cpus == 2) {
@@ -463,6 +807,15 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize(SYS_BUS_DEVICE(&s->clock_gates), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
 
+    sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
+    for (i = 0; i < 2; i++) {
+        DeviceState *sdi = qdev_new(TYPE_Z7II_SDI);
+
+        qdev_prop_set_uint32(sdi, "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(sdi), 0, 0x20020000 + i * 0x20000);
+    }
+
     /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
     gic = qdev_new(TYPE_A15MPCORE_PRIV);
     gic_bus = SYS_BUS_DEVICE(gic);
@@ -470,6 +823,13 @@ static void z7ii_init(MachineState *machine)
     qdev_prop_set_uint32(gic, "num-irq", 256); /* SGI/PPI + 224 SPIs. */
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE);
+    object_initialize_child(OBJECT(s), "completion", &s->completion,
+                            TYPE_Z7II_COMPLETION);
+    sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->completion), 0, COMPLETION_BASE);
+    /* The guest registers/enables IRQ250; this is its external SPI input. */
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->completion), 0,
+                       qdev_get_gpio_in(gic, 250 - 32));
     for (i = 0; i < s->num_cpus; i++) {
         DeviceState *cpu = DEVICE(&s->cpu[i]);
         sysbus_connect_irq(gic_bus, i, qdev_get_gpio_in(cpu, ARM_CPU_IRQ));
@@ -526,10 +886,20 @@ static void z7ii_register_types(void)
         .parent = TYPE_SYS_BUS_DEVICE,
         .instance_size = sizeof(Z7IIClockGatesState),
         .instance_init = z7ii_clock_init,
+        .instance_finalize = z7ii_clock_finalize,
         .class_init = z7ii_clock_class_init,
+    };
+    static const TypeInfo completion_type = {
+        .name = TYPE_Z7II_COMPLETION,
+        .parent = TYPE_SYS_BUS_DEVICE,
+        .instance_size = sizeof(Z7IICompletionState),
+        .instance_init = z7ii_completion_init,
+        .instance_finalize = z7ii_completion_finalize,
+        .class_init = z7ii_completion_class_init,
     };
     type_register_static(&memc_type);
     type_register_static(&clock_type);
+    type_register_static(&completion_type);
     type_register_static(&z7ii_machine_type);
 }
 type_init(z7ii_register_types)
