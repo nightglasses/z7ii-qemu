@@ -412,6 +412,16 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return mxic_config_fixtures() + [
+        ("module-buffer-entire-allocation", constant(0, 0xb7d00000) +
+         constant(1, 0x1234) + [0xe5801000, 0xe5904000] +
+         constant(0, 0xb809fffc) + [0xe5801000, 0xe5905000],
+         {4: 0x1234, 5: 0x1234}, None),
+        ("module-buffer-below", constant(0, 0xb7cffffc) + [0xe5801000], {},
+         "uncovered-address"),
+        ("module-buffer-above", constant(0, 0xb80a0000) + [0xe5801000], {},
+         "uncovered-address"),
+        ("module-buffer-region-withdrawn", mxic_contract(disable=True) +
+         constant(0, 0xb7d00000) + [0xe5801000], {}, "uncovered-address"),
         ("clock-bitcontrol-rmw", constant(0, CLOCK + 0x58) + [0xe5902000] +
          [0xe3823008, 0xe5803000, 0xe5904000, 0xe3843080, 0xe5803000,
           0xe5904000, 0xe3c43008, 0xe5803000, 0xe5905000] +
