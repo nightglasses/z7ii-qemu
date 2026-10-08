@@ -59,6 +59,7 @@ struct Z7IIClockGatesState {
     uint32_t pll[3];
     uint32_t selector[10];
     uint32_t bit_control[2];
+    uint32_t word_control;
     Z7IIClockChannel channel[9];
     bool reported_error;
 };
@@ -371,6 +372,10 @@ static MemTxResult z7ii_clock_read(void *opaque, hwaddr offset,
             *value = s->pll[(offset - 0x28) / 4];
             return MEMTX_OK;
         }
+        if (offset == 0x34) {
+            *value = s->word_control;
+            return MEMTX_OK;
+        }
         if (offset == 0x58 || offset == 0x5c) {
             *value = s->bit_control[(offset - 0x58) / 4];
             return MEMTX_OK;
@@ -416,6 +421,15 @@ static MemTxResult z7ii_clock_write(void *opaque, hwaddr offset,
             }
             s->pll[reg] = value;
             z7ii_pll_update(s, reg, before);
+            return MEMTX_OK;
+        }
+        if (offset == 0x34) {
+            /*
+             * Original O3908cc..912 performs full-word mask OR/BIC requests.
+             * Zero reset and full32 configuration are virtual assumptions;
+             * physical fields remain unknown, without invented rate/events.
+             */
+            s->word_control = value;
             return MEMTX_OK;
         }
         if (offset == 0x58 || offset == 0x5c) {
@@ -464,6 +478,7 @@ static void z7ii_clock_reset(DeviceState *dev)
     memset(s->known, 0xff, sizeof(s->known));
     memset(s->selector, 0, sizeof(s->selector));
     memset(s->bit_control, 0, sizeof(s->bit_control));
+    s->word_control = 0;
     s->pll[0] = 0xffe;
     s->pll[1] = 0x73;
     s->pll[2] = 3;

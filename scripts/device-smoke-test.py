@@ -458,6 +458,19 @@ def fixtures():
          "clock-access-not-supported"),
         ("clock-bitcontrol-no-alias", constant(0, CLOCK + 0x158) + [0xe5801000], {},
          "clock-access-not-supported"),
+        ("clock-wordmask34-rmw", constant(0, CLOCK + 0x34) + [0xe5902000] +
+         constant(1, 0x20000000) + [0xe1823001, 0xe5803000, 0xe5904000] +
+         constant(1, 0x80000001) + [0xe1843001, 0xe5803000, 0xe5905000] +
+         constant(1, 0x20000000) + [0xe1c53001, 0xe5803000, 0xe5906000] +
+         constant(0, CLOCK + 0x58) + [0xe5907000] +
+         constant(0, CLOCK + 0x38) + [0xe5908000],
+         {2: 0, 4: 0x20000000, 5: 0xa0000001, 6: 0x80000001, 7: 0, 8: 0}, None),
+        ("clock-wordmask34-reset", constant(0, CLOCK + 0x34) + [0xe5902000] +
+         constant(1, 0xffffffff) + [0xe5801000], {2: 0}, None),
+        ("clock-wordmask34-width", constant(0, CLOCK + 0x34) + [0xe5c01000], {},
+         "clock-access-not-supported"),
+        ("clock-wordmask34-no-command-alias", constant(0, CLOCK + 0x134) +
+         [0xe5801000], {}, "clock-access-not-supported"),
         ("percore-stack-two-banks", percore, {4: 0x1234}, None),
         ("percore-stack-two-below", constant(0, 0xb2b7fffc) + [0xe5801000], {},
          "uncovered-address"),
@@ -2364,7 +2377,8 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
-                            "clock-bitcontrol-reset", "spi-board-reset",
+                            "clock-bitcontrol-reset", "clock-wordmask34-reset",
+                            "spi-board-reset",
                             "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
                             "record-slot-board-reset", "audio-board-reset",
                             "record-slot-alternate-board-reset",
