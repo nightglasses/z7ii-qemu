@@ -14,7 +14,7 @@ Issues are managed through [the Nightglass delivery map](https://github.com/mash
 
 ## MAS diagnostic machine
 
-The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) is `hw/arm/z7ii.c`. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. No Nikon interrupt controller, timer, IPC, boot handshake or display is implemented yet. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) is `hw/arm/z7ii.c`. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. The current [MEMC/A7 diagnostic layer](docs/memc-a7-diagnostic.md) adds bounded MEMC profiles, a 48-byte temporary stack, and upstream GICv2/generic timer under explicit board hypotheses. IPC, boot handshake and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
 
 With a clean checkout of the pinned upstream revision and an empty build directory:
 
@@ -45,8 +45,9 @@ Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes]
 
 | Initial condition | Evidence or explicit diagnostic assumption |
 |---|---|
-| One Cortex-A9, selector 0 | Hypothesis, not identified Nikon silicon or core count. Upstream reset values, CP15 and exception behavior are retained. No registers are filled with guessed ready values. |
-| Reset PC `0x10020000`, ARM state, read-only raw image of exactly the input length | MAS entry relative branch, VBAR/absolute literals support the candidate program mapping. Placing it in QEMU physical space is an assumption; neither BootROM nor the real loader is present. PC is set in the reset callback. |
+| One Cortex-A7, selector 0; CBAR `0x1d000000`, CNTFRQ 48 MHz | Diagnostic hypotheses, not identified Nikon silicon, core count or private-peripheral base. Upstream GICv2 and generic timer supply genuine IRQ state, including secure PPI 29; no guessed ready bits. |
+| Reset PC `0x10020000`, ARM state, raw ROMD image of exactly the input length | MAS entry relative branch, VBAR/absolute literals support the candidate program mapping. Placing it in QEMU physical space is an assumption; neither BootROM nor the real loader is present. PC is set in the reset callback. Guest writes enforce MEMC WEOFF and explicitly fail unsupported NOR operations. |
+| MEMC `0x04264000`, MODE0/TIM0 only; temporary stack `[0x04008ed0,0x04008f00)` | Same-IP binding hypothesis with source-defined x16/PAGE/WEOFF semantics; only the current MODE `0x21/0x29` and TIM `0x153b0902` profiles are supported. Register reads require guest initialization. Temporary RAM is exactly the evidenced 48-byte consumption, initialized to zero for this diagnostic run. |
 | Zero-initialized RAM `0xb1800000 + 0xaedb8`, `0xb2bb0000 + 0x105c` | MAS literals at `O0xc018..0xc030` describe two copy destinations and lengths. The unchanged guest must perform both copies; host code does not prefill them. No third zero-length copy creates RAM. |
 | Zero-initialized RAM `0xb2b74000 + 0x4000` | Guest code at `O0x270..0x290` copies the translation table and then writes TTBR0. The machine does not enable the MMU or manufacture translations. |
 | Six CPU0 banked stack slots, each `0x4000` bytes below its top | Tops from literals `[O0xbfd8,O0xbff0)`: `b2bb0000/b2ba8000/b2ba0000/b2b98000/b2b90000/b2b88000`. Slot extent is a bounded hypothesis suggested by selector displacement `selector << 14`, not a proven physical RAM capacity. Gaps remain uncovered. |
