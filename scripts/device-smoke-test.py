@@ -147,6 +147,12 @@ def fixtures():
          {}, "completion-uninitialized-read"),
         ("completion-unknown-submit", constant(0, COMPLETION) +
          constant(1, 0xa1) + [0xe5801010], {}, "completion-submit-state-unknown"),
+        ("completion-early-poll-enable-unknown", constant(0, COMPLETION) +
+         constant(1, 0) + [0xe5801000] + constant(1, 0xa1) + [0xe5801010],
+         {}, "completion-submit-state-unknown"),
+        ("completion-submit-request-unknown", constant(0, COMPLETION) +
+         constant(1, 0) + [0xe5801008] + constant(1, 0xa1) + [0xe5801010],
+         {}, "completion-submit-state-unknown"),
         ("completion-unknown-domain", polling + [0xe590600c], {},
          "completion-domain-status-not-supported"),
         ("completion-bad-command", constant(0, COMPLETION) +
