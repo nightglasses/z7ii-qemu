@@ -1950,12 +1950,62 @@ def ring_fixtures():
          {4: 0x00c00108, 5: 0xaa550001, 6: 0, 7: 0}, None),
         ("ring-entire-slot-capacity", slots, {4: 0x1234, 5: 0x1234}, None),
         ("ring-no-host-consumer", producer, {4: 1, 5: 0}, None),
-        ("ring-below", constant(0, base - 4) + [0xe5801000], {},
+        ("ring-logical-physical-bus-unmapped", constant(0, 0x14000000) + [0xe5801000], {},
          "uncovered-address"),
-        ("ring-above", constant(0, base + size) + [0xe5801000], {},
+        ("ring-declared-class-hole", constant(0, 0xb80dc3c0) + [0xe5801000], {},
          "uncovered-address"),
         ("ring-region-withdrawn", mxic_contract(disable=True) +
          constant(0, base) + [0xe5801000], {}, "uncovered-address"),
+    ]
+
+
+def private_class_fixtures():
+    physical, logical, size = 0xb5f00000, 0x14000000, 0x1e00000
+
+    def store(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | (reg << 12)]
+
+    endpoints = store(physical, 0x1234) + read(physical, 4)
+    endpoints += store(physical + size - 4, 0x5678) + read(physical + size - 4, 5)
+    objects = constant(4, 0xb776ac48) + constant(0, 0x01000121)
+    objects += constant(1, 0) + [0xe1c400f0]
+    objects += read(0xb776ac48, 5) + read(0xb776ac4c, 6)
+    objects += read(0xb776ac48, 7)
+    ring = store(0xb7cf0000, 0x00c00108) + read(0xb7cf0000, 4)
+    ring += store(0xb7cf0004, 0xaa550001) + read(0xb7cf0004, 5)
+    ring += store(0xb7cfc614, 0x1234) + read(0xb7cfc614, 6)
+    neighbors = store(0xb7cefffc, 0x2468) + read(0xb7cefffc, 4)
+    neighbors += store(0xb7cfc618, 0x1357) + read(0xb7cfc618, 5)
+    mmu = store(physical, 0x1111) + store(physical + 0x1800000, 0x2222)
+    # Publish two short-descriptor sections with the original VA->PA geometry.
+    mmu += store(0xb2b74000 + 0x140 * 4, 0xb5f00c02)
+    mmu += store(0xb2b74000 + 0x158 * 4, 0xb7700c02)
+    mmu += store(0xb2b74000 + 0x15d * 4, 0xb7c00c02)
+    mmu += store(0xb2b74000 + (BASE >> 20) * 4, (BASE & ~0xfffff) | 0xc02)
+    mmu += constant(0, 0xb2b74000) + [0xee020f10]
+    mmu += constant(0, 3) + [0xee030f10]
+    mmu += [0xee110f10, 0xe3800001, 0xee010f10, 0xf57ff06f]
+    mmu += read(logical, 4) + read(0x15800000, 5)
+    mmu += store(0x15df0000, 0x00c00108) + read(0x15df0000, 6)
+    return [
+        ("private-class-physical-endpoints", endpoints, {4: 0x1234, 5: 0x5678}, None),
+        ("private-class-guest-object-strd", objects,
+         {5: 0x01000121, 6: 0, 7: 0x01000121}, None),
+        ("private-class-ring-shared-storage", ring,
+         {4: 0x00c00108, 5: 0xaa550001, 6: 0x1234}, None),
+        ("private-class-ring-neighbors-declared", neighbors,
+         {4: 0x2468, 5: 0x1357}, None),
+        ("private-class-guest-pte-translation", mmu,
+         {4: 0x1111, 5: 0x2222, 6: 0x00c00108}, None),
+        ("private-class-physical-upper-boundary", store(physical + size, 0x6789) +
+         read(physical + size, 4), {4: 0x6789}, None),
+        ("private-class-no-physical-logical-mirror", read(logical, 4), {}, "uncovered-address"),
+        ("private-class-physical-withdrawn", mxic_contract(disable=True) +
+         read(physical, 4), {}, "uncovered-address"),
+        ("private-class-source-hole", read(0x13e40000, 4), {}, "uncovered-address"),
     ]
 
 
@@ -2380,7 +2430,8 @@ def main():
     cases = (fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
-             external_nor_fixtures() + bridge_fixtures() + signal_fixtures())
+             external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
+             private_class_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
