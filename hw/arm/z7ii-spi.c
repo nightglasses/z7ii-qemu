@@ -75,8 +75,10 @@ static void z7ii_spi_schedule(Z7IISPIState *s)
         fifo32_is_empty(&s->tx) || s->shifting) {
         return;
     }
-    /* Independent virtual input clock; no external clock is invented for
-     * slave mode. Master frames use the public divider formula. */
+    /*
+     * Independent virtual input clock; no external clock is invented for
+     * slave mode. Master frames use the public divider formula.
+     */
     s->shifting = true;
     timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
               MAX(1, clock_ticks_to_ns(s->clock, cycles + s->delay)));
@@ -94,8 +96,10 @@ static void z7ii_spi_shift(void *opaque)
         fifo32_is_empty(&s->tx)) {
         return;
     }
-    /* Upstream SSI with no attached peripheral returns disconnected MISO=0.
-     * This is not a sensor/flash reply or a fabricated command acknowledgement. */
+    /*
+     * Upstream SSI with no attached peripheral returns disconnected MISO=0.
+     * No sensor/flash reply or command acknowledgement is supplied.
+     */
     received = ssi_transfer(s->bus, fifo32_pop(&s->tx) & mask) & mask;
     if (!(s->aux & 8)) {
         if (fifo32_is_full(&s->rx)) {
@@ -154,9 +158,15 @@ static MemTxResult z7ii_spi_read(void *opaque, hwaddr offset, uint64_t *value,
         *value = fifo32_pop(&s->rx);
         z7ii_spi_events(s);
         break;
-    case 8: *value = s->div; break;
-    case 0xc: *value = s->ctrl; break;
-    case 0x10: *value = s->aux; break;
+    case 8:
+        *value = s->div;
+        break;
+    case 0xc:
+        *value = s->ctrl;
+        break;
+    case 0x10:
+        *value = s->aux;
+        break;
     case 0x14:
         *value = (s->shifting ? 1 : 0) |
                  (fifo32_is_empty(&s->tx) ? 4 : 0) |
@@ -167,20 +177,47 @@ static MemTxResult z7ii_spi_read(void *opaque, hwaddr offset, uint64_t *value,
                  (fifo32_is_full(&s->rx) ? 0x80 : 0) |
                  (s->overflow ? 0x100 : 0);
         break;
-    case 0x18: *value = s->select; break;
-    case 0x1c: *value = s->polarity; break;
-    case 0x20: *value = s->ien; break;
-    case 0x24: *value = s->pending; break;
-    case 0x2c: *value = fifo32_num_used(&s->tx); break;
-    case 0x30: *value = fifo32_num_used(&s->rx); break;
-    case 0x34: *value = s->dma_timeout; break;
-    case 0x38: *value = s->delay; break;
-    case 0x3c: *value = s->enable; break;
-    case 0x48: *value = SPI_DEPTH; break;
-    case 0x4c: *value = s->watermark; break;
-    case 0x60: *value = s->asserted; break;
-    case 0x64: *value = s->slave_request; break;
-    default: goto error;
+    case 0x18:
+        *value = s->select;
+        break;
+    case 0x1c:
+        *value = s->polarity;
+        break;
+    case 0x20:
+        *value = s->ien;
+        break;
+    case 0x24:
+        *value = s->pending;
+        break;
+    case 0x2c:
+        *value = fifo32_num_used(&s->tx);
+        break;
+    case 0x30:
+        *value = fifo32_num_used(&s->rx);
+        break;
+    case 0x34:
+        *value = s->dma_timeout;
+        break;
+    case 0x38:
+        *value = s->delay;
+        break;
+    case 0x3c:
+        *value = s->enable;
+        break;
+    case 0x48:
+        *value = SPI_DEPTH;
+        break;
+    case 0x4c:
+        *value = s->watermark;
+        break;
+    case 0x60:
+        *value = s->asserted;
+        break;
+    case 0x64:
+        *value = s->slave_request;
+        break;
+    default:
+        goto error;
     }
     return MEMTX_OK;
 error:
@@ -204,7 +241,9 @@ static MemTxResult z7ii_spi_write(void *opaque, hwaddr offset, uint64_t value,
         z7ii_spi_events(s);
         break;
     case 8:
-        if (value > 0xff || (s->enable & 1)) { goto error; }
+        if (value > 0xff || (s->enable & 1)) {
+            goto error;
+        }
         s->div = value;
         break;
     case 0xc:
@@ -214,52 +253,85 @@ static MemTxResult z7ii_spi_write(void *opaque, hwaddr offset, uint64_t value,
         s->ctrl = value;
         break;
     case 0x10:
-        if ((value & ~0x1fbf) || (s->enable & 1)) { goto error; }
+        if ((value & ~0x1fbf) || (s->enable & 1)) {
+            goto error;
+        }
         s->aux = value;
         break;
     case 0x18:
     case 0x1c:
     case 0x38:
-        if (value > 0xff || (s->enable & 1)) { goto error; }
-        if (offset == 0x18) { s->select = value; }
-        if (offset == 0x1c) { s->polarity = value; }
-        if (offset == 0x38) { s->delay = value; }
+        if (value > 0xff || (s->enable & 1)) {
+            goto error;
+        }
+        if (offset == 0x18) {
+            s->select = value;
+        }
+        if (offset == 0x1c) {
+            s->polarity = value;
+        }
+        if (offset == 0x38) {
+            s->delay = value;
+        }
         break;
     case 0x20:
-        if (value & ~0x1ff) { goto error; }
+        if (value & ~0x1ff) {
+            goto error;
+        }
         s->ien = value;
         z7ii_spi_irq(s);
         break;
     case 0x28:
-        if (value & ~0x1ff) { goto error; }
+        if (value & ~0x1ff) {
+            goto error;
+        }
         s->pending &= ~value;
-        if (value & 0x80) { s->overflow = false; }
+        if (value & 0x80) {
+            s->overflow = false;
+        }
         z7ii_spi_irq(s);
         break;
-    case 0x34: s->dma_timeout = value; break;
+    case 0x34:
+        s->dma_timeout = value;
+        break;
     case 0x3c:
-        if (value & ~(s->channel == 8 ? 0xf : 1)) { goto error; }
-        if ((value & 1) && s->asserted) { goto error; }
+        if (value & ~(s->channel == 8 ? 0xf : 1)) {
+            goto error;
+        }
+        if ((value & 1) && s->asserted) {
+            goto error;
+        }
         s->enable = value;
-        if (!(value & 1)) { z7ii_spi_cancel(s); }
+        if (!(value & 1)) {
+            z7ii_spi_cancel(s);
+        }
         z7ii_spi_events(s);
         break;
     case 0x4c:
-        if (value & ~0xffff) { goto error; }
+        if (value & ~0xffff) {
+            goto error;
+        }
         s->watermark = value;
         z7ii_spi_events(s);
         break;
     case 0x60:
-        if (value > 1) { goto error; }
+        if (value > 1) {
+            goto error;
+        }
         s->asserted = value;
-        if (value) { z7ii_spi_flush(s); }
+        if (value) {
+            z7ii_spi_flush(s);
+        }
         z7ii_spi_irq(s);
         break;
     case 0x64:
-        if (value > 1 || ((s->ctrl & 0x20) && value)) { goto error; }
+        if (value > 1 || ((s->ctrl & 0x20) && value)) {
+            goto error;
+        }
         s->slave_request = value;
         break;
-    default: goto error;
+    default:
+        goto error;
     }
     z7ii_spi_schedule(s);
     return MEMTX_OK;

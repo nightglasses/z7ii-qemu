@@ -894,8 +894,10 @@ static void z7ii_init(MachineState *machine)
         qdev_prop_set_uint32(spi, "channel", i);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
-        /* Both original wrappers enter one ISR; common-pending routing is
-         * a virtual-board assumption, not a measured TX/RX IRQ identity. */
+        /*
+         * Both original wrappers enter one ISR; common-pending routing is
+         * a virtual-board assumption, not a measured TX/RX IRQ identity.
+         */
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 0,
                            qdev_get_gpio_in(gic, 193 + i * 2 - 32));
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
