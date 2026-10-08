@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from qemu.machine import QEMUMachine
+from qemu.machine.qtest import QEMUQtestMachine
 from qemu.qmp import ExecuteError
 
 BASE = 0x10020000
@@ -1258,8 +1259,18 @@ def timing_fixtures():
          setup(5, 1, 0xffffffff) + write(b + 0x604, 2), {}, error),
         ("timing-source1-active-change-reject-preserves-state",
          setup(5, 1, 0xffffffff) + write(b + 0x604, 0x31), {}, error),
-        ("timing-source1-capture-reject-preserves-state",
-         setup(5, 1, 0xffffffff) + write(b + 0x610, 1), {}, error),
+        ("timing-source1-capture-value-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 2), {}, error),
+        ("timing-source1-capture-mode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(a + 0x608, 0x20),
+         {}, error),
+        ("timing-source1-capture-armed-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(b, 0) +
+         write(b + 0x604, 0), {}, error),
+        ("timing-capture-source-preflight", setup(5, 0x31, 0xffffffff) +
+         write(b + 0x610, 1), {}, error),
+        ("timing-capture-result-readonly", write(b + 0x614, 0), {}, error),
+        ("timing-capture-absent-capability", read(b + 0x114, 4), {}, error),
         ("timing-source1-bitmap-reject-preserves-state",
          setup(5, 1, 0xffffffff) + write(b, 0x1020), {}, error),
         ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
@@ -1281,7 +1292,10 @@ def timing_fixtures():
          "timing-access-or-feature-not-supported"),
         ("timing-unknown-width", constant(0, a) + [0xe5d01000], {},
          "timing-access-or-feature-not-supported"),
-    ]
+    ] + [("timing-capture-input-" + name, [], {}, None) for name in (
+        "disconnected", "edges-and-real-irq", "two-channels-disable",
+        "gates-no-config-edge", "reset-retains-external-level",
+        "period-reprogram-clears-samples")]
 
 
 def audio_fixtures():
@@ -1635,7 +1649,159 @@ def ring_fixtures():
     ]
 
 
+def run_timing_capture(binary, output, name):
+    """Drive external pins through upstream qtest; never write sampled results."""
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    a, b = 0x2c010000, 0x2c011000
+    commands = []
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="capture", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            device = [x["name"] for x in children
+                      if x["type"] == "child<z7ii-timing-functional>"]
+            assert len(device) == 1, children
+            path = "/machine/unattached/" + device[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                commands.append([text, response])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(address, value):
+                command(f"writel {address:#x} {value:#x}")
+
+            def read(address):
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            def step(ns=1000):
+                command(f"clock_step {ns}")
+
+            def pin(index, level):
+                command(f"set_irq_in {path} capture {index} {level}")
+
+            def setup(channel=5, control=7):
+                offset = 0x100 + channel * 0x100
+                write(a + 4, 1)
+                write(b + offset, 1)
+                write(b + offset, 0)
+                write(b + offset + 4, 1)
+                write(b + offset + 8, 0xffffffff)
+                write(b + offset + 16, 1)
+                write(a + offset, control)
+                write(b, read(b) | (1 << channel))
+
+            setup()
+            if name.endswith("disconnected"):
+                setup(6)
+                step()
+                for offset in (0x614, 0x618, 0x714, 0x718):
+                    assert read(b + offset) == 0
+                assert read(a + 0x610) == read(a + 0x710) == 0
+                assert read(b + 0x60c) > 0
+            elif name.endswith("edges-and-real-irq"):
+                write(0xf8101000, 1)
+                command("writeb 0xf81018b1 1")
+                write(0xf8101114, 0x20000)
+                write(0xf8102004, 0xff)
+                write(0xf8102000, 1)
+                step()
+                count = read(b + 0x60c)
+                pin(0, 1)
+                assert read(b + 0x614) == count > 0
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 2
+                assert read(0xf810200c) == 177
+                write(a + 0x610, 2)
+                write(0xf8102010, 177)
+                assert read(0xf810200c) == 1023
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == count and read(a + 0x610) == 0
+                count = read(b + 0x60c)
+                pin(0, 0)
+                assert read(b + 0x618) == count and read(a + 0x610) == 4
+            elif name.endswith("two-channels-disable"):
+                setup(6)
+                step()
+                pin(0, 1)
+                assert read(a + 0x610) == 2 and read(a + 0x710) == 0
+                assert read(b + 0x714) == 0
+                step()
+                pin(1, 1)
+                assert read(b + 0x714) == read(b + 0x70c) > 0
+                assert read(a + 0x710) == 2
+                write(a + 0x610, 2)
+                write(b + 0x610, 0)
+                pin(0, 0)
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 0
+            elif name.endswith("gates-no-config-edge"):
+                write(a + 0x600, 1)
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(a + 0x600, 7)
+                assert read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                write(a + 0x610, 4)
+                write(b, 0)
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(b, 0x20)
+                assert read(a + 0x610) == 0
+            elif name.endswith("reset-retains-external-level"):
+                step()
+                pin(0, 1)
+                write(b + 0x600, 1)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                setup()
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+            elif name.endswith("period-reprogram-clears-samples"):
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) > 0 and read(a + 0x610) == 2
+                write(b + 0x608, 0xffffffff)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "qtest external capture inputs and official virtual clock only"}
+
+
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("timing-capture-input-"):
+        return run_timing_capture(binary, output, name)
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     loop_pc = BASE + len(words) * 4
@@ -1708,7 +1874,8 @@ def run(binary, output, name, words, expected, reason):
                     assert struct.unpack("<II", state_file.read_bytes()) == (1, 0xffffffff)
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c011000 4 "{state_file}"')
-                    assert struct.unpack("<I", state_file.read_bytes())[0] == 0x20
+                    expected_bitmap = 0 if "armed-opcode" in name else 0x20
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == expected_bitmap
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
