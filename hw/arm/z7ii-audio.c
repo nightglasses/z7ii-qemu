@@ -1,7 +1,7 @@
 /*
  * Two-channel Audio I/F functional profile, original MAS register protocol.
  * FIFO payloads are opaque words: no physical PCM packing is inferred.
- * Reset, independent nominal clock and disconnected input are board assumptions.
+ * Reset, independent nominal clock and disconnected input are assumptions.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -58,7 +58,7 @@ static unsigned z7ii_audio_threshold(Z7IIAudioChannel *c)
 
 static uint32_t z7ii_audio_control(Z7IIAudioChannel *c)
 {
-    /* No external input source. Output empty derives from real queue contents. */
+    /* Disconnected input. Output empty derives from real queue contents. */
     return c->control | (z7ii_audio_used(c) ? 0 : 1U << 9);
 }
 
@@ -260,7 +260,7 @@ static MemTxResult z7ii_audio_write(void *opaque, hwaddr offset, uint64_t value,
         }
         break;
     case 12:
-        /* Preserve original unknown bit23/26 flags. No swap/loopback packing. */
+        /* Preserve unknown bit23/26 flags; no swap/loopback packing. */
         if ((value & ~0x0f800000U) ||
             (((value ^ c->mode) & (1U << 25)) && z7ii_audio_used(c))) {
             return z7ii_audio_error(s, offset, size, true, value);
