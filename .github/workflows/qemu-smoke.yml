@@ -34,10 +34,16 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
         run: work/build/mas-diagnostic/pyvenv/bin/python scripts/smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/smoke
+      - name: Execute synthetic MEMC and secure timer contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
+        run: work/build/mas-diagnostic/pyvenv/bin/python scripts/device-smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/device-smoke
       - name: Preserve synthetic test logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: synthetic-arm-smoke
-          path: work/smoke/
+          path: |
+            work/smoke/
+            work/device-smoke/
           if-no-files-found: ignore
