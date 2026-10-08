@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--machine-revision", required=True, help="normal Git ref")
     parser.add_argument("--tcg-thread", choices=("single", "multi"), default="single",
                         help="upstream TCG thread mode, recorded in the receipt")
+    parser.add_argument("--trace-kernel", action="store_true",
+                        help="upstream CPU/instruction trace for MAS kernel prefix only")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -33,6 +35,9 @@ def main():
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
+    if args.trace_kernel:
+        vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
+        vm_args += ["-dfilter", "0x10100000+0x20000"]
     receipt = {
         "machine_revision": args.machine_revision,
         "upstream_revision": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
