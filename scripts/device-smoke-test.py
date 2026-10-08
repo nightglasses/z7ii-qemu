@@ -1035,6 +1035,7 @@ def i2c_fixtures():
         ("i2c-extended-address-unsupported", write(0, 2) + write(8, 0x50), {}, "i2c-access-or-variant-not-supported"),
         ("i2c-hole-unsupported", read(0x2c, 4), {}, "i2c-access-or-variant-not-supported"),
         ("i2c-width-unsupported", constant(0, base) + [0xe5d01000], {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-pending-direction-change-rejected", write(0, 6) + write(8, 0x50) + write(0, 7), {}, "i2c-access-or-variant-not-supported"),
     ]
 
 

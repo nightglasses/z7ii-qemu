@@ -162,14 +162,18 @@ static MemTxResult z7ii_i2c_read(void *opaque, hwaddr offset, uint64_t *value,
         goto error;
     }
     switch (offset) {
-    case 0: *value = s->control; break;
+    case 0:
+        *value = s->control;
+        break;
     case 4:
         *value = (s->active ? 0x100 : 0) |
                  (!fifo8_is_empty(&s->tx) ? 0x40 : 0) |
                  (!fifo8_is_empty(&s->rx) ? 0x20 : 0) |
                  (s->receiving ? 8 : 0);
         break;
-    case 8: *value = s->address; break;
+    case 8:
+        *value = s->address;
+        break;
     case 0xc:
         if (fifo8_is_empty(&s->rx)) {
             s->pending |= 0x80;
@@ -179,7 +183,9 @@ static MemTxResult z7ii_i2c_read(void *opaque, hwaddr offset, uint64_t *value,
             z7ii_i2c_schedule(s);
         }
         break;
-    case 0x10: *value = s->pending; break;
+    case 0x10:
+        *value = s->pending;
+        break;
     case 0x14:
         if (s->control & I2C_MASTER) {
             unsigned used = fifo8_num_used(&s->tx);
@@ -189,10 +195,17 @@ static MemTxResult z7ii_i2c_read(void *opaque, hwaddr offset, uint64_t *value,
             *value = fifo8_num_used((s->control & 1) ? &s->tx : &s->rx);
         }
         break;
-    case 0x18: *value = s->pause; break;
-    case 0x1c: *value = s->timeout; break;
-    case 0x20: *value = s->mask; break;
-    default: goto error;
+    case 0x18:
+        *value = s->pause;
+        break;
+    case 0x1c:
+        *value = s->timeout;
+        break;
+    case 0x20:
+        *value = s->mask;
+        break;
+    default:
+        goto error;
     }
     return MEMTX_OK;
 error:
@@ -210,7 +223,10 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
     switch (offset) {
     case 0:
         if (value & ~0xff7fU ||
-            (s->active && ((value ^ s->control) & ~0x59U))) {
+            (s->active && ((value ^ s->control) & ~0x59U)) ||
+            (s->active && ((value ^ s->control) & 1) &&
+             (!s->addressed || !(s->control & I2C_HOLD) ||
+              !fifo8_is_empty(&s->tx)))) {
             goto error;
         }
         if (value & 0x40) {
@@ -241,7 +257,7 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
         s->address = value;
         if (s->control & I2C_MASTER) {
             timer_del(s->timer);
-            /* Repeated START uses upstream's selected endpoint, same address. */
+            /* Upstream repeated START retains the same selected endpoint. */
             s->addressed = false;
             s->transfer_done = false;
             s->active = true;
@@ -266,11 +282,15 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
         }
         break;
     case 0x10:
-        if (value & ~I2C_IRQ_MASK) { goto error; }
+        if (value & ~I2C_IRQ_MASK) {
+            goto error;
+        }
         s->pending &= ~value;
         break;
     case 0x14:
-        if (value > 0xff || !(s->control & 1)) { goto error; }
+        if (value > 0xff || !(s->control & 1)) {
+            goto error;
+        }
         s->remaining = value;
         if (value) {
             s->transfer_done = false;
@@ -278,22 +298,31 @@ static MemTxResult z7ii_i2c_write(void *opaque, hwaddr offset, uint64_t value,
         z7ii_i2c_schedule(s);
         break;
     case 0x18:
-        if (value > 0xf) { goto error; }
+        if (value > 0xf) {
+            goto error;
+        }
         s->pause = value;
         break;
     case 0x1c:
-        if (value > 0xff) { goto error; }
+        if (value > 0xff) {
+            goto error;
+        }
         s->timeout = value;
         break;
     case 0x24:
-        if (value & ~I2C_IRQ_MASK) { goto error; }
+        if (value & ~I2C_IRQ_MASK) {
+            goto error;
+        }
         s->mask &= ~value;
         break;
     case 0x28:
-        if (value & ~I2C_IRQ_MASK) { goto error; }
+        if (value & ~I2C_IRQ_MASK) {
+            goto error;
+        }
         s->mask |= value;
         break;
-    default: goto error;
+    default:
+        goto error;
     }
     z7ii_i2c_irq(s);
     return MEMTX_OK;
