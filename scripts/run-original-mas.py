@@ -41,11 +41,13 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
-            "single upstream Cortex-A7; CBAR=0x1d000000; CNTFRQ=48MHz",
+            "two upstream Cortex-A7; CBAR=0x1d000000; CNTFRQ=48MHz",
             "upstream A15MPCore GICv2; 256 total SGI/PPI/SPI IDs",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "upstream CPU reset state; guest copies all copy destinations",
             "six CPU0 stack slots each 16KiB; early stack RAM exactly 48B",
+            "early shared release RAM exactly four bytes; no host magic",
+            "CPU1 pre-kernel SVC stack exactly 72 bytes; further extent uncovered",
             "same-IP MEMC binding with only documented functional profiles",
         ],
         "whole_boot_verified": False,
@@ -64,8 +66,14 @@ def main():
                 vm.set_machine("z7ii-mas-diagnostic")
                 vm.launch()
                 receipt["initial_status"] = vm.cmd("query-status")
+                receipt["initial_cpus"] = vm.cmd("query-cpus-fast")
                 receipt["initial_registers"] = vm.cmd(
                     "human-monitor-command", command_line="info registers")
+                receipt["initial_registers_by_cpu"] = {
+                    str(cpu["cpu-index"]): vm.cmd(
+                        "human-monitor-command", command_line="info registers",
+                        cpu_index=cpu["cpu-index"])
+                    for cpu in receipt["initial_cpus"]}
                 vm.cmd("cont")
                 vm.event_wait("RESUME", timeout=5)
                 deadline = time.monotonic() + args.seconds
@@ -81,8 +89,16 @@ def main():
                         break
                     time.sleep(0.05)
                 receipt["final_status"] = vm.cmd("query-status")
+                receipt["final_cpus"] = vm.cmd("query-cpus-fast")
+                receipt["final_cpu_summary"] = vm.cmd(
+                    "human-monitor-command", command_line="info cpus")
                 receipt["final_registers"] = vm.cmd(
                     "human-monitor-command", command_line="info registers")
+                receipt["final_registers_by_cpu"] = {
+                    str(cpu["cpu-index"]): vm.cmd(
+                        "human-monitor-command", command_line="info registers",
+                        cpu_index=cpu["cpu-index"])
+                    for cpu in receipt["final_cpus"]}
     except Exception as exc:
         receipt["error"] = repr(exc)
     finally:

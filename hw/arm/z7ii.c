@@ -25,6 +25,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define MEMC_BASE 0x04264000ULL
 #define CBAR_BASE 0x1d000000ULL
 #define TIMER_HZ 48000000ULL
+#define Z7II_MAX_CPUS 2
 
 #define TYPE_Z7II_MEMC "z7ii-memc-diagnostic"
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMemcState, Z7II_MEMC)
@@ -41,13 +42,16 @@ struct Z7IIMemcState {
 
 struct Z7IIMachineState {
     MachineState parent_obj;
-    ARMCPU cpu;
+    ARMCPU cpu[Z7II_MAX_CPUS];
+    unsigned num_cpus;
     MemoryRegion image;
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
     MemoryRegion stack_ram[6];
     MemoryRegion temporary_stack;
+    MemoryRegion early_release;
+    MemoryRegion cpu1_startup_stack;
     Z7IIMemcState memc;
     bool reported_unknown;
 };
@@ -245,11 +249,14 @@ static const MemoryRegionOps z7ii_nor_ops = {
 static void z7ii_reset(void *opaque)
 {
     Z7IIMachineState *s = opaque;
+    unsigned i;
 
     s->reported_unknown = false;
-    cpu_reset(CPU(&s->cpu));
     /* Even entry means ARM state. No firmware instruction is changed. */
-    cpu_set_pc(CPU(&s->cpu), MAS_BASE);
+    for (i = 0; i < s->num_cpus; i++) {
+        cpu_reset(CPU(&s->cpu[i]));
+        cpu_set_pc(CPU(&s->cpu[i]), MAS_BASE);
+    }
 }
 
 static void z7ii_ram(MemoryRegion *mr, const char *name,
@@ -309,6 +316,13 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->copy_ram[1], "z7ii.copy1", 0xb2bb0000, 0x105c);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ed0, 0x30);
+    /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
+    z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
+    if (machine->smp.cpus == 2) {
+        /* O0xac + O0x270 + O0xc0cc consume at most 72 bytes before kernel. */
+        z7ii_ram(&s->cpu1_startup_stack, "z7ii.cpu1-startup-stack",
+                 0xb2b83fb8, 0x48);
+    }
     /* CPU0's six banked SP values are known. Slot extent is an assumption. */
     for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
         g_autofree char *name = g_strdup_printf("z7ii.stack%u", i);
@@ -316,10 +330,14 @@ static void z7ii_init(MachineState *machine)
                  stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
     }
 
-    object_initialize_child(OBJECT(s), "cpu", &s->cpu, machine->cpu_type);
-    qdev_prop_set_uint64(DEVICE(&s->cpu), "reset-cbar", CBAR_BASE);
-    qdev_prop_set_uint64(DEVICE(&s->cpu), "cntfrq", TIMER_HZ);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    s->num_cpus = machine->smp.cpus;
+    for (i = 0; i < s->num_cpus; i++) {
+        g_autofree char *name = g_strdup_printf("cpu%u", i);
+        object_initialize_child(OBJECT(s), name, &s->cpu[i], machine->cpu_type);
+        qdev_prop_set_uint64(DEVICE(&s->cpu[i]), "reset-cbar", CBAR_BASE);
+        qdev_prop_set_uint64(DEVICE(&s->cpu[i]), "cntfrq", TIMER_HZ);
+        qdev_realize(DEVICE(&s->cpu[i]), NULL, &error_fatal);
+    }
 
     object_initialize_child(OBJECT(s), "memc", &s->memc, TYPE_Z7II_MEMC);
     sysbus_realize(SYS_BUS_DEVICE(&s->memc), &error_fatal);
@@ -328,21 +346,29 @@ static void z7ii_init(MachineState *machine)
     /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
     gic = qdev_new(TYPE_A15MPCORE_PRIV);
     gic_bus = SYS_BUS_DEVICE(gic);
-    qdev_prop_set_uint32(gic, "num-cpu", 1);
+    qdev_prop_set_uint32(gic, "num-cpu", s->num_cpus);
     qdev_prop_set_uint32(gic, "num-irq", 256); /* SGI/PPI + 224 SPIs. */
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE);
-    sysbus_connect_irq(gic_bus, 0, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_IRQ));
-    sysbus_connect_irq(gic_bus, 1, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_FIQ));
-    sysbus_connect_irq(gic_bus, 2, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_VIRQ));
-    sysbus_connect_irq(gic_bus, 3, qdev_get_gpio_in(DEVICE(&s->cpu), ARM_CPU_VFIQ));
+    for (i = 0; i < s->num_cpus; i++) {
+        DeviceState *cpu = DEVICE(&s->cpu[i]);
+        sysbus_connect_irq(gic_bus, i, qdev_get_gpio_in(cpu, ARM_CPU_IRQ));
+        sysbus_connect_irq(gic_bus, i + s->num_cpus,
+                           qdev_get_gpio_in(cpu, ARM_CPU_FIQ));
+        sysbus_connect_irq(gic_bus, i + 2 * s->num_cpus,
+                           qdev_get_gpio_in(cpu, ARM_CPU_VIRQ));
+        sysbus_connect_irq(gic_bus, i + 3 * s->num_cpus,
+                           qdev_get_gpio_in(cpu, ARM_CPU_VFIQ));
+    }
     qemu_register_reset(z7ii_reset, s);
-    error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=1 "
+    error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
                  "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
                  "MEMC=0x04264000 profile-only CBAR=0x1d000000 GICv2=256 "
-                 "cntfrq=48000000 secure-timer-PPI=29; no NOR writer/IPC/BootROM",
-                 machine->cpu_type, image_size);
+                 "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
+                 "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
+                 "further CPU1 stack extent uncovered",
+                 machine->cpu_type, s->num_cpus, image_size);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -351,7 +377,9 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->desc = "Z7II unchanged MAS diagnostic (hypothetical Cortex-A7/MEMC)";
     mc->init = z7ii_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a7");
-    mc->max_cpus = 1;
+    mc->default_cpus = 2; /* Original TSysPrNum/TKerPrNum defaults are two. */
+    mc->min_cpus = 1; /* Small synthetic contracts explicitly use -smp 1. */
+    mc->max_cpus = Z7II_MAX_CPUS;
     mc->default_ram_size = 0;
     mc->ignore_memory_transaction_failures = false;
 }

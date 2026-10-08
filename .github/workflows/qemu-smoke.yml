@@ -38,6 +38,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
         run: work/build/mas-diagnostic/pyvenv/bin/python scripts/device-smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/device-smoke
+      - name: Execute synthetic two-core WFE rendezvous
+        env:
+          PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
+        run: work/build/mas-diagnostic/pyvenv/bin/python scripts/smp-smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/smp-smoke
       - name: Preserve synthetic test logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -46,4 +50,5 @@ jobs:
           path: |
             work/smoke/
             work/device-smoke/
+            work/smp-smoke/
           if-no-files-found: ignore

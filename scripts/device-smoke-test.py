@@ -77,6 +77,10 @@ def fixtures():
          "uncovered-address"),
         ("stack-above", constant(0, 0x04008f00) + [0xe5801000], {},
          "uncovered-address"),
+        ("release-below", constant(0, 0x04008ff8) + [0xe5801000], {},
+         "uncovered-address"),
+        ("release-above", constant(0, 0x04009000) + [0xe5801000], {},
+         "uncovered-address"),
     ]
 
 
@@ -92,7 +96,7 @@ def run(binary, output, name, words, expected, reason):
     loop_pc = BASE + len(words) * 4
     payload = struct.pack("<" + "I" * (len(words) + 1), *words, 0xeafffffe)
     image.write_bytes(payload)
-    vm_args = ["-accel", "tcg,thread=single", "-bios", str(image),
+    vm_args = ["-accel", "tcg,thread=single", "-smp", "1", "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
     with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
