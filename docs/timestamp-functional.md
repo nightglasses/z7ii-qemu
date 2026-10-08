@@ -1,5 +1,7 @@
 # 独立虚拟 timestamp counter
 
+This is the fixed `331abcd` research/fixture stage. The current canonical register contract is [timestamp-guest-protocol.md](timestamp-guest-protocol.md); its original +10 producer supersedes the vendor-candidate +20/status mapping described here. Earlier receipts remain unchanged.
+
 本层推进 [系统控制与时钟启动设备](https://github.com/mashiro01/nightglass/issues/330)，实现原 MAS `O1e0de6` 所用 `PA04266000 +8` 递增计数接口。地址放置和同族 IP 绑定属于功能模型假设。原 CNTFRQ=48MHz 写者不能证明此外部计数器使用同一物理时钟，本模型给它独立的名义 48MHz QEMU Clock。
 
 同族保留源码 [`_timestamp.h:119..124`](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/MILB_Header/include/Arm/_timestamp.h#L119-L124) 定义 CNTCR `+0`、CNTSR `+4`、CNTCVL/U `+8/+c`、CNTFID0 `+20`。它的真实板地址不同，不能冒充 Nikon 寄存器手册。计数采用固定上游 [`SSECounter` 的时间 epoch 与 `clock_ns_to_ticks` 算法](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/timer/sse-counter.c#L140-L172)，直接调用 [Clock API](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/clock.h) 和 QEMU 虚拟时间。读次数不增加计数；停止 guest 的虚拟时间也停止计数。没有套用 SSE 的额外 scaling 寄存器或宽 read-zero/write-ignore 行为。

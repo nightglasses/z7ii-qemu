@@ -150,9 +150,9 @@ def fixtures():
 
     # Enable secure PPI 29, let the upstream timer expire with CPU IRQ masked,
     # acknowledge it, disable the level, EOI, and inspect active state.
-    timer = constant(2, 0x1d001000) + constant(1, 1) + [0xe5821000]
+    timer = constant(2, 0xf8101000) + constant(1, 1) + [0xe5821000]
     timer += constant(1, 1 << 29) + [0xe5821100]
-    timer += constant(0, 0x1d002000) + constant(1, 0xff) + [0xe5801004]
+    timer += constant(0, 0xf8102000) + constant(1, 0xff) + [0xe5801004]
     timer += constant(1, 1) + [0xe5801000]
     timer += constant(1, 48000) + [0xee0e1f12]  # CNTP_TVAL
     timer += constant(1, 1) + [0xee0e1f32]  # CNTP_CTL.ENABLE
@@ -193,7 +193,7 @@ def fixtures():
     pll += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590702c]
 
     # Independent nominal Clock, elapsed-time counter, disable/freeze and carry.
-    timestamp = constant(0, TIMESTAMP) + [0xe5907000, 0xe590b020, 0xe5904008]
+    timestamp = constant(0, TIMESTAMP) + [0xe5907000, 0xe590b010, 0xe5904008]
     timestamp += constant(3, 4800)
     timestamp += [0xe5901008, 0xe0412004, 0xe1520003, 0x3afffffb]
     timestamp += constant(1, 0) + [0xe5801000, 0xe5905008]
@@ -202,17 +202,27 @@ def fixtures():
     timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe5906008]
     timestamp += constant(1, 0x11223344) + [0xe580100c]
     timestamp += constant(1, 0xfffffff0) + [0xe5801008]
-    timestamp += constant(1, 48000000) + [0xe5801020]
-    timestamp += constant(1, 1) + [0xe5801000]
+    timestamp += constant(1, 48000000) + [0xe5801010]
+    timestamp += constant(1, 3) + [0xe5801000]
     timestamp += constant(1, 48000) + [0xee0e1f12]
     timestamp += [0xee1e1f32, 0xe3110004, 0x0afffffc, 0xe590800c]
 
+    counter_init = constant(0, TIMESTAMP)
+    counter_init += [0xe5901000, 0xe3c11003, 0xe5801000, 0xe3a01000,
+                     0xe5801008, 0xe580100c]
+    counter_init += constant(1, 48000000) + [0xe5801010]
+    counter_init += constant(2, 48000) + [0xee0e2f12]
+    counter_init += constant(2, 1) + [0xee0e2f32]
+    counter_init += [0xe5901000, 0xe3811003, 0xe5801000, 0xe5904008]
+    counter_init += [0xee1e2f32, 0xe3120004, 0x0afffffc]
+    counter_init += [0xe5905008, 0xe5906010, 0xe5907000]
+
     # IRQ250 is a real GIC SPI: enable, target CPU0, submit, poll done, IAR,
     # ack at the device, and EOI. CPU IRQ is masked, as in the timer fixture.
-    completion = constant(2, 0x1d001000) + constant(1, 1) + [0xe5821000]
+    completion = constant(2, 0xf8101000) + constant(1, 1) + [0xe5821000]
     completion += [0xe5c218fa]  # GICD_ITARGETSR byte for IRQ250 = CPU0.
     completion += constant(1, 1 << 26) + [0xe582111c]
-    completion += constant(3, 0x1d002000) + constant(1, 0xff) + [0xe5831004]
+    completion += constant(3, 0xf8102000) + constant(1, 0xff) + [0xe5831004]
     completion += constant(1, 1) + [0xe5831000]
     completion += constant(0, COMPLETION) + [0xe5801008]
     completion += constant(1, 0x1110) + [0xe5801000, 0xe5906000]
@@ -231,7 +241,7 @@ def fixtures():
     polling += constant(1, 0x3100) + [0xe5801000]
     polling += constant(1, 0xa1) + [0xe5801010]
     polling += [0xe5904004, 0xe3140001, 0x0afffffc]
-    polling += constant(2, 0x1d001000) + [0xe592721c]
+    polling += constant(2, 0xf8101000) + [0xe592721c]
     polling += constant(1, 1) + [0xe5801004, 0xe5905004]
 
     completion_reset = constant(0, 0xb1800000)
@@ -250,7 +260,7 @@ def fixtures():
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
           8: 0x13579bdf, 9: 0x13579bdf}, None),
         ("secure-timer", timer,
-         {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0x1d000000}, None),
+         {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0xf8100000}, None),
         ("clock-six-banks", gates, gate_values, None),
         ("clock-reset", gate_reset, {}, None),
         ("clock-reset-state", constant(0, CLOCK) + [0xe5901048], {1: 0}, None),
@@ -273,21 +283,34 @@ def fixtures():
          [0xe580101c, 0xe590201c], {2: 0x82808888}, None),
         ("clock-reserved-offset", constant(0, CLOCK) + [0xe5901034], {},
          "clock-access-not-supported"),
+        ("timestamp-whole-guest-init", counter_init, {6: 48000000, 7: 3}, None),
+        ("timestamp-unsupported-single-control-bit", constant(0, TIMESTAMP) +
+         constant(1, 1) + [0xe5801000], {}, "timestamp-control-not-supported"),
+        ("timestamp-removed-vendor-frequency", constant(0, TIMESTAMP + 0x20) +
+         [0xe5901000], {}, "uncovered-address"),
         ("timestamp-elapsed-freeze-carry", timestamp,
-         {7: 1, 8: 0x11223345, 11: 48000000}, None),
+         {7: 3, 8: 0x11223345, 11: 48000000}, None),
         ("timestamp-count-while-enabled", constant(0, TIMESTAMP) +
          [0xe5801008], {}, "timestamp-count-write-while-enabled"),
         ("timestamp-bad-frequency", constant(0, TIMESTAMP) +
-         constant(1, 0) + [0xe5801000] + constant(1, 1) + [0xe5801020], {},
+         constant(1, 0) + [0xe5801000] + constant(1, 1) + [0xe5801010], {},
          "timestamp-frequency-profile-not-supported"),
         ("timestamp-bad-control", constant(0, TIMESTAMP) +
          constant(1, 4) + [0xe5801000], {}, "timestamp-control-not-supported"),
-        ("timestamp-reserved-read", constant(0, TIMESTAMP) + [0xe5901010], {},
+        ("timestamp-reserved-read", constant(0, TIMESTAMP) + [0xe5901004], {},
          "timestamp-access-not-supported"),
         ("timestamp-readonly-status", constant(0, TIMESTAMP) + [0xe5801004], {},
          "timestamp-access-not-supported"),
         ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
          "timestamp-access-not-supported"),
+        ("kernel-arena-endpoints", constant(0, 0xb2c00000) +
+         constant(1, 0x11223344) + [0xe5801000, 0xe5904000] +
+         constant(0, 0xb5effffc) + constant(1, 0xaabbccdd) +
+         [0xe5801000, 0xe5905000], {4: 0x11223344, 5: 0xaabbccdd}, None),
+        ("kernel-arena-before", constant(0, 0xb2bffffc) + [0xe5901000], {},
+         "uncovered-address"),
+        ("kernel-arena-after", constant(0, 0xb5f00000) + [0xe5901000], {},
+         "uncovered-address"),
         ("fill-bss-before-exact-window", constant(0, 0xb18aedbc) +
          [0xe5901000], {}, "uncovered-address"),
         ("fill-bss-after-exact-window", constant(0, 0xb2b5edc0) +
@@ -475,6 +498,8 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
+                if name == "timestamp-whole-guest-init":
+                    assert actual[5] > actual[4], actual
                 if name == "timestamp-elapsed-freeze-carry":
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual

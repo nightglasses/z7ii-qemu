@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--machine-revision", required=True, help="normal Git ref")
     parser.add_argument("--tcg-thread", choices=("single", "multi"), default="single",
                         help="upstream TCG thread mode, recorded in the receipt")
+    parser.add_argument("--trace-kernel", action="store_true",
+                        help="upstream CPU/instruction trace for MAS kernel prefix only")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -33,6 +35,9 @@ def main():
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
+    if args.trace_kernel:
+        vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
+        vm_args += ["-dfilter", "0x10100000+0x20000"]
     receipt = {
         "machine_revision": args.machine_revision,
         "upstream_revision": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
@@ -43,7 +48,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
-            "two upstream Cortex-A7; CBAR=0x1d000000; CNTFRQ=48MHz",
+            "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
             "upstream A15MPCore GICv2; 256 total SGI/PPI/SPI IDs",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "upstream CPU reset state; guest copies all copy destinations",
@@ -53,9 +58,10 @@ def main():
             "same-IP MEMC binding with only documented functional profiles",
             "virtual PLL reset words 0xffe/0x73/3; six gate banks start ungated",
             "PLL outputs nominal 48MHz after modeled 10us virtual lock; not physical rates",
-            "independent virtual timestamp Clock 48MHz; reset count zero, enabled",
+            "independent virtual timestamp Clock 48MHz; reset count zero, control3 enabled; guest config at +10",
             "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",
             "completion request/done/enable/domain state reset zero; causal deferred transactions, GIC SPI250",
+            "original lowmem allocator arena [b2c00000,b5f00000), 51MiB virtual RAM, no host metadata",
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
             "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         ],

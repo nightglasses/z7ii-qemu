@@ -27,7 +27,7 @@ struct Z7IITimestampState {
 /* Same epoch/Clock conversion as upstream SSECounter, without its scaling IP. */
 static uint64_t z7ii_timestamp_count(Z7IITimestampState *s)
 {
-    if (!(s->control & 1)) {
+    if (s->control != 3) {
         return s->ticks_then;
     }
     return s->ticks_then + clock_ns_to_ticks(s->clock,
@@ -58,17 +58,13 @@ static MemTxResult z7ii_timestamp_read(void *opaque, hwaddr offset,
     case 0:
         *value = s->control;
         break;
-    case 4:
-        /* No external Halt-on-Debug signal, as in upstream SSECounter. */
-        *value = 0;
-        break;
     case 8:
         *value = (uint32_t)z7ii_timestamp_count(s);
         break;
     case 0xc:
         *value = z7ii_timestamp_count(s) >> 32;
         break;
-    case 0x20:
+    case 0x10:
         *value = TIMESTAMP_NOMINAL_HZ;
         break;
     default:
@@ -90,7 +86,7 @@ static MemTxResult z7ii_timestamp_write(void *opaque, hwaddr offset,
     }
     switch (offset) {
     case 0:
-        if (value & ~3U) {
+        if (value != 0 && value != 3) {
             return z7ii_timestamp_error(s, offset, size, true, value,
                                         "timestamp-control-not-supported");
         }
@@ -100,7 +96,7 @@ static MemTxResult z7ii_timestamp_write(void *opaque, hwaddr offset,
         break;
     case 8:
     case 0xc:
-        if (s->control & 1) {
+        if (s->control == 3) {
             return z7ii_timestamp_error(s, offset, size, true, value,
                                         "timestamp-count-write-while-enabled");
         }
@@ -110,8 +106,8 @@ static MemTxResult z7ii_timestamp_write(void *opaque, hwaddr offset,
             s->ticks_then = (s->ticks_then & 0xffffffffULL) | (value << 32);
         }
         break;
-    case 0x20:
-        if ((s->control & 1) || value != TIMESTAMP_NOMINAL_HZ) {
+    case 0x10:
+        if ((s->control == 3) || value != TIMESTAMP_NOMINAL_HZ) {
             return z7ii_timestamp_error(s, offset, size, true, value,
                                         "timestamp-frequency-profile-not-supported");
         }
@@ -136,7 +132,7 @@ static void z7ii_timestamp_reset(DeviceState *dev)
     Z7IITimestampState *s = Z7II_TIMESTAMP(dev);
 
     /* Explicit virtual-board assumptions; no real loader/clock claim. */
-    s->control = 1;
+    s->control = 3;
     s->ticks_then = 0;
     s->ns_then = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     clock_update_hz(s->clock, TIMESTAMP_NOMINAL_HZ);
@@ -149,7 +145,7 @@ static void z7ii_timestamp_init(Object *obj)
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-clock");
     memory_region_init_io(&s->regs, obj, &z7ii_timestamp_ops, s,
-                          "z7ii.timestamp", 0x24);
+                          "z7ii.timestamp", 0x14);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 

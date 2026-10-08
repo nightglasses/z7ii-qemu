@@ -31,7 +31,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
 #define COMPLETION_BASE 0x04287000ULL
-#define CBAR_BASE 0x1d000000ULL
+#define CBAR_BASE 0xf8100000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
 
@@ -107,6 +107,7 @@ struct Z7IIMachineState {
     MemoryRegion table_ram;
     MemoryRegion bss_ram;
     MemoryRegion bss_storage;
+    MemoryRegion kernel_arena;
     MemoryRegion stack_ram[6];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
@@ -782,6 +783,8 @@ static void z7ii_init(MachineState *machine)
     memory_region_init_alias(&s->bss_ram, NULL, "z7ii.fill-bss",
                              &s->bss_storage, 0xdc0, 0x12b0000);
     memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
+    /* Original descriptor lowmem bounds, not a physical DDR capacity. */
+    z7ii_ram(&s->kernel_arena, "z7ii.kernel-lowmem", 0xb2c00000, 0x3300000);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
@@ -803,6 +806,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[0], 0xb1800000);
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
     z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
+    z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
     if (machine->smp.cpus == 2) {
         z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);
@@ -869,7 +873,7 @@ static void z7ii_init(MachineState *machine)
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
                  "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
-                 "MEMC=0x04264000 profile-only CBAR=0x1d000000 GICv2=256 "
+                 "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv2=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
                  "further CPU1 stack extent uncovered",
