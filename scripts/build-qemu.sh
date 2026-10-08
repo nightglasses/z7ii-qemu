@@ -1,0 +1,31 @@
+#!/bin/sh
+# Integrate the one diagnostic machine, then use upstream's native build.
+set -eu
+if [ "$#" -ne 2 ]; then
+    echo "usage: $0 <pinned-qemu-source> <empty-build-directory>" >&2
+    exit 2
+fi
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+src=$(CDPATH= cd -- "$1" && pwd)
+ref=4fc49f46dc95d4a27de2509e7fceb2931e91faeb
+if [ "$(git -C "$src" rev-parse HEAD)" != "$ref" ]; then
+    echo "QEMU source must be at pinned commit $ref" >&2
+    exit 1
+fi
+# Do not overwrite an existing integration or anyone else's source changes.
+if [ -e "$src/hw/arm/z7ii.c" ] || [ -n "$(git -C "$src" status --porcelain)" ]; then
+    echo "QEMU source must be clean and not already integrated" >&2
+    exit 1
+fi
+mkdir -p "$2"
+build=$(CDPATH= cd -- "$2" && pwd)
+if [ -n "$(ls -A "$build")" ]; then
+    echo "build directory must be empty" >&2
+    exit 1
+fi
+git -C "$src" apply --check "$repo/scripts/z7ii-registration.patch"
+git -C "$src" apply "$repo/scripts/z7ii-registration.patch"
+cp "$repo/hw/arm/z7ii.c" "$src/hw/arm/z7ii.c"
+cd "$build"
+"$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
+ninja qemu-system-arm
