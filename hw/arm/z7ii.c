@@ -29,10 +29,6 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 #define MAS_BASE 0x10020000ULL
 #define MAS_MAX_SIZE 0x2477b78ULL
-#define NV_SLOT_BASE 0x133e0000ULL
-#define NV_SLOT_SIZE 0x20000
-#define RECORD_SLOT_BASE 0x12e00000ULL
-#define RECORD_SLOT_SIZE 0x40000
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
@@ -115,7 +111,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
-    Z7IINorSlot nv_slot[4];
+    Z7IINorSlot nv_slot[5];
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -841,26 +837,31 @@ static void z7ii_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
     /*
-     * Original registry ID69 is a distinct 128KiB data slot, absent from the
-     * update payload. Explicit erased-cell profile, not original NV contents
-     * or a complete CFI device. Guest validation/error paths remain intact.
+     * Union of the original external descriptor views3,5..32 and six
+     * alternatives, fixed source f75cf38b. Only adjacent/overlapping covered
+     * ranges coalesce. Descriptor0/1/2 and zero-span4 are excluded; actual
+     * MAS ROM and every uncovered hole retain their prior ownership.
+     * Each physical byte has one shared ROMD cell, including contained and
+     * aliased views. FF is a named external input, not recovered valid NVM.
      */
-    z7ii_erased_slot(s, 0, "z7ii.nor-slot69-erased", NV_SLOT_BASE,
-                     NV_SLOT_SIZE);
-    /*
-     * Descriptor15 primary record aperture. Original bytes are unavailable;
-     * FF cells are an explicit input, not ENDM or valid factory records.
-     */
-    z7ii_erased_slot(s, 1, "z7ii.record-slot15-erased", RECORD_SLOT_BASE,
-                     RECORD_SLOT_SIZE);
-    /* Original180d7e4 then actually reads this descriptor15 alternate bank. */
-    z7ii_erased_slot(s, 2, "z7ii.record-slot15-alternate-erased", 0x131e0000,
-                     RECORD_SLOT_SIZE);
-    /*
-     * Descriptor8, actually read at its final ENDM comparison word.
-     * Erased FF is a finite external input, not a valid marker or NVM dump.
-     */
-    z7ii_erased_slot(s, 3, "z7ii.nor-slot8-erased", 0x12a20000, 0x20000);
+    {
+        static const struct {
+            hwaddr start;
+            uint64_t size;
+        } external[] = {
+            { 0x12960000, 0x8e0000 },
+            { 0x132c0000, 0x0c0000 },
+            { 0x133a0000, 0x160000 },
+            { 0x13540000, 0x900000 },
+            { 0x13e80000, 0x180000 },
+        };
+
+        for (i = 0; i < ARRAY_SIZE(external); i++) {
+            g_autofree char *name = g_strdup_printf("z7ii.external-nor%u", i);
+
+            z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
+        }
+    }
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);

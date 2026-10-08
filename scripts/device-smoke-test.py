@@ -417,10 +417,6 @@ def fixtures():
          [0xe5904000, 0xe5d05000, 0xe1d060b0] +
          constant(0, 0x133ffffc) + [0xe5907000],
          {4: 0xffffffff, 5: 0xff, 6: 0xffff, 7: 0xffffffff}, None),
-        ("nv-slot69-below", constant(0, 0x133dfffc) + [0xe5901000], {},
-         "uncovered-address"),
-        ("nv-slot69-above", constant(0, 0x13400000) + [0xe5901000], {},
-         "uncovered-address"),
         ("nv-slot69-before-memc", constant(0, 0x133e0000) + [0xe1c010b0], {},
          "nor-memc-not-initialized"),
         ("nv-slot69-protected", initialized(0x29) + constant(0, 0x133e0000) +
@@ -981,17 +977,9 @@ def record_slot_fixtures():
          {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
         ("record-slot-board-reset", readback,
          {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
-        ("record-slot-below", constant(0, 0x12dffffc) + [0xe5901000], {},
-         "uncovered-address"),
-        ("record-slot-above", constant(0, 0x12e40000) + [0xe5901000], {},
-         "uncovered-address"),
         ("record-slot-alternate-erased", constant(0, 0x131e0000) +
          [0xe5904000, 0xe5905004] + constant(0, 0x1321fffc) + [0xe5906000],
          {4: 0xffffffff, 5: 0xffffffff, 6: 0xffffffff}, None),
-        ("record-slot-alternate-below", constant(0, 0x131dfffc) + [0xe5901000], {},
-         "uncovered-address"),
-        ("record-slot-alternate-above", constant(0, 0x13220000) + [0xe5901000], {},
-         "uncovered-address"),
         ("record-slot-alternate-board-reset", constant(0, 0x131e0000) +
          [0xe5902000] + constant(0, 0x1321fffc) + [0xe5904000],
          {2: 0xffffffff, 4: 0xffffffff}, None),
@@ -1021,10 +1009,6 @@ def footer_slot_fixtures():
          {2: 0xffffffff, 4: 0xffffffff}, None),
         ("record-footer-board-reset", readback,
          {2: 0xffffffff, 4: 0xffffffff}, None),
-        ("record-footer-below", constant(0, base - 4) + [0xe5901000], {},
-         "uncovered-address"),
-        ("record-footer-above", constant(0, base + 0x20000) + [0xe5901000], {},
-         "uncovered-address"),
         ("record-footer-before-memc", constant(0, base) + [0xe1c010b0], {},
          "nor-memc-not-initialized"),
         ("record-footer-protected", initialized(0x29) + constant(0, base) +
@@ -1033,6 +1017,54 @@ def footer_slot_fixtures():
          constant(0, base + 0xaaa) + constant(1, 0xaa) + [0xe1c010b0], {},
          "nor-backend-not-supported"),
     ]
+
+
+def external_nor_fixtures():
+    manifest = json.loads((Path(__file__).resolve().parents[1] /
+                           "tests/nor-external-profile.json").read_text())
+    views = []
+    for row in manifest["descriptors"]:
+        if row[0] in manifest["excluded_descriptors"]:
+            continue
+        for start in map(lambda word: int(word, 16), row[3:5]):
+            if start:
+                views.append((start, start + int(row[5], 16)))
+    unions = []
+    for start, end in sorted(set(views)):
+        if unions and start <= unions[-1][1]:
+            unions[-1][1] = max(unions[-1][1], end)
+        else:
+            unions.append([start, end])
+    assert unions == [[int(start, 16), int(end, 16)] for start, end in
+                      manifest["canonical_physical_windows"]]
+    assert len(views) == 35 and len(set(views)) == 34
+    assert sum(end - start for start, end in unions) == 22544384
+    code = constant(5, 0xffffffff)
+    for start, end in views:
+        for address in (start, end - 4):
+            code += constant(0, address) + [0xe5904000, 0xe1540005, 0x1afffffe]
+    reset = constant(0, unions[0][0]) + [0xe5902000]
+    reset += constant(0, unions[-1][1] - 4) + [0xe5904000]
+    result = [
+        ("external-nor-whole-descriptor-views", code, {4: 0xffffffff}, None),
+        ("external-nor-board-reset", reset,
+         {2: 0xffffffff, 4: 0xffffffff}, None),
+        # Descriptor4 has zero span, but descriptor3 independently covers it.
+        ("external-nor-zero-view-covered-by-parent", constant(0, 0x129a0000) +
+         [0xe5904000], {4: 0xffffffff}, None),
+        ("external-nor-excluded-loader", constant(0, 0x10000000) +
+         [0xe5901000], {}, "uncovered-address"),
+        ("external-nor-excluded-missing-image-tail", constant(0, 0x12497b78) +
+         [0xe5901000], {}, "uncovered-address"),
+        ("external-nor-no-writer", initialized() + constant(0, 0x13e80aaa) +
+         constant(1, 0xaa) + [0xe1c010b0], {}, "nor-backend-not-supported"),
+    ]
+    for index, (start, end) in enumerate(unions):
+        for label, address in (("below", start - 4), ("above", end)):
+            result.append((f"external-nor-window{index}-{label}",
+                           constant(0, address) + [0xe5901000], {},
+                           "uncovered-address"))
+    return result
 
 
 def i2c_fixtures():
@@ -1468,7 +1500,8 @@ def run(binary, output, name, words, expected, reason):
                             "record-slot-board-reset", "audio-board-reset",
                             "record-slot-alternate-board-reset",
                             "timing-board-reset",
-                            "copy-board-reset", "record-footer-board-reset"):
+                            "copy-board-reset", "record-footer-board-reset",
+                            "external-nor-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1484,7 +1517,8 @@ def run(binary, output, name, words, expected, reason):
                     after_reset = registers(vm)
                     if name in ("mxic-config-reset", "record-slot-board-reset",
                                 "record-slot-alternate-board-reset",
-                                "record-footer-board-reset"):
+                                "record-footer-board-reset",
+                                "external-nor-board-reset"):
                         for reg, value in expected.items():
                             assert after_reset[reg] == value, after_reset
                     else:
@@ -1524,7 +1558,8 @@ def main():
                    expected, reason) for name, words, expected, reason in
                fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
                i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures() + copy_fixtures() + footer_slot_fixtures()]
+               timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
+               external_nor_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
