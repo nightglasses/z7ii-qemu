@@ -51,7 +51,10 @@ def main():
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
                         "0x102a85f4+0xb0", "0x1010261e+0x76",
                         "0x10101cc2+0x4e", "0x10101cb8+0xa",
-                        "0x10101f1e+0x18", "0x102a87ae+0xe"]
+                        "0x10101f1e+0x18", "0x102a87ae+0xe",
+                        "0x102a7d56+0x2c", "0x102a874e+0x2c",
+                        "0x102a807e+0x2a", "0x102a80a8+0x4e",
+                        "0x102a84a2+0x5a", "0x103bf3c6+0x6c"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
@@ -78,6 +81,7 @@ def main():
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "original registry NV slot69 [133e0000,13400000) has virtual erased-FF read-only cells, absent original NV bytes; MEMC-protected unsupported programming, no complete CFI model",
             "original descriptor15 primary records [12e00000,12e40000) and observed alternate [131e0000,13220000) have independent finite erased-FF input; no real NV bytes/ENDM header; original empty/error/program paths unchanged",
+            "original descriptor8 [12a20000,12a40000)128KiB has finite erased-FF read-only input; observed last-word ENDM comparison uses original guest bytes/code; no valid footer/calibration/NVM contents or NOR writer",
             "upstream CPU reset state; guest copies all copy destinations",
             "six modes per guest core, virtual 16KiB stack capacity per mode; early temporary RAM exactly88B",
             "early shared release RAM exactly four bytes; no host magic",

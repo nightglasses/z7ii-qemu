@@ -115,7 +115,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
-    Z7IINorSlot nv_slot[3];
+    Z7IINorSlot nv_slot[4];
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -856,6 +856,11 @@ static void z7ii_init(MachineState *machine)
     /* Original180d7e4 then actually reads this descriptor15 alternate bank. */
     z7ii_erased_slot(s, 2, "z7ii.record-slot15-alternate-erased", 0x131e0000,
                      RECORD_SLOT_SIZE);
+    /*
+     * Descriptor8, actually read at its final ENDM comparison word.
+     * Erased FF is a finite external input, not a valid marker or NVM dump.
+     */
+    z7ii_erased_slot(s, 3, "z7ii.nor-slot8-erased", 0x12a20000, 0x20000);
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);

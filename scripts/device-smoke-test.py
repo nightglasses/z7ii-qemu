@@ -1011,6 +1011,29 @@ def record_slot_fixtures():
     ]
 
 
+def footer_slot_fixtures():
+    base = 0x12a20000
+    readback = constant(0, base) + [0xe5902000]
+    readback += constant(0, base + 0x1fffc) + [0xe5904000]
+    return [
+        ("record-footer-erased-first-and-last", readback,
+         {2: 0xffffffff, 4: 0xffffffff}, None),
+        ("record-footer-board-reset", readback,
+         {2: 0xffffffff, 4: 0xffffffff}, None),
+        ("record-footer-below", constant(0, base - 4) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-footer-above", constant(0, base + 0x20000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-footer-before-memc", constant(0, base) + [0xe1c010b0], {},
+         "nor-memc-not-initialized"),
+        ("record-footer-protected", initialized(0x29) + constant(0, base) +
+         [0xe1c010b0], {}, "nor-write-protected"),
+        ("record-footer-program-unsupported", initialized() +
+         constant(0, base + 0xaaa) + constant(1, 0xaa) + [0xe1c010b0], {},
+         "nor-backend-not-supported"),
+    ]
+
+
 def i2c_fixtures():
     base = 0x2c018000
 
@@ -1444,7 +1467,7 @@ def run(binary, output, name, words, expected, reason):
                             "record-slot-board-reset", "audio-board-reset",
                             "record-slot-alternate-board-reset",
                             "timing-board-reset",
-                            "copy-board-reset"):
+                            "copy-board-reset", "record-footer-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1459,7 +1482,8 @@ def run(binary, output, name, words, expected, reason):
                     vm.event_wait("STOP", timeout=5)
                     after_reset = registers(vm)
                     if name in ("mxic-config-reset", "record-slot-board-reset",
-                                "record-slot-alternate-board-reset"):
+                                "record-slot-alternate-board-reset",
+                                "record-footer-board-reset"):
                         for reg, value in expected.items():
                             assert after_reset[reg] == value, after_reset
                     else:
@@ -1499,7 +1523,7 @@ def main():
                    expected, reason) for name, words, expected, reason in
                fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
                i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures() + copy_fixtures()]
+               timing_fixtures() + copy_fixtures() + footer_slot_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
