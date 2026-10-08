@@ -1724,7 +1724,7 @@ def run_timing_capture(binary, output, name):
             elif name.endswith("edges-and-irq-output"):
                 # qtest bus requests are Non-secure; GIC Group0 IAR tests
                 # use the separate executing secure ARM IRQ177 fixture.
-                command(f"irq_intercept_out {path}")
+                command(f"irq_intercept_out {path} sysbus-irq")
                 step()
                 count = read(b + 0x60c)
                 pin(0, 1)
