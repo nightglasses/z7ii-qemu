@@ -142,6 +142,14 @@ def usio_contract():
 
 
 def fixtures():
+    sys_boot = []
+    boot_values = (0x73ffffff, 0xffffffff, 0x1ffc1ff, 0x31ffffff, 0x4ee)
+    for bank, value in enumerate(boot_values):
+        sys_boot += constant(0, SYSCONFIG + 0x78 + bank * 4)
+        sys_boot += constant(1, value) + [0xe5801000, 0xe5900000 | (bank + 4) << 12]
+    # Mutate a known field; all remaining guest-initialized bits must survive.
+    sys_boot += constant(0, SYSCONFIG + 0x7c) + [0xe5901000]
+    sys_boot += constant(2, 1) + [0xe1c11002, 0xe5801000, 0xe5909000]
     gpio_all, gpio_expected = [], {}
     for port in range(12):
         for bank, value in enumerate((0xffff0000 | (0x100 + port),
@@ -321,6 +329,15 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return [
+        ("sysconfig-whole-bootstrap-preserve", sys_boot,
+         {4: boot_values[0], 5: boot_values[1], 6: boot_values[2],
+          7: boot_values[3], 8: boot_values[4], 9: 0xfffffffe}, None),
+        ("sysconfig-unproved-bootstrap-bit", constant(0, SYSCONFIG + 0x78) +
+         constant(1, 1) + [0xe5801000], {}, "sysconfig-bank-bits-not-supported"),
+        ("sysconfig-unproved-post-bootstrap-bit", sys_boot +
+         constant(0, SYSCONFIG + 0x7c) + [0xe5901000] +
+         constant(2, 8) + [0xe0211002, 0xe5801000], {},
+         "sysconfig-bank-bits-not-supported"),
         ("gpio-all-twelve-ports", gpio_all, gpio_expected, None),
         ("gpio-direction-function-pull-and-mask", gpio_pads, {4: 5, 5: 2}, None),
         ("gpio-boot-pinmux-selectors", constant(0, SYSCONFIG + 0x34) +

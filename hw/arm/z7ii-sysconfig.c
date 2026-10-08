@@ -16,7 +16,7 @@ struct Z7IISysconfigState {
     MemoryRegion regs;
     uint32_t config[8];
     uint32_t initialized;
-    uint32_t banks[4];
+    uint32_t banks[5];
     bool reported_error;
 };
 
@@ -25,7 +25,11 @@ static const unsigned config_offsets[] = {
 };
 /* Immediate original caller indices, not physical module names. */
 static const uint32_t bank_masks[] = {
-    0x01001e07, 0x01ff01c0, 0x1803dfc0, 0x00000444,
+    0, 0x01001e07, 0x01ff01c0, 0x1803dfc0, 0x00000444,
+};
+/* Complete original early initializer, before later mutex-protected RMW. */
+static const uint32_t bank_boot_profiles[] = {
+    0x73ffffff, 0xffffffff, 0x01ffc1ff, 0x31ffffff, 0x000004ee,
 };
 
 static MemTxResult z7ii_sysconfig_error(Z7IISysconfigState *s, hwaddr offset,
@@ -48,8 +52,8 @@ static MemTxResult z7ii_sysconfig_read(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         goto unsupported;
     }
-    if (offset >= 0x7c && offset <= 0x88) {
-        *value = s->banks[(offset - 0x7c) / 4];
+    if (offset >= 0x78 && offset <= 0x88) {
+        *value = s->banks[(offset - 0x78) / 4];
         return MEMTX_OK;
     }
     /* Named virtual strap inputs; their physical interpretation is unknown. */
@@ -81,9 +85,10 @@ static MemTxResult z7ii_sysconfig_write(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         goto unsupported;
     }
-    if (offset >= 0x7c && offset <= 0x88) {
-        i = (offset - 0x7c) / 4;
-        if (value & ~bank_masks[i]) {
+    if (offset >= 0x78 && offset <= 0x88) {
+        i = (offset - 0x78) / 4;
+        if (value != bank_boot_profiles[i] &&
+            ((value ^ s->banks[i]) & ~bank_masks[i])) {
             return z7ii_sysconfig_error(s, offset, size, true, value,
                                         "sysconfig-bank-bits-not-supported");
         }
