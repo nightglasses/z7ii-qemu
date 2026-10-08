@@ -93,7 +93,8 @@ static void z7ii_reset(void *opaque)
 static void z7ii_ram(Z7IIMachineState *s, MemoryRegion *mr, const char *name,
                      hwaddr base, uint64_t size)
 {
-    memory_region_init_ram(mr, OBJECT(s), name, size, &error_fatal);
+    /* Migratable board RAM uses NULL; its owner must not be a MachineState. */
+    memory_region_init_ram(mr, NULL, name, size, &error_fatal);
     memory_region_add_subregion(get_system_memory(), base, mr);
 }
 
@@ -129,7 +130,7 @@ static void z7ii_init(MachineState *machine)
                                         &s->unknown, -1);
 
     /* Candidate VA placement is a diagnostic physical placement assumption. */
-    memory_region_init_rom(&s->image, OBJECT(s), "z7ii.mas", image_size,
+    memory_region_init_rom(&s->image, NULL, "z7ii.mas", image_size,
                            &error_fatal);
     memory_region_add_subregion(get_system_memory(), MAS_BASE, &s->image);
     if (load_image_targphys(machine->firmware, MAS_BASE, image_size,
