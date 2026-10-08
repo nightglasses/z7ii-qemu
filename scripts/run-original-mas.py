@@ -18,6 +18,8 @@ def main():
     parser.add_argument("payload", type=Path)
     parser.add_argument("output", type=Path, help="new evidence directory")
     parser.add_argument("--machine-revision", required=True, help="normal Git ref")
+    parser.add_argument("--tcg-thread", choices=("single", "multi"), default="single",
+                        help="upstream TCG thread mode, recorded in the receipt")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -28,7 +30,7 @@ def main():
     before = payload.read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     logging.basicConfig(filename=output / "harness.log", level=logging.DEBUG)
-    vm_args = ["-accel", "tcg,thread=single", "-bios", str(payload),
+    vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
     receipt = {
