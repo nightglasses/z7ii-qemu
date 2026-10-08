@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from qemu.machine import QEMUMachine
+from qemu.machine.qtest import QEMUQtestMachine
 from qemu.qmp import ExecuteError
 
 BASE = 0x10020000
@@ -1207,7 +1208,71 @@ def timing_fixtures():
     irq += write(0xf8102010, 183) + read(0xf810200c, 5)
     disabled = setup() + write(a + 0x100, 0) + delay()
     disabled += read(a + 0x110, 4)
+    # Source1 is free-running with a once-per-programmed-threshold report.
+    # MAX encodes 2**32 ticks; a short observation must not wrap it to zero.
+    direct = setup(5, 1, 0xffffffff) + delay()
+    direct += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct += [0xe3550000, 0x13a06001, 0x03a06000]
+    direct += read(b + 0x604, 7) + read(b + 0x608, 8)
+    threshold = setup(5, 1) + wait(5) + write(a + 0x610, 1) + delay()
+    threshold += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    threshold += constant(0, 30000) + [0xe1550000, 0x83a06001, 0x93a06000]
+    gates = setup(5, 1, 0xffffffff) + write(b, 0) + read(b + 0x60c, 4)
+    gates += delay() + read(b + 0x60c, 5)
+    gates += [0xe1540005, 0x03a06001, 0x13a06000]
+    gates += write(b, 0x20) + delay() + write(a + 4, 0) + read(b + 0x60c, 7)
+    gates += delay() + read(b + 0x60c, 8)
+    gates += [0xe1570008, 0x03a09001, 0x13a09000, 0xe1570004,
+              0x83a0a001, 0x93a0a000]
+    local = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    local += write(a + 0x600, 0) + read(b + 0x60c, 4) + delay()
+    local += read(b + 0x60c, 5) + [0xe1540005, 0x03a06001, 0x13a06000]
+    local += write(a + 0x600, 1) + delay() + read(a + 0x610, 7)
+    local += read(b + 0x60c, 8) + [0xe1580005, 0x83a09001, 0x93a09000]
+    reprogram = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    reprogram += write(b + 0x608, 59999) + wait(5) + read(a + 0x610, 4)
+    reprogram += write(a + 0x610, 1) + delay() + read(a + 0x610, 5)
+    reset_direct = setup(5, 1) + write(b + 0x600, 1) + write(b + 0x600, 0)
+    reset_direct += delay() + read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct_irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    direct_irq += constant(1, 1) + [0xe5c218b1]
+    direct_irq += write(0xf8101114, 0x20000) + write(0xf8102004, 0xff)
+    direct_irq += write(0xf8102000, 1) + setup(5, 1) + wait(5)
+    direct_irq += read(0xf810200c, 4) + write(a + 0x610, 1)
+    direct_irq += write(0xf8102010, 177) + read(0xf810200c, 5)
+    error = "timing-access-or-feature-not-supported"
     return [
+        ("timing-source1-max-is-not-immediate", direct,
+         {4: 0, 6: 1, 7: 1, 8: 0xffffffff}, None),
+        ("timing-source1-threshold-once-keeps-counting", threshold,
+         {4: 0, 6: 1}, None),
+        ("timing-source1-bitmap-and-master-pause", gates,
+         {6: 1, 9: 1, 10: 1}, None),
+        ("timing-source1-local-resume-no-repeat", local,
+         {6: 1, 7: 0, 9: 1}, None),
+        ("timing-source1-reprogram-new-threshold", reprogram,
+         {4: 1, 5: 0}, None),
+        ("timing-source1-reset-cancels-threshold", reset_direct,
+         {4: 0, 5: 0}, None),
+        ("timing-source1-real-irq177", direct_irq, {4: 177, 5: 1023}, None),
+        ("timing-source1-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 2), {}, error),
+        ("timing-source1-active-change-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 0x31), {}, error),
+        ("timing-source1-capture-value-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 2), {}, error),
+        ("timing-source1-capture-mode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(a + 0x608, 0x20),
+         {}, error),
+        ("timing-source1-capture-armed-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(b, 0) +
+         write(b + 0x604, 0), {}, error),
+        ("timing-capture-source-preflight", setup(5, 0x31, 0xffffffff) +
+         write(b + 0x610, 1), {}, error),
+        ("timing-capture-result-readonly", write(b + 0x614, 0), {}, error),
+        ("timing-capture-absent-capability", read(b + 0x114, 4), {}, error),
+        ("timing-source1-bitmap-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b, 0x1020), {}, error),
         ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
         ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
         ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
@@ -1227,7 +1292,10 @@ def timing_fixtures():
          "timing-access-or-feature-not-supported"),
         ("timing-unknown-width", constant(0, a) + [0xe5d01000], {},
          "timing-access-or-feature-not-supported"),
-    ]
+    ] + [("timing-capture-input-" + name, [], {}, None) for name in (
+        "disconnected", "edges-and-irq-output", "two-channels-disable",
+        "gates-no-config-edge", "reset-retains-external-level",
+        "period-reprogram-clears-samples")]
 
 
 def audio_fixtures():
@@ -1581,7 +1649,169 @@ def ring_fixtures():
     ]
 
 
+def run_timing_capture(binary, output, name):
+    """Drive external pins through upstream qtest; never write sampled results."""
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    a, b = 0x2c010000, 0x2c011000
+    commands = []
+    irq_levels = {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="capture", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            device = [x["name"] for x in children
+                      if x["type"] == "child<z7ii-timing-functional>"]
+            assert len(device) == 1, children
+            path = "/machine/unattached/" + device[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    irq_levels[int(index)] = action == "raise"
+                    # The official Python client returns one protocol line.
+                    # A qtest comment has no response or side effect, so it
+                    # lets us consume asynchronous IRQs before the queued OK.
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                (output / "qtest-commands.json").write_text(
+                    json.dumps(commands, indent=2) + "\n")
+                assert response.startswith("OK"), response
+                return response
+
+            def write(address, value):
+                command(f"writel {address:#x} {value:#x}")
+
+            def read(address):
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            def step(ns=1000):
+                command(f"clock_step {ns}")
+
+            def pin(index, level):
+                command(f"set_irq_in {path} capture {index} {level}")
+
+            def setup(channel=5, control=7):
+                offset = 0x100 + channel * 0x100
+                write(a + 4, 1)
+                write(b + offset, 1)
+                write(b + offset, 0)
+                write(b + offset + 4, 1)
+                write(b + offset + 8, 0xffffffff)
+                write(b + offset + 16, 1)
+                write(a + offset, control)
+                write(b, read(b) | (1 << channel))
+
+            setup()
+            if name.endswith("disconnected"):
+                setup(6)
+                step()
+                for offset in (0x614, 0x618, 0x714, 0x718):
+                    assert read(b + offset) == 0
+                assert read(a + 0x610) == read(a + 0x710) == 0
+                assert read(b + 0x60c) > 0
+            elif name.endswith("edges-and-irq-output"):
+                # qtest bus requests are Non-secure; GIC Group0 IAR tests
+                # use the separate executing secure ARM IRQ177 fixture.
+                command(f"irq_intercept_out {path} sysbus-irq")
+                step()
+                count = read(b + 0x60c)
+                pin(0, 1)
+                assert read(b + 0x614) == count > 0
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 2
+                assert irq_levels[5]
+                write(a + 0x610, 2)
+                assert not irq_levels[5]
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == count and read(a + 0x610) == 0
+                count = read(b + 0x60c)
+                pin(0, 0)
+                assert read(b + 0x618) == count and read(a + 0x610) == 4
+                assert irq_levels[5]
+            elif name.endswith("two-channels-disable"):
+                setup(6)
+                step()
+                pin(0, 1)
+                assert read(a + 0x610) == 2 and read(a + 0x710) == 0
+                assert read(b + 0x714) == 0
+                step()
+                pin(1, 1)
+                assert read(b + 0x714) == read(b + 0x70c) > 0
+                assert read(a + 0x710) == 2
+                write(a + 0x610, 2)
+                write(b + 0x610, 0)
+                pin(0, 0)
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 0
+            elif name.endswith("gates-no-config-edge"):
+                write(a + 0x600, 1)
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(a + 0x600, 7)
+                assert read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                write(a + 0x610, 4)
+                write(b, 0)
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(b, 0x20)
+                assert read(a + 0x610) == 0
+            elif name.endswith("reset-retains-external-level"):
+                step()
+                pin(0, 1)
+                write(b + 0x600, 1)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                setup()
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+            elif name.endswith("period-reprogram-clears-samples"):
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) > 0 and read(a + 0x610) == 2
+                write(b + 0x608, 0xffffffff)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "qtest external capture inputs and official virtual clock only"}
+
+
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("timing-capture-input-"):
+        return run_timing_capture(binary, output, name)
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     loop_pc = BASE + len(words) * 4
@@ -1647,6 +1877,15 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave {address} 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == value
+                if name.startswith("timing-source1-") and "reject-preserves" in name:
+                    state_file = output / "timing-source1-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011604 8 "{state_file}"')
+                    assert struct.unpack("<II", state_file.read_bytes()) == (1, 0xffffffff)
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011000 4 "{state_file}"')
+                    expected_bitmap = 0 if "armed-opcode" in name else 0x20
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == expected_bitmap
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
