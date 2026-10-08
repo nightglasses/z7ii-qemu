@@ -67,6 +67,14 @@ def fixtures():
         gates += [0xe5900000 | (bank + 8) << 12]
         gate_values[bank + 8] = pattern & ~0x0f0f0f0f
 
+    # RAM survives system_reset; the second entry therefore reads a gate word
+    # before writing it, proving known bits from the first entry were cleared.
+    gate_reset = constant(0, 0xb1800000) + [0xe5901000, 0xe3510001,
+                                         0x0a000007, 0xe3a01001, 0xe5801000]
+    gate_reset += constant(0, CLOCK) + constant(1, 0xffffffff)
+    gate_reset += [0xe5801148, 0xea000002]
+    gate_reset += constant(0, CLOCK) + [0xe5902048]
+
     return [
         ("profile-stack", profile,
          {4: 0x21, 5: TIM, 6: 0x29, 7: 0x21,
@@ -74,6 +82,7 @@ def fixtures():
         ("secure-timer", timer,
          {8: 29, 9: 1 << 29, 10: 0, 11: 48000000, 12: 0x1d000000}, None),
         ("clock-six-banks", gates, gate_values, None),
+        ("clock-reset", gate_reset, {}, None),
         ("clock-unknown-reset", constant(0, CLOCK) + [0xe5901048], {},
          "clock-stop-bits-uninitialized"),
         ("clock-partial-mask", constant(0, CLOCK) + constant(1, 1) +
@@ -86,7 +95,7 @@ def fixtures():
          "clock-access-not-supported"),
         ("clock-byte-write", constant(0, CLOCK) + [0xe5c01138], {},
          "clock-access-not-supported"),
-        ("clock-unaligned-write", constant(0, CLOCK) + [0xe5801139], {},
+        ("clock-bank-boundary", constant(0, CLOCK) + [0xe5801150], {},
          "clock-access-not-supported"),
         ("clock-pll-unknown", constant(0, CLOCK) + [0xe590102c], {},
          "clock-access-not-supported"),
@@ -160,6 +169,15 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
+                if name == "clock-reset":
+                    vm.cmd("system_reset")
+                    vm.event_wait("RESET", timeout=5)
+                    assert registers(vm)[15] == BASE
+                    vm.cmd("cont")
+                    vm.event_wait("RESUME", timeout=5)
+                    vm.event_wait("STOP", timeout=5)
+                    assert vm.cmd("query-status")["status"] == "debug"
+                    reason = "clock-stop-bits-uninitialized"
             # Read the original ROM bytes through upstream HMP before shutdown.
             copied = output / "rom-readback.bin"
             vm.cmd("human-monitor-command",
