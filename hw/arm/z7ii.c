@@ -839,6 +839,7 @@ static void z7ii_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
 
     sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
+    sysbus_create_simple(TYPE_Z7II_SYSCONFIG, 0x04280000, NULL);
     {
         DeviceState *usio = qdev_new(TYPE_Z7II_USIO);
 

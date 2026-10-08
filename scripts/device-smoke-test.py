@@ -22,6 +22,7 @@ SDI = 0x20020000
 MXIC = 0x20016000
 FILL = 0x20070000
 USIO = 0x2c090000
+SYSCONFIG = 0x04280000
 
 
 def constant(reg, value):
@@ -140,6 +141,20 @@ def usio_contract():
 
 
 def fixtures():
+    sysconfig = []
+    for offset, value in ((4, 0x12345678), (8, 0xabcdef01), (0x24, 1),
+                          (0x28, 0x123), (0x30, 0x410), (0x74, 0x21)):
+        sysconfig += constant(0, SYSCONFIG + offset) + constant(1, value)
+        sysconfig += [0xe5801000]
+    sysconfig += constant(0, SYSCONFIG + 0x30) + [0xe5904000]
+    sysconfig += constant(0, SYSCONFIG + 0x74) + [0xe5905000]
+    sys_banks = []
+    for reg, offset, value in ((4, 0x7c, 0x1001e07), (5, 0x80, 0x1ff01c0),
+                               (6, 0x84, 0x1803dfc0), (7, 0x88, 0x444)):
+        sys_banks += constant(0, SYSCONFIG + offset) + [0xe5901000]
+        sys_banks += constant(2, value) + [0xe1811002, 0xe5801000]
+        sys_banks += [0xe5900000 | reg << 12, 0xe1c11002, 0xe5801000]
+    sys_banks += constant(0, SYSCONFIG + 0x88) + [0xe5908000]
     uart_tx = usio_contract() + constant(0, USIO + 4) + constant(1, 0x41)
     uart_tx += [0xe1c010b0] + constant(0, USIO + 3) + [0xe5d04000]
     # TDRE must be pending first, then timer/backend completion produces empty.
@@ -279,6 +294,19 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return [
+        ("sysconfig-direct-interface", sysconfig, {4: 0x410, 5: 0x21}, None),
+        ("sysconfig-four-bank-rmw", sys_banks,
+         {4: 0x1001e07, 5: 0x1ff01c0, 6: 0x1803dfc0, 7: 0x444, 8: 0}, None),
+        ("sysconfig-uninitialized-config", constant(0, SYSCONFIG + 4) +
+         [0xe5901000], {}, "sysconfig-before-guest-write"),
+        ("sysconfig-unknown-bank-bit", constant(0, SYSCONFIG + 0x80) +
+         constant(1, 1) + [0xe5801000], {}, "sysconfig-bank-bits-not-supported"),
+        ("sysconfig-unsupported-field", constant(0, SYSCONFIG + 0x24) +
+         constant(1, 2) + [0xe5801000], {}, "sysconfig-field-not-supported"),
+        ("sysconfig-byte-width", constant(0, SYSCONFIG + 0x30) +
+         [0xe5c01000], {}, "sysconfig-access-not-supported"),
+        ("sysconfig-unknown-index", constant(0, SYSCONFIG + 0xc) +
+         [0xe5801000], {}, "sysconfig-access-not-supported"),
         ("usio-whole-init", usio_contract() + constant(0, USIO) +
          [0xe5d04001, 0xe5d05003, 0xe1d060b6, 0xe1d070bc],
          {4: 1, 5: 2, 6: 0x363, 7: 0x401}, None),
