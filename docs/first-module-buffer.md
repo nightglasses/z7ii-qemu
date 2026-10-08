@@ -1,5 +1,7 @@
 # First guest bump allocation
 
+This is the historical first-allocation stage. [Observed guest object allocations](guest-object-allocations.md) records the later finite profile and its separate native evidence.
+
 This continues [启动外设与任务合同](https://github.com/mashiro01/nightglass/issues/331). The preceding SPI-profile run stopped CPU0 in the original memcpy tail, `PC10360f88 / WRITE32 PAb7f6a0ec`. Its fault address alone was insufficient to declare an arena. The [fixed original allocation evidence helper](https://github.com/mashiro01/nightglass/blob/34592ab/research/z7ii/scripts/qemu_application_allocation_contract.py) verifies the saved native initializer and 32-byte/13-instruction allocation leaf, its COPY0 control location, and four original L1 entries. It retains missing higher-level native Listing coverage separately.
 
 Two narrow debugger observations resolve the original dynamic input without changing guest memory or registers. The existing upstream QEMUMachine launched the unchanged original through the upstream GDB stub; installed LLDB used a hardware modify watchpoint or hardware address breakpoint. `work/issue331/bump-writer-watch-second` observes `[b18ab558]` changing from zero to `b7d00000`, with watch-stop PC `103c5a48`, Thumb CPSR `20000033`, R0 `b7d00000`, R1 `b18ab554`. Original saved native bytes place the literal `b7d00000` at `O3a5b0c`, its load at `103c5a44` and store at `103c5a46`. The initial failed `bump-writer-watch-first` LLDB target command remains preserved and did not execute the guest.
