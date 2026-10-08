@@ -1730,6 +1730,204 @@ def bridge_fixtures():
     ]
 
 
+def signal_fixtures():
+    base = 0x2b000000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
+
+    pulse = write(0, 0x1f)
+    for bit in (0, 1, 4, 2, 3):
+        pulse += write(0, 0x1f & ~(1 << bit)) + write(0, 0x1f)
+    pulse += write(4, 0x3c) + write(0xc, 0x3ff)
+    pulse += write(0x14, 0x0333331f) + write(8, 0x3ff)
+    pulse += [*read(0, 4), *read(4, 5), *read(0x10, 6), *read(0x14, 7)]
+    config = write(0x18, 0xffffffff) + write(0x18, 0xfffcffff)
+    config += read(0x18, 4) + read(0x10, 5)
+    error = "signal-access-not-supported"
+    return [
+        ("signal-original-five-pulses-and-fields", pulse,
+         {4: 0x1f, 5: 0x3c, 6: 0, 7: 0x0333331f}, None),
+        ("signal-config-latch-no-event", config, {4: 0xfffcffff, 5: 0}, None),
+        ("signal-invalid-reset-preserves-state", write(0, 0x1f) + write(0, 0x20), {}, error),
+        ("signal-invalid-gate-preserves-state", write(4, 0x3c) + write(4, 0x3d), {}, error),
+        ("signal-invalid-mask-preserves-state", write(0xc, 0x3ff) + write(0xc, 0x400), {}, error),
+        ("signal-invalid-debounce-preserves-state", write(0x14, 0x0333331f) + write(0x14, 0x40), {}, error),
+        ("signal-invalid-clear", write(8, 0x400), {}, error),
+        ("signal-command-read-unbound", read(8, 4), {}, error),
+        ("signal-status-write-rejected", write(0x10, 1), {}, error),
+        ("signal-byte-read-rejected", constant(0, base) + [0xe5d04000], {}, error),
+        ("signal-halfword-write-rejected", constant(0, base) + [0xe1c010b0], {}, error),
+        ("signal-hole", read(0x1c, 4), {}, "uncovered-address"),
+        ("signal-adjacent-unbound", read(0x1000, 4), {}, "uncovered-address"),
+        ("signal-distinct-base-unbound", read(0x100000, 4), {}, "uncovered-address"),
+    ] + [("signal-input-" + suffix, [], {}, None) for suffix in (
+        "permutations-and-both-edges", "shared-gate", "masked-pending-and-clear",
+        "debounce-all-codes", "bounce-and-reconfigure", "reset-cancels-retains-input")]
+
+
+def run_signal_input(binary, output, name):
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    base = 0x2b000000
+    bits, gates = (0, 1, 4, 2, 3), (4, 5, 3, 2, 2)
+    commands, irq_levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="signal", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            device = [x["name"] for x in children
+                      if x["type"] == "child<z7ii-signal-functional>"]
+            assert len(device) == 1, children
+            path = "/machine/unattached/" + device[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    irq_levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {base + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {base + offset:#x}").split()[1], 16)
+
+            def pin(index, level):
+                command(f"set_irq_in {path} signal {index} {level}")
+
+            def step(ns):
+                command(f"clock_step {ns}")
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            write(0, 0x1f)
+            write(4, 0x3c)
+            write(0xc, 0x3ff)
+            assert read(0x10) == 0
+            if name.endswith("permutations-and-both-edges"):
+                for i, bit in enumerate(bits):
+                    pin(i, 1)
+                    assert read(0x10) == (1 << bit) * 0x101
+                    assert irq_levels[i]
+                    write(8, 1 << (2 * bit))
+                    assert not irq_levels[i]
+                    pin(i, 0)
+                    assert read(0x10) == 0 and irq_levels[i]
+                    write(8, 1 << (2 * bit + 1))
+                    assert not irq_levels[i]
+            elif name.endswith("shared-gate"):
+                pin(3, 1)
+                pin(4, 1)
+                assert irq_levels[3] and irq_levels[4]
+                write(4, 0x38)
+                assert read(0x10) == 0xc
+                assert not irq_levels[3] and not irq_levels[4]
+                pin(3, 0)
+                pin(4, 0)
+                pin(3, 1)
+                write(4, 0x3c)
+                assert read(0x10) == 0x404
+                assert not irq_levels[3] and not irq_levels[4]
+                pin(3, 0)
+                assert irq_levels[3] and not irq_levels[4]
+            elif name.endswith("masked-pending-and-clear"):
+                write(0xc, 0)
+                pin(0, 1)
+                pin(1, 1)
+                assert not irq_levels.get(0, False) and not irq_levels.get(1, False)
+                assert read(0x10) == 0x303
+                write(0xc, 5)
+                assert irq_levels[0] and irq_levels[1]
+                write(8, 1)
+                assert not irq_levels[0] and irq_levels[1]
+                assert read(0x10) == 0x303
+                write(8, 4)
+                assert not irq_levels[1]
+                write(0x18, 0xffffffff)
+                assert read(0x18) == 0xffffffff and read(0x10) == 0x303
+                assert not irq_levels[0] and not irq_levels[1]
+            elif name.endswith("debounce-all-codes"):
+                for code in range(4):
+                    for i, bit in enumerate(bits):
+                        write(0x14, (1 << bit) | (code << (8 + 4 * bit)))
+                        pin(i, 1)
+                        assert read(0x10) == 1 << bit
+                        ns = (1 << code) * 1000
+                        step(ns - 1)
+                        assert read(0x10) == 1 << bit and not irq_levels.get(i, False)
+                        step(1)
+                        assert read(0x10) == (1 << bit) * 0x101 and irq_levels[i]
+                        write(8, 0x3ff)
+                        pin(i, 0)
+                        step(ns)
+                        assert read(0x10) == 0 and irq_levels[i]
+                        write(8, 0x3ff)
+            elif name.endswith("bounce-and-reconfigure"):
+                write(0x14, 0x301)
+                pin(0, 1)
+                step(4000)
+                pin(0, 0)
+                step(4000)
+                assert read(0x10) == 0 and not irq_levels.get(0, False)
+                pin(0, 1)
+                step(7999)
+                assert read(0x10) == 1
+                write(0x14, 0x101)
+                assert read(0x10) == 0x101 and not irq_levels.get(0, False)
+                step(10000)
+                assert not irq_levels.get(0, False)
+                pin(0, 0)
+                step(1999)
+                assert read(0x10) == 0x100
+                step(1)
+                assert read(0x10) == 0 and irq_levels[0]
+            elif name.endswith("reset-cancels-retains-input"):
+                write(0x14, 0x301)
+                pin(0, 1)
+                step(4000)
+                write(0, 0x1e)
+                step(10000)
+                assert read(0x10) == 1 and not irq_levels.get(0, False)
+                write(0, 0x1f)
+                assert read(0x10) == 0x101 and not irq_levels.get(0, False)
+                pin(0, 0)
+                step(8000)
+                assert irq_levels[0]
+                pin(0, 1)
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                step(10000)
+                assert read(0x10) == 1 and not irq_levels[0]
+                assert all(read(offset) == 0 for offset in (0, 4, 0xc, 0x14, 0x18))
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "external signal inputs, virtual debounce and unwired pending outputs"}
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -1986,6 +2184,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("signal-input-"):
+        return run_signal_input(binary, output, name)
     if name == "copy-romd-three-mib-exact-bytes":
         return run_copy_romd_large(binary, output, name)
     if name.startswith("timing-capture-input-"):
@@ -2047,6 +2247,17 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c08010c 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
+                if name.startswith("signal-invalid-") and "preserves-state" in name:
+                    offset, value = {
+                        "signal-invalid-reset-preserves-state": (0, 0x1f),
+                        "signal-invalid-gate-preserves-state": (4, 0x3c),
+                        "signal-invalid-mask-preserves-state": (0xc, 0x3ff),
+                        "signal-invalid-debounce-preserves-state": (0x14, 0x0333331f),
+                    }[name]
+                    state_file = output / "signal-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave {0x2b000000 + offset:#x} 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == value
                 if name.startswith("copy-reconfigure-"):
                     state_file = output / "copy-control-state.bin"
                     pending_file = output / "copy-pending-state.bin"
@@ -2169,7 +2380,7 @@ def main():
     cases = (fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
-             external_nor_fixtures() + bridge_fixtures())
+             external_nor_fixtures() + bridge_fixtures() + signal_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

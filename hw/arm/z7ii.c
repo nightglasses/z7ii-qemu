@@ -1066,6 +1066,13 @@ static void z7ii_init(MachineState *machine)
                                qdev_get_gpio_in(gic, 45 + i - 32));
         }
     }
+    {
+        DeviceState *signal = qdev_new(TYPE_Z7II_SIGNAL);
+
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(signal), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(signal), 0, 0x2b000000);
+        /* Five external inputs and pending outputs deliberately unwired. */
+    }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
     sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);
