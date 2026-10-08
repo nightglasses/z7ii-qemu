@@ -29,6 +29,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 #define MAS_BASE 0x10020000ULL
 #define MAS_MAX_SIZE 0x2477b78ULL
+#define NV_SLOT_BASE 0x133e0000ULL
+#define NV_SLOT_SIZE 0x20000
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
@@ -105,6 +107,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
+    MemoryRegion nv_slot;
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -112,6 +115,7 @@ struct Z7IIMachineState {
     MemoryRegion bss_storage;
     MemoryRegion kernel_arena;
     MemoryRegion kernel_copy;
+    MemoryRegion module_buffer;
     MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
@@ -721,6 +725,29 @@ static const MemoryRegionOps z7ii_nor_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
+static MemTxResult z7ii_nv_write(void *opaque, hwaddr offset, uint64_t value,
+                               unsigned size, MemTxAttrs attrs)
+{
+    /* Same MEMC protection and unsupported-command contract, correct PA. */
+    return z7ii_nor_write(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+                         value, size, attrs);
+}
+
+static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
+                              unsigned size, MemTxAttrs attrs)
+{
+    return z7ii_nor_read(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+                        value, size, attrs);
+}
+
+static const MemoryRegionOps z7ii_nv_ops = {
+    .read_with_attrs = z7ii_nv_read,
+    .write_with_attrs = z7ii_nv_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
 static void z7ii_reset(void *opaque)
 {
     Z7IIMachineState *s = opaque;
@@ -786,6 +813,16 @@ static void z7ii_init(MachineState *machine)
         error_report("failed to load the complete MAS diagnostic image");
         exit(EXIT_FAILURE);
     }
+    /*
+     * Original registry ID69 is a distinct 128KiB data slot, absent from the
+     * update payload. Explicit erased-cell profile, not original NV contents
+     * or a complete CFI device. Guest validation/error paths remain intact.
+     */
+    memory_region_init_rom_device(&s->nv_slot, NULL, &z7ii_nv_ops, s,
+                                  "z7ii.nor-slot69-erased", NV_SLOT_SIZE,
+                                  &error_fatal);
+    memset(memory_region_get_ram_ptr(&s->nv_slot), 0xff, NV_SLOT_SIZE);
+    memory_region_add_subregion(get_system_memory(), NV_SLOT_BASE, &s->nv_slot);
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
@@ -802,6 +839,11 @@ static void z7ii_init(MachineState *machine)
     /* Original usermain -> O348290 copies 0x21538 kernel bytes here.
      * Finite backing only: guest performs the copy and any later MMU change. */
     z7ii_ram(&s->kernel_copy, "z7ii.kernel-copy", 0xbab00000, 0x21538);
+    /*
+     * Original bump initializer and first 0x3a0000 request. Virtual backing
+     * for this entire allocation only; guest owns all copies and metadata.
+     */
+    z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3a0000);
     z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
@@ -829,6 +871,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
     z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
+    z7ii_mxic_attach_ram(mxic, &s->module_buffer, 0xb7d00000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
     for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
         z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],

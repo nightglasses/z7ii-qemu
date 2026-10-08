@@ -412,6 +412,31 @@ def fixtures():
     completion_default += [0xe5905008, 0xe590600c]
 
     return mxic_config_fixtures() + [
+        ("nv-slot69-erased-bounds", constant(0, 0x133e0000) +
+         [0xe5904000, 0xe5d05000, 0xe1d060b0] +
+         constant(0, 0x133ffffc) + [0xe5907000],
+         {4: 0xffffffff, 5: 0xff, 6: 0xffff, 7: 0xffffffff}, None),
+        ("nv-slot69-below", constant(0, 0x133dfffc) + [0xe5901000], {},
+         "uncovered-address"),
+        ("nv-slot69-above", constant(0, 0x13400000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("nv-slot69-before-memc", constant(0, 0x133e0000) + [0xe1c010b0], {},
+         "nor-memc-not-initialized"),
+        ("nv-slot69-protected", initialized(0x29) + constant(0, 0x133e0000) +
+         [0xe1c010b0], {}, "nor-write-protected"),
+        ("nv-slot69-no-command-backend", initialized() +
+         constant(0, 0x133e0aaa) + constant(1, 0xaa) + [0xe1c010b0], {},
+         "nor-backend-not-supported"),
+        ("module-buffer-entire-allocation", constant(0, 0xb7d00000) +
+         constant(1, 0x1234) + [0xe5801000, 0xe5904000] +
+         constant(0, 0xb809fffc) + [0xe5801000, 0xe5905000],
+         {4: 0x1234, 5: 0x1234}, None),
+        ("module-buffer-below", constant(0, 0xb7cffffc) + [0xe5801000], {},
+         "uncovered-address"),
+        ("module-buffer-above", constant(0, 0xb80a0000) + [0xe5801000], {},
+         "uncovered-address"),
+        ("module-buffer-region-withdrawn", mxic_contract(disable=True) +
+         constant(0, 0xb7d00000) + [0xe5801000], {}, "uncovered-address"),
         ("clock-bitcontrol-rmw", constant(0, CLOCK + 0x58) + [0xe5902000] +
          [0xe3823008, 0xe5803000, 0xe5904000, 0xe3843080, 0xe5803000,
           0xe5904000, 0xe3c43008, 0xe5803000, 0xe5905000] +

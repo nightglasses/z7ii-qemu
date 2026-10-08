@@ -28,3 +28,5 @@
 | [docs/kernel-copy-and-percore-stacks.md](docs/kernel-copy-and-percore-stacks.md) | 原内核精确复制、每核虚拟模式栈和真实SGI/IRQ后继 |
 | [docs/runtime-bit-control.md](docs/runtime-bit-control.md) | 两bank运行时位请求、原RMW合同和下一真实外设 |
 | [docs/spi-functional.md](docs/spi-functional.md) | 十一通道SSI/FIFO/时钟/IRQ功能合同与PKGB构造真实轨迹 |
+| [docs/first-module-buffer.md](docs/first-module-buffer.md) | 原动态bump首个完整分配、只读调试观测和下一NOR数据来源 |
+| [docs/nv-slot69-functional.md](docs/nv-slot69-functional.md) | 原registry独立NV槽、有限擦除态输入与原数据读后续停点 |
