@@ -49,7 +49,9 @@ def main():
                         "0x10201010+0x40", "0x10242fda+0x68"]
         if args.trace_records:
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
-                        "0x102a85f4+0xb0"]
+                        "0x102a85f4+0xb0", "0x1010261e+0x76",
+                        "0x10101cc2+0x4e", "0x10101cb8+0xa",
+                        "0x10101f1e+0x18", "0x102a87ae+0xe"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
