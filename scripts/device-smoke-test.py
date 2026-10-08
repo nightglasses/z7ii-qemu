@@ -1483,7 +1483,34 @@ def copy_fixtures():
     selectors = seed + setup() + write(base, 0x11100000) + read(base, 4)
     selectors += read(base + 0x30, 5) + start() + wait()
     selectors += read(destination, 6) + read(base, 7)
+    repeat = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    repeat += constant(1, 1) + [0xe5c2182d]  # IRQ45 CPU0 target byte.
+    repeat += write(0xf8101104, 0x2000) + write(0xf8102004, 0xff)
+    repeat += write(0xf8102000, 1) + seed + setup() + start() + wait()
+    repeat += read(0xf810200c, 4) + write(base + 0x30, 0)
+    repeat += write(0xf8102010, 45)
+    for offset, value in ((0, 3), (4, source + 4), (8, destination + 16),
+                          (12, 0x30f00), (16, 0x30f00), (20, 0)):
+        repeat += write(base + 0x10 + offset, value)
+    # Original setup replaces its fields while preserving prior bit24/28.
+    repeat += constant(0, base + 0x28) + [0xe5901000]
+    repeat += constant(2, 0xf00000) + [0xe1c11002, 0xe5801000]
+    repeat += read(base + 0x28, 7) + read(base + 0x30, 8)
+    repeat += start() + wait() + read(0xf810200c, 5)
+    repeat += read(destination + 16, 9) + write(base + 0x30, 0)
+    repeat += write(0xf8102010, 45) + read(0xf810200c, 6)
     cases = [
+        ("copy-repeat-reconfigure-preserves-command-bits", repeat,
+         {4: 45, 5: 45, 6: 1023, 7: 0x11009000, 8: 0,
+          9: 0x55667788}, None),
+        ("copy-reconfigure-sticky-bit-rejected", seed + setup() + start() +
+         wait() + write(base + 0x30, 0) + write(base + 0x28, 0x10009000),
+         {}, "copy-access-or-profile-not-supported"),
+        ("copy-reconfigure-format-rejected", setup() +
+         write(base + 0x28, 0x8000), {}, "copy-access-or-profile-not-supported"),
+        ("copy-reconfigure-busy-rejected", setup(length=65536) + start() +
+         write(base + 0x28, 0x11009003),
+         {}, "copy-access-or-profile-not-supported"),
         ("copy-default-byte-tail-and-ack", exact,
          {4: 0x11223344, 5: 0x00667788, 6: 8, 7: 0, 8: 0}, None),
         ("copy-unaligned-byte-addresses", unaligned,
@@ -1896,6 +1923,21 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c08010c 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
+                if name.startswith("copy-reconfigure-"):
+                    state_file = output / "copy-control-state.bin"
+                    pending_file = output / "copy-pending-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x04251028 4 "{state_file}"')
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x04251030 4 "{pending_file}"')
+                    control = struct.unpack("<I", state_file.read_bytes())[0]
+                    pending = struct.unpack("<I", pending_file.read_bytes())[0]
+                    expected_control = {
+                        "copy-reconfigure-sticky-bit-rejected": 0x11109000,
+                        "copy-reconfigure-format-rejected": 0x9000,
+                        "copy-reconfigure-busy-rejected": 0x11109003,
+                    }[name]
+                    assert control == expected_control and pending == 0
                 if name in ("bridge-context-mode-reject-preserves-state",
                             "bridge-late-field-reject-preserves-state"):
                     address, value = ((0x201380ac, 1) if "context" in name

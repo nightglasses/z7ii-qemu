@@ -17,6 +17,9 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IICopyState, Z7II_COPY)
 
+/* Original setup BFI fields, separate from preserved trigger/mode bits. */
+#define COPY_SETUP_MASK 0x00f09110U
+
 typedef struct Z7IICopyChannel {
     Z7IICopyState *owner;
     QEMUTimer *timer;
@@ -208,9 +211,13 @@ static MemTxResult z7ii_copy_write(void *opaque, hwaddr offset,
     if (index == 5 && value) {
         goto error;
     }
-    if (index == 6 && value != 0x9000 &&
-        value != (c->reg[6] & ~3U)) {
-        goto error;
+    if (index == 6) {
+        bool setup = (value & COPY_SETUP_MASK) == 0x9000 &&
+                     !((value ^ c->reg[6]) & ~COPY_SETUP_MASK);
+
+        if (!setup && value != (c->reg[6] & ~3U)) {
+            goto error;
+        }
     }
     c->reg[index] = value;
     if (index < 6) {
