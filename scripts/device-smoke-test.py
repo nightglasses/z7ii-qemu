@@ -1161,6 +1161,9 @@ def audio_fixtures():
     separate += write(audio + 0x114, 0x40000000) + delay()
     separate += read(audio + 0x120, 6)
     return [
+        ("audio-stereo-rejects-prior-state", write(audio + 0x10c, 0x07800000) +
+         write(audio + 0x10c, 0x0f800000), {},
+         "audio-access-or-profile-not-supported"),
         ("audio-real-gic-irq167", irq, {4: 167, 5: 1023}, None),
         ("audio-sixteen-stage-capacity", capacity + read(audio + 0x120, 4),
          {4: 0xffffffff}, None),
@@ -1251,6 +1254,11 @@ def run(binary, output, name, words, expected, reason):
                     ca = 0x81000000 if name.startswith("hdmac-external-") else 0xa0000000
                     assert struct.unpack("<IIII", state_file.read_bytes()) == \
                            (ca, 0, 0xb1800101, 0xb1800201)
+                if name == "audio-stereo-rejects-prior-state":
+                    state_file = output / "audio-mode.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c08010c 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
             else:
                 deadline = time.monotonic() + 5
                 while registers(vm)[15] != loop_pc:

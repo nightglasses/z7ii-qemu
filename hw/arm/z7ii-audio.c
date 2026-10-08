@@ -260,8 +260,8 @@ static MemTxResult z7ii_audio_write(void *opaque, hwaddr offset, uint64_t value,
         }
         break;
     case 12:
-        /* Preserve unknown bit23/26 flags; no swap/loopback packing. */
-        if ((value & ~0x0f800000U) ||
+        /* Retain stage bits24/25 and unknown23/26, not stereo/swap/loopback. */
+        if ((value & ~0x07800000U) ||
             (((value ^ c->mode) & (1U << 25)) && z7ii_audio_used(c))) {
             return z7ii_audio_error(s, offset, size, true, value);
         }
