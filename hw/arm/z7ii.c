@@ -1026,6 +1026,17 @@ static void z7ii_init(MachineState *machine)
             qdev_connect_gpio_out(audio, 2, qdev_get_gpio_in(hdmac, 5));
         }
     }
+    {
+        DeviceState *timing = qdev_new(TYPE_Z7II_TIMING);
+
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(timing), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(timing), 0, 0x2c010000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(timing), 1, 0x2c011000);
+        for (i = 0; i < 12; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(timing), i,
+                               qdev_get_gpio_in(gic, 172 + i - 32));
+        }
+    }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
     sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);
