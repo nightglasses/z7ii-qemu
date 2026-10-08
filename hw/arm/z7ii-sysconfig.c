@@ -14,16 +14,22 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IISysconfigState, Z7II_SYSCONFIG)
 struct Z7IISysconfigState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
-    uint32_t config[6];
+    uint32_t config[8];
     uint32_t initialized;
-    uint32_t banks[4];
+    uint32_t banks[5];
     bool reported_error;
 };
 
-static const unsigned config_offsets[] = { 4, 8, 0x24, 0x28, 0x30, 0x74 };
+static const unsigned config_offsets[] = {
+    4, 8, 0x24, 0x28, 0x30, 0x74, 0x34, 0x38,
+};
 /* Immediate original caller indices, not physical module names. */
 static const uint32_t bank_masks[] = {
-    0x01001e07, 0x01ff01c0, 0x1803dfc0, 0x00000444,
+    0, 0x01001e07, 0x01ff01c0, 0x1803dfc0, 0x00000444,
+};
+/* Complete original early initializer, before later mutex-protected RMW. */
+static const uint32_t bank_boot_profiles[] = {
+    0x73ffffff, 0xffffffff, 0x01ffc1ff, 0x31ffffff, 0x000004ee,
 };
 
 static MemTxResult z7ii_sysconfig_error(Z7IISysconfigState *s, hwaddr offset,
@@ -46,8 +52,8 @@ static MemTxResult z7ii_sysconfig_read(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         goto unsupported;
     }
-    if (offset >= 0x7c && offset <= 0x88) {
-        *value = s->banks[(offset - 0x7c) / 4];
+    if (offset >= 0x78 && offset <= 0x88) {
+        *value = s->banks[(offset - 0x78) / 4];
         return MEMTX_OK;
     }
     /* Named virtual strap inputs; their physical interpretation is unknown. */
@@ -79,9 +85,10 @@ static MemTxResult z7ii_sysconfig_write(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         goto unsupported;
     }
-    if (offset >= 0x7c && offset <= 0x88) {
-        i = (offset - 0x7c) / 4;
-        if (value & ~bank_masks[i]) {
+    if (offset >= 0x78 && offset <= 0x88) {
+        i = (offset - 0x78) / 4;
+        if (value != bank_boot_profiles[i] &&
+            ((value ^ s->banks[i]) & ~bank_masks[i])) {
             return z7ii_sysconfig_error(s, offset, size, true, value,
                                         "sysconfig-bank-bits-not-supported");
         }
@@ -91,7 +98,9 @@ static MemTxResult z7ii_sysconfig_write(void *opaque, hwaddr offset,
     for (i = 0; i < ARRAY_SIZE(config_offsets); i++) {
         if (offset == config_offsets[i]) {
             if ((offset == 0x24 && value > 1) ||
-                (offset == 0x74 && value > 0xff)) {
+                (offset == 0x74 && value > 0xff) ||
+                (offset == 0x34 && (value & ~0xf0000000U)) ||
+                (offset == 0x38 && (value & ~0x00ff0000U))) {
                 return z7ii_sysconfig_error(s, offset, size, true, value,
                                             "sysconfig-field-not-supported");
             }
@@ -117,7 +126,8 @@ static void z7ii_sysconfig_reset(DeviceState *dev)
 {
     Z7IISysconfigState *s = Z7II_SYSCONFIG(dev);
 
-    s->initialized = 0;
+    /* Original boot RMW selectors use explicit virtual pinmux reset zero. */
+    s->initialized = (1U << 6) | (1U << 7);
     memset(s->config, 0, sizeof(s->config));
     /* Functional control reset: clear all implemented indexed requests. */
     memset(s->banks, 0, sizeof(s->banks));

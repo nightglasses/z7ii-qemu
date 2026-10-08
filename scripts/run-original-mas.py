@@ -22,6 +22,8 @@ def main():
                         help="upstream TCG thread mode, recorded in the receipt")
     parser.add_argument("--trace-kernel", action="store_true",
                         help="upstream CPU/instruction trace for MAS kernel prefix only")
+    parser.add_argument("--trace-irqs", action="store_true",
+                        help="upstream GIC enable, input, acknowledge and control trace")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -38,6 +40,10 @@ def main():
     if args.trace_kernel:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
         vm_args += ["-dfilter", "0x10100000+0x20000"]
+    if args.trace_irqs:
+        for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
+                      "gic_cpu_write", "gic_dist_write"):
+            vm_args += ["-trace", f"enable={event}"]
     receipt = {
         "machine_revision": args.machine_revision,
         "upstream_revision": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
@@ -49,7 +55,7 @@ def main():
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
-            "upstream A15MPCore GICv2; 256 total SGI/PPI/SPI IDs",
+        "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "upstream CPU reset state; guest copies all copy destinations",
             "six CPU0 stack slots each 16KiB; early stack RAM exactly 88B",
@@ -65,7 +71,8 @@ def main():
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
         "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
-        "finite second system configuration; virtual strap/control reset zero, guest-produced config and bounded four-bank RMW",
+        "finite second system configuration; virtual strap/control reset zero, guest five-bank bootstrap and bounded four-bank field RMW",
+        "twelve GPIO ports with masked latch/direction/function/pull; unconnected pads follow pulls or virtual low, no key matrix",
         ],
         "whole_boot_verified": False,
     }

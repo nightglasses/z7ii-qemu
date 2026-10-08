@@ -16,7 +16,7 @@
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
-#include "hw/cpu/a15mpcore.h"
+#include "hw/intc/arm_gic.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/runstate.h"
@@ -840,6 +840,7 @@ static void z7ii_init(MachineState *machine)
 
     sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
     sysbus_create_simple(TYPE_Z7II_SYSCONFIG, 0x04280000, NULL);
+    sysbus_create_simple(TYPE_Z7II_GPIO, 0x04282000, NULL);
     {
         DeviceState *usio = qdev_new(TYPE_Z7II_USIO);
 
@@ -857,13 +858,18 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(sdi), 0, 0x20020000 + i * 0x20000);
     }
 
-    /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
-    gic = qdev_new(TYPE_A15MPCORE_PRIV);
+    /* Whole upstream GIC, independently configured from the CPU's EL2. */
+    gic = qdev_new(TYPE_ARM_GIC);
     gic_bus = SYS_BUS_DEVICE(gic);
     qdev_prop_set_uint32(gic, "num-cpu", s->num_cpus);
     qdev_prop_set_uint32(gic, "num-irq", 256); /* SGI/PPI + 224 SPIs. */
+    /* Original ISACTIVER initialization relies on the pre-v2 read-only view. */
+    qdev_prop_set_uint32(gic, "revision", 1);
+    qdev_prop_set_bit(gic, "has-security-extensions", true);
+    qdev_prop_set_bit(gic, "has-virtualization-extensions", false);
     sysbus_realize_and_unref(gic_bus, &error_fatal);
-    sysbus_mmio_map(gic_bus, 0, CBAR_BASE);
+    sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
+    sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
     sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);
@@ -873,6 +879,17 @@ static void z7ii_init(MachineState *machine)
                        qdev_get_gpio_in(gic, 250 - 32));
     for (i = 0; i < s->num_cpus; i++) {
         DeviceState *cpu = DEVICE(&s->cpu[i]);
+        const int timer_irq[] = {
+            [GTIMER_PHYS] = 30, [GTIMER_VIRT] = 27,
+            [GTIMER_HYP] = 26, [GTIMER_SEC] = 29,
+        };
+        int irq;
+
+        /* Same upstream A15MPCore timer/PPI array layout, no invented tick. */
+        for (irq = 0; irq < ARRAY_SIZE(timer_irq); irq++) {
+            qdev_connect_gpio_out(cpu, irq,
+                qdev_get_gpio_in(gic, 256 - 32 + i * 32 + timer_irq[irq]));
+        }
         sysbus_connect_irq(gic_bus, i, qdev_get_gpio_in(cpu, ARM_CPU_IRQ));
         sysbus_connect_irq(gic_bus, i + s->num_cpus,
                            qdev_get_gpio_in(cpu, ARM_CPU_FIQ));
@@ -885,7 +902,7 @@ static void z7ii_init(MachineState *machine)
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
                  "image-bytes=%" PRId64 " cpu0-stack-slot=0x4000; "
-                 "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv2=256 "
+                 "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "CPU1-startup-stack=72B; no NOR writer/IPC devices/BootROM; "
                  "further CPU1 stack extent uncovered",

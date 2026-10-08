@@ -28,7 +28,8 @@ git -C "$src" apply "$repo/scripts/z7ii-registration.patch"
 cp "$repo/hw/arm/z7ii.c" "$repo/hw/arm/z7ii.h" \
    "$repo/hw/arm/z7ii-timestamp.c" "$repo/hw/arm/z7ii-sdi.c" \
    "$repo/hw/arm/z7ii-mxic.c" "$repo/hw/arm/z7ii-fill.c" \
-   "$repo/hw/arm/z7ii-usio.c" "$repo/hw/arm/z7ii-sysconfig.c" "$src/hw/arm/"
+   "$repo/hw/arm/z7ii-usio.c" "$repo/hw/arm/z7ii-sysconfig.c" \
+   "$repo/hw/arm/z7ii-gpio.c" "$src/hw/arm/"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm
