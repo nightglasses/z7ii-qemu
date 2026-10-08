@@ -1540,7 +1540,17 @@ def copy_fixtures():
     destination_crossing = seed + setup(length=8, da=0xbb2ffffc)
     destination_crossing += start() + wait() + read(base + 0x30, 4)
     destination_crossing += read(0xbb2ffffc, 5)
+    large_rom = setup(length=0x300000, sa=BASE, da=0xbac00000)
+    large_rom += start() + wait() + read(base + 0x30, 4)
+    large_rom += read(0xbadc5afc, 5) + read(0xbaeffffc, 6)
+    branch_index = len(large_rom)
+    large_rom.append(0xea000000 | (0x300000 // 4 - branch_index - 2))
+    large_rom += [0x5a000000 ^ index for index in
+                  range(len(large_rom), 0x300000 // 4)]
+    large_rom[0x1c5afc // 4] = 0xb2b4145c
     cases = [
+        ("copy-romd-three-mib-exact-bytes", large_rom,
+         {4: 8, 5: 0xb2b4145c, 6: 0x5a0bffff}, None),
         ("copy-romd-source-real-bytes", rom,
          {4: rom_words[0], 5: rom_words[1], 6: 8}, None),
         ("copy-romd-external-source-byte-tail", external_rom,
@@ -2030,6 +2040,11 @@ def run(binary, output, name, words, expected, reason):
                 assert actual[15] == loop_pc, actual
                 for reg, value in expected.items():
                     assert actual[reg] == value, (name, reg, actual, expected)
+                if name == "copy-romd-three-mib-exact-bytes":
+                    destination_file = output / "dma-destination.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0xbac00000 0x300000 "{destination_file}"')
+                    assert destination_file.read_bytes() == payload[:0x300000]
                 if name == "timestamp-whole-guest-init":
                     assert actual[5] > actual[4], actual
                 if name == "timestamp-elapsed-freeze-carry":
