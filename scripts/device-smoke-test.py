@@ -909,7 +909,37 @@ def hdmac_fixtures():
     narrow += read(destination, 4)
     narrow += setup(cb=0x04180000, da=destination + 4) + wait_status()
     narrow += read(destination + 4, 5)
+
+    def armed_byte(external=False):
+        return (write(dma, 0) + write(dma + 0x18, source + 1) +
+                write(dma + 0x1c, destination + 1) + write(dma + 0x14, 0) +
+                write(dma + 0x10, 0x81000000 if external else 0xa0000000))
+
+    recovered = seed + armed_byte() + write(dma + 0x18, source)
+    recovered += write(dma + 0x1c, destination) + write(dma + 0x14, 0x08000000)
+    recovered += write(dma, 0x80000000) + wait_status() + read(destination, 4)
+    self_cancel = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    self_cancel += constant(1, 1) + [0xe5c21896]
+    self_cancel += write(0xf8101110, 0x400000) + write(0xf8102004, 0xff)
+    self_cancel += write(0xf8102000, 1) + write(source, 0)
+    self_cancel += setup(cb=0x08080000, da=dma, ca=0xa0000000)
+    self_cancel += wait_status() + read(dma + 0x10, 4) + read(dma + 0x14, 5)
+    self_cancel += read(dma, 6) + read(0xf810200c, 7)
+    self_eb = write(source, 0x20000001) + write(source + 4, 0x08000000)
+    self_eb += setup(cb=0x08080000, da=dma + 0x10) + wait_status()
+    self_eb += read(dma + 0x10, 4) + read(dma + 0x14, 5)
     return [
+        ("hdmac-armed-alignment-rejected", armed_byte() +
+         write(dma + 0x14, 0x08000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-external-armed-alignment-rejected", armed_byte(True) +
+         write(dma + 0x14, 0x08000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-armed-alignment-recovered", recovered, {4: 0x11223344}, None),
+        ("hdmac-self-global-disable-cancels", self_cancel,
+         {4: 0x20000000, 5: 0x080a0000, 6: 0, 7: 1023}, None),
+        ("hdmac-self-eb-clear-stops-next-beat", self_eb,
+         {4: 0x20000001, 5: 0x080a0000}, None),
         ("hdmac-fixed-arbitration", arbitration(False), {4: 0x55667788}, None),
         ("hdmac-rotating-arbitration", arbitration(True), {4: 0x11223344}, None),
         ("hdmac-real-gic-irq150", irq, {4: 150, 5: 1023}, None),
@@ -990,6 +1020,14 @@ def run(binary, output, name, words, expected, reason):
                            f'pmemsave 0x2c020014 4 "{status_file}"')
                     expected_status = 0x081b0000 if "source" in name else 0x081c0000
                     assert struct.unpack("<I", status_file.read_bytes())[0] == expected_status
+                if name in ("hdmac-armed-alignment-rejected",
+                            "hdmac-external-armed-alignment-rejected"):
+                    state_file = output / "armed-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c020010 16 "{state_file}"')
+                    ca = 0x81000000 if name.startswith("hdmac-external-") else 0xa0000000
+                    assert struct.unpack("<IIII", state_file.read_bytes()) == \
+                           (ca, 0, 0xb1800101, 0xb1800201)
             else:
                 deadline = time.monotonic() + 5
                 while registers(vm)[15] != loop_pc:

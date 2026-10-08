@@ -32,6 +32,7 @@ typedef struct Z7IIHDMACChannel {
     qemu_irq irq;
     bool running;
     int64_t ready_at;
+    uint64_t generation;
 } Z7IIHDMACChannel;
 
 struct Z7IIHDMACState {
@@ -56,6 +57,7 @@ static void z7ii_hdmac_irq(Z7IIHDMACChannel *c)
 static void z7ii_hdmac_finish(Z7IIHDMACChannel *c, unsigned status)
 {
     timer_del(c->timer);
+    c->generation++;
     c->running = false;
     c->ca &= ~HDMAC_EB;
     c->cb = (c->cb & ~HDMAC_SS) | (status << 16);
@@ -74,6 +76,7 @@ static void z7ii_hdmac_transfer(void *opaque)
     uint32_t beats;
     bool fixed_source, fixed_destination;
     uint8_t data[4];
+    uint64_t generation;
 
     /* Fixed low-index or rotating arbitration among ready virtual requests. */
     for (candidate = 0; candidate < 8; candidate++) {
@@ -95,23 +98,34 @@ static void z7ii_hdmac_transfer(void *opaque)
     beats = (((c->ca >> 16) & 15) + 1) * ((c->ca & 0xffff) + 1);
     fixed_source = c->cb & (1U << 25);
     fixed_destination = c->cb & (1U << 24);
+    generation = c->generation;
 
     for (i = 0; i < beats; i++) {
+        MemTxResult result;
+
         if ((uint64_t)c->source + width > 1ULL << 32 ||
             (uint64_t)c->destination + width > 1ULL << 32) {
             z7ii_hdmac_finish(c, 1);
             return;
         }
-        if (dma_memory_read(&address_space_memory, c->source, data, width,
-                            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        result = dma_memory_read(&address_space_memory, c->source, data, width,
+                                  MEMTXATTRS_UNSPECIFIED);
+        if (!c->running || c->generation != generation) {
+            return;
+        }
+        if (result != MEMTX_OK) {
             qemu_log_mask(LOG_GUEST_ERROR,
                           "z7ii.hdmac: bank%u source bus error "
                           "at 0x%08x; SS3\n", s->bank, c->source);
             z7ii_hdmac_finish(c, 3);
             return;
         }
-        if (dma_memory_write(&address_space_memory, c->destination, data, width,
-                             MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        result = dma_memory_write(&address_space_memory, c->destination,
+                                   data, width, MEMTXATTRS_UNSPECIFIED);
+        if (!c->running || c->generation != generation) {
+            return;
+        }
+        if (result != MEMTX_OK) {
             qemu_log_mask(LOG_GUEST_ERROR, "z7ii.hdmac: bank%u destination bus "
                           "error at 0x%08x; SS4\n", s->bank, c->destination);
             z7ii_hdmac_finish(c, 4);
@@ -138,18 +152,19 @@ static void z7ii_hdmac_transfer(void *opaque)
     z7ii_hdmac_finish(c, 5);
 }
 
-static bool z7ii_hdmac_start_supported(Z7IIHDMACChannel *c)
+static bool z7ii_hdmac_start_supported(uint32_t ca, uint32_t cb,
+                                       uint32_t source, uint32_t destination)
 {
-    unsigned beat = (c->ca >> 20) & 15;
-    unsigned width = (c->cb >> 26) & 3;
+    unsigned beat = (ca >> 20) & 15;
+    unsigned width = (cb >> 26) & 3;
 
     /* No wrap/reload, transfer transforms, address pitch or pause emulation. */
-    return width < 3 && !(c->ca & (1U << 30)) &&
+    return width < 3 && !(ca & (1U << 30)) &&
            (beat == 0 || beat == 8 || beat == 9 || beat == 11 ||
             beat == 13 || beat == 15) &&
-           !(c->cb & 0xc0e0ff00U) && ((c->cb >> 28) & 3) < 3 &&
-           !(c->source & ((1U << width) - 1)) &&
-           !(c->destination & ((1U << width) - 1));
+           !(cb & 0xc0e0ff00U) && ((cb >> 28) & 3) < 3 &&
+           !(source & ((1U << width) - 1)) &&
+           !(destination & ((1U << width) - 1));
 }
 
 static void z7ii_hdmac_schedule(Z7IIHDMACChannel *c)
@@ -163,6 +178,7 @@ static void z7ii_hdmac_schedule(Z7IIHDMACChannel *c)
         return;
     }
     c->running = true;
+    c->generation++;
     c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                   MAX(1, clock_ticks_to_ns(s->clock, beats));
     timer_mod(c->timer, c->ready_at);
@@ -227,6 +243,17 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
         if (value & ~0x90000000U) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
+        /* Preflight every armed request before changing DE or any timer. */
+        if (value & HDMAC_DE) {
+            for (i = 0; i < 8; i++) {
+                c = &s->channel[i];
+                if ((c->ca & HDMAC_EB) &&
+                    !z7ii_hdmac_start_supported(c->ca, c->cb,
+                                                c->source, c->destination)) {
+                    return z7ii_hdmac_error(s, offset, size, true, value);
+                }
+            }
+        }
         s->control = value;
         for (i = 0; i < 8; i++) {
             c = &s->channel[i];
@@ -245,11 +272,12 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
         if (c->running && ((value ^ old) & ~HDMAC_EB)) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
-        c->ca = value;
-        if ((value & HDMAC_EB) && !z7ii_hdmac_start_supported(c)) {
-            c->ca = old;
+        if ((value & HDMAC_EB) &&
+            !z7ii_hdmac_start_supported(value, c->cb,
+                                        c->source, c->destination)) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
+        c->ca = value;
         if (!(value & HDMAC_EB) && (old & HDMAC_EB)) {
             z7ii_hdmac_finish(c, 2);
         } else {
@@ -264,6 +292,11 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
              ((value ^ c->cb) & ~(HDMAC_SS | HDMAC_CI | HDMAC_EI)))) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
+        if ((c->ca & HDMAC_EB) &&
+            !z7ii_hdmac_start_supported(c->ca, value,
+                                        c->source, c->destination)) {
+            return z7ii_hdmac_error(s, offset, size, true, value);
+        }
         c->cb = value;
         z7ii_hdmac_irq(c);
         break;
@@ -272,7 +305,11 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
         if (c->running) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
-        if ((c->ca & HDMAC_EB) && (value & ((1U << ((c->cb >> 26) & 3)) - 1))) {
+        if ((c->ca & HDMAC_EB) &&
+            !z7ii_hdmac_start_supported(c->ca, c->cb,
+                                        (offset & 15) == 8 ? value : c->source,
+                                        (offset & 15) == 12 ? value :
+                                                            c->destination)) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
         if ((offset & 15) == 8) {
@@ -306,6 +343,7 @@ static void z7ii_hdmac_reset(DeviceState *dev)
         Z7IIHDMACChannel *c = &s->channel[i];
 
         timer_del(c->timer);
+        c->generation++;
         c->ca = c->cb = c->source = c->destination = 0;
         c->running = false;
         z7ii_hdmac_irq(c);
