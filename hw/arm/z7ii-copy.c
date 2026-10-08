@@ -146,9 +146,9 @@ static MemTxResult z7ii_copy_write(void *opaque, hwaddr offset,
     }
     if (!offset) {
         /*
-         * Bit20/24 are original RMW selectors with unknown physical roles.
-         * The virtual profile retains them as configuration inputs; they
-         * neither submit a copy nor manufacture status or IRQ.
+         * The physical roles/effects of all three global bits are unknown.
+         * This virtual profile uses bit28 as enable/cancel and retains20/24
+         * as configuration inputs, without submitting work or inventing IRQ.
          */
         if (value & ~0x11100000U) {
             goto error;
