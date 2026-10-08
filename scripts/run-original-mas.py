@@ -66,7 +66,8 @@ def main():
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
             "four finite I2C instances at2c018000..2c01b000/GIC214..217; idle zero control, empty16-byte FIFOs, mask2ff, disconnected official I2CBus, nominal independent48MHz; monitor/bit7/10-bit operations unsupported",
-            "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, software-triggered non-reload real bus copies; no external DREQ, unsupported transforms/pause/halt",
+            "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, real non-reload bus copies; external requests rechecked per beat, Audio bank1 selectors3/7/5; unsupported transforms/pause/halt",
+            "two Audio channels at2c080100/200, GIC167/168; virtual zero reset, opaque32-bit FIFO words, disconnected input, independent48MHz divided output sink; original AUCR enable-command variant and unknown AUMD23/26 retained; no physical PCM packing/codec inference",
             "16 EXIU inputs from original GPIO5[7:15]/GPIO6[0:6], GIC65..80; virtual masked/rising-edge reset, pending mask-filter convention; no software source or physical key provider",
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",

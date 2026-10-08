@@ -1131,7 +1131,27 @@ def audio_fixtures():
     rx_wait = seed + write(audio + 0x108, 0x5000)
     rx_wait += request(selector=5, destination=audio + 0x13c) + delay()
     rx_wait += read(dma + 0x14, 4) + read(dma + 0x18, 5)
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c218a7]
+    irq += write(0xf8101114, 0x80) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + write(audio + 0x108, 0x2800)
+    irq += read(0xf810200c, 4) + write(audio + 0x108, 0x2000)
+    irq += write(0xf8102010, 167) + read(0xf810200c, 5)
+    capacity = write(audio + 0x10c, 0x02000000)
+    for word in range(16):
+        capacity += write(audio + 0x104, word)
+    separate = write(audio + 0x108, 0x2002)
+    separate += write(audio + 0x130, 0x12345678) + read(audio + 0x120, 4)
+    separate += write(audio + 0x134, 0x87654321) + read(audio + 0x120, 5)
+    separate += write(audio + 0x114, 0x40000000) + delay()
+    separate += read(audio + 0x120, 6)
     return [
+        ("audio-real-gic-irq167", irq, {4: 167, 5: 1023}, None),
+        ("audio-sixteen-stage-capacity", capacity + read(audio + 0x120, 4),
+         {4: 0xffffffff}, None),
+        ("audio-sixteen-stage-full-rejects-write", capacity +
+         write(audio + 0x104, 17), {}, "audio-access-or-profile-not-supported"),
+        ("audio-separate-opaque-pair-drain", separate, {4: 1, 5: 3, 6: 0}, None),
         ("audio-fifo-pressure-pauses-demand", pressure,
          {4: 0x29180000, 5: source + 4, 6: 3}, None),
         ("audio-real-clock-resumes-demand", resumed,
