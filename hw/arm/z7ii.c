@@ -8,6 +8,7 @@
 #include "qemu/log.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
+#include "hw/arm/machines-qom.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/runstate.h"
@@ -173,6 +174,7 @@ static const TypeInfo z7ii_machine_type = {
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(Z7IIMachineState),
     .class_init = z7ii_class_init,
+    .interfaces = arm_machine_interfaces,
 };
 
 static void z7ii_register_types(void)

@@ -29,3 +29,5 @@ cp "$repo/hw/arm/z7ii.c" "$src/hw/arm/z7ii.c"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm
+# Compiling a board is insufficient: target interfaces must expose it too.
+"$build/qemu-system-arm" -M help | grep '^z7ii-mas-diagnostic[[:space:]]'

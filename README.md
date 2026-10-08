@@ -22,7 +22,7 @@ With a clean checkout of the pinned upstream revision and an empty build directo
 scripts/build-qemu.sh /absolute/path/to/qemu-11.1.2 /absolute/path/to/work/build/mas-diagnostic
 ```
 
-The script modifies only upstream `hw/arm/Kconfig`, `hw/arm/meson.build` and the new `hw/arm/z7ii.c`. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
+The script modifies only upstream `hw/arm/Kconfig`, `hw/arm/meson.build` and the new `hw/arm/z7ii.c`, then verifies that `-M help` exposes the machine. The QOM type uses the upstream `arm_machine_interfaces` target registration, as existing ARM machines do. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
 
 Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
 
