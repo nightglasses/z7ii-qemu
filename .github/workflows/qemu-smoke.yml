@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   arm-smoke:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, nightglass-qemu]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -42,13 +42,12 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/work/upstream/qemu/python
         run: work/build/mas-diagnostic/pyvenv/bin/python scripts/smp-smoke-test.py work/build/mas-diagnostic/qemu-system-arm work/smp-smoke
-      - name: Preserve synthetic test logs
+      - name: Preserve complete local arm-smoke evidence
         if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: synthetic-arm-smoke
-          path: |
-            work/smoke/
-            work/device-smoke/
-            work/smp-smoke/
-          if-no-files-found: ignore
+        run: |
+          target="/local/evidence/$GITHUB_REPOSITORY/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT/arm-smoke"
+          mkdir -p "$(dirname "$target")"
+          mkdir "$target"
+          printf 'repository=%s\nsha=%s\nrun=%s\nattempt=%s\njob=%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" > "$target/run.txt"
+          if test -e work; then mv work "$target/"; fi
+
