@@ -834,7 +834,26 @@ def exiu_fixtures():
     irq80 += write(GPIO + 0x118, 0x40) + write(GPIO + 0x18, 0x00400040)
     irq80 += read(0xf810200c, 4) + write(exiu + 0x10, 0x8000)
     irq80 += write(0xf8102010, 80) + read(0xf810200c, 5)
+    clear_rmw = write(GPIO + 0x114, 0x180)
+    clear_rmw += write(GPIO + 0x14, 0x01800180)
+    clear_rmw += read(exiu + 0x10, 2) + read(exiu + 0xc, 4)
+    clear_rmw += constant(0, exiu + 0x10)
+    clear_rmw += [0xe3823001, 0xe5803000]
+    clear_rmw += read(exiu + 0x10, 5) + read(exiu + 0xc, 6)
+    clear_rmw += write(exiu + 0x10, 0) + read(exiu + 0xc, 8)
+    clear_rmw += write(exiu + 0x10, 2) + read(exiu + 0xc, 9)
+    clear_level_rmw = write(exiu + 0x18, 0xfffe) + high
+    clear_level_rmw += read(exiu + 0x10, 2)
+    clear_level_rmw += [0xe3823001, 0xe5803000]
+    clear_level_rmw += read(exiu + 0x10, 5) + read(exiu + 0xc, 6)
+    clear_level_rmw += low + write(exiu + 0x10, 1) + read(exiu + 0xc, 7)
     return [
+        ("exiu-clear-command-rmw-selective", clear_rmw,
+         {2: 0, 4: 3, 5: 0, 6: 2, 8: 2, 9: 0}, None),
+        ("exiu-clear-command-rmw-active-level", clear_level_rmw,
+         {2: 0, 5: 0, 6: 1, 7: 0}, None),
+        ("exiu-clear-command-read-width", constant(0, exiu + 0x10) +
+         [0xe5d01000], {}, "exiu-access-not-supported"),
         ("exiu-board-reset", read(exiu + 0xc, 2) + high, {2: 0}, None),
         ("exiu-falling-transition", falling, {4: 1}, None),
         ("exiu-real-gic-route80", irq80, {4: 80, 5: 1023}, None),

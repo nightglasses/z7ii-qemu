@@ -81,6 +81,11 @@ static MemTxResult z7ii_exiu_read(void *opaque, hwaddr offset, uint64_t *value,
     case 0xc:
         *value = s->pending;
         break;
+    case 0x10:
+        /* Virtual self-clearing command port: no retained clear strobes.
+         * Original guest and vendor driver both use read/OR/write here.
+         * Physical command readback is not established. */
+        break;
     case 0x14:
         *value = s->polarity;
         break;
