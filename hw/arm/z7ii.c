@@ -888,6 +888,21 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
     sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
+    for (i = 0; i < 11; i++) {
+        DeviceState *spi = qdev_new(TYPE_Z7II_SPI);
+
+        qdev_prop_set_uint32(spi, "channel", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
+        /*
+         * Both original wrappers enter one ISR; common-pending routing is
+         * a virtual-board assumption, not a measured TX/RX IRQ identity.
+         */
+        sysbus_connect_irq(SYS_BUS_DEVICE(spi), 0,
+                           qdev_get_gpio_in(gic, 193 + i * 2 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
+                           qdev_get_gpio_in(gic, 192 + i * 2 - 32));
+    }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
     sysbus_realize(SYS_BUS_DEVICE(&s->completion), &error_fatal);

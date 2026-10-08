@@ -27,3 +27,4 @@
 | [docs/mxic-config-functional.md](docs/mxic-config-functional.md) | active快照、draft槽表事务和独立live参数、原版下一控制组 |
 | [docs/kernel-copy-and-percore-stacks.md](docs/kernel-copy-and-percore-stacks.md) | 原内核精确复制、每核虚拟模式栈和真实SGI/IRQ后继 |
 | [docs/runtime-bit-control.md](docs/runtime-bit-control.md) | 两bank运行时位请求、原RMW合同和下一真实外设 |
+| [docs/spi-functional.md](docs/spi-functional.md) | 十一通道SSI/FIFO/时钟/IRQ功能合同与PKGB构造真实轨迹 |

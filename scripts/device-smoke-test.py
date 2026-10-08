@@ -24,6 +24,7 @@ FILL = 0x20070000
 USIO = 0x2c090000
 SYSCONFIG = 0x04280000
 GPIO = 0x04282000
+SPI = 0x2c0a0000
 
 
 def constant(reg, value):
@@ -683,6 +684,81 @@ def fixtures():
     ]
 
 
+def spi_fixtures():
+    def write(offset, value):
+        return constant(0, SPI + offset) + constant(1, value) + [0xe5801000]
+
+    setup = write(0x60, 0) + write(0xc, 0x22) + write(0x10, 0xf00)
+    transfer = setup + write(0x4c, 1) + write(0x28, 0x1ff)
+    transfer += write(0, 0xa55a) + write(0x3c, 1)
+    transfer += constant(0, SPI + 0x14)
+    transfer += [0xe5901000, 0xe3110020, 0x1afffffc]
+    transfer += constant(0, SPI) + [0xe5904024, 0xe5905004,
+                                   0xe5906014, 0xe5907048]
+    transfer += write(0x28, 0x1ff) + constant(0, SPI) + [0xe5908024]
+
+    # A slave has no external clock: queued TX remains, with no RX/done.
+    slave = write(0x60, 0) + write(0x10, 0xf00) + write(0, 0x1234)
+    slave += write(0x3c, 1) + write(0x64, 1)
+    slave += constant(1, 48000) + [0xee0e1f12]
+    slave += constant(1, 1) + [0xee0e1f32]
+    slave += [0xee1e1f32, 0xe3110004, 0x0afffffc]
+    slave += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe590603c]
+
+    # Pending master frame is cancelled by reset; configuration survives reopen.
+    cancel = setup + write(8, 255) + write(0, 0x1234) + write(0x3c, 1)
+    cancel += write(0x60, 1) + write(0x60, 0)
+    cancel += constant(1, 48000) + [0xee0e1f12]
+    cancel += constant(1, 1) + [0xee0e1f32]
+    cancel += [0xee1e1f32, 0xe3110004, 0x0afffffc]
+    cancel += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe5906024,
+                                 0xe590700c, 0xe590803c]
+
+    irq = constant(2, 0xf8101000) + constant(1, 1) + [0xe5821000]
+    irq += [0xe5c218c1]  # IRQ193 target CPU0, not an invented ISR call.
+    irq += constant(1, 2) + [0xe5821118]
+    irq += constant(3, 0xf8102000) + constant(1, 0xff) + [0xe5831004]
+    irq += constant(1, 1) + [0xe5831000]
+    irq += setup + write(0x28, 0x1ff) + write(0x20, 0x10)
+    irq += write(0, 0x1234) + write(0x3c, 1) + constant(0, SPI)
+    irq += [0xe5906024, 0xe3160010, 0x0afffffc, 0xe593400c]
+    irq += write(0x28, 0x1ff) + [0xe5834010, 0xe593500c]
+
+    overflow = setup + write(0x3c, 1)
+    for index in range(33):
+        overflow += write(0, index) + constant(0, SPI + 0x14)
+        overflow += [0xe5901000, 0xe3110004, 0x0afffffc]
+    overflow += constant(0, SPI) + [0xe5904030, 0xe5905014, 0xe5906024]
+    overflow += write(0x28, 0x80) + constant(0, SPI) + [0xe5907014]
+
+    channels = []
+    for channel in range(11):
+        channels += constant(0, SPI + channel * 0x100)
+        channels += constant(1, 1) + [0xe5801060, 0xe5900000 | (channel + 2) << 12 | 0x48]
+    return [
+        ("spi-board-reset", constant(0, SPI) + [0xe5902008] +
+         write(8, 7), {2: 0}, None),
+        ("spi-all-eleven-channel-depths", channels,
+         {reg: 32 for reg in range(2, 13)}, None),
+        ("spi-common-irq-through-gic", irq, {4: 193, 5: 1023}, None),
+        ("spi-real-fifo-overflow-and-ack", overflow,
+         {4: 32, 5: 0x1cc, 6: 0x9f, 7: 0xcc}, None),
+        ("spi-master-disconnected-transfer", transfer,
+         {4: 0x17, 5: 0, 6: 0x2c, 7: 32, 8: 0}, None),
+        ("spi-slave-no-external-clock", slave, {4: 1, 5: 0, 6: 1}, None),
+        ("spi-reset-cancels-retains-config", cancel,
+         {4: 0, 5: 0, 6: 0, 7: 0x22, 8: 0}, None),
+        ("spi-unknown-width", constant(0, SPI + 0x60) + [0xe5c01000], {},
+         "spi-access-or-phase-not-supported"),
+        ("spi-hole", constant(0, SPI + 0x50) + [0xe5901000], {},
+         "spi-access-or-phase-not-supported"),
+        ("spi-dma-unsupported", write(0xc, 0x420), {},
+         "spi-access-or-phase-not-supported"),
+        ("spi-reset-command", write(0x60, 2), {},
+         "spi-access-or-phase-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -699,7 +775,7 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
@@ -744,7 +820,7 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[2] >= 4800, actual
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
-                            "clock-bitcontrol-reset"):
+                            "clock-bitcontrol-reset", "spi-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -795,7 +871,8 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
-                   expected, reason) for name, words, expected, reason in fixtures()]
+                   expected, reason) for name, words, expected, reason in
+               fixtures() + spi_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
