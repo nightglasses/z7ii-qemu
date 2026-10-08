@@ -60,6 +60,8 @@ The [USIO run](docs/usio-functional.md) passes original UART initialization; the
 
 The [dual Audio profile](docs/audio-functional.md) subsequently passes original initialization. Its output FIFOs drive real per-beat HDMAC requests; disconnected input remains pending. The original180d7e4 run now first stops CPU0 reading the alternate record bank at `131e0004`; CPU1 independently reaches the next DMA-family block at `2c010000`. This does not prove Audio sample transfer, phase completion, valid NV data or a displayed menu. Record traces preserve the original blank-header/error branches.
 
+The subsequent [twelve-channel timing profile](docs/timing-functional.md) passes original initialization with13 focused Clock/IRQ/lifecycle checks. Its originala435cda run first stops CPU1 at `PC10294c34 /READ32 PA04251000`. These counters are a declared functional protocol model, with no DMA copying or inferred physical frequency; the next four-channel family remains uncovered.
+
 | Initial condition | Evidence or explicit diagnostic assumption |
 |---|---|
 | Two Cortex-A7 cores by default; CBAR `0xf8100000`, CNTFRQ 48 MHz | Original configuration producers set `TSysPrNum=2/TKerPrNum=2`; this supports the diagnostic software model, not a physical CPU identification. CPU type and CBAR remain hypotheses. The selected whole upstream GICv1/TZ and generic timer supply genuine per-core IRQ state, including secure PPI29. CPU EL2 remains unchanged; the [original active/EOI protocol and two actual timer services](docs/gic-original-init.md) explain this version assumption. Small synthetic tests explicitly select `-smp 1`. |
