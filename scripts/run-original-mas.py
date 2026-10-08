@@ -97,7 +97,7 @@ def main():
             "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",
             "completion request/done/enable/domain state reset zero; causal deferred transactions, GIC SPI250",
             "original lowmem allocator arena [b2c00000,b5f00000), 51MiB virtual RAM, no host metadata",
-            "original kernel copy destination [bab00000,bab21538), finite virtual RAM; guest performs copy and MMU changes",
+            "original software address-class code destination [baa00000,bb300000), finite9MiB cold-zero virtual RAM preserving BABkernel positions; guest copies kernel21538 and observed selector0 [10200000,10500000) toBAC before own section remap; selector1/2 destinations are staticdeclared only, source10000000..10020000 remains unknown; no host code/alias/PTE injection or physical DDR inference",
             "first four observed original bump allocations form finite virtual RAM [b7d00000,b80dc3c0), with original identity-section hypothesis and 64-byte guest alignment; no later heap capacity or host allocation metadata",
             "original shared sending ring [b7cf0000,b7cfc618): header18 + 192 slots*108, maximum body100; virtual cold-zero RAM, guest header/magic/producer/consumer, no host peer consumption or reply",
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",

@@ -118,7 +118,7 @@ struct Z7IIMachineState {
     MemoryRegion bss_ram;
     MemoryRegion bss_storage;
     MemoryRegion kernel_arena;
-    MemoryRegion kernel_copy;
+    MemoryRegion relocated_code;
     MemoryRegion module_buffer;
     MemoryRegion message_ring;
     MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
@@ -876,9 +876,12 @@ static void z7ii_init(MachineState *machine)
     memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
     /* Original descriptor lowmem bounds, not a physical DDR capacity. */
     z7ii_ram(&s->kernel_arena, "z7ii.kernel-lowmem", 0xb2c00000, 0x3300000);
-    /* Original usermain -> O348290 copies 0x21538 kernel bytes here.
-     * Finite backing only: guest performs the copy and any later MMU change. */
-    z7ii_ram(&s->kernel_copy, "z7ii.kernel-copy", 0xbab00000, 0x21538);
+    /*
+     * Original address-class initializer declares [baa00000,bb300000).
+     * This finite virtual capacity includes the earlier kernel destination.
+     * The guest owns code copies, aliases and PTE updates; no source is seeded.
+     */
+    z7ii_ram(&s->relocated_code, "z7ii.relocated-code", 0xbaa00000, 0x900000);
     /*
      * Four original bump requests observed from reset: 0x3a0000, 0x31f28,
      * 6 and 0xa410 bytes, each aligned to 64 bytes by the guest allocator.
@@ -916,7 +919,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
     z7ii_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
     z7ii_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
-    z7ii_mxic_attach_ram(mxic, &s->kernel_copy, 0xbab00000);
+    z7ii_mxic_attach_ram(mxic, &s->relocated_code, 0xbaa00000);
     z7ii_mxic_attach_ram(mxic, &s->module_buffer, 0xb7d00000);
     z7ii_mxic_attach_ram(mxic, &s->message_ring, 0xb7cf0000);
     z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);

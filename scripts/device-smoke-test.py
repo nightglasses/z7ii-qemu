@@ -463,15 +463,21 @@ def fixtures():
          "uncovered-address"),
         ("percore-stack-single-gap", constant(0, 0xb2b80000) + [0xe5801000], {},
          "uncovered-address"),
-        ("kernel-copy-bounds", constant(0, 0xbab00000) + constant(1, 0x1234) +
+        ("relocated-code-original-kernel-bytes", constant(0, 0xbab00000) + constant(1, 0x1234) +
          [0xe5801000, 0xe5904000] + constant(0, 0xbab21534) +
          [0xe5801000, 0xe5905000], {4: 0x1234, 5: 0x1234}, None),
-        ("kernel-copy-below", constant(0, 0xbaaffffc) + [0xe5801000], {},
+        ("relocated-code-below", constant(0, 0xba9ffffc) + [0xe5801000], {},
          "uncovered-address"),
-        ("kernel-copy-above", constant(0, 0xbab21538) + [0xe5801000], {},
+        ("relocated-code-above", constant(0, 0xbb300000) + [0xe5801000], {},
          "uncovered-address"),
-        ("kernel-copy-region-withdrawn", mxic_contract(disable=True) +
+        ("relocated-code-region-withdrawn", mxic_contract(disable=True) +
          constant(0, 0xbab00000) + [0xe5801000], {}, "uncovered-address"),
+        ("relocated-code-all-selector-extents", constant(1, 0x1234) +
+         sum([constant(0, address) + [0xe5801000, 0xe5900000 | reg << 12]
+              for reg, address in enumerate((0xbaa00000, 0xbaaffffc,
+                                             0xbac00000, 0xbaeffffc,
+                                             0xbaf00000, 0xbb2ffffc), 4)], []),
+         {reg: 0x1234 for reg in range(4, 10)}, None),
         ("sysconfig-whole-bootstrap-preserve", sys_boot,
          {4: boot_values[0], 5: boot_values[1], 6: boot_values[2],
           7: boot_values[3], 8: boot_values[4], 9: 0xfffffffe}, None),
@@ -1499,7 +1505,26 @@ def copy_fixtures():
     repeat += start() + wait() + read(0xf810200c, 5)
     repeat += read(destination + 16, 9) + write(base + 0x30, 0)
     repeat += write(0xf8102010, 45) + read(0xf810200c, 6)
+    relocation_irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    relocation_irq += constant(1, 1) + [0xe5c2182d]
+    relocation_irq += write(0xf8101104, 0x2000) + write(0xf8102004, 0xff)
+    relocation_irq += write(0xf8102000, 1)
+    relocated = relocation_irq + write(source, 0xe3a0405a)
+    relocated += write(source + 4, 0xe12fff1e)
+    relocated += setup(length=8, da=0xbac00000) + start() + wait()
+    relocated += read(base + 0x30, 6) + read(0xf810200c, 5)
+    relocated += write(base + 0x30, 0) + write(0xf8102010, 45)
+    relocated += constant(3, 0xbac00000) + [0xe12fff33]
+    missing_loader = relocation_irq + setup(length=8, sa=0x10000000,
+                                            da=0xbaa00000) + start() + wait()
+    missing_loader += read(base + 0x30, 4) + read(0xf810200c, 5)
+    missing_loader += write(base + 0x30, 0) + write(0xf8102010, 45)
+    missing_loader += read(base + 0x30, 6) + read(0xbaa00000, 7)
     cases = [
+        ("copy-relocation-dma-and-execution", relocated,
+         {4: 0x5a, 5: 45, 6: 8}, None),
+        ("copy-relocation-unknown-loader-source", missing_loader,
+         {4: 1, 5: 45, 6: 0, 7: 0}, None),
         ("copy-repeat-reconfigure-preserves-command-bits", repeat,
          {4: 45, 5: 45, 6: 1023, 7: 0x11009000, 8: 0,
           9: 0x55667788}, None),
