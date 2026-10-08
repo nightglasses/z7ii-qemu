@@ -24,6 +24,8 @@ def main():
                         help="upstream CPU/instruction trace for MAS kernel prefix only")
     parser.add_argument("--trace-irqs", action="store_true",
                         help="upstream GIC enable, input, acknowledge and control trace")
+    parser.add_argument("--trace-pkgb", action="store_true",
+                        help="upstream trace of PKGB constructor and SPI init candidates")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -37,9 +39,13 @@ def main():
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
-    if args.trace_kernel:
+    if args.trace_kernel or args.trace_pkgb:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
-        vm_args += ["-dfilter", "0x10100000+0x20000"]
+        filters = ["0x10100000+0x20000"] if args.trace_kernel else []
+        if args.trace_pkgb:
+            filters += ["0x10200c8c+0x94", "0x10200684+0x2e",
+                        "0x10201010+0x40", "0x10242fda+0x68"]
+        vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
                       "gic_cpu_write", "gic_dist_write"):
@@ -75,6 +81,7 @@ def main():
         "finite second system configuration; virtual strap/control reset zero, guest five-bank bootstrap and bounded four-bank field RMW",
         "twelve GPIO ports with masked latch/direction/function/pull; unconnected pads follow pulls or virtual low, no key matrix",
         "MXIC active/draft config and 512 slots reset zero; idle available, TAEN-gated complete transaction, 10us virtual apply; independent live parameters",
+        "eleven SPI channels: virtual 32-word FIFOs, asserted reset preserving config on channel reset, independent 48MHz input; master SSI disconnected MISO-low, no external slave clock; common pending IRQ routes first original ISR line only",
         ],
         "whole_boot_verified": False,
     }
