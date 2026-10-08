@@ -82,8 +82,9 @@ def sdi_contract(arb_reset=None):
                 words += constant(0, base + 0x8030)
                 words += [0xe5902000, 0xe3120001, 0x0afffffc]
             words += write(0x4000, 1)
-            # Deterministic icount fixture: let any stale callback expire.
-            words += constant(1, 48000) + [0xee0e1f12]
+            # SDI completion is10us: settle for20us, not1ms of icount polls.
+            # This still detects a stale callback surviving the reset.
+            words += constant(1, 960) + [0xee0e1f12]
             words += constant(1, 1) + [0xee0e1f32]
             words += [0xee1e1f32, 0xe3110004, 0x0afffffc]
             words += constant(0, base + 0x8030) + [0xe5904000]
@@ -1097,6 +1098,71 @@ def i2c_fixtures():
     ]
 
 
+def timing_fixtures():
+    a, b = 0x2c010000, 0x2c011000
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    def delay(ticks=48000):
+        return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    def setup(channel=0, opcode=0x31, period=299999):
+        offset = 0x100 + channel * 0x100
+        return (write(a + 4, 1) + write(b + offset, 1) +
+                write(b + offset, 0) + write(b + offset + 4, opcode) +
+                write(b + offset + 8, period) + write(a + offset, 1) +
+                write(b, 1 << channel))
+
+    def wait(channel=0):
+        return (constant(0, a + 0x110 + channel * 0x100) +
+                [0xe5902000, 0xe3120001, 0x0afffffc])
+
+    once = setup() + wait() + read(b + 0x10c, 4)
+    once += write(a + 0x110, 1) + delay() + read(a + 0x110, 5)
+    periodic = setup(opcode=0) + wait() + write(a + 0x110, 1)
+    periodic += wait() + read(a + 0x110, 4)
+    paused = setup(period=29999999) + write(b, 0) + read(b + 0x10c, 4)
+    paused += delay() + read(b + 0x10c, 5)
+    paused += [0xe1540005, 0x03a06001, 0x13a06000] + read(a + 0x110, 7)
+    reset = setup(period=2999999) + write(a, 1) + write(a, 0)
+    reset += write(a + 4, 1) + write(b, 1) + delay(96000)
+    reset += read(a + 0x110, 4) + read(b + 0x108, 5)
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c218b7]
+    irq += write(0xf8101114, 0x800000) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + setup(11) + wait(11)
+    irq += read(0xf810200c, 4) + write(a + 0xc10, 1)
+    irq += write(0xf8102010, 183) + read(0xf810200c, 5)
+    disabled = setup() + write(a + 0x100, 0) + delay()
+    disabled += read(a + 0x110, 4)
+    return [
+        ("timing-one-shot-expiry-ack", once, {4: 300000, 5: 0}, None),
+        ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
+        ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
+        ("timing-reset-cancels-pending", reset, {4: 0, 5: 0}, None),
+        ("timing-last-channel-real-irq183", irq, {4: 183, 5: 1023}, None),
+        ("timing-local-control-stops", disabled, {4: 0}, None),
+        ("timing-board-reset", read(a + 4, 2) + write(a + 4, 1), {2: 0}, None),
+        ("timing-unbound-opcode", write(b + 0x104, 2), {},
+         "timing-access-or-feature-not-supported"),
+        ("timing-optional-feature-enable", write(b + 0x124, 1), {},
+         "timing-access-or-feature-not-supported"),
+        ("timing-feature-hole", write(b + 0xc24, 0), {},
+         "timing-access-or-feature-not-supported"),
+        ("timing-shared-submit-unknown", write(b + 8, 1), {},
+         "timing-access-or-feature-not-supported"),
+        ("timing-counter-readonly", write(b + 0x10c, 0), {},
+         "timing-access-or-feature-not-supported"),
+        ("timing-unknown-width", constant(0, a) + [0xe5d01000], {},
+         "timing-access-or-feature-not-supported"),
+    ]
+
+
 def audio_fixtures():
     audio, dma, source = 0x2c080000, 0x2c030000, 0xb1800100
 
@@ -1212,7 +1278,7 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-", "audio-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-", "audio-", "timing-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -1281,7 +1347,7 @@ def run(binary, output, name, words, expected, reason):
                             "clock-bitcontrol-reset", "spi-board-reset",
                             "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
                             "record-slot-board-reset", "audio-board-reset",
-                            "record-slot-alternate-board-reset"):
+                            "record-slot-alternate-board-reset", "timing-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1335,7 +1401,8 @@ def main():
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
                fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
-               i2c_fixtures() + record_slot_fixtures() + audio_fixtures()]
+               i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
+               timing_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
