@@ -41,6 +41,17 @@ mkdir work/r1
 
 Use an ARM-capable GDB to connect to the socket, inspect reset registers and use `hbreak *0x10020178` before continuing. A hardware breakpoint observes the original self-loop without changing its bytes. The original C1.70 entry word is `20 2f 00 ea`; `O0x178` remains `fe ff ff ea`. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish a stopped access, an architectural exception, a wait and a running loop. `-d in_asm,cpu` may be added for a short controlled trace; it produces substantially more output.
 
+For a bounded original run with preserved receipts, use the existing upstream Python library through the thin entry below. It uses a short temporary QMP socket, records the upstream launch command, reset/final registers and first-stop log, and directly compares payload bytes before and after. Choose a new output directory each time. `--seconds` bounds host observation, not modeled boot time; a timeout or process exit is not boot completion.
+
+```sh
+PYTHONPATH=/absolute/path/to/qemu-11.1.2/python \
+  /absolute/path/to/work/build/mas-diagnostic/pyvenv/bin/python \
+  scripts/run-original-mas.py \
+  /absolute/path/to/work/build/mas-diagnostic/qemu-system-arm \
+  /absolute/path/to/02_eg1840_mas_01700.payload.bin \
+  work/original-r6 --machine-revision <actual-machine-Git-ref>
+```
+
 Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/un.h#L74-L78), so absolute worktree paths containing full Git revisions can exceed it. The relative socket paths above avoid that problem. [The first original MAS run](docs/original-mas-first-run.md) stopped at the uncovered write to `0x04264000`. [The MEMC-layer run](docs/original-mas-memc-run.md) now accepts both initialization stores, passes the early stack PUSH, and stops on a 32-bit read from clock block `0x0428102c` at guest PC `0x1002d70c`. Native build and all 13 device fixtures passed; whole-camera boot, original RTOS/timer service and `O0x178` remain unverified.
 
 | Initial condition | Evidence or explicit diagnostic assumption |
