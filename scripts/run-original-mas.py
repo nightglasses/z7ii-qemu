@@ -60,6 +60,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
+            "four finite I2C instances at2c018000..2c01b000/GIC214..217; idle zero control, empty16-byte FIFOs, mask2ff, disconnected official I2CBus, nominal independent48MHz; monitor/bit7/10-bit operations unsupported",
             "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, software-triggered non-reload real bus copies; no external DREQ, unsupported transforms/pause/halt",
             "16 EXIU inputs from original GPIO5[7:15]/GPIO6[0:6], GIC65..80; virtual masked/rising-edge reset, pending mask-filter convention; no software source or physical key provider",
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",

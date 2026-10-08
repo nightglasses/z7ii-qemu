@@ -958,6 +958,15 @@ static void z7ii_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
                            qdev_get_gpio_in(gic, 192 + i * 2 - 32));
     }
+    for (i = 0; i < 4; i++) {
+        DeviceState *i2c = qdev_new(TYPE_Z7II_I2C);
+
+        qdev_prop_set_uint32(i2c, "instance", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(i2c), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(i2c), 0, 0x2c018000 + i * 0x1000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(i2c), 0,
+                           qdev_get_gpio_in(gic, 214 + i - 32));
+    }
     for (i = 0; i < 2; i++) {
         DeviceState *hdmac = qdev_new(TYPE_Z7II_HDMAC);
         unsigned channel;

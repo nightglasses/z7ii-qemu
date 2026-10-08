@@ -972,6 +972,72 @@ def hdmac_fixtures():
     ]
 
 
+def i2c_fixtures():
+    base = 0x2c018000
+
+    def write(offset, value, bank=0):
+        return constant(0, base + bank * 0x1000 + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg, bank=0):
+        return constant(0, base + bank * 0x1000 + offset) + [0xe5900000 | reg << 12]
+
+    def wait(mask, bank=0):
+        return constant(0, base + bank * 0x1000 + 0x10) + [0xe5902000, 0xe3120000 | mask, 0x0afffffc]
+
+    nack = write(0, 6) + write(0x24, 4) + write(8, 0x50) + wait(4)
+    nack += read(0x10, 4) + read(0x20, 5) + read(4, 6)
+    nack += write(0x10, 4) + read(0x10, 7)
+    geometry = []
+    for bank in range(4):
+        geometry += write(0x28, 0x2ff, bank) + write(0, 6, bank)
+        geometry += write(8, 0x50, bank) + wait(4, bank) + read(0x10, 4 + bank, bank)
+    endpoint = write(0, 6)
+    for byte in (0x10, 0x5a, 0xa5):
+        endpoint += write(0xc, byte)
+    endpoint += write(8, 0x50) + wait(1) + write(0x10, 3)
+    # Hold the real bus across pointer TX and repeated START RX.
+    endpoint += write(0, 0x16) + write(0xc, 0x10) + write(8, 0x50) + wait(2)
+    endpoint += read(4, 4) + write(0x10, 3) + write(0, 0x17)
+    endpoint += write(0x14, 2) + write(8, 0x50) + write(0, 7) + wait(1)
+    endpoint += read(0xc, 5) + read(0xc, 6) + read(4, 7)
+    fifo = write(0, 6)
+    for byte in range(17):
+        fifo += write(0xc, byte)
+    fifo += read(0x14, 4) + read(0x10, 5) + write(0, 0x46)
+    fifo += read(0x14, 6) + read(0xc, 7) + read(0x10, 8)
+    cancel = write(0, 6) + write(8, 0x50) + write(0, 0x46)
+    cancel += read(0x10, 4) + read(4, 5)
+    timeout = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(8)
+    timeout += read(0x10, 4) + read(4, 5)
+    irq = write(0, 6, 3) + write(0x24, 4, 3)
+    irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
+    irq += constant(2, 0xf8101000) + [0xe5c218d9]  # IRQ217 -> CPU0.
+    irq += constant(0, 0xf8101118) + constant(1, 1 << 25) + [0xe5801000]
+    irq += constant(0, 0xf8102004) + constant(1, 0xff) + [0xe5801000]
+    irq += constant(0, 0xf8102000) + constant(1, 1) + [0xe5801000]
+    irq += write(8, 0x50, 3) + wait(4, 3)
+    irq += constant(0, 0xf810200c) + [0xe5904000]
+    irq += write(0x10, 4, 3)
+    irq += constant(0, 0xf8102010) + constant(1, 217) + [0xe5801000]
+    irq += constant(0, 0xf810200c) + [0xe5905000]
+    return [
+        ("i2c-disconnected-nack-and-w1c", nack, {4: 4, 5: 0x2fb, 6: 0, 7: 0}, None),
+        ("i2c-four-instance-idr-and-nack", geometry, {4: 4, 5: 4, 6: 4, 7: 4}, None),
+        ("i2c-endpoint-tx-rx-repeated-start", endpoint, {4: 0x100, 5: 0x5a, 6: 0xa5, 7: 8}, None),
+        ("i2c-endpoint-starvation-timeout", timeout, {4: 10, 5: 0}, None),
+        ("i2c-fifo-overflow-underflow-clear", fifo, {4: 15, 5: 0x40, 6: 0, 7: 0, 8: 0xc0}, None),
+        ("i2c-cancel-before-address", cancel, {4: 0, 5: 0}, None),
+        ("i2c-real-gic-irq217", irq, {4: 217, 5: 1023}, None),
+        ("i2c-board-reset", read(0, 2) + write(0, 6), {2: 0}, None),
+        ("i2c-slave-no-external-master", write(0, 4) + write(8, 0x50) + read(4, 4) + read(0x10, 5), {4: 0, 5: 0}, None),
+        ("i2c-monitor-unsupported", write(0, 0x26) + write(8, 0x50), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-bit7-unsupported", write(0, 0x80, 3), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-extended-address-unsupported", write(0, 2) + write(8, 0x50), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-hole-unsupported", read(0x2c, 4), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-width-unsupported", constant(0, base) + [0xe5d01000], {}, "i2c-access-or-variant-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -988,8 +1054,10 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-")):
         vm_args += ["-icount", "shift=0"]
+    if name.startswith("i2c-endpoint-"):
+        vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
         vm_args[vm_args.index("-serial") + 1] = f"file:{serial}"
@@ -1048,7 +1116,7 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
-                            "exiu-board-reset", "hdmac-board-reset"):
+                            "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1100,7 +1168,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures()]
+               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() + i2c_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
