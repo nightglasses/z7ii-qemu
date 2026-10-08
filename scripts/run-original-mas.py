@@ -71,7 +71,7 @@ def main():
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
         "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
-        "finite second system configuration; virtual strap/control reset zero, guest-produced config and bounded four-bank RMW",
+        "finite second system configuration; virtual strap/control reset zero, guest five-bank bootstrap and bounded four-bank field RMW",
         "twelve GPIO ports with masked latch/direction/function/pull; unconnected pads follow pulls or virtual low, no key matrix",
         ],
         "whole_boot_verified": False,
