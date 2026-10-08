@@ -810,6 +810,13 @@ static void z7ii_init(MachineState *machine)
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->clock_gates), 0, CLOCK_BASE);
 
     sysbus_create_simple("z7ii-timestamp-functional", 0x04266000, NULL);
+    for (i = 0; i < 2; i++) {
+        DeviceState *sdi = qdev_new(TYPE_Z7II_SDI);
+
+        qdev_prop_set_uint32(sdi, "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(sdi), 0, 0x20020000 + i * 0x20000);
+    }
 
     /* Upstream VExpress pattern: CPUs exist before timer/GIC wiring. */
     gic = qdev_new(TYPE_A15MPCORE_PRIV);

@@ -54,6 +54,7 @@ def main():
             "virtual PLL reset words 0xffe/0x73/3; six gate banks start ungated",
             "PLL outputs nominal 48MHz after modeled 10us virtual lock; not physical rates",
             "independent virtual timestamp Clock 48MHz; reset count zero, enabled",
+            "SDI0/1 asserted resets; applied config profiles; 10us virtual completion and successful training backend",
         ],
         "whole_boot_verified": False,
     }

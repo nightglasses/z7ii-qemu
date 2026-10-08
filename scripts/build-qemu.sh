@@ -26,7 +26,7 @@ fi
 git -C "$src" apply --check "$repo/scripts/z7ii-registration.patch"
 git -C "$src" apply "$repo/scripts/z7ii-registration.patch"
 cp "$repo/hw/arm/z7ii.c" "$repo/hw/arm/z7ii.h" \
-   "$repo/hw/arm/z7ii-timestamp.c" "$src/hw/arm/"
+   "$repo/hw/arm/z7ii-timestamp.c" "$repo/hw/arm/z7ii-sdi.c" "$src/hw/arm/"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm
