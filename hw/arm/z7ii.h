@@ -12,6 +12,8 @@
 #define TYPE_Z7II_SYSCONFIG "z7ii-sysconfig-functional"
 #define TYPE_Z7II_GPIO "z7ii-gpio-functional"
 #define TYPE_Z7II_EXIU "z7ii-exiu-functional"
+#define TYPE_Z7II_HDMAC "z7ii-hdmac-functional"
+#define TYPE_Z7II_I2C "z7ii-i2c-functional"
 #define TYPE_Z7II_SDI "z7ii-sdi-functional"
 #define TYPE_Z7II_MXIC "z7ii-mxic-regions-functional"
 #define TYPE_Z7II_MXIC_CONFIG "z7ii-mxic-config-functional"

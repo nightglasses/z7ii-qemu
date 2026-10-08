@@ -848,6 +848,240 @@ def exiu_fixtures():
     ]
 
 
+def hdmac_fixtures():
+    dma = 0x2c020000
+    source, destination = 0xb1800100, 0xb1800200
+
+    def write(address, value):
+        return constant(0, address) + constant(1, value) + [0xe5801000]
+
+    def read(address, reg):
+        return constant(0, address) + [0xe5900000 | reg << 12]
+
+    def setup(cb=0x08180000, sa=source, da=destination, ca=0xa0000001):
+        return (write(dma, 0x90000000) + write(dma + 0x18, sa) +
+                write(dma + 0x1c, da) + write(dma + 0x14, cb) +
+                write(dma + 0x10, ca))
+
+    def wait_status():
+        return constant(0, dma + 0x14) + [0xe5902000, 0xe3120807, 0x0afffffc]
+
+    seed = write(source, 0x11223344) + write(source + 4, 0x55667788)
+    copy = seed + setup() + wait_status()
+    copy += read(destination, 4) + read(destination + 4, 5) + read(dma + 0x14, 6)
+    copy += write(dma + 0x14, 0x08000000) + read(dma + 0x14, 7)
+    fixed = seed + setup(cb=0x0a180000) + wait_status()
+    fixed += read(destination, 4) + read(destination + 4, 5)
+    fixed += read(dma + 0x18, 6) + read(dma + 0x1c, 7)
+    external = setup(cb=0x28180000, ca=0x81000001)
+    external += read(dma + 0x14, 4) + read(dma + 0x10, 5) + read(destination, 6)
+    cancel = seed + setup(ca=0xa000ffff) + write(dma + 0x10, 0x2000ffff)
+    cancel += read(dma + 0x14, 4) + read(destination, 5)
+    globals = write(dma, 0x10000000) + read(dma, 4)
+    globals += write(dma + 0x10000, 0x90000000) + read(dma + 0x10000, 5)
+    globals += write(dma + 0x80, 7) + read(dma + 0x80, 6)
+    globals += write(dma + 0x10080, 9) + read(dma + 0x10080, 7)
+
+    def arbitration(rotating):
+        code = seed + write(dma, 0x90000000)
+        # Warm-up channel1 leaves rotating cursor2. Fixed mode ignores it.
+        code += write(dma + 0x28, source) + write(dma + 0x2c, destination)
+        code += write(dma + 0x24, 0x08180000) + write(dma + 0x20, 0xa0000000)
+        code += constant(0, dma + 0x24) + [0xe5902000, 0xe3120807, 0x0afffffc]
+        code += write(dma, 0)
+        for channel, sa in ((1, source), (3, source + 4)):
+            base = dma + 0x10 + channel * 0x10
+            code += write(base + 8, sa) + write(base + 12, destination)
+            code += write(base + 4, 0x08180000) + write(base, 0xa0000000)
+        code += write(dma, 0x90000000 if rotating else 0x80000000)
+        for channel in (1, 3):
+            code += constant(0, dma + 0x14 + channel * 0x10)
+            code += [0xe5902000, 0xe3120807, 0x0afffffc]
+        return code + read(destination, 4)
+
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c21896]  # IRQ150 targets CPU0.
+    irq += write(0xf8101110, 0x400000) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + seed + setup() + wait_status()
+    irq += read(0xf810200c, 4) + write(dma + 0x14, 0x08000000)
+    irq += write(0xf8102010, 150) + read(0xf810200c, 5)
+    narrow = seed + setup(cb=0x00180000, ca=0xa0000003) + wait_status()
+    narrow += read(destination, 4)
+    narrow += setup(cb=0x04180000, da=destination + 4) + wait_status()
+    narrow += read(destination + 4, 5)
+
+    def armed_byte(external=False):
+        return (write(dma, 0) + write(dma + 0x18, source + 1) +
+                write(dma + 0x1c, destination + 1) + write(dma + 0x14, 0) +
+                write(dma + 0x10, 0x81000000 if external else 0xa0000000))
+
+    recovered = seed + armed_byte() + write(dma + 0x18, source)
+    recovered += write(dma + 0x1c, destination) + write(dma + 0x14, 0x08000000)
+    recovered += write(dma, 0x80000000) + wait_status() + read(destination, 4)
+    self_cancel = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    self_cancel += constant(1, 1) + [0xe5c21896]
+    self_cancel += write(0xf8101110, 0x400000) + write(0xf8102004, 0xff)
+    self_cancel += write(0xf8102000, 1) + write(source, 0)
+    self_cancel += setup(cb=0x08080000, da=dma, ca=0xa0000000)
+    self_cancel += wait_status() + read(dma + 0x10, 4) + read(dma + 0x14, 5)
+    self_cancel += read(dma, 6) + read(0xf810200c, 7)
+    self_eb = write(source, 0x20000001) + write(source + 4, 0x08000000)
+    self_eb += setup(cb=0x08080000, da=dma + 0x10) + wait_status()
+    self_eb += read(dma + 0x10, 4) + read(dma + 0x14, 5)
+    return [
+        ("hdmac-armed-alignment-rejected", armed_byte() +
+         write(dma + 0x14, 0x08000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-external-armed-alignment-rejected", armed_byte(True) +
+         write(dma + 0x14, 0x08000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-armed-alignment-recovered", recovered, {4: 0x11223344}, None),
+        ("hdmac-self-global-disable-cancels", self_cancel,
+         {4: 0x20000000, 5: 0x080a0000, 6: 0, 7: 1023}, None),
+        ("hdmac-self-eb-clear-stops-next-beat", self_eb,
+         {4: 0x20000001, 5: 0x080a0000}, None),
+        ("hdmac-fixed-arbitration", arbitration(False), {4: 0x55667788}, None),
+        ("hdmac-rotating-arbitration", arbitration(True), {4: 0x11223344}, None),
+        ("hdmac-real-gic-irq150", irq, {4: 150, 5: 1023}, None),
+        ("hdmac-byte-and-halfword-counts", narrow,
+         {4: 0x11223344, 5: 0x11223344}, None),
+        ("hdmac-board-reset", read(dma + 0x14, 2) + seed + setup(), {2: 0}, None),
+        ("hdmac-real-word-copy-and-ack", copy,
+         {4: 0x11223344, 5: 0x55667788, 6: 0x081d0000, 7: 0x08000000}, None),
+        ("hdmac-fixed-source", fixed,
+         {4: 0x11223344, 5: 0x11223344, 6: source, 7: destination + 8}, None),
+        ("hdmac-external-request-does-not-complete", external,
+         {4: 0x28180000, 5: 0x81000001, 6: 0}, None),
+        ("hdmac-cancel-before-copy", cancel, {4: 0x081a0000, 5: 0}, None),
+        ("hdmac-both-banks-last-channel", globals,
+         {4: 0x10000000, 5: 0x90000000, 6: 7, 7: 9}, None),
+        ("hdmac-source-bus-error", setup(sa=0xdead0000) + wait_status() +
+         read(dma + 0x14, 4), {}, "uncovered-address"),
+        ("hdmac-destination-bus-error", seed + setup(da=0xdead0000) +
+         wait_status() + read(dma + 0x14, 4), {}, "uncovered-address"),
+        ("hdmac-unknown-width", constant(0, dma) + [0xe5d01000], {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-hole", read(dma + 4, 4), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-ds-unsupported", write(dma, 0x40000000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-reload-unsupported", write(dma + 0x14, 0x00800000), {},
+         "hdmac-access-or-command-not-supported"),
+        ("hdmac-transform-unsupported", write(dma + 0x14, 0x40000000), {},
+         "hdmac-access-or-command-not-supported"),
+    ]
+
+
+def record_slot_fixtures():
+    readback = constant(0, 0x12e00000) + [0xe5902000, 0xe5904004]
+    readback += constant(0, 0x12e3fffc) + [0xe5905000]
+    return [
+        ("record-slot-erased-header-and-end", readback,
+         {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
+        ("record-slot-board-reset", readback,
+         {2: 0xffffffff, 4: 0xffffffff, 5: 0xffffffff}, None),
+        ("record-slot-below", constant(0, 0x12dffffc) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-above", constant(0, 0x12e40000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-alternate-unavailable", constant(0, 0x131e0000) + [0xe5901000], {},
+         "uncovered-address"),
+        ("record-slot-before-memc", constant(0, 0x12e00000) + [0xe1c010b0], {},
+         "nor-memc-not-initialized"),
+        ("record-slot-write-protected", initialized(0x29) +
+         constant(0, 0x12e00000) + [0xe1c010b0], {}, "nor-write-protected"),
+        ("record-slot-command-unsupported", initialized() +
+         constant(0, 0x12e00aaa) + constant(1, 0xaa) + [0xe1c010b0], {},
+         "nor-backend-not-supported"),
+    ]
+
+
+def i2c_fixtures():
+    base = 0x2c018000
+
+    def write(offset, value, bank=0):
+        return constant(0, base + bank * 0x1000 + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg, bank=0):
+        return constant(0, base + bank * 0x1000 + offset) + [0xe5900000 | reg << 12]
+
+    def wait(mask, bank=0):
+        return constant(0, base + bank * 0x1000 + 0x10) + [0xe5902000, 0xe3120000 | mask, 0x0afffffc]
+
+    nack = write(0, 6) + write(0x24, 4) + write(8, 0x50) + wait(4)
+    nack += read(0x10, 4) + read(0x20, 5) + read(4, 6)
+    nack += write(0x10, 4) + read(0x10, 7)
+    geometry = []
+    for bank in range(4):
+        geometry += write(0x28, 0x2ff, bank) + write(0, 6, bank)
+        geometry += write(8, 0x50, bank) + wait(4, bank) + read(0x10, 4 + bank, bank)
+    endpoint = write(0, 6)
+    for byte in (0x10, 0x5a, 0xa5):
+        endpoint += write(0xc, byte)
+    endpoint += write(8, 0x50) + wait(1) + write(0x10, 3)
+    # Hold the real bus across pointer TX and repeated START RX.
+    endpoint += write(0, 0x16) + write(0xc, 0x10) + write(8, 0x50) + wait(2)
+    endpoint += read(4, 4) + write(0x10, 3) + write(0, 0x17)
+    endpoint += write(0x14, 2) + write(8, 0x50) + write(0, 7) + wait(1)
+    endpoint += read(0xc, 5) + read(0xc, 6) + read(4, 7)
+    fifo = write(0, 6)
+    for byte in range(17):
+        fifo += write(0xc, byte)
+    fifo += read(0x14, 4) + read(0x10, 5) + write(0, 0x46)
+    fifo += read(0x14, 6) + read(0xc, 7) + read(0x10, 8)
+    cancel = write(0, 6) + write(8, 0x50) + write(0, 0x46)
+    cancel += read(0x10, 4) + read(4, 5)
+    timeout = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(8)
+    timeout += read(0x10, 4) + read(4, 5)
+    pending_release = write(0, 0x16) + write(8, 0x50) + write(0, 6) + wait(4)
+    pending_release += read(0x10, 4) + read(4, 5)
+
+    def delay(ticks):
+        return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    timeout_disable = write(0, 0x16) + write(0x1c, 255) + write(8, 0x50) + wait(2)
+    timeout_disable += write(0x1c, 0) + delay(24000)
+    timeout_disable += read(0x10, 4) + read(4, 5)
+    timeout_disable += write(0x1c, 2) + wait(8) + read(0x10, 6) + read(4, 7)
+    timeout_extend = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(2)
+    timeout_extend += write(0x1c, 255) + delay(1000) + read(0x10, 4)
+    timeout_extend += read(4, 5) + wait(8) + read(0x10, 6) + read(4, 7)
+    irq = write(0, 6, 3) + write(0x24, 4, 3)
+    irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
+    irq += constant(2, 0xf8101000) + [0xe5c218d9]  # IRQ217 -> CPU0.
+    irq += constant(0, 0xf8101118) + constant(1, 1 << 25) + [0xe5801000]
+    irq += constant(0, 0xf8102004) + constant(1, 0xff) + [0xe5801000]
+    irq += constant(0, 0xf8102000) + constant(1, 1) + [0xe5801000]
+    irq += write(8, 0x50, 3) + wait(4, 3)
+    irq += constant(0, 0xf810200c) + [0xe5904000]
+    irq += write(0x10, 4, 3)
+    irq += constant(0, 0xf8102010) + constant(1, 217) + [0xe5801000]
+    irq += constant(0, 0xf810200c) + [0xe5905000]
+    return [
+        ("i2c-disconnected-nack-and-w1c", nack, {4: 4, 5: 0x2fb, 6: 0, 7: 0}, None),
+        ("i2c-four-instance-idr-and-nack", geometry, {4: 4, 5: 4, 6: 4, 7: 4}, None),
+        ("i2c-endpoint-tx-rx-repeated-start", endpoint, {4: 0x100, 5: 0x5a, 6: 0xa5, 7: 8}, None),
+        ("i2c-endpoint-starvation-timeout", timeout, {4: 10, 5: 0}, None),
+        ("i2c-pending-hold-release-real-nack", pending_release, {4: 4, 5: 0}, None),
+        ("i2c-endpoint-timeout-disable-reenable", timeout_disable,
+         {4: 2, 5: 0x100, 6: 10, 7: 0}, None),
+        ("i2c-endpoint-timeout-deadline-replaced", timeout_extend,
+         {4: 2, 5: 0x100, 6: 10, 7: 0}, None),
+        ("i2c-fifo-overflow-underflow-clear", fifo, {4: 15, 5: 0x40, 6: 0, 7: 0, 8: 0xc0}, None),
+        ("i2c-cancel-before-address", cancel, {4: 0, 5: 0}, None),
+        ("i2c-real-gic-irq217", irq, {4: 217, 5: 1023}, None),
+        ("i2c-board-reset", read(0, 2) + write(0, 6), {2: 0}, None),
+        ("i2c-slave-no-external-master", write(0, 4) + write(8, 0x50) + read(4, 4) + read(0x10, 5), {4: 0, 5: 0}, None),
+        ("i2c-monitor-unsupported", write(0, 0x26) + write(8, 0x50), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-bit7-unsupported", write(0, 0x80, 3), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-extended-address-unsupported", write(0, 2) + write(8, 0x50), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-hole-unsupported", read(0x2c, 4), {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-width-unsupported", constant(0, base) + [0xe5d01000], {}, "i2c-access-or-variant-not-supported"),
+        ("i2c-pending-direction-change-rejected", write(0, 6) + write(8, 0x50) + write(0, 7), {}, "i2c-access-or-variant-not-supported"),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -864,8 +1098,10 @@ def run(binary, output, name, words, expected, reason):
     vm_args = ["-accel", "tcg,thread=single", "-smp", cores, "-bios", str(image),
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
-    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-")):
+    if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-", "hdmac-", "i2c-")):
         vm_args += ["-icount", "shift=0"]
+    if name.startswith("i2c-endpoint-"):
+        vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
         vm_args[vm_args.index("-serial") + 1] = f"file:{serial}"
@@ -890,6 +1126,20 @@ def run(binary, output, name, words, expected, reason):
             if reason:
                 vm.event_wait("STOP", timeout=5)
                 assert vm.cmd("query-status")["status"] == "debug"
+                if name in ("hdmac-source-bus-error", "hdmac-destination-bus-error"):
+                    status_file = output / "dma-status.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c020014 4 "{status_file}"')
+                    expected_status = 0x081b0000 if "source" in name else 0x081c0000
+                    assert struct.unpack("<I", status_file.read_bytes())[0] == expected_status
+                if name in ("hdmac-armed-alignment-rejected",
+                            "hdmac-external-armed-alignment-rejected"):
+                    state_file = output / "armed-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c020010 16 "{state_file}"')
+                    ca = 0x81000000 if name.startswith("hdmac-external-") else 0xa0000000
+                    assert struct.unpack("<IIII", state_file.read_bytes()) == \
+                           (ca, 0, 0xb1800101, 0xb1800201)
             else:
                 deadline = time.monotonic() + 5
                 while registers(vm)[15] != loop_pc:
@@ -910,7 +1160,8 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
-                            "exiu-board-reset"):
+                            "exiu-board-reset", "hdmac-board-reset", "i2c-board-reset",
+                            "record-slot-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -924,7 +1175,7 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
                     after_reset = registers(vm)
-                    if name == "mxic-config-reset":
+                    if name in ("mxic-config-reset", "record-slot-board-reset"):
                         for reg, value in expected.items():
                             assert after_reset[reg] == value, after_reset
                     else:
@@ -962,7 +1213,8 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
                    expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures()]
+               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
+               i2c_fixtures() + record_slot_fixtures()]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")

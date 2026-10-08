@@ -26,6 +26,8 @@ def main():
                         help="upstream GIC enable, input, acknowledge and control trace")
     parser.add_argument("--trace-pkgb", action="store_true",
                         help="upstream trace of PKGB constructor and SPI init candidates")
+    parser.add_argument("--trace-records", action="store_true",
+                        help="upstream trace of original record scanner and bank coordinator")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -39,12 +41,15 @@ def main():
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
-    if args.trace_kernel or args.trace_pkgb:
+    if args.trace_kernel or args.trace_pkgb or args.trace_records:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
         filters = ["0x10100000+0x20000"] if args.trace_kernel else []
         if args.trace_pkgb:
             filters += ["0x10200c8c+0x94", "0x10200684+0x2e",
                         "0x10201010+0x40", "0x10242fda+0x68"]
+        if args.trace_records:
+            filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
+                        "0x102a85f4+0xb0"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
@@ -60,11 +65,14 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
+            "four finite I2C instances at2c018000..2c01b000/GIC214..217; idle zero control, empty16-byte FIFOs, mask2ff, disconnected official I2CBus, nominal independent48MHz; monitor/bit7/10-bit operations unsupported",
+            "two eight-channel HDMAC blocks reset zero, GIC150..157/142..149; nominal independent48MHz, software-triggered non-reload real bus copies; no external DREQ, unsupported transforms/pause/halt",
             "16 EXIU inputs from original GPIO5[7:15]/GPIO6[0:6], GIC65..80; virtual masked/rising-edge reset, pending mask-filter convention; no software source or physical key provider",
             "two upstream Cortex-A7; CBAR=0xf8100000; CNTFRQ=48MHz",
         "upstream whole GICv1/TZ at original CBAR offsets; 256 SGI/PPI/SPI IDs; CPU EL2 unchanged, no GIC virtualization interface",
             "candidate MAS VA placed at diagnostic PA 0x10020000",
             "original registry NV slot69 [133e0000,13400000) has virtual erased-FF read-only cells, absent original NV bytes; MEMC-protected unsupported programming, no complete CFI model",
+            "original descriptor15 primary records [12e00000,12e40000) have finite erased-FF input; no real NV bytes/ENDM header, alternate131e0000 absent; original empty/error/program paths unchanged",
             "upstream CPU reset state; guest copies all copy destinations",
             "six modes per guest core, virtual 16KiB stack capacity per mode; early temporary RAM exactly88B",
             "early shared release RAM exactly four bytes; no host magic",

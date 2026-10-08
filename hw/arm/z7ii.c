@@ -31,6 +31,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define MAS_MAX_SIZE 0x2477b78ULL
 #define NV_SLOT_BASE 0x133e0000ULL
 #define NV_SLOT_SIZE 0x20000
+#define RECORD_SLOT_BASE 0x12e00000ULL
+#define RECORD_SLOT_SIZE 0x40000
 #define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
@@ -102,12 +104,18 @@ struct Z7IIMemcState {
     bool reported_error;
 };
 
+typedef struct Z7IINorSlot {
+    MemoryRegion region;
+    Z7IIMachineState *machine;
+    hwaddr base;
+} Z7IINorSlot;
+
 struct Z7IIMachineState {
     MachineState parent_obj;
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     MemoryRegion image;
-    MemoryRegion nv_slot;
+    Z7IINorSlot nv_slot[2];
     MemoryRegion unknown;
     MemoryRegion copy_ram[2];
     MemoryRegion table_ram;
@@ -728,15 +736,19 @@ static const MemoryRegionOps z7ii_nor_ops = {
 static MemTxResult z7ii_nv_write(void *opaque, hwaddr offset, uint64_t value,
                                unsigned size, MemTxAttrs attrs)
 {
+    Z7IINorSlot *slot = opaque;
+
     /* Same MEMC protection and unsupported-command contract, correct PA. */
-    return z7ii_nor_write(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+    return z7ii_nor_write(slot->machine, slot->base - MAS_BASE + offset,
                          value, size, attrs);
 }
 
 static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
                               unsigned size, MemTxAttrs attrs)
 {
-    return z7ii_nor_read(opaque, NV_SLOT_BASE - MAS_BASE + offset,
+    Z7IINorSlot *slot = opaque;
+
+    return z7ii_nor_read(slot->machine, slot->base - MAS_BASE + offset,
                         value, size, attrs);
 }
 
@@ -767,6 +779,19 @@ static void z7ii_ram(MemoryRegion *mr, const char *name,
     /* Migratable board RAM uses NULL; its owner must not be a MachineState. */
     memory_region_init_ram(mr, NULL, name, size, &error_fatal);
     memory_region_add_subregion(get_system_memory(), base, mr);
+}
+
+static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
+                             const char *name, hwaddr base, uint64_t size)
+{
+    Z7IINorSlot *slot = &s->nv_slot[index];
+
+    slot->machine = s;
+    slot->base = base;
+    memory_region_init_rom_device(&slot->region, NULL, &z7ii_nv_ops, slot,
+                                  name, size, &error_fatal);
+    memset(memory_region_get_ram_ptr(&slot->region), 0xff, size);
+    memory_region_add_subregion(get_system_memory(), base, &slot->region);
 }
 
 static void z7ii_init(MachineState *machine)
@@ -820,11 +845,15 @@ static void z7ii_init(MachineState *machine)
      * update payload. Explicit erased-cell profile, not original NV contents
      * or a complete CFI device. Guest validation/error paths remain intact.
      */
-    memory_region_init_rom_device(&s->nv_slot, NULL, &z7ii_nv_ops, s,
-                                  "z7ii.nor-slot69-erased", NV_SLOT_SIZE,
-                                  &error_fatal);
-    memset(memory_region_get_ram_ptr(&s->nv_slot), 0xff, NV_SLOT_SIZE);
-    memory_region_add_subregion(get_system_memory(), NV_SLOT_BASE, &s->nv_slot);
+    z7ii_erased_slot(s, 0, "z7ii.nor-slot69-erased", NV_SLOT_BASE,
+                     NV_SLOT_SIZE);
+    /*
+     * Descriptor15 primary record aperture. Original bytes are unavailable;
+     * FF cells are an explicit input, not ENDM or valid factory records.
+     * The unobserved alternative at131e0000 remains inaccessible.
+     */
+    z7ii_erased_slot(s, 1, "z7ii.record-slot15-erased", RECORD_SLOT_BASE,
+                     RECORD_SLOT_SIZE);
 
     /* Static MAS copy contracts: destinations only; guest performs the copy. */
     z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
@@ -957,6 +986,29 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(gic, 193 + i * 2 - 32));
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
                            qdev_get_gpio_in(gic, 192 + i * 2 - 32));
+    }
+    for (i = 0; i < 4; i++) {
+        DeviceState *i2c = qdev_new(TYPE_Z7II_I2C);
+
+        qdev_prop_set_uint32(i2c, "instance", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(i2c), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(i2c), 0, 0x2c018000 + i * 0x1000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(i2c), 0,
+                           qdev_get_gpio_in(gic, 214 + i - 32));
+    }
+    for (i = 0; i < 2; i++) {
+        DeviceState *hdmac = qdev_new(TYPE_Z7II_HDMAC);
+        unsigned channel;
+
+        qdev_prop_set_uint32(hdmac, "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(hdmac), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(hdmac), 0, 0x2c020000 + i * 0x10000);
+        for (channel = 0; channel < 8; channel++) {
+            unsigned irq = (i ? 142 : 150) + channel;
+
+            sysbus_connect_irq(SYS_BUS_DEVICE(hdmac), channel,
+                               qdev_get_gpio_in(gic, irq - 32));
+        }
     }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);
