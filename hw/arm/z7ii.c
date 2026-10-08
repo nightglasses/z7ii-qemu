@@ -729,6 +729,7 @@ static void z7ii_init(MachineState *machine)
 {
     Z7IIMachineState *s = Z7II_MACHINE(machine);
     DeviceState *gic;
+    DeviceState *mxic;
     SysBusDevice *gic_bus;
     int64_t image_size;
     unsigned i;
@@ -787,6 +788,18 @@ static void z7ii_init(MachineState *machine)
         g_autofree char *name = g_strdup_printf("z7ii.stack%u", i);
         z7ii_ram(&s->stack_ram[i], name,
                  stack_top[i] - STACK_SLOT_SIZE, STACK_SLOT_SIZE);
+    }
+
+    mxic = sysbus_create_simple(TYPE_Z7II_MXIC, 0x20016000, NULL);
+    z7ii_mxic_attach_ram(mxic, &s->copy_ram[0], 0xb1800000);
+    z7ii_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
+    z7ii_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
+    if (machine->smp.cpus == 2) {
+        z7ii_mxic_attach_ram(mxic, &s->cpu1_startup_stack, 0xb2b83fb8);
+    }
+    for (i = 0; i < ARRAY_SIZE(stack_top); i++) {
+        z7ii_mxic_attach_ram(mxic, &s->stack_ram[i],
+                            stack_top[i] - STACK_SLOT_SIZE);
     }
 
     s->num_cpus = machine->smp.cpus;

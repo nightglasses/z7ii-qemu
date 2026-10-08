@@ -19,6 +19,7 @@ CLOCK = 0x04281000
 COMPLETION = 0x04287000
 TIMESTAMP = 0x04266000
 SDI = 0x20020000
+MXIC = 0x20016000
 
 
 def constant(reg, value):
@@ -93,6 +94,26 @@ def sdi_contract(arb_reset=None):
         # Preserve the original bank1 asymmetry: poll E300, ack CC30.
         words += submit(0xe100, 1, 0xe300, 0xcc30 if bank else 0xe300)
         words += constant(0, base + 0xe300) + [0xe5900000 | (8 + bank) << 12]
+    return words
+
+
+def mxic_contract(disable=False, bad_geometry=False):
+    # Independent original boot profile, not a read of device implementation.
+    values = [0x60000000, 0x50000000, 0x50000000, 0xb0000000,
+              0x50000000, 0, 0x30000, 0x40000000]
+    if disable:
+        values[2] = 0
+    if bad_geometry:
+        values[0] += 1
+    words = []
+    for index, value in enumerate(values):
+        words += constant(0, MXIC + 0x20 + index * 4)
+        words += constant(1, value) + [0xe5801000]
+    words += constant(0, MXIC) + constant(1, 1) + [0xe5801000]
+    for index, value in enumerate((0x60000000, 0x50000000, 0x50000000, 0xb0000000)):
+        words += constant(0, MXIC + 0xd50 + index * 4)
+        words += constant(1, value) + [0xe5801000]
+    words += constant(0, MXIC + 0xd40) + constant(1, 1) + [0xe5801000]
     return words
 
 
@@ -244,6 +265,25 @@ def fixtures():
          "timestamp-access-not-supported"),
         ("timestamp-byte-write", constant(0, TIMESTAMP) + [0xe5c01000], {},
          "timestamp-access-not-supported"),
+        ("mxic-region-commit-readback", mxic_contract() +
+         constant(0, MXIC + 0x20) + [0xe5904000, 0xe590501c] +
+         constant(0, MXIC + 0xd50) + [0xe5906000, 0xe590700c] +
+         constant(0, 0xb1800000) + constant(1, 0x12345678) +
+         [0xe5801000, 0xe5908000],
+         {4: 0x60000000, 5: 0x40000000, 6: 0x60000000,
+          7: 0xb0000000, 8: 0x12345678}, None),
+        ("mxic-region-withdraw-backing", mxic_contract(disable=True) +
+         constant(0, 0xb1800000) + [0xe5901000], {}, "uncovered-address"),
+        ("mxic-incomplete-commit", constant(0, MXIC) + constant(1, 1) +
+         [0xe5801000], {}, "mxic-incomplete-region-transaction"),
+        ("mxic-bad-geometry", mxic_contract(bad_geometry=True), {},
+         "mxic-region-geometry-not-supported"),
+        ("mxic-bad-command", constant(0, MXIC) + constant(1, 2) +
+         [0xe5801000], {}, "mxic-command-not-supported"),
+        ("mxic-reserved-offset", constant(0, MXIC + 4) + [0xe5901000], {},
+         "mxic-access-not-supported"),
+        ("mxic-byte-write", constant(0, MXIC + 0x20) + [0xe5c01000], {},
+         "mxic-access-not-supported"),
         ("sdi-two-bank-bringup", sdi_contract(),
          {8: 0, 9: 1, 10: 0, 11: 0}, None),
         ("sdi-arb-reset-pending", sdi_contract("pending"),
