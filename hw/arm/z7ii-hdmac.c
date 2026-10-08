@@ -104,7 +104,8 @@ static void z7ii_hdmac_transfer(void *opaque)
         }
         if (dma_memory_read(&address_space_memory, c->source, data, width,
                             MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-            qemu_log_mask(LOG_GUEST_ERROR, "z7ii.hdmac: bank%u source bus error "
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "z7ii.hdmac: bank%u source bus error "
                           "at 0x%08x; SS3\n", s->bank, c->source);
             z7ii_hdmac_finish(c, 3);
             return;
@@ -124,14 +125,15 @@ static void z7ii_hdmac_transfer(void *opaque)
             c->source += width;
         }
         if (!fixed_destination) {
-            if ((uint64_t)c->destination + width == 1ULL << 32 && i + 1 < beats) {
+            if ((uint64_t)c->destination + width == 1ULL << 32 &&
+                i + 1 < beats) {
                 z7ii_hdmac_finish(c, 1);
                 return;
             }
             c->destination += width;
         }
     }
-    /* End counters are a declared functional convention, not measured readback. */
+    /* End counters are a functional convention, not measured readback. */
     c->ca &= ~0xfffffU;
     z7ii_hdmac_finish(c, 5);
 }
@@ -171,7 +173,8 @@ static MemTxResult z7ii_hdmac_error(Z7IIHDMACState *s, hwaddr offset,
 {
     z7ii_access_error(&s->reported_error,
                       HDMAC_BASE + s->bank * 0x10000 + offset,
-                      size, write, value, "hdmac-access-or-command-not-supported");
+                      size, write, value,
+                      "hdmac-access-or-command-not-supported");
     return MEMTX_ERROR;
 }
 
@@ -182,7 +185,8 @@ static MemTxResult z7ii_hdmac_read(void *opaque, hwaddr offset, uint64_t *value,
     Z7IIHDMACChannel *c;
 
     *value = 0;
-    if (size != 4 || (offset & 3) || (offset && offset < 0x10) || offset >= 0x90) {
+    if (size != 4 || (offset & 3) || (offset && offset < 0x10) ||
+        offset >= 0x90) {
         return z7ii_hdmac_error(s, offset, size, false, 0);
     }
     if (!offset) {
@@ -215,7 +219,8 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
     uint32_t old;
     unsigned i;
 
-    if (size != 4 || (offset & 3) || (offset && offset < 0x10) || offset >= 0x90) {
+    if (size != 4 || (offset & 3) || (offset && offset < 0x10) ||
+        offset >= 0x90) {
         return z7ii_hdmac_error(s, offset, size, true, value);
     }
     if (!offset) {
@@ -255,7 +260,8 @@ static MemTxResult z7ii_hdmac_write(void *opaque, hwaddr offset, uint64_t value,
         if ((value & 0xc0e0ffffU) || ((value >> 26) & 3) == 3 ||
             ((value >> 28) & 3) == 3 || ((value & HDMAC_SS) &&
                              (value & HDMAC_SS) != (c->cb & HDMAC_SS)) ||
-            (c->running && ((value ^ c->cb) & ~(HDMAC_SS | HDMAC_CI | HDMAC_EI)))) {
+            (c->running &&
+             ((value ^ c->cb) & ~(HDMAC_SS | HDMAC_CI | HDMAC_EI)))) {
             return z7ii_hdmac_error(s, offset, size, true, value);
         }
         c->cb = value;
@@ -312,7 +318,8 @@ static void z7ii_hdmac_init(Object *obj)
     unsigned i;
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-hdmac-clock");
-    memory_region_init_io(&s->regs, obj, &z7ii_hdmac_ops, s, "z7ii.hdmac", 0x90);
+    memory_region_init_io(&s->regs, obj, &z7ii_hdmac_ops, s,
+                          "z7ii.hdmac", 0x90);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     for (i = 0; i < 8; i++) {
         s->channel[i].owner = s;

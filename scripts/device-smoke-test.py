@@ -881,7 +881,41 @@ def hdmac_fixtures():
     globals += write(dma + 0x10000, 0x90000000) + read(dma + 0x10000, 5)
     globals += write(dma + 0x80, 7) + read(dma + 0x80, 6)
     globals += write(dma + 0x10080, 9) + read(dma + 0x10080, 7)
+
+    def arbitration(rotating):
+        code = seed + write(dma, 0x90000000)
+        # Warm-up channel1 leaves rotating cursor2. Fixed mode ignores it.
+        code += write(dma + 0x28, source) + write(dma + 0x2c, destination)
+        code += write(dma + 0x24, 0x08180000) + write(dma + 0x20, 0xa0000000)
+        code += constant(0, dma + 0x24) + [0xe5902000, 0xe3120807, 0x0afffffc]
+        code += write(dma, 0)
+        for channel, sa in ((1, source), (3, source + 4)):
+            base = dma + 0x10 + channel * 0x10
+            code += write(base + 8, sa) + write(base + 12, destination)
+            code += write(base + 4, 0x08180000) + write(base, 0xa0000000)
+        code += write(dma, 0x90000000 if rotating else 0x80000000)
+        for channel in (1, 3):
+            code += constant(0, dma + 0x14 + channel * 0x10)
+            code += [0xe5902000, 0xe3120807, 0x0afffffc]
+        return code + read(destination, 4)
+
+    irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    irq += constant(1, 1) + [0xe5c21896]  # IRQ150 targets CPU0.
+    irq += write(0xf8101110, 0x400000) + write(0xf8102004, 0xff)
+    irq += write(0xf8102000, 1) + seed + setup() + wait_status()
+    irq += read(0xf810200c, 4) + write(dma + 0x14, 0x08000000)
+    irq += write(0xf8102010, 150) + read(0xf810200c, 5)
+    narrow = seed + setup(cb=0x00180000, ca=0xa0000003) + wait_status()
+    narrow += read(destination, 4)
+    narrow += setup(cb=0x04180000, da=destination + 4) + wait_status()
+    narrow += read(destination + 4, 5)
     return [
+        ("hdmac-fixed-arbitration", arbitration(False), {4: 0x55667788}, None),
+        ("hdmac-rotating-arbitration", arbitration(True), {4: 0x11223344}, None),
+        ("hdmac-real-gic-irq150", irq, {4: 150, 5: 1023}, None),
+        ("hdmac-byte-and-halfword-counts", narrow,
+         {4: 0x11223344, 5: 0x11223344}, None),
+        ("hdmac-board-reset", read(dma + 0x14, 2) + seed + setup(), {2: 0}, None),
         ("hdmac-real-word-copy-and-ack", copy,
          {4: 0x11223344, 5: 0x55667788, 6: 0x081d0000, 7: 0x08000000}, None),
         ("hdmac-fixed-source", fixed,
@@ -976,7 +1010,7 @@ def run(binary, output, name, words, expected, reason):
                     assert actual[5] == actual[6], actual
                 if name in ("clock-reset", "completion-reset", "mxic-config-reset",
                             "clock-bitcontrol-reset", "spi-board-reset",
-                            "exiu-board-reset"):
+                            "exiu-board-reset", "hdmac-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
