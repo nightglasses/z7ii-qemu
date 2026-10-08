@@ -276,7 +276,9 @@ def fixtures():
     uart_flush = usio_contract() + constant(0, USIO + 4) + constant(1, 0x41)
     uart_flush += [0xe1c010b0] + constant(0, USIO + 1)
     uart_flush += constant(1, 0x80) + [0xe5c01000]
-    uart_flush += constant(1, 48000) + [0xee0e1f12]
+    # BGR 0x363 at the virtual 100 MHz input gives an 86.8 us frame.
+    # Observe beyond that cancelled deadline, without a 1 ms busy wait.
+    uart_flush += constant(1, 4800) + [0xee0e1f12]
     uart_flush += constant(1, 1) + [0xee0e1f32]
     uart_flush += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     uart_flush += constant(0, USIO + 3) + [0xe5d04000]
@@ -726,15 +728,16 @@ def spi_fixtures():
     # A slave has no external clock: queued TX remains, with no RX/done.
     slave = write(0x60, 0) + write(0x10, 0xf00) + write(0, 0x1234)
     slave += write(0x3c, 1) + write(0x64, 1)
-    slave += constant(1, 48000) + [0xee0e1f12]
+    slave += constant(1, 960) + [0xee0e1f12]  # 20 us, no external clock.
     slave += constant(1, 1) + [0xee0e1f32]
     slave += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     slave += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe590603c]
 
     # Pending master frame is cancelled by reset; configuration survives reopen.
-    cancel = setup + write(8, 255) + write(0, 0x1234) + write(0x3c, 1)
+    # DIV 7 makes this 16-bit frame 5.334 us; reset precedes expiry.
+    cancel = setup + write(8, 7) + write(0, 0x1234) + write(0x3c, 1)
     cancel += write(0x60, 1) + write(0x60, 0)
-    cancel += constant(1, 48000) + [0xee0e1f12]
+    cancel += constant(1, 960) + [0xee0e1f12]  # Beyond the old frame deadline.
     cancel += constant(1, 1) + [0xee0e1f32]
     cancel += [0xee1e1f32, 0xe3110004, 0x0afffffc]
     cancel += constant(0, SPI) + [0xe590402c, 0xe5905030, 0xe5906024,
@@ -1056,12 +1059,16 @@ def i2c_fixtures():
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
-    timeout_disable = write(0, 0x16) + write(0x1c, 255) + write(8, 0x50) + wait(2)
-    timeout_disable += write(0x1c, 0) + delay(24000)
+    # At 48 MHz / 22, timeout 15 expires after 7.334 us. The 20 us
+    # observation must cross that old deadline after disabling it.
+    timeout_disable = write(0, 0x16) + write(0x1c, 15) + write(8, 0x50) + wait(2)
+    timeout_disable += write(0x1c, 0) + delay(960)
     timeout_disable += read(0x10, 4) + read(4, 5)
     timeout_disable += write(0x1c, 2) + wait(8) + read(0x10, 6) + read(4, 7)
     timeout_extend = write(0, 0x16) + write(0x1c, 2) + write(8, 0x50) + wait(2)
-    timeout_extend += write(0x1c, 255) + delay(1000) + read(0x10, 4)
+    # Replacement 31 gives 14.667 us: sample at 10 us, after the old
+    # timeout 2 deadline (1.375 us), before the replacement deadline.
+    timeout_extend += write(0x1c, 31) + delay(480) + read(0x10, 4)
     timeout_extend += read(4, 5) + wait(8) + read(0x10, 6) + read(4, 7)
     irq = write(0, 6, 3) + write(0x24, 4, 3)
     irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
@@ -1107,11 +1114,13 @@ def timing_fixtures():
     def read(address, reg):
         return constant(0, address) + [0xe5900000 | reg << 12]
 
-    def delay(ticks=48000):
+    # Independent 3 GHz timing device: a 30,000-tick period is 10 us.
+    # Settle for 20 us using the upstream 48 MHz architectural timer.
+    def delay(ticks=960):
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
-    def setup(channel=0, opcode=0x31, period=299999):
+    def setup(channel=0, opcode=0x31, period=29999):
         offset = 0x100 + channel * 0x100
         return (write(a + 4, 1) + write(b + offset, 1) +
                 write(b + offset, 0) + write(b + offset + 4, opcode) +
@@ -1126,11 +1135,11 @@ def timing_fixtures():
     once += write(a + 0x110, 1) + delay() + read(a + 0x110, 5)
     periodic = setup(opcode=0) + wait() + write(a + 0x110, 1)
     periodic += wait() + read(a + 0x110, 4)
-    paused = setup(period=29999999) + write(b, 0) + read(b + 0x10c, 4)
+    paused = setup() + write(b, 0) + read(b + 0x10c, 4)
     paused += delay() + read(b + 0x10c, 5)
     paused += [0xe1540005, 0x03a06001, 0x13a06000] + read(a + 0x110, 7)
-    reset = setup(period=2999999) + write(a, 1) + write(a, 0)
-    reset += write(a + 4, 1) + write(b, 1) + delay(96000)
+    reset = setup() + write(a, 1) + write(a, 0)
+    reset += write(a + 4, 1) + write(b, 1) + delay()
     reset += read(a + 0x110, 4) + read(b + 0x108, 5)
     irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
     irq += constant(1, 1) + [0xe5c218b7]
@@ -1141,7 +1150,7 @@ def timing_fixtures():
     disabled = setup() + write(a + 0x100, 0) + delay()
     disabled += read(a + 0x110, 4)
     return [
-        ("timing-one-shot-expiry-ack", once, {4: 300000, 5: 0}, None),
+        ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
         ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
         ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
         ("timing-reset-cancels-pending", reset, {4: 0, 5: 0}, None),
@@ -1172,7 +1181,9 @@ def audio_fixtures():
     def read(address, reg):
         return constant(0, address) + [0xe5900000 | reg << 12]
 
-    def delay(ticks=4800):
+    # A virtual audio word drains in 64 / 48 MHz = 1.334 us. Even the
+    # two-channel fixture drains within 20 us, including DMA beat delays.
+    def delay(ticks=960):
         return (constant(1, ticks) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
@@ -1288,7 +1299,9 @@ def copy_fixtures():
             0xe5902000, 0xe312000f, 0x0afffffc]
 
     def delay():
-        return (constant(1, 48000) + [0xee0e1f12] + constant(1, 1) +
+        # 513 bytes in <=256-byte chunks finish in about 10.7 us if
+        # cancellation fails. Observe after that deadline, not at 1 ms.
+        return (constant(1, 960) + [0xee0e1f12] + constant(1, 1) +
                 [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
 
     seed = write(source, 0x11223344) + write(source + 4, 0x55667788)
@@ -1423,9 +1436,14 @@ def run(binary, output, name, words, expected, reason):
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
             else:
                 deadline = time.monotonic() + 5
-                while registers(vm)[15] != loop_pc:
+                while (actual := registers(vm))[15] != loop_pc:
                     assert vm.cmd("query-status")["running"], vm.get_log()
                     if time.monotonic() >= deadline:
+                        (output / "wait-failure.json").write_text(json.dumps({
+                            "phase": "initial", "loop_pc": loop_pc,
+                            "registers": actual,
+                            "status": vm.cmd("query-status"),
+                        }, indent=2) + "\n")
                         raise AssertionError(f"{name}: final loop not reached")
                     time.sleep(0.01)
                 vm.cmd("stop")
@@ -1452,9 +1470,15 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("cont")
                     vm.event_wait("RESUME", timeout=5)
                     deadline = time.monotonic() + 5
-                    while registers(vm)[15] != loop_pc:
+                    while (after_reset := registers(vm))[15] != loop_pc:
                         assert vm.cmd("query-status")["running"], vm.get_log()
-                        assert time.monotonic() < deadline, "reset loop not reached"
+                        if time.monotonic() >= deadline:
+                            (output / "wait-failure.json").write_text(json.dumps({
+                                "phase": "after-reset", "loop_pc": loop_pc,
+                                "registers": after_reset,
+                                "status": vm.cmd("query-status"),
+                            }, indent=2) + "\n")
+                            raise AssertionError("reset loop not reached")
                         time.sleep(0.01)
                     vm.cmd("stop")
                     vm.event_wait("STOP", timeout=5)
