@@ -109,7 +109,7 @@ def main():
             "virtual byte-block zero-fill direct count; finite BSS [b18aedc0,b2b5edc0), real DMA bus result",
         "virtual initial region decode from guest boot profile; byte/64KiB ranges constrain existing DDR backings only",
         "polling USIO channel0; nominal independent 100MHz, one-word TX, 8N1 virtual timing; no invented RX/IRQ",
-        "finite second system configuration; virtual strap/control reset zero, guest five-bank bootstrap and bounded four-bank field RMW",
+        "finite second system configuration; virtual strap/config reset zero; five aligned full32 words share guest bootstrap and dynamic bit RMW; physical writable bits/effects unknown, no modeled IRQ/ready/clock/reset effect",
         "twelve GPIO ports with masked latch/direction/function/pull; unconnected pads follow pulls or virtual low, no key matrix",
         "MXIC active/draft config and 512 slots reset zero; idle available, TAEN-gated complete transaction, 10us virtual apply; independent live parameters",
         "eleven SPI channels: virtual 32-word FIFOs, asserted reset preserving config on channel reset, independent 48MHz input; master SSI disconnected MISO-low, no external slave clock; common pending IRQ routes first original ISR line only",

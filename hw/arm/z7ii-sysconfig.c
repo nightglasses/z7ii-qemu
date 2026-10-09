@@ -1,6 +1,7 @@
 /*
  * Original system-configuration object, distinct from the clock controller.
- * Functional reset inputs and implemented indexed bank bits are explicit.
+ * Full-word configuration retention and cold zero are functional assumptions;
+ * physical writable bits and effects of these indexed words are unknown.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -22,14 +23,6 @@ struct Z7IISysconfigState {
 
 static const unsigned config_offsets[] = {
     4, 8, 0x24, 0x28, 0x30, 0x74, 0x34, 0x38,
-};
-/* Immediate original caller indices, not physical module names. */
-static const uint32_t bank_masks[] = {
-    0, 0x01001e07, 0x01ff01c0, 0x1803dfc0, 0x00000444,
-};
-/* Complete original early initializer, before later mutex-protected RMW. */
-static const uint32_t bank_boot_profiles[] = {
-    0x73ffffff, 0xffffffff, 0x01ffc1ff, 0x31ffffff, 0x000004ee,
 };
 
 static MemTxResult z7ii_sysconfig_error(Z7IISysconfigState *s, hwaddr offset,
@@ -87,11 +80,7 @@ static MemTxResult z7ii_sysconfig_write(void *opaque, hwaddr offset,
     }
     if (offset >= 0x78 && offset <= 0x88) {
         i = (offset - 0x78) / 4;
-        if (value != bank_boot_profiles[i] &&
-            ((value ^ s->banks[i]) & ~bank_masks[i])) {
-            return z7ii_sysconfig_error(s, offset, size, true, value,
-                                        "sysconfig-bank-bits-not-supported");
-        }
+        /* Bootstrap and dynamic bit RMW share full guest-written words. */
         s->banks[i] = value;
         return MEMTX_OK;
     }
@@ -129,7 +118,7 @@ static void z7ii_sysconfig_reset(DeviceState *dev)
     /* Original boot RMW selectors use explicit virtual pinmux reset zero. */
     s->initialized = (1U << 6) | (1U << 7);
     memset(s->config, 0, sizeof(s->config));
-    /* Functional control reset: clear all implemented indexed requests. */
+    /* Named cold configuration profile; no peripheral reset or IRQ effect. */
     memset(s->banks, 0, sizeof(s->banks));
     s->reported_error = false;
 }

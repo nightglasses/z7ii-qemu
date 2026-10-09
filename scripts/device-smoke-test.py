@@ -221,6 +221,37 @@ def mxic_config_fixtures():
     ]
 
 
+def sysconfig_word_fixtures():
+    seed = []
+    for bank in range(5):
+        seed += constant(0, SYSCONFIG + 0x78 + bank * 4)
+        seed += constant(1, 0xa5a50000 | bank) + [0xe5801000]
+    return [
+        ("sysconfig-word-input-all-bits-reset", [], {}, None),
+        ("sysconfig-bit25-clear-preserves-word", constant(0, SYSCONFIG + 0x7c) +
+         constant(1, 0xfefffff8) + [0xe5801000, 0xe5901000] +
+         constant(2, 0x02000000) + [0xe1c11002, 0xe5801000, 0xe5904000],
+         {4: 0xfcfffff8}, None),
+        ("sysconfig-bank-reject-byte-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x78) + [0xe5c01000], {},
+         "sysconfig-access-not-supported"),
+        ("sysconfig-bank-reject-halfword-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x88) + [0xe1c010b0], {},
+         "sysconfig-access-not-supported"),
+        ("sysconfig-bank-reject-unaligned-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x7d) + [0xe5801000], {},
+         "sysconfig-access-not-supported"),
+        ("sysconfig-bank-reject-hole-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x70) + [0xe5801000], {},
+         "sysconfig-access-not-supported"),
+        ("sysconfig-bank-reject-above-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x8c) + [0xe5801000], {}, "uncovered-address"),
+        ("sysconfig-bank-reject-strap-write-preserves-state", seed +
+         constant(0, SYSCONFIG + 0x20) + [0xe5801000], {},
+         "sysconfig-access-not-supported"),
+    ]
+
+
 def fixtures():
     percore = []
     for top in (0xb2bb0000, 0xb2ba8000, 0xb2ba0000,
@@ -495,12 +526,12 @@ def fixtures():
         ("sysconfig-whole-bootstrap-preserve", sys_boot,
          {4: boot_values[0], 5: boot_values[1], 6: boot_values[2],
           7: boot_values[3], 8: boot_values[4], 9: 0xfffffffe}, None),
-        ("sysconfig-unproved-bootstrap-bit", constant(0, SYSCONFIG + 0x78) +
-         constant(1, 1) + [0xe5801000], {}, "sysconfig-bank-bits-not-supported"),
-        ("sysconfig-unproved-post-bootstrap-bit", sys_boot +
+        ("sysconfig-fullword-before-bootstrap", constant(0, SYSCONFIG + 0x78) +
+         constant(1, 1) + [0xe5801000, 0xe5904000], {4: 1}, None),
+        ("sysconfig-fullword-post-bootstrap-bit", sys_boot +
          constant(0, SYSCONFIG + 0x7c) + [0xe5901000] +
-         constant(2, 8) + [0xe0211002, 0xe5801000], {},
-         "sysconfig-bank-bits-not-supported"),
+         constant(2, 8) + [0xe0211002, 0xe5801000, 0xe590a000],
+         {10: 0xfffffff6}, None),
         ("gpio-all-twelve-ports", gpio_all, gpio_expected, None),
         ("gpio-direction-function-pull-and-mask", gpio_pads, {4: 5, 5: 2}, None),
         ("gpio-boot-pinmux-selectors", constant(0, SYSCONFIG + 0x34) +
@@ -517,12 +548,12 @@ def fixtures():
         ("gpio-high-config-bits", constant(0, GPIO + 0x100) +
          constant(1, 0x10000) + [0xe5801000], {}, "gpio-field-not-supported"),
         ("sysconfig-direct-interface", sysconfig, {4: 0x410, 5: 0x21}, None),
-        ("sysconfig-four-bank-rmw", sys_banks,
+        ("sysconfig-sampled-caller-rmw", sys_banks,
          {4: 0x1001e07, 5: 0x1ff01c0, 6: 0x1803dfc0, 7: 0x444, 8: 0}, None),
         ("sysconfig-uninitialized-config", constant(0, SYSCONFIG + 4) +
          [0xe5901000], {}, "sysconfig-before-guest-write"),
-        ("sysconfig-unknown-bank-bit", constant(0, SYSCONFIG + 0x80) +
-         constant(1, 1) + [0xe5801000], {}, "sysconfig-bank-bits-not-supported"),
+        ("sysconfig-fullword-other-bank-bit", constant(0, SYSCONFIG + 0x80) +
+         constant(1, 1) + [0xe5801000, 0xe5904000], {4: 1}, None),
         ("sysconfig-unsupported-field", constant(0, SYSCONFIG + 0x24) +
          constant(1, 2) + [0xe5801000], {}, "sysconfig-field-not-supported"),
         ("sysconfig-byte-width", constant(0, SYSCONFIG + 0x30) +
@@ -2691,6 +2722,66 @@ def run_signal_input(binary, output, name):
             "scope": "external signal inputs, virtual debounce and pending/OR_IRQ outputs; no firmware execution"}
 
 
+def run_sysconfig_words(binary, output, name):
+    """Exercise full-word retention through the actual finite MMIO device."""
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands = []
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="sysconfig", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                commands.append([text, response])
+                assert response.startswith("OK"), response
+                return response
+
+            def read(bank):
+                address = SYSCONFIG + 0x78 + bank * 4
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            def write(bank, value):
+                address = SYSCONFIG + 0x78 + bank * 4
+                command(f"writel {address:#x} {value:#x}")
+
+            state = [0] * 5
+            assert [read(i) for i in range(5)] == state
+            for bank in range(5):
+                state[bank] = 0xa5a5a5a5 ^ (bank * 0x11111111)
+                write(bank, state[bank])
+            for bank in range(5):
+                for bit in range(32):
+                    for setting in (False, True, False):
+                        old = read(bank)
+                        state[bank] = (old | (1 << bit)) if setting else \
+                                      (old & ~(1 << bit))
+                        write(bank, state[bank])
+                        # Every bit has both transitions; all other words and
+                        # bits retain their state, including bit31 and bank0.
+                        assert [read(i) for i in range(5)] == state
+                        assert read(bank) == state[bank]
+            command("clock_step 1000000000")
+            assert [read(i) for i in range(5)] == state
+            vm.cmd("system_reset")
+            assert [read(i) for i in range(5)] == [0] * 5
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "five full32 MMIO words and board reset; no firmware execution"}
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -2997,6 +3088,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("sysconfig-word-input-"):
+        return run_sysconfig_words(binary, output, name)
     if name.startswith("fill-runtime-qtest-"):
         return run_fill_runtime(binary, output, name)
     if name.startswith("control20202-qtest-"):
@@ -3060,6 +3153,12 @@ def run(binary, output, name, words, expected, reason):
                 else:
                     vm.event_wait("STOP", timeout=5)
                 assert vm.cmd("query-status")["status"] == "debug"
+                if name.startswith("sysconfig-bank-reject-"):
+                    state_file = output / "sysconfig-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave {SYSCONFIG + 0x78:#x} 20 "{state_file}"')
+                    assert struct.unpack("<5I", state_file.read_bytes()) == \
+                           tuple(0xa5a50000 | bank for bank in range(5))
                 if name == "ipud-fifo-overflow-rejected":
                     state_file = output / "full-state.bin"
                     vm.cmd("human-monitor-command", command_line=
@@ -3220,7 +3319,7 @@ def main():
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
-             fill_runtime_fixtures())
+             fill_runtime_fixtures() + sysconfig_word_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
