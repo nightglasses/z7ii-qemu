@@ -126,7 +126,10 @@ static void i2c_peer_realize(DeviceState *dev, Error **errp)
         error_setg(errp, "nikon-i2c-peer endpoint already has a frontend");
         return;
     }
-    nikon_i2c_attach_async(s->i2c, &i2c_operations, s);
+    if (!nikon_i2c_attach_async(s->i2c, &i2c_operations, s, errp)) {
+        nikon_peer_state(s->peer, NULL, NULL);
+        return;
+    }
     s->attached = true;
     nikon_peer_endpoint(s->peer, &i2c_endpoint, s);
     if (s->gpio) {

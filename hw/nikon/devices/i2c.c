@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "qemu/fifo8.h"
 #include "qemu/timer.h"
 #include "migration/vmstate.h"
@@ -260,17 +261,33 @@ void nikon_i2c_async_complete(DeviceState *dev, uint64_t token, uint32_t result)
     }
 }
 
-void nikon_i2c_attach_async(DeviceState *dev, const NikonI2CAsyncOps *ops,
-                            void *opaque)
+bool nikon_i2c_attach_async(DeviceState *dev, const NikonI2CAsyncOps *ops,
+                            void *opaque, Error **errp)
 {
     NikonI2CState *s = NIKON_I2C(dev);
 
-    assert(!s->active && !s->async_ops && s->bus && !BUS(s->bus)->num_children);
     assert(ops && ops->request && ops->cancel);
+    if (!s->bus) {
+        error_setg(errp, "I2C controller must be realized before attaching a peer");
+        return false;
+    }
+    if (s->active) {
+        error_setg(errp, "I2C controller has an active transaction");
+        return false;
+    }
+    if (s->async_ops) {
+        error_setg(errp, "I2C controller already has an asynchronous peer");
+        return false;
+    }
+    if (BUS(s->bus)->num_children) {
+        error_setg(errp, "I2C controller already has local slave devices");
+        return false;
+    }
     s->async_bound = true;
     s->async_ops = ops;
     s->async_opaque = opaque;
     BUS(s->bus)->full = true; /* Local slave devices and remote bus are exclusive. */
+    return true;
 }
 
 void nikon_i2c_detach_async(DeviceState *dev, void *owner)

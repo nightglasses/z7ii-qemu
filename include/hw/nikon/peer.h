@@ -27,7 +27,9 @@ typedef struct NikonI2CAsyncOps {
     void (*cancel)(void *, uint64_t token);
 } NikonI2CAsyncOps;
 
-void nikon_i2c_attach_async(DeviceState *, const NikonI2CAsyncOps *, void *);
+/* Binding errors leave controller state unchanged and report through errp. */
+bool nikon_i2c_attach_async(DeviceState *, const NikonI2CAsyncOps *, void *,
+                            Error **errp);
 void nikon_i2c_detach_async(DeviceState *, void *owner);
 void nikon_i2c_async_ready(DeviceState *);
 void nikon_i2c_async_complete(DeviceState *, uint64_t token, uint32_t result);

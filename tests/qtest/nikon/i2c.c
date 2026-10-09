@@ -55,8 +55,8 @@ static I2CWireTest wire_start_gpio(unsigned count, bool gpio)
         g_string_append_printf(args,
             " -chardev socket,id=p%u,path=%s,reconnect-ms=10"
             " -device nikon-peer,id=wire%u,chardev=p%u"
-            " -device nikon-i2c-peer,peer=/machine/peripheral/wire%u,"
-            "i2c=/machine/i2c%u", i, path, i, i, i, i);
+            " -device nikon-i2c-peer,id=link%u,peer=/machine/peripheral/wire%u,"
+            "i2c=/machine/i2c%u", i, path, i, i, i, i, i);
         if (gpio) {
             g_string_append(args, ",gpio=/machine/gpio,control=173,notify=102");
         }
@@ -559,6 +559,166 @@ static void test_gpio(void)
     wire_quit(&t);
 }
 
+static void set_realized(QTestState *q, unsigned link, bool realized)
+{
+    g_autofree char *path = g_strdup_printf("/machine/peripheral/link%u", link);
+
+    qtest_qmp_assert_success(q, realized ?
+        "{'execute':'qom-set','arguments':{'path':%s,"
+        "'property':'realized','value':true}}" :
+        "{'execute':'qom-set','arguments':{'path':%s,"
+        "'property':'realized','value':false}}", path);
+}
+
+static void set_link(QTestState *q, unsigned link, const char *property,
+                      const char *target)
+{
+    g_autofree char *path = g_strdup_printf("/machine/peripheral/link%u", link);
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':%s,'property':%s,'value':%s}}",
+        path, property, target);
+}
+
+static void realize_rejected(QTestState *q, const char *reason)
+{
+    QDict *error = qtest_qmp_assert_failure_ref(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/link0',"
+        "'property':'realized','value':true}}");
+
+    /* libqtest returns the retained inner error dictionary, not the response. */
+    g_assert_nonnull(strstr(qdict_get_str(error, "desc"), reason));
+    qobject_unref(error);
+}
+
+static void startup_rejected(bool local)
+{
+    g_autoptr(GPtrArray) args = g_ptr_array_new();
+    g_autofree char *errors = NULL;
+    g_autoptr(GError) error = NULL;
+    const char *common[] = {
+        qtest_qemu_binary(NULL), "-machine", "z7ii-mas-diagnostic", "-smp", "1",
+        "-bios", bios, "-serial", "none", "-display", "none",
+        "-run-with", "exit-with-parent=on",
+    };
+    const char *devices[] = {
+        "-device", local ? "at24c-eeprom,bus=nikon-i2c0,address=0x50,rom-size=256"
+                         : "nikon-peer,id=wire1",
+        "-device", "nikon-peer,id=wire0",
+        "-device", "nikon-i2c-peer,peer=/machine/peripheral/wire0,i2c=/machine/i2c0",
+    };
+    int status;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(common); i++) {
+        g_ptr_array_add(args, (void *)common[i]);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(devices); i++) {
+        g_ptr_array_add(args, (void *)devices[i]);
+    }
+    if (!local) {
+        g_ptr_array_add(args, "-device");
+        g_ptr_array_add(args,
+            "nikon-i2c-peer,peer=/machine/peripheral/wire1,i2c=/machine/i2c0");
+    }
+    g_ptr_array_add(args, NULL);
+    g_assert_true(g_spawn_sync(NULL, (char **)args->pdata, NULL, 0, NULL, NULL,
+                               NULL, &errors, &status, &error));
+    g_assert_no_error(error);
+    g_assert_true(WIFEXITED(status));
+    g_assert_cmpint(WEXITSTATUS(status), ==, 1);
+    g_assert_nonnull(strstr(errors, local ? "local slave devices" :
+                            "already has an asynchronous peer"));
+}
+
+static void test_configuration(void)
+{
+    if (!g_test_subprocess()) {
+        /* Accepted configurations must not hang this negative startup test. */
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_passed();
+        return;
+    }
+    startup_rejected(true);
+    startup_rejected(false);
+}
+
+static void frontend_takeover(QTestState *q)
+{
+    /* A different live frontend must be able to claim the failed one's peer.
+     * This proves rollback, rather than merely re-registering the same owner. */
+    set_realized(q, 1, false);
+    set_link(q, 1, "peer", "/machine/peripheral/wire0");
+    set_realized(q, 1, true);
+    set_realized(q, 1, false);
+    set_link(q, 1, "peer", "/machine/peripheral/wire1");
+    set_realized(q, 1, true);
+}
+
+static void test_rollback(void)
+{
+    QTestState *q = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 "
+        "-bios %s -serial none -display none "
+        "-device at24c-eeprom,bus=nikon-i2c2,address=0x50,rom-size=256 "
+        "-device nikon-peer,id=wire0 -device nikon-peer,id=wire1 "
+        "-device nikon-i2c-peer,id=link0,peer=/machine/peripheral/wire0,"
+        "i2c=/machine/i2c0 "
+        "-device nikon-i2c-peer,id=link1,peer=/machine/peripheral/wire1,"
+        "i2c=/machine/i2c1", bios);
+
+    set_realized(q, 0, false);
+    set_link(q, 0, "i2c", "/machine/i2c2");
+    realize_rejected(q, "local slave devices");
+    frontend_takeover(q);
+    set_link(q, 0, "i2c", "/machine/i2c0");
+    set_realized(q, 0, true);
+    set_realized(q, 0, false);
+    set_link(q, 0, "i2c", "/machine/i2c1");
+    realize_rejected(q, "already has an asynchronous peer");
+    frontend_takeover(q);
+    set_link(q, 0, "i2c", "/machine/i2c0");
+    set_realized(q, 0, true);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_cmphex(read_reg(q, i, 4) & 0x100, ==, 0);
+        g_assert_cmphex(read_reg(q, i, 0x10), ==, 0);
+    }
+    qtest_quit(q);
+}
+
+static void test_lifecycle(void)
+{
+    I2CWireTest t = wire_start(1);
+    uint8_t old[NIKON_WIRE_SIZE], frame[NIKON_WIRE_SIZE];
+
+    begin_tx(t.q, 0, 0x38, false);
+    wire_request(&t, 0, NIKON_I2C_START, 0x55, old);
+    set_realized(t.q, 0, false);
+    wire_read(&t, 0, frame);
+    g_assert_cmpuint(frame[NIKON_WIRE_TYPE], ==, NIKON_WIRE_CANCEL);
+    g_assert_cmphex(ldq_le_p(frame + NIKON_WIRE_TOKEN), ==,
+                    ldq_le_p(old + NIKON_WIRE_TOKEN));
+    wire_reply(&t, 0, old, 0);
+    realize_rejected(t.q, "active transaction");
+    wire_quiet(&t, 0);
+    g_assert_cmphex(read_reg(t.q, 0, 4) & 0x140, ==, 0x140);
+    g_assert_cmphex(read_reg(t.q, 0, 0x10), ==, 0);
+    qtest_qmp_assert_success(t.q, "{'execute':'system_reset'}");
+    g_assert_cmphex(read_reg(t.q, 0, 4) & 0x160, ==, 0);
+    set_realized(t.q, 0, true);
+    begin_tx(t.q, 0, 0x39, false);
+    wire_request(&t, 0, NIKON_I2C_START, 0x55, frame);
+    g_assert_cmphex(ldq_le_p(frame + NIKON_WIRE_TOKEN), !=,
+                    ldq_le_p(old + NIKON_WIRE_TOKEN));
+    wire_reply(&t, 0, frame, 0);
+    wire_request(&t, 0, NIKON_I2C_WRITE, 0x39, frame);
+    wire_reply(&t, 0, frame, 0);
+    stop_reply(&t, 0);
+    g_assert_cmphex(read_reg(t.q, 0, 0x10) & 1, ==, 1);
+    set_realized(t.q, 0, false);
+    set_realized(t.q, 0, true);
+    wire_quiet(&t, 0);
+    wire_quit(&t);
+}
+
 void nikon_i2c_add_tests(const char *image)
 {
     bios = image;
@@ -572,4 +732,7 @@ void nikon_i2c_add_tests(const char *image)
     qtest_add_func("/nikon/i2c/ports", test_ports);
     qtest_add_func("/nikon/i2c/gpio", test_gpio);
     qtest_add_func("/nikon/i2c/strobes", test_strobes);
+    qtest_add_func("/nikon/i2c/configuration", test_configuration);
+    qtest_add_func("/nikon/i2c/rollback", test_rollback);
+    qtest_add_func("/nikon/i2c/lifecycle", test_lifecycle);
 }
