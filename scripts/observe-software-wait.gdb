@@ -1,4 +1,5 @@
-# RTOS source 54f792f16da74bbbbd435a34f2efcc0869550b11.
+# RTOS sources 54f792f16da74bbbbd435a34f2efcc0869550b11 and
+# 43dc8ba53ab0d63596fef5379512d6c118a9600f; preserve raw Thumb LR.
 # Source with native GDB -nx; verify stopped QEMU CPU thread IDs separately.
 set pagination off
 set language c
@@ -29,7 +30,7 @@ define ng-observe-software-wait
     printf "ng_event_business_wait API entry; timeout is fifth stack argument\n"
     info threads -gid
     info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
-    if $lr == 0x103610f4
+    if ($lr & ~1u) == 0x103610f4
       printf "ng_wait_wrapper source-proven 16-byte frame; last word is caller LR\n"
       x/4wx $sp
     else
