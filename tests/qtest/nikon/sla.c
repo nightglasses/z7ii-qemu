@@ -16,6 +16,8 @@ void nikon_router_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_gate_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_status_test(QTestState *qts, uint64_t status, uint64_t system);
 void nikon_test_flags(QTestState *qts);
+void nikon_pairs_test(QTestState *qts, const char *path,
+                      uint64_t first, uint64_t second);
 
 static uint16_t fixture_crc(const uint8_t *data, size_t size)
 {
@@ -629,6 +631,87 @@ static void test_flags(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_pairs(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_pairs_test(qts, "/machine/sla/pairs", 0x20380000, 0x203c0000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_provider_topology(void)
+{
+    static const char *const children[] = {
+        "pairs", "sampler", "table", "shared", "parameters",
+        "results", "lookupbytes", "lookupwords",
+    };
+    static const struct {
+        const char *child;
+        const char *input;
+        unsigned pin;
+        uint64_t base;
+        unsigned pending;
+        uint32_t bits;
+        unsigned irq;
+    } event[] = {
+        { "pairs", "pending-bit", 0, 0x20380000, 0x24, 1, 99 },
+        { "pairs", "pending-bit", 32, 0x203c0000, 0x24, 1, 100 },
+        { "sampler", "external-event", 1, 0x20201000, 0x2c, 2, 116 },
+        { "table", "external-event", 1, 0x20204000, 0x2c, 0x20000, 121 },
+        { "shared", "external-event", 0, 0x20205000, 0x2c, 1, 122 },
+        { "parameters", "external-event", 0, 0x20203000, 0x2c, 1, 124 },
+    };
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+    unsigned i, j;
+
+    for (i = 0; i < ARRAY_SIZE(children); i++) {
+        g_autofree char *child = g_strdup_printf("/machine/sla/%s", children[i]);
+        QDict *response = qtest_qmp(qts, "{'execute':'qom-list',"
+                                    "'arguments':{'path':%s}}", child);
+
+        g_assert_true(qdict_haskey(response, "return"));
+        qobject_unref(response);
+    }
+    /* One interception for all actual private GIC links in this VM. */
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+    qtest_writel(qts, 0x203800e8, 0);
+    qtest_writel(qts, 0x203c00e8, 0);
+    for (i = 0; i < ARRAY_SIZE(event); i++) {
+        g_autofree char *child = g_strdup_printf("/machine/sla/%s", event[i].child);
+
+        qtest_set_irq_in(qts, child, event[i].input, event[i].pin, 1);
+        g_assert_cmphex(qtest_readl(qts, event[i].base + event[i].pending),
+                        ==, event[i].bits);
+        for (j = 0; j < ARRAY_SIZE(event); j++) {
+            g_assert_cmpint(qtest_get_irq(qts, event[j].irq - 32), ==, i == j);
+        }
+        qtest_writel(qts, event[i].base + event[i].pending, event[i].bits);
+        g_assert_false(qtest_get_irq(qts, event[i].irq - 32));
+        qtest_set_irq_in(qts, child, event[i].input, event[i].pin, 0);
+    }
+    /* Typed-only provider families: actual private config, no fake test cause.
+     * IRQ105/106/115 injection is covered by their shared units, not this VM. */
+    qtest_writel(qts, 0x20200080, 0x89abcdef);
+    g_assert_cmphex(qtest_readl(qts, 0x20200080), ==, 0x89abcdef);
+    for (i = 0; i < 2; i++) {
+        uint64_t base = 0x24073400 - i * 0x1000;
+
+        qtest_writel(qts, base + 0x84, 0x8004);
+        g_assert_cmphex(qtest_readl(qts, base + 0x84), ==, 0x8004);
+        qtest_writel(qts, base, 0x4000);
+        g_assert_cmphex(qtest_readl(qts, base), ==, 0x4000);
+    }
+    qtest_writeb(qts, 0x24073000, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x24073000), ==, 1);
+    qtest_writel(qts, 0x24072000, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x24072000), ==, 1);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 static void test_config_links(void)
 {
     const uint32_t config = 0x20010000, mxic = 0x20016000;
@@ -684,5 +767,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sla/status", test_status);
     qtest_add_func("/nikon/sla/flags", test_flags);
     qtest_add_func("/nikon/sla/config-links", test_config_links);
+    qtest_add_func("/nikon/sla/provider-topology", test_provider_topology);
+    qtest_add_func("/nikon/sla/pairs", test_pairs);
     return g_test_run();
 }

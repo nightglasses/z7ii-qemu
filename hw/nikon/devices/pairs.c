@@ -10,7 +10,7 @@
 #include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
 
-#define BANK_SIZE 0x680
+#define BANK_SIZE 0x5e00
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPairedEventBanksState, NIKON_PAIRED_EVENT_BANKS)
 
 typedef struct NikonPairedEventBanksBank {
@@ -30,22 +30,73 @@ struct NikonPairedEventBanksState {
 
 static bool nikon_paired_event_banks_config(hwaddr offset, unsigned bank)
 {
+    /* SOURCE11 96cba..994c2 setters and 994e8 word-table publication.
+     * These are retained configuration, not fabricated results. Gaps containing
+     * 994e2 status consumers deliberately remain inaccessible.
+     */
+    static const struct {
+        unsigned first, last;
+    } ranges[] = {
+        { 0x40, 0x50 }, { 0x94, 0xa0 }, { 0xb8, 0xcc },
+        { 0xd4, 0xe4 }, { 0xf8, 0x110 }, { 0x11c, 0x144 },
+        { 0x200, 0x210 }, { 0x218, 0x234 }, { 0x24c, 0x258 },
+        { 0x300, 0x34c },
+        { 0x364, 0x384 }, { 0x394, 0x3b4 }, { 0x3c4, 0x3c8 },
+        { 0x3d8, 0x3e0 }, { 0x3e8, 0x3f0 },
+        { 0x400, 0x414 }, { 0x420, 0x470 },
+        { 0x488, 0x4c8 }, { 0x500, 0x678 }, { 0x700, 0x778 },
+        { 0x900, 0x9b0 }, { 0x9b4, 0x9d8 },
+        { 0xb00, 0xb60 }, { 0xb64, 0xbbc },
+        { 0xd00, 0xe18 }, { 0xf00, 0xf2c },
+        { 0x1100, 0x113c }, { 0x1200, 0x1244 },
+        { 0x1300, 0x1320 }, { 0x1328, 0x1348 },
+        { 0x1350, 0x1370 }, { 0x1378, 0x1398 },
+        { 0x1d38, 0x1e34 }, { 0x1f00, 0x1f40 }, { 0x1f48, 0x1f88 },
+        { 0x1f90, 0x1fb0 }, { 0x1fb8, 0x1fd8 },
+        { 0x1fe0, 0x2000 }, { 0x2008, 0x2028 }, { 0x2030, 0x2050 },
+        { 0x2058, 0x2078 }, { 0x2080, 0x20a0 }, { 0x20a8, 0x20c8 },
+        { 0x20d0, 0x20dc }, { 0x2100, 0x22fc },
+        { 0x2400, 0x288c }, { 0x2890, 0x2c94 },
+        { 0x3900, 0x3a98 }, { 0x3aa0, 0x3c38 },
+        { 0x3c40, 0x3dd8 }, { 0x3de0, 0x3f78 },
+        { 0x3f80, 0x4118 }, { 0x4120, 0x42b8 },
+        { 0x42c0, 0x44c0 }, { 0x44c8, 0x45c8 },
+        { 0x45d0, 0x46d0 }, { 0x46d8, 0x47d8 },
+        { 0x47e0, 0x48e0 }, { 0x48e8, 0x49e8 },
+        { 0x49f0, 0x4a70 }, { 0x4a74, 0x4af4 },
+        { 0x4afc, 0x4b7c }, { 0x4b80, 0x4c00 },
+        { 0x4c08, 0x4c88 }, { 0x4c8c, 0x4d0c },
+        { 0x4d14, 0x4d94 }, { 0x4d98, 0x4e18 },
+        { 0x4e1c, 0x4f1c }, { 0x4f20, 0x4fa0 },
+        { 0x4fa4, 0x5024 }, { 0x502c, 0x512c },
+        { 0x5134, 0x5334 }, { 0x533c, 0x553c },
+        { 0x5544, 0x5744 }, { 0x574c, 0x594c },
+        { 0x5954, 0x5a54 }, { 0x5a5c, 0x5adc },
+        { 0x5ae4, 0x5b64 },
+        { 0x5c00, 0x5c7c }, { 0x5c80, 0x5cfc },
+        { 0x5d00, 0x5d7c }, { 0x5d80, 0x5dfc },
+    };
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(ranges); i++) {
+        if (offset >= ranges[i].first && offset <= ranges[i].last) {
+            return true;
+        }
+    }
     switch (offset) {
-    case 0: case 4: case 0xc: case 0x44: case 0x48: case 0x4c: case 0x50:
-    case 0x84: case 0xbc: case 0xc0: case 0xc4: case 0xc8: case 0xcc:
-    case 0x120: case 0x124: case 0x128: case 0x12c: case 0x130:
-    case 0x300: case 0x30c: case 0x310:
-    case 0x3e8: case 0x3ec: case 0x3f0: case 0x410: case 0x420: case 0x67c:
-    case 0xf0:
+    case 0: case 4: case 0xc: case 0x20: case 0x84: case 0x88: case 0x8c:
+    case 0xac: case 0xf0: case 0x67c:
         return true;
-    case 0xd0:
+    case 0xd0: case 0xb0:
         return bank == 0;
     default:
         return false;
     }
 }
 
-/* Exact recovered command/configuration shapes, not physical legal masks. */
+/* Only opaque command shapes remain constrained. Setters retain full words;
+ * source packing is a producer convention, not a proved hardware legal mask.
+ */
 static bool nikon_paired_event_banks_value(hwaddr offset, uint32_t value)
 {
     switch (offset) {
@@ -53,28 +104,12 @@ static bool nikon_paired_event_banks_value(hwaddr offset, uint32_t value)
         return value == 3;
     case 0xc:
         return value == 1;
-    case 0x48:
-        return value == 0x28000e || value == 0x14000e;
-    case 0xbc:
-        return value == 1 || value == 2;
-    case 0xc4:
-        return value == 0x14;
-    case 0xcc:
-        return value == 0 || value == 0x14;
     case 0xd0:
         return value <= 1;
     case 0xf0:
         return value == 0x8e || value == 0xfc400;
-    case 0x300: case 0x3e8:
-        return value == 2;
-    case 0x30c: case 0x3f0:
-        return value == 0x20 || value == 0x40;
-    case 0x310: case 0x3ec:
-        return true; /* Original entry parameter; no inferred DMA address. */
-    case 0x67c:
-        return value == 0x200;
     default:
-        return value == 0;
+        return true;
     }
 }
 
@@ -147,7 +182,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         /* Opaque control inputs/configuration never clear pending or fields. */
         b->config[offset / 4] = value;
     } else {
-        /* 08/10/54/60/6c/78/580 requests have no recovered event source. */
+        /* 08/10/54/60/6c/78 requests have no recovered event source. */
         return nikon_paired_event_banks_error(b, offset, size, true, value);
     }
     nikon_paired_event_banks_irq(b);

@@ -23,6 +23,8 @@
 #include "hw/nikon/lanes.h"
 #include "hw/nikon/storage.h"
 #include "hw/nikon/sensor.h"
+#include "hw/nikon/readout.h"
+#include "hw/nikon/lookup.h"
 #include "hw/nikon/flags.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
@@ -472,6 +474,73 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         sysbus_connect_irq(SYS_BUS_DEVICE(gate), 0,
                            qdev_get_gpio_in(gic, 102 - 32));
         /* No pending-bit provider or data/submission backend is connected. */
+    }
+    {
+        DeviceState *pairs = sla_simple(s, "pairs",
+                                       TYPE_NIKON_PAIRED_EVENT_BANKS,
+                                       0x20380000);
+        static const struct {
+            const char *name;
+            const char *type;
+            hwaddr base;
+            unsigned irq;
+        } event[] = {
+            { "sampler", TYPE_NIKON_DATA_SAMPLER, 0x20201000, 116 },
+            { "table", TYPE_NIKON_TABLE_SAMPLER, 0x20204000, 121 },
+            { "shared", TYPE_NIKON_SHARED_PARAMETER_EVENTS, 0x20205000, 122 },
+            { "parameters", TYPE_NIKON_PARAMETER_EVENTS, 0x20203000, 124 },
+        };
+
+        /* SOURCE11 96450/96534 owns two banks at the original 0x40000 stride. */
+        sla_map(s, pairs, 1, 0x203c0000);
+        for (i = 0; i < 2; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(pairs), i,
+                               qdev_get_gpio_in(gic, 99 + i - 32));
+        }
+        /* 93ce8 mode2 directly registers and initializes all four namespaces. */
+        for (i = 0; i < ARRAY_SIZE(event); i++) {
+            DeviceState *control = sla_simple(s, event[i].name, event[i].type,
+                                             event[i].base);
+
+            sysbus_connect_irq(SYS_BUS_DEVICE(control), 0,
+                               qdev_get_gpio_in(gic, event[i].irq - 32));
+        }
+        /* These finite control/event instances have no external data provider. */
+    }
+    {
+        DeviceState *results = sla_simple(s, "results", TYPE_NIKON_READOUT,
+                                         0x20200000);
+
+        /* SOURCE11 9ace2/9ad52: logical10f has its own result/IRQ115 family. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(results), 0,
+                           qdev_get_gpio_in(gic, 115 - 32));
+        /* Independent of readout-control at 2006b000; no result provider. */
+    }
+    {
+        static const struct {
+            const char *name;
+            const char *type;
+            hwaddr control;
+            hwaddr auxiliary;
+            unsigned irq;
+        } lookup[] = {
+            { "lookupbytes", TYPE_NIKON_LOOKUP_BYTES,
+              0x24073400, 0x24073000, 106 },
+            { "lookupwords", TYPE_NIKON_LOOKUP_WORDS,
+              0x24072400, 0x24072000, 105 },
+        };
+
+        /* SOURCE11 95636/95ce8: independent logical114/113 objects. */
+        for (i = 0; i < ARRAY_SIZE(lookup); i++) {
+            DeviceState *control = sla_device(s, lookup[i].name, lookup[i].type);
+
+            sysbus_realize_and_unref(SYS_BUS_DEVICE(control), &error_fatal);
+            sla_map(s, control, 0, lookup[i].control);
+            sla_map(s, control, 1, lookup[i].auxiliary);
+            sysbus_connect_irq(SYS_BUS_DEVICE(control), 0,
+                               qdev_get_gpio_in(gic, lookup[i].irq - 32));
+        }
+        /* No typed observation provider is supplied to either lookup instance. */
     }
     {
         static const hwaddr base[] = { 0x04250000, 0x24061000, 0x2c041000 };
