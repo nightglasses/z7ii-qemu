@@ -23,6 +23,21 @@ define ng-observe-software-wait
   set $ng_set_count = 0
   set $ng_pattern_count = 0
 
+  thbreak *0x10104a14 if $r0 == $ng_id
+  commands
+    silent
+    printf "ng_event_business_wait API entry; timeout is fifth stack argument\n"
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
+    if $lr == 0x103610f4
+      printf "ng_wait_wrapper source-proven 16-byte frame; last word is caller LR\n"
+      x/4wx $sp
+    else
+      x/wx $sp
+    end
+    continue &
+  end
+
   hbreak *0x10104848 if $r0 == $ng_id && $ng_set_count < 8
   commands
     silent
@@ -114,7 +129,7 @@ define ng-observe-software-wait
 end
 
 document ng-observe-software-wait
-Install six hardware locations for the actual event-flag ID 01000088.
+Install seven hardware locations for the actual event-flag ID 01000088.
 Pass verified global thread IDs for QEMU CPU#0/1; no initial continue is issued.
 Use native background continue and interrupt; all-stop mode stops both CPUs.
 Read/command errors abort the command list before resume. Setter/pattern logs cap at 8.
