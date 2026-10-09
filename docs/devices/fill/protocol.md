@@ -19,3 +19,24 @@ Original MAS at C revision `59711d4c31645768a84207ece774acd6c0d5d20c` configured
 The earlier paragraphs and receipts describe the initial startup layer. The current two-engine interface additionally retains the saved runtime register setters/getters, engine stride40hex, stop command0 with virtual stopped readback2, result mask and acknowledgement. Its ISR acknowledgement can clear the combined done/error mask11hex, and real pending status intersected with the guest mask drives the board's GIC103/104. This is the runtime extension already present at the task base; the historical statement about no IRQ applies only to the initial startup layer. No new fill C behavior or native run is added by [QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397).
 
 The saved runtime consumers cover configuration, submit/stop, mask/status and ISR paths; they do not establish a complete nonzero-pattern or general dimension/stride transfer law. Those modes and count-zero encoding remain future protocol work, explicitly rejected before a transfer rather than approximated as zero fill. A RAM decode/bus failure is a real backing dependency and cannot become done. The current zero profile remains synchronous and does not establish physical concurrency. No saved source joins fill completion to event/EXIU or a completed frame.
+
+## Private execution domains
+
+The device has the standard QEMU `memory` link property, whose target is a
+`MemoryRegion`. Set it before device realization to the executing component's
+physical root. The device creates its own `AddressSpace` over that root and
+destroys only that address space on unrealize; the linked board memory remains
+owned by its board. An unset link selects the system root used by MAS.
+
+Every destination lookup and DMA write uses this selected domain. Each mapped
+span must be writable RAM; read-only RAM, ROM, MMIO and unmapped destinations
+produce the existing bus-error result and cannot yield done. Earlier successful
+spans of a request remain written if a subsequent span fails. The RAM mapping
+belongs to the component: an equal physical address in MAS and SLA does not
+share backing unless the board deliberately connects it. In particular, a fill
+performed by a private SLA instance must not clear MAS memory.
+
+This change affects address-space ownership only. The original two-engine
+register protocol, synchronous zero mode, result/ACK/mask and reset behavior
+are retained. Native dual-domain validation is supplied separately; this source
+change alone does not establish original SLA execution or GUI progress.

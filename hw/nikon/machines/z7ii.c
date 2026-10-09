@@ -20,6 +20,8 @@
 #include "hw/nikon/devices.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/storage.h"
+#include "hw/nikon/processing.h"
+#include "hw/nikon/sla.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -65,6 +67,7 @@ struct Z7IIMachineState {
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
+    MemoryRegion peer_window;
     DeviceState *memc;
     bool reported_unknown;
 };
@@ -196,6 +199,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *mxic;
     DeviceState *gpio;
     DeviceState *exiu;
+    DeviceState *bridge;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
@@ -363,10 +367,22 @@ static void z7ii_init(MachineState *machine)
                                qdev_get_gpio_in(gic, 86 + i - 32));
         }
     }
-    sysbus_create_simple(TYPE_NIKON_BRIDGE, 0x20130000,
-                         qdev_get_gpio_in(gic, 127 - 32));
+    bridge = qdev_new(TYPE_NIKON_BRIDGE);
+    object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(bridge), 0, 0x20130000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(bridge), 0,
+                       qdev_get_gpio_in(gic, 127 - 32));
+    /* Only the source local receive aperture is exposed, not a 4 GiB bank. */
+    memory_region_init_alias(&s->peer_window, OBJECT(machine), "z7ii.peer",
+                             sysbus_mmio_get_region(SYS_BUS_DEVICE(bridge), 2),
+                             0x40000000, 0x10000000);
+    memory_region_add_subregion(get_system_memory(), 0x40000000,
+                               &s->peer_window);
     sysbus_create_simple(TYPE_NIKON_IPUD, 0x24020000,
                          qdev_get_gpio_in(gic, 101 - 32));
+    sysbus_create_simple(TYPE_NIKON_PROCESSING, 0x24070000,
+                         qdev_get_gpio_in(gic, 110 - 32));
     {
         DeviceState *transfer = sysbus_create_simple(TYPE_NIKON_TRANSFER,
                                   0x20180000,
@@ -597,6 +613,18 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(cpu, ARM_CPU_VIRQ));
         sysbus_connect_irq(gic_bus, i + 3 * s->num_cpus,
                            qdev_get_gpio_in(cpu, ARM_CPU_VFIQ));
+    }
+    if (s->bundle) {
+        g_autoptr(GBytes) payload = nikon_bundle_component(s->bundle,
+                                                          NIKON_COMPONENT_SLA);
+        DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
+                                            2, NULL, &error_fatal);
+
+        /* Source-complementary handshake; the board trace is not recovered. */
+        qdev_connect_gpio_out_named(sla, "peer-ready", 0,
+                                   qdev_get_gpio_in_named(gpio, "external-level",
+                                                          6 * 16 + 3));
+        nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
     }
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "

@@ -27,6 +27,7 @@ typedef struct NikonDualEventBanksRegion {
     QEMUTimer *timer;
     QemuConsole *console;
     uint32_t packet[BANK_SIZE / 4];
+    uint64_t period;
     bool active;
 } NikonDualEventBanksRegion;
 
@@ -79,6 +80,9 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
             *mask = 0x3f3f3f3f; return true;
         case 0x840: case 0x844: case 0x848:
             *mask = 0xffffff; return true;
+        case 0x810: *mask = 0xff; return true;
+        case 0x814: *mask = 0x1f001f1f; return true;
+        case 0x818: *mask = 0x1f1f; return true;
         }
     }
     switch (offset) {
@@ -186,20 +190,42 @@ static void nikon_dual_event_banks_irq(NikonDualEventBanksState *s)
 
 static bool nikon_banks_ram(hwaddr base, uint64_t bytes)
 {
-    MemoryRegionSection section;
-    bool valid;
-
     if (!base || !bytes || bytes > HWADDR_MAX - base) {
         return false;
     }
-    section = memory_region_find(get_system_memory(), base, bytes);
-    valid = section.mr && memory_region_is_ram(section.mr) &&
-            !memory_region_is_rom(section.mr) &&
-            int128_get64(section.size) == bytes;
-    if (section.mr) {
-        memory_region_unref(section.mr);
+    while (bytes) {
+        MemoryRegionSection section =
+            memory_region_find(get_system_memory(), base, bytes);
+        uint64_t span = int128_get64(section.size);
+        bool valid = section.mr && span && span <= bytes &&
+                     memory_region_is_ram(section.mr) &&
+                     !memory_region_is_rom(section.mr);
+
+        if (section.mr) {
+            memory_region_unref(section.mr);
+        }
+        if (!valid) {
+            return false;
+        }
+        base += span;
+        bytes -= span;
     }
-    return valid;
+    return true;
+}
+
+static void nikon_banks_schedule(NikonDualEventBanksRegion *r)
+{
+    uint32_t geometry = r->parent->config[r->index][0x1308 / 4];
+    uint64_t pixels = (uint64_t)(geometry & 0x3fff) *
+                      ((geometry >> 16) & 0x3fff);
+
+    if (pixels && pixels <= FRAME_PIXELS) {
+        r->period = MAX(1, (pixels * NANOSECONDS_PER_SECOND +
+                           47999999) / 48000000);
+    }
+    if (r->active) {
+        timer_mod(r->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + r->period);
+    }
 }
 
 /* Functional encodings for the seven original numeric input layouts.
@@ -330,6 +356,75 @@ out:
 
 static const GraphicHwOps nikon_banks_graphics;
 
+/* Source ratios map pre-scale port coordinates into viewport coordinates.
+ * Nearest sampling and the frame boundary are named functional conventions.
+ */
+static bool nikon_banks_port(NikonDualEventBanksRegion *r,
+                             pixman_image_t *output, unsigned port,
+                             unsigned out_width, unsigned out_height,
+                             bool *supplied)
+{
+    unsigned block = 0x2000 + port * 0x1000;
+    uint32_t *packet = r->packet;
+    uint32_t enabled = packet[(block + 0x5c0) / 4];
+    uint32_t command = packet[(block + 0x100) / 4] & 3;
+    uint32_t geometry = packet[(block + 0x204) / 4];
+    uint32_t origin = packet[(block + 0x208) / 4];
+    unsigned width = geometry & 0xffff, height = (geometry >> 16) & 0x3fff;
+    unsigned x = origin & 0xffff, y = (origin >> 16) & 0x3fff;
+    unsigned a = 1, b = 1, e = 1, f = 1, scaled_width, scaled_height, layer;
+    pixman_transform_t transform;
+    pixman_image_t *canvas;
+
+    if (!enabled || (command != 1 && command != 3)) {
+        return true;
+    }
+    if (packet[(block + 0x810) / 4]) {
+        uint32_t horizontal = packet[(block + 0x814) / 4];
+        uint32_t vertical = packet[(block + 0x818) / 4];
+        a = horizontal & 31;
+        b = (horizontal >> 8) & 31;
+        e = vertical & 31;
+        f = (vertical >> 8) & 31;
+        if (!a || !b || !e || !f) {
+            return false;
+        }
+    }
+    scaled_width = (uint64_t)width * a / b;
+    scaled_height = (uint64_t)height * e / f;
+    if (!width || !height || !scaled_width || !scaled_height ||
+        (uint64_t)width * height > FRAME_PIXELS) {
+        return false;
+    }
+    canvas = pixman_image_create_bits(PIXMAN_a8r8g8b8, width, height, NULL, 0);
+    if (!canvas) {
+        return false;
+    }
+    for (layer = 0; layer < 10; layer++) {
+        if ((enabled & (1U << layer)) &&
+            !nikon_banks_layer(r, canvas, port, layer, width, height)) {
+            pixman_image_unref(canvas);
+            return false;
+        }
+    }
+    pixman_transform_init_scale(&transform, ((int64_t)b << 16) / a,
+                                ((int64_t)f << 16) / e);
+    if (!pixman_image_set_transform(canvas, &transform) ||
+        !pixman_image_set_filter(canvas, PIXMAN_FILTER_NEAREST, NULL, 0)) {
+        pixman_image_unref(canvas);
+        return false;
+    }
+    if (x < out_width && y < out_height) {
+        pixman_image_composite32(PIXMAN_OP_OVER, canvas, NULL, output,
+                                 0, 0, 0, 0, x, y,
+                                 MIN(scaled_width, out_width - x),
+                                 MIN(scaled_height, out_height - y));
+    }
+    *supplied = true;
+    pixman_image_unref(canvas);
+    return true;
+}
+
 static bool nikon_banks_overlays(NikonDualEventBanksRegion *r,
                                 pixman_image_t *output,
                                 unsigned width, unsigned height)
@@ -380,14 +475,20 @@ static void nikon_banks_frame(void *opaque)
     NikonDualEventBanksRegion *r = opaque;
     NikonDualEventBanksState *s = r->parent;
     uint32_t *packet = r->packet;
-    uint32_t geometry = packet[0x1308 / 4];
-    unsigned width = geometry & 0x3fff, height = (geometry >> 16) & 0x3fff;
+    uint32_t geometry;
+    unsigned width, height;
     pixman_image_t *output;
-    unsigned port, layer;
+    unsigned port;
     bool supplied = false;
 
-    r->active = false;
-    s->config[r->index][0x1200 / 4] &= ~3U;
+    if (!r->active) {
+        return;
+    }
+    /* Live setters have no master restart. Snapshot at each frame boundary. */
+    memcpy(packet, s->config[r->index], sizeof(r->packet));
+    geometry = packet[0x1308 / 4];
+    width = geometry & 0x3fff;
+    height = (geometry >> 16) & 0x3fff;
     if (!width || !height || (uint64_t)width * height > FRAME_PIXELS) {
         goto error;
     }
@@ -396,16 +497,9 @@ static void nikon_banks_frame(void *opaque)
         goto error;
     }
     for (port = 0; port < 2; port++) {
-        uint32_t enabled = packet[(0x25c0 + port * 0x1000) / 4];
-        for (layer = 0; layer < 10; layer++) {
-            if (!(enabled & (1U << layer))) {
-                continue;
-            }
-            supplied = true;
-            if (!nikon_banks_layer(r, output, port, layer, width, height)) {
-                pixman_image_unref(output);
-                goto error;
-            }
+        if (!nikon_banks_port(r, output, port, width, height, &supplied)) {
+            pixman_image_unref(output);
+            goto error;
         }
     }
     supplied |= nikon_banks_overlays(r, output, width, height);
@@ -425,6 +519,8 @@ static void nikon_banks_frame(void *opaque)
     }
     pixman_image_unref(output);
     qemu_console_update_full(r->console);
+    s->config[r->index][0x1200 / 4] =
+        (s->config[r->index][0x1200 / 4] & ~3U) | 3;
     {
         unsigned field;
         const unsigned selection[] = { 0x4c0, 0x1510 };
@@ -460,10 +556,12 @@ static void nikon_banks_frame(void *opaque)
     /* Virtual frame-complete bit16; original ISR translates this into bit1. */
     s->pending[r->index] |= 1U << 16;
     nikon_dual_event_banks_irq(s);
+    nikon_banks_schedule(r);
     return;
 error:
     nikon_access_error(&s->reported_error, r->regs.addr + 0x1200, 4,
                        true, packet[0x1200 / 4], "image-packet-or-dma-failed");
+    nikon_banks_schedule(r);
 }
 
 static bool nikon_banks_update(void *opaque)
@@ -605,22 +703,16 @@ static MemTxResult nikon_dual_event_banks_write(void *opaque, hwaddr offset,
                     uint32_t geometry = s->config[r->index][0x1308 / 4];
                     uint64_t pixels = (uint64_t)(geometry & 0x3fff) *
                                       ((geometry >> 16) & 0x3fff);
-                    if (!pixels || pixels > FRAME_PIXELS ||
-                        !(s->config[r->index][0x25c0 / 4] |
-                          s->config[r->index][0x35c0 / 4] |
-                          s->config[r->index][0x1c00 / 4] |
-                          s->config[r->index][0x1c04 / 4])) {
+                    bool running = r->active &&
+                        (s->config[r->index][offset / 4] & 3) == 3;
+
+                    if (!pixels || pixels > FRAME_PIXELS) {
                         return nikon_dual_event_banks_error(r, offset,
                                                             size, true, value);
                     }
-                    memcpy(r->packet, s->config[r->index], sizeof(r->packet));
-                    r->packet[offset / 4] = value;
                     r->active = true;
-                    /* Nominal 48 MHz pixel service; not measured EXPEED speed. */
-                    timer_mod(r->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                              MAX(1, (pixels * NANOSECONDS_PER_SECOND +
-                                      47999999) / 48000000));
-                    value = (value & ~3U) | 3;
+                    nikon_banks_schedule(r);
+                    value = (value & ~3U) | (running ? 3 : 1);
                 } else if (command == 3) {
                     return nikon_dual_event_banks_error(r, offset,
                                                         size, true, value);
@@ -678,6 +770,7 @@ static void nikon_dual_event_banks_reset(DeviceState *dev)
     for (i = 0; i < 2; i++) {
         timer_del(s->region[i].timer);
         s->region[i].active = false;
+        s->region[i].period = 0;
         memset(s->region[i].packet, 0, sizeof(s->region[i].packet));
     }
     s->reported_error = false;

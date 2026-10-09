@@ -9,18 +9,23 @@
 
 void nikon_test_completion(QTestState *q);
 
-static void completion_submit(QTestState *q, unsigned domain, bool enable)
+static void completion_submit_request(QTestState *q, uint32_t request)
 {
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 
-    qtest_writel(q, COMPLETION, (domain << 12) | 0x10 |
-                 (enable ? 0x100 : 0));
+    qtest_writel(q, COMPLETION, request);
     qtest_writel(q, COMPLETION + 0x10, 0xa1);
     /* BH execution is asynchronous: do not require an observable busy read. */
     while (qtest_readl(q, COMPLETION + 4) != 1) {
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         g_usleep(1000);
     }
+}
+
+static void completion_submit(QTestState *q, unsigned domain, bool enable)
+{
+    completion_submit_request(q, (domain << 12) | 0x10 |
+                              (enable ? 0x100 : 0));
 }
 
 /* The suite owner intercepts the real GIC SPI inputs on a fresh machine.
@@ -33,12 +38,41 @@ void nikon_test_completion(QTestState *q)
     unsigned domain;
 
     g_assert_cmphex(qtest_readl(q, COMPLETION + 0xc), ==, 0);
+    /* Complete SLA startup producer 100537a4 -> 1005385a selects 0..4,
+     * including its tail call for 4. It does not set the MAS mode bit4 or
+     * notification register before polling and acknowledging the result.
+     */
+    for (domain = 0; domain < 5; domain++) {
+        completion_submit_request(q, domain << 12);
+        g_assert_cmphex(qtest_readl(q, COMPLETION), ==, domain << 12);
+        g_assert_cmphex(qtest_readl(q, COMPLETION + 0xc), ==, 0);
+        g_assert_false(qtest_get_irq(q, COMPLETION_IRQ - 32));
+        qtest_writel(q, COMPLETION + 4, 1);
+        g_assert_cmphex(qtest_readl(q, COMPLETION + 4), ==, 0);
+    }
+
+    /* Rejected transactions do not replace the last valid request or
+     * manufacture completion. The following valid cycle must still work.
+     * qtest does not expose MemTxResult, so this asserts retained state only.
+     */
+    qtest_writel(q, COMPLETION, 0x8000); /* outside three-bit selector */
+    qtest_writel(q, COMPLETION, 0x4001); /* unsupported request field */
+    qtest_writew(q, COMPLETION, 0x1000); /* not a word transaction */
+    qtest_writel(q, COMPLETION + 0x10, 0xa0);
+    qtest_writel(q, COMPLETION + 8, 2);
+    g_assert_cmphex(qtest_readl(q, COMPLETION), ==, 0x4000);
+    g_assert_cmphex(qtest_readl(q, COMPLETION + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, COMPLETION + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, COMPLETION + 0xc), ==, 0);
+
     for (domain = 0; domain < 8; domain++) {
         completion_submit(q, domain, true);
         applied |= 1U << domain;
         g_assert_cmphex(qtest_readl(q, COMPLETION + 0xc), ==, applied);
         /* A completion with notification disabled does not raise an IRQ. */
         g_assert_false(qtest_get_irq(q, COMPLETION_IRQ - 32));
+        qtest_writel(q, COMPLETION + 4, 0); /* rejected ACK retains done */
+        g_assert_cmphex(qtest_readl(q, COMPLETION + 4), ==, 1);
         qtest_writel(q, COMPLETION + 4, 1);
         g_assert_cmphex(qtest_readl(q, COMPLETION + 4), ==, 0);
     }

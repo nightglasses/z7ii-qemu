@@ -141,6 +141,158 @@ static void rtc(void)
     qtest_quit(qts);
 }
 
+static void io_start(QTestState *qts, bool read)
+{
+    qtest_writel(qts, 0x40005400, 1 | (1 << 8) | (1 << 10));
+    qtest_writel(qts, 0x40005410, 0x44 | read);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x402, ==, 2);
+    qtest_readl(qts, 0x40005418);
+}
+
+static void io_stop(QTestState *qts)
+{
+    qtest_writel(qts, 0x40005400, 1 | (1 << 9));
+}
+
+static void io_write(QTestState *qts, uint8_t reg, const uint8_t *data, size_t len)
+{
+    io_start(qts, false);
+    qtest_writel(qts, 0x40005410, reg);
+    for (size_t i = 0; i < len; i++) {
+        qtest_writel(qts, 0x40005410, data[i]);
+    }
+    io_stop(qts);
+}
+
+static void io_read(QTestState *qts, uint8_t reg, uint8_t *data, size_t len)
+{
+    io_start(qts, false);
+    qtest_writel(qts, 0x40005410, reg);
+    io_start(qts, true);
+    for (size_t i = 0; i < len; i++) {
+        data[i] = qtest_readl(qts, 0x40005410);
+    }
+    io_stop(qts);
+}
+
+static void io(void)
+{
+    QTestState *qts = start();
+    uint8_t value[6], data[] = { 0x11, 0x22, 0x33, 0x44 };
+    /* Offset5 cycles 5,6,4,5; AI walks across the reserved hole to polarity. */
+    io_write(qts, 5, data, sizeof(data));
+    io_read(qts, 4, value, 3);
+    g_assert_cmphex(value[0], ==, 0x33);
+    g_assert_cmphex(value[1], ==, 0x44);
+    g_assert_cmphex(value[2], ==, 0x22);
+    io_read(qts, 0x86, value, 2);
+    g_assert_cmphex(value[0], ==, 0x22);
+    g_assert_cmphex(value[1], ==, 0);
+    /* Floating inputs resolve high; externally driven low is a real input. */
+    io_read(qts, 0, value, 3);
+    g_assert_cmphex(value[0], ==, 0xff);
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
+    io_read(qts, 1, value, 1);
+    g_assert_cmphex(value[0], ==, 0xfd);
+    /* B1 falling edge stays pending across a later rise; live status does not
+     * acknowledge it. Input-latch captures the first low value until read. */
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 1);
+    io_read(qts, 1, value, 1);
+    data[0] = 2;
+    io_write(qts, 0x49, data, 1);
+    data[0] = 8;
+    io_write(qts, 0x62, data, 1);
+    data[0] = 0xfd;
+    io_write(qts, 0x55, data, 1);
+    qtest_writel(qts, 0x40013c00, 1);
+    qtest_writel(qts, 0x40013c0c, 1); /* active-low INT -> A0 falling EXTI0 */
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 1);
+    io_read(qts, 0x6d, value, 1);
+    g_assert_cmphex(value[0], ==, 0xff);
+    io_read(qts, 0x59, value, 1);
+    g_assert_cmphex(value[0], ==, 2);
+    g_assert_true(qtest_get_irq(qts, 6));
+    io_read(qts, 1, value, 1);
+    g_assert_cmphex(value[0], ==, 0xfd);
+    io_read(qts, 0x59, value, 1);
+    g_assert_cmphex(value[0], ==, 0);
+    qtest_writel(qts, 0x40013c14, 1);
+    g_assert_false(qtest_get_irq(qts, 6));
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
+    data[0] = 2;
+    io_write(qts, 0x69, data, 1);
+    io_read(qts, 0x59, value, 1);
+    g_assert_cmphex(value[0], ==, 0);
+    /* Released P2_4 follows its programmed pull-down, then push-pull output. */
+    data[0] = 0xef;
+    io_write(qts, 0x52, data, 1);
+    data[0] = 0x10;
+    io_write(qts, 0x4e, data, 1);
+    io_read(qts, 0x6e, value, 1);
+    g_assert_cmphex(value[0], ==, 0xef);
+    data[0] = 0xef;
+    io_write(qts, 0x0e, data, 1);
+    data[0] = 0xff;
+    io_write(qts, 6, data, 1);
+    io_read(qts, 0x6e, value, 1);
+    g_assert_cmphex(value[0], ==, 0xff);
+    /* Debounce advances only on the external P0_0 time base. */
+    data[0] = 3;
+    io_write(qts, 0x74, data, 1);
+    data[0] = 2;
+    io_write(qts, 0x76, data, 1);
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 1, 0);
+    for (unsigned i = 0; i < 9; i++) {
+        qtest_set_irq_in(qts, "/machine/ex/io", "pad", 0, 0);
+        qtest_set_irq_in(qts, "/machine/ex/io", "pad", 0, 1);
+    }
+    io_read(qts, 0x6c, value, 1);
+    g_assert_cmphex(value[0], ==, 0xff);
+    for (unsigned i = 0; i < 2; i++) {
+        qtest_set_irq_in(qts, "/machine/ex/io", "pad", 0, 0);
+        qtest_set_irq_in(qts, "/machine/ex/io", "pad", 0, 1);
+    }
+    io_read(qts, 0x6c, value, 1);
+    g_assert_cmphex(value[0], ==, 0xfd);
+    /* Global open-drain for port2, reversed for pin4 by IOCR. */
+    data[0] = 4;
+    io_write(qts, 0x5c, data, 1);
+    io_read(qts, 0x6e, value, 1);
+    g_assert_cmphex(value[0], ==, 0xef);
+    data[0] = 0x10;
+    io_write(qts, 0x72, data, 1);
+    io_read(qts, 0x6e, value, 1);
+    g_assert_cmphex(value[0], ==, 0xff);
+    /* Physical reset holds the peer unaddressable, then restores registers. */
+    qtest_set_irq_in(qts, "/machine/ex/io", "reset", 0, 0);
+    qtest_writel(qts, 0x40005400, 1 | (1 << 8));
+    qtest_writel(qts, 0x40005410, 0x44);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x400, ==, 0x400);
+    io_stop(qts);
+    qtest_set_irq_in(qts, "/machine/ex/io", "reset", 0, 1);
+    io_read(qts, 4, value, 3);
+    g_assert_cmphex(value[0], ==, 0xff);
+    /* Original HAL three-byte finish: BTF, clear ACK, read first, STOP,
+     * then drain the two received bytes without another external clock. */
+    io_start(qts, false);
+    qtest_writel(qts, 0x40005410, 4);
+    io_start(qts, true);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x44, ==, 0x44);
+    qtest_writel(qts, 0x40005400, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x40005410), ==, 0xff);
+    io_stop(qts);
+    g_assert_cmphex(qtest_readl(qts, 0x40005410), ==, 0xff);
+    g_assert_cmphex(qtest_readl(qts, 0x40005410), ==, 0xff);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x44, ==, 0);
+    /* Reserved commands are rejected; no successful unknown-register ACK. */
+    io_start(qts, false);
+    qtest_writel(qts, 0x40005410, 3);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x400, ==, 0x400);
+    io_stop(qts);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -150,5 +302,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/i2c-absent", i2c_absent);
     qtest_add_func("/nikon/ex/peripheral-reset", peripheral_reset);
     qtest_add_func("/nikon/ex/rtc", rtc);
+    qtest_add_func("/nikon/ex/io", io);
     return g_test_run();
 }

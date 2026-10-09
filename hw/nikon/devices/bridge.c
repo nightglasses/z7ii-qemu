@@ -2,8 +2,9 @@
  * Finite MAS 2013 control/bridge protocol, not an identified Nikon IP.
  * Original bounded-source contract23d2601: init/request/wait/ISR and the
  * five translation arrays. Reset, 10us timing and internal IRQ causes below
- * are explicit virtual conventions. Peer events require external input edges;
- * no peer data, reply, signature or translated memory is synthesized.
+ * are explicit virtual conventions. Peer events require connected input edges;
+ * Peer windows forward guest-published mappings into a borrowed peer address
+ * space. No peer data, reply, signature or readiness is synthesized.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -13,16 +14,21 @@
 #include "hw/core/qdev-clock.h"
 #include "qemu/timer.h"
 #include "qemu/host-utils.h"
+#include "qemu/bswap.h"
 #include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonBridgeState, NIKON_BRIDGE)
 
 typedef struct NikonBridgeBank {
+    NikonBridgeState *bridge;
+    MemoryRegion aperture;
+    AddressSpace *peer;
     QEMUTimer *timer;
     uint32_t request;
     uint32_t pending;
     uint32_t lane_status[8];
     uint32_t context[8][15];
+    uint16_t context_written[8];
     uint32_t selector;
     uint32_t window[4][3];
     uint32_t configuration[15];
@@ -34,6 +40,8 @@ struct NikonBridgeState {
     MemoryRegion regs;
     Clock *clock;
     qemu_irq irq;
+    qemu_irq peer_start;
+    qemu_irq peer_configuration;
     QEMUTimer *control_timer;
     QEMUTimer *configuration_timer;
     NikonBridgeBank bank[2];
@@ -45,30 +53,20 @@ struct NikonBridgeState {
     uint32_t irq_enable;
     uint32_t peer_ack;
     bool peer_event_level[3];
+    bool peer_control_level[2];
     bool peer_ready;
     bool configuration_pending;
     bool reported_error;
 };
 
-/* Exact currently recovered configuration profile, not silicon field limits. */
-static const struct {
-    unsigned offset;
-    uint32_t value;
-} context_profile[] = {
-    { 0x84, 2 }, { 0x88, 2 }, { 0x8c, 3 }, { 0x90, 1 },
-    { 0xa0, 0x48 }, { 0xa4, 5 }, { 0xa8, 4 }, { 0xb0, 0 },
-    { 0xb4, 0x20 }, { 0xbc, 1 }, { 0xcc, 8 }, { 0xdc, 0 },
-    { 0xe0, 0xf }, { 0xe4, 0x36 }, { 0xac, 0 },
+/* Complete recovered word ports; sampled initializer values are not limits. */
+static const unsigned context_ports[] = {
+    0x84, 0x88, 0x8c, 0x90, 0xa0, 0xa4, 0xa8, 0xb0,
+    0xb4, 0xbc, 0xcc, 0xdc, 0xe0, 0xe4, 0xac,
 };
-static const struct {
-    unsigned offset;
-    uint32_t value;
-} bank_profile[] = {
-    { 0x4104, 0x78 }, { 0x412c, 0xff }, { 0x4130, 0x2ee0 },
-    { 0x4134, 0xa }, { 0x4140, 1 }, { 0x4400, 0x37 },
-    { 0x4504, 0xd4d }, { 0x450c, 0x128 }, { 0x4520, 0x1b },
-    { 0x45fc, 0 }, { 0x5004, 0x10cc3200 }, { 0x504c, 0x11f },
-    { 0x4120, 4 }, { 0x4124, 4 }, { 0x4910, 4 },
+static const unsigned bank_ports[] = {
+    0x4104, 0x412c, 0x4130, 0x4134, 0x4140, 0x4400, 0x4504,
+    0x450c, 0x4520, 0x45fc, 0x5004, 0x504c, 0x4120, 0x4124, 0x4910,
 };
 
 static void nikon_bridge_irq(NikonBridgeState *s)
@@ -96,6 +94,20 @@ static void nikon_bridge_peer_ready(void *opaque, int n, int level)
 
     /* The ISR separately consumes bank1 C908.bit2; this is not bank0 done. */
     s->peer_ready = !!level;
+}
+
+static void nikon_bridge_peer_control(void *opaque, int n, int level)
+{
+    static const unsigned bits[] = { 0, 6 };
+    NikonBridgeState *s = opaque;
+    bool high = !!level;
+
+    /* Connected control requests latch raw state, never guest event flags. */
+    if (high && !s->peer_control_level[n] && !s->reset) {
+        s->irq_status |= 1U << bits[n];
+        nikon_bridge_irq(s);
+    }
+    s->peer_control_level[n] = high;
 }
 
 static int64_t nikon_bridge_deadline(NikonBridgeState *s)
@@ -128,6 +140,9 @@ static void nikon_bridge_control_done(void *opaque)
     }
     s->irq_status |= 2;
     nikon_bridge_irq(s);
+    if (s->command == 6) {
+        qemu_irq_pulse(s->peer_start);
+    }
 }
 
 static void nikon_bridge_configuration_done(void *opaque)
@@ -138,6 +153,7 @@ static void nikon_bridge_configuration_done(void *opaque)
     s->configuration_pending = false;
     s->irq_status |= 0x40;
     nikon_bridge_irq(s);
+    qemu_irq_pulse(s->peer_configuration);
 }
 
 static void nikon_bridge_cancel(NikonBridgeState *s)
@@ -156,6 +172,7 @@ static void nikon_bridge_cancel(NikonBridgeState *s)
         b->pending = b->request = b->selector = 0;
         memset(b->lane_status, 0, sizeof(b->lane_status));
         memset(b->context, 0, sizeof(b->context));
+        memset(b->context_written, 0, sizeof(b->context_written));
         memset(b->window, 0, sizeof(b->window));
         memset(b->configuration, 0, sizeof(b->configuration));
         memset(b->mapping, 0, sizeof(b->mapping));
@@ -163,13 +180,12 @@ static void nikon_bridge_cancel(NikonBridgeState *s)
     nikon_bridge_irq(s);
 }
 
-static int nikon_bridge_field(unsigned offset, uint32_t *profile)
+static int nikon_bridge_field(unsigned offset)
 {
     unsigned i;
 
-    for (i = 0; i < ARRAY_SIZE(context_profile); i++) {
-        if (context_profile[i].offset == offset) {
-            *profile = context_profile[i].value;
+    for (i = 0; i < ARRAY_SIZE(context_ports); i++) {
+        if (context_ports[i] == offset) {
             return i;
         }
     }
@@ -190,7 +206,6 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
     NikonBridgeBank *b = &s->bank[offset >= 0x8000];
     unsigned local = offset & 0x7fff;
     unsigned context, reg, i;
-    uint32_t profile;
     int field;
 
     if (size != 4 || (offset & 3)) {
@@ -298,13 +313,12 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
         /* One selected context's three configuration-window words. */
         if (local == 0x1c8 || local == 0x1cc || local == 0x1ec) {
             i = local == 0x1c8 ? 0 : local == 0x1cc ? 1 : 2;
-            profile = i == 0 ? 0x44 : i == 1 ? 0x1c : 0x20;
             if (!b->selector) {
                 goto error;
             }
             context = ctz32(b->selector >> 16);
             if (write) {
-                if (*value != profile || s->reset || b->pending) {
+                if (s->reset || b->pending) {
                     goto error;
                 }
                 b->window[context][i] = *value;
@@ -313,17 +327,17 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
             }
             return MEMTX_OK;
         }
-        field = nikon_bridge_field(reg, &profile);
+        field = nikon_bridge_field(reg);
         if (field < 0 || ((local & 0x200) && reg != 0x84 && reg != 0x88 &&
                          reg != 0x8c && reg != 0x90)) {
             goto error;
         }
         if (write) {
-            if ((reg == 0xac ? *value > 1 : *value != profile) ||
-                s->reset || b->pending) {
+            if (s->reset || b->pending) {
                 goto error;
             }
             b->context[context][field] = *value;
+            b->context_written[context] |= 1U << field;
         } else {
             *value = b->context[context][field];
         }
@@ -354,7 +368,7 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
                 if (selected & (1U << i)) {
                     unsigned c = (i & 3) * 2 + (i >= 4);
 
-                    if (b->context[c][1] != 2 || b->context[c][2] != 3) {
+                    if ((b->context_written[c] & 6) != 6) {
                         goto error;
                     }
                 }
@@ -377,8 +391,7 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
     if (local >= 0x50b0 && local < 0x5150) {
         i = (local - 0x50b0) / 4;
         if (write) {
-            if ((*value & ~0xfffffU) || (i >= 24 && *value) ||
-                s->reset || s->configuration_pending) {
+            if (s->reset || s->configuration_pending) {
                 goto error;
             }
             b->mapping[i] = *value;
@@ -396,10 +409,10 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
         timer_mod(s->configuration_timer, nikon_bridge_deadline(s));
         return MEMTX_OK;
     }
-    for (i = 0; i < ARRAY_SIZE(bank_profile); i++) {
-        if (local == bank_profile[i].offset) {
+    for (i = 0; i < ARRAY_SIZE(bank_ports); i++) {
+        if (local == bank_ports[i]) {
             if (write) {
-                if (*value != bank_profile[i].value || s->reset || b->pending) {
+                if (s->reset || b->pending) {
                     goto error;
                 }
                 b->configuration[i] = *value;
@@ -436,6 +449,110 @@ static const MemoryRegionOps nikon_bridge_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4, .unaligned = true },
 };
 
+/*
+ * 1038816a publishes remote page, inverted length mask and local page through
+ * DDC76's five arrays. This functional interpretation supports its aligned,
+ * power-of-two chunks. Unused zero rows and unknown nonzero attribute arrays
+ * do not create windows. Array publication itself is not an IRQ/commit.
+ */
+static bool nikon_bridge_translate(NikonBridgeBank *b, hwaddr address,
+                                   unsigned size, hwaddr *remote)
+{
+    unsigned i;
+    bool matched = false;
+
+    if (!size || address > UINT32_MAX - (size - 1)) {
+        return false;
+    }
+    for (i = 0; i < 8; i++) {
+        uint32_t source = b->mapping[i];
+        uint32_t mask = b->mapping[8 + i];
+        uint32_t local = b->mapping[16 + i];
+        uint32_t pages = ((~mask) & 0xfffffU) + 1;
+        uint64_t base = (uint64_t)local << 12;
+        uint64_t length = (uint64_t)pages << 12;
+
+        if (!mask || ((source | mask | local) & ~0xfffffU) ||
+            !is_power_of_2(pages) || ((source | local) & (pages - 1)) ||
+            b->mapping[24 + i] || b->mapping[32 + i] ||
+            address < base || address + size > base + length) {
+            continue;
+        }
+        /* Ambiguous overlapping rows must not silently pick the first peer. */
+        if (matched) {
+            return false;
+        }
+        *remote = ((hwaddr)source << 12) + address - base;
+        if (*remote > UINT32_MAX - (size - 1)) {
+            return false;
+        }
+        matched = true;
+    }
+    return matched;
+}
+
+static MemTxResult nikon_bridge_window_access(NikonBridgeBank *b,
+                                             hwaddr address, uint64_t *value,
+                                             unsigned size, bool write,
+                                             MemTxAttrs attrs)
+{
+    NikonBridgeState *s = b->bridge;
+    hwaddr remote;
+    uint8_t bytes[8] = { 0 };
+    MemTxResult result;
+
+    if (!b->peer || s->reset || !is_power_of_2(size) ||
+        size > sizeof(bytes) ||
+        !nikon_bridge_translate(b, address, size, &remote)) {
+        nikon_access_error(&s->reported_error, address, size, write,
+                           write ? *value : 0,
+                           "bridge-window-or-peer-not-supported");
+        return MEMTX_ERROR;
+    }
+    if (write) {
+        stq_le_p(bytes, *value);
+    }
+    result = address_space_rw(b->peer, remote, attrs, bytes, size, write);
+    if (!write && result == MEMTX_OK) {
+        *value = ldq_le_p(bytes);
+    }
+    return result;
+}
+
+static MemTxResult nikon_bridge_window_read(void *opaque, hwaddr offset,
+                                           uint64_t *value, unsigned size,
+                                           MemTxAttrs attrs)
+{
+    *value = 0;
+    return nikon_bridge_window_access(opaque, offset, value, size, false,
+                                      attrs);
+}
+
+static MemTxResult nikon_bridge_window_write(void *opaque, hwaddr offset,
+                                            uint64_t value, unsigned size,
+                                            MemTxAttrs attrs)
+{
+    return nikon_bridge_window_access(opaque, offset, &value, size, true,
+                                      attrs);
+}
+
+static const MemoryRegionOps nikon_bridge_window_ops = {
+    .read_with_attrs = nikon_bridge_window_read,
+    .write_with_attrs = nikon_bridge_window_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
+                              AddressSpace *peer)
+{
+    NikonBridgeState *s = NIKON_BRIDGE(dev);
+
+    assert(bank < ARRAY_SIZE(s->bank));
+    s->bank[bank].peer = peer;
+}
+
 static void nikon_bridge_reset(DeviceState *dev)
 {
     NikonBridgeState *s = NIKON_BRIDGE(dev);
@@ -457,17 +574,32 @@ static void nikon_bridge_init(Object *obj)
     s->configuration_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                          nikon_bridge_configuration_done, s);
     for (i = 0; i < 2; i++) {
+        g_autofree char *name = g_strdup_printf("nikon.bridge-window%u", i);
+
+        s->bank[i].bridge = s;
         s->bank[i].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                        nikon_bridge_lanes_done, &s->bank[i]);
+        memory_region_init_io(&s->bank[i].aperture, obj,
+                              &nikon_bridge_window_ops, &s->bank[i], name,
+                              UINT64_C(0x100000000));
     }
     memory_region_init_io(&s->regs, obj, &nikon_bridge_ops, s,
                           "nikon.bridge", 0x10000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    /* The machine maps only its source-qualified aliases of these windows. */
+    for (i = 0; i < 2; i++) {
+        sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->bank[i].aperture);
+    }
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_bridge_peer_event,
                            "peer-event", 3);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_bridge_peer_ready,
                            "peer-ready", 1);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_bridge_peer_control,
+                           "peer-control", 2);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->peer_start, "peer-start", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->peer_configuration,
+                            "peer-configuration", 1);
 }
 
 static void nikon_bridge_finalize(Object *obj)

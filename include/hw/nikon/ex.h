@@ -13,6 +13,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonEXState, NIKON_EX)
 bool nikon_ex_set_firmware(NikonEXState *s, GBytes *component, Error **errp);
 MemoryRegion *nikon_ex_memory(NikonEXState *s);
 I2CBus *nikon_ex_i2c_bus(NikonEXState *s, unsigned channel);
+/* Realized 24-pad external I2C peer. Named pad inputs accept 0/1/-1. */
+DeviceState *nikon_ex_io(NikonEXState *s);
 SSIBus *nikon_ex_spi_bus(NikonEXState *s, unsigned channel);
 /* A real external SPI clock, when EX has configured this channel as slave. */
 uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel,

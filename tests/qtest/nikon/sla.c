@@ -96,6 +96,32 @@ static void test_loaded_domain(void)
     qtest_clock_step(qts, 1000000);
     g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
     g_assert_cmphex(qtest_readb(qts, 0x2c090003) & 2, ==, 2);
+    g_assert_cmphex(qtest_readl(qts, 0xf81020fc), ==, 0x0002043b);
+    /* The peer seam follows private GPIO direction and masked latch writes. */
+    qtest_irq_intercept_out_named(qts, "/machine/sla", "peer-ready");
+    qtest_writel(qts, 0x04282020, 0x04000400);
+    g_assert_false(qtest_get_irq(qts, 0));
+    qtest_writel(qts, 0x04282120, 0x400);
+    g_assert_true(qtest_get_irq(qts, 0));
+    qtest_writel(qts, 0x04282020, 0x04000000);
+    g_assert_false(qtest_get_irq(qts, 0));
+    /* Complete source domain4 request applies state before its done flag. */
+    qtest_writel(qts, 0x04287000, 0x4100);
+    qtest_writel(qts, 0x04287010, 0xa1);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x04287004), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x0428700c), ==, 0x10);
+    qtest_writel(qts, 0x04287004, 1);
+    qtest_writel(qts, 0x04287000, 0x4000);
+    qtest_writel(qts, 0x04287010, 0xa1);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x04287004), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x0428700c), ==, 0);
+    qtest_writel(qts, 0x04287004, 1);
+    g_assert_cmphex(qtest_readl(qts, 0xc60f0000), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, 0xc60fc614), ==, 0);
+    qtest_writel(qts, 0xc60fc614, 0x12345678);
+    g_assert_cmphex(qtest_readl(qts, 0xc60fc614), ==, 0x12345678);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x854240),
                     ==, 0x76543210);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_COPY1_BASE), ==, 0);
