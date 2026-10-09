@@ -4,7 +4,9 @@
 decoded container, takes an owned immutable SLA slice, and exposes all
 `0x86cd40` SLA bytes to upstream ARM TCG. It is a separate machine: MAS and SLA
 have different content at the same numerical ROM VA and must not overwrite
-each other's image or RAM. This profile is a loaded software domain rather
+each other's image or RAM. The reusable `nikon-sla-domain` device owns its own
+MemoryRegion root, AddressSpace, CPUs and peripherals; `nikonsla` is its
+standalone board wrapper. This profile is a loaded software domain rather
 than a cold hardware reset claim.
 
 Direct source evidence is the fixed whole-domain provider in Nightglass
@@ -22,7 +24,7 @@ two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, UDIV, WFE, DMB and gene
 timer operations occur in actual source. No exact physical core or core count
 has been established. CBAR `0xf8100000` is a named profile input, compatible
 with the source's CBAR-relative GIC access and the image's identity descriptor
-at O `0x13e04`. Upstream GICv1 has 256 interrupt IDs, secure extensions and
+at O `0x13e04`. Upstream GICv2 has 256 interrupt IDs, secure extensions and
 the normal four CPU output connections. Architectural timers use upstream
 CPU timer GPIOs and PPIs 30/27/26/29 with the explicit functional 48 MHz input.
 These are reusable QEMU protocols, not measured board reset facts.
@@ -48,6 +50,7 @@ SDI and fill devices, retaining unsupported access failures.
 | Six SPs at `0x1002c024..38` | 16 KiB per mode/core below each top | Explicit finite virtual capacity |
 | Early SP `0x04008f00` | `[0x04008e00,0x04008f00)` | Explicit 256-byte virtual caller-stack assumption |
 | Secondary release at `0x04008ffc` | Four RAM bytes | Guest `0x1002d880` writes magic then SEV |
+| Header/sender `0x10060cc0/0x100611de` | `[0xc60f0000,0xc60fc618)` | Guest owns header, 192 slots and queue indices |
 
 All RAM starts with QEMU's functional zero assumption. COPY destinations have
 no host-installed initialized data. No release magic, inner-RAM source, ring
@@ -76,13 +79,41 @@ profile; that establishes backing without supplying a flag producer or
 proving a runtime call. The whole component is available to execution; this is not
 a claim that every instruction or camera subsystem has run.
 
-There is currently no proven MAS/SLA IPC endpoint contract in the complete
-source recovery: no established shared PA backing, mailbox register protocol,
-DMA ownership or cross-domain IRQ wire. The four-byte early release is an
-SLA CPU-local boot contract and must not be mistaken for MAS IPC. A combined
-machine must supply a separate CPU memory view and connect only subsequently
-proven shared endpoints. External BootROM, calibration, lens/sensor inputs and
+The source-qualified peer worker `0x10053638` consumes its own registered
+descriptor, calls `0x10060cee` to drive logical GPIO87 high, then `0x10061116`
+to drive it low and check the peer header. Its GPIO object `0xc100377c` binds
+port8 bit10, with the original direction table selecting output. The MAS
+consumer uses logical GPIO60, object `0xb180399c`, port6 bit3, waiting first
+for high then for low. Connecting these complementary software endpoints is
+an explicit functional cross-chip wiring assumption; physical wiring remains
+unestablished. The named `peer-ready[0]` output forwards the original SLA
+GPIO8[10] level, without generating a host ready pulse.
+
+The exact ring extent is `0x18 + 0xc0 * 0x108 = 0xc618`. The SLA guest creates
+its signatures and indices at `0xc60f0000`; nothing is prefilled. Its source
+requests the MAS ring `0xb7cf0000` through local view `0x47cf0000`, while MAS
+requests SLA through `0x460f0000`. These source views must be forwarded by the
+real 2013 descriptor protocol to the borrowed peer AddressSpace. They are not
+flat aliases inferred from a page-table entry. The four-byte early release is
+an SLA CPU-local boot contract and must not be mistaken for this peer protocol.
+External BootROM, calibration, lens/sensor inputs and
 other uncovered transactions fail and report the original access context.
+
+The public factory `nikon_sla_create(parent, name, payload, num_cpus, serial,
+errp)` refs the complete immutable SLA `GBytes` from the validated container.
+The caller may unref its own payload after creation. The standalone wrapper
+validates its container once and passes that same component boundary.
+`nikon_sla_address_space(domain)` returns a borrowed stable peer AddressSpace;
+the parent owns the device for its entire lifetime. ARM CPU memory links use
+that domain's root, with local MP affinities 0/1. Upstream GIC `first-cpu-index`
+uses the first actual global CPU index, so embedding after MAS CPUs does not
+change SLA's banked interrupt identity. Every peripheral is mapped to the
+private root and MXIC only gates that domain's explicit RAM. Fill's standard
+pre-realize `memory` link selects this same root for DMA and guards. The
+standalone wrapper exposes an alias solely to its own board tools; embedded
+domains expose no alias to MAS. The glue owner may connect named output
+`peer-ready[0]` to MAS GPIO input99 and attach the borrowed AddressSpace to
+2013 forwarding; live peer-producer execution remains a runtime requirement.
 
 The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
@@ -140,3 +171,28 @@ allocates 36-byte RTOS objects through the ordinary guest allocator and links
 them through COPY1 globals `0xc1017c10/0xc1017c18`. Its name supplies no
 physical cross-domain mailbox contract. The `TSmpcallIpiIrq/Level` configuration
 and GIC paths operate on SLA core-local state, also without a proven MAS wire.
+
+The third original run used machine `46874de` with the builder's passing native
+counter/USIO fixture. A hardware breakpoint reached the actual InitTask at
+`0x10035678`, CPSR `0x13` (ARM SVC32), with guest-allocated SP `0xc19b5008`.
+The kernel's `0x10052eb8` argument is a task descriptor: task-create consumer
+`0x1003bfc4/8` copies its entry field at offset 8 into the TCB, rather than
+executing the descriptor address. The actual InitTask calls `0x1003aa38` and
+`0x10036630` before tail-calling `0x1003ab10`. Its newly confirmed source root
+and remaining descriptor resources are owned by the recovery producer.
+Original application initialization then reached `0x100537a4`, and the next
+rejected transaction was CPU0 PC `0x10053860`, a 32-bit zero write to
+`0x04287000`. CPU1 progressed into its RTOS path at `0x10038a68`. Native GDB
+stopped both CPUs for observation and quit the VM; no firmware branch was
+changed. The UART file remained empty at this frontier. Ignored receipts are
+`work/sla/original3*`.
+
+This run also exposed the original timer initialization's GIC operations:
+`0x10036cc0` writes GICD_ISACTIVER, which upstream QEMU implements for revision
+2; the initial revision-1 profile logged rejected distributor offsets
+`0x300..303`. The current functional profile therefore selects upstream GICv2
+and verifies its IIDR in the native fixture. The firmware's separate
+`0x10036d14` read of write-only GICC_EOIR remains visible as an upstream guest
+error; this profile does not manufacture a readback register or silence it.
+GICv2 is an execution capability supported by these source accesses, not a
+new claim about the physical chip.

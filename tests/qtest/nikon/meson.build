@@ -3,12 +3,15 @@ nikon_arm_fixtures = {}
 if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   nikon_arm_fixtures += {
     'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c',
-                   'sampling.c', 'image.c', 'sdi.c', 'spi.c'),
+                   'sampling.c', 'image.c', 'sdi.c', 'spi.c', 'processing.c'),
     'nikon_timer': files('timer.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
     'nikon_usio': files('usio.c'),
   }
+endif
+if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
+  nikon_arm_fixtures += {'nikon_fill': files('fill.c')}
 endif
 foreach profile : ['SLA', 'EX', 'SENSOR']
   if config_all_devices.has_key('CONFIG_NIKON_' + profile)

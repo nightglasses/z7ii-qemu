@@ -39,6 +39,12 @@ SOURCE `src/ex_physical` ROM/COPY research views contain selected recovered
 functions; they are not a complete reset image and are not the input to this
 machine.
 
+The actual guest unpack return at `0x08003890` reports source end
+`0x080528e1` and destination end `0x2000ee10`. Thus the compressed stream
+consumes component offsets `[0x51ba8, 0x528e1)`; three padding bytes precede
+the next COPY source at `0x528e4`. The later COPY handler's source pointer is
+not an unpack-consumption measurement.
+
 The profile instantiates upstream `ARMv7M` with Cortex-M4, VFP/DSP defaults,
 four NVIC priority bits, bitband aliases and 97 external vector slots. The
 `0x1c4` copied vector extent determines the slot envelope; it does not prove
@@ -150,6 +156,31 @@ the model neither constructs frames nor generates that event or handshake.
 The saved 1269-function inventory lacks the RX worker entry, so the worker
 evidence additionally uses bounded native GNU objdump over the original bytes.
 
+The original registry and runtime descriptors bind the transport pads below.
+Offsets refer to RX state `0x20017b28` or TX state `0x20017d40`, rather than
+the processor's physical GPIO register layout.
+
+| Consumer | Logical GPIO | State offset | Physical pad | Original role |
+|---|---:|---:|---|---|
+| RX | `0x3c` | `0x14` | D12 | Validation result: clear after reception, set after a valid frame |
+| RX | `0x1e` | `0x18` | B14 | Reception armed: set after submitting DMA, clear after completion |
+| RX | `0x15` | `0x1c` | B5 | SPI1 AF5 data input |
+| RX | `0x05` | `0x20` | A5 | SPI1 AF5 clock input |
+| TX | `0x66` | `0x20` | G6 | Rising-edge peer input; original callback signals completion bit `0x08` |
+| TX | `0x43` | `0x24` | E3 | Transmission request: set while waiting, then clear |
+| TX | `0x45` | `0x28` | E5 | SPI4 AF5 data output |
+| TX | `0x42` | `0x2c` | E2 | SPI4 AF5 clock input |
+
+TX worker `0x08034a18` waits for its source event and dequeues a message before
+constructing a 256-byte frame with additive checksum `0xff`. It arms transmit
+DMA through `0x08045898`, clears completion bits `0x0c`, raises E3, and waits
+up to ten scheduler ticks for DMA completion bit `0x04` or G6 callback bit
+`0x08`. It then lowers E3 and follows the original timeout/completion recovery
+paths. GPIO initialization `0x080348d0` supplies mode word `0x10110000` for
+G6; the original HAL configures EXTI rising edges. The model does not raise
+G6 in response to the request. Matching these roles to MAS requires its own
+transport consumers, including direction and startup phase.
+
 After EX realization, `nikon_ex_spi_slave(ex, channel, master_bus, cs, errp)`
 attaches an ordinary upstream SSI peripheral to a source-proven master bus.
 Channels are zero based: 0 for MCU RX and 3 for MCU TX. The returned endpoint is
@@ -162,12 +193,49 @@ bound from its own consumers before combined-machine connection.
 
 ## Validation status
 
+The external I/O peer uses the 24-bit PCAL6524 register protocol, without claiming
+the unidentified board's part number. Original `0x080305a4` reads three bytes from
+wire address `0x44` through `0x0802fdf0`; the runtime handle at `0x2001fe94` selects
+I2C1 (`0x40005400`), hence seven-bit address `0x22`. Original `0x0802fef0` and
+`0x0802ff9c..0x0803016a` establish the complete configuration group: three input,
+output, polarity and direction bytes; six drive and edge bytes; input latch,
+pull enable/select, interrupt mask/status/clear, live input and pin output
+configuration. The upstream eight-bit PCA9554 and LED PCA9552 do not implement
+this group. `hw/nikon/devices/exio.c` therefore uses upstream I2CSlave directly.
+
+The protocol reference is [NXP PCAL6524, sections 6 and 7](https://www.nxp.com/docs/en/data-sheet/PCAL6524DS.pdf).
+The peer implements register-group cycling and full auto-increment, electrical
+input/output resolution, latch, polarity, pull direction, edge/level interrupts
+and physical reset. Reserved commands NACK. Debounce uses actual P0_0 clock
+edges, including the initial nine-cycle qualification, without inventing an
+external oscillator. Drive strength is stored; analog current is not modeled.
+
+Two electrical choices are explicit functional assumptions: floating inputs
+resolve high when neither an external driver nor configured pull drives them;
+active-low INT is connected to EX A0, since original logical IRQ0 resolves to
+NVIC6 (EXTI0) and the observed EXTICR0 selects A. This is a software net assignment,
+not a recovered board netlist. The 24 named `pad` inputs accept low/high/release
+as 0/1/-1 and carry no camera button names. No initial switch pattern or power
+event is synthesized. `nikon_ex_io(ex)` returns the realized bus-owned peer for
+external input connection. Cold board reset resets its registers; EX AIRCR
+resets only the MCU and preserves the independent peer. Its active-low `reset`
+input resets the peer and makes it NACK until released. Physical RESET wiring
+remains unconnected rather than assigning an undocumented EX output.
+
+Original HAL `0x080442c4` uses BTF and drains two received bytes after STOP.
+The EX controller retains a two-byte DR/shift-register receive pipeline, exposes
+RXNE/BTF from occupancy and preserves the received bytes after STOP. The new
+native fixture checks this original three-byte finish in addition to cyclic
+register writes, AI across holes, external input, edge/latch/read-clear,
+reset-held NACK and reserved-command NACK. These changes await the sole builder;
+they do not yet establish that the original power condition has been satisfied.
+
 The native C qtest fixture covers delayed oscillator/PLL switching and cancel,
 GPIO edge to grouped NVIC IRQ/W1C, DMA real SRAM copying/IRQ clear, disconnected
 I2C NACK, peripheral reset and RTC protection, delayed INIT handshake, timed wakeup
 and leap-day rollover. The shared builder's binary at
-`work/build/nikon/qemu-system-arm` passed the first five cases against EX source
-`fbc2cf0` (1.05 seconds). The RTC case is pending the next shared build.
+`work/build/nikon/qemu-system-arm` passed all six cases against immutable EX
+source `c54ef00` (1.14 seconds), after the shared whole ARM build passed.
 
 The first actual original-container run used that same binary and source. It
 entered at `0x080002b4`, reached `0x08020084` through the guest's original scatter
@@ -181,3 +249,28 @@ HardFault lockup. Original RTC drivers `0x08045004`, `0x080491dc`, `0x08044eb4`
 and `0x080450a4` establish the whole protection/INIT/alarm group added next.
 Runtime logs and GDB command files stay under ignored `work/ex/`. No vendor
 firmware, generated native object, or temporary GDB command file is tracked.
+
+The subsequent complete original run used that qualified `c54ef00` binary.
+RTC initialization completed; the observed calendar advanced to `00:01:08`,
+RCC.BDCR selected enabled LSE, and SCB.CFSR was zero. SysTick CTRL was `7`,
+LOAD was `49999`, and both the HAL and RTOS tick counters advanced. The CPU
+executed the original PendSV scheduler; this is actual exception/thread
+execution rather than a host jump to a worker.
+
+The startup task's saved return is `0x0802137d`: it has passed the RTC bit-2
+wait and now waits for bit 1 of the original `CDSCFLAG` object. McuRxSvc and
+McuTxSvc exist with original entry pointers `0x0803459d` and `0x08034a19`,
+but remain suspended until this phase completes. Power callback
+`0x08021418` signals bit 1 for event `0x04060002`; event `0x04060001` instead
+runs shutdown callbacks. The original dispatch table maps power-service bit
+`0x1000` to `0x08037ccd`, whose end emits `0x04060002`. Its producer
+`0x08038124` requires bytes `+0x08` and `+0x0d` of state `0x200159a4` both
+equal one. The observed bytes are zero and one respectively. No host event,
+task resume, GPIO assignment or memory write bypasses this condition. This
+receipt qualifies reset, unpack, RTC and scheduler execution, while leaving
+transport readiness dependent on the real source event and connected peers.
+
+Debugger reads crossing reserved RCC offset `0x1c` and RTC offset `0x3c`
+produced diagnostic failed transactions in the temporary application log;
+those reads were observer mistakes, not original guest accesses. Subsequent
+observations use only defined register offsets.

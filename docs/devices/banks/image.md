@@ -18,8 +18,9 @@ fresh native disassembly was used to implement these contracts.
 Offsets below are bank-relative. Actual PC-relative words distinguish unit0
 at 20140000, main at 20141000 and ports at 20142000/20143000. The original
 seven-word objects B1801250/B180126C specify register displacements 0/4000
-and table displacements 0/10000. These initial values are not an observed
-runtime receipt.
+and table displacements 0/10000. The original runtime capture independently
+confirmed those fields, installed callback1046efa9 and event handles70/6f;
+this object receipt does not establish a submitted frame.
 
 | Original consumer | Exact effect |
 |---|---|
@@ -75,11 +76,29 @@ completed; initialization alone cannot report a running frame producer.
 
 ## Functional image laws
 
-Main start snapshots the supported packet. It requires nonzero1308 geometry
-and a supplied layer or enabled object. An accepted request produces busy3
-and a virtual timer at a named nominal48MHz pixel service rate. This is not
-measured EXPEED speed, sensor cadence or vblank. Pause/stop cancel the request.
-No geometry, absent providers or a software ready3 write produces a frame.
+Main start requires nonzero1308 geometry and arms status1. Each virtual frame
+boundary snapshots the live supported packet, reads actual providers and
+publishes only a complete image. Successful publication reports active3;
+scanout continues until pause/stop. This follows the original live setter
+chains DD988A→DD354→D6E8→95EC→DD2A8→D48A/C354 and D942A→DD20E→D0D2,
+which update layers/bitmaps without another BF0C master start. The boundary
+and timer use a named nominal48MHz pixel service rate. This is not measured
+EXPEED speed, sensor cadence or vblank. An armed device may await real input;
+absent providers and software ready3 writes cannot produce a frame. Invalid
+live input preserves the previous complete surface while later updates can
+recover without a restart.
+
+Each started port composes its layers in the pre-scale2204/3204 canvas, then
+places the scaled canvas at2208/3208. Original D9848/D988A/D8BA serialize
+horizontal a/b and vertical e/f at2814/2818 (second port plus1000), with
+enable2810 and a retained five-bit phase. DD354 forms the even pre-scale
+extent from viewport extent multiplied by b/a and f/e; source layer positions
+are already relative to this pre-scale canvas. The model consequently scales
+the canvas by a/b and e/f using mature Pixman's inverse fixed-point transform.
+Disabled ratios mean unity; enabled zero ratios reject the complete frame.
+Nearest sampling is an explicit functional convention. The original phase is
+retained but its physical filter interpretation is unverified; it does not
+justify shifting already cropped RAM pointers or inventing an output format.
 
 Layers DMA-read their actual primary and secondary normal-RAM rows, preserving
 padding. Whole extents reject zero, wrapping, ROM, MMIO and absent planes. A
@@ -128,16 +147,19 @@ by name.
 
 ## Native validation
 
-`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Eight
+`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Nine
 no-TCG cases check exact PPM pixels and padded input; all seven layouts;
 cancellation preserving the surface; a bad final layer preserving the whole
 surface without IRQ; two ports/shared IRQ; independent register domains;
 a bitmap-selected object; and every packed-table family, plane, bank and both
-object displacements. They use the mature GIC fixture and valid virtual-clock
+object displacements. The additional refresh case checks both scaling axes,
+padded input, a live buffer change without master restart, invalid live ratios
+preserving the last surface, recovery and pause cancellation. They use the
+mature GIC fixture and valid virtual-clock
 advances without `-S`. Synthetic tests do not prove a naturally submitted
 original frame.
 
-Actual sole-builder receipt: all eight image cases passed in3.83 seconds,
+Baseline sole-builder receipt: all eight preceding image cases passed in3.83 seconds,
 with the exact RGB,8×8 extent, object, cancellation, fault and packed-table
 assertions retained. Tested device source is `ef0ba27`; the named board endpoint
 is `43ea19b`; fixture `4c1db31` selects the device/head and suppresses unused
@@ -146,3 +168,5 @@ defaults. The preserved log is
 The earlier default-console failure and upstream text-property abort are
 closed by the supported fixture launch contract. No naturally submitted
 original frame or camera measurement follows from this native receipt.
+The continuous/affine extension and its ninth case await the sole builder's
+actual receipt; the preceding eight-case receipt does not validate this change.

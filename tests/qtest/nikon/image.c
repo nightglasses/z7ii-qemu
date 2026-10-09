@@ -33,7 +33,9 @@ static void packet(QTestState *q, unsigned bank, unsigned mode)
     qtest_writel(q, base + 0x1308, (8U << 16) | 8);
     qtest_writel(q, base + 0x1c00, 0);
     qtest_writel(q, base + 0x1c04, 0);
+    qtest_writel(q, base + 0x2100, 1);
     qtest_writel(q, base + 0x2200, mode);
+    qtest_writel(q, base + 0x2204, (8U << 16) | 8);
     qtest_writel(q, base + 0x2210, 0x03000102);
     qtest_writel(q, base + 0x2400, (8U << 16) | 8);
     qtest_writel(q, base + 0x2440, RAM);
@@ -110,7 +112,7 @@ static void test_frame(void)
     qtest_memset(q, TARGET, 0, sizeof(target));
     packet(q, 0, 0);
     qtest_writel(q, BANK + 0x1200, 1);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 3);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 1);
     g_assert_false(qtest_get_irq(q, 111 - 32));
     qtest_memread(q, TARGET, target, sizeof(target));
     g_assert_cmpmem(target, sizeof(target), (uint8_t[256]) { 0 }, 256);
@@ -121,7 +123,7 @@ static void test_frame(void)
     image = pixels(q);
     assert_color(image, 0x12, 0xe5, 0x34);
     g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 1U << 16);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 0);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 3);
     qtest_writel(q, BANK + 0x1214, 1U << 16);
     g_assert_false(qtest_get_irq(q, 111 - 32));
     qtest_quit(q);
@@ -217,7 +219,9 @@ static void test_ports(void)
     qtest_memset(q, RAM, 0, 1024);
     qtest_memwrite(q, RAM + 0x8000, source, sizeof(source));
     packet(q, 0, 0);
+    qtest_writel(q, BANK + 0x3100, 1);
     qtest_writel(q, BANK + 0x3200, 0);
+    qtest_writel(q, BANK + 0x3204, (8U << 16) | 8);
     qtest_writel(q, BANK + 0x3210, 0x03000102);
     qtest_writel(q, BANK + 0x3400, (8U << 16) | 8);
     qtest_writel(q, BANK + 0x3440, RAM + 0x8000);
@@ -344,6 +348,74 @@ static void test_tables(void)
     qtest_quit(q);
 }
 
+static void test_refresh(void)
+{
+    QTestState *q = start();
+    uint8_t source[16 * 72];
+    g_autofree char *image = NULL;
+    unsigned x, y;
+
+    memset(source, 0xa5, sizeof(source));
+    for (y = 0; y < 16; y++) {
+        for (x = 0; x < 16; x++) {
+            stl_le_p(source + y * 72 + x * 4,
+                     (x / 2) & 1 ? 0xff0000ff : 0xffff0000);
+        }
+    }
+    qtest_memwrite(q, RAM, source, sizeof(source));
+    packet(q, 0, 0);
+    qtest_writel(q, BANK + 0x2204, (16U << 16) | 16);
+    qtest_writel(q, BANK + 0x2400, (16U << 16) | 16);
+    qtest_writel(q, BANK + 0x2500, 72);
+    qtest_writel(q, BANK + 0x2810, 1);
+    qtest_writel(q, BANK + 0x2814, 0x201);
+    qtest_writel(q, BANK + 0x2818, 0x201);
+    qtest_writel(q, BANK + 0x1200, 1);
+    wait_completion(q);
+    image = pixels(q);
+    for (y = 0; y < 8; y++) {
+        for (x = 0; x < 8; x++) {
+            unsigned pixel = (y * 8 + x) * 3;
+            g_assert_cmpuint((uint8_t)image[pixel], ==, (x & 1) ? 0 : 255);
+            g_assert_cmpuint((uint8_t)image[pixel + 1], ==, 0);
+            g_assert_cmpuint((uint8_t)image[pixel + 2], ==, (x & 1) ? 255 : 0);
+        }
+    }
+    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    /* A live buffer update requires no second main start. */
+    for (y = 0; y < 16; y++) {
+        for (x = 0; x < 16; x++) {
+            stl_le_p(source + y * 72 + x * 4, 0xff00ff00);
+        }
+    }
+    qtest_memwrite(q, RAM + 0x8000, source, sizeof(source));
+    qtest_writel(q, BANK + 0x2440, RAM + 0x8000);
+    wait_completion(q);
+    g_clear_pointer(&image, g_free);
+    image = pixels(q);
+    assert_color(image, 0, 255, 0);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 3);
+    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    /* Invalid live ratios retain the last complete surface and no IRQ. */
+    qtest_writel(q, BANK + 0x2818, 0x200);
+    qtest_clock_step(q, 1000000);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    g_clear_pointer(&image, g_free);
+    image = pixels(q);
+    assert_color(image, 0, 255, 0);
+    qtest_writel(q, BANK + 0x2818, 0x201);
+    wait_completion(q);
+    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1200, 2);
+    qtest_memset(q, RAM + 0x8000, 0xff, sizeof(source));
+    qtest_clock_step(q, 1000000);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    g_clear_pointer(&image, g_free);
+    image = pixels(q);
+    assert_color(image, 0, 255, 0);
+    qtest_quit(q);
+}
+
 void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
@@ -355,4 +427,5 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/domains", test_domains);
     qtest_add_func("/nikon/image/overlay", test_overlay);
     qtest_add_func("/nikon/image/tables", test_tables);
+    qtest_add_func("/nikon/image/refresh", test_refresh);
 }

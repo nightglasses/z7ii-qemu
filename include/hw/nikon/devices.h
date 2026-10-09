@@ -46,5 +46,13 @@ MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
                        bool write, uint64_t value, const char *reason);
 void nikon_mxic_attach_ram(DeviceState *dev, MemoryRegion *ram, hwaddr address);
+/*
+ * Borrowed peer address space must outlive bridge accesses. NULL disconnects.
+ * SysBus regions 1/2 expose bank0/1 local windows; they are not board mappings.
+ * Named peer-start/peer-configuration outputs pulse at actual completion.
+ * A connected peer's peer-control inputs 0/1 latch raw IRQ bits 0/6.
+ */
+void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
+                              AddressSpace *peer);
 
 #endif

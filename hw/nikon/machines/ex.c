@@ -27,6 +27,7 @@
 #include "hw/gpio/stm32l4x5_gpio.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/ex.h"
+#include "hw/nikon/exio.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
 #include "system/qtest.h"
@@ -53,6 +54,8 @@ typedef struct EXI2C {
     uint32_t reg[9];
     bool sr1_seen;
     bool receive;
+    uint8_t rx[2];
+    unsigned rx_count;
     I2CBus *bus;
 } EXI2C;
 
@@ -95,6 +98,7 @@ struct NikonEXState {
     DeviceState *gpio[9];
     DeviceState *uart[6];
     DeviceState *timer[14];
+    DeviceState *io;
     OrIRQState timer_or[2];
     EXPinRoute route[9][16];
     qemu_irq pin_route_irq[9][16];
@@ -146,6 +150,11 @@ I2CBus *nikon_ex_i2c_bus(NikonEXState *s, unsigned channel)
 {
     assert(channel < ARRAY_SIZE(s->i2c));
     return s->i2c[channel].bus;
+}
+
+DeviceState *nikon_ex_io(NikonEXState *s)
+{
+    return s->io;
 }
 
 SSIBus *nikon_ex_spi_bus(NikonEXState *s, unsigned channel)
@@ -490,8 +499,21 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
     i2c_end_transfer(s->i2c[i].bus);
     memset(s->i2c[i].reg, 0, sizeof(s->i2c[i].reg));
     s->i2c[i].sr1_seen = s->i2c[i].receive = false;
+    s->i2c[i].rx_count = 0;
     ex_irq(s, ex_i2c_irq[i], false);
     ex_irq(s, ex_i2c_irq[i] + 1, false);
+}
+
+static void ex_i2c_fill(EXI2C *p)
+{
+    if (p->receive && i2c_bus_busy(p->bus)) {
+        unsigned limit = (p->reg[0] & ((1 << 10) | (1 << 11))) ? 2 : 1;
+        while (p->rx_count < limit) {
+            p->rx[p->rx_count++] = i2c_recv(p->bus);
+        }
+    }
+    p->reg[5] = (p->reg[5] & ~0x44u) |
+                (p->rx_count ? 0x40 : 0) | (p->rx_count == 2 ? 4 : 0);
 }
 
 static void ex_rcc_reset_devices(NikonEXState *s, unsigned off, uint32_t bits)
@@ -845,11 +867,20 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
-                if (consume && reg == 4 && p->receive && i2c_bus_busy(p->bus)) {
-                    p->reg[4] = i2c_recv(p->bus);
-                    if (!(p->reg[0] & (1 << 10))) {
+                if (consume && reg == 4 && p->receive && p->rx_count) {
+                    p->reg[4] = p->rx[0];
+                    bool pipeline = p->rx_count == 2;
+                    p->rx[0] = p->rx[1];
+                    p->rx_count--;
+                    /* The shift register already clocks one final byte when
+                     * ACK is cleared with DR and the shift register occupied. */
+                    if (pipeline && !(p->reg[0] & (1 << 10)) &&
+                        i2c_bus_busy(p->bus)) {
+                        p->rx[p->rx_count++] = i2c_recv(p->bus);
                         i2c_nack(p->bus);
                     }
+                    ex_i2c_fill(p);
+                    ex_i2c_update(s, i);
                 }
                 v = p->reg[reg];
                 if (consume && reg == 5) {
@@ -1076,10 +1107,11 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     if ((v & (1 << 15)) || !(v & 1)) {
                         i2c_end_transfer(p->bus);
                         p->reg[5] = p->reg[6] = 0;
+                        p->rx_count = 0;
                     } else if (v & (1 << 9)) {
                         i2c_end_transfer(p->bus);
                         p->reg[6] = 0;
-                        p->reg[5] &= ~0xc7u;
+                        p->reg[5] &= ~0x83u;
                         p->reg[0] &= ~(1 << 9);
                     } else if (v & (1 << 8)) {
                         p->reg[5] = 1; /* START generated, address required */
@@ -1088,6 +1120,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     }
                 } else if (reg == 4 && (p->reg[0] & 1)) {
                     if (p->reg[5] & 1) {
+                        p->rx_count = 0;
                         p->receive = v & 1;
                         p->reg[5] &= ~1u;
                         if (i2c_start_transfer(p->bus, (v >> 1) & 0x7f, p->receive)) {
@@ -1095,6 +1128,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                         } else {
                             p->reg[5] |= 2 | (p->receive ? 0x40 : 0x80);
                             p->reg[6] = p->receive ? 3 : 7;
+                            if (p->receive) {
+                                ex_i2c_fill(p);
+                            }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
                         p->reg[5] |= i2c_send(p->bus, v) ? 1 << 10 : 0x84;
@@ -1216,7 +1252,22 @@ static void ex_reset(DeviceState *dev)
 
 static void ex_reset_requested(void *opaque)
 {
-    device_cold_reset(DEVICE(opaque));
+    NikonEXState *s = opaque;
+    /* AIRCR resets the MCU, not an independently powered I2C peripheral. */
+    ex_reset(DEVICE(s));
+    device_cold_reset(DEVICE(&s->armv7m));
+    for (unsigned i = 0; i < ARRAY_SIZE(s->gpio); i++) {
+        device_cold_reset(s->gpio[i]);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->uart); i++) {
+        device_cold_reset(s->uart[i]);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timer); i++) {
+        device_cold_reset(s->timer[i]);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
+        device_cold_reset(DEVICE(&s->timer_or[i]));
+    }
 }
 
 static void ex_sysresetreq(void *opaque, int n, int level)
@@ -1331,6 +1382,13 @@ static void ex_realize(DeviceState *dev, Error **errp)
             qdev_connect_gpio_out(gpio, pin, s->pin_route_irq[i][pin]);
         }
     }
+    s->io = DEVICE(i2c_slave_new(TYPE_NIKON_EX_IO, 0x22));
+    object_property_add_child(OBJECT(s), "io", OBJECT(s->io));
+    /* Original logical IRQ0 maps to EXTI0. A0 is the explicit functional
+     * net assignment, selected by the original EXTICR reset value. */
+    qdev_connect_gpio_out_named(s->io, "interrupt", 0,
+                               nikon_ex_gpio_input(s, 0, 0));
+    i2c_slave_realize_and_unref(I2C_SLAVE(s->io), s->i2c[0].bus, &error_fatal);
 }
 
 static void ex_init(Object *obj)

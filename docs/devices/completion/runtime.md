@@ -10,7 +10,13 @@ The complete upper enable/disable paths `1038665a` and `103866a2` bypass hardwar
 
 All eight encoded selectors now use the same causal transaction: a valid command schedules the existing QEMU BH; that event updates one selected applied-state bit, sets done, and drives SPI250 only when notification is enabled. Guest W1C clears done/withdraws the level, while the real GIC still requires EOI. Status reads have no completion side effect. Pending mutation, unknown fields/commands/widths and offsets retain their rejection. The model neither changes guest RAM flags nor calls an ISR or business callback.
 
-The eight-bit functional state and zero reset are model conventions. Physical domain identities, electrical effects, errors, latency and concurrency rules remain unconfirmed. Synthetic domain4 exercises the lower encoded interface; it is not evidence that the upper guest domain4 path submits hardware. No new actual runtime request for domains2/4/5/6/7 has been observed or claimed.
+The eight-bit functional state and zero reset are model conventions. Physical domain identities, electrical effects, errors, latency and concurrency rules remain unconfirmed. MAS upper domain4 bypass and SLA lower startup domain4 submission are different source paths, described below. No completed original runtime transaction for the additional domains is claimed here.
+
+## Complete SLA startup producer and actual wiring defect
+
+The original SLA source at VA `100537a4` calls `1005385a` with domains0,1,2,3, then tail calls it with4. The literal at VA `100538ac` is PA `04287000` in the private SLA address space. The complete setter shifts the domain left12, writes that word at+0, submits `a1` at+10, polls+4 bit0 and writes1 at+4. It supplies neither mode bit4 nor start bit8 nor IRQ enable. Request0 is therefore an actual source-produced transaction, not an exception added for one failing value.
+
+Canonical revision `f8078bf` already implements this whole request family: the finite mask `7110` accepts domain0..7 and both observed mode0/10 profiles, and the existing deferred BH applies the chosen start/stop bit before publishing completion. The reported original SLA stop was an unmapped private PA `04287000` at PC `10053860`; the SLA machine lacked this device mapping. It was not a shared-device request rejection. The SLA machine owner maps another instance of the existing completion device in its private domain; its applied state and IRQ must not alias the MAS instance. No shared scheduling change, extra latency or guest flag producer is needed to correct that wiring defect.
 
 ## Memory and clock startup audit
 
@@ -30,6 +36,8 @@ RTOS fixed `c515ebbd33cd8e14f2bdd111538fe72157ffdf7d` retains the actual phase3 
 
 ## Native test content and validation status
 
-`tests/qtest/nikon/completion.c` supplies `nikon_test_completion(QTestState *)` to the sole native suite owner. It requires a fresh stopped synthetic machine supplied by that suite, then tests all eight start states and reverse-order stop states, preserving unaffected domains; disabled notifications; real GIC IAR250/W1C/EOI; completed-state reset; and a new post-reset request. It waits for asynchronous BH completion and the official RESET event rather than assuming a visible pending read. It does not claim deterministic reset while a BH is pending.
+`tests/qtest/nikon/completion.c` supplies `nikon_test_completion(QTestState *)` to the sole native suite owner. It requires a fresh stopped synthetic machine supplied by that suite. The test covers the exact five-domain SLA mode0 startup sequence, all eight MAS-mode start states and reverse-order stop states, retention of unaffected domains, disabled notifications, the real GIC SPI input level and W1C, completed-state reset, and a new post-reset request. Invalid selector/field/width/command/notification/ACK transactions must retain the preceding valid state, followed by successful valid transactions. qtest does not expose `MemTxResult`; retained state is the assertion. It does not initialize the secure GIC CPU interface or claim IAR/EOI execution.
+
+The test waits for asynchronous BH completion and the official RESET event rather than assuming a visible pending read. Pending writes retain the existing explicit rejection, and reset cancels the pending BH; a qtest request may allow the BH to run before the next request, so this fixture does not claim deterministic overlap or pending-reset coverage. Adding a new timer solely to make those states visible would change a working functional model without source/runtime justification.
 
 This child contains C and documentation only. Test registration, compilation and execution belong to the single firmware_check owner. No native build, new Ghidra/decompile run, original-firmware run, or passing-test result is claimed by this change. Physical reset/clock/DDR acceptance, full indirect initialization, task-mode IRQ250 progression and menus remain separate open evidence.

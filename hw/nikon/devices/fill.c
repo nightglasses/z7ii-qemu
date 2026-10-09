@@ -7,6 +7,7 @@
 #include "qemu/log.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
@@ -26,6 +27,8 @@ typedef struct NikonFillEngine {
 struct NikonFillState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
+    MemoryRegion *memory;
+    AddressSpace dma;
     NikonFillEngine engine[2];
     bool reported_error;
 };
@@ -123,8 +126,32 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
     /* Preserve existing synchronous byte-count zero mode. RAM-only official
      * DMA transactions reject device MMIO and produce genuine bus results. */
     attrs.memory = true;
-    result = dma_memory_set(&address_space_memory, e->destination,
-                            0, length, attrs);
+    result = MEMTX_OK;
+    for (hwaddr destination = e->destination; length;) {
+        MemoryRegionSection section = memory_region_find(s->dma.root,
+                                                        destination, length);
+        uint64_t span;
+
+        if (!section.mr) {
+            result = MEMTX_ERROR;
+            break;
+        }
+        span = int128_get64(section.size);
+        if (!span || section.offset_within_address_space != destination ||
+            !memory_region_is_ram(section.mr) || section.readonly ||
+            !memory_access_is_direct(section.mr, true, attrs)) {
+            memory_region_unref(section.mr);
+            result = MEMTX_ERROR;
+            break;
+        }
+        memory_region_unref(section.mr);
+        result = dma_memory_set(&s->dma, destination, 0, span, attrs);
+        if (result != MEMTX_OK) {
+            break;
+        }
+        destination += span;
+        length -= span;
+    }
     e->busy = false;
     e->command = 0;
     e->status = result == MEMTX_OK ? 1 : 0x10;
@@ -134,7 +161,8 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
     qemu_log_mask(LOG_GUEST_ERROR,
                   "nikon-fill: engine=%u destination=0x%08x bytes=0x%" PRIx64
                   " bus-result=%u status=0x%x\n",
-                  (unsigned)(e - s->engine), e->destination, length,
+                  (unsigned)(e - s->engine), e->destination,
+                  (uint64_t)e->width * e->count,
                   result, e->status);
     return MEMTX_OK;
 }
@@ -272,11 +300,34 @@ static const VMStateDescription nikon_fill_vmstate = {
     .unmigratable = true,
 };
 
+static void nikon_fill_realize(DeviceState *dev, Error **errp)
+{
+    NikonFillState *s = NIKON_FILL(dev);
+
+    address_space_init(&s->dma, s->memory ? s->memory : get_system_memory(),
+                       "nikon.fill");
+}
+
+static void nikon_fill_unrealize(DeviceState *dev)
+{
+    NikonFillState *s = NIKON_FILL(dev);
+
+    address_space_destroy(&s->dma);
+}
+
+static const Property nikon_fill_properties[] = {
+    DEFINE_PROP_LINK("memory", NikonFillState, memory,
+                     TYPE_MEMORY_REGION, MemoryRegion *),
+};
+
 static void nikon_fill_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_fill_vmstate;
+    dc->realize = nikon_fill_realize;
+    dc->unrealize = nikon_fill_unrealize;
+    device_class_set_props(dc, nikon_fill_properties);
     device_class_set_legacy_reset(dc, nikon_fill_reset);
     dc->user_creatable = false;
 }
