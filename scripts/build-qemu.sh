@@ -39,7 +39,8 @@ cp "$repo/hw/arm/z7ii.c" "$repo/hw/arm/z7ii.h" \
    "$repo/hw/arm/z7ii-control2038.c" "$repo/hw/arm/z7ii-control20201.c" \
    "$repo/hw/arm/z7ii-control20204.c" "$repo/hw/arm/z7ii-control20205.c" \
    "$repo/hw/arm/z7ii-control20203.c" "$repo/hw/arm/z7ii-control2014.c" \
-   "$repo/hw/arm/z7ii-control2016.c" "$src/hw/arm/"
+   "$repo/hw/arm/z7ii-control2016.c" "$repo/hw/arm/z7ii-control2406.c" \
+   "$src/hw/arm/"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm

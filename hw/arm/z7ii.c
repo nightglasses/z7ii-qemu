@@ -1007,6 +1007,8 @@ static void z7ii_init(MachineState *machine)
                          qdev_get_gpio_in(gic, 123 - 32));
     sysbus_create_simple(TYPE_Z7II_CONTROL2010, 0x20100000,
                          qdev_get_gpio_in(gic, 102 - 32));
+    /* IRQ229 belongs to a software callback registration, not a proven wire. */
+    sysbus_create_simple(TYPE_Z7II_CONTROL2406, 0x24060000, NULL);
     sysbus_create_simple(TYPE_Z7II_CONTROL20201, 0x20201000,
                          qdev_get_gpio_in(gic, 116 - 32));
     sysbus_create_simple(TYPE_Z7II_CONTROL20204, 0x20204000,

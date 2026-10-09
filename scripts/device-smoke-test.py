@@ -1944,6 +1944,108 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control2406_fixtures():
+    error = "control2406-access-or-activation-not-supported"
+
+    def write(offset, value):
+        return constant(0, 0x24060000 + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, 0x24060000 + offset) + [0xe5900000 | reg << 12]
+
+    return [
+        ("control2406-packet-and-retained-controls",
+         write(8, 0) + write(0xc, 0xff) + write(0, 1) + write(0x10, 0xffffffff) +
+         write(0x14, 0x12345678) + read(8, 4) + read(0xc, 5) + read(0x10, 6) +
+         read(0x14, 7), {4: 0, 5: 0xff, 6: 0xffffffff, 7: 0x12345678}, None),
+        ("control2406-stop-no-ready", write(0, 1) + write(0, 0) + write(0x20, 0) +
+         read(0, 4) + read(0x20, 5) + read(0x24, 6) + read(0x30, 7),
+         {4: 0, 5: 0, 6: 0, 7: 0}, None),
+        ("control2406-bool-invalid", write(0, 2), {}, error),
+        ("control2406-byte-field-invalid", write(0xc, 0x100), {}, error),
+        ("control2406-start-unsupported", write(0x20, 1), {}, error),
+        ("control2406-handshake-unsupported", write(0x20, 0x10000), {}, error),
+        ("control2406-unbound-control-bit", write(0x20, 2), {}, error),
+        ("control2406-status-write", write(0x24, 1), {}, error),
+        ("control2406-status30-write", write(0x30, 1), {}, error),
+        ("control2406-gap", read(4, 4), {}, error),
+        ("control2406-misaligned", read(9, 4), {}, error),
+        ("control2406-byte-width", constant(0, 0x2406000c) + [0xe5d04000], {}, error),
+        ("control2406-halfword-width", constant(0, 0x24060008) + [0xe1d040b0], {}, error),
+        ("control2406-finite-end", read(0x34, 4), {}, "uncovered-address"),
+    ] + [("control2406-qtest-" + name, [], {}, None)
+         for name in ("readback-clock-and-reset", "preflight-preserves-config")]
+
+
+def run_control2406(binary, output, name):
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands = []
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=["-bios", str(image), "-smp", "1",
+                "-display", "none", "-serial", "none", "-monitor", "none"],
+                name="control2406", base_temp_dir=sockets, qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                commands.append([text, response])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {0x24060000 + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {0x24060000 + offset:#x}").split()[1], 16)
+
+            offsets = (0, 8, 0xc, 0x10, 0x14, 0x20, 0x24, 0x30)
+
+            def snapshot():
+                return [read(x) for x in offsets]
+
+            profile = {0: 1, 8: 0xffffffff, 0xc: 0xa5, 0x10: 0x12345678,
+                       0x14: 0xa5a55a5a}
+            for offset, value in profile.items():
+                write(offset, value)
+            before = snapshot()
+            assert before == [1, 0xffffffff, 0xa5, 0x12345678, 0xa5a55a5a, 0, 0, 0]
+            if name.endswith("readback-clock-and-reset"):
+                write(0, 0)
+                assert snapshot() == [0] + before[1:]
+                command("clock_step 1000000000")
+                assert snapshot() == [0] + before[1:]
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert snapshot() == [0] * len(offsets)
+                for offset, value in profile.items():
+                    write(offset, value)
+                assert snapshot() == before
+            elif name.endswith("preflight-preserves-config"):
+                for offset, value in ((0, 2), (0xc, 0x100), (0x20, 1),
+                        (0x20, 0x10000), (0x20, 2), (0x24, 0xffffffff),
+                        (0x30, 1), (4, 1)):
+                    write(offset, value)
+                    assert snapshot() == before
+                command("writeb 0x24060008 0xff")
+                command("writew 0x2406000c 0xffff")
+                command("writel 0x24060009 0xffffffff")
+                assert snapshot() == before
+                write(8, 0xabcdef01)
+                assert read(8) == 0xabcdef01
+                assert read(0x24) == read(0x30) == 0
+            else:
+                raise AssertionError(name)
+            (output / "qemu.log").write_text(vm.get_log() or "")
+        assert vm.exitcode() == 0, vm.get_log()
+    assert image.read_bytes() == payload
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    return {"fixture": name, "qemu_exit_code": 0,
+            "scope": "no firmware; finite retained configuration and unavailable status"}
+
 def control2016_profile():
     profile = {0xc000: 6, 0xc018: 0xf2, 0xc0a4: 0, 0xc0cc: 8,
                0xc0ac: 0, 0xc0b0: 0x60, 0xc0b4: 0, 0xc0b8: 0x71,
@@ -4730,6 +4832,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control2406-qtest-"):
+        return run_control2406(binary, output, name)
     if name.startswith("control2016-qtest-"):
         return run_control2016(binary, output, name)
     if name.startswith("control2014-qtest-"):
@@ -4982,7 +5086,7 @@ def main():
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
              control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
-             control2016_fixtures() + control2010_gate_fixtures())
+             control2016_fixtures() + control2010_gate_fixtures() + control2406_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

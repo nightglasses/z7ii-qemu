@@ -1,0 +1,11 @@
+# Finite 2406 configuration and unavailable status
+
+Source is `54f43cb3d5a661467e343c9d4a6939723da6aef1`, `research/z7ii/qemu-2406-control-contract.md` in the source worktree. It restores 786B/306 continuous original diagnostic instructions plus two metadata bodies with 48 instructions; source gaps and candidate identities remain explicit. The prior instrumented original observed CPU0 write `24060008` at `10243BAC`, followed by DataAbort. Its relationship to CPU1 event-flag wait is unproved.
+
+One sparse SysBus device covers `[24060000,24060034)`, with aligned32 operations only. Supported configuration is `00` bool, `08/10/14` fullword, and `0C` zero-extended byte. These words retain guest input and use named cold-zero/readback assumptions, without physical reset, event or frame effects. Packet byte width does not permit byte MMIO. Holes and invalid widths/fields reject before state changes.
+
+Status `24/30` is explicitly unavailable with no connected producer and reads zero, rather than ready or valid running data. `20` has independent control storage; only an unchanged write is accepted. This includes cold stop/deassert0, while bit0 requests, bit16 handshake and other unbound mutations reject. Reads never generate status, clear counts or satisfy a request. Opaque `00` changes preserve all other configuration. Reset clears this finite virtual configuration; it does not call guest handlers or manufacture completion.
+
+IRQ229 is registered by a software callback wrapper that does not read/ACK 2406; its physical routing and producer are unproved. No IRQ is wired by this layer. The separate service154 request/event protocol remains outside this device, as does the actual CPU1 event ID88 wait. There is no host eventflag injection, callback, pixel data or speculative timer. The device is explicitly unmigratable.
+
+The new affected recipe contains14 ARM checks for packet/control/readback, unavailable status, forbidden requests/fields/status writes, holes, widths and the finite boundary, plus two no-firmware qtests for retained-state clock stability/reset/recovery and transactional rejection preserving every accessible word. Results and the changed original observation are recorded after the frozen native build; no old full suite is required by this addition.
