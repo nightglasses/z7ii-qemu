@@ -59,6 +59,7 @@ interface used by this profile, not the physical MCU identity.
 |---|---|---|
 | RCC | `0x40023800` | Explicit defined registers; oscillator enable/cancel, PLL input validation, delayed ready bits, conditional SWS switching, reset lines |
 | PWR | `0x40007000` | Voltage-scale control and status, writable backup control fields |
+| RTC | `0x40002800` | DBP/WPR protection, clock-dependent INIT/RSF/write-window synchronization, prescaled BCD calendar, leap dates, alarm/wakeup EXTI interrupts, backup registers |
 | flash interface | `0x40023c00` | Byte/halfword/word cache/latency control; W1C status; programming operations fault |
 | GPIO A-I | `0x40020000 + 0x400*port` | Upstream GPIO state machine restricted to the common F4 `0x00..0x27` layout; explicit F4 reset settings |
 | SYSCFG / EXTI | `0x40013800` / `0x40013c00` | Guest EXTICR pad selection, rising/falling edge detection, software requests, masks, pending W1C, grouped NVIC lines |
@@ -91,7 +92,11 @@ APB clock-rate accuracy and physical oscillator drift are outside this profile.
 Clock enables retain the guest's register state; electrical clock gating is not
 modeled. DMA double-buffer mode fails with transfer-error status; ordinary and
 circular single-buffer beats are implemented. Flash erase/program, SPI CRC,
-ten-bit I2C and electrical signal timing are not claimed.
+ten-bit I2C, RTC timestamp/tamper input and subsecond calibration/shift, and
+electrical signal timing are not claimed. Nonzero RTC shift/calibration requests
+fault. RTC uses a 32 kHz functional LSI or 32.768 kHz LSE; its calendar advances
+from guest-provided values using the actual prescaler and selected clock. The
+backup calendar persists across EX system reset; RCC.BDRST resets it.
 
 The saved complete 1269-function native inventory was queried once for all
 direct peripheral references. It confirms application references to the advanced
@@ -126,8 +131,20 @@ MENU mappings or direct calls into firmware GUI routines.
 
 The native C qtest fixture covers delayed oscillator/PLL switching and cancel,
 GPIO edge to grouped NVIC IRQ/W1C, DMA real SRAM copying/IRQ clear, disconnected
-I2C NACK and peripheral reset. These are protocol tests, not an original firmware
-startup receipt. Compilation and original-container execution are assigned to
-the shared builder; actual runtime evidence will be added after its binary is
-available. No vendor firmware, generated native object, or temporary GDB command
-file is tracked.
+I2C NACK, peripheral reset and RTC protection, delayed INIT handshake, timed wakeup
+and leap-day rollover. The shared builder's binary at
+`work/build/nikon/qemu-system-arm` passed the first five cases against EX source
+`fbc2cf0` (1.05 seconds). The RTC case is pending the next shared build.
+
+The first actual original-container run used that same binary and source. It
+entered at `0x080002b4`, reached `0x08020084` through the guest's original scatter
+dispatcher, and reported `SP=0x20000c08`, `VTOR=0x20000000`. RAM at `0x2000d000`
+held unpacked words `0x08041dd1, 0x08041dd1, 0x08041dcb, 0x08041dd9`; COPY views
+at `0x2003c000` and `0x2003f000` contained Thumb instructions. All inspected ZERO
+destinations held zero. This proves original reset and initialization execution,
+not full application readiness. Continuing naturally exposed RTC WPR at PC
+`0x080395ae` and SSR at `0x08044fb2`, causing a real failed transaction and
+HardFault lockup. Original RTC drivers `0x08045004`, `0x080491dc`, `0x08044eb4`
+and `0x080450a4` establish the whole protection/INIT/alarm group added next.
+Runtime logs and GDB command files stay under ignored `work/ex/`. No vendor
+firmware, generated native object, or temporary GDB command file is tracked.

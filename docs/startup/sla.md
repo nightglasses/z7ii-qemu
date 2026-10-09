@@ -90,4 +90,18 @@ component isolation, final-byte availability, unseeded COPY/release RAM,
 independent writable COPY backing and causal fill-DMA completion. It contains
 no original firmware or source opcode arrays. Qtest does not demonstrate
 original instruction execution; the original-run receipts remain in `work/`
-and must be added separately after the single build owner produces the binary.
+and are described separately below.
+
+The first actual native run used the single builder's `2c0bae3` ARM binary and
+the complete original decoded container, one Cortex-A7 under TCG, with native
+HMP observation and guest-error logging. HMP confirmed initial PC
+`0x1002bcd4`, CPSR `0x400001d3` (ARM secure SVC32). The original instructions
+programmed MEMC mode `0x21`, timing `0x153b0902` and clock groups 6/5/7 before
+the first rejected transaction: CPU0 PC `0x10023730`, PA `0x200300b8`, write
+32-bit value `1`, `sdi-config-profile-not-supported`. This is an actual SDI
+configuration difference from the earlier MAS profile's value `3`, not an
+observed O `0x178` startup loop. Receipts are ignored
+`work/sla/original1.json` and `work/sla/original1.log`. The builder also passed
+the original native SLA loaded-domain qtest in 1.01 seconds. This run predates
+the queued kernel-arena addition and complete SLA SDI profile; no COPY,
+allocator, peer or full-boot success is inferred from it.

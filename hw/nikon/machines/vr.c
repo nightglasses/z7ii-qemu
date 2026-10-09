@@ -12,6 +12,7 @@
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/renesas.h"
+#include "hw/nikon/vr.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "target/rx/cpu.h"
@@ -32,6 +33,7 @@ struct NikonVRMachine {
     unsigned ram_count;
     NikonBundle *bundle;
     GBytes *body, *metadata;
+    DeviceState *peripherals;
     bool reported_error;
 };
 
@@ -194,6 +196,11 @@ static void vr_init(MachineState *machine)
     object_initialize_child(OBJECT(s), "cpu", &s->cpu, TYPE_RX62N_CPU);
     qdev_prop_set_bit(DEVICE(&s->cpu), "has-extb", true);
     qdev_realize(DEVICE(&s->cpu), NULL, &error_fatal);
+    /* Functional peripheral timebase, not a measured Nikon MCU clock. */
+    s->peripherals = nikon_vr_peripherals_create(OBJECT(s), get_system_memory(),
+                       qdev_get_gpio_in(DEVICE(&s->cpu), RX_CPU_IRQ),
+                       qdev_get_gpio_in(DEVICE(&s->cpu), RX_CPU_FIR), 60000000);
+    s->cpu.env.ack = nikon_vr_peripherals_ack(s->peripherals);
     qemu_register_reset(vr_reset, s);
     error_report("nikonvr: loaded-component functional assumptions: "
                  "RX existing TCG plus EXTB; entry=fff00010, caller-SP=2000, "

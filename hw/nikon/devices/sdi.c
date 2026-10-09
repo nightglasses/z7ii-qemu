@@ -13,6 +13,12 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSDIState, NIKON_SDI)
 
+enum {
+    SDI_PHY, SDI_DDR, SDI_TRAIN, SDI_ARB, SDI_PORT,
+    SDI_CONFIG_WORDS = 110,
+    SDI_LATENCY_NS = 10000,
+};
+
 typedef struct NikonSDIChannel {
     NikonSDIState *owner;
     QEMUTimer *timer;
@@ -24,350 +30,61 @@ typedef struct NikonSDIChannel {
     bool initialized;
 } NikonSDIChannel;
 
-/* Official Ghidra getPcode/SymbolicPropogator whole-wrapper observations,
- * validated against original bytes in research commit 6a6b721.
- * Configuration profiles include retry values.
- * Values are applied configuration, not firmware instruction/data bytes.
- * Unlisted offsets and values remain unsupported. */
+/* Register families, not firmware values. The contiguous word counts describe
+ * the complete applied configuration in the MAS closure and SLA's two init
+ * families (1002361c/10024cb8, source revision 1076d278). Packed fields whose
+ * physical layout is not established retain their complete programmed word.
+ * The four-lane delay masks and rank/clock masks are functional constraints;
+ * they do not identify the silicon or model electrical calibration.
+ */
 static const struct {
-    uint32_t offset;
-    uint32_t values[2][3];
-    unsigned count[2];
-} config_profile[] = {
-    { 0x100, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x10c, { { 0x303 },
-                  { 0x303 } },
-      { 1, 1 } },
-    { 0x1004, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x1008, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x100c, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x1010, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x1014, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x1020, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x1024, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x1028, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x102c, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x1030, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x1038, { { 0x1010001 },
-                  { 0x1010001 } },
-      { 1, 1 } },
-    { 0x2408, { { 0x1f8d },
-                  { 0x1f8d } },
-      { 1, 1 } },
-    { 0x2414, { { 0x553b },
-                  { 0x553b } },
-      { 1, 1 } },
-    { 0x3404, { { 0x43 },
-                  { 0x43 } },
-      { 1, 1 } },
-    { 0x3408, { { 0x1a },
-                  { 0x1a } },
-      { 1, 1 } },
-    { 0x340c, { { 0x2 },
-                  { 0x2 } },
-      { 1, 1 } },
-    { 0x3500, { { 0x2030101 },
-                  { 0x2030101 } },
-      { 1, 1 } },
-    { 0x3504, { { 0x2030101 },
-                  { 0x2030101 } },
-      { 1, 1 } },
-    { 0x3508, { { 0x30000000 },
-                  { 0x30000000 } },
-      { 1, 1 } },
-    { 0x350c, { { 0x30000000 },
-                  { 0x30000000 } },
-      { 1, 1 } },
-    { 0x3510, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x3514, { { 0x30000000 },
-                  { 0x30000000 } },
-      { 1, 1 } },
-    { 0x3600, { { 0xf9f },
-                  { 0xf9f } },
-      { 1, 1 } },
-    { 0x3604, { { 0x13881 },
-                  { 0x13881 } },
-      { 1, 1 } },
-    { 0x360c, { { 0x18f },
-                  { 0x18f } },
-      { 1, 1 } },
-    { 0x3610, { { 0x40404 },
-                  { 0x40404 } },
-      { 1, 1 } },
-    { 0x3614, { { 0x13031007 },
-                  { 0x13031007 } },
-      { 1, 1 } },
-    { 0x3618, { { 0x807 },
-                  { 0x807 } },
-      { 1, 1 } },
-    { 0x361c, { { 0x20b0b07 },
-                  { 0x20b0b07 } },
-      { 1, 1 } },
-    { 0x3620, { { 0x30a0409 },
-                  { 0x30a0409 } },
-      { 1, 1 } },
-    { 0x3624, { { 0x53 },
-                  { 0x53 } },
-      { 1, 1 } },
-    { 0x3628, { { 0x8f0023 },
-                  { 0x8f0023 } },
-      { 1, 1 } },
-    { 0x362c, { { 0x3000202 },
-                  { 0x3000202 } },
-      { 1, 1 } },
-    { 0x3630, { { 0x50059 },
-                  { 0x50059 } },
-      { 1, 1 } },
-    { 0x3634, { { 0xa0a01 },
-                  { 0xa0a01 } },
-      { 1, 1 } },
-    { 0x3700, { { 0xd },
-                  { 0xd } },
-      { 1, 1 } },
-    { 0x3708, { { 0x90003 },
-                  { 0x90003 } },
-      { 1, 1 } },
-    { 0x370c, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x3800, { { 0x618 },
-                  { 0x618 } },
-      { 1, 1 } },
-    { 0x3804, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x3808, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x3900, { { 0x9896800 },
-                  { 0x9896800 } },
-      { 1, 1 } },
-    { 0x3904, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x3a00, { { 0x30d4000 },
-                  { 0x30d4000 } },
-      { 1, 1 } },
-    { 0x3a04, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x3b00, { { 0x7 },
-                  { 0x7 } },
-      { 1, 1 } },
-    { 0x3b04, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x4400, { { 0x3 },
-                  { 0x3 } },
-      { 1, 1 } },
-    { 0x4404, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x4408, { { 0x44444 },
-                  { 0x44444 } },
-      { 1, 1 } },
-    { 0x8040, { { 0x40004 },
-                  { 0x40004 } },
-      { 1, 1 } },
-    { 0x9040, { { 0x40004 },
-                  { 0x40004 } },
-      { 1, 1 } },
-    { 0xa040, { { 0x40004 },
-                  { 0x40004 } },
-      { 1, 1 } },
-    { 0xb040, { { 0x40004 },
-                  { 0x40004 } },
-      { 1, 1 } },
-    { 0xc040, { { 0x40004 },
-                  { 0x40004 } },
-      { 1, 1 } },
-    { 0xe400, { { 0x2 },
-                  { 0x2 } },
-      { 1, 1 } },
-    { 0xe600, { { 0x2 },
-                  { 0x2 } },
-      { 1, 1 } },
-    { 0xe604, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0xe608, { { 0x40 },
-                  { 0x40 } },
-      { 1, 1 } },
-    { 0xe700, { { 0x2 },
-                  { 0x2 } },
-      { 1, 1 } },
-    { 0xe704, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0xe708, { { 0x40 },
-                  { 0x40 } },
-      { 1, 1 } },
-    { 0xe70c, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0xe710, { { 0x10000000 },
-                  { 0x10000000 } },
-      { 1, 1 } },
-    { 0x10010, { { 0x5 },
-                  { 0x5 } },
-      { 1, 1 } },
-    { 0x10014, { { 0x8 },
-                  { 0x8 } },
-      { 1, 1 } },
-    { 0x10018, { { 0x9 },
-                  { 0x9 } },
-      { 1, 1 } },
-    { 0x1001c, { { 0x7 },
-                  { 0x7 } },
-      { 1, 1 } },
-    { 0x10020, { { 0x3 },
-                  { 0x3 } },
-      { 1, 1 } },
-    { 0x10024, { { 0x19061200 },
-                  { 0x19061200 } },
-      { 1, 1 } },
-    { 0x10030, { { 0x66606 },
-                  { 0x66606 } },
-      { 1, 1 } },
-    { 0x10034, { { 0x3713 },
-                  { 0x3713 } },
-      { 1, 1 } },
-    { 0x10040, { { 0x30 },
-                  { 0x30 } },
-      { 1, 1 } },
-    { 0x10044, { { 0x4664 },
-                  { 0x4664 } },
-      { 1, 1 } },
-    { 0x10048, { { 0x330026 },
-                  { 0x330026 } },
-      { 1, 1 } },
-    { 0x10050, { { 0x26 },
-                  { 0x26 } },
-      { 1, 1 } },
-    { 0x10054, { { 0x9d084 },
-                  { 0xaa092 } },
-      { 1, 1 } },
-    { 0x10058, { { 0xa0086 },
-                  { 0xae094 } },
-      { 1, 1 } },
-    { 0x1005c, { { 0x9e086 },
-                  { 0xac092 } },
-      { 1, 1 } },
-    { 0x10060, { { 0x9f085 },
-                  { 0xb0096 } },
-      { 1, 1 } },
-    { 0x10074, { { 0x16030 },
-                  { 0x1a030 } },
-      { 1, 1 } },
-    { 0x10078, { { 0x14030 },
-                  { 0x17030 } },
-      { 1, 1 } },
-    { 0x1007c, { { 0x14030 },
-                  { 0x15030 } },
-      { 1, 1 } },
-    { 0x10080, { { 0x16030 },
-                  { 0x18030 } },
-      { 1, 1 } },
-    { 0x10094, { { 0x800 },
-                  { 0x800 } },
-      { 1, 1 } },
-    { 0x10098, { { 0x800 },
-                  { 0x800 } },
-      { 1, 1 } },
-    { 0x1009c, { { 0x800 },
-                  { 0x800 } },
-      { 1, 1 } },
-    { 0x100a0, { { 0x800 },
-                  { 0x800 } },
-      { 1, 1 } },
-    { 0x100b8, { { 0x3 },
-                  { 0x3 } },
-      { 1, 1 } },
-    { 0x100e4, { { 0x89019, 0xd1019, 0xd1061 },
-                  { 0x96026, 0xde026, 0xde06e } },
-      { 3, 3 } },
-    { 0x100e8, { { 0x89019, 0xd1019, 0xd1061 },
-                  { 0x98028, 0xe0028, 0xe0070 } },
-      { 3, 3 } },
-    { 0x100ec, { { 0x8c01c, 0xd401c, 0xd4064 },
-                  { 0x97027, 0xdf027, 0xdf06f } },
-      { 3, 3 } },
-    { 0x100f0, { { 0x88018, 0xd0018, 0xd0060 },
-                  { 0x9a02a, 0xe202a, 0xe2072 } },
-      { 3, 3 } },
-    { 0x10128, { { 0x10016 },
-                  { 0x1001a } },
-      { 1, 1 } },
-    { 0x1012c, { { 0x10014 },
-                  { 0x10017 } },
-      { 1, 1 } },
-    { 0x10130, { { 0x10014 },
-                  { 0x10015 } },
-      { 1, 1 } },
-    { 0x10134, { { 0x10016 },
-                  { 0x10018 } },
-      { 1, 1 } },
-    { 0x10148, { { 0x10020 },
-                  { 0x10020 } },
-      { 1, 1 } },
-    { 0x1014c, { { 0x10020 },
-                  { 0x10020 } },
-      { 1, 1 } },
-    { 0x10150, { { 0x10020 },
-                  { 0x10020 } },
-      { 1, 1 } },
-    { 0x10154, { { 0x10020 },
-                  { 0x10020 } },
-      { 1, 1 } },
-    { 0x10820, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
-    { 0x10824, { { 0x1 },
-                  { 0x1 } },
-      { 1, 1 } },
-    { 0x10828, { { 0x43 },
-                  { 0x43 } },
-      { 1, 1 } },
-    { 0x1082c, { { 0x1a },
-                  { 0x1a } },
-      { 1, 1 } },
-    { 0x10840, { { 0x4b },
-                  { 0x4b } },
-      { 1, 1 } },
-    { 0x10850, { { 0x10050 },
-                  { 0x10050 } },
-      { 1, 1 } },
-    { 0x10910, { { 0x0 },
-                  { 0x0 } },
-      { 1, 1 } },
+    uint32_t base;
+    unsigned count;
+    unsigned stride;
+    uint32_t mask;
+    unsigned phase;
+} config_group[] = {
+    { 0x100, 1, 4, 3, SDI_PHY },                    /* TOP configuration */
+    { 0x10c, 1, 4, 0x303, SDI_PHY },                /* rank enables */
+    { 0x1004, 5, 4, 1, SDI_PHY },                   /* clock enables */
+    { 0x1020, 5, 4, 0x01010001, SDI_PORT },          /* port clocks */
+    { 0x1038, 1, 4, 0x01010001, SDI_PORT },
+    { 0x2408, 1, 4, 0xffff, SDI_PHY },              /* PHY AC */
+    { 0x2414, 1, 4, 0xffff, SDI_PHY },
+    { 0x3404, 3, 4, 0xffff, SDI_DDR },              /* DDR mode registers */
+    { 0x3500, 2, 4, UINT32_MAX, SDI_DDR },           /* DDR geometry */
+    { 0x3508, 4, 4, UINT32_MAX, SDI_DDR },           /* address boundaries */
+    { 0x3600, 2, 4, UINT32_MAX, SDI_DDR },           /* packed AC timings */
+    { 0x360c, 11, 4, UINT32_MAX, SDI_DDR },
+    { 0x3700, 1, 4, UINT32_MAX, SDI_DDR },           /* PHY function */
+    { 0x3708, 2, 4, UINT32_MAX, SDI_DDR },
+    { 0x3800, 3, 4, UINT32_MAX, SDI_DDR },           /* refresh */
+    { 0x3900, 2, 4, UINT32_MAX, SDI_DDR },           /* ZQ interval */
+    { 0x3a00, 2, 4, UINT32_MAX, SDI_DDR },           /* command interval */
+    { 0x3b00, 2, 4, UINT32_MAX, SDI_DDR },
+    { 0x4400, 3, 4, 0x000fffff, SDI_ARB },          /* arbitration */
+    { 0x8040, 5, 0x1000, 0x000f000f, SDI_PORT },    /* port arbitration */
+    { 0xe400, 1, 4, 3, SDI_PORT },                  /* final interface */
+    { 0xe600, 3, 4, 0xffff, SDI_PORT },
+    { 0xe700, 5, 4, UINT32_MAX, SDI_PORT },
+    { 0x10010, 6, 4, UINT32_MAX, SDI_PHY },          /* DDRL wait / PHY mode */
+    { 0x10030, 2, 4, UINT32_MAX, SDI_PHY },          /* impedance / ZQ */
+    { 0x10040, 3, 4, UINT32_MAX, SDI_PHY },
+    { 0x10050, 1, 4, 0x0303003f, SDI_PHY },          /* training selection */
+    { 0x10054, 4, 4, 0x001ff1ff, SDI_PHY },          /* lane write delays */
+    { 0x10074, 4, 4, 0x001ff1ff, SDI_PHY },          /* lane gate delays */
+    { 0x10094, 4, 4, 0x00000fff, SDI_PHY },          /* lane synchronizers */
+    { 0x100b8, 1, 4, 3, SDI_PHY },                  /* rank selection */
+    { 0x100e4, 4, 4, 0x001ff1ff, SDI_PHY },          /* WL search windows */
+    { 0x10128, 4, 4, 0x00010fff, SDI_PHY },          /* read eye controls */
+    { 0x10148, 4, 4, 0x00010fff, SDI_PHY },          /* write eye controls */
+    { 0x10820, 4, 4, UINT32_MAX, SDI_PHY },          /* training pattern */
+    { 0x10840, 1, 4, UINT32_MAX, SDI_PHY },
+    { 0x10850, 1, 4, UINT32_MAX, SDI_PHY },
+    { 0x10910, 1, 4, UINT32_MAX, SDI_PHY },
 };
 
-/* PHY, DDR init, five-mode training, arbitration, fifteen ports, final interface.
- * The port topology is the original software interface, not a silicon name. */
+/* PHY, DDR init, five-mode training, arbitration, fifteen ports, interface. */
 static const struct {
     uint32_t reset;
     uint32_t request;
@@ -391,10 +108,11 @@ struct NikonSDIState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     unsigned bank;
-    uint32_t config[ARRAY_SIZE(config_profile)];
-    bool configured[ARRAY_SIZE(config_profile)];
+    uint32_t config[SDI_CONFIG_WORDS];
+    bool configured[SDI_CONFIG_WORDS];
     NikonSDIChannel channel[ARRAY_SIZE(channel_map)];
     uint32_t training_modes;
+    uint32_t training_error;
     unsigned next_training_mode;
     bool training_result_known;
     bool top_reset;
@@ -405,22 +123,37 @@ static MemTxResult nikon_sdi_error(NikonSDIState *s, hwaddr offset,
                                   unsigned size, bool write,
                                   uint64_t value, const char *reason)
 {
-    nikon_access_error(&s->reported_error,
-                       s->regs.addr + offset,
+    nikon_access_error(&s->reported_error, s->regs.addr + offset,
                        size, write, value, reason);
     return MEMTX_ERROR;
 }
 
-static int nikon_sdi_config_index(hwaddr offset)
+static int nikon_sdi_config_index(hwaddr offset, unsigned *group)
 {
-    unsigned i;
+    unsigned i, first = 0;
 
-    for (i = 0; i < ARRAY_SIZE(config_profile); i++) {
-        if (config_profile[i].offset == offset) {
-            return i;
+    for (i = 0; i < ARRAY_SIZE(config_group); i++) {
+        uint32_t base = config_group[i].base;
+        unsigned stride = config_group[i].stride;
+
+        if (offset >= base && (offset - base) % stride == 0 &&
+            (offset - base) / stride < config_group[i].count) {
+            if (group) {
+                *group = i;
+            }
+            return first + (offset - base) / stride;
         }
+        first += config_group[i].count;
     }
     return -1;
+}
+
+static uint32_t nikon_sdi_config(NikonSDIState *s, uint32_t offset)
+{
+    int index = nikon_sdi_config_index(offset, NULL);
+
+    assert(index >= 0 && index < SDI_CONFIG_WORDS);
+    return s->config[index];
 }
 
 static void nikon_sdi_clear_channel(NikonSDIChannel *channel)
@@ -433,6 +166,37 @@ static void nikon_sdi_clear_channel(NikonSDIChannel *channel)
     channel->reset = true;
 }
 
+/* The functional backend uses the applied manual lane delay as its stable
+ * calibration target. A WL sweep succeeds only if its programmed interval
+ * contains that target. No physical eye, RAM traffic, or vendor result byte is
+ * invented. The guest can receive an actual error and retry with a new window.
+ */
+static uint32_t nikon_sdi_training_error(NikonSDIState *s, unsigned mode)
+{
+    unsigned lane;
+
+    for (lane = 0; lane < 4; lane++) {
+        if (mode == 0) {
+            uint32_t window = nikon_sdi_config(s, 0x100e4 + lane * 4);
+            uint32_t target = nikon_sdi_config(s, 0x10054 + lane * 4) & 0x1ff;
+            uint32_t low = window & 0x1ff;
+            uint32_t high = (window >> 12) & 0x1ff;
+
+            if (low > high || target < low || target > high) {
+                return 1U << 2; /* TRAINERR.WL_ERR */
+            }
+        } else if (mode >= 3) {
+            uint32_t control = nikon_sdi_config(s,
+                (mode == 3 ? 0x10128 : 0x10148) + lane * 4);
+
+            if (!(control & 0x10000) || !(control & 0xfff)) {
+                return 1U << (mode == 3 ? 5 : 6);
+            }
+        }
+    }
+    return 0;
+}
+
 static void nikon_sdi_complete(void *opaque)
 {
     NikonSDIChannel *channel = opaque;
@@ -441,44 +205,72 @@ static void nikon_sdi_complete(void *opaque)
     channel->pending = false;
     channel->done = true;
     channel->initialized = true;
-    if (channel->index == 2) {
+    if (channel->index == SDI_TRAIN) {
         unsigned mode = channel->request >> 16;
-        s->training_modes |= 1U << mode;
+
+        s->training_error = nikon_sdi_training_error(s, mode);
+        if (!s->training_error) {
+            s->training_modes |= 1U << mode;
+        }
         s->next_training_mode = (mode + 1) % 5;
         s->training_result_known = true;
     }
     qemu_log_mask(LOG_GUEST_ERROR,
                   "nikon-sdi: bank=%u channel=%u request=0x%x "
-                  "modeled-complete done=1 training=0x%x\n",
-                  s->bank, channel->index, channel->request, s->training_modes);
+                  "modeled-complete done=1 training=0x%x error=0x%x\n",
+                  s->bank, channel->index, channel->request,
+                  s->training_modes, s->training_error);
 }
 
 static bool nikon_sdi_configuration_complete(NikonSDIState *s, unsigned channel)
 {
-    unsigned i;
+    unsigned group, first = 0;
 
-    for (i = 0; i < ARRAY_SIZE(config_profile); i++) {
-        uint32_t offset = config_profile[i].offset;
-        bool required = false;
+    for (group = 0; group < ARRAY_SIZE(config_group); group++) {
+        for (unsigned word = 0; word < config_group[group].count; word++) {
+            uint32_t offset = config_group[group].base +
+                              word * config_group[group].stride;
+            bool required = config_group[group].phase == channel;
 
-        if (channel == 0) {
-            required = offset == 0x100 || offset == 0x10c ||
-                       (offset >= 0x1004 && offset <= 0x1014) ||
-                       offset == 0x2408 || offset == 0x2414 ||
-                       offset >= 0x10000;
-        } else if (channel == 1) {
-            required = offset >= 0x3400 && offset < 0x4000;
-        } else if (channel == 3) {
-            required = offset >= 0x4400 && offset < 0x4500;
-        } else if (channel >= 4) {
-            uint32_t base = channel_map[channel].reset;
-            uint32_t end = channel + 1 < ARRAY_SIZE(channel_map) ?
-                           channel_map[channel + 1].reset : 0x10000;
-            required = offset > base && offset < end;
+            if (channel >= SDI_PORT) {
+                uint32_t base = channel_map[channel].reset;
+                uint32_t end = channel + 1 < ARRAY_SIZE(channel_map) ?
+                               channel_map[channel + 1].reset : 0x10000;
+
+                required = offset > base && offset < end;
+                if (channel < ARRAY_SIZE(channel_map) - 1 &&
+                    (channel - SDI_PORT) % 3 == 0) {
+                    unsigned port = (channel - SDI_PORT) / 3;
+
+                    required |= offset == (port == 4 ? 0x1030 :
+                                           0x1020 + port * 4);
+                } else if (channel == ARRAY_SIZE(channel_map) - 1) {
+                    required |= offset == 0x1038;
+                }
+            }
+            if (required && !s->configured[first + word]) {
+                return false;
+            }
         }
-        if (required && !s->configured[i]) {
-            return false;
-        }
+        first += config_group[group].count;
+    }
+    if (channel == SDI_PHY) {
+        uint32_t ranks = nikon_sdi_config(s, 0x100b8);
+
+        return ranks != 0 && nikon_sdi_config(s, 0x10c) ==
+               (ranks | ranks << 8);
+    }
+    if (channel == SDI_DDR) {
+        uint32_t end = nikon_sdi_config(s, 0x3508);
+
+        return end && !(end & 0x0fffffff) &&
+               end == nikon_sdi_config(s, 0x350c) &&
+               end == nikon_sdi_config(s, 0x3514) &&
+               !nikon_sdi_config(s, 0x3510) &&
+               nikon_sdi_config(s, 0x3500) &&
+               nikon_sdi_config(s, 0x3504) &&
+               nikon_sdi_config(s, 0x3900) &&
+               nikon_sdi_config(s, 0x3a00);
     }
     return true;
 }
@@ -488,30 +280,36 @@ static MemTxResult nikon_sdi_request(NikonSDIState *s, unsigned index,
 {
     NikonSDIChannel *channel = &s->channel[index];
     unsigned mode = value >> 16;
-    uint32_t expected = index == 1 ? 0x10001 : 1;
+    uint32_t expected = index == SDI_DDR ? 0x10001 : 1;
 
-    if (index == 2) {
-        expected = 1 | (mode << 16);
+    if (index == SDI_TRAIN) {
+        expected = 1 | mode << 16;
     }
-    if (value != expected || (index == 2 && mode > 4)) {
+    if (value != expected || (index == SDI_TRAIN && mode > 4)) {
         return nikon_sdi_error(s, offset, 4, true, value,
-                              "sdi-request-profile-not-supported");
+                              "sdi-request-not-supported");
     }
-    if (s->top_reset || (index != 2 && channel->reset) ||
+    if (s->top_reset || (index != SDI_TRAIN && channel->reset) ||
         channel->pending || channel->done ||
         !nikon_sdi_configuration_complete(s, index) ||
-        (index == 1 && !s->channel[0].initialized) ||
-        (index == 2 && (!s->channel[1].initialized ||
-                       mode != s->next_training_mode)) ||
-        (index == 3 && s->training_modes != 0x1f) ||
-        (index >= 4 && !s->channel[3].initialized)) {
+        (index == SDI_DDR && !s->channel[SDI_PHY].initialized) ||
+        (index == SDI_TRAIN && (!s->channel[SDI_DDR].initialized ||
+                               mode != s->next_training_mode)) ||
+        (index == SDI_ARB && s->training_modes != 0x1f) ||
+        (index >= SDI_PORT && !s->channel[SDI_ARB].initialized)) {
         return nikon_sdi_error(s, offset, 4, true, value,
                               "sdi-request-phase-not-supported");
     }
+    if (index == SDI_TRAIN) {
+        s->training_result_known = false;
+        if (mode == 0) {
+            s->training_modes = 0;
+        }
+    }
     channel->request = value;
     channel->pending = true;
-    /* Nominal virtual PHY/init/training/port latency, not physical calibration. */
-    timer_mod(channel->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 10000);
+    timer_mod(channel->timer,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + SDI_LATENCY_NS);
     return MEMTX_OK;
 }
 
@@ -520,7 +318,7 @@ static MemTxResult nikon_sdi_read(void *opaque, hwaddr offset,
                                 MemTxAttrs attrs)
 {
     NikonSDIState *s = opaque;
-    int config = nikon_sdi_config_index(offset);
+    int config = nikon_sdi_config_index(offset, NULL);
     unsigned i;
 
     *value = 0;
@@ -541,7 +339,7 @@ static MemTxResult nikon_sdi_read(void *opaque, hwaddr offset,
             return nikon_sdi_error(s, offset, size, false, 0,
                                   "sdi-training-result-uninitialized");
         }
-        /* Successful virtual training backend; no physical health conclusion. */
+        *value = s->training_error;
         return MEMTX_OK;
     }
     for (i = 0; i < ARRAY_SIZE(channel_map); i++) {
@@ -573,6 +371,7 @@ static void nikon_sdi_reset(DeviceState *dev)
         nikon_sdi_clear_channel(&s->channel[i]);
     }
     s->training_modes = 0;
+    s->training_error = 0;
     s->next_training_mode = 0;
     s->training_result_known = false;
     s->top_reset = true;
@@ -584,8 +383,8 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
                                  MemTxAttrs attrs)
 {
     NikonSDIState *s = opaque;
-    int config = nikon_sdi_config_index(offset);
-    unsigned i;
+    unsigned group = 0, i;
+    int config = nikon_sdi_config_index(offset, &group);
 
     if (size != 4 || (offset & 3)) {
         return nikon_sdi_error(s, offset, size, true, value,
@@ -594,7 +393,7 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
     if (offset == 0) {
         if (value > 1) {
             return nikon_sdi_error(s, offset, size, true, value,
-                                  "sdi-reset-profile-not-supported");
+                                  "sdi-reset-not-supported");
         }
         if (value) {
             nikon_sdi_reset(DEVICE(s));
@@ -609,19 +408,18 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
         if (offset == channel_map[i].reset) {
             if (value > 1) {
                 return nikon_sdi_error(s, offset, size, true, value,
-                                      "sdi-reset-profile-not-supported");
+                                      "sdi-reset-not-supported");
             }
             if (value) {
                 nikon_sdi_clear_channel(channel);
-                if (i <= 1 || i == 3) {
-                    unsigned dependent;
-
-                    for (dependent = i + 1;
+                if (i <= SDI_DDR || i == SDI_ARB) {
+                    for (unsigned dependent = i + 1;
                          dependent < ARRAY_SIZE(channel_map); dependent++) {
                         nikon_sdi_clear_channel(&s->channel[dependent]);
                     }
-                    if (i <= 1) {
+                    if (i <= SDI_DDR) {
                         s->training_modes = 0;
+                        s->training_error = 0;
                         s->next_training_mode = 0;
                         s->training_result_known = false;
                     }
@@ -637,8 +435,11 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
         if (offset == channel_map[i].status) {
             if (value != 1 || channel->pending) {
                 return nikon_sdi_error(s, offset, size, true, value,
-                                      "sdi-ack-profile-not-supported");
+                                      "sdi-ack-not-supported");
             }
+            /* W1C of an already clear flag is legal, including the original
+             * final interface's asymmetric CC30 acknowledgement.
+             */
             channel->done = false;
             return MEMTX_OK;
         }
@@ -650,15 +451,22 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
                                       "sdi-config-while-pending");
             }
         }
-        for (i = 0; i < config_profile[config].count[s->bank]; i++) {
-            if (value == config_profile[config].values[s->bank][i]) {
-                s->config[config] = value;
-                s->configured[config] = true;
-                return MEMTX_OK;
-            }
+        if (value & ~config_group[group].mask) {
+            return nikon_sdi_error(s, offset, size, true, value,
+                                  "sdi-config-reserved-bits");
         }
-        return nikon_sdi_error(s, offset, size, true, value,
-                              "sdi-config-profile-not-supported");
+        if (offset >= 0x10050 && s->config[config] != value) {
+            /* A result belongs to the applied training configuration. A new
+             * sweep starts at mode zero after the guest programs its retry.
+             */
+            s->training_modes = 0;
+            s->training_error = 0;
+            s->next_training_mode = 0;
+            s->training_result_known = false;
+        }
+        s->config[config] = value;
+        s->configured[config] = true;
+        return MEMTX_OK;
     }
     return nikon_sdi_error(s, offset, size, true, value,
                           "sdi-access-not-supported");
@@ -675,8 +483,12 @@ static const MemoryRegionOps nikon_sdi_ops = {
 static void nikon_sdi_init(Object *obj)
 {
     NikonSDIState *s = NIKON_SDI(obj);
-    unsigned i;
+    unsigned i, words = 0;
 
+    for (i = 0; i < ARRAY_SIZE(config_group); i++) {
+        words += config_group[i].count;
+    }
+    assert(words == SDI_CONFIG_WORDS);
     for (i = 0; i < ARRAY_SIZE(channel_map); i++) {
         s->channel[i].owner = s;
         s->channel[i].index = i;
@@ -691,9 +503,8 @@ static void nikon_sdi_init(Object *obj)
 static void nikon_sdi_finalize(Object *obj)
 {
     NikonSDIState *s = NIKON_SDI(obj);
-    unsigned i;
 
-    for (i = 0; i < ARRAY_SIZE(channel_map); i++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(channel_map); i++) {
         timer_free(s->channel[i].timer);
     }
 }

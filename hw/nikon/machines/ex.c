@@ -110,6 +110,13 @@ struct NikonEXState {
     EXDMA dma[2];
     EXADC adc[3];
     uint32_t adc_common;
+    uint32_t rtc[40];
+    unsigned rtc_key;
+    bool rtc_unlocked;
+    bool rtc_initialized;
+    QEMUTimer *rtc_sync;
+    QEMUTimer *rtc_tick;
+    QEMUTimer *rtc_wakeup;
     QEMUTimer *osc_timer;
     QEMUBH *reset_bh;
     qemu_irq reset_irq;
@@ -188,6 +195,191 @@ static void ex_exti_update(NikonEXState *s)
     }
     ex_irq(s, 23, pending & 0x03e0);
     ex_irq(s, 40, pending & 0xfc00);
+    ex_irq(s, 41, pending & (1 << 17));
+    ex_irq(s, 3, pending & (1 << 22));
+}
+
+static unsigned ex_rtc_hz(NikonEXState *s)
+{
+    uint32_t bdcr = s->rcc[0x70 / 4];
+    if (!(bdcr & (1 << 15)) || (bdcr & (1 << 16))) {
+        return 0;
+    }
+    switch (extract32(bdcr, 8, 2)) {
+    case 1: return bdcr & 2 ? 32768 : 0;
+    case 2: return s->rcc[0x74 / 4] & 2 ? 32000 : 0;
+    case 3: return s->rcc[0] & (1 << 17) ? EX_HSE_HZ / 8 : 0;
+    default: return 0;
+    }
+}
+
+static uint64_t ex_rtc_period(NikonEXState *s)
+{
+    unsigned hz = ex_rtc_hz(s);
+    uint32_t pre = s->rtc[4];
+    return hz ? (uint64_t)((pre & 0x7fff) + 1) *
+        (extract32(pre, 16, 7) + 1) * NANOSECONDS_PER_SECOND / hz : 0;
+}
+
+static void ex_rtc_schedule(NikonEXState *s)
+{
+    unsigned hz = ex_rtc_hz(s);
+    uint64_t period = ex_rtc_period(s);
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (hz && !timer_pending(s->rtc_sync)) {
+        timer_mod(s->rtc_sync, now + 2 * NANOSECONDS_PER_SECOND / hz);
+    }
+    if (period && !(s->rtc[3] & (1 << 7))) {
+        if (!timer_pending(s->rtc_tick)) {
+            timer_mod(s->rtc_tick, now + period);
+        }
+    } else {
+        timer_del(s->rtc_tick);
+    }
+    if (hz && (s->rtc[2] & (1 << 10))) {
+        unsigned sel = s->rtc[2] & 7;
+        uint64_t count = (s->rtc[5] & 0xffff) + 1;
+        uint64_t wake_period;
+        if (sel < 4) {
+            wake_period = count * (16 >> sel) * NANOSECONDS_PER_SECOND / hz;
+        } else {
+            count += sel >= 6 ? 65536 : 0;
+            wake_period = count * period;
+        }
+        if (!timer_pending(s->rtc_wakeup)) {
+            timer_mod(s->rtc_wakeup, now + wake_period);
+        }
+    } else {
+        timer_del(s->rtc_wakeup);
+    }
+}
+
+static void ex_rtc_sync(void *opaque)
+{
+    NikonEXState *s = opaque;
+    if (!ex_rtc_hz(s)) {
+        return;
+    }
+    s->rtc[3] = deposit32(s->rtc[3], 6, 1, !!(s->rtc[3] & (1 << 7)));
+    if (!(s->rtc[3] & (1 << 7))) {
+        s->rtc[3] |= 1 << 5; /* actual calendar-to-shadow synchronization */
+    }
+    s->rtc[3] = (s->rtc[3] & ~7u) |
+        (!(s->rtc[2] & (1 << 8))) |
+        (!(s->rtc[2] & (1 << 9)) << 1) |
+        (!(s->rtc[2] & (1 << 10)) << 2);
+}
+
+static unsigned ex_bcd_decode(unsigned value)
+{
+    return (value >> 4) * 10 + (value & 15);
+}
+
+static unsigned ex_bcd_encode(unsigned value)
+{
+    return (value / 10 << 4) | (value % 10);
+}
+
+static bool ex_rtc_alarm(NikonEXState *s, unsigned alarm)
+{
+    uint32_t value = s->rtc[alarm ? 8 : 7], tr = s->rtc[0], dr = s->rtc[1];
+    uint32_t masks[] = { 0x7f, 0x7f00, 0x7f0000 };
+    for (unsigned i = 0; i < 3; i++) {
+        if (!(value & (1u << (7 + i * 8))) &&
+            (value & masks[i]) != (tr & masks[i])) {
+            return false;
+        }
+    }
+    unsigned day = value & (1 << 30) ? extract32(dr, 13, 3) : dr & 0x3f;
+    return (value & (1u << 31)) || extract32(value, 24, 6) == day;
+}
+
+static void ex_rtc_tick(void *opaque)
+{
+    NikonEXState *s = opaque;
+    uint32_t tr = s->rtc[0], dr = s->rtc[1];
+    unsigned sec = ex_bcd_decode(tr & 0x7f) + 1;
+    unsigned min = ex_bcd_decode((tr >> 8) & 0x7f);
+    unsigned hour = ex_bcd_decode((tr >> 16) & 0x3f);
+    bool pm = tr & (1 << 22), carry_day = false;
+    if (sec >= 60) {
+        sec = 0;
+        if (++min >= 60) {
+            min = 0;
+            hour++;
+            if (s->rtc[2] & (1 << 6)) {
+                if (hour == 12) {
+                    carry_day = pm;
+                    pm = !pm;
+                } else if (hour > 12) {
+                    hour = 1;
+                }
+            } else if (hour >= 24) {
+                hour = 0;
+                carry_day = true;
+            }
+        }
+    }
+    if (carry_day) {
+        static const unsigned days[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        unsigned year = ex_bcd_decode(dr >> 16), month = ex_bcd_decode((dr >> 8) & 0x1f);
+        unsigned day = ex_bcd_decode(dr & 0x3f) + 1;
+        unsigned weekday = extract32(dr, 13, 3) % 7 + 1;
+        if (month >= 1 && month <= 12 && day > days[month - 1] + (month == 2 && !(year % 4))) {
+            day = 1;
+            if (++month > 12) {
+                month = 1;
+                year = (year + 1) % 100;
+            }
+        }
+        s->rtc[1] = ex_bcd_encode(day) | (ex_bcd_encode(month) << 8) |
+            (weekday << 13) | (ex_bcd_encode(year) << 16);
+    }
+    s->rtc[0] = ex_bcd_encode(sec) | (ex_bcd_encode(min) << 8) |
+        (ex_bcd_encode(hour) << 16) | (pm << 22);
+    s->rtc[3] |= 1 << 5;
+    for (unsigned i = 0; i < 2; i++) {
+        if ((s->rtc[2] & (1 << (8 + i))) && ex_rtc_alarm(s, i)) {
+            s->rtc[3] |= 1 << (8 + i);
+            if (s->rtc[2] & (1 << (12 + i))) {
+                s->exti[5] |= 1 << 17;
+            }
+        }
+    }
+    ex_exti_update(s);
+    ex_rtc_schedule(s);
+}
+
+static void ex_rtc_wakeup(void *opaque)
+{
+    NikonEXState *s = opaque;
+    s->rtc[3] |= 1 << 10;
+    if (s->rtc[2] & (1 << 14)) {
+        s->exti[5] |= 1 << 22;
+        ex_exti_update(s);
+    }
+    ex_rtc_schedule(s);
+}
+
+static bool ex_rtc_reg(unsigned reg)
+{
+    return reg <= 6 || (reg >= 7 && reg <= 14) ||
+        (reg >= 16 && reg < 40);
+}
+
+static void ex_rtc_reset(NikonEXState *s)
+{
+    timer_del(s->rtc_sync);
+    timer_del(s->rtc_tick);
+    timer_del(s->rtc_wakeup);
+    memset(s->rtc, 0, sizeof(s->rtc));
+    s->rtc[1] = 0x2101;
+    s->rtc[3] = 7;
+    s->rtc[4] = 0x007f00ff;
+    s->rtc[5] = 0xffff;
+    s->rtc_unlocked = false;
+    s->rtc_initialized = true;
+    s->rtc_key = 0;
 }
 
 static void ex_pin_change(void *opaque, int n, int level)
@@ -260,6 +452,7 @@ static void ex_clock_settle(void *opaque)
         clock_set_hz(s->cpuclk, hz);
         clock_set_hz(s->refclk, hz / 8);
     }
+    ex_rtc_schedule(s);
 }
 
 static void ex_spi_reset(NikonEXState *s, unsigned i)
@@ -573,6 +766,19 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
         v = s->syscfg[(aligned - 0x40013800) / 4];
     } else if (aligned >= 0x40013c00 && aligned <= 0x40013c14) {
         v = s->exti[(aligned - 0x40013c00) / 4];
+    } else if (aligned >= 0x40002800 && aligned < 0x400028a0 &&
+               ex_rtc_reg((aligned - 0x40002800) / 4)) {
+        unsigned reg = (aligned - 0x40002800) / 4;
+        v = s->rtc[reg];
+        if (reg == 9 || reg == 11) {
+            v = 0; /* documented write-only key/shift interfaces */
+        } else if (reg == 10 && timer_pending(s->rtc_tick)) {
+            uint64_t left = timer_expire_time_ns(s->rtc_tick) -
+                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+            uint64_t period = ex_rtc_period(s);
+            v = period ? MIN((s->rtc[4] & 0x7fff),
+                            left * ((s->rtc[4] & 0x7fff) + 1) / period) : 0;
+        }
     } else if (aligned == 0x40012304) {
         v = s->adc_common;
     } else {
@@ -672,6 +878,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             v = (v & ~2u) | (s->rcc[off / 4] & 2);
         }
         s->rcc[off / 4] = v;
+        if (off == 0x70 && (v & (1 << 16))) {
+            ex_rtc_reset(s);
+        }
         ex_rcc_reset_devices(s, off, v & ~previous);
         timer_mod(s->osc_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + EX_OSC_DELAY_NS);
     } else if (aligned == 0x40007000) {
@@ -707,6 +916,62 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             }
         }
         ex_exti_update(s);
+    } else if (aligned >= 0x40002800 && aligned < 0x400028a0) {
+        unsigned reg = (aligned - 0x40002800) / 4;
+        if (!(s->pwr[0] & (1 << 8))) {
+            return MEMTX_OK; /* backup-domain writes are protected by DBP */
+        }
+        if (reg == 9) {
+            if ((v & 0xff) == 0xca) {
+                s->rtc_key = 1;
+            } else if ((v & 0xff) == 0x53 && s->rtc_key == 1) {
+                s->rtc_unlocked = true;
+                s->rtc_key = 0;
+            } else {
+                s->rtc_unlocked = false;
+                s->rtc_key = 0;
+            }
+        } else if (reg >= 20 || (reg == 17) || s->rtc_unlocked) {
+            if (reg == 3) {
+                bool initializing = s->rtc[3] & (1 << 7);
+                /* INIT is writable; RSF and event flags are write-zero-clear. */
+                s->rtc[3] &= v | ~0xff20u;
+                s->rtc[3] = deposit32(s->rtc[3], 7, 1, !!(v & (1 << 7)));
+                if (!(v & (1 << 7))) {
+                    s->rtc[3] &= ~(1 << 6);
+                    if (initializing) {
+                        s->rtc[3] |= 1 << 4;
+                    }
+                }
+            } else if (reg == 0 || reg == 1 || reg == 4) {
+                if (s->rtc[3] & (1 << 6)) {
+                    static const uint32_t masks[] = { 0x007f7f7f, 0x00ffff3f };
+                    s->rtc[reg] = reg == 4 ? v & 0x007f7fff : v & masks[reg];
+                }
+            } else if (reg == 2) {
+                s->rtc[2] = v & 0x00ffffff;
+                s->rtc[3] &= ~7u;
+                timer_del(s->rtc_wakeup);
+            } else if (reg == 5) {
+                if (s->rtc[3] & 4) {
+                    s->rtc[5] = v & 0xffff;
+                }
+            } else if (reg == 7 || reg == 8) {
+                if (s->rtc[3] & (1 << (reg - 7))) {
+                    s->rtc[reg] = v;
+                }
+            } else if (reg == 10 || (reg >= 12 && reg <= 14)) {
+                return ex_bad(s, addr, size, true);
+            } else if (reg == 11 || reg == 16) {
+                /* Subsecond shift/calibration requires a timed profile. */
+                if (v) {
+                    return ex_bad(s, addr, size, true);
+                }
+            } else {
+                s->rtc[reg] = v;
+            }
+        }
+        ex_rtc_schedule(s);
     } else if (aligned == 0x40012304) {
         s->adc_common = v & 0x00c3ff1f;
     } else {
@@ -874,6 +1139,13 @@ static void ex_reset(DeviceState *dev)
     memset(s->dma, 0, sizeof(s->dma));
     memset(s->adc, 0, sizeof(s->adc));
     s->adc_common = 0;
+    if (!s->rtc_initialized) {
+        ex_rtc_reset(s);
+    } else {
+        s->rtc[3] &= ~0xe0u; /* system reset preserves the backup calendar */
+        s->rtc_unlocked = false;
+        s->rtc_key = 0;
+    }
     for (unsigned i = 0; i < 3; i++) {
         s->adc[i].reg[9] = 0xfff;
     }
@@ -1024,6 +1296,9 @@ static void ex_init(Object *obj)
     clock_set_hz(s->cpuclk, EX_HSI_HZ);
     clock_set_hz(s->refclk, EX_HSI_HZ / 8);
     s->osc_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_clock_settle, s);
+    s->rtc_sync = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_sync, s);
+    s->rtc_tick = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_tick, s);
+    s->rtc_wakeup = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_wakeup, s);
     s->reset_bh = qemu_bh_new(ex_reset_requested, s);
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
@@ -1037,6 +1312,9 @@ static void ex_finalize(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
     timer_free(s->osc_timer);
+    timer_free(s->rtc_sync);
+    timer_free(s->rtc_tick);
+    timer_free(s->rtc_wakeup);
     qemu_bh_delete(s->reset_bh);
     qemu_free_irq(s->reset_irq);
     g_clear_pointer(&s->firmware, g_bytes_unref);
