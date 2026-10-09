@@ -20,10 +20,11 @@ static QTestState *start(void)
 {
     g_autofree char *quoted = g_shell_quote(image);
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none -S", quoted);
+        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", quoted);
 
     QTestState *q = qtest_init(args);
 
+    /* qtest executes no guest CPU. -S would disable virtual timer callbacks. */
     nikon_intercept_gic(q);
     return q;
 }
@@ -63,7 +64,7 @@ static void test_pause_geometry(void)
             g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08180000);
             g_assert_false(qtest_get_irq(q, irq - 32));
             qtest_writel(q, channel, qtest_readl(q, channel) & ~PB);
-            qtest_clock_step(q, 100000);
+            qtest_clock_step_next(q);
             g_assert_cmphex(qtest_readl(q, destination), ==, value);
             g_assert_cmphex(qtest_readl(q, destination + 4), ==, value + 1);
             g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x081d0000);
@@ -105,7 +106,7 @@ static void test_halt_all(void)
     for (bank = 0; bank < 2; bank++) {
         qtest_writel(q, HDMAC + bank * 0x10000, 0x90000000);
     }
-    qtest_clock_step(q, 100000);
+    qtest_clock_step_next(q);
     for (index = 0; index < 16; index++) {
         g_assert_cmphex(qtest_readl(q, RAM + 0x2000 + index * 4), ==,
                         0x100 + index);
@@ -156,6 +157,7 @@ static void test_reentrant_pause(void)
     qtest_writel(q, RAM + 0x1004, 0x08000000);
     setup(q, HDMAC + 0x10, RAM + 0x1000, HDMAC + 0x10,
           0x08180000, 0xa0000001);
+    qtest_clock_step_next(q);
     qtest_clock_step(q, 100000);
     /* First accepted beat writes PB through the actual DMA bus. */
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x10), ==, 0xe0000001);
@@ -163,7 +165,7 @@ static void test_reentrant_pause(void)
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x1c), ==, HDMAC + 0x14);
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, 0x08180000);
     qtest_writel(q, HDMAC + 0x10, 0xa0000001);
-    qtest_clock_step(q, 100000);
+    qtest_clock_step_next(q);
     /* The second beat clears CI/EI through CB, then really completes. */
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, RAM + 0x1008);
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, 0x08050000);
@@ -178,6 +180,7 @@ static void test_reentrant_halt(void)
     qtest_writel(q, RAM + 0x1000, 0x91000000);
     qtest_writel(q, RAM + 0x1004, 0x11223344);
     setup(q, HDMAC + 0x10, RAM + 0x1000, HDMAC, 0x08180000, 0xa0000001);
+    qtest_clock_step_next(q);
     qtest_clock_step(q, 100000);
     /* Do not run the second beat into the unimplemented global+4 hole. */
     g_assert_cmphex(qtest_readl(q, HDMAC), ==, 0x91000000);
@@ -208,7 +211,7 @@ static void test_audio_pause(void)
     g_assert_cmphex(qtest_readl(q, AUDIO + 0x120), ==, 0xffffffff);
     qtest_writel(q, channel, qtest_readl(q, channel) | PB);
     qtest_writel(q, AUDIO + 0x114, 1U << 30);
-    qtest_clock_step(q, 2000);
+    qtest_clock_step_next(q);
     /* A real sink freed a FIFO stage/DREQ, but PB still forbids a beat. */
     g_assert_cmphex(qtest_readl(q, AUDIO + 0x120), ==, 0x3fffffff);
     g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1040);

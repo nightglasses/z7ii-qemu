@@ -18,6 +18,7 @@
 #include "system/system.h"
 #include "target/arm/cpu.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/bundle.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -55,6 +56,8 @@ struct Z7IIMachineState {
     MachineState parent_obj;
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
+    char *bundle_path;
+    NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
     MemoryRegion unknown;
@@ -194,17 +197,25 @@ static void z7ii_init(MachineState *machine)
     DeviceState *exiu;
     SysBusDevice *gic_bus;
     int64_t image_size;
+    g_autoptr(GBytes) mas = NULL;
     unsigned i;
 
     if (strcmp(machine->cpu_type, ARM_CPU_TYPE_NAME("cortex-a7"))) {
         error_report("z7ii-mas-diagnostic currently requires Cortex-A7");
         exit(EXIT_FAILURE);
     }
-    if (!machine->firmware) {
-        error_report("z7ii-mas-diagnostic requires -bios <raw MAS payload>");
+    if (!!machine->firmware == !!s->bundle_path) {
+        error_report("select exactly one input: -bios <raw MAS payload> "
+                     "or -machine bundle=<decoded container>");
         exit(EXIT_FAILURE);
     }
-    image_size = get_image_size(machine->firmware, &error_fatal);
+    if (s->bundle_path) {
+        s->bundle = nikon_bundle_load(s->bundle_path, &error_fatal);
+        mas = nikon_bundle_component(s->bundle, NIKON_COMPONENT_MAS);
+        image_size = g_bytes_get_size(mas);
+    } else {
+        image_size = get_image_size(machine->firmware, &error_fatal);
+    }
     if (image_size <= 0 || (uint64_t)image_size > MAS_MAX_SIZE) {
         error_report("MAS diagnostic image must contain 1..%llu bytes",
                      (unsigned long long)MAS_MAX_SIZE);
@@ -222,8 +233,11 @@ static void z7ii_init(MachineState *machine)
     memory_region_init_rom_device(&s->image, NULL, &z7ii_nor_ops, s,
                                   "z7ii.mas", image_size, &error_fatal);
     memory_region_add_subregion(get_system_memory(), MAS_BASE, &s->image);
-    if (load_image_targphys(machine->firmware, MAS_BASE, image_size,
-                            &error_fatal) != image_size) {
+    if (mas) {
+        memcpy(memory_region_get_ram_ptr(&s->image),
+               g_bytes_get_data(mas, NULL), image_size);
+    } else if (load_image_targphys(machine->firmware, MAS_BASE, image_size,
+                                   &error_fatal) != image_size) {
         error_report("failed to load the complete MAS diagnostic image");
         exit(EXIT_FAILURE);
     }
@@ -530,12 +544,34 @@ static void z7ii_init(MachineState *machine)
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
-                 "image-bytes=%" PRId64 " per-core-mode-stack-slot=0x4000; "
+                 "image-bytes=%" PRId64 " input=%s; "
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
-                 "six modes/core, virtual stack capacity; "
+                 "storage-classes=6 storage-MiB=186 cold-zero; "
                  "no NOR writer/IPC devices/BootROM",
-                 machine->cpu_type, s->num_cpus, image_size);
+                 machine->cpu_type, s->num_cpus, image_size,
+                 s->bundle ? "complete-decoded-container" : "raw-MAS");
+}
+
+static char *z7ii_get_bundle(Object *obj, Error **errp)
+{
+    return g_strdup(Z7II_MACHINE(obj)->bundle_path);
+}
+
+static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->bundle_path);
+    s->bundle_path = g_strdup(value);
+}
+
+static void z7ii_finalize(Object *obj)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    nikon_bundle_free(s->bundle);
+    g_free(s->bundle_path);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -549,6 +585,9 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->max_cpus = Z7II_MAX_CPUS;
     mc->default_ram_size = 0;
     mc->ignore_memory_transaction_failures = false;
+    object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
+    object_class_property_set_description(oc, "bundle",
+        "Complete decoded five-component container (exclusive with -bios)");
 }
 
 static const TypeInfo z7ii_machine_type = {
@@ -556,6 +595,7 @@ static const TypeInfo z7ii_machine_type = {
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(Z7IIMachineState),
     .class_init = z7ii_class_init,
+    .instance_finalize = z7ii_finalize,
     .interfaces = arm_machine_interfaces,
 };
 

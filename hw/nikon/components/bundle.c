@@ -154,7 +154,7 @@ GBytes *nikon_vr_body(GBytes *records, GBytes **metadata, Error **errp)
         const uint8_t *record = data + (i + 1) * record_size;
 
         if (record[0] != 4 || record[1] != 1 ||
-            ldl_le_p(record + 2) != address + i * body_size) {
+            (uint32_t)ldl_le_p(record + 2) != address + i * body_size) {
             error_setg(errp, "Nikon VR record %zu is discontinuous", i + 1);
             return NULL;
         }

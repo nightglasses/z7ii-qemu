@@ -15,7 +15,10 @@ file(GLOB_RECURSE upstream CONFIGURE_DEPENDS LIST_DIRECTORIES true
 foreach(path IN LISTS upstream)
   if(path MATCHES "^\\.git(/|$)" OR
      path STREQUAL "hw/Kconfig" OR path STREQUAL "hw/meson.build" OR
-     path STREQUAL "tests/qtest/meson.build")
+     path STREQUAL "tests/qtest/meson.build" OR
+     path STREQUAL "tests/unit/meson.build" OR
+     path STREQUAL "target/rx/cpu.c" OR path STREQUAL "target/rx/cpu.h" OR
+     path STREQUAL "target/rx/helper.c" OR path STREQUAL "target/rx/translate.c")
     continue()
   endif()
   if(IS_DIRECTORY "${QEMU_UPSTREAM}/${path}")
@@ -29,7 +32,7 @@ foreach(path IN LISTS upstream)
   endif()
 endforeach()
 
-foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon)
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
     RELATIVE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/${directory}/*")
   foreach(path IN LISTS sources)
@@ -41,12 +44,27 @@ foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon)
   endforeach()
 endforeach()
 
+# Write text verbatim: Meson's @0@ placeholders are not CMake substitutions.
+function(native_file path content)
+  set(destination "${QEMU_VIEW}/${path}")
+  if(IS_SYMLINK "${destination}")
+    file(REMOVE "${destination}")
+  endif()
+  if(EXISTS "${destination}")
+    file(READ "${destination}" previous)
+    if(previous STREQUAL content)
+      return()
+    endif()
+  endif()
+  file(WRITE "${destination}" "${content}")
+endfunction()
+
 file(READ "${QEMU_UPSTREAM}/hw/Kconfig" content)
-file(CONFIGURE OUTPUT "${QEMU_VIEW}/hw/Kconfig"
-  CONTENT "${content}\nsource nikon/Kconfig\n" @ONLY)
+native_file("hw/Kconfig" "${content}\nsource nikon/Kconfig\n")
 file(READ "${QEMU_UPSTREAM}/hw/meson.build" content)
-file(CONFIGURE OUTPUT "${QEMU_VIEW}/hw/meson.build"
-  CONTENT "${content}\nsubdir('nikon')\n" @ONLY)
+native_file("hw/meson.build" "${content}\nsubdir('nikon')\n")
 file(READ "${QEMU_UPSTREAM}/tests/qtest/meson.build" content)
-file(CONFIGURE OUTPUT "${QEMU_VIEW}/tests/qtest/meson.build"
-  CONTENT "${content}\nsubdir('nikon')\n" @ONLY)
+native_file("tests/qtest/meson.build" "${content}\nsubdir('nikon')\n")
+file(READ "${QEMU_UPSTREAM}/tests/unit/meson.build" content)
+native_file("tests/unit/meson.build" "${content}\nsubdir('nikon')\n")
+include(cmake/rx.cmake)

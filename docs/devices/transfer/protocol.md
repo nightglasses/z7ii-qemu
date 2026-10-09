@@ -36,6 +36,12 @@ cancel-before-next-batch semantics are functional-board timing/reset
 assumptions. They are not measurements of the Nikon transfer engine.
 The interrupt ACK address and mask binding have source evidence; the level
 completion timing is a functional model of that software-visible protocol.
+The complete initializer `106edfd6` writes `1020=0,1248=1,c18=0,1c=0`,
+registers the three handlers, then writes `34=0,c1c=8000,151c=1,155c=1`.
+Those finite configuration fields are retained. The `c1c` bit15 enable
+interpretation is a functional convention grounded in the installed value;
+clearing that field suppresses the modeled completion IRQ. It is not an
+independently measured silicon register definition.
 
 The source file registers `nikon-transfer-functional`, a 0x2000 SysBus MMIO
 region with IRQ outputs 129,130,131 in that order. Board mapping is

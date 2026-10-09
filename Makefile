@@ -2,7 +2,7 @@
 BUILD_DIR ?= $(CURDIR)/work/build/qemu
 CONFIG_DIR ?= $(CURDIR)/work/config
 QEMU_SOURCE := $(CONFIG_DIR)/source
-CONFIGURE_FLAGS ?= --target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror
+CONFIGURE_FLAGS ?= --target-list=arm-softmmu,rx-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror
 
 .PHONY: all configure check bench clean distclean
 

@@ -16,7 +16,7 @@ static QTestState *start(void)
 {
     g_autofree char *quoted = g_shell_quote(image);
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp 2 -bios %s -serial none -S", quoted);
+        "-M z7ii-mas-diagnostic -smp 2 -bios %s -serial none", quoted);
 
     QTestState *q = qtest_init(args);
 
@@ -27,6 +27,7 @@ static QTestState *start(void)
 static void packet(QTestState *q, uint32_t source, uint32_t destination,
                    uint32_t count)
 {
+    qtest_writel(q, TRANSFER + 0xc1c, 0x8000);
     qtest_writel(q, TRANSFER + 0xc00, source);
     qtest_writel(q, TRANSFER + 0xc04, destination);
     qtest_writel(q, TRANSFER + 0xc34, 0);
@@ -35,6 +36,23 @@ static void packet(QTestState *q, uint32_t source, uint32_t destination,
     qtest_writel(q, TRANSFER + 0xc20, count);
     qtest_writel(q, TRANSFER + 0xc24, 0);
     qtest_writel(q, TRANSFER + 0xc28, 0);
+}
+
+static void wait_completion(QTestState *q)
+{
+    int64_t now = qtest_clock_step(q, 1);
+    int64_t deadline = now + 1000000;
+    unsigned events = 0;
+
+    /* Advance each scheduled deadline so multi-batch DMA can reschedule. */
+    while (!qtest_get_irq(q, 130 - 32)) {
+        int64_t next = qtest_clock_step_next(q);
+
+        g_assert_cmpint(next, >, now);
+        g_assert_cmpint(next, <=, deadline);
+        g_assert_cmpuint(++events, <=, 64);
+        now = next;
+    }
 }
 
 static void test_copy(void)
@@ -53,7 +71,7 @@ static void test_copy(void)
     qtest_memread(q, RAM + 0x4000, destination, sizeof(destination));
     g_assert_cmpmem(destination, sizeof(destination),
                     (uint8_t[8192]) { 0 }, sizeof(destination));
-    qtest_clock_step(q, 1000000);
+    wait_completion(q);
     qtest_memread(q, RAM + 0x4000, destination, sizeof(destination));
     g_assert_cmpmem(destination, sizeof(destination), source, sizeof(source));
     g_assert_cmphex(qtest_readl(q, TRANSFER + 0xc00), ==, RAM);
@@ -96,7 +114,7 @@ static void test_geometry(void)
     qtest_writel(q, TRANSFER + 0xc08, (8U << 16) | 64);
     qtest_writel(q, TRANSFER + 0xc0c, (8U << 16) | 64);
     qtest_writel(q, TRANSFER + 0xc18, 1);
-    qtest_clock_step(q, 1000000);
+    wait_completion(q);
     qtest_memread(q, RAM + 0x4000, destination, sizeof(destination));
     for (i = 0; i < sizeof(destination); i++) {
         g_assert_cmphex(destination[i], ==, 0xa5);

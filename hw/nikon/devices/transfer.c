@@ -30,6 +30,12 @@ static const hwaddr register_offsets[TRANSFER_REGISTER_COUNT] = {
     0xc20, 0xc24, 0xc28, 0xc34, 0xc38,
 };
 
+/* Whole 106edfd6 initialization, not a permissive register aperture. */
+static const hwaddr setup_offsets[] = {
+    0x1c, 0x34, 0xc1c, 0x1020, 0x1248, 0x151c, 0x155c,
+};
+static const uint32_t setup_values[] = { 0, 0, 0x8000, 0, 1, 1, 1 };
+
 struct NikonTransferState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
@@ -37,6 +43,7 @@ struct NikonTransferState {
     QEMUTimer *timer;
     qemu_irq irq[3];
     uint32_t reg[TRANSFER_REGISTER_COUNT];
+    uint32_t setup[ARRAY_SIZE(setup_offsets)];
     uint32_t configured;
     uint64_t source, destination, remaining;
     bool running, completed, reported_error;
@@ -46,7 +53,8 @@ static void nikon_transfer_irq(NikonTransferState *s)
 {
     /* IRQ129/131 belong to other producers; they are never invented here. */
     qemu_set_irq(s->irq[0], 0);
-    qemu_set_irq(s->irq[1], s->completed);
+    /* Bit15 is the source-installed transfer completion enable convention. */
+    qemu_set_irq(s->irq[1], s->completed && (s->setup[2] & 0x8000));
     qemu_set_irq(s->irq[2], 0);
 }
 
@@ -138,18 +146,31 @@ static int nikon_transfer_register(hwaddr offset)
     return -1;
 }
 
+static int nikon_transfer_setup(hwaddr offset)
+{
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(setup_offsets); i++) {
+        if (setup_offsets[i] == offset) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static MemTxResult nikon_transfer_read(void *opaque, hwaddr offset,
                                       uint64_t *value, unsigned size,
                                       MemTxAttrs attrs)
 {
     NikonTransferState *s = opaque;
     int index = nikon_transfer_register(offset);
+    int setup = nikon_transfer_setup(offset);
 
-    if (size != 4 || index < 0) {
+    if (size != 4 || (index < 0 && setup < 0)) {
         return nikon_transfer_error(s, offset, size, false, 0,
                                     "transfer-read-not-supported");
     }
-    *value = s->reg[index];
+    *value = index >= 0 ? s->reg[index] : s->setup[setup];
     return MEMTX_OK;
 }
 
@@ -165,8 +186,20 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
                         (1U << TRANSFER_CONTROL);
     uint64_t extent;
     unsigned selector;
+    int setup = nikon_transfer_setup(offset);
 
-    if (size != 4 || index < 0) {
+    if (size != 4) {
+        goto unsupported;
+    }
+    if (setup >= 0) {
+        if (value != setup_values[setup] && !(setup == 2 && !value)) {
+            goto unsupported;
+        }
+        s->setup[setup] = value;
+        nikon_transfer_irq(s);
+        return MEMTX_OK;
+    }
+    if (index < 0) {
         goto unsupported;
     }
     if (index != TRANSFER_START) {
@@ -252,6 +285,7 @@ static void nikon_transfer_reset(DeviceState *dev)
 
     timer_del(s->timer);
     memset(s->reg, 0, sizeof(s->reg));
+    memset(s->setup, 0, sizeof(s->setup));
     s->configured = 0;
     s->source = s->destination = s->remaining = 0;
     s->running = s->completed = s->reported_error = false;
