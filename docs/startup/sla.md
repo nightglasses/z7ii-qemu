@@ -9,6 +9,26 @@ MemoryRegion root, AddressSpace, CPUs and peripherals; `nikonsla` is its
 standalone board wrapper. This profile is a loaded software domain rather
 than a cold hardware reset claim.
 
+The default input remains strict: external NOR `[0x10000000,0x10020000)` is
+unmapped. An explicit `-machine nikonsla,boot-prefix=erased` selects a
+counterfactual reset input of128KiB erased `0xff` bytes. Alternatively,
+`boot-prefix=/absolute/path/prefix.bin` supplies an exact128KiB external file.
+Files of any other size fail; absence does not select erased data or another
+component. This source input is separate from the immutable package payload
+and from recovered firmware source. The public `nikon_sla_load_boot_prefix`
+parser returns owned bytes, and `nikon_sla_create` references the optional
+prefix alongside the payload. Embedded boards select this same input explicitly.
+
+The input occupies only the private readonly NOR prefix. Both NOR regions
+use the existing ROM-device and MEMC protocols with their own base addresses.
+Neither option preloads C8 RAM, alters page tables or writes success state:
+the original guest must submit COPY, receive its real result and remap itself.
+Erased-mode execution is a run with a functional external assumption, not proof
+of an original BootROM or a boot without assumptions. The strict-mode COPY
+error remains available and unchanged. The focused fixture checks the whole
+prefix/package crossing byte for byte, readonly CPU/DMA rejection, no destination
+preseed, retained input on reset, exact-file validation and default failure.
+
 Direct source evidence is the fixed whole-domain provider in Nightglass
 `work/sla-whole-source-4/sla.S` and its row/context metadata, producer
 `1076d278`, plus `work/sla-native-data-source-3/`. The peripheral dispatch
@@ -116,6 +136,23 @@ qualified. Connecting a second producer directly to one HDMAC input would
 discard causal line state; no such wiring, inferred OR/mux or DMA completion
 is supplied. Missing Audio setter bodies remain a source boundary.
 
+The second registration dispatch `0x100548d8` independently calls
+`0x1005bf0e/0x1005bf4c`, registering and enabling completion IRQ250 with
+literal `0x1005c078=0x04287000`. The already instantiated private completion
+device therefore connects its real IRQ output to the SLA GIC. The earlier
+initialization still consumes its same completion protocol by polling; this
+additional route supplies no request or completion event.
+
+Second-phase mode2 registration `0x100608c6` consumes three command objects
+at `0xc1006438` (COPY1 O `0x84290c`, stride20), with initialized masks
+`0x0fff0000/0x01ff0001/0x01ff0002`. The complete75-word ROM pointer table at
+VA `0x1016b2d8` (O `0x14b2d8`) binds three private register roots
+`0x04250000/0x24061000/0x2c041000`. Their20 IRQ outputs map to IRQ49..64,
+227/228 and247/248. The source protocol publishes and receives opaque word
+messages; it does not establish a source/destination/count memory-copy engine.
+The shared command device's typed request/provider seam stays disconnected,
+so starting a command does not create a peer frame or perform a firmware clone.
+
 | Source owner / operation | SLA diagnostic backing | Initial ownership |
 | --- | --- | --- |
 | COPY1 O `[0x83c4d4,0x854234)` | `[0xc1000000,0xc1017d60)` | Guest performs COPY |
@@ -128,6 +165,7 @@ is supplied. Missing Audio setter bodies remain a source boundary.
 | Early SP `0x04008f00` | `[0x04008e00,0x04008f00)` | Explicit 256-byte virtual caller-stack assumption |
 | Secondary release at `0x04008ffc` | Four RAM bytes | Guest `0x1002d880` writes magic then SEV |
 | Header/sender `0x10060cc0/0x100611de` | `[0xc60f0000,0xc60fc618)` | Guest owns header, 192 slots and queue indices |
+| Constructor `0x100658e4`, classifier `0x10065ad8` | `[0xc8200000,0xc8900000)` | Ordinary private7MiB RAM, no code clone supplied |
 
 All RAM starts with QEMU's functional zero assumption. COPY destinations have
 no host-installed initialized data. No release magic, inner-RAM source, ring
@@ -173,7 +211,8 @@ direct flow to bridge helpers `0x1006c40a/0x1006c772/0x1006c0ba`.
 The candidate flag-zero path sets GPIO high, calls `0x1006c40a`, then calls
 `0x1006c772` before setting it low. Their actual wait conditions, MMIO binding
 and runtime consumption require qualification before declaring the handshake
-complete. Original runtime receipts below end before this worker.
+complete. The first six runtime receipts end before this worker; the seventh
+observes its actual execution, as recorded below.
 
 The independent official registration `0x1006ade8` and ISR `0x1006ad78`
 bind IRQ127 and bridge pending/ACK at `0x2013d020/0x2013d028`. The private
@@ -394,3 +433,47 @@ actual pad and GIC lines. It does not copy MAS's sixteen-line binding. The
 callback records establish registration; execution of their ISR bodies remains
 a separate runtime/source qualification. The native fixture drives all eight
 real GPIO pads and checks masked pending, unmask-to-IRQ and W1C deassertion.
+
+The seventh original standalone run used coherent ARM builder `615a8a94`,
+two-core MTTCG and the complete original container. This binary includes the
+first-phase private peripheral profiles through `3df4319` and their fixture
+wrappers; it does not include the later completion IRQ250 route. Hardware
+breakpoints observed CPU0 at `0x10053638`, CPSR `0x33`, SP `0xc3f04408`, then
+`0x10060cee`, CPSR `0x20000033`, LR `0x10053653`, and `0x1006c0ba`, the same
+Thumb mode, LR `0x10060d1f`, arguments `r0=0xc10064a0/r1=1/r2=0/r3=1`.
+Mapped original instruction bytes were captured before the later remap.
+The ring changed from six zero words to the guest-produced header
+`0x00c00108/0xaa550001`, with queue indices zero. Breakpoints at
+`0x1006c40a/0x1006c772/0x10061116` were not reached; GPIO high/low and peer
+publication are not claimed.
+
+The next real failure was CPU0 PC `0x10065ba0`, a halfword instruction fetch
+at PA `0xc8265ba0`. Source `0x10065b68` changes the L1 section descriptor and
+invalidates its translation. The actual descriptor at `0xc18e4400` became
+`0xc820c426`; the following `0x10100000` section remained `0x1010c426`.
+Registers `r4=0x10000000/r5=0xc8200000/r7=0x10300000` identify a three-MiB
+code remap, with the failure after its first section. Both cores eventually
+reached their original abort loop at `0x1003410c`. The declared private RAM
+does not include `[0xc8200000,0xc8500000)`. The constructor's region descriptor
+and the remap establish a requested physical view, but do not establish its
+clone producer or justify host ROM seeding, a ROM alias, or additional RAM.
+That entire storage contract is the next source qualification boundary.
+
+Subsequent whole source qualification establishes the allocation class:
+constructor record19 is `[0xc8200000,0,0]`, record20 starts at `0xc8900000`,
+and classifier `0x10065ad8` uses the next base minus one as the upper bound.
+The domain therefore backs exactly seven MiB of ordinary private RAM, attached
+to its existing MXIC decoder. It starts with functional cold zero and retains
+contents on normal soft reset. No ROM bytes, host COPY, TTBR change or copy ACK
+populate it. The native fixture checks both exact ends, retained contents and
+unmapped adjacent words. This closes the allocation boundary, while code
+content production remains separate. The requested clone/remap source includes
+`[0x10000000,0x10020000)`, a128KiB prefix outside the package ROM projection;
+that prefix is still uncovered. Later class1 descriptor ranges must be
+classified through their actual bus consumers rather than added as RAM.
+
+An observer Ctrl-C ended the first RTK/GDB process with exit1. QMP `stop`
+and a fresh debugger captured the final CPU registers and RAM page table;
+neither guest memory nor firmware was changed. QMP `quit` ended QEMU with
+exit0, and the final debugger exited0. Ignored receipts are
+`work/sla/original7*`; no banked GIC MMIO was read.

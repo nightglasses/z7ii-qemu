@@ -143,7 +143,7 @@ a source uses the upstream GPIO `disconnected-pins` property, so the configured
 pull determines the input. No button pattern, power event or firmware flag is
 generated. The new native input case exercises held high/low across RCC, cold
 and local reset, checks the first actual falling edge and release/pull behavior;
-its result is pending the sole builder.
+the sole builder's focused case passed with the qualified `615a8a9` model.
 
 The original MCU transport uses two separate slave channels. RX initialization
 `0x080343a4` queries SPI logical index 0 through `0x08040364`. The original table
@@ -193,15 +193,44 @@ G6; the original HAL configures EXTI rising edges. The model does not raise
 G6 in response to the request. Matching these roles to MAS requires its own
 transport consumers, including direction and startup phase.
 
-After EX realization, `nikon_ex_spi_slave(ex, channel, master_bus, cs, errp)`
+After EX realization,
+`nikon_ex_spi_slave(ex, channel, master_bus, cs, 16, true, errp)`
 attaches an ordinary upstream SSI peripheral to a source-proven master bus.
 Channels are zero based: 0 for MCU RX and 3 for MCU TX. The returned endpoint is
-owned by that bus. Every actual SSI word enters `nikon_ex_spi_transfer()`, causing
-the real EX register/DMA/NVIC lifecycle. No NSS GPIO is guessed because this
+owned by that bus. Its explicit master-word width and wire bit order bind the
+original MAS 16-bit, LSB-first SSI profile to the EX 8-bit, LSB-first channels.
+Generic SSI does not carry this information. Each numeric master word clocks
+its low byte and then its high byte through `nikon_ex_spi_transfer()`; both
+receive DR and DMA effects occur and both actual replies are packed back into
+the master word. DFF=16 instead clocks one 16-bit EX word. Opposite bit orders
+reverse the wire bits within each EX word. Unsupported master widths fail
+realization. No partial frame or clock accumulator survives cancellation or
+reset: SPE and DMA enable/count are consulted for every real subword.
+No NSS GPIO is guessed because this
 original transport uses internal software NSS. `nikon_ex_gpio_connect_output()`
 connects a physical pad to a real peer input while retaining the EX internal
 EXTI route. The MAS master-bus identities and matching handshake pads must be
 bound from its own consumers before combined-machine connection.
+
+The focused native word case uses ordinary QOM SSI endpoints on existing EX
+SPI2/SPI3 master buses. It clocks 128 distinct 16-bit words in each direction,
+checks all 256 received bytes and returned transmit bytes, NDTR decrement by two,
+half/full completion IRQs, exhausted transfer, DMA cancellation, SPE disable,
+cold reset, opposite wire bit order and DFF=16. These electrical loop fixtures
+do not inject an original message or handshake; their result awaits the sole
+builder. The earlier adapter forwarded one master word as one EX byte and
+discarded its upper byte; the width contract replaces that behavior.
+
+Each of the four SPI ports is an independent embedded SysBus device, owning
+its register state, MMIO window and SSI bus. The processor owns only their
+address-space mapping, reset and interrupt routing. This boundary matters:
+QEMU's MMIO reentrancy guard applies per DeviceState, not per address range.
+The first width-case run of `f102fc8` compiled and linked, but its real master
+DR callback triggered slave DMA into a second SPI port that still shared the
+parent DeviceState; QEMU correctly blocked that access. The port devices remove
+that false shared ownership and the obsolete parent-bank SPI dispatch. All
+guards remain enabled, including the guard against a port reentering its own
+MMIO. The same full word test awaits focused validation of this correction.
 
 ## Validation status
 
@@ -252,6 +281,56 @@ The resulting `0x08037ccc` processing has no early return based on an input bit;
 its final `0x08037eac` invokes the registered callback with event `0x04060002`.
 The model supplies the I2C peer, not any of these guest flags or callbacks.
 
+The next-stage source chain uses that same power object throughout. At
+`0x08038136`, the event descriptor is `0x200159a4 + 0x70 = 0x20015a14`; the call
+to `0x080214fe` supplies bit `0x1000`. The original pair at ROM `0x0804e384`
+contains `0x1000` and Thumb handler `0x08037ccd`, consumed by dispatcher
+`0x0803825c`. The final call at `0x08037eac` loads the registered callback from
+power offset `0x20` and supplies literal `0x04060002`. Callback `0x08021418`
+distinguishes that event from shutdown `0x04060001`; only the former tail-calls
+`0x08021556` with bit 1 and CDSCFLAG descriptor `0x2000f570`.
+
+Startup waits and clears that bit at `0x08021372..0x08021388`. Its next two
+passes over four service method tables invoke initialization and start methods.
+The EX transport table returned by `0x08034210`, ROM `0x0804ef64`, contains
+`0x080341e9`, `0x08034219`, `0x0803422b` and `0x08034203`. Its start method
+`0x0803422a` invokes RX start `0x08034580` and TX start `0x08034a04`, both using
+the ordinary task-resume path when called with 1. RX worker `0x0803459c` then
+submits reception through `0x080454f4`, with SPI handle `0x20017c88`, buffer
+`0x20017b76` and count 256. That HAL path uses the DMA handle at SPI-handle
+offset `0x4c`, sets SPE and RXDMAEN, and the worker raises B14 before
+`0x080345e4`. These are concrete receive-arm observations for a subsequent run.
+
+TX worker `0x08034a18` first waits for service bit `0x10`. It subsequently calls
+the registered dequeue callback through `0x08034678` and continues only when
+the callback supplies a non-null message. Only then does `0x08034abe` submit
+256 bytes through `0x08045898`; this HAL path uses the DMA handle at SPI-handle
+offset `0x48`, sets SPE and TXDMAEN. The worker raises E3 before `0x08034b02`
+and waits for real DMA/G6 completion. A task-resume breakpoint or empty queue
+does not establish transmit DMA readiness. The model does not enqueue a synthetic
+message or assert the peer acknowledgement.
+
+A subsequent finite cold run of production snapshot `615a8a9` observed this
+whole chain. At `0x0803813a`, `r0=0x20015a14`, `r1=0x1000` and both power bytes
+were 1. It reached `0x08037eac`, event discriminator `0x08021424`, the successful
+CDSCFLAG consumer `0x0802138a`, and transport start `0x0803422a` with `r0=1`.
+RX then reached `0x080345e4`; TX reached `0x08034a18`, invoked its real dequeue
+callback `0x08031f28` with event `0x42010002`, received message pointer
+`0x20011864`, and reached `0x08034b02`. The qualified endpoint states were:
+
+| Endpoint | DMA stream base | CR | NDTR | PAR | M0AR | Guest output |
+|---|---:|---:|---:|---:|---:|---|
+| RX, SPI1 | `0x40026410` | `0x0602041f` | 256 | `0x4001300c` | `0x20017b76` | B14 high |
+| TX, SPI4 | `0x40026428` | `0x0800045f` | 256 | `0x4001340c` | `0x20017d9a` | E3 high |
+
+SPI1 CR1/CR2 were `0x2c9` / `0x21`; SPI4 CR1/CR2 were `0x2c9` / `0x22`.
+Both SPE and the respective DMA request were enabled. The actual transmitted
+frame started `04 02 08 00 00 00 00 00 0a 00 00 00`. CFSR and HFSR remained
+zero throughout. No host GPIO, flag, queue, instruction or clock was injected.
+The process quit normally at the armed endpoint boundary. NDTR remained 256
+because no external master supplied clocks; this establishes original worker
+and DMA readiness, not a completed interprocessor frame exchange.
+
 The first snapshot request also has a producer, distinct from the IRQ callback.
 Power dispatcher table `0x0804e394` maps service bit `0x20` to `0x08037799`.
 That Thumb function supplies request selector 1 and callback `0x080380a9` to
@@ -284,7 +363,11 @@ samples reader `0x08038c04` every ten timer counts until its deadline. Fifty
 consecutive zero samples produce success and take `0x08037622` directly to
 `0x08037704`, then the real configuration-completion/request chain above.
 That reader inverts a real GPIO input; its descriptor selects G5. No host pulse
-or retained switch level is inferred from this success condition.
+or retained switch level is inferred from this success condition. Before sampling,
+the direct call at `0x0803759c` invokes `0x08048a64`: its original stack descriptor
+contains pin mask `0x20`, input mode 0 and pull-up 1, with GPIO base `0x40021800`.
+Thus this selected guest path changes G5 from its initial pull-down to pull-up;
+an external high driver is not required for the undriven functional profile.
 
 Qualification `0x080389f4` includes three distinct operations. `0x080388b8`
 temporarily configures and reads F9 with pull-up, then configures it as an output
@@ -306,10 +389,23 @@ controller's receive pipeline. These peers supply no GPIO level, IRQ, firmware
 callback, synthetic voltage or ready flag. Global cold reset removes readback
 qualification; MCU/controller reset preserves the independent peer register.
 The new focused native power case tests both pointer widths, the three original
-readbacks, invalid/unwritten selection, extra data and reset boundaries. It has
-not yet been compiled or run by the sole builder. Actual original execution must
-still identify its qualification/recovery path before cold-start or SPI readiness
-can be claimed.
+readbacks, invalid/unwritten selection, extra data and reset boundaries. The sole
+builder compiled and linked production source `84206e9` in canonical snapshot
+`615a8a9`; the C8/reset, retained-input and power cases passed. Fixture-only
+`4a6131d` uses a positive one-nanosecond clock advance after deferred AIRCR reset,
+as required by the qtest protocol; it does not change the production model.
+
+A finite original cold run of that qualified binary reached `0x08037554`, then
+`0x0803757c` with qualification result `r0=1`. The actual I2C descriptor selected
+I2C1. GPIOG PUPDR/IDR were initially `0x82020800` / `0x200`; at sampler return
+`0x08039048` they were `0x82020400` / `0x220`, with `r4=50`, `r5=0`. The original
+guest therefore supplied its own G5 pull-up and completed the fifty samples.
+It subsequently entered snapshot callback `0x080380a8` from `LR=0x0803048b`,
+with event `r0=0x020d0004` and current/previous snapshot bytes all `0xff` at
+`r1=0x20007490`. SCB CFSR and HFSR remained zero. No host GPIO, flag, callback,
+CPU state or task was injected. The run stopped at that callback and quit
+normally; it does not yet establish the final power event or either SPI worker
+arm. Temporary observations are kept outside tracked source.
 
 The GPIO profile family distinguishes those states too. `0x080487dc` and
 `0x0804808c` initially configure C8 as an ordinary input with pull-up. After

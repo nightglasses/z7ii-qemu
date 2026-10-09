@@ -23,6 +23,9 @@
 #include "hw/nikon/storage.h"
 #include "hw/nikon/processing.h"
 #include "hw/nikon/sla.h"
+#include "hw/nikon/ex.h"
+#include "hw/nikon/input.h"
+#include "hw/ssi/ssi.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -36,6 +39,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
 #define Z7II_SLA_CPUS 2
+#define Z7II_EX_CPUS 1
 
 /* Source address-class records 21..26, with source-bound storage consumers. */
 static const struct {
@@ -62,6 +66,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     char *bundle_path;
+    char *sla_boot_prefix;
     NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
@@ -194,6 +199,54 @@ static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
     memory_region_add_subregion(get_system_memory(), base, &slot->region);
 }
 
+static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
+                           DeviceState *spi_ports[])
+{
+    g_autoptr(GBytes) payload = nikon_bundle_component(s->bundle,
+                                                     NIKON_COMPONENT_EX);
+    DeviceState *dev = qdev_new(TYPE_NIKON_EX);
+    NikonEXState *ex = NIKON_EX(dev);
+    DeviceState *input = qdev_new(TYPE_NIKON_INPUT);
+    unsigned i;
+
+    object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
+    nikon_ex_set_firmware(ex, payload, &error_fatal);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+
+    /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
+     * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
+     * it neither acknowledges a frame nor drives the GPIO handshake.
+     * MAS channels 0/1 use the original no-DMA resource sentinel 0x158.
+     */
+    nikon_ex_spi_slave(ex, 0,
+        (SSIBus *)qdev_get_child_bus(spi_ports[0], "spi"), 0, 16, true,
+        &error_fatal);
+    nikon_ex_spi_slave(ex, 3,
+        (SSIBus *)qdev_get_child_bus(spi_ports[1], "spi"), 0, 16, true,
+        &error_fatal);
+
+    /* These physical pairs are a functional board assumption backed by both
+     * original software roles. Only actual guest GPIO drives propagate.
+     */
+    nikon_ex_gpio_connect_output(ex, 1, 14,
+        qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 9));
+    nikon_ex_gpio_connect_output(ex, 3, 12,
+        qdev_get_gpio_in_named(gpio, "external-level", 6 * 16 + 15));
+    nikon_ex_gpio_connect_output(ex, 4, 3,
+        qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 10));
+    qdev_connect_gpio_out_named(gpio, "pad", 6 * 16 + 12,
+                               nikon_ex_gpio_input(ex, 6, 6));
+
+    object_property_add_child(OBJECT(s), "input", OBJECT(input));
+    for (i = 0; i < NIKON_INPUT_PADS; i++) {
+        unsigned id = nikon_input_gpio_ids[i];
+
+        qdev_connect_gpio_out_named(input, "pad", i,
+                                   nikon_ex_gpio_input(ex, id >> 4, id & 15));
+    }
+    qdev_realize_and_unref(input, NULL, &error_fatal);
+}
+
 static void z7ii_init(MachineState *machine)
 {
     Z7IIMachineState *s = Z7II_MACHINE(machine);
@@ -217,6 +270,10 @@ static void z7ii_init(MachineState *machine)
                      "or -machine bundle=<decoded container>");
         exit(EXIT_FAILURE);
     }
+    if (s->sla_boot_prefix && !s->bundle_path) {
+        error_report("sla-boot-prefix requires a complete bundle and private SLA");
+        exit(EXIT_FAILURE);
+    }
     if (machine->smp.cpus > Z7II_MAX_CPUS) {
         error_report("the MAS domain supports at most %u CPUs; "
                      "maxcpus reserves execution capacity for private domains",
@@ -224,11 +281,12 @@ static void z7ii_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
     if (s->bundle_path && tcg_enabled() && qemu_tcg_mttcg_enabled() &&
-        machine->smp.max_cpus < machine->smp.cpus + Z7II_SLA_CPUS) {
-        error_report("multi-thread TCG needs capacity for MAS and private SLA; "
+        machine->smp.max_cpus < machine->smp.cpus + Z7II_SLA_CPUS +
+                                Z7II_EX_CPUS) {
+        error_report("multi-thread TCG needs capacity for MAS, SLA and EX; "
                      "use -smp cpus=%u,maxcpus=%u or -accel tcg,thread=single",
                      machine->smp.cpus,
-                     machine->smp.cpus + Z7II_SLA_CPUS);
+                     machine->smp.cpus + Z7II_SLA_CPUS + Z7II_EX_CPUS);
         exit(EXIT_FAILURE);
     }
     if (s->bundle_path) {
@@ -638,8 +696,11 @@ static void z7ii_init(MachineState *machine)
     if (s->bundle) {
         g_autoptr(GBytes) payload = nikon_bundle_component(s->bundle,
                                                           NIKON_COMPONENT_SLA);
+        g_autoptr(GBytes) boot_prefix =
+            nikon_sla_load_boot_prefix(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
-                                            Z7II_SLA_CPUS, NULL, &error_fatal);
+                                            boot_prefix, Z7II_SLA_CPUS, NULL,
+                                            &error_fatal);
         DeviceState *sla_bridge = nikon_sla_bridge(sla);
 
         /* Source-complementary handshake; the board trace is not recovered. */
@@ -657,6 +718,8 @@ static void z7ii_init(MachineState *machine)
             qdev_get_gpio_in_named(bridge, "peer-control", 0));
         qdev_connect_gpio_out_named(sla_bridge, "peer-configuration", 0,
             qdev_get_gpio_in_named(bridge, "peer-control", 1));
+        /* EX owns a private M4 address space; never alias it into MAS RAM. */
+        z7ii_attach_ex(s, gpio, spi_ports);
     }
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
@@ -665,7 +728,7 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
-                 "no NOR writer/IPC devices/BootROM",
+                 "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
                  machine->cpu_type, s->num_cpus, image_size,
                  s->bundle ? "complete-decoded-container" : "raw-MAS");
 }
@@ -683,12 +746,28 @@ static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
     s->bundle_path = g_strdup(value);
 }
 
+static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->sla_boot_prefix;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_sla_boot_prefix(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->sla_boot_prefix);
+    s->sla_boot_prefix = g_strdup(value);
+}
+
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
 
     nikon_bundle_free(s->bundle);
     g_free(s->bundle_path);
+    g_free(s->sla_boot_prefix);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -699,13 +778,18 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a7");
     mc->default_cpus = 2; /* Original TSysPrNum/TKerPrNum defaults are two. */
     mc->min_cpus = 1; /* Small synthetic contracts explicitly use -smp 1. */
-    mc->max_cpus = Z7II_MAX_CPUS + Z7II_SLA_CPUS;
+    mc->max_cpus = Z7II_MAX_CPUS + Z7II_SLA_CPUS + Z7II_EX_CPUS;
     mc->default_ram_size = 0;
     mc->no_parallel = true;
     mc->ignore_memory_transaction_failures = false;
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
+                                 z7ii_set_sla_boot_prefix);
+    object_class_property_set_description(oc, "sla-boot-prefix",
+        "Optional SLA external 128 KiB input: erased or an exact-size file; "
+        "omission leaves the range unavailable");
 }
 
 static const TypeInfo z7ii_machine_type = {

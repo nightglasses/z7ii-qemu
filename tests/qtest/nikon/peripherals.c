@@ -6,6 +6,7 @@
 #include "libqtest.h"
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
+#include "qobject/qjson.h"
 
 static uint16_t package_crc(const uint8_t *data, size_t length)
 {
@@ -22,7 +23,7 @@ static uint16_t package_crc(const uint8_t *data, size_t length)
     return crc;
 }
 
-static char *test_package(void)
+static char *test_package(bool upload)
 {
     static const char *const names[] = {
         "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
@@ -43,6 +44,18 @@ static char *test_package(void)
     for (i = 0; i < 13; i++) {
         stl_le_p(body + 0xc00 + i * 12, 0xfff00000);
         stl_le_p(body + 0xc04 + i * 12, 0xfff00000);
+    }
+    if (upload) {
+        /* The machine maps only declared guest intervals. These synthetic
+         * ZERO entries cover the capture group's mode, consumed pointer and
+         * both 276-byte RX buffers, not arbitrary board RAM or MMIO aliases.
+         */
+        stl_le_p(body + 0xc9c, 0x10f55);
+        stl_le_p(body + 0xca0, 0x10f56);
+        stl_le_p(body + 0xca4, 0x11904);
+        stl_le_p(body + 0xca8, 0x11908);
+        stl_le_p(body + 0xcac, 0x1587c);
+        stl_le_p(body + 0xcb0, 0x15aa4);
     }
     memset(data, ' ', 32);
     stl_be_p(data + 32, ARRAY_SIZE(names));
@@ -82,7 +95,7 @@ static char *test_package(void)
 
 static void test_gpio_and_irq(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     /* Locked PFS cannot connect an external interrupt. */
@@ -126,7 +139,7 @@ static void test_gpio_and_irq(void)
 
 static void test_cmt(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     qtest_writeb(qts, 0x87304, 3);
@@ -161,7 +174,7 @@ static void program_dma(QTestState *qts, unsigned channel, uint32_t source,
 
 static void test_counter_events(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     qtest_writeb(qts, 0x879d2, 8); /* MTU1A -> vector 210. */
@@ -207,7 +220,7 @@ static void test_counter_events(void)
 
 static void test_adc_input(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
     unsigned i;
 
@@ -238,7 +251,7 @@ static void test_adc_input(void)
 
 static void test_dtc_chain(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     qtest_writel(qts, 0x1348, 0x1100); /* DTCVBR1000, vector210 pointer. */
@@ -293,7 +306,7 @@ static void test_dtc_chain(void)
 
 static void test_sci10_transmit(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     qtest_writeb(qts, 0x1100, 0x12);
@@ -327,7 +340,7 @@ static void test_sci10_transmit(void)
 
 static void test_rspi2_frames(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
     unsigned i;
 
@@ -461,7 +474,7 @@ static void peer_wait_disconnected(QTestState *qts)
 
 static void test_sci5_peer(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     g_autofree char *args = g_strdup_printf(
         "-machine nikonvr -bios %s -display none "
         "-device nikon-peer,id=wire,chardev=s0 "
@@ -570,7 +583,7 @@ static void test_sci5_peer(void)
 
 static void test_dma_and_serial(void)
 {
-    g_autofree char *path = test_package();
+    g_autofree char *path = test_package(false);
     QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     qtest_writew(qts, 0x1100, 0x1234);
@@ -682,14 +695,30 @@ static void input_operation(QTestState *qts, const char *operation, bool success
         "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
         "'property':'operation','value':%s}}", operation);
 
+    if (!qdict_haskey(reply, success ? "return" : "error")) {
+        g_autoptr(GString) json = qobject_to_json_pretty(QOBJECT(reply), true);
+
+        g_test_message("VR operation '%s' expected %s; QMP response: %s",
+                       operation, success ? "return" : "error", json->str);
+    }
     g_assert_true(qdict_haskey(reply, success ? "return" : "error"));
+    qobject_unref(reply);
+}
+
+static void upload_status_unavailable(QTestState *qts)
+{
+    QDict *reply = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'upload-eligible-status'}}");
+
+    g_assert_true(qdict_haskey(reply, "error"));
     qobject_unref(reply);
 }
 
 static void test_external_span(void)
 {
     const uint8_t supplied[] = { 0x91, 0x23, 0x45, 0x67 };
-    g_autofree char *package = test_package();
+    g_autofree char *package = test_package(false);
     g_autofree char *input = test_input_file(supplied, sizeof(supplied));
     QTestState *qts = test_input_start(package, input, false);
 
@@ -722,7 +751,7 @@ static void test_flash_overlay(void)
 {
     g_autofree uint8_t *snapshot = g_malloc(8192);
     uint8_t program[128], readback[128];
-    g_autofree char *package = test_package();
+    g_autofree char *package = test_package(false);
     g_autofree char *input = NULL;
     QTestState *qts;
     unsigned i;
@@ -784,7 +813,7 @@ static void test_flash_overlay(void)
 static void test_flash_cancel_and_bounds(void)
 {
     uint8_t snapshot[8192], source[128];
-    g_autofree char *package = test_package();
+    g_autofree char *package = test_package(false);
     g_autofree char *input = NULL;
     QTestState *qts;
 
@@ -832,6 +861,305 @@ static void test_flash_cancel_and_bounds(void)
     unlink(package);
 }
 
+static void upload_capture(QTestState *qts, uint8_t command,
+                           const uint8_t *record, bool success)
+{
+    uint8_t packet[268] = { command, 0, 0x10, 0 };
+    unsigned size = command == 0xf7 ? 268 : 152;
+    unsigned i;
+
+    if (record) {
+        packet[2] = 8;
+        packet[3] = 1;
+        memcpy(packet + 4, record, 262);
+        for (i = 4; i < 266; i++) {
+            packet[267] -= packet[i];
+        }
+    }
+    qtest_memwrite(qts, 0x1587c, packet, size);
+    qtest_writel(qts, 0x11904, 0x1587c);
+    qtest_writel(qts, 0x82008, 276 - size);
+    input_operation(qts, "upload-capture", success);
+}
+
+static void test_upload_staging(void)
+{
+    const uint8_t supplied[] = { 0x91, 0x23, 0x45, 0x67 };
+    uint8_t record[262] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree char *package = test_package(true);
+    g_autofree char *input = test_input_file(supplied, sizeof(supplied));
+    QTestState *qts = test_input_start(package, input, false);
+
+    input_set_number(qts, "length", 3 * 262);
+    input_operation(qts, "upload-begin", false); /* Explicit origin required. */
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'upload-origin','value':'synthetic-upload'}}");
+    input_operation(qts, "upload-begin", true);
+    upload_capture(qts, 0xf5, NULL, false); /* No guest update mode/high CS. */
+    qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 1);
+    qtest_writeb(qts, 0x10f55, 1);
+    upload_capture(qts, 0xf5, NULL, true);
+    upload_capture(qts, 0xf7, record, false); /* Mode 1 is not resident mode 2. */
+    qtest_writeb(qts, 0x10f55, 2);
+    upload_capture(qts, 0xfa, NULL, false); /* Incomplete source cannot seal. */
+    upload_capture(qts, 0xf7, record, true);
+    g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 262);
+    qtest_writeb(qts, 0x1587c + 267,
+                 qtest_readb(qts, 0x1587c + 267) ^ 1);
+    input_operation(qts, "upload-capture", false); /* Real checksum rejection. */
+    g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 262);
+    upload_capture(qts, 0xf7, record, false); /* Metadata is not a body record. */
+    stl_le_p(record + 2, 0xffff6000);
+    memset(record + 6, 0xa5, 256);
+    upload_capture(qts, 0xf7, record, true);
+    upload_capture(qts, 0xf7, record, false); /* Repeated address is explicit. */
+    stl_le_p(record + 2, 0xffff6200);
+    upload_capture(qts, 0xf7, record, false); /* Discontinuous address. */
+    stl_le_p(record + 2, 0xffff6100);
+    upload_capture(qts, 0xf7, record, true);
+    g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 786);
+    upload_capture(qts, 0xf8, NULL, true);
+    g_assert_false(input_get_bool(qts, "upload-sealed"));
+    upload_capture(qts, 0xfa, NULL, true);
+    g_assert_true(input_get_bool(qts, "upload-sealed"));
+    /* Staging changes neither external bytes nor DMA/SCI response state. */
+    g_assert_cmphex(qtest_readl(qts, 0xfffc8008), ==, 0x67452391);
+    g_assert_cmphex(qtest_readb(qts, 0x8201c), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8a0a2), ==, 0);
+    input_operation(qts, "upload-cancel", true);
+    g_assert_false(input_get_bool(qts, "upload-sealed"));
+    g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 0);
+    upload_capture(qts, 0xf7, record, false);
+    upload_capture(qts, 0xf5, NULL, true);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    g_assert_false(input_get_bool(qts, "upload-sealed"));
+    g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 0);
+    qtest_quit(qts);
+    unlink(input);
+    unlink(package);
+}
+
+static QTestState *upload_store_start(const char *package, const char *body,
+                                     const char *metadata)
+{
+    return qtest_initf("-machine nikonvr -bios %s "
+        "-drive if=none,id=uploadbody,format=raw,file=%s "
+        "-drive if=none,id=uploadmetadata,format=raw,file=%s "
+        "-device nikon-vr-input,id=input,upload-body-drive=uploadbody,"
+        "upload-metadata-drive=uploadmetadata,upload-storage-base=0xfff00000,"
+        "upload-storage-size=819200", package, body, metadata);
+}
+
+static void upload_store_stage(QTestState *qts, uint32_t destination)
+{
+    uint8_t record[262] = { 4, 1, 4, 0, 0, 1 };
+
+    input_set_number(qts, "length", 3 * 262);
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'upload-origin','value':'synthetic-persistence'}}");
+    input_operation(qts, "upload-begin", true);
+    qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 1);
+    qtest_writeb(qts, 0x10f55, 2);
+    upload_capture(qts, 0xf5, NULL, true);
+    upload_capture(qts, 0xf7, record, true);
+    stl_le_p(record + 2, destination);
+    memset(record + 6, 0xa5, 256);
+    upload_capture(qts, 0xf7, record, true);
+    stl_le_p(record + 2, destination + 256);
+    memset(record + 6, 0x3c, 256);
+    upload_capture(qts, 0xf7, record, true);
+    upload_capture(qts, 0xfa, NULL, true);
+}
+
+static void test_upload_persistence(void)
+{
+    g_autofree uint8_t *expected = g_malloc(819200);
+    uint8_t metadata_seed[512], metadata_expected[512] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree char *package = test_package(true);
+    g_autofree char *body_path = NULL;
+    g_autofree char *metadata_path = NULL;
+    g_autofree char *body_read = NULL;
+    g_autofree char *metadata_read = NULL;
+    g_autoptr(GError) error = NULL;
+    gsize body_size, metadata_size;
+    QTestState *qts;
+    int64_t deadline;
+
+    memset(expected, 0x5a, 819200);
+    memset(metadata_seed, 0xee, sizeof(metadata_seed));
+    memset(metadata_expected + 262, 0xee, sizeof(metadata_expected) - 262);
+    body_path = test_input_file(expected, 819200);
+    metadata_path = test_input_file(metadata_seed, sizeof(metadata_seed));
+    qts = upload_store_start(package, body_path, metadata_path);
+    input_set_number(qts, "token", 1);
+    input_operation(qts, "upload-persist", false); /* No sealed source. */
+    upload_store_stage(qts, 0xfff00000);
+    input_operation(qts, "upload-persist", true);
+    /* Native file I/O has a host deadline, independent of guest virtual time. */
+    deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+    while (input_get_bool(qts, "busy") && g_get_monotonic_time() < deadline) {
+        qtest_clock_step(qts, 1);
+        g_usleep(1000);
+    }
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmpuint(input_get_number(qts, "persist-completed-token"), ==, 1);
+    g_assert_cmpint(input_get_number(qts, "persist-error"), ==, 0);
+    qtest_quit(qts);
+    memset(expected, 0xa5, 256);
+    memset(expected + 256, 0x3c, 256);
+    g_assert_true(g_file_get_contents(body_path, &body_read, &body_size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(body_read, body_size, expected, 819200);
+    g_assert_true(g_file_get_contents(metadata_path, &metadata_read,
+                                      &metadata_size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(metadata_read, metadata_size, metadata_expected, 512);
+
+    /* A new instance sees durable bytes. A stream crossing the supplied body
+     * boundary is rejected before either metadata or body write is submitted.
+     */
+    qts = upload_store_start(package, body_path, metadata_path);
+    upload_store_stage(qts, 0xfffc7f00);
+    input_set_number(qts, "token", 2);
+    input_operation(qts, "upload-persist", false);
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmpuint(input_get_number(qts, "persist-completed-token"), ==, 0);
+    qtest_quit(qts);
+    g_clear_pointer(&body_read, g_free);
+    g_clear_pointer(&metadata_read, g_free);
+    g_assert_true(g_file_get_contents(body_path, &body_read, &body_size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(body_read, body_size, expected, 819200);
+    g_assert_true(g_file_get_contents(metadata_path, &metadata_read,
+                                      &metadata_size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(metadata_read, metadata_size, metadata_expected, 512);
+    unlink(body_path);
+    unlink(metadata_path);
+    unlink(package);
+}
+
+static void upload_wait_store(QTestState *qts)
+{
+    int64_t deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+
+    while (input_get_bool(qts, "busy") && g_get_monotonic_time() < deadline) {
+        qtest_clock_step(qts, 1);
+        g_usleep(1000);
+    }
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmpint(input_get_number(qts, "persist-error"), ==, 0);
+}
+
+static void test_upload_record_progress(void)
+{
+    uint8_t record[262] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree uint8_t *expected = g_malloc(819200);
+    uint8_t metadata_seed[512], metadata_expected[512] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree char *package = test_package(true);
+    g_autofree char *body_path = NULL, *metadata_path = NULL;
+    g_autofree char *readback = NULL;
+    g_autoptr(GError) error = NULL;
+    gsize size;
+    QTestState *qts;
+
+    memset(expected, 0x5a, 819200);
+    memset(metadata_seed, 0xee, sizeof(metadata_seed));
+    memset(metadata_expected + 262, 0xee, sizeof(metadata_expected) - 262);
+    body_path = test_input_file(expected, 819200);
+    metadata_path = test_input_file(metadata_seed, sizeof(metadata_seed));
+    qts = qtest_initf("-machine nikonvr -bios %s "
+        "-drive if=none,id=uploadbody,format=raw,file=%s "
+        "-drive if=none,id=uploadmetadata,format=raw,file=%s "
+        "-device nikon-vr-input,id=input,upload-body-drive=uploadbody,"
+        "upload-metadata-drive=uploadmetadata,upload-storage-base=0xfff00000,"
+        "upload-storage-size=819200,upload-record-persistence=true",
+        package, body_path, metadata_path);
+    input_set_number(qts, "length", 3 * 262);
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'upload-origin','value':'synthetic-record-progress'}}");
+    input_operation(qts, "upload-begin", true);
+    upload_status_unavailable(qts);
+    qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 1);
+    qtest_writeb(qts, 0x10f55, 2);
+    upload_capture(qts, 0xf5, NULL, true);
+    upload_capture(qts, 0xf8, NULL, true); /* Poll while preparing is allowed. */
+    upload_wait_store(qts);
+    g_assert_true(input_get_bool(qts, "upload-prepared"));
+    g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 2);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 0);
+    g_assert_true(g_file_get_contents(metadata_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, metadata_seed, 512); /* Prepare did not write. */
+    g_clear_pointer(&readback, g_free);
+
+    upload_capture(qts, 0xfa, NULL, false); /* Incomplete stream cannot finish. */
+    upload_capture(qts, 0xf7, record, true);
+    upload_capture(qts, 0xf8, NULL, true);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 262);
+    g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 2);
+    g_assert_true(g_file_get_contents(metadata_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, metadata_expected, 512);
+    g_clear_pointer(&readback, g_free);
+
+    stl_le_p(record + 2, 0xfff00000);
+    memset(record + 6, 0xa5, 256);
+    upload_capture(qts, 0xf7, record, true);
+    upload_capture(qts, 0xf8, NULL, true);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 524);
+    memset(expected, 0xa5, 256);
+    g_assert_true(g_file_get_contents(body_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, expected, 819200);
+    g_clear_pointer(&readback, g_free);
+
+    stl_le_p(record + 2, 0xfff00100);
+    memset(record + 6, 0x3c, 256);
+    upload_capture(qts, 0xf7, record, true);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 786);
+    g_assert_false(input_get_bool(qts, "upload-durable-final"));
+    upload_capture(qts, 0xfa, NULL, true);
+    upload_capture(qts, 0xf8, NULL, true); /* Final polls need a sealed stream. */
+    upload_wait_store(qts);
+    g_assert_true(input_get_bool(qts, "upload-durable-final"));
+    g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 3);
+    upload_capture(qts, 0xf8, NULL, true);
+    g_assert_cmphex(qtest_readb(qts, 0x8a0a2), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8201c), ==, 0);
+    input_operation(qts, "upload-cancel", true);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    g_assert_false(input_get_bool(qts, "upload-durable-final"));
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 0);
+    upload_status_unavailable(qts);
+    upload_capture(qts, 0xf5, NULL, true);
+    upload_wait_store(qts);
+    record[0] = 3;
+    upload_capture(qts, 0xf7, record, false); /* Invalid record cannot reuse 2. */
+    upload_status_unavailable(qts);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    upload_capture(qts, 0xf5, NULL, true);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    g_assert_false(input_get_bool(qts, "busy"));
+    qtest_quit(qts);
+    memset(expected + 256, 0x3c, 256);
+    g_assert_true(g_file_get_contents(body_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, expected, 819200); /* Cancel is not rollback. */
+    unlink(body_path);
+    unlink(metadata_path);
+    unlink(package);
+}
+
 static void test_external_conflict(void)
 {
     if (g_test_subprocess()) {
@@ -852,7 +1180,7 @@ static void test_external_conflict(void)
     }
     {
         const uint8_t data[] = { 0xa1, 0xb2, 0xc3, 0xd4 };
-        g_autofree char *package = test_package();
+        g_autofree char *package = test_package(false);
         g_autofree char *input = test_input_file(data, sizeof(data));
 
         g_setenv("NIKON_VR_FIXTURE_PACKAGE", package, true);
@@ -899,7 +1227,7 @@ static void test_external_rejection(void)
     }
     {
         const uint8_t data[] = { 1, 2, 3, 4 };
-        g_autofree char *package = test_package();
+        g_autofree char *package = test_package(false);
         g_autofree char *input = test_input_file(data, sizeof(data));
 
         g_setenv("NIKON_VR_FIXTURE_PACKAGE", package, true);
@@ -921,6 +1249,9 @@ static void test_external_rejection(void)
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    qtest_add_func("/nikon/vr/upload-staging", test_upload_staging);
+    qtest_add_func("/nikon/vr/upload-persistence", test_upload_persistence);
+    qtest_add_func("/nikon/vr/upload-record-progress", test_upload_record_progress);
     qtest_add_func("/nikon/vr/external-span", test_external_span);
     qtest_add_func("/nikon/vr/flash-overlay", test_flash_overlay);
     qtest_add_func("/nikon/vr/flash-cancel-bounds", test_flash_cancel_and_bounds);

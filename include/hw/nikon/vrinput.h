@@ -4,6 +4,7 @@
 
 #include "hw/core/qdev.h"
 #include "system/memory.h"
+#include "hw/nikon/vrstore.h"
 
 #define TYPE_NIKON_VR_INPUT "nikon-vr-input"
 #define TYPE_NIKON_VR_SPAN "nikon-vr-span"
@@ -28,6 +29,12 @@ typedef struct NikonVRInputInfo {
     NikonVRInputQualification qualification;
     bool flash_block, modified;
 } NikonVRInputInfo;
+
+typedef struct NikonVRUploadProgress {
+    uint32_t durable_received;
+    bool prepared, sealed, durable_final, busy;
+    int error;
+} NikonVRUploadProgress;
 
 typedef void (*NikonVRFlashComplete)(void *opaque, uint64_t token,
                                    NikonVRFlashResult result);
@@ -69,5 +76,27 @@ bool nikon_vr_input_program(DeviceState *dev, AddressSpace *source,
                            uint64_t delay_ns, NikonVRFlashComplete complete,
                            void *opaque, Error **errp);
 bool nikon_vr_input_cancel(DeviceState *dev, uint64_t token);
+
+/* Explicit functional record staging. Capture reads the actual consumed RX
+ * pointer (11904), DMA0 remaining count, CS pad and guest mode from source.
+ * It never substitutes for +0/+4/+8 or writes DMA/IRQ/SCI response state.
+ */
+bool nikon_vr_input_upload_begin(DeviceState *dev, uint32_t stream_size,
+                               const char *origin, Error **errp);
+bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
+                                 Error **errp);
+/* Synchronous cancellation suppresses completion, with no rollback promise. */
+void nikon_vr_input_upload_cancel(DeviceState *dev);
+GBytes *nikon_vr_input_upload_snapshot(DeviceState *dev, const char **origin);
+bool nikon_vr_input_upload_persist(DeviceState *dev, BlockBackend *body,
+                                 BlockBackend *metadata, uint32_t storage_base,
+                                 uint32_t storage_size, uint64_t token,
+                                 NikonVRStoreComplete complete, void *opaque,
+                                 Error **errp);
+NikonVRUploadProgress nikon_vr_input_upload_progress(DeviceState *dev);
+/* Eligible source-defined F8 byte-0 value, after actual durable operations.
+ * False means no byte is available. This query does not transmit a SCI byte.
+ */
+bool nikon_vr_input_upload_status(DeviceState *dev, uint8_t *status);
 
 #endif

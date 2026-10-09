@@ -57,3 +57,8 @@
 | [protocol.md](docs/devices/storage/protocol.md) | 成熟 NVMe 控制器、真实块介质与原生 PCI fixture |
 | [capture.md](docs/devices/timing/capture.md) | 外部真实输入边沿、计数捕获、IRQ 生命周期与原版后继 RAM 范围 |
 | [peripherals.md](docs/validation/peripherals.md) | 已验证外设整合的固定源码范围与原生收据 |
+| [protocol.md](docs/devices/command/protocol.md) | 原生命令槽、外部 provider 与真实 IRQ 因果合同 |
+| [protocol.md](docs/devices/input/protocol.md) | 十七个原始按键 pad 的外部输入与 reset 生命周期 |
+| [ex.md](docs/runtime/ex.md) | MAS／SLA／EX 五执行上下文、私有地址域与原生连线 |
+| [pressure.md](docs/tests/pressure.md) | 实际 socket 队列压力、断连与重连验证 |
+| [domains.md](docs/validation/domains.md) | 私有执行域、外部输入与上传持久化的固定源码和收据 |

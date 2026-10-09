@@ -64,9 +64,9 @@ static void peer_discard(NikonPeer *s)
     }
 }
 
-static void peer_invalid(NikonPeer *s)
+static void peer_failure(NikonPeer *s, const char *reason)
 {
-    error_report("nikon-peer: invalid transport frame; no guest completion");
+    error_report("nikon-peer: %s; no guest completion", reason);
     s->failed = true;
     s->connected = false;
     peer_discard(s);
@@ -74,6 +74,11 @@ static void peer_invalid(NikonPeer *s)
         s->state(s->state_opaque, false);
     }
     qemu_chr_fe_disconnect(&s->chr);
+}
+
+static void peer_invalid(NikonPeer *s)
+{
+    peer_failure(s, "invalid transport frame");
 }
 
 static gboolean peer_writable(void *channel, GIOCondition condition, void *opaque)
@@ -123,6 +128,11 @@ static bool peer_send(NikonPeer *s, unsigned type, NikonPeerKind kind,
 {
     uint8_t frame[NIKON_WIRE_SIZE] = { 0 };
 
+    /* Account only outstanding bytes when the backend accepted a prefix. */
+    if (s->output_offset && s->output->len + sizeof(frame) > PEER_QUEUE_LIMIT) {
+        g_byte_array_remove_range(s->output, 0, s->output_offset);
+        s->output_offset = 0;
+    }
     if (!s->connected || s->failed ||
         s->output->len + sizeof(frame) > PEER_QUEUE_LIMIT) {
         return false;
@@ -381,10 +391,20 @@ void nikon_peer_cancel(NikonPeer *s, uint64_t token)
 
 bool nikon_peer_wire(NikonPeer *s, NikonPeerKind kind, uint32_t line, bool level)
 {
+    bool sent;
+
     if (kind != NIKON_PEER_SELECT && kind != NIKON_PEER_GPIO) {
         return false;
     }
-    return peer_send(s, NIKON_WIRE_SIGNAL, kind, 0, 0, line, level);
+    sent = peer_send(s, NIKON_WIRE_SIGNAL, kind, 0, 0, line, level);
+    if (!sent && s->connected && !s->failed) {
+        /* GPIO edges and chip-select changes cannot be reconstructed by a
+         * retry of the current level.  A full wire must fail visibly rather
+         * than silently discard an actual guest transition.
+         */
+        peer_failure(s, "signal output queue is full");
+    }
+    return sent;
 }
 
 bool nikon_peer_reply(NikonPeer *s, uint64_t token, uint32_t word)

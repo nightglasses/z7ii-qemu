@@ -7,14 +7,19 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/module.h"
+#include "qemu/bswap.h"
 #include "qemu/timer.h"
 #include "qapi/error.h"
+#include "qapi/visitor.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/vrinput.h"
+#include "hw/nikon/vrupload.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
+#include "system/block-backend.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonVRInput, NIKON_VR_INPUT)
 OBJECT_DECLARE_SIMPLE_TYPE(NikonVRSpanLoader, NIKON_VR_SPAN)
@@ -28,6 +33,13 @@ typedef struct VRInputSpan {
     NikonVRInputQualification qualification;
     bool flash, modified;
 } VRInputSpan;
+
+typedef enum VRUploadJob {
+    VR_UPLOAD_SNAPSHOT,
+    VR_UPLOAD_PREPARE,
+    VR_UPLOAD_RECORD,
+    VR_UPLOAD_FINAL,
+} VRUploadJob;
 
 struct NikonVRInput {
     DeviceState parent_obj;
@@ -46,6 +58,19 @@ struct NikonVRInput {
     uint64_t destination, source_address, length, token, delay_ns;
     uint64_t completed_token;
     uint32_t result;
+    NikonVRUpload *upload;
+    char *upload_origin;
+    NikonVRStore *store;
+    BlockBackend *upload_body_blk, *upload_metadata_blk;
+    uint32_t upload_storage_base, upload_storage_size;
+    uint64_t store_completed_token;
+    int32_t store_error;
+    NikonVRStoreComplete store_complete;
+    void *store_opaque;
+    bool upload_record_persistence, upload_prepared, upload_durable_final;
+    uint32_t upload_durable_received, upload_job_received;
+    uint64_t upload_job_token;
+    VRUploadJob upload_job;
 };
 
 struct NikonVRSpanLoader {
@@ -344,7 +369,7 @@ static VRInputSpan *vr_flash_validate(NikonVRInput *s, uint64_t token,
     VRInputSpan *span = vr_find_span(s, destination, length);
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
-    if (!s->mapped || s->pending_span || !token || !span || !span->flash ||
+    if (!s->mapped || s->pending_span || s->store || !token || !span || !span->flash ||
         !delay_ns || delay_ns > INT64_MAX - now) {
         error_setg(errp, "VR flash request needs idle storage, a token, "
                    "supplied block bounds and a finite positive duration");
@@ -428,12 +453,312 @@ bool nikon_vr_input_program(DeviceState *dev, AddressSpace *source,
     return true;
 }
 
+bool nikon_vr_input_upload_begin(DeviceState *dev, uint32_t stream_size,
+                               const char *origin, Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+    NikonVRUpload *upload;
+    char *new_origin;
+
+    if (s->store) {
+        error_setg(errp, "VR upload cannot replace a persisting source snapshot");
+        return false;
+    }
+    if (!origin || !*origin) {
+        error_setg(errp, "VR staged input requires an explicit source origin");
+        return false;
+    }
+    upload = nikon_vr_upload_new(stream_size, errp);
+    if (!upload) {
+        return false;
+    }
+    new_origin = g_strdup(origin);
+    nikon_vr_upload_free(s->upload);
+    g_free(s->upload_origin);
+    s->upload = upload;
+    s->upload_origin = new_origin;
+    s->upload_prepared = s->upload_durable_final = false;
+    s->upload_durable_received = 0;
+    s->store_error = 0;
+    return true;
+}
+
+static bool vr_input_store_frame(NikonVRInput *s, uint8_t command, Error **errp);
+
+bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
+                                 Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+    uint8_t mode, cs, pointer[4], count[4], frame[268];
+    uint32_t address, remaining, size;
+    g_autoptr(GBytes) bytes = NULL;
+
+    if (!source || !s->upload) {
+        error_setg(errp, "VR upload capture needs a real source and begun stage");
+        return false;
+    }
+    if (address_space_read(source, 0x10f55, MEMTXATTRS_UNSPECIFIED,
+                           &mode, 1) != MEMTX_OK ||
+        address_space_read(source, 0x8c044, MEMTXATTRS_UNSPECIFIED,
+                           &cs, 1) != MEMTX_OK ||
+        address_space_read(source, 0x11904, MEMTXATTRS_UNSPECIFIED,
+                           pointer, 4) != MEMTX_OK ||
+        address_space_read(source, 0x82008, MEMTXATTRS_UNSPECIFIED,
+                           count, 4) != MEMTX_OK) {
+        error_setg(errp, "VR upload capture state bus read failed");
+        return false;
+    }
+    address = ldl_le_p(pointer);
+    remaining = ldl_le_p(count);
+    /* Source IRQ15 invokes 177C3 on a partial 276-byte receive before calling
+     * the resident callback. 11904 is consumed RX; its R2 is selected TX.
+     */
+    if ((mode != 1 && mode != 2) || !(cs & 0x80) || remaining > 276 ||
+        (address != 0x1587c && address != 0x15990)) {
+        error_setg(errp, "VR upload requires guest update mode, high CS and "
+                   "the actual consumed RX ring");
+        return false;
+    }
+    size = 276 - remaining;
+    if (size != 152 && size != 268) {
+        error_setg(errp, "VR upload DMA count does not describe a whole packet");
+        return false;
+    }
+    if (address_space_read(source, address, MEMTXATTRS_UNSPECIFIED,
+                           frame, size) != MEMTX_OK) {
+        error_setg(errp, "VR upload RX packet bus read failed");
+        return false;
+    }
+    if (frame[0] != 0xf5 && mode != 2) {
+        error_setg(errp, "VR record/status capture requires actual guest mode 2");
+        return false;
+    }
+    if (s->store && frame[0] != 0xf8) {
+        error_setg(errp, "VR update must poll until actual persistence completes");
+        return false;
+    }
+    if (s->upload_record_persistence && frame[0] != 0xf5 &&
+        frame[0] != 0xf8 &&
+        (!s->upload_prepared || s->store_error ||
+         s->upload_durable_received != nikon_vr_upload_received(s->upload))) {
+        error_setg(errp, "VR update needs durable preparation and prior records");
+        return false;
+    }
+    bytes = g_bytes_new(frame, size);
+    if (!nikon_vr_upload_receive(s->upload, bytes, errp)) {
+        if (s->upload_record_persistence && frame[0] == 0xf7) {
+            /* A rejected current record must not reuse the previous record's
+             * eligible 2: MAS applies that byte to its current chunk cursor.
+             * A new F5 explicitly restarts the functional storage stage.
+             */
+            s->store_error = -EINVAL;
+            s->upload_prepared = s->upload_durable_final = false;
+        }
+        return false;
+    }
+    return !s->upload_record_persistence ||
+           vr_input_store_frame(s, frame[0], errp);
+}
+
+GBytes *nikon_vr_input_upload_snapshot(DeviceState *dev, const char **origin)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+
+    *origin = s->upload_origin;
+    return s->upload ? nikon_vr_upload_records(s->upload) : NULL;
+}
+
+static void vr_input_store_done(void *opaque, uint64_t token, int result)
+{
+    NikonVRInput *s = opaque;
+    NikonVRStoreComplete complete = s->store_complete;
+    void *consumer = s->store_opaque;
+
+    s->store_complete = NULL;
+    s->store_opaque = NULL;
+    s->store_completed_token = token;
+    s->store_error = result;
+    if (s->upload_job != VR_UPLOAD_SNAPSHOT) {
+        if (!result) {
+            if (s->upload_job == VR_UPLOAD_PREPARE) {
+                s->upload_prepared = true;
+            } else if (s->upload_job == VR_UPLOAD_RECORD) {
+                s->upload_durable_received = s->upload_job_received;
+            } else {
+                s->upload_durable_final = true;
+            }
+        } else {
+            s->upload_prepared = s->upload_durable_final = false;
+        }
+    }
+    if (complete) {
+        complete(consumer, token, result);
+    }
+}
+
+static bool vr_input_store_frame(NikonVRInput *s, uint8_t command, Error **errp)
+{
+    g_autoptr(GBytes) record = NULL;
+    bool accepted;
+
+    if (command == 0xf8) {
+        return true;
+    }
+    if (s->upload_job_token == UINT64_MAX) {
+        s->store_error = -EOVERFLOW;
+        s->upload_prepared = s->upload_durable_final = false;
+        error_setg(errp, "VR native storage request token space exhausted");
+        return false;
+    }
+    s->upload_job_token++;
+    s->store_complete = NULL;
+    s->store_opaque = NULL;
+    s->store_error = 0;
+    s->store_completed_token = 0;
+    if (command == 0xf7) {
+        s->upload_job = VR_UPLOAD_RECORD;
+        s->upload_job_received = nikon_vr_upload_received(s->upload);
+        record = nikon_vr_upload_last_record(s->upload);
+        accepted = nikon_vr_store_record(&s->store, record,
+            s->upload_job_received == 262, s->upload_body_blk,
+            s->upload_metadata_blk, s->upload_storage_base,
+            s->upload_storage_size, s->upload_job_token,
+            vr_input_store_done, s, errp);
+    } else {
+        s->upload_job = command == 0xf5 ? VR_UPLOAD_PREPARE : VR_UPLOAD_FINAL;
+        if (command == 0xf5) {
+            s->upload_prepared = s->upload_durable_final = false;
+            s->upload_durable_received = 0;
+        }
+        accepted = nikon_vr_store_flush(&s->store, s->upload_body_blk,
+            s->upload_metadata_blk, s->upload_storage_base,
+            s->upload_storage_size, s->upload_job_token,
+            vr_input_store_done, s, errp);
+    }
+    if (!accepted) {
+        s->store_error = -EINVAL;
+        s->upload_prepared = s->upload_durable_final = false;
+    }
+    return accepted;
+}
+
+NikonVRUploadProgress nikon_vr_input_upload_progress(DeviceState *dev)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+
+    return (NikonVRUploadProgress) {
+        .durable_received = s->upload_durable_received,
+        .prepared = s->upload_prepared,
+        .sealed = s->upload && nikon_vr_upload_sealed(s->upload),
+        .durable_final = s->upload_durable_final,
+        .busy = s->store != NULL,
+        .error = s->store_error,
+    };
+}
+
+bool nikon_vr_input_upload_status(DeviceState *dev, uint8_t *status)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+
+    if (!s->upload_record_persistence || !s->upload || !s->upload_prepared ||
+        s->store || s->store_error) {
+        return false;
+    }
+    if (nikon_vr_upload_sealed(s->upload)) {
+        if (!s->upload_durable_final) {
+            return false;
+        }
+        *status = 3;
+    } else {
+        if (s->upload_durable_received != nikon_vr_upload_received(s->upload)) {
+            return false;
+        }
+        *status = 2;
+    }
+    return true;
+}
+
+static void vr_input_store_cancel(NikonVRInput *s)
+{
+    if (s->store) {
+        nikon_vr_store_cancel(&s->store, nikon_vr_store_token(s->store));
+    }
+    s->store_complete = NULL;
+    s->store_opaque = NULL;
+}
+
+void nikon_vr_input_upload_cancel(DeviceState *dev)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+
+    vr_input_store_cancel(s);
+    s->upload_prepared = s->upload_durable_final = false;
+    s->upload_durable_received = 0;
+    if (s->upload) {
+        nikon_vr_upload_cancel(s->upload);
+    }
+}
+
+bool nikon_vr_input_upload_persist(DeviceState *dev, BlockBackend *body,
+                                 BlockBackend *metadata, uint32_t storage_base,
+                                 uint32_t storage_size, uint64_t token,
+                                 NikonVRStoreComplete complete, void *opaque,
+                                 Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(dev);
+    g_autoptr(GBytes) records = s->upload ?
+        nikon_vr_upload_records(s->upload) : NULL;
+
+    if (!s->mapped || s->pending_span || !records) {
+        error_setg(errp, "VR persistence requires idle realized input and a "
+                   "sealed actual record snapshot");
+        return false;
+    }
+    if (s->upload_record_persistence) {
+        error_setg(errp, "VR per-record profile persists each packet and final "
+                   "barrier directly");
+        return false;
+    }
+    if (!nikon_vr_store_start(&s->store, records, body, metadata, storage_base,
+                              storage_size, token, vr_input_store_done, s,
+                              errp)) {
+        return false;
+    }
+    s->store_complete = complete;
+    s->store_opaque = opaque;
+    s->upload_job = VR_UPLOAD_SNAPSHOT;
+    s->store_completed_token = 0;
+    s->store_error = 0;
+    return true;
+}
+
 static void vr_host_operation(Object *obj, const char *operation, Error **errp)
 {
     NikonVRInput *s = NIKON_VR_INPUT(obj);
     bool accepted;
 
-    if (!strcmp(operation, "erase")) {
+    if (!strcmp(operation, "upload-begin")) {
+        if (s->length > UINT32_MAX) {
+            error_setg(errp, "VR upload stream length exceeds 32-bit bounds");
+            return;
+        }
+        nikon_vr_input_upload_begin(DEVICE(s), s->length,
+                                   s->upload_origin, errp);
+        return;
+    } else if (!strcmp(operation, "upload-capture")) {
+        nikon_vr_input_upload_capture(DEVICE(s), &address_space_memory, errp);
+        return;
+    } else if (!strcmp(operation, "upload-cancel")) {
+        nikon_vr_input_upload_cancel(DEVICE(s));
+        return;
+    } else if (!strcmp(operation, "upload-persist")) {
+        nikon_vr_input_upload_persist(DEVICE(s), s->upload_body_blk,
+                                     s->upload_metadata_blk,
+                                     s->upload_storage_base,
+                                     s->upload_storage_size, s->token,
+                                     NULL, NULL, errp);
+        return;
+    } else if (!strcmp(operation, "erase")) {
         accepted = nikon_vr_input_erase(DEVICE(s), s->token, s->destination,
                                        s->delay_ns, NULL, NULL, errp);
     } else if (!strcmp(operation, "program")) {
@@ -451,7 +776,7 @@ static void vr_host_operation(Object *obj, const char *operation, Error **errp)
         }
         return;
     } else {
-        error_setg(errp, "VR host storage operation must be erase/program/cancel");
+        error_setg(errp, "unknown VR host storage/staging operation");
         return;
     }
     if (!accepted) {
@@ -461,7 +786,78 @@ static void vr_host_operation(Object *obj, const char *operation, Error **errp)
 
 static bool vr_input_get_busy(Object *obj, Error **errp)
 {
-    return NIKON_VR_INPUT(obj)->pending_span != NULL;
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+
+    return s->pending_span || s->store;
+}
+
+static bool vr_input_get_upload_sealed(Object *obj, Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+
+    return s->upload && nikon_vr_upload_sealed(s->upload);
+}
+
+static bool vr_input_get_upload_prepared(Object *obj, Error **errp)
+{
+    return NIKON_VR_INPUT(obj)->upload_prepared;
+}
+
+static bool vr_input_get_upload_durable_final(Object *obj, Error **errp)
+{
+    return NIKON_VR_INPUT(obj)->upload_durable_final;
+}
+
+static char *vr_input_get_upload_origin(Object *obj, Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+
+    return g_strdup(s->upload_origin ?: "");
+}
+
+static void vr_input_set_upload_origin(Object *obj, const char *origin,
+                                       Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+
+    if (s->upload && nikon_vr_upload_received(s->upload)) {
+        error_setg(errp, "VR staged input origin cannot change after receipt");
+        return;
+    }
+    g_free(s->upload_origin);
+    s->upload_origin = g_strdup(origin);
+}
+
+static void vr_input_get_upload_received(Object *obj, Visitor *v,
+                                         const char *name, void *opaque,
+                                         Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+    uint64_t received = s->upload ? nikon_vr_upload_received(s->upload) : 0;
+
+    visit_type_uint64(v, name, &received, errp);
+}
+
+static void vr_input_get_persist_error(Object *obj, Visitor *v,
+                                      const char *name, void *opaque,
+                                      Error **errp)
+{
+    NikonVRInput *s = NIKON_VR_INPUT(obj);
+
+    visit_type_int32(v, name, &s->store_error, errp);
+}
+
+static void vr_input_get_upload_status(Object *obj, Visitor *v,
+                                      const char *name, void *opaque,
+                                      Error **errp)
+{
+    uint8_t status;
+
+    if (!nikon_vr_input_upload_status(DEVICE(obj), &status)) {
+        error_setg(errp, "VR upload has no eligible durable response byte");
+        return;
+    }
+    visit_type_uint8(v, name, &status, errp);
 }
 
 static bool vr_input_get_access_failed(Object *obj, Error **errp)
@@ -481,9 +877,13 @@ static void vr_input_reset(DeviceState *dev)
     NikonVRInput *s = NIKON_VR_INPUT(dev);
 
     vr_abort(s);
+    nikon_vr_input_upload_cancel(dev);
     s->access_failed = s->reported_error = false;
     s->completed_token = 0;
     s->result = NIKON_VR_FLASH_OK;
+    s->store_completed_token = 0;
+    s->store_error = 0;
+    s->upload_job_token = 0;
     /* Flash contents persist across reset; input snapshots remain immutable. */
 }
 
@@ -491,6 +891,23 @@ static void vr_input_realize(DeviceState *dev, Error **errp)
 {
     NikonVRInput *s = NIKON_VR_INPUT(dev);
 
+    if (s->upload_body_blk || s->upload_metadata_blk ||
+        s->upload_record_persistence) {
+        if (!s->upload_body_blk || !s->upload_metadata_blk ||
+            s->upload_body_blk == s->upload_metadata_blk) {
+            error_setg(errp, "VR persistence needs distinct explicit body and "
+                       "metadata drives");
+            return;
+        }
+        if (blk_set_perm(s->upload_body_blk,
+                         BLK_PERM_CONSISTENT_READ | BLK_PERM_WRITE,
+                         BLK_PERM_CONSISTENT_READ, errp) ||
+            blk_set_perm(s->upload_metadata_blk,
+                         BLK_PERM_CONSISTENT_READ | BLK_PERM_WRITE,
+                         BLK_PERM_CONSISTENT_READ, errp)) {
+            return;
+        }
+    }
     if (!s->parent_memory) {
         s->parent_memory = get_system_memory();
     }
@@ -506,6 +923,7 @@ static void vr_input_unrealize(DeviceState *dev)
 
     qemu_unregister_resettable(OBJECT(dev));
     vr_abort(s);
+    vr_input_store_cancel(s);
     memory_region_del_subregion(s->parent_memory, &s->memory);
     s->mapped = false;
 }
@@ -521,6 +939,16 @@ static void vr_input_init(Object *obj)
                           NIKON_VR_EXTERNAL_SIZE);
     memory_region_add_subregion(&s->memory, 0, &s->missing);
     object_property_add_bool(obj, "busy", vr_input_get_busy, NULL);
+    object_property_add_bool(obj, "upload-sealed", vr_input_get_upload_sealed,
+                              NULL);
+    object_property_add_bool(obj, "upload-prepared", vr_input_get_upload_prepared,
+                              NULL);
+    object_property_add_bool(obj, "upload-durable-final",
+                              vr_input_get_upload_durable_final, NULL);
+    object_property_add_str(obj, "upload-origin", vr_input_get_upload_origin,
+                            vr_input_set_upload_origin);
+    object_property_add(obj, "upload-received", "uint64",
+                        vr_input_get_upload_received, NULL, NULL, NULL);
     object_property_add_str(obj, "operation", NULL, vr_host_operation);
     object_property_add_bool(obj, "access-failed", vr_input_get_access_failed,
                               NULL);
@@ -529,6 +957,16 @@ static void vr_input_init(Object *obj)
     object_property_add_uint64_ptr(obj, "completed-token", &s->completed_token,
                                     OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "result", &s->result, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "persist-completed-token",
+                                    &s->store_completed_token,
+                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "upload-durable-received",
+                                    &s->upload_durable_received,
+                                    OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "upload-eligible-status", "uint8",
+                        vr_input_get_upload_status, NULL, NULL, NULL);
+    object_property_add(obj, "persist-error", "int32",
+                        vr_input_get_persist_error, NULL, NULL, NULL);
     object_property_add_uint64_ptr(obj, "destination", &s->destination,
                                     OBJ_PROP_FLAG_READWRITE);
     object_property_add_uint64_ptr(obj, "source-address", &s->source_address,
@@ -546,6 +984,9 @@ static void vr_input_finalize(Object *obj)
     unsigned i;
 
     timer_free(s->timer);
+    vr_input_store_cancel(s);
+    nikon_vr_upload_free(s->upload);
+    g_free(s->upload_origin);
     for (i = 0; i < s->spans->len; i++) {
         VRInputSpan *span = g_ptr_array_index(s->spans, i);
 
@@ -565,6 +1006,15 @@ static const VMStateDescription vr_input_vmstate = {
     .unmigratable = true, /* Sparse source metadata/request lifecycle not serialized. */
 };
 
+static const Property vr_input_properties[] = {
+    DEFINE_PROP_DRIVE("upload-body-drive", NikonVRInput, upload_body_blk),
+    DEFINE_PROP_DRIVE("upload-metadata-drive", NikonVRInput, upload_metadata_blk),
+    DEFINE_PROP_UINT32("upload-storage-base", NikonVRInput, upload_storage_base, 0),
+    DEFINE_PROP_UINT32("upload-storage-size", NikonVRInput, upload_storage_size, 0),
+    DEFINE_PROP_BOOL("upload-record-persistence", NikonVRInput,
+                     upload_record_persistence, false),
+};
+
 static void vr_input_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -573,6 +1023,7 @@ static void vr_input_class_init(ObjectClass *klass, const void *data)
     dc->unrealize = vr_input_unrealize;
     dc->vmsd = &vr_input_vmstate;
     dc->hotpluggable = false;
+    device_class_set_props(dc, vr_input_properties);
     device_class_set_legacy_reset(dc, vr_input_reset);
 }
 

@@ -11,6 +11,10 @@ fields carry an unchanged clock word, select level, or GPIO level. The
 timestamp records sender virtual time; it does not advance the other CPU.
 Transport uses native nonblocking character writes and a bounded output
 queue. One clock request may be outstanding per peer.
+Consumed output prefixes are reclaimed before applying the queue bound.
+If a connected wire cannot queue an actual SELECT or GPIO transition, it
+reports a transport failure and closes. It cannot silently drop that edge
+or reconstruct it from a later current-level replay.
 
 The same transport binds the asynchronous I2C master through
 `hw/nikon/peers/i2c.c`, using `nikon-i2c-peer` with strong `peer` and `i2c`
