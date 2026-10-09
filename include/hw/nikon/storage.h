@@ -10,7 +10,9 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonStorageHost, NIKON_STORAGE_HOST)
 
 /* Source-local ports, not ECAM. SysBus IRQs are f2, f3, f4, f6 in this order.
- * The optional drive property supplies real media; absent media stays offline.
+ * The required memory link selects this CPU domain's DMA MemoryRegion before
+ * realization. The optional drive property supplies real media; absent media
+ * stays offline. A private CPU domain must not link the MAS system memory.
  */
 enum {
     NIKON_STORAGE_DBI,

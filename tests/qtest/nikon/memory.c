@@ -140,6 +140,96 @@ static void test_outer_holes(void)
     memory_quit(&t);
 }
 
+static void prefix_copy(QTestState *qts, uint32_t source,
+                        uint32_t destination, uint32_t length)
+{
+    qtest_writel(qts, 0x04251000, 0x10000000);
+    qtest_writel(qts, 0x04251010, length - 1);
+    qtest_writel(qts, 0x04251014, source);
+    qtest_writel(qts, 0x04251018, destination);
+    qtest_writel(qts, 0x0425101c, 0x30f00);
+    qtest_writel(qts, 0x04251020, 0x30f00);
+    qtest_writel(qts, 0x04251024, 0);
+    qtest_writel(qts, 0x04251028, 0x9000);
+    qtest_writel(qts, 0x04251028, 0x11109003);
+    qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_external_input(void)
+{
+    const size_t prefix_size = 0x20000, length = 0x100000;
+    g_autofree uint8_t *image = g_malloc(length - prefix_size);
+    g_autofree uint8_t *prefix = g_malloc(prefix_size);
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    g_autofree char *image_path = NULL, *prefix_path = NULL;
+    int image_fd, prefix_fd;
+
+    for (size_t i = 0; i < length - prefix_size; i++) {
+        image[i] = (i * 29 + 7) & 0xff;
+    }
+    stl_le_p(image, 0xeafffffe);
+    for (size_t i = 0; i < prefix_size; i++) {
+        prefix[i] = (i * 17 + 3) & 0xff;
+    }
+    image_fd = g_file_open_tmp("nikon-mas-image-XXXXXX", &image_path, NULL);
+    prefix_fd = g_file_open_tmp("nikon-mas-prefix-XXXXXX", &prefix_path, NULL);
+    g_assert_cmpint(image_fd, >=, 0);
+    g_assert_cmpint(prefix_fd, >=, 0);
+    close(image_fd);
+    close(prefix_fd);
+    g_assert_true(g_file_set_contents(image_path, (char *)image,
+                                     length - prefix_size, NULL));
+    g_assert_true(g_file_set_contents(prefix_path, (char *)prefix,
+                                     prefix_size, NULL));
+
+    for (unsigned profile = 0; profile < 3; profile++) {
+        g_autofree char *option = profile ?
+            g_strdup_printf(",mas-boot-prefix=%s",
+                            profile == 1 ? "erased" : prefix_path) :
+            g_strdup("");
+        QTestState *qts = qtest_initf("-nodefaults -machine "
+            "z7ii-mas-diagnostic%s -smp 1 -bios %s -display none "
+            "-serial none", option, image_path);
+
+        memset(expected, 0, length);
+        prefix_copy(qts, 0x10000000, 0xbaa00000, length);
+        if (!profile) {
+            /* An absent input fails before copying the known package tail. */
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+            g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, length - 1);
+        } else {
+            if (profile == 1) {
+                memset(expected, 0xff, prefix_size);
+            } else {
+                memcpy(expected, prefix, prefix_size);
+            }
+            memcpy(expected + prefix_size, image, length - prefix_size);
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 8);
+        }
+        qtest_memread(qts, 0xbaa00000, actual, length);
+        g_assert_cmpmem(actual, length, expected, length);
+
+        if (profile) {
+            /* The explicit input remains ROMD for CPU and selected-AS DMA. */
+            qtest_writel(qts, 0x04264000, 0x29);
+            qtest_writel(qts, 0x04264020, 0x153b0902);
+            qtest_writel(qts, 0x10000000, 0x12345678);
+            g_assert_cmphex(qtest_readl(qts, 0x10000000), ==,
+                            (uint32_t)ldl_le_p(expected));
+            qtest_writel(qts, 0x04251030, 0);
+            prefix_copy(qts, 0xbaa00000, 0x10000000, 16);
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+            g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, 15);
+            qtest_memread(qts, 0x10000000, actual, prefix_size);
+            g_assert_cmpmem(actual, prefix_size, expected, prefix_size);
+        }
+        qtest_quit(qts);
+    }
+    unlink(image_path);
+    unlink(prefix_path);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -148,5 +238,6 @@ int main(int argc, char **argv)
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
+    qtest_add_func("/nikon/memory/external-input", test_external_input);
     return g_test_run();
 }

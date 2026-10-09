@@ -100,6 +100,18 @@ Nearest sampling is an explicit functional convention. The original phase is
 retained but its physical filter interpretation is unverified; it does not
 justify shifting already cropped RAM pointers or inventing an output format.
 
+Horizontal viewport origin uses the original signed16 coordinate domain.
+D96D4 loads vx0 with LDRSH and bounds vx1 rather than vx0; DD354/D95EC form
+the relative layer position from signed D.x−V.x. A valid second-unit example
+is V=(-2,0,8,8), D=(0,0,8,8): the pre-scale canvas is10x8, with its8x8 layer
+at x2. Treating encoded origin FFFE as65534 incorrectly hides that layer.
+The model passes the signed destination to Pixman, which clips it and advances
+the source through the same inverse scale. The primary RAM pointer remains
+the already adjusted cropped pointer and keeps its full original row stride.
+The vertical14-bit coordinate retains its prior interpretation: D96D4's
+unsigned initial vy0 bound rejects negative values, so this change does not
+invent a negative-Y hardware encoding.
+
 Layers DMA-read their actual primary and secondary normal-RAM rows, preserving
 padding. Whole extents reject zero, wrapping, ROM, MMIO and absent planes. A
 16M-pixel budget limits host allocation and is not a camera hardware limit.
@@ -147,7 +159,7 @@ by name.
 
 ## Native validation
 
-`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Nine
+`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Ten
 no-TCG cases check exact PPM pixels and padded input; all seven layouts;
 cancellation preserving the surface; a bad final layer preserving the whole
 surface without IRQ; two ports/shared IRQ; independent register domains;
@@ -159,6 +171,12 @@ mature GIC fixture and valid virtual-clock
 advances without `-S`. Synthetic tests do not prove a naturally submitted
 original frame.
 
+The crop case uses the second object's native8-byte alignment, a supplied
+RAM crop pointer with48-byte row stride, signed leading clipping, trailing
+clipping after a live origin change, and actual QMP head1 pixels. The existing
+ports case also checks actual second-head pixels rather than inferring output
+from its IRQ alone.
+
 Baseline sole-builder receipt: all eight preceding image cases passed in3.83 seconds,
 with the exact RGB,8×8 extent, object, cancellation, fault and packed-table
 assertions retained. Tested device source is `ef0ba27`; the named board endpoint
@@ -168,5 +186,11 @@ defaults. The preserved log is
 The earlier default-console failure and upstream text-property abort are
 closed by the supported fixture launch contract. No naturally submitted
 original frame or camera measurement follows from this native receipt.
-The continuous/affine extension and its ninth case await the sole builder's
-actual receipt; the preceding eight-case receipt does not validate this change.
+The sole builder independently compiled the continuous/affine extension from
+`d31386c` and observed all nine cases passing, including refresh, in
+`qemu-submodule/work/scanoutfinal.log`; that receipt is separate from the prior
+eight-case baseline. The sole builder compiled the signed-origin change;
+focused crop/ports/refresh checks exited0 in1.11/1.10/1.11s, respectively,
+recorded in `work/displaycropreceipt.log`, `work/displayportsreceipt.log` and
+`work/displayrefreshreceipt.log`. Processing's unchanged exact-byte,
+EOF and cancellation receipts are not rerun for this display change.

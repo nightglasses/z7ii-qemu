@@ -88,8 +88,15 @@ write_register (struct fixture *test, uint32_t address, uint32_t value,
                 unsigned size)
 {
   unsigned char bytes[] = { value, value >> 8, value >> 16, value >> 24 };
-  assert (sim_core_write_buffer (test->sd, NULL, write_map, bytes, address, size)
-          == size);
+  unsigned transferred;
+  transferred = sim_core_write_buffer (test->sd, NULL, write_map, bytes, address, size);
+  if (transferred != size)
+    {
+      fprintf (stderr, "TPJ fixture write address=%08x width=%u transferred=%u\n",
+               address, size, transferred);
+      tpj_boundary (test->device);
+    }
+  assert (transferred == size);
 }
 
 static uint32_t
@@ -245,7 +252,10 @@ static void
 missing_producer (void)
 {
   struct fixture *test = open_fixture ();
+  unsigned i;
   write_register (test, 0x53000, 0, 4);
+  for (i = 0; i < 6; ++i)
+    write_register (test, 0x53004 + i * 2, i + 1, 2);
   write_register (test, 0x53002, 1, 1);
   assert (!read_register (test, 0x53001, 1));
   assert (tpj_boundary (test->device));
@@ -262,6 +272,24 @@ missing_producer (void)
     assert (!sim_core_read_buffer (test->sd, NULL, read_map, &byte, 0x4100f, 1));
     assert (tpj_boundary (test->device));
   }
+  close_fixture (test);
+  test = open_fixture ();
+  {
+    unsigned char transform[24] = { 0 };
+    char path[] = "/tmp/tpjtransformrequestXXXXXX";
+    input_file (path, transform, sizeof transform);
+    assert (tpj_transform (test->device, path));
+    assert (!unlink (path));
+  }
+  write_register (test, 0x53000, 0, 4);
+  write_register (test, 0x53002, 1, 1);
+  assert (tpj_boundary (test->device)); /* Missing input isn't a zero tuple. */
+  assert (!read_register (test, 0x53001, 1));
+  close_fixture (test);
+  test = open_fixture ();
+  /* Even the one-byte program needs the actual O0bf8 count-minus-one store. */
+  flash_command (test, 2, 0);
+  assert (tpj_boundary (test->device));
   close_fixture (test);
 }
 
@@ -410,6 +438,10 @@ source_configuration (void)
   char snapshot[] = "/tmp/tpjcontrollerXXXXXX";
   const char supplied_completion[] = "80042 1 81\n";
   unsigned i;
+  write_register (test, 0x80190, 0x12345678, 4);
+  assert (read_register (test, 0x80190, 4) == 0x12345678);
+  write_register (test, 0x80064, 0x5a, 1);
+  assert (read_register (test, 0x80064, 2) == 0x5a);
   input_file (snapshot, supplied_completion, sizeof supplied_completion - 1);
   assert (!tpj_snapshot (test->device, snapshot));
   assert (!unlink (snapshot));
@@ -543,7 +575,7 @@ normal_samples (void)
 {
   struct fixture *test = open_fixture ();
   sim_cpu *cpu = STATE_CPU (test->sd, 0);
-  unsigned char records[2 * 884] = { 0 };
+  unsigned char records[2 * 896 + 12] = { 0 };
   char path[] = "/tmp/tpjsamplesXXXXXX";
   unsigned record, word, byte;
   write_register (test, 0x80003, 0x40, 1);
@@ -551,14 +583,19 @@ normal_samples (void)
   assert (!read_register (test, 0x80050, 1)); /* No input, no production. */
   for (record = 0; record < 2; ++record)
     {
-      records[record * 884] = record ? 8 : 4;
+      unsigned offset = record ? 908 : 0;
+      records[offset] = 1;
+      records[offset + 4] = record ? 8 : 4;
       for (word = 0; word < 220; ++word)
         {
           uint32_t measurement = 0x12000000 + record * 0x10000 + word;
           for (byte = 0; byte < 4; ++byte)
-            records[record * 884 + 4 + word * 4 + byte] = measurement >> (8 * byte);
+            records[offset + 16 + word * 4 + byte] = measurement >> (8 * byte);
         }
     }
+  records[896] = 4; /* Independent QUIESCE between the two raw records. */
+  records[900] = 12;
+  records[904] = 2; /* Explicit SCAN completion, never derived from NORMAL. */
   input_file (path, records, sizeof records);
   write_register (test, 0x72040, 0x28000, 4);
   write_register (test, 0x72044, 0x29000, 4);
@@ -583,11 +620,19 @@ normal_samples (void)
     assert (read_register (test, 0x289cc + word * 4, 4) == 0x12000000 + 209 + word);
   write_register (test, 0x8004c, 8, 1);
   assert (nds32_system_read_sr (cpu, SRIDX_INT_PEND) == (1U << 12));
+  for (word = 0; word < 4; ++word)
+    write_register (test, 0x80124 + word * 4, 0x100 + word, 4);
+  write_register (test, 0x80116, 0x1100, 2);
+  write_register (test, 0x8019c, 2, 1);
+  write_register (test, 0x8022b, 0, 1);
+  write_register (test, 0x7203a, 0, 1); /* Outer7d30 source freeze mode. */
   write_register (test, 0x802b6, 6, 1); /* Both buffers held. */
   write_register (test, 0x80050, 0, 1); /* Actual original masked ack. */
   assert (!nds32_system_read_sr (cpu, SRIDX_INT_PEND));
   assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
-  assert (!read_register (test, 0x80050, 1));
+  assert (read_register (test, 0x80050, 1) == 0x20); /* Supplied independent quiescence. */
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x7203a, 1, 1); /* Restore normal controller mode. */
   write_register (test, 0x802b6, 2, 1); /* Hold slot0, release slot1. */
   write_register (test, 0x80003, 0, 1); /* Cancel before its actual deadline. */
   assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
@@ -610,14 +655,418 @@ static void
 sample_input_guards (void)
 {
   struct fixture *test = open_fixture ();
-  unsigned char record[884] = { 0 };
+  unsigned char record[896] = { 1 };
   unsigned char byte;
+  unsigned i;
   char path[] = "/tmp/tpjsampleguardXXXXXX";
   input_file (path, record, sizeof record);
   assert (!tpj_samples (test->device, path)); /* Zero delay is rejected. */
   assert (!unlink (path));
+  for (i = 0; i < 4; ++i)
+    {
+      char invalid[] = "/tmp/tpjprocessingguardXXXXXX";
+      record[4] = 4;
+      record[8] = i == 0 ? 3 : i == 2 ? 1 : 0;
+      record[12] = i == 1 ? 1 : 0;
+      input_file (invalid, record, sizeof record - (i == 3 ? 8 : 0));
+      assert (!tpj_samples (test->device, invalid));
+      assert (!unlink (invalid));
+    }
+  for (i = 0; i < 4; ++i)
+    {
+      unsigned char quiesce[] = { 4, 0, 0, 0, 12, 0, 0, 0, 2, 0, 0, 0 };
+      char invalid[] = "/tmp/tpjquiesceguardXXXXXX";
+      if (i == 0)
+        quiesce[4] = 0;
+      else if (i == 1)
+        quiesce[8] = 0;
+      else if (i == 2)
+        quiesce[8] = 3;
+      else
+        quiesce[9] = 1;
+      input_file (invalid, quiesce, sizeof quiesce);
+      assert (!tpj_samples (test->device, invalid));
+      assert (!unlink (invalid));
+    }
   assert (!sim_core_read_buffer (test->sd, NULL, read_map, &byte, 0x28000, 1));
   assert (tpj_boundary (test->device)); /* Absent data isn't a zero sample. */
+  close_fixture (test);
+}
+
+static void
+processing_setup (struct fixture *test)
+{
+  unsigned i;
+  write_register (test, 0x72040, 0x28000, 4);
+  write_register (test, 0x72044, 0x29000, 4);
+  write_register (test, 0x72080, 0x289cc, 4);
+  write_register (test, 0x72084, 0x299cc, 4);
+  for (i = 0; i < 4; ++i)
+    write_register (test, 0x80124 + i * 4, 0x100 + i, 4);
+  write_register (test, 0x80116, 0x1100, 2);
+  write_register (test, 0x7203a, 0, 1);
+  write_register (test, 0x8022b, 1, 1);
+  write_register (test, 0x80003, 0x40, 1);
+}
+
+static void
+normal_record (unsigned char *record, unsigned kind, unsigned delay,
+               uint32_t measurement)
+{
+  unsigned i;
+  memset (record, 0, 896);
+  record[0] = 1;
+  record[4] = 4;
+  record[8] = kind;
+  for (i = 0; i < 4; ++i)
+    record[12 + i] = delay >> (8 * i);
+  for (i = 0; i < 880; ++i)
+    record[16 + i] = measurement >> ((i % 4) * 8);
+}
+
+static void
+processing_input (struct fixture *test, const unsigned char *records, unsigned size)
+{
+  char path[] = "/tmp/tpjprocessingXXXXXX";
+  input_file (path, records, size);
+  assert (tpj_samples (test->device, path));
+  assert (!unlink (path));
+}
+
+static void
+normal_processing (void)
+{
+  struct fixture *test = open_fixture ();
+  unsigned char records[2 * 896];
+  /* NONE stays NONE even with the actual processing request and slot mask. */
+  processing_setup (test);
+  normal_record (records, 0, 0, 0x1111);
+  processing_input (test, records, 896);
+  finish_event (test);
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x802b6, 2, 1);
+  assert (nds32_system_run (test->sd, 24) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1));
+  assert (!read_register (test, 0x80050, 1));
+  close_fixture (test);
+
+  test = open_fixture ();
+  processing_setup (test);
+  normal_record (records, 1, 12, 0x2222);
+  processing_input (test, records, 896);
+  finish_event (test);
+  assert (read_register (test, 0x80050, 1) == 8);
+  assert (!read_register (test, 0x72024, 1)); /* First phase is only scan progress. */
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x7203a, 1, 1);
+  write_register (test, 0x802b6, 2, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1)); /* Inactive processing profile. */
+  write_register (test, 0x7203a, 0, 1);
+  write_register (test, 0x8022b, 0, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1));
+  write_register (test, 0x8022b, 1, 1);
+  finish_event (test);
+  write_register (test, 0x802b6, 0, 1); /* Cancel before the independent deadline. */
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1));
+  write_register (test, 0x802b6, 2, 1);
+  write_register (test, 0x80116, 0x2200, 2); /* Another configuration is not this frame. */
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1));
+  write_register (test, 0x80116, 0x1100, 2);
+  finish_event (test);
+  write_register (test, 0x80003, 0, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1));
+  write_register (test, 0x80003, 0x40, 1);
+  assert (nds32_system_run (test->sd, 16) == SIM_RC_OK);
+  assert (read_register (test, 0x72024, 1) == 1);
+  assert (nds32_system_read_sr (STATE_CPU (test->sd, 0), SRIDX_INT_PEND) == (1U << 7));
+  assert (!read_register (test, 0x80050, 1)); /* BUFFER never becomes SCAN. */
+  write_register (test, 0x72024, 0, 4);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1)); /* One completion per generation. */
+  close_fixture (test);
+
+  test = open_fixture ();
+  processing_setup (test);
+  normal_record (records, 1, 12, 0x3333);
+  normal_record (records + 896, 0, 0, 0x4444);
+  records[896 + 4] = 12;
+  processing_input (test, records, sizeof records);
+  finish_event (test);
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x802b6, 2, 1);
+  finish_event (test);
+  write_register (test, 0x802b6, 4, 1); /* Old event canceled; slot0 can be replaced. */
+  assert (nds32_system_run (test->sd, 16) == SIM_RC_OK);
+  assert (read_register (test, 0x28000, 4) == 0x4444);
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x802b6, 2, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x72024, 1)); /* New NONE frame cannot inherit old ACK. */
+  close_fixture (test);
+
+  test = open_fixture ();
+  processing_setup (test);
+  normal_record (records, 2, 12, 0x5555);
+  processing_input (test, records, 896);
+  finish_event (test);
+  write_register (test, 0x80050, 0, 1);
+  write_register (test, 0x8004c, 0x20, 1);
+  write_register (test, 0x802b6, 6, 1); /* Explicit SCAN work retains its own deadline. */
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1));
+  assert (nds32_system_run (test->sd, 16) == SIM_RC_OK);
+  assert (read_register (test, 0x80050, 1) == 0x20);
+  assert (!read_register (test, 0x72024, 1));
+  write_register (test, 0x80050, 0, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x80050, 1)); /* No implicit drain for the same work. */
+  close_fixture (test);
+
+  test = open_fixture ();
+  write_register (test, 0x72040, 0x28000, 4);
+  write_register (test, 0x72044, 0x29000, 4);
+  write_register (test, 0x72080, 0x289cc, 4);
+  write_register (test, 0x72084, 0x299cc, 4);
+  write_register (test, 0x80003, 0x40, 1);
+  normal_record (records, 1, 12, 0x6666);
+  processing_input (test, records, 896);
+  assert (nds32_system_run (test->sd, 8) == SIM_RC_OK);
+  assert (tpj_boundary (test->device)); /* Missing config isn't a zero descriptor. */
+  assert (!read_register (test, 0x72024, 1));
+  close_fixture (test);
+}
+
+static void
+engine_quiescence (void)
+{
+  struct fixture *test = open_fixture ();
+  sim_cpu *cpu = STATE_CPU (test->sd, 0);
+  unsigned char record[12] = { 4, 0, 0, 0, 12, 0, 0, 0, 2 };
+  unsigned kind;
+  write_register (test, 0x802b6, 6, 1); /* Cold inactive engine is not ready. */
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1));
+  write_register (test, 0x80003, 0x40, 1);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* No actual ownership transition. */
+  processing_setup (test);
+  write_register (test, 0x7203a, 0, 1);
+  write_register (test, 0x8022b, 0, 1);
+  write_register (test, 0x8019c, 2, 1);
+  write_register (test, 0x8004c, 0x20, 1);
+  write_register (test, 0x802b6, 0, 1);
+  write_register (test, 0x802b6, 6, 1);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x80050, 1)); /* No supplied quiescence, no completion. */
+  processing_input (test, record, sizeof record);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* Explicit deadline isn't one tick. */
+  write_register (test, 0x802b6, 0, 1);
+  write_register (test, 0x802b6, 6, 1);
+  write_register (test, 0x802b6, 0, 1); /* a818 restore before native expiry. */
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1));
+  write_register (test, 0x802b6, 6, 1);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1));
+  write_register (test, 0x80116, 0x2200, 2); /* Replacement invalidates old request. */
+  write_register (test, 0x80116, 0x1100, 2);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x80050, 1));
+  write_register (test, 0x802b6, 0, 1);
+  write_register (test, 0x802b6, 6, 1);
+  finish_event (test);
+  write_register (test, 0x72014, 0, 4); /* Stop cancels, restart needs fresh transition. */
+  write_register (test, 0x72014, 1, 4);
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (!read_register (test, 0x80050, 1));
+  write_register (test, 0x802b6, 0, 1);
+  write_register (test, 0x802b6, 6, 1);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1));
+  assert (nds32_system_run (test->sd, 16) == SIM_RC_OK);
+  assert (read_register (test, 0x80050, 1) == 0x20);
+  assert (nds32_system_read_sr (cpu, SRIDX_INT_PEND) == (1U << 12));
+  write_register (test, 0x80050, 0, 1);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* No repeat from held level. */
+  assert (!read_register (test, 0x72024, 1));
+  close_fixture (test);
+
+  /* Both status domains are explicit, and incomplete requests never match. */
+  for (kind = 1; kind <= 2; ++kind)
+    {
+      test = open_fixture ();
+      record[8] = kind;
+      processing_input (test, record, sizeof record);
+      write_register (test, 0x80003, 0x40, 1);
+      write_register (test, 0x802b6, 6, 1);
+      assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+      assert (!read_register (test, 0x72024, 1) && !read_register (test, 0x80050, 1));
+      processing_setup (test);
+      write_register (test, 0x7203a, 1, 1); /* Inner7778 exit is not freeze mode. */
+      write_register (test, 0x8022b, 0, 1);
+      write_register (test, 0x8019c, 2, 1);
+      write_register (test, 0x802b6, 0, 1);
+      write_register (test, 0x802b6, 6, 1);
+      assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+      assert (!read_register (test, 0x72024, 1) && !read_register (test, 0x80050, 1));
+      write_register (test, 0x7203a, 0, 1); /* Outer7d30 clear requires a new edge. */
+      assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+      assert (!read_register (test, 0x72024, 1) && !read_register (test, 0x80050, 1));
+      write_register (test, 0x802b6, 0, 1);
+      write_register (test, 0x802b6, 6, 1);
+      finish_event (test);
+      write_register (test, 0x8019c, 3, 1);
+      write_register (test, 0x8019c, 2, 1);
+      assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+      assert (!read_register (test, 0x72024, 1) && !read_register (test, 0x80050, 1));
+      write_register (test, 0x802b6, 0, 1);
+      write_register (test, 0x802b6, 6, 1);
+      assert (nds32_system_run (test->sd, 16) == SIM_RC_OK);
+      assert (read_register (test, 0x72024, 1) == (kind == 1));
+      assert (read_register (test, 0x80050, 1) == (kind == 2 ? 0x20 : 0));
+      write_register (test, 0x72024, 0, 4);
+      write_register (test, 0x80050, 0, 1);
+      write_register (test, 0x802b6, 0, 1);
+      write_register (test, 0x802b6, 6, 1);
+      assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+      assert (!read_register (test, 0x72024, 1) && !read_register (test, 0x80050, 1));
+      close_fixture (test);
+    }
+}
+
+static void
+indexed_capture (void)
+{
+  struct fixture *test = open_fixture ();
+  unsigned char record[824] = { 2, 0, 0, 0, 4 };
+  const char snapshot[] = "80220 2 a123\n";
+  char control_path[] = "/tmp/tpjcapturecontrolXXXXXX";
+  char path[] = "/tmp/tpjcaptureXXXXXX";
+  unsigned i;
+  for (i = 0; i < 10; ++i)
+    write_register (test, 0x800c0 + i * 4, 0, 4);
+  write_register (test, 0x72000, 18, 1);
+  write_register (test, 0x8019c, 2, 1);
+  write_register (test, 0x80116, 0x1234, 2);
+  /* Explicit initial control, then the actual Ob23c/248 halfword RMW. */
+  input_file (control_path, snapshot, sizeof snapshot - 1);
+  assert (tpj_snapshot (test->device, control_path));
+  assert (!unlink (control_path));
+  write_register (test, 0x80220,
+                  (read_register (test, 0x80220, 2) & 0xf000) | 0x7d8, 2);
+  assert (read_register (test, 0x80220, 2) == 0xa7d8);
+  write_register (test, 0x8004c, 4, 1);
+  record[48] = 18;
+  record[49] = 2;
+  record[52] = 0x34;
+  record[53] = 0x12;
+  record[54] = 0xd8;
+  record[55] = 0xa7;
+  for (i = 0; i < 0x180; ++i)
+    {
+      record[56 + i * 2] = i;
+      record[57 + i * 2] = (0x5000 + i) >> 8;
+    }
+  input_file (path, record, sizeof record);
+  assert (tpj_samples (test->device, path));
+  assert (!unlink (path));
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* Supplied data needs a request. */
+  write_register (test, 0x80218, 1, 1);
+  write_register (test, 0x80218, 0, 1);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* Canceled record wasn't consumed. */
+  write_register (test, 0x80218, 1, 1);
+  finish_event (test);
+  assert (read_register (test, 0x80050, 1) == 4);
+  assert (read_register (test, 0x802b6, 1) & 0x40);
+  assert (!(read_register (test, 0x80218, 1) & 1));
+  for (i = 0; i < 0x180; ++i)
+    {
+      write_register (test, 0x80204, i, 2);
+      assert (read_register (test, 0x80208, 2) == 0x5000 + i);
+    }
+  /* Ob254/260 restores the source mode without losing the high bits. */
+  write_register (test, 0x80220,
+                  (read_register (test, 0x80220, 2) & 0xf000) | 0x800, 2);
+  assert (read_register (test, 0x80220, 2) == 0xa800);
+  close_fixture (test);
+  test = open_fixture ();
+  {
+    char mismatch[] = "/tmp/tpjcaptureguardXXXXXX";
+    input_file (mismatch, record, sizeof record);
+    assert (tpj_samples (test->device, mismatch));
+    assert (!unlink (mismatch));
+  }
+  for (i = 0; i < 10; ++i)
+    write_register (test, 0x800c0 + i * 4, 0, 4);
+  write_register (test, 0x72000, 19, 1); /* Complete request, distinct row count. */
+  write_register (test, 0x8019c, 2, 1);
+  write_register (test, 0x80116, 0x1234, 2);
+  write_register (test, 0x80220, 0xa7d8, 2);
+  write_register (test, 0x80218, 1, 1); /* Genuine request, unmatched tuple. */
+  assert (nds32_system_run (test->sd, 8) == SIM_RC_OK);
+  assert (tpj_boundary (test->device));
+  assert (!read_register (test, 0x80050, 1));
+  assert (!(read_register (test, 0x802b6, 1) & 0x40));
+  close_fixture (test);
+  test = open_fixture ();
+  {
+    unsigned char absent[824] = { 2, 0, 0, 0, 4 };
+    char missing[] = "/tmp/tpjcapturerequestXXXXXX";
+    input_file (missing, absent, sizeof absent);
+    assert (tpj_samples (test->device, missing));
+    assert (!unlink (missing));
+  }
+  write_register (test, 0x80218, 1, 1);
+  assert (nds32_system_run (test->sd, 8) == SIM_RC_OK);
+  assert (tpj_boundary (test->device)); /* Absent descriptors aren't zero tuples. */
+  assert (!read_register (test, 0x80050, 1));
+  assert (!(read_register (test, 0x802b6, 1) & 0x40));
+  close_fixture (test);
+}
+
+static void
+reference_completion (void)
+{
+  struct fixture *test = open_fixture ();
+  unsigned char record[892] = { 3, 0, 0, 0, 4, 0, 0, 0, 16 };
+  char path[] = "/tmp/tpjreferenceXXXXXX";
+  unsigned i;
+  for (i = 0; i < 220; ++i)
+    {
+      record[12 + i * 4] = i;
+      record[13 + i * 4] = 0x30;
+    }
+  input_file (path, record, sizeof record);
+  assert (tpj_samples (test->device, path));
+  assert (!unlink (path));
+  write_register (test, 0x802b6, 6, 1); /* Special request has its own source pairs. */
+  write_register (test, 0x72040, 0x2a000, 4);
+  write_register (test, 0x72044, 0x2a000, 4);
+  write_register (test, 0x72080, 0x2a9cc, 4);
+  write_register (test, 0x72084, 0x2a9cc, 4);
+  write_register (test, 0x8004c, 0x20, 1);
+  write_register (test, 0x72039, 1, 1);
+  finish_event (test);
+  assert (read_register (test, 0x72024, 1) == 1);
+  assert (!read_register (test, 0x80050, 1));
+  assert (read_register (test, 0x2a340, 4) == 0x30d0);
+  assert (read_register (test, 0x2a9f4, 4) == 0x30db);
+  assert (nds32_system_run (test->sd, 24) == SIM_RC_OK);
+  assert (!read_register (test, 0x80050, 1)); /* First event still unacknowledged. */
+  write_register (test, 0x72024, 0, 4);
+  finish_event (test);
+  assert (!read_register (test, 0x80050, 1)); /* Explicit second-stage delay. */
+  assert (nds32_system_run (test->sd, 20) == SIM_RC_OK);
+  assert (read_register (test, 0x80050, 1) == 0x20);
   close_fixture (test);
 }
 
@@ -636,5 +1085,9 @@ main (void)
   sensing_configuration ();
   normal_samples ();
   sample_input_guards ();
+  normal_processing ();
+  engine_quiescence ();
+  indexed_capture ();
+  reference_completion ();
   return 0;
 }

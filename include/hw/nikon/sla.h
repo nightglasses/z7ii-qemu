@@ -7,9 +7,6 @@
 
 #define TYPE_NIKON_SLA_DOMAIN "nikon-sla-domain"
 
-/* NULL/empty is strict; "erased" is a counterfactual FF NOR input; otherwise
- * input names an exact128KiB file. Returns owned bytes, or NULL in strict mode. */
-GBytes *nikon_sla_load_boot_prefix(const char *input, Error **errp);
 /* The domain refs payload and optional prefix; interfaces remain borrowed. */
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,

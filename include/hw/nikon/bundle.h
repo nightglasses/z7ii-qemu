@@ -15,6 +15,14 @@ typedef enum NikonComponent {
 
 typedef struct NikonBundle NikonBundle;
 
+#define NIKON_BOOT_PREFIX_SIZE 0x20000U
+
+/* NULL/empty is strict. "erased" is explicit counterfactual FF NOR input;
+ * otherwise input names an exact 128KiB file. Returned bytes are owned and
+ * independent for each call; this loader neither maps nor pairs CPU domains.
+ */
+GBytes *nikon_boot_prefix_load(const char *input, Error **errp);
+
 /* All validation completes before a component becomes visible to a machine. */
 NikonBundle *nikon_bundle_parse(GBytes *container, Error **errp);
 NikonBundle *nikon_bundle_load(const char *path, Error **errp);

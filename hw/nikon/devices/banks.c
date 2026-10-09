@@ -371,7 +371,8 @@ static bool nikon_banks_port(NikonDualEventBanksRegion *r,
     uint32_t geometry = packet[(block + 0x204) / 4];
     uint32_t origin = packet[(block + 0x208) / 4];
     unsigned width = geometry & 0xffff, height = (geometry >> 16) & 0x3fff;
-    unsigned x = origin & 0xffff, y = (origin >> 16) & 0x3fff;
+    int x = (int16_t)origin;
+    unsigned y = (origin >> 16) & 0x3fff;
     unsigned a = 1, b = 1, e = 1, f = 1, scaled_width, scaled_height, layer;
     pixman_transform_t transform;
     pixman_image_t *canvas;
@@ -414,10 +415,15 @@ static bool nikon_banks_port(NikonDualEventBanksRegion *r,
         pixman_image_unref(canvas);
         return false;
     }
-    if (x < out_width && y < out_height) {
+    /* DD354 derives this origin from signed viewport vx0. D96D4 bounds vx1,
+     * not vx0: a negative viewport can place a positive relative layer at
+     * global x0. Pixman clips the signed destination and advances the source
+     * through the same inverse transform, including the cropped leading edge.
+     */
+    if (x < (int)out_width && (int64_t)x + scaled_width > 0 && y < out_height) {
         pixman_image_composite32(PIXMAN_OP_OVER, canvas, NULL, output,
                                  0, 0, 0, 0, x, y,
-                                 MIN(scaled_width, out_width - x),
+                                 scaled_width,
                                  MIN(scaled_height, out_height - y));
     }
     *supplied = true;

@@ -9,6 +9,9 @@
 void nikon_events_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_test_notifier(QTestState *qts);
 void nikon_test_counter(QTestState *qts);
+void nikon_signal_test(QTestState *qts, const char *path, uint64_t signal,
+                       uint64_t configuration, uint64_t lanes);
+void nikon_staging_test(QTestState *qts, const char *path, uint64_t base);
 
 static uint16_t fixture_crc(const uint8_t *data, size_t size)
 {
@@ -538,6 +541,50 @@ static void test_external_input(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_signal(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+    static const unsigned bits[] = { 0, 1, 4, 2, 3 };
+    unsigned i;
+
+    nikon_signal_test(qts, "/machine/sla/signal", 0x2b000000, 0x28000000,
+                       0x2b001000);
+    qtest_quit(qts);
+
+    /* A fresh interception observes the actual five-output OR and private GIC. */
+    qts = qtest_initf("-machine nikonsla -bios %s", path);
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+    qtest_writel(qts, 0x28000000, 0xf);
+    qtest_writel(qts, 0x2b000004, 0x3c);
+    g_assert_false(qtest_get_irq(qts, 237 - 32));
+    qtest_writel(qts, 0x2b000000, 0x1f);
+    qtest_writel(qts, 0x2b00000c, 0x3ff);
+    for (i = 0; i < ARRAY_SIZE(bits); i++) {
+        qtest_set_irq_in(qts, "/machine/sla/signal", "signal", i, 1);
+    }
+    g_assert_cmphex(qtest_readl(qts, 0x2b000008), ==, 0x155);
+    for (i = 0; i < ARRAY_SIZE(bits); i++) {
+        g_assert_true(qtest_get_irq(qts, 237 - 32));
+        qtest_writel(qts, 0x2b000008, 1U << (2 * bits[i]));
+    }
+    g_assert_false(qtest_get_irq(qts, 237 - 32));
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_staging(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    /* The private host has no drive or endpoint and supplies no link event. */
+    g_assert_cmphex(qtest_readl(qts, 0x2b000010), ==, 0);
+    nikon_staging_test(qts, "/machine/sla/staging", 0x20202000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -549,5 +596,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sla/notifier", test_notifier);
     qtest_add_func("/nikon/sla/counter", test_counter);
     qtest_add_func("/nikon/sla/local-code", test_local_code);
+    qtest_add_func("/nikon/sla/signal", test_signal);
+    qtest_add_func("/nikon/sla/staging", test_staging);
     return g_test_run();
 }

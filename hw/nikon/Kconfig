@@ -16,6 +16,7 @@ config NIKON_Z7II
     select NIKON_MEMORY
     select NIKON_STORAGE
     select NIKON_EX
+    select NIKON_SENSOR
 
 config NIKON_SLA
     bool
@@ -25,7 +26,9 @@ config NIKON_SLA
     select SSI
     select I2C
     select SPLIT_IRQ
+    select OR_IRQ
     select NIKON_MEMORY
+    select NIKON_STORAGE
 
 config NIKON_EX
     bool

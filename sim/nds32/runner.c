@@ -18,6 +18,7 @@
 #include "gdb/callback.h"
 #include "system.h"
 #include "sim-core.h"
+#include "sim-events.h"
 #include "tpj.h"
 
 #define ROM_SIZE 0xe000U
@@ -37,7 +38,14 @@ struct transport {
   unsigned pending_bits;
   unsigned pending_kind;
   uint32_t pending_line;
+  uint64_t phases[6];
+  uint64_t cancellations;
+  uint64_t received_bytes;
+  uint64_t sent_bytes;
 };
+
+enum peer_result { PEER_OK = 1, PEER_EOF = 0, PEER_SCHEMA = -1,
+                   PEER_IO = -2, PEER_HUP = -3, PEER_TRUNCATED = -4 };
 
 struct image_layout {
   unsigned char coverage[ROM_SIZE];
@@ -50,7 +58,7 @@ static volatile sig_atomic_t interrupted;
 static void
 interrupt (int signal_number)
 {
-  interrupted = 1;
+  interrupted = signal_number;
 }
 
 static void
@@ -230,6 +238,7 @@ receive_frame (struct transport *transport)
     {
       if (word)
         return 0;
+      ++transport->cancellations;
       if (transport->pending == token)
         {
           if (kind != transport->pending_kind || bits != transport->pending_bits ||
@@ -247,7 +256,12 @@ receive_frame (struct transport *transport)
   transport->pending_kind = kind;
   transport->pending_line = line;
   if (kind == NIKON_PEER_I2C)
-    return tpj_i2c (transport->device, token, line, word, time);
+    {
+      int accepted = tpj_i2c (transport->device, token, line, word, time);
+      if (accepted)
+        ++transport->phases[line];
+      return accepted;
+    }
   return tpj_clock (transport->device, token, word, bits, time);
 }
 
@@ -264,7 +278,7 @@ transport_poll (struct transport *transport)
     result = poll (&wait, 1, 0);
   while (result < 0 && errno == EINTR && !interrupted);
   if (result < 0)
-    return interrupted;
+    return interrupted ? PEER_OK : PEER_IO;
   /* Consume readable bytes before HUP so a final complete frame is handled. */
   if (wait.revents & POLLIN)
     {
@@ -272,17 +286,18 @@ transport_poll (struct transport *transport)
                             transport->input + transport->input_length,
                             NIKON_WIRE_SIZE - transport->input_length);
       if (count == 0)
-        return 0;
+        return transport->input_length ? PEER_TRUNCATED : PEER_EOF;
       if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
-        return 0;
+        return PEER_IO;
       if (count > 0)
         {
           transport->input_length += count;
+          transport->received_bytes += count;
           if (transport->input_length == NIKON_WIRE_SIZE)
             {
               transport->input_length = 0;
               if (!receive_frame (transport))
-                return 0;
+                return PEER_SCHEMA;
             }
         }
     }
@@ -292,16 +307,21 @@ transport_poll (struct transport *transport)
                              transport->output + transport->output_start,
                              transport->output_length);
       if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
-        return 0;
+        return PEER_IO;
       if (count > 0)
         {
           transport->output_start += count;
           transport->output_length -= count;
+          transport->sent_bytes += count;
           if (!transport->output_length)
             transport->output_start = 0;
         }
     }
-  return !(wait.revents & (POLLERR | POLLHUP | POLLNVAL));
+  if (wait.revents & (POLLERR | POLLNVAL))
+    return PEER_IO;
+  if (wait.revents & POLLHUP)
+    return transport->input_length ? PEER_TRUNCATED : PEER_HUP;
+  return PEER_OK;
 }
 
 static void
@@ -340,6 +360,7 @@ main (int argc, char **argv)
   uint64_t ticks = 4096;
   uint64_t limit = 0, executed = 0;
   int option, consent = 0, status = 1;
+  const char *exit_reason = "setup_failure";
   host_callback callback = default_callback;
   SIM_DESC sd = NULL;
   bfd *image = NULL;
@@ -437,23 +458,35 @@ main (int argc, char **argv)
       enum sim_stop reason;
       int sigrc;
       uint64_t quantum = limit && limit - executed < ticks ? limit - executed : ticks;
-      if (!transport_poll (&transport))
+      int peer = transport_poll (&transport);
+      if (peer != PEER_OK)
         {
-          fprintf (stderr, "TPJ peer disconnected or invalid frame; no completion.\n");
+          exit_reason = peer == PEER_EOF ? "peer_eof" :
+                        peer == PEER_SCHEMA ? "peer_schema_or_phase" :
+                        peer == PEER_TRUNCATED ? "peer_truncated_frame" :
+                        peer == PEER_HUP ? "peer_hangup" : "peer_io_error";
+          fprintf (stderr, "TPJ transport exit=%s; no completion.\n", exit_reason);
           goto cleanup_sim;
         }
       tpj_flush (transport.device);
       if (tpj_boundary (transport.device) ||
           nds32_system_run (sd, quantum) != SIM_RC_OK)
-        goto cleanup_sim;
+        {
+          exit_reason = "boundary_or_engine_failure";
+          goto cleanup_sim;
+        }
       executed += quantum;
       if (tpj_boundary (transport.device))
-        goto cleanup_sim;
+        {
+          exit_reason = "source_boundary";
+          goto cleanup_sim;
+        }
       sim_stop_reason (sd, &reason, &sigrc);
       if (reason != sim_stopped || sigrc)
         {
           fprintf (stderr, "TPJ execution stopped reason=%d signal=%d pc=%08x\n",
                            reason, sigrc, CPU_PC_GET (STATE_CPU (sd, 0)));
+          exit_reason = "guest_stop";
           goto cleanup_sim;
         }
       if (limit && executed == limit)
@@ -463,13 +496,47 @@ main (int argc, char **argv)
                            CPU_PC_GET (STATE_CPU (sd, 0)),
                            STATE_CPU (sd, 0)->system_sleep);
           status = 0;
+          exit_reason = "finite_budget";
           goto cleanup_sim;
         }
     }
   status = 0;
+  exit_reason = "host_signal";
 cleanup_sim:
+  if (sd)
+    {
+      sim_cpu *cpu = STATE_CPU (sd, 0);
+      static const uint32_t addresses[] = { 0x20980, 0x20055, 0x2048c, 0x2082d };
+      unsigned char bytes[4] = { 0 };
+      unsigned i, valid = 0;
+      /* Original GP=208a4: +dc, -2127, -1048, -119 respectively. Observe
+         finite guest RAM once, never replace these software producers. */
+      for (i = 0; i < sizeof addresses / sizeof addresses[0]; ++i)
+        if (sim_read (sd, addresses[i], bytes + i, 1) == 1)
+          valid |= 1U << i;
+      fprintf (stderr, "TPJ receipt exit=%s status=%d signal=%d pc=%08x "
+                       "ticks=%lld sleep=%u irq=%08x "
+                       "start=%llu write=%llu read=%llu stop=%llu nack=%llu "
+                       "cancel=%llu rx=%llu tx=%llu pending=%llu\n",
+               exit_reason, status, (int) interrupted, CPU_PC_GET (cpu),
+               (long long) sim_events_time (sd), cpu->system_sleep,
+               nds32_system_read_sr (cpu, SRIDX_INT_PEND),
+               (unsigned long long) transport.phases[NIKON_I2C_START],
+               (unsigned long long) transport.phases[NIKON_I2C_WRITE],
+               (unsigned long long) transport.phases[NIKON_I2C_READ],
+               (unsigned long long) transport.phases[NIKON_I2C_STOP],
+               (unsigned long long) transport.phases[NIKON_I2C_NACK],
+               (unsigned long long) transport.cancellations,
+               (unsigned long long) transport.received_bytes,
+               (unsigned long long) transport.sent_bytes,
+               (unsigned long long) transport.pending);
+      fprintf (stderr, "TPJ source valid=%x progress20980=%02x threshold20055=%02x "
+                       "scan2048c=%02x pending2082d=%02x\n",
+               valid, bytes[0], bytes[1], bytes[2], bytes[3]);
+    }
   if (transport.device)
     {
+      tpj_report (transport.device);
       if (transport.pending)
         tpj_cancel (transport.device, transport.pending);
       if (save_path && !tpj_save (transport.device, save_path))

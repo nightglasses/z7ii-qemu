@@ -59,6 +59,7 @@ struct NikonStorageHost {
     PCIDevice *endpoint;
     BlockBackend *media;
     char *media_id;
+    MemoryRegion *dma_memory;
     MemoryRegion dbi, config, memory, phy, platform;
     MemoryRegion bar_alias, dma_root, dma_alias, msi;
     AddressSpace dma;
@@ -481,6 +482,10 @@ static void storage_realize(DeviceState *dev, Error **errp)
     PCIBus *bus;
     unsigned i;
 
+    if (!s->dma_memory) {
+        error_setg(errp, "Nikon storage requires its CPU domain memory link");
+        return;
+    }
     if (s->media_id) {
         s->media = blk_by_name(s->media_id);
         if (!s->media) {
@@ -500,7 +505,7 @@ static void storage_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(&s->memory, 0, &s->bar_alias);
     memory_region_init(&s->dma_root, OBJECT(s), "storage.dma", UINT64_MAX);
     memory_region_init_alias(&s->dma_alias, OBJECT(s), "storage.identity",
-                             get_system_memory(), 0, UINT64_MAX);
+                             s->dma_memory, 0, UINT64_MAX);
     memory_region_add_subregion(&s->dma_root, 0, &s->dma_alias);
     memory_region_init_io(&s->msi, OBJECT(s), &storage_msi_ops, s,
                           "storage.msi", 4);
@@ -561,6 +566,8 @@ static void storage_finalize(Object *obj)
 
 static const Property storage_properties[] = {
     DEFINE_PROP_STRING("drive", NikonStorageHost, media_id),
+    DEFINE_PROP_LINK("memory", NikonStorageHost, dma_memory,
+                     TYPE_MEMORY_REGION, MemoryRegion *),
 };
 
 static const VMStateDescription storage_vmstate = {

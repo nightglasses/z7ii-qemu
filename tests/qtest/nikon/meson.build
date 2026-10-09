@@ -19,7 +19,8 @@ if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
 endif
 if config_all_devices.has_key('CONFIG_NIKON_SLA')
   nikon_arm_fixtures += {
-    'nikon_sla': files('sla.c', 'events.c', 'notifier.c', 'counter.c'),
+    'nikon_sla': files('sla.c', 'events.c', 'notifier.c', 'counter.c', 'signal.c',
+                       'staging.c'),
   }
 endif
 foreach profile : ['EX', 'SENSOR']

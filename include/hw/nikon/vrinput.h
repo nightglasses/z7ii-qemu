@@ -41,6 +41,13 @@ typedef void (*NikonVRFlashComplete)(void *opaque, uint64_t token,
 
 DeviceState *nikon_vr_input_create(Object *owner, MemoryRegion *memory,
                                   Error **errp);
+/* Realized per-record native storage input. Configure the actual backends
+ * before realization; the caller's memory root may be private to this service.
+ */
+DeviceState *nikon_vr_input_create_store(Object *owner, MemoryRegion *memory,
+                                       BlockBackend *body, BlockBackend *metadata,
+                                       uint32_t storage_base,
+                                       uint32_t storage_size, Error **errp);
 /* Exact spans only. Source origin/qualification are explicit caller assertions,
  * not authentication or an instruction-fetch permission enforced by MemTxAttrs.
  * flash_block requires a complete 8 KiB snapshot at a source-observed block.
@@ -87,6 +94,18 @@ bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
                                  Error **errp);
 /* Synchronous cancellation suppresses completion, with no rollback promise. */
 void nikon_vr_input_upload_cancel(DeviceState *dev);
+/* Explicit native endpoint ownership, separate from the guest capture path.
+ * Attach requires a realized per-record persistence profile and begins its
+ * exact input stream. The owner must detach before destruction; reset keeps
+ * ownership but cancels progress. Packet submission reuses the same parser
+ * and actual write/flush path, without claiming MCU mode, DMA or execution.
+ */
+bool nikon_vr_input_upload_attach(DeviceState *dev, DeviceState *owner,
+                                uint32_t stream_size, const char *origin,
+                                Error **errp);
+bool nikon_vr_input_upload_packet(DeviceState *dev, DeviceState *owner,
+                                GBytes *packet, Error **errp);
+void nikon_vr_input_upload_detach(DeviceState *dev, DeviceState *owner);
 GBytes *nikon_vr_input_upload_snapshot(DeviceState *dev, const char **origin);
 bool nikon_vr_input_upload_persist(DeviceState *dev, BlockBackend *body,
                                  BlockBackend *metadata, uint32_t storage_base,

@@ -154,7 +154,10 @@ they are not used as a substitute completion interrupt. Upstream NVMe supplies
 MSI-X rather than ordinary MSI. The firmware's capability-ID5 branch remains
 conditional; no fake MSI capability is installed.
 
-PCI DMA uses a private identity address space aliasing the actual machine memory.
+The required pre-realize QOM `memory` link selects the actual CPU-domain memory
+region. MAS machine glue supplies `get_system_memory()`; an isolated SLA domain
+must supply its own root region. Realization rejects a missing link. PCI DMA uses
+a private identity address space aliasing that explicitly selected memory.
 Its only overlay is the programmed four-byte MSI destination at DBI820/824.
 That overlay is absent from CPU memory: CPU data at `b1800740` stays RAM and
 cannot trigger a PCI interrupt. All other command/data DMA retains real memory
@@ -191,6 +194,61 @@ four unmapped writes. Their physical clock/power identity and relation to link
 training are not proven, so stored configuration never manufactures a completion
 or performance measurement. Source DBI168/80c are also present because the full
 training producer10517c6a accesses them before PHY start.
+
+## SLA source profile
+
+The existing SLA SOURCE11 Listing was audited as a complete related family,
+rather than assigning a role from address similarity. Source ROM execution
+addresses below use `O = VA - 10020000` in component04. The bounded original
+projection is `nightglass/work/worktrees/qemu-rtos-startup/work/storage/sla/`:
+`family.json` retains 4,050 original rows and incoming reference sites;
+`phy.json` retains the 821 low-level rows and every observed PHY-offset access.
+The existing source has not been accepted as recovered, compiled source, and
+these static results do not establish original SLA runtime consumption.
+
+| SLA source family | Established software contract | Shared model |
+|---|---|---|
+| `10089c74/10089d52` | Packed controls at PHY+c/+10, including the normal/inverted setter polarity | Existing finite control fields |
+| `10089dbe/10089e16/10089e46` | PHY+4/+8 controls and status-bit extraction | Existing fields; no invented event producer |
+| `10089e6a/10089e86/10089ef8` | Mode/start, +14/+18, +24/+28/+2c event masks | Existing configuration and W1C events |
+| `1008a230/1008a24e/1008a290/1008a2aa` | Masked status reads and acknowledgements, including cancellation events | Existing finite event protocol |
+| `1008a326/1008a3b0/1008a422` | +3c/+4c/+50/+54 controls and +58/+5c state decoding | Existing request controls and state fields |
+| `1008a476` | Complete packed configuration at +100/+104 and +118..+15c | All declared offsets already supported |
+| `1008a930/1008a938` | +210 link and +218 diagnostic decoding | Existing status interface |
+| `1008ad34/1008ad50/1008ae7a/1008b8c6` | Config selector, DBI/BAR and iATU setup | Existing finite DBI/CFG0/memory ports |
+| `1008b0e8/1008b32e` | Root initialization, explicit start, up to500 sleeps of1ms waiting for decoded state11 | Attached counterpart required; no read-triggered readiness |
+| `1008b958/1008ba86` | Peer/root cancellation through +50bit16/+3cbit4; consume state15 | Existing causal cancellation protocol |
+
+The literal at SLA VA`1008a028`, O`6a028`, contains bytes`0000202b`, establishing
+PHY base`2b200000`. The two concrete full-initialization callers `10088a82`
+and `10093476` pass selectors `c1000720` and `c1001230`. Original COPY1
+`O83c4d4 -> c1000000` supplies bytes`00000000` at offsets`83cbf4/83d704`.
+Both use mode0: `1008b0e8` selects PHY mode4, programs root DBI/windows, then
+sets PHY0 to14. The separate nonzero-mode branch exists but does not prove a
+connected peer. The config selector's byte1/byte2 formula is the same as MAS;
+neither a standard BDF nor an early external config transaction is inferred.
+
+`1008acb6/1008acf4` register/enable the same four source IRQs f2/f3/f4/f6.
+`1008ac28` translates the cancellation status words into event flags2/1.
+SLA guard `1008ba1e` checks host+14 and a filtered external route status;
+it does not impose MAS's extra DBI98 low-nibble2 check. The model does not
+introduce that MAS software guard into SLA.
+
+SLA machines may reuse ports DBI`2a900000`, CFG0`2a800000`, memory`2a810000`
+and PHY`2b200000`, with the extents above, in their private address space.
+Before realization they must link `memory` to `NikonSLADomain.system`. They
+must not map the MAS platform port at`2b100000`: scoped SLA initialization
+instead uses the existing signal route at`2b000004/2b000010` and helper
+`10089b06` selects `2b001000` or`2b001100`. Literal`10089c00/O69c00` is
+`0010002b`. The missing Listing interval`10089b34..10089c74` cannot be assigned
+the MAS platform identity merely because its original bytes are present.
+
+The PHY/DBI model can be realized without a drive; it then exposes the finite
+register contract while staying offline. A private SLA mapping does not justify
+attaching another card, sharing MAS media, asserting an external link, or
+connecting an unproved peer. Machine IRQ and signal wiring remain the machine
+owner's responsibility. Private-domain DMA selection is implemented by the
+explicit memory link; its SLA runtime behavior has not yet been exercised.
 
 ## Native verification
 
@@ -229,3 +287,10 @@ execution or a captured-frame save.
 See [QEMU NVMe documentation](https://www.qemu.org/docs/master/system/devices/nvme.html)
 for the mature controller, namespace and BlockBackend interfaces. The project's
 fixed upstream source remains the authority for available properties and APIs.
+
+The private AddressSpace selection was compiled as part of fixed source
+`7f241eb9`. Its necessary native host regression exited0 in1.32s, and the
+cancellation roundtrip exited0 in0.15s: `work/storagedomainhostnativereceipt.log`
+and `work/storagedomainroundtripnativereceipt.log`. These are the existing
+synthetic host interfaces; they do not establish original SLA DMA execution,
+physical link training or an original frame save.

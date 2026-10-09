@@ -15,7 +15,7 @@ counterfactual reset input of128KiB erased `0xff` bytes. Alternatively,
 `boot-prefix=/absolute/path/prefix.bin` supplies an exact128KiB external file.
 Files of any other size fail; absence does not select erased data or another
 component. This source input is separate from the immutable package payload
-and from recovered firmware source. The public `nikon_sla_load_boot_prefix`
+and from recovered firmware source. The public `nikon_boot_prefix_load`
 parser returns owned bytes, and `nikon_sla_create` references the optional
 prefix alongside the payload. Embedded boards select this same input explicitly.
 
@@ -477,3 +477,83 @@ and a fresh debugger captured the final CPU registers and RAM page table;
 neither guest memory nor firmware was changed. QMP `quit` ended QEMU with
 exit0, and the final debugger exited0. Ignored receipts are
 `work/sla/original7*`; no banked GIC MMIO was read.
+
+## Signal and lane initialization
+
+The bounded five-context run of canonical `87810ead` explicitly selected the
+erased boot prefix. Its original SLA COPY made real progress from package ROM
+into the local-code RAM: `0xc8220000` held the package's first instruction word,
+`0xea002f33`. The transfer was still in progress at the final snapshot, with
+source `0x1018d980`, destination `0xc838d980` and residual `0x17267f`; this is
+not a complete clone or successful-remap receipt. The first actual new failure
+was CPU3 at `0x100898aa`, writing word `0xf` to private PA `0x28000000`.
+The subsequent abort path's NOR command is a consequence of that failure.
+Ignored receipts are `work/gui/functional/{early.log,gdb.log,qemu.log}` in the
+observer worktree. The run quit before any binary replacement.
+
+The SOURCE11 official Listing supplies the complete `0x100897e4..0x10089b32`
+family and its callers `0x10088d3c/0x10088d60`. Initializer `0x1008987c`
+registers object `0x14d` at `0xc1000e90` and IRQ237 with handler
+`0x100897e5`. Initializer `0x1008989e` writes word `0xf` to `0x28000000`,
+word `0x3c` to `0x2b000004`, then enables that IRQ. The ISR reads pending
+`0x2b000008` and writes the same word back to acknowledge it, before invoking
+the five optional guest callbacks. Its callback-table order differs from the
+physical pending-pair order. These Listing rows preserve the producer's
+`source_accepted:false` executable-admission metadata; the runtime fault above
+independently demonstrates the original initializer's actual execution.
+
+The private domain reuses the mature Signal functional model at `0x2b000000`
+(seven word registers) and `0x28000000` (one separate configuration word).
+All five real outputs feed upstream `TYPE_OR_IRQ` with five lines, then private
+GIC IRQ237. External signal providers remain disconnected. The model's reset,
+gate/mask polarity, edge/debounce clock and W1C conventions remain explicit
+functional assumptions described in [Signal inputs](../devices/signal/input.md).
+Writing the initialization words does not generate a pending event.
+
+Method `0x10089b06` separately selects `0x2b001000` or `0x2b001100` and issues
+five configuration-word writes. The finite Lanes model exposes exactly two
+write-only `0x14`-byte apertures, with boolean control words and two opaque
+parameter words. It has no IRQ, provider, completion or automatic ready state.
+The next `0x10089c74` family targets `0x2b200000`; its Storage PHY contract is
+audited independently and is not mapped through the Signal or Lanes devices.
+
+The focused synthetic `/nikon/sla/signal` fixture exercises the exact initializer,
+all five event/ACK paths and both lane writers. A separate fresh interception
+in the same case observes the private GIC input through the actual five-way OR,
+which stays high while any pending route remains. This new mapper and fixture
+await the sole builder's native qualification; no original-firmware continuation
+is claimed by the synthetic case.
+
+## Private storage and staged configuration
+
+The complete Storage PHY/DBI family is source-audited independently. Callers
+`0x10088a82` and `0x10093476` pass COPY1 objects `0xc1000720` and `0xc1001230`;
+their original words at O `0x83cbf4` and `0x83d704` both select root mode0,
+which the original wrapper converts to PHY mode4. The private domain maps
+only DBI `0x2a900000/0x1000`, configuration `0x2a800000/0x10000`, memory
+`0x2a810000/0xf0000` and PHY `0x2b200000/0x400`. No source evidence binds the
+MAS platform aperture `0x2b100000` to SLA, so it remains uncovered here.
+
+Storage receives the standard `memory` link to the SLA private root before
+realization. Its actual DMA uses that domain. The host has no drive or NVMe
+endpoint; PHY/DBI realization does not create media, readiness or a peer.
+Its four source interrupt identifiers `0xf2/0xf3/0xf4/0xf6` connect to private
+GIC IDs242/243/244/246. The real `link` output feeds Signal route3, using the
+explicit functional pairing of the original PHY state with Signal bit2. That
+connection does not produce a link while the no-media host remains offline.
+Other Signal inputs remain disconnected. The separate lane configuration
+apertures are not a PCI platform or fabricated storage controller.
+
+The next actual rejection in bounded canonical `cfd9ab3f` was CPU3
+`0x10093e48`, writing word0 to `0x20202018`; the former Signal rejection was
+absent. This whole family reuses the existing Staging functional model at
+`0x20202000/0x254`. Source `0x10093e0e` registers object14E at `0xc1001278`
+and IRQ123, whose handler `0x10093dc0` reads and acknowledges real status at
+`0x2020202c`. Pending causes are bits1/2/16, with same-value W1C ACK and
+explicit cancellation/enable/mask restoration. This is independent of the
+earlier callback-only IRQ229 registration. The unique device audit found no
+missing production fields across the complete `0x10093dc0..0x10094320` family.
+The private mapper connects IRQ0 to its own GIC123 and leaves all three
+`external-event` inputs disconnected. The fresh synthetic fixture calls the
+whole-family helper and checks that the disconnected Storage host supplies
+no Signal link event. Its native qualification remains pending.
