@@ -94,8 +94,17 @@ static void timer_outputs(NikonEXTimerState *s)
 static void timer_event(NikonEXTimerState *s, unsigned event)
 {
     s->reg[SR] |= 1U << event;
-    if (event < 7 && (s->reg[DIER] & (1 << (event + 8)))) {
+    bool update_dma = s->reg[CR2] & 8;
+    if (event < 7 && (s->reg[DIER] & (1 << (event + 8))) &&
+        (event < 1 || event > 4 || !update_dma)) {
         qemu_irq_pulse(s->dma[event]);
+    }
+    if (event == 0 && update_dma) {
+        for (unsigned i = 0; i < s->channels; i++) {
+            if (s->reg[DIER] & (1 << (i + 9))) {
+                qemu_irq_pulse(s->dma[i + 1]);
+            }
+        }
     }
 }
 
@@ -289,9 +298,7 @@ static bool timer_valid(NikonEXTimerState *s, unsigned reg)
                             reg == CCER || reg == DCR || reg == DMAR)) {
         return false;
     }
-    if (s->number >= 9 && (reg == CR2 || reg == CCMR2 ||
-                          reg == DCR || reg == DMAR ||
-                          (reg == SMCR && s->channels == 1))) {
+    if (s->number >= 9 && (reg == CCMR2 || reg == DCR || reg == DMAR)) {
         return false;
     }
     return reg < CCR1 || reg > CCR4 || reg - CCR1 < s->channels;

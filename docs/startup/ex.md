@@ -292,6 +292,19 @@ silently approximate an absent sampled input. Complementary output dead time,
 internal trigger cross-routing and analog output behavior are not modeled.
 Register capabilities distinguish the advanced, general, basic and small timers;
 unsupported offsets fail with the actual CPU/PC/mapped address diagnostic.
+The first original run of qualified timer snapshot `d07400b` exposed an actual
+SMCR read at PC `0x08045b4a`, address `0x40014808`, before TIM11 starts. Clock
+initializer `0x08045b30` unconditionally reads/writes SMCR and clears mask
+`0xff77` before selecting the internal source. A single inspection of the whole
+saved timer HAL family also shows OC1 initializer `0x080499f8` unconditionally
+reading/writing CR2 before CCMR1 and CCR1. The base initializer `0x080498fc`
+guards RCR with the advanced-instance checks; channel setup selects CCMR1/2
+from the requested channel. Therefore the software small-timer profile exposes
+stateful CR2 and the implemented SMCR clock/slave state as well. This is an
+explicit extension from the chosen reference chip's small-timer register map,
+supported by the original consumer; it does not identify a physical part.
+The earlier capability rejection produced CFSR `0x8200`, preserved as a failed
+run receipt. No comparison callback or SPI readiness was claimed for that run.
 The new native timer case checks the CC1-only path, overflow, APB clock changes
 and gating, PSC reload, split/shared IRQs, repetition/one-pulse and real capture.
 Its result is pending the sole builder's qualified snapshot.

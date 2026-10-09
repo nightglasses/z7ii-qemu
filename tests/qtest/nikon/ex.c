@@ -300,6 +300,16 @@ static void timer_profile(void)
     const uint32_t enr = 0x40023844, cfgr = 0x40023808;
     /* Original IO polling mode: CC1 only, not update IRQ or GPIO INT. */
     qtest_writel(qts, enr, 1 << 18);
+    /* Actual generic initializers read/write CR2 and clear SMCR selector,
+     * even on TIM11. The software profile keeps state for both registers. */
+    qtest_writel(qts, tim11 + 4, 8);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 4), ==, 8);
+    qtest_writel(qts, tim11 + 4, 0);
+    qtest_writel(qts, tim11 + 8, 0x4004);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 8), ==, 0x4004);
+    qtest_writel(qts, tim11 + 8,
+                 qtest_readl(qts, tim11 + 8) & ~0xff77U);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 8), ==, 0);
     qtest_writel(qts, tim11 + 0x28, 15);
     qtest_writel(qts, tim11 + 0x2c, 31);
     qtest_writel(qts, tim11 + 0x34, 7);
