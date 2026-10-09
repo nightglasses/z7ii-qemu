@@ -75,7 +75,7 @@ continue
 DONE
 
 # Entry only: the guest's write through waiter+40 has NOT happened yet.
-breakpoint set -H -o true -d -a 0x10120858 -N ng_wait_release -c '$ng_cb != 0 && $r0 == $ng_task'
+breakpoint set -H -o true -d -a 0x10120858 -N ng_wait_release -c '$ng_cb != 0 && $r0 == $ng_task && $r4 == $ng_cb && $lr == 0x1011013c'
 breakpoint command add -s command -e true
 thread info
 register read -f x r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1

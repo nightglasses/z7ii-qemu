@@ -14,9 +14,9 @@ The marker requires the already observed ordinary LR104000C1, index4 and tableB1
 |103B2306|Actual business marker, ordinarySP/LR/allGPR/CPSR/MPIDR and two current cells. This candidate body is not an accepted native Listing.|
 |10120908|First generic wait of the captured TCB. Record ordinaryLR, R0timeout/R1attribute and TCB state+2B/words+30/+34/+40. Only LR1010FDF8 identifies the recovered mutex caller; any other LR remains its own actual service.|
 |1010FDD4|Actual mutex pre-STR branch, R1=sameTCB/R4=CB/R5prid/R7timeout/R0newwaitspec. Read CB queue+0/+4, ID+8, attr+10, ceilingbyte+14, fresh owner+18, link+1C, and TCB+2B/+30/+34/+40/+78. TCB wait fields are still their **old** values here. Never infer owner from potentially clobberedR2.|
-|1010FFD8|First release attempt of the actual CB's full ID, across either core. Capture live current cells as potential waker pointers; no unknown TCB ID offset is read, and entry is not successful release.|
+|1010FFD8|First release attempt of the actual registered ID read fromCB+8, across either core. This is not a captured1010FBBC request-ID argument. Capture live current cells as potential waker pointers; no unknown TCB ID offset is read, and entry is not successful release.|
 |10110138|The original unlock selected the same waiter and sameCB before its wait-release call. Record live current cells and owner. This is stronger than a release attempt, but not yet ready restoration.|
-|10120858|Original wait-release entry for that waiter. Its pointer atTCB+40 is read without following it; the guest's write through it has not executed yet.|
+|10120858|Original wait-release entry for that waiter, requiring sameCB inR4 and ordinaryLR1011013C from the recovered10110138 call. This avoids consuming the one-shot on another service's generic wait-release. Its pointer atTCB+40 is read without following it; the guest's write through it has not executed yet.|
 
 Only seven matched stops can emit command lists. A different service, no captured current task, no mutex-block branch, or no later release is kept as unknown; there is no second identical-PC replay. The actual owner pointer is not recursively dumped, and no arbitrary TCB/stack offsets, IDs or packet padding are read. Any source-derived dynamic pointer read that fails stops the observer rather than widening memory or substituting zero.
 
