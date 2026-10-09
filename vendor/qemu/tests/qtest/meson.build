@@ -475,7 +475,13 @@ foreach dir : target_dirs
     # Executables are shared across targets, declare them only the first time we
     # encounter them
     if not qtest_executables.has_key(test)
-      src = test == 'nikon' ? files('nikon/devices.c') : (test == 'nikon_timer' ? files('nikon/timer.c') : [test + '.c'])
+      if test == 'nikon'
+        src = files('nikon/devices.c')
+      elif test == 'nikon_timer'
+        src = files('nikon/timer.c')
+      else
+        src = [test + '.c']
+      endif
       deps = [qemuutil, qos]
       if test in qtests
         # use a sourceset to quickly separate sources and deps
