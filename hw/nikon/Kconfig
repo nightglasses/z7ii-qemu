@@ -21,6 +21,8 @@ config NIKON_SLA
     default y
     depends on TCG && ARM
     select ARM_GIC
+    select SSI
+    select SPLIT_IRQ
     select NIKON_MEMORY
 
 config NIKON_EX

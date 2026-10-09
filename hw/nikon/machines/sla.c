@@ -8,6 +8,7 @@
 #include "qapi/error.h"
 #include "hw/core/boards.h"
 #include "hw/core/irq.h"
+#include "hw/core/split-irq.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
@@ -176,7 +177,7 @@ static void sla_ram(NikonSLADomain *s, DeviceState *mxic, const char *name,
 static void sla_domain_realize(DeviceState *dev, Error **errp)
 {
     NikonSLADomain *s = NIKON_SLA_DOMAIN(dev);
-    DeviceState *mxic, *gic, *fill, *gpio;
+    DeviceState *mxic, *gic, *fill, *gpio, *hdmac[2];
     SysBusDevice *gic_bus;
     const void *payload;
     size_t size;
@@ -294,6 +295,54 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     s->bridge = sla_simple(s, "bridge", TYPE_NIKON_BRIDGE, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(s->bridge), 0,
                        qdev_get_gpio_in(gic, 127 - 32));
+    /* COPY1 C1004DB8: two banks, eight 0x24-byte channel records each. */
+    for (i = 0; i < ARRAY_SIZE(hdmac); i++) {
+        g_autofree char *name = g_strdup_printf("hdmac%u", i);
+        unsigned channel;
+
+        hdmac[i] = sla_device(s, name, TYPE_NIKON_HDMAC);
+        qdev_prop_set_uint32(hdmac[i], "bank", i);
+        object_property_set_link(OBJECT(hdmac[i]), "memory", OBJECT(&s->system),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(hdmac[i]), &error_fatal);
+        sla_map(s, hdmac[i], 0, 0x2c020000 + i * 0x10000);
+        for (channel = 0; channel < 8; channel++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(hdmac[i]), channel,
+                qdev_get_gpio_in(gic, (i ? 142 : 150) + channel - 32));
+        }
+    }
+    /* COPY1 C10015E8: eleven 0x58-byte SPI registry records, 1005ec84. */
+    for (i = 0; i < 11; i++) {
+        g_autofree char *name = g_strdup_printf("spi%u", i);
+        DeviceState *spi = sla_device(s, name, TYPE_NIKON_SPI);
+
+        qdev_prop_set_uint32(spi, "channel", i);
+        qdev_prop_set_bit(spi, "dma", true);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
+        sla_map(s, spi, 0, 0x2c0a0000 + i * 0x100);
+        /* Both registered source callbacks enter 1005f2f8. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(spi), 0,
+                           qdev_get_gpio_in(gic, 0xc1 + i * 2 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
+                           qdev_get_gpio_in(gic, 0xc0 + i * 2 - 32));
+        /* C1007238 records provide TX/RX selectors, consumed by 1005c786/70e.
+         * Shared selector fanout is the functional request wiring assumption. */
+        for (unsigned direction = 0; direction < 2; direction++) {
+            unsigned request = 3 + i * 2 + direction;
+            g_autofree char *split_name = g_strdup_printf("spi%u-demand%u",
+                                                          i, direction);
+            DeviceState *split = sla_device(s, split_name, TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(split, "num-lines", 2);
+            qdev_realize_and_unref(split, NULL, &error_fatal);
+            qdev_connect_gpio_out(split, 0,
+                                 qdev_get_gpio_in(hdmac[0], request));
+            qdev_connect_gpio_out(split, 1,
+                                 qdev_get_gpio_in(hdmac[1], request));
+            qdev_connect_gpio_out_named(spi, "dma", direction,
+                                        qdev_get_gpio_in(split, 0));
+        }
+    }
     fill = sla_device(s, "fill", TYPE_NIKON_FILL);
     object_property_set_link(OBJECT(fill), "memory", OBJECT(&s->system),
                              &error_fatal);

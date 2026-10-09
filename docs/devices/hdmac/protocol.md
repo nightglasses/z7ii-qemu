@@ -37,3 +37,51 @@ Native test content `tests/qtest/nikon/dma.c` supplies seven synthetic cases: al
 The first integrated native run compiled but failed the first resume destination check (`work/validation/gui/dma.log` in the build owner's `native-qemu-source` worktree). Its command passed `-S` with the qtest accelerator. Upstream `system/cpus.c` disables the virtual clock when pausing CPUs, and `util/qemu-timer.c` advances qtest time through timer lists that honor that enable state. The fixture now leaves the qtest virtual clock enabled; qtest does not execute guest instructions. Resume and reentrant-start checks advance to the next actual timer deadline, while held/canceled-state observations still advance a positive interval and Audio completion spans its real repeated clock events. This corrects the fixture's timer eligibility rather than changing device status or transfer semantics. Native validation of this child remains the sole build owner's task.
 
 Unbound reload/wrap/protection/DS/transform semantics are future protocol work, rather than counted as additional devices. Disconnected peripheral requests require a real producer or declared external input. The only currently bound Audio wires are bank1 selectors3/7; input5 has no samples. No source joins these DMA signals to the separate event/EXIU interfaces, so no frame-completion signal is inferred.
+
+## Private component DMA
+
+HDMAC accepts a standard pre-realize `memory` link to a `MemoryRegion`, following
+the Fill execution-domain interface. An unset link uses MAS system memory.
+Each instance owns an `AddressSpace` over its selected root; all DMA source
+reads, destination writes and read-only checks use that same root. A real MMIO
+FIFO remains a peripheral transaction in that domain, including its demand
+line transitions and reentrant cancel/pause behavior. No RAM-only restriction
+is imposed on HDMAC endpoints. Read-only destinations report SS4 instead of
+accepting QEMU's ignored ROM write; genuine read and write errors retain SS3/4.
+
+Unrealize first cancels every channel and invalidates its generation using the
+existing reset lifecycle, then destroys the owned address space. It does not
+free the linked board memory. Normal reset retains the memory link and clears
+only HDMAC state. Timer callbacks cannot survive device removal or move a beat
+into another component's root. The eight channels, 32 request inputs, existing
+IRQ outputs and per-beat external-demand rules remain unchanged; port-to-bank,
+request-selector and IRQ binding is supplied by each component's board source.
+
+`tests/qtest/nikon/hdmac.c` provides four independent native cases: real shared
+file-backed private RAM at the same PA as a MAS sentinel, selected unmapped and
+read-only endpoints, real Audio MMIO FIFO side effects through its own root,
+and all 31 external request selectors with held/resumed beats plus cancel and
+reset. The fixture uses standard QOM links and real MemoryRegions without
+production aliases or fabricated completion. Compilation and actual execution
+remain the sole builder's responsibility; source provision is not a PASS claim.
+
+The complete SLA driver family `1005f644..1005f8aa` preserves the same register
+geometry and lifecycle. Its setup writes IS/BT/BC/TC into CA at bits24/20/16/0
+and TT/TW/SA/DA/SP/DP/RL into CB at bits28/26/25/24/23/22/21. The entire SPI
+consumer pair `1005c70e..1005c7fa` sets BT=BC=SP=DP=RL=0, TT=2, TW=1,
+TC=halfword-count-minus-one. RX fixes SA; TX fixes DA. The optional opposite
+fixed address uses the same preserved SA/DA field. The start family sets CI/EI
+and EB, clears ST for external requests, and uses ST with IS=0 for software
+requests. All of these configurations are supported by the existing HDMAC
+model; mode4's CTRL400 belongs to the SPI endpoint rather than HDMAC global
+control. No transfer transform or reload mode has been inferred.
+
+SLA COPY records `C1004db8` contain the sixteen driver objects: bank0 handles
+12a..131 / IRQ150..157 and bank1 handles132..139 / IRQ142..149. The register
+pointer table `C1004cb4..C1004da4` gives the actual two physical banks2c020000
+and2c030000. Eleven SPI consumer records at `C1007238`, stride68hex, provide
+TX selector `3+2*port` and RX selector `4+2*port`, port0..10. These selectors
+all fit the existing request namespace. Connecting each SPI producer to both
+banks is a board functional routing assumption, distinguished from the
+directly recovered selector and IRQ records; the shared HDMAC device neither
+guesses this wiring nor emits demand or completion on behalf of a producer.

@@ -41,6 +41,8 @@ typedef struct NikonHDMACChannel {
 struct NikonHDMACState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
+    MemoryRegion *memory;
+    AddressSpace dma;
     Clock *clock;
     uint32_t bank;
     uint32_t control;
@@ -94,6 +96,25 @@ static void nikon_hdmac_finish(NikonHDMACChannel *c, unsigned status)
     nikon_hdmac_irq(c);
 }
 
+static MemTxResult nikon_hdmac_write_memory(NikonHDMACState *s,
+                                           hwaddr address, const void *data,
+                                           unsigned width)
+{
+    hwaddr offset, length = width;
+    RCU_READ_LOCK_GUARD();
+    MemoryRegion *mr = address_space_translate(&s->dma, address, &offset,
+                                              &length, true,
+                                              MEMTXATTRS_UNSPECIFIED);
+    /* QEMU may intentionally ignore ROM writes. DMA must report their failure,
+     * while actual MMIO sinks retain their causal device transactions.
+     */
+    if (memory_region_is_rom(mr) || memory_region_is_romd(mr)) {
+        return MEMTX_ERROR;
+    }
+    return dma_memory_write(&s->dma, address, data, width,
+                            MEMTXATTRS_UNSPECIFIED);
+}
+
 static void nikon_hdmac_transfer(void *opaque)
 {
     NikonHDMACChannel *trigger = opaque;
@@ -143,7 +164,7 @@ static void nikon_hdmac_transfer(void *opaque)
             nikon_hdmac_finish(c, 1);
             return;
         }
-        result = dma_memory_read(&address_space_memory, c->source, data, width,
+        result = dma_memory_read(&s->dma, c->source, data, width,
                                   MEMTXATTRS_UNSPECIFIED);
         if (!c->running || c->generation != generation) {
             return;
@@ -155,8 +176,7 @@ static void nikon_hdmac_transfer(void *opaque)
             nikon_hdmac_finish(c, 3);
             return;
         }
-        result = dma_memory_write(&address_space_memory, c->destination,
-                                   data, width, MEMTXATTRS_UNSPECIFIED);
+        result = nikon_hdmac_write_memory(s, c->destination, data, width);
         if (!c->running || c->generation != generation) {
             return;
         }
@@ -449,7 +469,25 @@ static void nikon_hdmac_finalize(Object *obj)
 
 static const Property nikon_hdmac_properties[] = {
     DEFINE_PROP_UINT32("bank", NikonHDMACState, bank, 0),
+    DEFINE_PROP_LINK("memory", NikonHDMACState, memory,
+                     TYPE_MEMORY_REGION, MemoryRegion *),
 };
+
+static void nikon_hdmac_realize(DeviceState *dev, Error **errp)
+{
+    NikonHDMACState *s = NIKON_HDMAC(dev);
+
+    address_space_init(&s->dma, s->memory ? s->memory : get_system_memory(),
+                       "nikon.hdmac");
+}
+
+static void nikon_hdmac_unrealize(DeviceState *dev)
+{
+    NikonHDMACState *s = NIKON_HDMAC(dev);
+
+    nikon_hdmac_reset(dev);
+    address_space_destroy(&s->dma);
+}
 static const VMStateDescription nikon_hdmac_vmstate = {
     .name = "nikon-hdmac", .unmigratable = true,
 };
@@ -459,6 +497,8 @@ static void nikon_hdmac_class_init(ObjectClass *oc, const void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_hdmac_vmstate;
+    dc->realize = nikon_hdmac_realize;
+    dc->unrealize = nikon_hdmac_unrealize;
     dc->user_creatable = false;
     device_class_set_props(dc, nikon_hdmac_properties);
     device_class_set_legacy_reset(dc, nikon_hdmac_reset);
