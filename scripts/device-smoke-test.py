@@ -1944,6 +1944,205 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control20201_profile():
+    # Original generated shapes; fullword104/20 are not bool/mask fields.
+    values = {x: 0x89abcdef for x in (
+        0x20, 0x50, 0x54, 0x5c, 0x64, 0xc8, 0xcc, 0x104, 0x108,
+        0x10c, 0x110, 0x118, 0x120, 0x124, 0x128, 0x12c, 0x160,
+        0x168, 0x16c, 0x170)}
+    for first, last in ((0xa0, 0xb4), (0x130, 0x14c), (0x178, 0x194)):
+        values.update({x: 0xdeadbeef for x in range(first, last + 4, 4)})
+    values.update({x: 1 for x in (4, 0x4c, 0xc4, 0x11c, 0x164)})
+    values.update({0x60: 0xff, 0xb8: 0x7ff, 0xbc: 0x7ff,
+                   0xc0: 0x7ff, 0x100: 0xd})
+    return values
+
+
+def control20201_fixtures():
+    base = 0x20201000
+    error = "control20201-access-or-activation-not-supported"
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
+
+    profile = sum([write(x, y) for x, y in control20201_profile().items()], [])
+    return [
+        ("control20201-original-initialization", write(0x44, 2) + write(0x48, 0) +
+         read(0x44, 4) + read(0x48, 5) + read(0x2c, 6), {4: 2, 5: 0, 6: 0}, None),
+        ("control20201-all-selections-sequential", write(0x44, 3) + write(0x48, 7) +
+         write(0x44, 1) + read(0x48, 4) + write(0x48, 1) + read(0x44, 5) +
+         read(0x48, 6), {4: 7, 5: 1, 6: 1}, None),
+        ("control20201-whole-config", profile + read(0x104, 4) + read(0x100, 5) +
+         read(0xb8, 6) + read(0x194, 7),
+         {4: 0x89abcdef, 5: 0xd, 6: 0x7ff, 7: 0xdeadbeef}, None),
+        ("control20201-disabled-parameters-retained", write(0x11c, 1) +
+         write(0x120, 0x12345678) + write(0x164, 1) + write(0x168, 0x87654321) +
+         write(0x11c, 0) + write(0x164, 0) + read(0x120, 4) + read(0x168, 5),
+         {4: 0x12345678, 5: 0x87654321}, None),
+        ("control20201-no-default-data", read(0x1a0, 4), {}, error),
+        ("control20201-command-read-unsupported", read(0, 4), {}, error),
+        ("control20201-configuration-hole", read(0x58, 4), {}, error),
+        ("control20201-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
+        ("control20201-halfword-width", constant(0, base + 0x44) + [0xe1c010b0], {}, error),
+        ("control20201-finite-end", read(0x1a4, 4), {}, "uncovered-address"),
+    ] + [(f"control20201-reject-{x:x}-{y:x}", write(x, y), {}, error)
+         for x, y in ((0, 1), (0x14, 1), (0x44, 0), (0x48, 2), (0x4c, 2),
+                      (0x60, 0x100), (0xb8, 0x800), (0x100, 2))] + \
+        [("control20201-qtest-" + suffix, [], {}, None) for suffix in (
+            "configuration-disconnected", "published-samples-ack",
+            "strict-preflight-recovery", "reset-republication")]
+
+
+def run_control20201(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control20201", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<z7ii-control20201-functional>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {0x20201000 + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {0x20201000 + offset:#x}").split()[1], 16)
+
+            def event(index, level):
+                command(f"set_irq_in {path} external-event {index} {level}")
+
+            def publish(word):
+                for bit in range(32):
+                    command(f"set_irq_in {path} data-bit {bit} {(word >> bit) & 1}")
+
+            def snapshot():
+                return [read(x) for x in sorted(control20201_profile())] + \
+                       [read(0x44), read(0x48), read(0x2c), read(0x1a0)]
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            assert read(0x2c) == 0
+            if name.endswith("configuration-disconnected"):
+                for x, y in control20201_profile().items():
+                    write(x, y)
+                    assert read(x) == y
+                for a, b in ((2, 0), (3, 7), (1, 1)):
+                    old = read(0x48)
+                    write(0x44, a)
+                    assert read(0x44) == a and read(0x48) == old
+                    write(0x48, b)
+                    assert read(0x48) == b
+                write(0x11c, 0)
+                write(0x164, 0)
+                assert read(0x120) == read(0x168) == 0x89abcdef
+                before = [read(x) for x in control20201_profile()]
+                command("clock_step 1000000000")
+                assert before == [read(x) for x in control20201_profile()]
+                assert read(0x2c) == 0 and not any(levels.values())
+            elif name.endswith("published-samples-ack"):
+                event(0, 1)
+                assert read(0x2c) == 0
+                for bit in range(31):
+                    command(f"set_irq_in {path} data-bit {bit} 1")
+                event(0, 0)
+                event(0, 1)
+                assert read(0x2c) == 0
+                publish(0x89abcdef)
+                event(0, 1)
+                assert read(0x2c) == 0  # Publication alone is not an event.
+                event(0, 0)
+                event(0, 1)
+                for index in (1, 2):
+                    event(index, 1)
+                assert read(0x2c) == 0x43 and read(0x1a0) == 0x89abcdef and levels[0]
+                write(0x20, 0)
+                assert read(0x2c) == 0x43 and levels[0]  # No guessed mask20.
+                write(0x2c, 1)
+                assert read(0x2c) == 0x42 and read(0x1a0) == 0x89abcdef
+                write(0x2c, 0xffffffff)
+                assert read(0x2c) == 0 and read(0x1a0) == 0x89abcdef and not levels[0]
+                publish(0x01234567)
+                event(0, 1)
+                assert read(0x2c) == 0 and read(0x1a0) == 0x89abcdef
+                event(0, 0)
+                event(0, 1)
+                assert read(0x2c) == 1 and read(0x1a0) == 0x01234567 and levels[0]
+            elif name.endswith("strict-preflight-recovery"):
+                for x, y in control20201_profile().items():
+                    write(x, y)
+                write(0x44, 3)
+                write(0x48, 7)
+                publish(0x5555aaaa)
+                event(0, 1)
+                before = snapshot()
+                for x, y in ((0, 1), (0x14, 1), (0x44, 4), (0x48, 2),
+                             (0x4c, 2), (0x60, 0x100), (0xb8, 0x800), (0x100, 2)):
+                    write(x, y)
+                    assert snapshot() == before and levels[0]
+                for text in ("writel 0x20201045 0", "writeb 0x2020102c 0xff",
+                             "writew 0x2020104c 0", "readl 0x20201058",
+                             "readl 0x20201000", "writel 0x202011a0 0"):
+                    command(text)
+                    assert snapshot() == before and levels[0]
+                write(0, 0)
+                assert snapshot() == before and levels[0]
+                write(0x104, 0xffffffff)
+                assert read(0x104) == 0xffffffff
+                write(0x20, 0xffffffff)
+                assert read(0x2c) == 1 and levels[0]
+                write(0x2c, 1)
+                assert read(0x1a0) == 0x5555aaaa and read(0x2c) == 0 and not levels[0]
+            elif name.endswith("reset-republication"):
+                publish(0xa5a5a5a5)
+                event(0, 1)
+                assert read(0x2c) == 1 and levels[0]
+                vm.cmd("system_reset")
+                assert read(0x2c) == 0 and read(0x44) == 0 and not levels[0]
+                event(0, 0)
+                event(0, 1)
+                assert read(0x2c) == 0  # Old provider is invalid after reset.
+                publish(0)
+                event(0, 1)
+                assert read(0x2c) == 0
+                event(0, 0)
+                event(0, 1)
+                assert read(0x2c) == 1 and read(0x1a0) == 0 and levels[0]
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "finite config/raw IRQ and explicit published fixture samples; no firmware/frame"}
+
+
 def control2038_profile(dual):
     # Exact original A006 profile, not inferred physical legal-bit masks.
     return {0: 3, 4: 3, 0xc: 1, 0x84: 0, 0x44: 0,
@@ -3459,6 +3658,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control20201-qtest-"):
+        return run_control20201(binary, output, name)
     if name.startswith("control2038-qtest-"):
         return run_control2038(binary, output, name)
     if name.startswith("control2010-qtest-"):
@@ -3697,7 +3898,7 @@ def main():
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
-             control2038_fixtures())
+             control2038_fixtures() + control20201_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

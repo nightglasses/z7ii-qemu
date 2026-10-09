@@ -51,7 +51,8 @@ def main():
                         "0x1020081c+0x4", "0x10200972+0x4",
                         "0x10200c48+0x2", "0x10201458+0x10",
                         "0x10387e08+0x2a", "0x10387e36+0x64",
-                        "0x102ddfe6+0x4", "0x10200bca+0x46"]
+                        "0x102ddfe6+0x4", "0x10200bca+0x46",
+                        "0x102018e4+0x30", "0x103ff8c4+0x38"]
         if args.trace_records:
             filters += ["0x102a7d82+0xaa", "0x102a822c+0x1ec",
                         "0x102a85f4+0xb0", "0x1010261e+0x76",
@@ -75,6 +76,7 @@ def main():
         "entry_bytes": before[:4].hex(" "),
         "o178_bytes": before[0x178:0x17c].hex(" "),
         "assumptions": [
+        "20201000 control/GIC116: virtual cold-zero finite retained config and sequential opaque44/48 selections,20 is a fullword parameter without masking; raw2c W1C retains conditional1a0 sample, three disconnected fixture events bits0/1/6; event0 snapshots only after explicit complete32-bit provider publication, no default valid data or physical frame inference; reset requires fresh publication and preserves pin levels,00 assert/14 activation and holes unsupported, no pulse reset/completion/host callbacks",
         "20380000/203c0000 finite controls/GIC99/100: named cold-zero retained opaque00/04/0c/F0 and exact original single/dual configuration, full32 E8 mask1 inhibition and raw24 W1C, explicit rising pending-bit fixture inputs disconnected in original; controls/read/config never generate ready/pending/reset effects, unknown08/10/54/60/6c/78/580 activation rejects before state changes; no frame, host callbacks or physical IP identity",
         "20100000 control/GIC102: named zero reset, finite retained configuration/table readback, three full32 masks/raw-pending domains; mask1 enable and rising fixture pending-bit inputs/W1C ACK are virtual laws with unknown physical events; default inputs disconnected, config/deasserted controls never generate pending, unknown activation/pulse assert/data monitors reject, no frame/timer completion or host callback",
             "20070000/20070040 two fill engines/IRQ103/104: virtual zero reset, retained boolcontrol00, synchronous official RAM-only zero DMA in exact byte-block mode1 width=stride4000 positive count, no guessed patterns/copy/format; stop10=0 causally publishesstate2 with no deferred work and separate raw-result ACK08; mask04 bits0/4 enable corresponding real bus done/error, error0c destination code1 atbits16:17 is virtual, remaining encodingsunknown; configsource masks retained, unsupported activation preflight preserves state, no callback/guestflag injection",
