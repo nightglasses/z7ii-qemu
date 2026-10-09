@@ -1,0 +1,35 @@
+# External CMOS frame input and readout
+
+This device adds an executable frame endpoint to the [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326). It reads an explicitly supplied raw BlockBackend and writes its bytes through the actual physical-memory DMA bus. It supplies exposure, readout, completion and error lifecycle outputs. It does not identify a physical sensor, invent a controller register map or connect an unbound guest interrupt.
+
+## Current source boundary
+
+The saved complete native source index is `nightglass` CODE `ec048f9fde8723ba2db9657f2e88410933b21099`, with the read-only local index at `work/issue377/gui-saved-facts/facts.sqlite` in `native-arm-exception-roots`. The bounded `Capture-consumer-source-projection.json` preserves complete original Listing/raw P-code/reference owners for MAS outer VA `103ba6ea` (O3778282) and `103f40ec`; requested `104909bc` has no containing current Listing/function. The first two owners have no direct reference targets in the currently known `04/20/24/2b/2c` peripheral ranges. Indirect runtime addresses and their callees remain separate evidence work. Capture requests and callbacks do not establish the CMOS slave address, CSI/receiver registers, exposure units, ROI, packing, physical buffers or completion IRQ.
+
+The current machine has no source-bound CMOS controller. SDI `2002x` implements DDR training; it is not assigned a sensor role. IPUD `24020000` is a three-word packet transport, not an image ingress. Sampler `20201000` and the `2b` signal inputs retain their disconnected external-data/pin semantics. The DMP `2018` transfer has actual buffer-to-buffer byte geometry and numeric selectors, but is not an established sensor/ISP output. The frame endpoint therefore remains disconnected in default original runs. Machine/control decoding belongs to its own owner and must supply actual firmware geometry and routing when that chain is recovered.
+
+## Implemented endpoint
+
+`include/hw/nikon/sensor.h` exposes `nikon_sensor_begin_frame(dev, request, errp)` and cancellation. The request contains opaque `row_bytes`, `rows`, destination physical address, destination stride, and explicit virtual nanoseconds for exposure and each readout chunk. There is no inferred Bayer order, bit depth, packing, width/height conversion, crop or image-processing operation. Source rows are densely stored in the backend; destination row padding is untouched. An existing controller can construct this request from its proven configuration and consume the real DMA-written RAM. No private framebuffer, successful memory fallback or host write to a guest surface is used.
+
+The QOM type is `nikon-sensor`, a bus-independent external DeviceState. Its `frame` property is an official read-only raw drive backend. Optional numeric request properties support explicit synthetic endpoint tests; `capture=true` invokes the same public API, and `capture=false` cancels/acknowledges. Read-only `phase` and `bytes-written` expose actual progress. These are host-side functional interfaces, not Nikon guest registers. Configuration defaults are zero, with no input backend; a capture without a complete configuration and real input is rejected before mutation.
+
+| Phase | Cause and observable behavior |
+| --- | --- |
+| idle | Reset/cancel removes the timer and clears lifecycle outputs. Cancel retains already committed progress; reset clears progress. Neither operation erases RAM. |
+| exposing | A validated request latches geometry, clears progress and asserts exposure-active. No byte is written before the supplied exposure deadline. A second capture is refused. |
+| reading | Exposure expiry deasserts exposure-active and asserts readout-active. Each subsequent supplied deadline reads at most4096 backend bytes and writes one bounded chunk of the current row through `dma_memory_write`. |
+| done | Only successful consumption and DMA writes of every complete row produce frame-done. Readout-active falls. Completion remains asserted until cancel, reset or a new valid capture. |
+| error | Backend unavailability/changed length/read failure or a real destination bus failure ends the request, deasserts readout-active and asserts frame-error. No completion accompanies it. Accepted earlier DMA writes remain visible. |
+
+Four ordinary QEMU GPIO outputs carry exposure-active, readout-active, frame-done and frame-error levels in that order. They are not GIC numbers, sensor pins, EXIU wires, guest event flags or physical timing measurements. A proven controller may consume these outputs, but no host callback invokes guest code or fabricates a frame interrupt. Cancellation/reset changes a generation; synchronous backend/bus calls recheck it before further state changes. The bus-independent endpoint registers its existing DeviceState Resettable object with the official system reset root and unregisters it on unrealize.
+
+Preflight requires nonzero byte geometry and durations, stride at least the actual row size, exact input byte length, a destination span wholly within the32-bit physical-address range, and all exposure/readout deadlines fitting signed virtual time. The backend length is checked around each read. Readout uses official BlockBackend APIs and normal-memory-only DMA attributes: missing RAM, ROM and MMIO destinations do not become successful image buffers. Readout timing is the supplied per-chunk virtual law; it is not CMOS row rate, shutter timing or EXPEED performance. The endpoint does not transform pixels or infer successful ISP processing from an input frame.
+
+## Tests and integration
+
+`tests/qtest/nikon/sensor.c` contains six native cases using explicit synthetic geometry and repeatable file bytes: exposure-before-write and complete strided rows; two4096-byte chunks; active-request refusal/cancel/system-reset; missing input, bad stride, length/address/deadline mismatches; a causal unmapped destination error; and input truncation after one accepted row. Tests observe the endpoint's real output lines and actual RAM, preserving padding and bytes beyond completed progress. They run with the qtest accelerator and an enabled virtual clock, without executing camera instructions.
+
+Build registration, compilation and execution belong to the sole build owner. At this implementation freeze these cases have not been executed, and no original run or CMOS frame is claimed. The already completed seven HDMAC native cases remain separate historical device validation. Frame-backend success will establish this explicit endpoint, not a firmware sensor controller, image quality, full camera functionality or reconstructed-source acceptance.
+
+Next source dependencies are the actual sensor configuration/trigger writer, receiver-to-physical-buffer descriptor, encoding/ROI/stride producer, and consumer/IRQ route. ISP, display and storage owners must join those identities before connecting the endpoint. Default disconnection is preserved until then; an independently supplied frame is an external input, not a recovered factory component.
