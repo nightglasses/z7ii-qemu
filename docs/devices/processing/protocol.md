@@ -8,7 +8,7 @@ IRQ output connected by the machine to original IRQ110.
 
 The complete known configuration, indexed input-address table, request control,
 capacity/address submission and IRQ acknowledgement are implemented together.
-An optional raw BlockBackend supplies **externally produced complete output
+An optional QIOChannelFile supplies **externally produced complete output
 buffers**. It does not implement the original processing transform. Its default
 is disconnected: elapsed time alone cannot produce output bytes or completion.
 
@@ -93,27 +93,33 @@ reset clears it. A new request needs a new original start write.
 
 ## Explicit produced-buffer profile
 
-`result` is an optional read-only-use raw BlockBackend. `result-slot` explicitly
+`result` is an optional regular byte-file path opened read-only through QEMU's
+QIOChannelFile. `result-slot` explicitly
 selects 0..3, corresponding to `470/474/478/47C`; the channel is slot&1.
-The file length must exactly equal the snapshotted capacity at `494/49C`.
+The exact `fstat` byte length must equal the snapshotted capacity at `494/49C`;
+there is no sector rounding. A 51-byte file can satisfy a 51-byte capacity, and
+a 511-byte file cannot satisfy a 512-byte capacity. The device rewinds the open
+file for each accepted result request. Existing BlockBackend drive identifiers
+are removed; `result` now names the byte file directly.
 Output addresses must be nonzero, even, nonwrapping normal writable RAM. MMIO,
 ROM, inaccessible memory, a short file and an unavailable provider cannot
 announce completion. Slots `490/498` and other result metadata retain their
 separate numerical source contracts; this profile does not deliver through them.
 
-The backend reads at most 4096 bytes per virtual timer event and writes the
+The provider reads at most 4096 bytes per virtual timer event and writes the
 actual supplied bytes through QEMU DMA. Its nominal 48MHz byte service rate is
 a named virtual timing assumption, not an EXPEED throughput claim. All required
 DMA writes must succeed before C28/IRQ110 are published. Stop/reset/flush remove
-the timer and invalidate its generation. File availability and extent are checked
-before and after reads, and every DMA chunk rechecks writable RAM. Failures are
+the timer and invalidate its generation. Exact extent is checked at start and
+before and after each `qio_channel_read_all`; an actual short read or EOF fails
+instead of supplying padded zeros. Every DMA chunk rechecks writable RAM. Failures are
 diagnosed and leave the request without success status.
 
 `include/hw/nikon/processing.h` also exposes
 `nikon_processing_publish(dev, slot, bytes, length, errp)` for a real external
 processor. The caller holds the BQL and supplies one complete buffer; it uses
 the same start snapshot, capacity/address checks and post-DMA completion.
-Neither API nor BlockBackend generates processing bytes from the indexed inputs.
+Neither API nor file provider generates processing bytes from the indexed inputs.
 
 ## Callback closure and validation scope
 
@@ -129,11 +135,19 @@ bytes/pcode/context, and official basic blocks/edges. Those native instructions
 agree with the bounded original decodes used to close the registration. The
 model retains the actual dispatch instead of substituting a direct callback.
 
-Eight native qtest cases cover actual supplied-buffer DMA and IRQ, four explicit
+The original eight native qtest cases cover actual supplied-buffer DMA and IRQ, four explicit
 slots, chunk boundaries and mask/W1C behavior, cancellation after a partial
 write, default disconnection, short-file/MMIO/unmapped/ROM/zero-address rejection,
-configuration snapshot isolation, and independent indexed input roles. They are
-synthetic native fixtures. At this handoff they have not yet been compiled or
-run by the sole builder, and there is no original runtime processing or
+configuration snapshot isolation, and independent indexed input roles. The sole
+builder compiled/linked that batch and observed all eight passing in
+`work/processingfinal.log`. That prior receipt used sector-aligned file fixtures
+and did not prove exact byte-file length.
+
+The exact-file fix adds two focused cases: 51-byte success plus 511-byte rejection
+against a 512-byte capacity, and truncation after a real 4096-byte DMA chunk.
+Cancellation also covers machine reset, in addition to stop, flush and register
+reset. The focused `bytes`, `eof` and `cancel` cases require the sole builder's
+new actual receipt; no new passing result is claimed before that run. These are
+synthetic native fixtures. There is no original runtime processing or
 capture-to-save witness. The capture-to-processing producer join, original
 transformation and final-result metadata remain explicit external dependencies.

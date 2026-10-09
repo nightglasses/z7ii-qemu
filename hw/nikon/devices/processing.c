@@ -8,13 +8,12 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/timer.h"
+#include "io/channel-file.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
-#include "hw/core/qdev-properties-system.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
-#include "system/block-backend.h"
 #include "system/dma.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/processing.h"
@@ -29,7 +28,8 @@ struct NikonProcessingState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     qemu_irq irq;
-    BlockBackend *result;
+    char *filename;
+    QIOChannelFile *result;
     QEMUTimer *timer;
     uint32_t result_slot;
     uint64_t generation, produced, target, extent;
@@ -201,6 +201,19 @@ static void nikon_processing_schedule(NikonProcessingState *s)
               count * 1000000000ULL / 48000000 + 1);
 }
 
+static int64_t nikon_processing_length(NikonProcessingState *s)
+{
+    struct stat info;
+
+    if (!s->result) {
+        return -ENOMEDIUM;
+    }
+    if (fstat(s->result->fd, &info) < 0) {
+        return -errno;
+    }
+    return info.st_size;
+}
+
 static void nikon_processing_result(void *opaque)
 {
     NikonProcessingState *s = opaque;
@@ -208,27 +221,33 @@ static void nikon_processing_result(void *opaque)
     unsigned count = MIN(s->extent - s->produced, sizeof(bytes));
     uint64_t generation = s->generation;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+    QIOChannelFile *result;
+    Error *local_err = NULL;
     int64_t length;
     int ret;
 
     if (!s->active || !s->reading) {
         return;
     }
-    length = blk_is_available(s->result) ? blk_getlength(s->result) : -1;
+    length = nikon_processing_length(s);
     if (s->generation != generation || !s->reading) {
         return;
     }
     if (length != (int64_t)s->extent) {
         goto failed;
     }
-    ret = blk_pread(s->result, s->produced, count, bytes, 0);
+    result = s->result;
+    object_ref(OBJECT(result));
+    ret = qio_channel_read_all(QIO_CHANNEL(result), bytes, count, &local_err);
+    object_unref(OBJECT(result));
+    error_free(local_err);
     if (s->generation != generation || !s->reading) {
         return;
     }
     if (ret < 0 || !nikon_processing_writable(s->target + s->produced, count)) {
         goto failed;
     }
-    length = blk_getlength(s->result);
+    length = nikon_processing_length(s);
     if (s->generation != generation || !s->reading) {
         return;
     }
@@ -274,6 +293,12 @@ static void nikon_processing_start(NikonProcessingState *s)
         nikon_processing_error(s, 0x454, 4, true, 1,
                                "processing-external-result-output-unbound");
         error_free(local_err);
+        return;
+    }
+    if (nikon_processing_length(s) != (int64_t)s->extent ||
+        lseek(s->result->fd, 0, SEEK_SET) < 0) {
+        nikon_processing_error(s, 0x454, 4, true, 1,
+                               "processing-result-byte-length-or-rewind-failed");
         return;
     }
     s->target = address;
@@ -407,19 +432,49 @@ static void nikon_processing_finalize(Object *obj)
 static void nikon_processing_realize(DeviceState *dev, Error **errp)
 {
     NikonProcessingState *s = NIKON_PROCESSING(dev);
+    struct stat info;
 
     if (s->result_slot >= 4) {
         error_setg(errp, "Processing result-slot must be in 0..3");
         return;
     }
-    if (s->result && blk_set_perm(s->result, BLK_PERM_CONSISTENT_READ,
-                                  BLK_PERM_ALL, errp) < 0) {
-        return;
+    if (s->filename) {
+        s->result = qio_channel_file_new_path(s->filename,
+                                             O_RDONLY | O_NONBLOCK, 0, errp);
+        if (!s->result) {
+            return;
+        }
+        if (fstat(s->result->fd, &info) < 0) {
+            error_setg_errno(errp, errno, "could not inspect processing result");
+            object_unref(OBJECT(s->result));
+            s->result = NULL;
+            return;
+        }
+        if (!S_ISREG(info.st_mode)) {
+            error_setg(errp, "processing result must be a regular byte file");
+            object_unref(OBJECT(s->result));
+            s->result = NULL;
+            return;
+        }
+    }
+}
+
+static void nikon_processing_unrealize(DeviceState *dev)
+{
+    NikonProcessingState *s = NIKON_PROCESSING(dev);
+
+    timer_del(s->timer);
+    s->generation++;
+    s->active = false;
+    s->reading = false;
+    if (s->result) {
+        object_unref(OBJECT(s->result));
+        s->result = NULL;
     }
 }
 
 static const Property nikon_processing_properties[] = {
-    DEFINE_PROP_DRIVE("result", NikonProcessingState, result),
+    DEFINE_PROP_STRING("result", NikonProcessingState, filename),
     DEFINE_PROP_UINT32("result-slot", NikonProcessingState, result_slot, 0),
 };
 
@@ -434,6 +489,7 @@ static void nikon_processing_class_init(ObjectClass *klass, const void *data)
 
     device_class_set_legacy_reset(dc, nikon_processing_reset);
     dc->realize = nikon_processing_realize;
+    dc->unrealize = nikon_processing_unrealize;
     device_class_set_props(dc, nikon_processing_properties);
     dc->vmsd = &nikon_processing_vmstate;
 }

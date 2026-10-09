@@ -35,13 +35,12 @@ static QTestState *start(bool connected, unsigned slot)
 {
     g_autofree char *bios = g_shell_quote(image);
     g_autofree char *file = g_shell_quote(result_file);
-    g_autofree char *backend = connected ? g_strdup_printf(
-        "-drive if=none,id=processingresult,format=raw,readonly=on,file=%s "
-        "-global %s.result=processingresult -global %s.result-slot=%u",
-        file, TYPE_NIKON_PROCESSING, TYPE_NIKON_PROCESSING, slot) :
+    g_autofree char *provider = connected ? g_strdup_printf(
+        "-global %s.result=%s -global %s.result-slot=%u",
+        TYPE_NIKON_PROCESSING, file, TYPE_NIKON_PROCESSING, slot) :
         g_strdup("");
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp 2 -bios %s -nodefaults %s", bios, backend);
+        "-M z7ii-mas-diagnostic -smp 2 -bios %s -nodefaults %s", bios, provider);
     QTestState *q = qtest_init(args);
 
     nikon_intercept_gic(q);
@@ -67,6 +66,17 @@ static void verify(QTestState *q, uint32_t target, unsigned length)
     qtest_memread(q, target, bytes, length);
     for (i = 0; i < length; i++) {
         g_assert_cmphex(bytes[i], ==, (uint8_t)(i * 19 + 7));
+    }
+}
+
+static void untouched(QTestState *q, uint32_t target, unsigned length)
+{
+    g_autofree uint8_t *bytes = g_malloc(length);
+    unsigned i;
+
+    qtest_memread(q, target, bytes, length);
+    for (i = 0; i < length; i++) {
+        g_assert_cmphex(bytes[i], ==, 0xa5);
     }
 }
 
@@ -145,8 +155,8 @@ static void test_chunks(void)
 
 static void test_cancel(void)
 {
-    static const uint32_t offset[] = { 0x454, 0xc00, 0xc00 };
-    static const uint32_t command[] = { 2, 0x80, 0x800 };
+    static const uint32_t offset[] = { 0x454, 0xc00, 0xc00, 0 };
+    static const uint32_t command[] = { 2, 0x80, 0x800, 0 };
     unsigned i;
 
     supplied(8192);
@@ -158,15 +168,70 @@ static void test_cancel(void)
         qtest_writel(q, PROCESSING + 0x454, 1);
         qtest_clock_step(q, 90000);
         verify(q, OUTPUT, 4096);
-        qtest_writel(q, PROCESSING + offset[i], command[i]);
+        if (i == 3) {
+            qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+            qtest_qmp_eventwait(q, "RESET");
+        } else {
+            qtest_writel(q, PROCESSING + offset[i], command[i]);
+        }
         qtest_clock_step(q, 1000000);
         verify(q, OUTPUT, 4096);
-        g_assert_cmphex(qtest_readl(q, OUTPUT + 8192 - 4), ==, 0xa5a5a5a5);
+        untouched(q, OUTPUT + 4096, 4096);
         g_assert_cmphex(qtest_readl(q, PROCESSING + 0xfc0), ==, 0);
         g_assert_cmphex(qtest_readl(q, PROCESSING + 0xc28), ==, 0);
         g_assert_false(qtest_get_irq(q, 110 - 32));
         qtest_quit(q);
     }
+}
+
+static void test_bytes(void)
+{
+    QTestState *q;
+
+    /* Exact legal byte extents do not acquire a sector alignment requirement. */
+    supplied(51);
+    q = start(true, 0);
+    configure(q, 0, 51, OUTPUT);
+    qtest_memset(q, OUTPUT, 0xa5, 512);
+    qtest_writel(q, PROCESSING + 0x454, 1);
+    qtest_clock_step(q, 1000000);
+    verify(q, OUTPUT, 51);
+    g_assert_cmphex(qtest_readb(q, OUTPUT + 51), ==, 0xa5);
+    g_assert_cmphex(qtest_readl(q, PROCESSING + 0xc28), ==, 1U << 9);
+    g_assert_true(qtest_get_irq(q, 110 - 32));
+    qtest_quit(q);
+
+    /* A 511-byte file is not a full 512-byte buffer with an invented zero. */
+    supplied(511);
+    q = start(true, 0);
+    configure(q, 0, 512, OUTPUT);
+    qtest_memset(q, OUTPUT, 0xa5, 512);
+    qtest_writel(q, PROCESSING + 0x454, 1);
+    qtest_clock_step(q, 1000000);
+    untouched(q, OUTPUT, 512);
+    g_assert_cmphex(qtest_readl(q, PROCESSING + 0xc28), ==, 0);
+    g_assert_false(qtest_get_irq(q, 110 - 32));
+    qtest_quit(q);
+}
+
+static void test_eof(void)
+{
+    QTestState *q;
+
+    supplied(8192);
+    q = start(true, 0);
+    configure(q, 0, 8192, OUTPUT);
+    qtest_memset(q, OUTPUT, 0xa5, 8192);
+    qtest_writel(q, PROCESSING + 0x454, 1);
+    qtest_clock_step(q, 90000);
+    verify(q, OUTPUT, 4096);
+    g_assert_cmpint(truncate(result_file, 4096), ==, 0);
+    qtest_clock_step(q, 1000000);
+    verify(q, OUTPUT, 4096);
+    untouched(q, OUTPUT + 4096, 4096);
+    g_assert_cmphex(qtest_readl(q, PROCESSING + 0xc28), ==, 0);
+    g_assert_false(qtest_get_irq(q, 110 - 32));
+    qtest_quit(q);
 }
 
 static void test_disconnected(void)
@@ -273,4 +338,6 @@ void nikon_processing_add_tests(const char *bios)
     qtest_add_func("/nikon/processing/bounds", test_bounds);
     qtest_add_func("/nikon/processing/snapshot", test_snapshot);
     qtest_add_func("/nikon/processing/inputs", test_inputs);
+    qtest_add_func("/nikon/processing/bytes", test_bytes);
+    qtest_add_func("/nikon/processing/eof", test_eof);
 }
