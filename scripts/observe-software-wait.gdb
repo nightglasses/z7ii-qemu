@@ -14,6 +14,10 @@ set may-insert-tracepoints off
 set may-insert-fast-tracepoints off
 
 define ng-observe-software-wait
+  # Arguments are operator-verified GDB global thread IDs for CPU#0 and CPU#1.
+  # info threads -gid and QEMU qThreadExtraInfo establish the binding at setup.
+  set $ng_cpu0_gthread = (unsigned int)$arg0
+  set $ng_cpu1_gthread = (unsigned int)$arg1
   set scheduler-locking off
   set $ng_task = (unsigned int)0
   set $ng_cb = (unsigned int)0
@@ -25,19 +29,19 @@ define ng-observe-software-wait
   commands
     silent
     printf "ng_creator post-store\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     x/wx 0xb18094e0
     continue
   end
 
-  thbreak *0x10120908 if $ng_task != 0 && ($MPIDR_EL1 & 3) < 2 && *(unsigned int *)(0xb2b415f4 + 4 * ($MPIDR_EL1 & 3)) == $ng_task
+  thbreak *0x10120908 if $ng_task != 0 && ($_gthread == $ng_cpu0_gthread || $_gthread == $ng_cpu1_gthread) && *(unsigned int *)(0xb2b415f4 + 4 * ($_gthread == $ng_cpu1_gthread)) == $ng_task
   set $ng_make_wait_bp = $bpnum
   commands
     silent
     printf "ng_make_wait generic entry\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     x/2wx 0xb2b415f4
     p/x *(unsigned char *)($ng_task + 0x2b)
     p/x *(unsigned int *)($ng_task + 0x30)
@@ -52,8 +56,8 @@ define ng-observe-software-wait
   commands
     silent
     printf "ng_mutex_block pre-STR; TCB fields are old\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     set $ng_cb = (unsigned int)$r4
     p/x *(unsigned int *)($ng_cb + 0)
     p/x *(unsigned int *)($ng_cb + 4)
@@ -78,8 +82,8 @@ define ng-observe-software-wait
   commands
     silent
     printf "ng_release same registered ID; attempt only\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     x/2wx 0xb2b415f4
     p/x *(unsigned int *)($ng_cb + 0x18)
     continue
@@ -91,8 +95,8 @@ define ng-observe-software-wait
   commands
     silent
     printf "ng_selected_wake pre-BL\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     x/2wx 0xb2b415f4
     p/x *(unsigned int *)($ng_cb + 0x18)
     continue
@@ -104,22 +108,22 @@ define ng-observe-software-wait
   commands
     silent
     printf "ng_wait_release mutex caller entry; return-slot write has not executed\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
     x/2wx 0xb2b415f4
     p/x *(unsigned int *)($ng_task + 0x40)
     continue
   end
   disable $ng_wait_release_bp
 
-  thbreak *0x103b2306 if $lr == 0x104000c1 && $r4 == 4 && $r6 == 0xb185e020 && ($MPIDR_EL1 & 3) < 2
+  thbreak *0x103b2306 if $lr == 0x104000c1 && $r4 == 4 && $r6 == 0xb185e020 && ($_gthread == $ng_cpu0_gthread || $_gthread == $ng_cpu1_gthread)
   set $ng_marker_bp = $bpnum
   commands
     silent
     printf "ng_marker actual business entry\n"
-    info threads
-    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr MPIDR_EL1
-    set $ng_pid = (unsigned int)$MPIDR_EL1 & 3
+    info threads -gid
+    info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
+    set $ng_pid = (unsigned int)($_gthread == $ng_cpu1_gthread)
     x/2wx 0xb2b415f4
     set $ng_task = *(unsigned int *)(0xb2b415f4 + 4 * $ng_pid)
     p/x $ng_task
@@ -132,5 +136,6 @@ end
 document ng-observe-software-wait
 Install seven source-scoped temporary hardware breakpoints in stopped QEMU.
 Requires a fresh remote target, original byte guard and operator-reviewed policy.
+Pass the verified GDB global thread IDs for QEMU CPU#0 and CPU#1, in that order.
 Does not initially continue the guest. Any read/command error stops its list.
 end
