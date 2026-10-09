@@ -319,7 +319,10 @@ static void z7ii_init(MachineState *machine)
 
     sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
-    gpio = sysbus_create_simple(TYPE_NIKON_GPIO, 0x04282000, NULL);
+    gpio = qdev_new(TYPE_NIKON_GPIO);
+    object_property_add_child(OBJECT(machine), "gpio", OBJECT(gpio));
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(gpio), 0, 0x04282000);
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
 

@@ -142,3 +142,79 @@ window is not a claim that every offset is implemented. SYSTEM/RTC consumers
 are owned by the separate Renesas devices, including keyed software reset at
 `800c2`. Application loads of `80000` in the arithmetic helper near `00020818`
 are numeric constants, not register accesses.
+
+## Remote SCI5 endpoint
+
+`nikon-vr-peer` is a thin native frontend with `peer` and `peripherals` QOM
+links. The common `nikon-peer` CharBackend carries CLOCK, SELECT and GPIO
+signals; this adapter contains no firmware packet parser. SELECT line 0 is
+the physical P47/IRQ15 level. GPIO line ids are RX `port * 8 + bit`; machine
+wiring must map those ids to the corresponding physical peer pads. Only PDR
+outputs with PMR selecting GPIO are published. Output levels rejected by
+transport backpressure remain unpublished and retry on transport readiness;
+the next publication uses the current physical level.
+
+The public `nikon_vr_peripherals_clock()` accepts one eight-bit token and
+retains it while the guest is unarmed. The existing QEMU bottom half waits for
+actual active select, synchronous SCI5 CKE=2, TE/RE, an enabled RX DMA request
+84, the source's non-inverted LSB-first SCMR format, a clear receive holding
+register and a byte actually present in TDR.
+Register writes and DMA completion wake that bottom half. It clocks the
+existing SCI frame exactly once, drains the actual RX/TX DMA requests, and
+only then invokes the completion callback with the captured guest TDR byte.
+CS edges, empty TDR and unarmed DMA cannot create replies. Transport reply
+backpressure retains the captured byte and retries sending, without another
+SCI clock or DMA beat.
+
+The adapter accepts source-required eight- and sixteen-bit wire beats. MAS
+constructor `103BC13C` supplies configuration byte `+1=0`; native `103706C4`
+passes it to `10243170`, which clears CTRL bit 2 (`MSB1ST`). MAS uses
+little-endian halfword DMA, so a sixteen-bit beat clocks the low byte first.
+VR bootstrap `fff00755` writes SMR `80`, and `fff00758` writes SCMR `72`.
+SCMR SDIR=0 means LSB-first transmission/reception in the
+[Renesas SCI migration guide](https://www.renesas.com/en/document/apn/h8h8s-rx-mcus-h8s-rx-migration-guide-serial-communications-interface-rev100),
+R01AN4046EJ0200 revision 2.00, page 15. Both ends therefore agree without
+bit reversal. A sixteen-bit request performs two independently armed SCI5
+frames, low then high, and replies with `low | (high << 8)`. Cancellation
+between them retains the first byte's actual RX/TX DMA effects and cancels
+the remaining clock; no first byte is replayed.
+
+The extracted original application programs a 276-byte hardware window:
+`000176b0` writes DMA1 DMCRA at `82048`; the high-select ISR restores DMA1
+count 276 at `00017dce` and DMA0 count 276 at `00017e05`. The low-select ISR
+at `00017d6a–00017da7` supplies the guest TX buffer and enables SCR `f2`.
+These counts can cover the MAS 268-byte transfer, but do not prove an original
+completed packet. In particular, a final sixteen-bit beat still needs two
+actual TDR bytes; an empty second frame waits instead of receiving padding.
+
+Chip select is independently guest-owned: MAS GPIO resource `ae` is port 11
+pin 1, set low at `103BC296` and high at `103BC2BA` around `10370A14`.
+It must drive SELECT line 0 through machine wiring; SPI enable is not a
+substitute for that physical wire.
+
+`nikon_vr_peripherals_cancel()` removes the matching pending callback. Effects
+of a frame already clocked are retained. Adapter reset, incoming CANCEL,
+disconnect and detach cancel the shared incoming token without sending a
+reply. The normal SPI select input starts inactive high, as in the local SSI
+slave; disconnect does not fabricate a new select edge.
+The busless frontend explicitly registers its Resettable object with QEMU's
+system reset hierarchy and unregisters it on unrealize. Merely defining a
+device reset hook does not attach a busless device to that hierarchy.
+
+The immutable dependency is the actual native8 PASS snapshot
+`f8078bf944ef0867736223365a2ece21ba111735`; the endpoint uses shared peer API
+`9398300` on `3439c35`/`964a354`. A ninth native case uses the standard qtest
+socket helper and the unchanged transport envelope. It checks GPIO levels,
+real select IRQ, unarmed and inactive-select waits, cancel/reset/disconnect,
+guest-written TDR bytes `a5`, `5a`, `77`, and received bytes reaching RAM via
+DMA. It also verifies sixteen-bit low/high ordering and cancellation while
+the second byte waits for real TDR refill. Qtest manually programs the
+synthetic guest registers and does not
+execute Nikon's ISR. This new case awaits sole-builder validation.
+
+The complete original image remains strictly stopped at bootstrap
+`fff00167`, reading the four-byte external function-pointer slot `fffc8008`.
+Bootstrap performs `JSR` through that value at `fff00169` before entering
+application `00018583`. This endpoint supplies neither that data slot nor
+target instructions, and its synthetic fixture is not an original VR ACK
+receipt.

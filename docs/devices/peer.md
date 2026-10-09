@@ -29,6 +29,10 @@ endpoint operations are copied, but callback opaque state must outlive the
 peer. A frontend retains its peer and controller through QOM object links;
 unrealize first unregisters its callback and detaches/cancels the controller.
 One frontend may register the state callback on each peer.
+Reset can discard an incoming clock with `nikon_peer_endpoint_cancel`.
+Removing an endpoint cancels its incoming request before clearing the callback.
+Neither operation replies or completes the remote master: its guest must
+cancel, reset or handle the absent response through its own firmware.
 
 Example native frontend attachment:
 
@@ -37,6 +41,16 @@ Example native frontend attachment:
 -device nikon-peer,id=wire0,chardev=p0
 -device nikon-spi-peer,peer=/machine/peripheral/wire0,spi=/machine/spi0
 ```
+
+The frontend also exposes the named `select[0]` input. The optional strong
+`gpio` link and `pin` property bind a source GPIO inside the frontend, for
+example `gpio=/machine/gpio,pin=177` for the source-proved VR select output.
+Both properties must be supplied together. Only an actual guest output with
+GPIO direction and function configured supplies a select level. Floating
+reset-low is suppressed rather than being treated as a selection. On socket
+connection the frontend republishes the last genuinely driven current level,
+not a made-up pulse. Direct machine use of `select[0]` has the same requirement
+to connect an actual producer.
 
 Machine topology is a separate source-derived contract. MAS channel 0 is
 the EX transmit path into EX SPI1 RX; MAS channel 1 is the EX receive path

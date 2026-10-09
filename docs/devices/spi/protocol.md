@@ -57,8 +57,21 @@ sends fragmented MISO input, cancels and rejects late responses after disable
 and close, and interleaves two independently connected ports. An attached peer
 without a chardev stays busy without RX or transfer completion. These are
 synthetic host endpoint transactions, not EX or VR firmware compatibility proof.
-They have been submitted to the sole native builder; no pass is claimed before
-that builder executes the fixed combined model.
+The sole builder compiled and linked the coherent SPI/transport/machine model,
+then all eight focused `/arm/nikon/spi` cases passed in 2.18 seconds. Its actual
+`work/validation/gui/peernative.log` in the validation worktree records zero
+failed tests. This includes real socket response timing, fragments, cancellation,
+late tokens, independent peers, offline waiting and real HDMAC data. The only
+reported compiler warning was the fixture entry's missing forward prototype;
+that declaration is now supplied without changing runtime behavior.
+
+The additional `/arm/nikon/spi/select` focused fixture uses source GPIO11[1]
+(`pin=177`, resource AE) through the peer's public GPIO link. Floating reset and
+an input-mode high PDR latch produce no SELECT. Setting the actual DDR output
+produces SELECT high; the masked PDR write produces SELECT low. EPCR alternate
+mode stops publication of later latch changes. Its frame assertions cover the
+actual socket envelope with SELECT kind, line0, bits0 and token0. This added case
+awaits the sole builder; the eight-case pass above does not cover it.
 
 This layer continues [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) and [启动外设与任务合同](https://github.com/mashiro01/nightglass/issues/331). It uses the [fixed original-byte whole SPI contract](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md), including the actual `10242fda` initialization anchor, eleven original objects and their two IRQ wrappers, and 23 adjacent methods. The bounded original Thumb analysis covers 2,324 bytes / 964 instructions with guarded jump tables and preserved unknown transfers. These functions were absent from the saved native listing: this is explicitly original-byte diagnostic analysis, not a claim of complete native-function recovery.
 

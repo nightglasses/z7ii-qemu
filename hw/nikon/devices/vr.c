@@ -123,9 +123,18 @@ struct NikonVRState {
     uint64_t deferred[256];
     bool dtc_active;
     bool dma_active, reported_error, as_initialized;
+    bool remote_pending, remote_clocked;
+    uint64_t remote_token;
+    uint32_t remote_word, remote_reply;
+    NikonVRClockComplete remote_complete;
+    void *remote_opaque;
+    NikonVRGPIOOutput gpio_notify;
+    void *gpio_opaque;
+    uint8_t gpio_driven[19], gpio_level[19];
 };
 
 static void vr_request_event(NikonVRState *s, unsigned vector);
+static void vr_remote_progress(NikonVRState *s);
 
 static unsigned vr_spi_bank(unsigned channel)
 {
@@ -507,6 +516,7 @@ static void vr_deferred_events(void *opaque)
             }
         }
     }
+    vr_remote_progress(s);
 }
 
 static void vr_sci_event(NikonVRState *s, unsigned channel, bool transmit)
@@ -1051,6 +1061,51 @@ static uint8_t vr_pad(NikonVRState *s, unsigned port)
     return (r[0x20 + port] & gpio_output) | (input & ~gpio_output);
 }
 
+static void vr_remote_progress(NikonVRState *s)
+{
+    VRSCI *sci = &s->sci[1];
+    unsigned i;
+    bool rx_armed = false;
+
+    if (!s->remote_pending) {
+        return;
+    }
+    if (!s->remote_clocked) {
+        for (i = 0; i < 8; i++) {
+            uint8_t *r = s->bank[VR_DMA].regs + i * 0x40;
+
+            if (s->dmrsr[i] == 84 && (r[28] & 1) &&
+                (s->bank[VR_DMA].regs[0x200] & 1)) {
+                rx_armed = true;
+            }
+        }
+        if (!rx_armed || !(s->connected[4] & 0x80) ||
+            (vr_pad(s, 4) & 0x80) || !(sci->smr & 0x80) ||
+            (sci->scmr & 0x0d) ||
+            (sci->scr & 0x33) != 0x32 || !sci->tdr_full ||
+            (sci->ssr & 0x40)) {
+            return;
+        }
+        s->remote_reply = vr_sci_clock(s, s->remote_word);
+        s->remote_clocked = true;
+    }
+    for (i = 0; i < 256; i++) {
+        if (s->deferred[i]) {
+            return; /* Actual RX/TX DMA requests finish in the next BH. */
+        }
+    }
+    {
+        NikonVRClockComplete complete = s->remote_complete;
+        void *opaque = s->remote_opaque;
+        uint64_t token = s->remote_token;
+        uint32_t word = s->remote_reply;
+
+        s->remote_pending = false;
+        s->remote_complete = NULL;
+        complete(opaque, token, word);
+    }
+}
+
 static void vr_pad_input(void *opaque, int pin, int level)
 {
     NikonVRState *s = opaque;
@@ -1061,6 +1116,9 @@ static void vr_pad_input(void *opaque, int pin, int level)
 
     s->connected[port] |= 1U << bit;
     s->input[port] = (s->input[port] & ~(1U << bit)) | (!!level << bit);
+    if (s->remote_pending) {
+        qemu_bh_schedule(s->event_bh);
+    }
     /* Source-configured P17/IRQ7 and SCI5 select P47/IRQ15. */
     if (irq >= 0 && (s->bank[VR_PORT].regs[0x140 + pin] & 0x40)) {
         unsigned mode = (s->irqcr[irq] >> 2) & 3;
@@ -1086,10 +1144,21 @@ static void vr_port_update(NikonVRState *s)
 
     for (p = 0; p < 19; p++) {
         uint8_t v = vr_pad(s, p);
+        uint8_t driven = s->bank[VR_PORT].regs[p] &
+                         ~s->bank[VR_PORT].regs[0x60 + p];
+        uint8_t changed = (v ^ s->gpio_level[p]) |
+                          (driven & ~s->gpio_driven[p]);
 
         for (b = 0; b < 8; b++) {
             qemu_set_irq(s->output[p * 8 + b], (v >> b) & 1);
+            if (s->gpio_notify && (driven & changed & (1U << b)) &&
+                s->gpio_notify(s->gpio_opaque, p * 8 + b, (v >> b) & 1)) {
+                s->gpio_level[p] = (s->gpio_level[p] & ~(1U << b)) |
+                                   (v & (1U << b));
+                s->gpio_driven[p] |= 1U << b;
+            }
         }
+        s->gpio_driven[p] &= driven;
     }
 }
 
@@ -1454,6 +1523,10 @@ static MemTxResult vr_write(void *opaque, hwaddr offset, uint64_t value,
     VRBank *b = opaque;
     NikonVRState *s = b->soc;
 
+    if (s->remote_pending) {
+        qemu_bh_schedule(s->event_bh);
+    }
+
     switch (b->id) {
     case VR_ICU: return vr_icu_write(b, offset, value, size);
     case VR_SCI1: case VR_SCI5: case VR_SCIFA10:
@@ -1580,6 +1653,9 @@ static void vr_reset(void *opaque)
     memset(s->deferred, 0, sizeof(s->deferred));
     qemu_bh_cancel(s->event_bh);
     s->dtc_active = false;
+    s->remote_pending = s->remote_clocked = false;
+    s->remote_complete = NULL;
+    memset(s->gpio_driven, 0, sizeof(s->gpio_driven));
     s->requested = -1;
     s->fir = 0;
     s->reported_error = s->dma_active = false;
@@ -1818,6 +1894,69 @@ DeviceState *nikon_vr_peripherals_attach_spi(DeviceState *dev, SSIBus *bus)
     object_property_set_link(OBJECT(slave), "peripherals", OBJECT(dev), &error_fatal);
     ssi_realize_and_unref(slave, bus, &error_fatal);
     return slave;
+}
+
+bool nikon_vr_peripherals_clock(DeviceState *dev, uint64_t token, uint32_t word,
+                                unsigned bits, NikonVRClockComplete complete,
+                                void *opaque)
+{
+    NikonVRState *s = NIKON_VR_PERIPHERALS(dev);
+
+    if (!token || bits != 8 || !complete || s->remote_pending) {
+        return false;
+    }
+    s->remote_token = token;
+    s->remote_word = word & 255;
+    s->remote_complete = complete;
+    s->remote_opaque = opaque;
+    s->remote_pending = true;
+    s->remote_clocked = false;
+    qemu_bh_schedule(s->event_bh);
+    return true;
+}
+
+void nikon_vr_peripherals_cancel(DeviceState *dev, uint64_t token)
+{
+    NikonVRState *s = NIKON_VR_PERIPHERALS(dev);
+
+    if (s->remote_pending && s->remote_token == token) {
+        s->remote_pending = false;
+        s->remote_complete = NULL;
+    }
+}
+
+void nikon_vr_peripherals_select(DeviceState *dev, bool level)
+{
+    vr_pad_input(NIKON_VR_PERIPHERALS(dev), 4 * 8 + 7, level);
+}
+
+bool nikon_vr_peripherals_gpio(DeviceState *dev, unsigned pin, bool level)
+{
+    if (pin >= 19 * 8) {
+        return false;
+    }
+    vr_pad_input(NIKON_VR_PERIPHERALS(dev), pin, level);
+    return true;
+}
+
+bool nikon_vr_peripherals_gpio_out(DeviceState *dev, NikonVRGPIOOutput notify,
+                                  void *opaque)
+{
+    NikonVRState *s = NIKON_VR_PERIPHERALS(dev);
+
+    if (s->gpio_notify && s->gpio_opaque != opaque) {
+        return false;
+    }
+    s->gpio_notify = notify;
+    s->gpio_opaque = opaque;
+    memset(s->gpio_driven, 0, sizeof(s->gpio_driven));
+    vr_port_update(s);
+    return true;
+}
+
+void nikon_vr_peripherals_gpio_retry(DeviceState *dev)
+{
+    vr_port_update(NIKON_VR_PERIPHERALS(dev));
 }
 
 static const TypeInfo vr_types[] = {

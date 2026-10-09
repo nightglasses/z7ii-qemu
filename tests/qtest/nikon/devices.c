@@ -202,7 +202,7 @@ static void test_bridge(void)
 static void test_gpio_input(void)
 {
     QTestState *q = start(false, 1);
-    g_autofree char *path = nikon_device_path(q, TYPE_NIKON_GPIO);
+    const char *path = "/machine/gpio";
     unsigned port;
 
     /* No producer: input follows the explicitly configured pull profile. */
