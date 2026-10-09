@@ -1,10 +1,10 @@
 # Nightglass QEMU
 
-Nikon firmware emulation and debugging built on upstream QEMU. This repository includes the fixed upstream source in `vendor/qemu`, with Nikon machines and devices registered directly in its native build. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
+Nikon firmware emulation and debugging built on upstream QEMU. `vendor/qemu` is the pinned official QEMU Git submodule; Nikon machines, devices and native tests remain source files in this repository. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
 
 The initial target is Nikon Z7II C1.70. Existing camera emulation projects inform device models and tracing. A user-supplied post shows a claimed Nikon Z9 QEMU run reaching a camera error screen; implementation and launch details are unavailable, so that case is a useful lead rather than a reproducible baseline.
 
-Upstream baseline: QEMU `v11.1.2`, commit `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The upstream licenses remain with the vendored source. Build outputs and original firmware remain in ignored `work/`. Firmware recovery tools remain in [Nightglass](https://github.com/mashiro01/nightglass), and maintained firmware source remains in [Nightglass Firmware](https://github.com/mashiro01/nightglass-firmware).
+Upstream baseline: QEMU `v11.1.2`, commit `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The upstream licenses and nested submodules remain with the official dependency. Build outputs and original firmware remain in ignored `work/`. Firmware recovery tools remain in [Nightglass](https://github.com/mashiro01/nightglass), and maintained firmware source remains in [Nightglass Firmware](https://github.com/mashiro01/nightglass-firmware).
 
 The current route implements the original firmware's device protocols with explicit virtual reset and timing assumptions, aiming to reach RTOS tasks and menus. CPU/reset/load assumptions remain visible. Unknown addresses, widths and commands still stop execution; physical-camera acceptance remains a separate result. Rebuilt firmware is then compared in the same model.
 
@@ -14,17 +14,18 @@ Issues are managed through [the Nightglass delivery map](https://github.com/mash
 
 ## MAS diagnostic machine
 
-The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `vendor/qemu/hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `vendor/qemu/hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `vendor/qemu/include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/devices/timestamp/protocol.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/devices/timestamp/protocol.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
 
-Install QEMU's native build dependencies (a C compiler, Make, Ninja, pkg-config, GLib, pixman and Python for upstream build tooling), then build from this checkout:
+Install CMake and QEMU's native build dependencies (a C compiler, Make, Meson/Ninja, pkg-config, GLib, pixman and Python for upstream build tooling), then build from this checkout:
 
 ```sh
+git submodule update --init --recursive
 make -j8
 make check
 make bench
 ```
 
-The root Makefile invokes the official `vendor/qemu/configure` and the generated QEMU Makefile. Kconfig and Meson register Nikon sources directly; there is no patch, overlay copy or project build script. `make check` runs the Nikon native qtest suite; `make bench` runs that C executable in GLib performance mode. Tests cover synthetic ARM execution and two-core WFE/SEV, device state, GPIO and DMA IRQ delivery to actual GIC inputs and real fill/copy/HDMAC RAM transfers; they use no original firmware. The default ARM system binary is `work/build/qemu/qemu-system-arm`.
+The root Makefile uses CMake to compose an ignored native source graph, then invokes QEMU's official configure and generated Makefile. Three generated Kconfig/Meson entries register Nikon source and qtests without modifying the upstream submodule. There is no patch, source copy or project build script. [Build ownership and dependency details](docs/build.md) describe the source graph. `make check` runs the Nikon native qtest suite; `make bench` runs the C executable in GLib performance mode. Tests cover synthetic ARM execution and two-core WFE/SEV, device state, GPIO and DMA IRQ delivery to actual GIC inputs and real fill/copy/HDMAC RAM transfers; they use no original firmware. The default ARM system binary is `work/build/qemu/qemu-system-arm`.
 
 Use standard configure options for a different host or toolchain. Run `make configure CONFIGURE_FLAGS='--target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'`, then `make`. `BUILD_DIR=/absolute/path/to/build` selects an out-of-tree build. Dependencies fetched by QEMU's official Meson wraps retain their upstream pinned definitions; camera firmware is never fetched.
 

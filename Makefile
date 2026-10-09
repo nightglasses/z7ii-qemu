@@ -1,6 +1,7 @@
-# Nikon machines use the fixed QEMU native build in vendor/qemu.
-QEMU_SOURCE := $(CURDIR)/vendor/qemu
+# CMake composes the native source graph; QEMU owns compilation and linking.
 BUILD_DIR ?= $(CURDIR)/work/build/qemu
+CONFIG_DIR ?= $(CURDIR)/work/config
+QEMU_SOURCE := $(CONFIG_DIR)/source
 CONFIGURE_FLAGS ?= --target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror
 
 .PHONY: all configure check bench clean distclean
@@ -12,6 +13,7 @@ $(BUILD_DIR)/config-host.mak:
 	$(MAKE) configure
 
 configure:
+	cmake -S "$(CURDIR)" -B "$(CONFIG_DIR)"
 	mkdir -p "$(BUILD_DIR)"
 	cd "$(BUILD_DIR)" && "$(QEMU_SOURCE)/configure" $(CONFIGURE_FLAGS)
 

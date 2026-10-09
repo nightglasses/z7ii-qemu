@@ -4,9 +4,10 @@
 |---|---|
 | [README.md](README.md) | 项目范围、上游依赖和运行阶段 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Issue、分支、审查和合并流程 |
-| [AGENTS.md](vendor/qemu/hw/nikon/AGENTS.md) | Nikon machine 与设备实现规范 |
+| [AGENTS.md](hw/nikon/AGENTS.md) | Nikon machine 与设备实现规范 |
 | [AGENTS.md](docs/AGENTS.md) | 运行证据和模型边界规范 |
 | [layout.md](docs/layout.md) | Nikon 机型连线、通用设备协议与公共接口的分层结构 |
+| [build.md](docs/build.md) | 官方 QEMU submodule、Nikon 自有源码与原生构建 |
 | [protocol.md](docs/devices/memc/protocol.md) | MEMC/A7/GIC/timer 合同、初始假设和合成测试范围 |
 | [memc.md](docs/startup/memc.md) | 原版越过 MEMC 与临时栈、下一时钟读阻断的实际证据 |
 | [smp.md](docs/startup/smp.md) | 两核软件合同、精确 RAM、原版 MTTCG 等待与时钟阻断 |
