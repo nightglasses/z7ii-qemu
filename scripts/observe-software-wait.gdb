@@ -3,6 +3,10 @@
 # Source with native GDB -nx; verify stopped QEMU CPU thread IDs separately.
 set pagination off
 set language c
+# Raw firmware has no ELF symbols or APCS frame-pointer chain. Avoid GDB's
+# speculative legacy r11-to-prologue scan; do not infer or unwind guest callers.
+set arm abi AAPCS
+show arm abi
 set auto-load python-scripts off
 set auto-load local-gdbinit off
 set breakpoint condition-evaluation host
