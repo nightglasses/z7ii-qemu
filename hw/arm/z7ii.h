@@ -22,6 +22,7 @@
 #define TYPE_Z7II_IPUD "z7ii-ipud-functional"
 #define TYPE_Z7II_CONTROL20202 "z7ii-control20202-functional"
 #define TYPE_Z7II_CONTROL2010 "z7ii-control2010-functional"
+#define TYPE_Z7II_CONTROL2038 "z7ii-control2038-functional"
 #define TYPE_Z7II_SDI "z7ii-sdi-functional"
 #define TYPE_Z7II_MXIC "z7ii-mxic-regions-functional"
 #define TYPE_Z7II_MXIC_CONFIG "z7ii-mxic-config-functional"

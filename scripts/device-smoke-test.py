@@ -1944,6 +1944,190 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control2038_profile(dual):
+    # Exact original A006 profile, not inferred physical legal-bit masks.
+    return {0: 3, 4: 3, 0xc: 1, 0x84: 0, 0x44: 0,
+            0x48: 0x28000e if dual else 0x14000e, 0x4c: 0, 0x50: 0,
+            **{offset: 0 for offset in range(0x120, 0x134, 4)},
+            0xbc: 2 if dual else 1, 0xc0: 0, 0xc4: 0x14, 0xc8: 0,
+            0xcc: 0x14 if dual else 0, 0x300: 2, 0x310: 0xdeadbeef,
+            0x30c: 0x40 if dual else 0x20, 0x67c: 0x200,
+            0x410: 0, 0x420: 0, 0x3e8: 2, 0x3ec: 0xdeadbeef,
+            0x3f0: 0x40 if dual else 0x20, 0xf0: 0x8e}
+
+
+def control2038_fixtures():
+    base = 0x20380000
+    error = "control2038-access-or-command-not-supported"
+
+    def write(bank, offset, value):
+        return constant(0, base + bank * 0x40000 + offset) + \
+               constant(1, value) + [0xe5801000]
+
+    def read(bank, offset, reg):
+        return constant(0, base + bank * 0x40000 + offset) + \
+               [0xe5900000 | reg << 12]
+
+    init = sum([write(bank, offset, value) for offset, value in
+                ((0xc, 1), (0, 3), (4, 3)) for bank in range(2)], [])
+    profiles = sum([write(bank, offset, value) for bank in range(2)
+                    for offset, value in control2038_profile(bool(bank)).items()], [])
+    return [
+        ("control2038-original-dual-initialization", init + read(0, 0, 4) +
+         read(1, 4, 5) + read(1, 0xc, 6) + read(0, 0x24, 7) + read(1, 0x24, 8),
+         {4: 3, 5: 3, 6: 1, 7: 0, 8: 0}, None),
+        ("control2038-full-single-dual-config", profiles + read(0, 0x48, 4) +
+         read(1, 0x48, 5) + read(0, 0xcc, 6) + read(1, 0xcc, 7) +
+         read(1, 0x310, 8), {4: 0x14000e, 5: 0x28000e, 6: 0, 7: 0x14,
+                             8: 0xdeadbeef}, None),
+        ("control2038-shared-bank0-selector", write(0, 0xd0, 1) +
+         read(0, 0xd0, 4) + write(0, 0xd0, 0) + read(0, 0xd0, 5), {4: 1, 5: 0}, None),
+        ("control2038-full-mask-and-opaque-f0", write(0, 0xe8, 0xffffff71) +
+         write(1, 0xe8, 0x80000001) + write(0, 0xf0, 0xfc400) +
+         read(0, 0xe8, 4) + read(1, 0xe8, 5) + read(0, 0xf0, 6) + read(0, 0x24, 7),
+         {4: 0xffffff71, 5: 0x80000001, 6: 0xfc400, 7: 0}, None),
+        ("control2038-bank1-no-selector-alias", write(1, 0xd0, 0), {}, error),
+        ("control2038-unknown-profile", write(0, 0x48, 1), {}, error),
+        ("control2038-unknown-control", write(1, 0xc, 2), {}, error),
+        ("control2038-unknown-f0", write(1, 0xf0, 0), {}, error),
+        ("control2038-unbound-command-read", read(0, 8, 4), {}, error),
+        ("control2038-internal-hole", read(1, 0x28, 4), {}, error),
+        ("control2038-byte-width", constant(0, base + 0x24) + [0xe5d04000], {}, error),
+        ("control2038-halfword-width", constant(0, base + 0x400e8) + [0xe1c010b0], {}, error),
+        ("control2038-aperture-end", read(0, 0x680, 4), {}, "uncovered-address"),
+        ("control2038-bank-gap-unmapped", read(0, 0x10000, 4), {}, "uncovered-address"),
+    ] + [(f"control2038-request-{offset:x}-unbound", write(0, offset, 1), {}, error)
+         for offset in (8, 0x10, 0x54, 0x60, 0x6c, 0x78, 0x580)] + \
+        [("control2038-qtest-" + suffix, [], {}, None) for suffix in (
+            "profiles-and-disconnected", "independent-pending-mask-ack",
+            "reset-and-strict-preflight")]
+
+
+def run_control2038(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control2038", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<z7ii-control2038-functional>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(bank, offset, value):
+                command(f"writel {0x20380000 + bank * 0x40000 + offset:#x} {value:#x}")
+
+            def read(bank, offset):
+                return int(command(f"readl {0x20380000 + bank * 0x40000 + offset:#x}").split()[1], 16)
+
+            def pin(bank, bit, level):
+                command(f"set_irq_in {path} pending-bit {bank * 32 + bit} {level}")
+
+            def snapshot():
+                return [read(bank, offset) for bank in range(2)
+                        for offset in sorted(control2038_profile(True) | {0xe8: 0, 0x24: 0})] + \
+                       [read(0, 0xd0)]
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            assert read(0, 0x24) == read(1, 0x24) == 0
+            if name.endswith("profiles-and-disconnected"):
+                for dual in (False, True):
+                    for bank in range(2):
+                        for offset, value in control2038_profile(dual).items():
+                            write(bank, offset, value)
+                        write(bank, 0xe8, 0xffffff71)
+                    write(0, 0xd0, int(dual))
+                    for bank in range(2):
+                        for offset, value in control2038_profile(dual).items():
+                            assert read(bank, offset) == value
+                    before = snapshot()
+                    command("clock_step 1000000000")
+                    assert snapshot() == before
+                    assert not any(levels.values())
+            elif name.endswith("independent-pending-mask-ack"):
+                for bank in range(2):
+                    write(bank, 0xe8, 0xffffffff)
+                    pin(bank, 7, 1)
+                    pin(bank, 31, 1)
+                    assert read(bank, 0x24) == 0x80000080
+                assert not any(levels.values())
+                write(0, 0xe8, 0xffffff71)
+                write(1, 0xe8, 0)
+                assert read(1, 0x24) == 0x80000080 and levels[0] and levels[1]
+                for bank in range(2):
+                    for offset, value in ((0, 3), (4, 3), (0xc, 1), (0xf0, 0xfc400)):
+                        write(bank, offset, value)
+                    assert read(bank, 0x24) == 0x80000080
+                write(0, 0x24, 0x80)
+                assert read(0, 0x24) == 0x80000000 and not levels[0] and levels[1]
+                write(1, 0x24, 0x80000000)
+                assert read(1, 0x24) == 0x80 and levels[1]
+                write(1, 0x24, 0xffffffff)
+                assert read(1, 0x24) == 0 and not levels[1]
+                pin(1, 7, 1)
+                assert read(1, 0x24) == 0
+                pin(1, 7, 0)
+                pin(1, 7, 1)
+                assert read(1, 0x24) == 0x80 and levels[1]
+            elif name.endswith("reset-and-strict-preflight"):
+                for bank in range(2):
+                    for offset, value in control2038_profile(bool(bank)).items():
+                        write(bank, offset, value)
+                    pin(bank, 7, 1)
+                before = snapshot()
+                for bank in range(2):
+                    for offset, value in ((0, 0), (4, 1), (0xc, 2), (0xf0, 0),
+                                          (0x48, 0), (0x44, 1), (0x67c, 1)) + \
+                                         tuple((x, 1) for x in (8, 0x10, 0x54, 0x60, 0x6c, 0x78, 0x580)):
+                        write(bank, offset, value)
+                        assert snapshot() == before and levels[0] and levels[1]
+                write(1, 0xd0, 1)
+                for text in ("writel 0x20380025 0xffffffff", "writeb 0x203c00e8 0xff",
+                             "writew 0x20380048 0xffff", "readl 0x20380008",
+                             "readl 0x203c0028"):
+                    command(text)
+                    assert snapshot() == before and levels[0] and levels[1]
+                write(0, 0x310, 0x12345678)
+                assert read(0, 0x310) == 0x12345678 and read(1, 0x310) == 0xdeadbeef
+                vm.cmd("system_reset")
+                assert snapshot() == [0] * len(before) and not any(levels.values())
+                pin(0, 7, 1)
+                assert read(0, 0x24) == 0 and not any(levels.values())
+                pin(0, 7, 0)
+                pin(0, 7, 1)
+                assert read(0, 0x24) == 0x80 and levels[0] and not levels[1]
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "two finite MMIO banks, explicit virtual raw inputs and independent IRQ outputs; no firmware/frame"}
+
+
 def control2010_config_values():
     # Original finite setup shapes, independently transcribed from the source.
     values = {offset: 0xffffffff for first, last in (
@@ -3275,6 +3459,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control2038-qtest-"):
+        return run_control2038(binary, output, name)
     if name.startswith("control2010-qtest-"):
         return run_control2010(binary, output, name)
     if name.startswith("sysconfig-word-input-"):
@@ -3510,7 +3696,8 @@ def main():
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
-             fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures())
+             fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
+             control2038_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
