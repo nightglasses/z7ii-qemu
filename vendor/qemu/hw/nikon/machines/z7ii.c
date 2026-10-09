@@ -24,13 +24,26 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 #define MAS_BASE 0x10020000ULL
 #define MAS_MAX_SIZE 0x2477b78ULL
-#define STACK_SLOT_SIZE 0x4000
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
 #define COMPLETION_BASE 0x04287000ULL
 #define CBAR_BASE 0xf8100000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
+
+/* Source address-class records 21..26, with source-bound storage consumers. */
+static const struct {
+    const char *name;
+    hwaddr base;
+    uint64_t size;
+} z7ii_storage[] = {
+    { "z7ii.kernel",   0xb1800000, 0x4700000 },
+    { "z7ii.private",  0xb5f00000, 0x1e00000 },
+    { "z7ii.modules",  0xb7d00000, 0x2d00000 },
+    { "z7ii.code",     0xbaa00000, 0x0900000 },
+    { "z7ii.graphics", 0xbb300000, 0x0e00000 },
+    { "z7ii.pixels",   0xbc100000, 0x1100000 },
+};
 
 typedef struct Z7IINorSlot {
     MemoryRegion region;
@@ -45,15 +58,7 @@ struct Z7IIMachineState {
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
     MemoryRegion unknown;
-    MemoryRegion copy_ram[2];
-    MemoryRegion table_ram;
-    MemoryRegion bss_ram;
-    MemoryRegion bss_storage;
-    MemoryRegion kernel_arena;
-    MemoryRegion relocated_code;
-    MemoryRegion module_buffer;
-    MemoryRegion private_class;
-    MemoryRegion stack_ram[6 * Z7II_MAX_CPUS];
+    MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
     DeviceState *memc;
@@ -190,10 +195,6 @@ static void z7ii_init(MachineState *machine)
     SysBusDevice *gic_bus;
     int64_t image_size;
     unsigned i;
-    static const hwaddr stack_top[] = {
-        0xb2bb0000, 0xb2ba8000, 0xb2ba0000,
-        0xb2b98000, 0xb2b90000, 0xb2b88000,
-    };
 
     if (strcmp(machine->cpu_type, ARM_CPU_TYPE_NAME("cortex-a7"))) {
         error_report("z7ii-mas-diagnostic currently requires Cortex-A7");
@@ -253,53 +254,25 @@ static void z7ii_init(MachineState *machine)
         }
     }
 
-    /* Static MAS copy contracts: destinations only; guest performs the copy. */
-    z7ii_ram(&s->copy_ram[0], "z7ii.copy0", 0xb1800000, 0xaedb8);
-    z7ii_ram(&s->copy_ram[1], "z7ii.copy1", 0xb2bb0000, 0x105c);
-    /* Explicit byte-block fill profile: count 0x4ac * width 0x4000. */
-    /* Preserve RAM/guest page-offset congruence without mapping padding. */
-    memory_region_init_ram(&s->bss_storage, NULL, "z7ii.fill-bss-storage",
-                           0x12b0dc0, &error_fatal);
-    memory_region_init_alias(&s->bss_ram, NULL, "z7ii.fill-bss",
-                             &s->bss_storage, 0xdc0, 0x12b0000);
-    memory_region_add_subregion(get_system_memory(), 0xb18aedc0, &s->bss_ram);
-    /* Original descriptor lowmem bounds, not a physical DDR capacity. */
-    z7ii_ram(&s->kernel_arena, "z7ii.kernel-lowmem", 0xb2c00000, 0x3300000);
     /*
-     * Original address-class initializer declares [baa00000,bb300000).
-     * This finite virtual capacity includes the earlier kernel destination.
-     * The guest owns code copies, aliases and PTE updates; no source is seeded.
+     * The complete software storage profile replaces allocation-sized RAM.
+     * Each source class has one backing shared by CPU and DMA; kernel copies,
+     * BSS, page tables and per-core stacks all belong to class21. Classes22..26
+     * supply private objects, modules, code and both graphics heaps. Logical
+     * class aliases are translated only by the guest MMU, never a bus mirror.
+     * Cold zero and full-class capacity are functional-board assumptions, not
+     * installed DDR geometry. Guest code produces copies, PTEs, allocator
+     * pointers and object metadata. Address-class flags alone do not grant RAM:
+     * the other catch-all and external classes retain their existing owners.
      */
-    z7ii_ram(&s->relocated_code, "z7ii.relocated-code", 0xbaa00000, 0x900000);
-    /*
-     * Four original bump requests observed from reset: 0x3a0000, 0x31f28,
-     * 6 and 0xa410 bytes, each aligned to 64 bytes by the guest allocator.
-     * Their contiguous union is finite virtual backing, not heap capacity.
-     * The guest owns all copies, allocation pointers and object metadata.
-     */
-    z7ii_ram(&s->module_buffer, "z7ii.module-buffer", 0xb7d00000, 0x3dc3c0);
-    /*
-     * Original address-class pair: [14000000,15e00000) <-> [b5f00000,b7d00000).
-     * This declared 30MiB virtual storage includes the original message ring.
-     * Cold zero is a functional assumption, not physical heap capacity.
-     * CPU logical views use the guest MMU, without a new physical bus alias.
-     * Guest objects, ring indices and signatures are untouched.
-     */
-    z7ii_ram(&s->private_class, "z7ii.private-class", 0xb5f00000, 0x1e00000);
-    z7ii_ram(&s->table_ram, "z7ii.table", 0xb2b74000, 0x4000);
+    for (i = 0; i < ARRAY_SIZE(z7ii_storage); i++) {
+        z7ii_ram(&s->storage[i], z7ii_storage[i].name,
+                 z7ii_storage[i].base, z7ii_storage[i].size);
+    }
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
     z7ii_ram(&s->early_release, "z7ii.early-release", 0x04008ffc, 4);
-    /* Each guest SP is top - (MPIDR selector << 14). The 16KiB backing
-     * per mode/core is a declared virtual capacity, not proven by that stride. */
-    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
-        unsigned core = i / ARRAY_SIZE(stack_top);
-        unsigned mode = i % ARRAY_SIZE(stack_top);
-        g_autofree char *name = g_strdup_printf("z7ii.cpu%u-stack%u", core, mode);
-        z7ii_ram(&s->stack_ram[i], name,
-                 stack_top[mode] - (core + 1) * STACK_SLOT_SIZE, STACK_SLOT_SIZE);
-    }
 
     {
         DeviceState *config = qdev_new(TYPE_NIKON_MXIC_CONFIG);
@@ -308,18 +281,8 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(config), 1, 0x24074000);
     }
     mxic = sysbus_create_simple(TYPE_NIKON_MXIC, 0x20016000, NULL);
-    nikon_mxic_attach_ram(mxic, &s->copy_ram[0], 0xb1800000);
-    nikon_mxic_attach_ram(mxic, &s->copy_ram[1], 0xb2bb0000);
-    nikon_mxic_attach_ram(mxic, &s->bss_ram, 0xb18aedc0);
-    nikon_mxic_attach_ram(mxic, &s->kernel_arena, 0xb2c00000);
-    nikon_mxic_attach_ram(mxic, &s->relocated_code, 0xbaa00000);
-    nikon_mxic_attach_ram(mxic, &s->module_buffer, 0xb7d00000);
-    nikon_mxic_attach_ram(mxic, &s->private_class, 0xb5f00000);
-    nikon_mxic_attach_ram(mxic, &s->table_ram, 0xb2b74000);
-    for (i = 0; i < machine->smp.cpus * ARRAY_SIZE(stack_top); i++) {
-        nikon_mxic_attach_ram(mxic, &s->stack_ram[i],
-                            stack_top[i % ARRAY_SIZE(stack_top)] -
-                            (i / ARRAY_SIZE(stack_top) + 1) * STACK_SLOT_SIZE);
+    for (i = 0; i < ARRAY_SIZE(z7ii_storage); i++) {
+        nikon_mxic_attach_ram(mxic, &s->storage[i], z7ii_storage[i].base);
     }
 
     s->num_cpus = machine->smp.cpus;
@@ -380,6 +343,16 @@ static void z7ii_init(MachineState *machine)
                          qdev_get_gpio_in(gic, 127 - 32));
     sysbus_create_simple(TYPE_NIKON_IPUD, 0x24020000,
                          qdev_get_gpio_in(gic, 101 - 32));
+    {
+        DeviceState *transfer = sysbus_create_simple(TYPE_NIKON_TRANSFER,
+                                  0x20180000,
+                                  qdev_get_gpio_in(gic, 129 - 32));
+
+        for (i = 1; i < 3; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(transfer), i,
+                               qdev_get_gpio_in(gic, 129 + i - 32));
+        }
+    }
     sysbus_create_simple(TYPE_NIKON_STAGED_CONFIGURATION, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
     sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,

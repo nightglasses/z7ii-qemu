@@ -32,5 +32,6 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/table.c',
   'devices/timestamp.c',
   'devices/timing.c',
+  'devices/transfer.c',
   'devices/usio.c',
 ))

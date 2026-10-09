@@ -17,6 +17,7 @@
 #define TYPE_NIKON_AUDIO "nikon-audio-functional"
 #define TYPE_NIKON_TIMING "nikon-timing-functional"
 #define TYPE_NIKON_COPY "nikon-copy-functional"
+#define TYPE_NIKON_TRANSFER "nikon-transfer-functional"
 #define TYPE_NIKON_BRIDGE "nikon-bridge-functional"
 #define TYPE_NIKON_SIGNAL "nikon-signal-functional"
 #define TYPE_NIKON_IPUD "nikon-ipud-functional"

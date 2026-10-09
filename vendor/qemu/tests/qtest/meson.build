@@ -238,7 +238,7 @@ qtests_stm32l4x5 = \
    'stm32l4x5_usart-test']
 
 qtests_arm = \
-  (config_all_devices.has_key('CONFIG_NIKON_Z7II') ? ['nikon', 'nikon_timer', 'nikon_dma'] : []) + \
+  (config_all_devices.has_key('CONFIG_NIKON_Z7II') ? ['nikon', 'nikon_timer', 'nikon_dma', 'nikon_memory'] : []) + \
   (config_all_devices.has_key('CONFIG_MPS2') ? ['sse-timer-test'] : []) + \
   (config_all_devices.has_key('CONFIG_CMSDK_APB_DUALTIMER') ? ['cmsdk-apb-dualtimer-test'] : []) + \
   (config_all_devices.has_key('CONFIG_CMSDK_APB_TIMER') ? ['cmsdk-apb-timer-test'] : []) + \
@@ -476,11 +476,13 @@ foreach dir : target_dirs
     # encounter them
     if not qtest_executables.has_key(test)
       if test == 'nikon'
-        src = files('nikon/devices.c', 'nikon/completion.c', 'nikon/bridge.c')
+        src = files('nikon/devices.c', 'nikon/completion.c', 'nikon/bridge.c', 'nikon/transfer.c')
       elif test == 'nikon_timer'
         src = files('nikon/timer.c')
       elif test == 'nikon_dma'
         src = files('nikon/dma.c')
+      elif test == 'nikon_memory'
+        src = files('nikon/memory.c')
       else
         src = [test + '.c']
       endif
@@ -494,7 +496,7 @@ foreach dir : target_dirs
       endif
       qtest_executables += {
         test: executable(test, src, dependencies: deps,
-                         include_directories: test in ['nikon', 'nikon_timer', 'nikon_dma'] ? include_directories('.') : [])
+                         include_directories: test in ['nikon', 'nikon_timer', 'nikon_dma', 'nikon_memory'] ? include_directories('.') : [])
       }
     endif
 
@@ -505,7 +507,7 @@ foreach dir : target_dirs
     endif
 
     suites = ['qtest', 'qtest-' + target_base]
-    if test in ['nikon', 'nikon_timer', 'nikon_dma']
+    if test in ['nikon', 'nikon_timer', 'nikon_dma', 'nikon_memory']
       suites += ['nikon']
     endif
     if test == 'nikon'
