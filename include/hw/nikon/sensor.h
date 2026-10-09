@@ -7,6 +7,31 @@
 #include "hw/core/qdev.h"
 
 #define TYPE_NIKON_SENSOR "nikon-sensor"
+#define TYPE_NIKON_SDES "nikon-sdes"
+
+/* SDES Driver's three independently mapped regions, in this order. */
+enum NikonSdesRegion {
+    NIKON_SDES_CONFIGURATION,
+    NIKON_SDES_STATUS,
+    NIKON_SDES_PARAMETERS,
+    NIKON_SDES_REGIONS,
+};
+
+/* Five original handlers, registered to IRQ89 through IRQ93 respectively.
+ * Publication supplies an actual external event's complete status snapshot;
+ * it does not identify a frame, exposure, data format or physical sensor.
+ */
+enum NikonSdesEvent {
+    NIKON_SDES_STATUS_EVENT,
+    NIKON_SDES_PRIMARY_EVENT,
+    NIKON_SDES_PRIMARY_DETAIL_EVENT,
+    NIKON_SDES_SECONDARY_EVENT,
+    NIKON_SDES_SECONDARY_DETAIL_EVENT,
+    NIKON_SDES_EVENTS,
+};
+
+bool nikon_sdes_publish(DeviceState *dev, enum NikonSdesEvent event,
+                        const uint32_t *words, size_t count, Error **errp);
 
 /* Opaque input rows: this interface does not assign a Bayer or packing format.
  * The controller must supply its actual byte geometry and physical destination.

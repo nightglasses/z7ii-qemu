@@ -1248,6 +1248,302 @@ static void test_upload_capture_rejection(void)
     unlink(package);
 }
 
+static void test_sci5_peer_attach(void)
+{
+    g_autofree char *path = test_package(false);
+    g_autofree char *args = g_strdup_printf(
+        "-machine nikonvr -bios %s -display none "
+        "-device nikon-peer,id=wire,chardev=s0 "
+        "-device nikon-vr-peer,id=vrpeer,peer=wire,"
+        "peripherals=/machine/vr-peripherals", path);
+    int fd;
+    QTestState *qts = qtest_init_with_serial(args, &fd);
+    QDict *reply, *failure;
+
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/vrpeer',"
+        "'property':'realized','value':false}}");
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 1, 8, 0, 0x31);
+    peer_no_reply(fd);
+    reply = qtest_qmp(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/vrpeer',"
+        "'property':'realized','value':true}}");
+    failure = qdict_get_qdict(reply, "error");
+    g_assert_nonnull(failure);
+    g_assert_cmpstr(qdict_get_str(failure, "desc"), ==,
+                    "VR SCI endpoint cannot attach during an incoming request");
+    qobject_unref(reply);
+    peer_send(fd, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK, 1, 8, 0, 0);
+    peer_no_reply(fd);
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/vrpeer',"
+        "'property':'realized','value':true}}");
+    /* Successful re-attachment proves the failed realize released both the
+     * transport state hook and the peripheral GPIO observer.
+     */
+    qtest_writeb(qts, 0x8c020, 1);
+    qtest_writeb(qts, 0x8c000, 1);
+    peer_receive(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 0, 1);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    peer_wait_pad(qts, 0x8c044, 0x80, 0);
+    peer_arm(qts, 0xa5, 1, 1);
+    peer_no_reply(fd); /* The rejected raw token was never re-clocked. */
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 2, 8, 0, 0x32);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 2, 8, 0, 0xa5);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x32);
+    close(fd);
+    qtest_quit(qts);
+    unlink(path);
+}
+
+static uint64_t update_frames(QTestState *qts)
+{
+    QDict *reply = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/peripheral/update',"
+        "'property':'frames'}}");
+    uint64_t frames;
+
+    g_assert_true(qdict_haskey(reply, "return"));
+    frames = qdict_get_int(reply, "return");
+    qobject_unref(reply);
+    return frames;
+}
+
+static void update_transfer(QTestState *qts, int fd, uint64_t *token,
+                            uint64_t *frames, uint8_t command,
+                            const uint8_t *record, bool corrupt,
+                            unsigned bits, uint8_t status)
+{
+    uint8_t packet[268] = { command, 0, command == 0xf7 ? 8 : 0x10,
+                           command == 0xf7 ? 1 : 0 };
+    unsigned length = command == 0xf7 ? 268 : 152;
+    unsigned i, bytes = bits / 8;
+    int64_t deadline;
+
+    if (command == 0xf7) {
+        uint8_t sum = 0;
+
+        memcpy(packet + 4, record, 262);
+        for (i = 0; i < 262; i++) {
+            sum += record[i];
+        }
+        packet[267] = -sum;
+        if (corrupt) {
+            packet[267] ^= 1;
+        }
+    }
+    g_assert_true(bits == 8 || bits == 16);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    for (i = 0; i < length; i += bytes) {
+        uint32_t word = bits == 16 ? lduw_le_p(packet + i) : packet[i];
+        uint32_t reply = bits == 16 ? 0xffff : 0xff;
+
+        if (!i) {
+            reply = bits == 16 ? 0xff00 | status : status;
+        }
+        peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, ++*token,
+                  bits, 0, word);
+        peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, *token,
+                     bits, 0, reply);
+    }
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 1);
+    ++*frames;
+    deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+    while (update_frames(qts) != *frames) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+}
+
+static void test_update_peer(void)
+{
+    uint8_t record[262] = { 4, 1, 4, 0, 0, 1 };
+    uint8_t metadata_seed[512], metadata_expected[512] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree uint8_t *expected = g_malloc(819200);
+    g_autofree char *package = NULL;
+    g_autofree char *body_path = NULL, *metadata_path = NULL, *args = NULL;
+    g_autofree char *readback = NULL;
+    g_autoptr(GError) error = NULL;
+    QTestState *qts;
+    uint64_t token = UINT64_C(0x100000000), frames = 0;
+    gsize size;
+    int fd;
+
+    if (g_test_subprocess()) {
+        QTestState *child = qtest_initf("-machine nikonvr -bios %s "
+            "-drive if=none,id=uploadbody,format=raw,file=%s "
+            "-drive if=none,id=uploadmetadata,format=raw,file=%s "
+            "-chardev null,id=s0 -chardev null,id=s1 "
+            "-device nikon-peer,id=wire,chardev=s0 "
+            "-device nikon-peer,id=wire2,chardev=s1 "
+            "-device nikon-vr-input,id=input,upload-body-drive=uploadbody,"
+            "upload-metadata-drive=uploadmetadata,upload-storage-base=0xfff00000,"
+            "upload-storage-size=819200,upload-record-persistence=true "
+            "-device nikon-update-peer,id=update,peer=/machine/peripheral/wire,"
+            "input=/machine/peripheral/input,stream-size=786,origin=first-owner "
+            "-device nikon-update-peer,id=other,peer=/machine/peripheral/wire2,"
+            "input=/machine/peripheral/input,stream-size=786,origin=second-owner",
+            g_getenv("NIKON_UPDATE_PACKAGE"), g_getenv("NIKON_UPDATE_BODY"),
+            g_getenv("NIKON_UPDATE_METADATA"));
+
+        qtest_quit(child);
+        return;
+    }
+
+    package = test_package(false);
+    memset(expected, 0x5a, 819200);
+    memset(metadata_seed, 0xee, sizeof(metadata_seed));
+    memset(metadata_expected + 262, 0xee, sizeof(metadata_expected) - 262);
+    body_path = test_input_file(expected, 819200);
+    metadata_path = test_input_file(metadata_seed, sizeof(metadata_seed));
+    args = g_strdup_printf("-machine nikonvr -bios %s "
+        "-drive if=none,id=uploadbody,format=raw,file=%s "
+        "-drive if=none,id=uploadmetadata,format=raw,file=%s "
+        "-device nikon-peer,id=wire,chardev=s0 "
+        "-device nikon-vr-input,id=input,upload-body-drive=uploadbody,"
+        "upload-metadata-drive=uploadmetadata,upload-storage-base=0xfff00000,"
+        "upload-storage-size=819200,upload-record-persistence=true "
+        "-device nikon-update-peer,id=update,peer=/machine/peripheral/wire,"
+        "input=/machine/peripheral/input,"
+        "stream-size=786,origin=synthetic-update-wire",
+        package, body_path, metadata_path);
+    qts = qtest_init_with_serial(args, &fd);
+
+    /* This exclusive native owner cannot be replaced by guest-capture/QMP. */
+    input_operation(qts, "upload-begin", false);
+    input_operation(qts, "upload-capture", false);
+    input_operation(qts, "upload-cancel", false);
+    /* Ordinary QOM lifecycle: a bare peer may already have an incoming token.
+     * Failed attachment must release both claims, without consuming the token.
+     */
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/update',"
+        "'property':'realized','value':false}}");
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, ++token, 16, 0, 0x00f5);
+    peer_no_reply(fd);
+    {
+        QDict *reply = qtest_qmp(qts,
+            "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/update',"
+            "'property':'realized','value':true}}");
+        QDict *failure = qdict_get_qdict(reply, "error");
+
+        g_assert_nonnull(failure);
+        g_assert_cmpstr(qdict_get_str(failure, "desc"), ==,
+                        "Update endpoint cannot attach during an incoming request");
+        qobject_unref(reply);
+    }
+    input_operation(qts, "upload-cancel", true); /* No leaked input owner. */
+    peer_send(fd, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK, token, 16, 0, 0);
+    peer_no_reply(fd);
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/update',"
+        "'property':'realized','value':true}}");
+    input_operation(qts, "upload-cancel", false); /* Re-attached owner is live. */
+    update_transfer(qts, fd, &token, &frames, 0xf5, NULL, false, 16, 1);
+    upload_wait_store(qts);
+    g_assert_true(input_get_bool(qts, "upload-prepared"));
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 8, 2);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 0);
+
+    update_transfer(qts, fd, &token, &frames, 0xf7, record, false, 16, 2);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 262);
+    g_assert_true(g_file_get_contents(metadata_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, metadata_expected, sizeof(metadata_expected));
+    g_clear_pointer(&readback, g_free);
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 16, 2);
+
+    stl_le_p(record + 2, 0xfff00000);
+    memset(record + 6, 0xa5, 256);
+    update_transfer(qts, fd, &token, &frames, 0xf7, record, false, 16, 2);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 524);
+    memset(expected, 0xa5, 256);
+    g_assert_true(g_file_get_contents(body_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, expected, 819200);
+    g_clear_pointer(&readback, g_free);
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 16, 2);
+
+    stl_le_p(record + 2, 0xfff00100);
+    memset(record + 6, 0x3c, 256);
+    update_transfer(qts, fd, &token, &frames, 0xf7, record, false, 16, 2);
+    upload_wait_store(qts);
+    g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 786);
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 16, 2);
+    update_transfer(qts, fd, &token, &frames, 0xfa, NULL, false, 16, 2);
+    upload_wait_store(qts);
+    g_assert_true(input_get_bool(qts, "upload-durable-final"));
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 16, 3);
+
+    /* Restart, then reject an invalid F7 instead of reusing old eligible 2. */
+    update_transfer(qts, fd, &token, &frames, 0xf5, NULL, false, 16, 3);
+    upload_wait_store(qts);
+    update_transfer(qts, fd, &token, &frames, 0xf7, record, true, 16, 2);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    upload_status_unavailable(qts);
+    update_transfer(qts, fd, &token, &frames, 0xf8, NULL, false, 16, 1);
+
+    update_transfer(qts, fd, &token, &frames, 0xf5, NULL, false, 16, 1);
+    upload_wait_store(qts);
+    /* A clock with inactive physical CS remains uncompleted. Cancel clears
+     * the stage and cannot deliver a late byte into the next CS interval.
+     */
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, ++token, 16, 0, 0x00f7);
+    peer_no_reply(fd);
+    peer_send(fd, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK, token, 16, 0, 0);
+    peer_no_reply(fd);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    upload_status_unavailable(qts);
+
+    update_transfer(qts, fd, &token, &frames, 0xf5, NULL, false, 16, 1);
+    upload_wait_store(qts);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, ++token, 16, 0, 0x00f7);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, token, 16, 0, 0xff02);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    frames = 0;
+    peer_no_reply(fd);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    g_assert_false(input_get_bool(qts, "busy"));
+    update_transfer(qts, fd, &token, &frames, 0xf5, NULL, false, 16, 1);
+    upload_wait_store(qts);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, ++token, 16, 0, 0x00f7);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, token, 16, 0, 0xff02);
+    close(fd);
+    peer_wait_disconnected(qts);
+    g_assert_false(input_get_bool(qts, "upload-prepared"));
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmphex(qtest_readb(qts, 0x8a0a2), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8201c), ==, 0);
+    qtest_quit(qts);
+
+    memset(expected + 256, 0x3c, 256);
+    g_assert_true(g_file_get_contents(body_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, expected, 819200);
+    g_clear_pointer(&readback, g_free);
+    g_assert_true(g_file_get_contents(metadata_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, metadata_expected, sizeof(metadata_expected));
+    g_setenv("NIKON_UPDATE_PACKAGE", package, true);
+    g_setenv("NIKON_UPDATE_BODY", body_path, true);
+    g_setenv("NIKON_UPDATE_METADATA", metadata_path, true);
+    g_test_trap_subprocess(NULL, 5 * G_USEC_PER_SEC, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*unused realized per-record input*");
+    g_test_trap_assert_stderr_unmatched("*Assertion*");
+    g_unsetenv("NIKON_UPDATE_PACKAGE");
+    g_unsetenv("NIKON_UPDATE_BODY");
+    g_unsetenv("NIKON_UPDATE_METADATA");
+    unlink(package);
+    unlink(body_path);
+    unlink(metadata_path);
+}
+
 static void test_external_conflict(void)
 {
     if (g_test_subprocess()) {
@@ -1337,6 +1633,8 @@ static void test_external_rejection(void)
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    qtest_add_func("/nikon/vr/update-peer", test_update_peer);
+    qtest_add_func("/nikon/vr/sci5-peer-attach", test_sci5_peer_attach);
     qtest_add_func("/nikon/vr/upload-staging", test_upload_staging);
     qtest_add_func("/nikon/vr/upload-persistence", test_upload_persistence);
     qtest_add_func("/nikon/vr/upload-record-progress", test_upload_record_progress);

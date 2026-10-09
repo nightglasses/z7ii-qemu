@@ -477,3 +477,9 @@ focused case in 0.81 seconds with exit 0. Its receipt is
 passes were retained, and the external-input five and peripheral nine were
 not rerun. These results do not claim original firmware boot or an original
 peer response.
+
+The explicitly selected independent [functional update peer](../devices/update/protocol.md)
+connects the same qualified parser and native storage producer to actual
+NikonPeer CS/8-or-16-bit frames. It supplies source-consumed status 2/3 only
+after durable operations and uses explicit idle ones for unconsumed bytes.
+This profile is separate from the original SCI/resident execution path.

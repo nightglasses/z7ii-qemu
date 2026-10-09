@@ -172,7 +172,12 @@ static void vr_peer_realize(DeviceState *dev, Error **errp)
         error_setg(errp, "nikon-vr-peer requires an unused VR GPIO observer");
         return;
     }
-    nikon_peer_endpoint(s->peer, &vr_peer_operations, s);
+    if (!nikon_peer_endpoint(s->peer, &vr_peer_operations, s)) {
+        nikon_vr_peripherals_gpio_out(s->peripherals, NULL, s);
+        nikon_peer_state(s->peer, NULL, NULL);
+        error_setg(errp, "VR SCI endpoint cannot attach during an incoming request");
+        return;
+    }
     s->attached = true;
     /* This frontend has no parent bus to include it in system resets. */
     qemu_register_resettable(OBJECT(dev));

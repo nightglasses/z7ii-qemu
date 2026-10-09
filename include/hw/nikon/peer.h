@@ -63,7 +63,8 @@ typedef void (*NikonPeerState)(void *, bool connected);
  * use one in-flight transaction per peer.  False means no accepted request;
  * no RX byte, completion IRQ, or guest acknowledgement is manufactured.
  */
-void nikon_peer_endpoint(NikonPeer *, const NikonPeerEndpointOps *, void *);
+/* Attaching while an incoming request is active fails without mutation. */
+bool nikon_peer_endpoint(NikonPeer *, const NikonPeerEndpointOps *, void *);
 /* Cancel an incoming clock without reply; remote master stays uncompleted. */
 bool nikon_peer_endpoint_cancel(NikonPeer *, uint64_t token);
 bool nikon_peer_state(NikonPeer *, NikonPeerState, void *);

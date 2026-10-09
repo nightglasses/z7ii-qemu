@@ -62,3 +62,8 @@
 | [ex.md](docs/runtime/ex.md) | MAS／SLA／EX 五执行上下文、私有地址域与原生连线 |
 | [pressure.md](docs/tests/pressure.md) | 实际 socket 队列压力、断连与重连验证 |
 | [domains.md](docs/validation/domains.md) | 私有执行域、外部输入与上传持久化的固定源码和收据 |
+| [protocol.md](docs/devices/lanes/protocol.md) | 两路有限 write-only 配置字段与源代码合同 |
+| [sla.md](docs/devices/signal/sla.md) | SLA 五路独立 signal 的原协议与私有接线 |
+| [sla.md](docs/devices/staging/sla.md) | SLA 原 staged configuration、显式事件与 IRQ |
+| [protocol.md](docs/devices/update/protocol.md) | 有界功能更新端点、原子 claim 与实际持久化 |
+| [layers.md](docs/validation/layers.md) | 控制器及外部输入层的固定源码与原生验证收据 |

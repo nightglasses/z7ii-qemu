@@ -719,6 +719,113 @@ static void test_lifecycle(void)
     wire_quit(&t);
 }
 
+static QDict *realize_attempt(QTestState *q, unsigned link)
+{
+    g_autofree char *path = g_strdup_printf("/machine/peripheral/link%u", link);
+
+    return qtest_qmp(q,
+        "{'execute':'qom-set','arguments':{'path':%s,"
+        "'property':'realized','value':true}}", path);
+}
+
+static void incoming_rejected(QTestState *q, unsigned link)
+{
+    QDict *response = realize_attempt(q, link);
+
+    g_assert_true(qdict_haskey(response, "error"));
+    g_assert_nonnull(strstr(qdict_get_str(qdict_get_qdict(response, "error"),
+                                        "desc"), "pending incoming request"));
+    qobject_unref(response);
+}
+
+static void test_incoming(void)
+{
+    I2CWireTest t = wire_start(2);
+    uint8_t incoming[NIKON_WIRE_SIZE] = { 0 }, frame[NIKON_WIRE_SIZE];
+    int64_t deadline;
+    bool pending = false, realized = false;
+
+    set_realized(t.q, 0, false);
+    set_link(t.q, 0, "i2c", "/machine/i2c1");
+    stl_le_p(incoming, NIKON_WIRE_MAGIC);
+    incoming[NIKON_WIRE_TYPE] = NIKON_WIRE_REQUEST;
+    incoming[NIKON_WIRE_BITS] = 8;
+    incoming[NIKON_WIRE_KIND] = NIKON_PEER_I2C;
+    stq_le_p(incoming + NIKON_WIRE_TOKEN, 0x80000001);
+    stl_le_p(incoming + NIKON_WIRE_LINE, NIKON_I2C_START);
+    stl_le_p(incoming + NIKON_WIRE_WORD, 0x55);
+    g_assert_cmpint(send(t.fd[0], incoming, sizeof(incoming), 0), ==,
+                    sizeof(incoming));
+
+    /* Controller1 is owned by link1, so every attempt must fail even before
+     * the socket callback consumes REQUEST. Observe the real pending error
+     * without a delay assumption or a test-only transport state query. */
+    deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+    while (!pending) {
+        QDict *response = realize_attempt(t.q, 0);
+        const char *desc;
+
+        g_assert_true(qdict_haskey(response, "error"));
+        desc = qdict_get_str(qdict_get_qdict(response, "error"), "desc");
+        pending = strstr(desc, "pending incoming request") != NULL;
+        if (!pending) {
+            g_assert_nonnull(strstr(desc, "already has an asynchronous peer"));
+        }
+        qobject_unref(response);
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        qtest_clock_step(t.q, STEP_NS);
+        g_usleep(1000);
+    }
+
+    /* An untouched controller must not be claimed by the rejected frontend.
+     * A second owner must see the same pending request, rather than a leaked
+     * state hook. Repeated failures must not cancel the sender's request. */
+    set_link(t.q, 0, "i2c", "/machine/i2c2");
+    incoming_rejected(t.q, 0);
+    incoming_rejected(t.q, 0);
+    set_realized(t.q, 1, false);
+    set_link(t.q, 1, "peer", "/machine/peripheral/wire0");
+    set_link(t.q, 1, "i2c", "/machine/i2c2");
+    incoming_rejected(t.q, 1);
+    wire_quiet(&t, 0);
+    g_assert_cmphex(read_reg(t.q, 2, 4) & 0x160, ==, 0);
+    g_assert_cmphex(read_reg(t.q, 2, 0x10), ==, 0);
+
+    incoming[NIKON_WIRE_TYPE] = NIKON_WIRE_CANCEL;
+    stl_le_p(incoming + NIKON_WIRE_WORD, 0);
+    g_assert_cmpint(send(t.fd[0], incoming, sizeof(incoming), 0), ==,
+                    sizeof(incoming));
+    deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+    while (!realized) {
+        QDict *response = realize_attempt(t.q, 1);
+
+        realized = !qdict_haskey(response, "error");
+        if (!realized) {
+            g_assert_nonnull(strstr(qdict_get_str(
+                qdict_get_qdict(response, "error"), "desc"),
+                "pending incoming request"));
+        }
+        qobject_unref(response);
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        qtest_clock_step(t.q, STEP_NS);
+        g_usleep(1000);
+    }
+    wire_quiet(&t, 0);
+
+    /* Different-owner binding performs a complete, actual socket exchange. */
+    begin_tx(t.q, 2, 0x3a, false);
+    wire_request(&t, 0, NIKON_I2C_START, 0x55, frame);
+    wire_reply(&t, 0, frame, 0);
+    wire_request(&t, 0, NIKON_I2C_WRITE, 0x3a, frame);
+    wire_reply(&t, 0, frame, 0);
+    wire_request(&t, 0, NIKON_I2C_STOP, 0, frame);
+    g_assert_cmphex(read_reg(t.q, 2, 4) & 0x100, ==, 0x100);
+    wire_reply(&t, 0, frame, 0);
+    wait_reg(t.q, 2, 4, 0x100, 0);
+    g_assert_cmphex(read_reg(t.q, 2, 0x10) & 1, ==, 1);
+    wire_quit(&t);
+}
+
 void nikon_i2c_add_tests(const char *image)
 {
     bios = image;
@@ -735,4 +842,5 @@ void nikon_i2c_add_tests(const char *image)
     qtest_add_func("/nikon/i2c/configuration", test_configuration);
     qtest_add_func("/nikon/i2c/rollback", test_rollback);
     qtest_add_func("/nikon/i2c/lifecycle", test_lifecycle);
+    qtest_add_func("/nikon/i2c/incoming", test_incoming);
 }

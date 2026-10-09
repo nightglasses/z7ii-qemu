@@ -71,3 +71,14 @@ establish original execution if a CPU enters its bytes. The option requires a
 bundle because raw MAS input has no private SLA domain. A combined run must
 record the selected input profile separately from the source-qualified EX
 endpoint and from any actual original GUI output.
+
+MAS has a separate `mas-boot-prefix` option with the same strict, erased or
+exact-file choices. The two options invoke the existing shared input parser
+independently and map distinct immutable ROMD storage in their own address
+spaces. A file supplied for one domain is not reused for the other domain.
+The original MAS selector-2 transfer reads `10000000..10100000` into `baa00000`:
+only its first 128 KiB is external; the following `e0000` bytes come from the
+original MAS package. This option maps only that missing input range, keeps
+guest writes under the existing MEMC rejection contract, and never preloads
+the destination or page tables. MAS input is also valid with raw `-bios`; an
+SLA input still requires the complete bundle.

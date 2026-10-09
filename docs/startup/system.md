@@ -111,6 +111,10 @@ typed I2C、实时 NOR sum/保存、显式 update 快照和原50018一轮计数/
 原版继续至 Oa588 WRITE8/PA801a0，单次真实 bus fault 后停止；收据为 ignored `work/tpjcontrollerqualified.log` 与 `work/tpjcontrolleroriginal.log`。
 整源前查已覆盖后继四字节801a0..a3、九页801ea/801e0 sensing 配置，以及三处 standby 消费的60003 bit4功能谓词。
 这些字段只保留实际 guest 配置或同一实际 command IRQ cause，不生成 ADC sample、扫描计数、720 ready 或触点。
-正常 sample 生命周期已由唯一 builder 在固定 `a0b8e428` 实际编译链接并执行十二组 fixture exit0；
-收据为 ignored `work/tpjsamplesqualified.log`，其中六条缺输入/非法边界诊断来自预期负向断言。
-它验证有限外部 sample、DMA 指针、缓冲所有权与取消/恢复合同，不能据此宣布原版完整启动。
+正常 sample 层的十二组 fixture 已由唯一 builder 实际 exit0，收据为
+`work/tpjsamplesqualified.log`。随后正常处理和显式 quiescence 在固定 `3935ace9`
+完成十六组 native fixture exit0，保留十一项预期负向边界与真实架构故障断言；
+收据为 `work/tpjfreezemodenative.log`。显式十四记录 startup 输入的原版整源运行在
+2,000,000 tick 预算自然退出，PC8ec8、normal9/capture2/reference2/BUFFER4/quiesce1，
+无 source boundary；独立收据为 `peer-transport/work/runtime/touch/startup.log`。
+该次 wire command 和 guest reply 均为零，不能据此宣布原版完整启动或菜单可用。

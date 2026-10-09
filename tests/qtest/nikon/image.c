@@ -59,7 +59,7 @@ static void wait_completion(QTestState *q)
     }
 }
 
-static char *pixels(QTestState *q)
+static char *pixels_head(QTestState *q, unsigned head)
 {
     const char *header = "P6\n8 8\n255\n";
     g_autofree char *path = NULL;
@@ -72,7 +72,7 @@ static char *pixels(QTestState *q)
     close(fd);
     reply = qtest_qmp(q, "{'execute':'screendump','arguments':"
                         "{'filename':%s,'format':'ppm',"
-                        "'device':'display','head':0}}", path);
+                        "'device':'display','head':%d}}", path, (int)head);
     g_assert_false(qdict_haskey(reply, "error"));
     qobject_unref(reply);
     g_assert_true(g_file_get_contents(path, &contents, &length, NULL));
@@ -81,6 +81,11 @@ static char *pixels(QTestState *q)
     memmove(contents, contents + strlen(header), 64 * 3);
     unlink(path);
     return contents;
+}
+
+static char *pixels(QTestState *q)
+{
+    return pixels_head(q, 0);
 }
 
 static void assert_color(const char *image, unsigned red, unsigned green,
@@ -237,6 +242,9 @@ static void test_ports(void)
     qtest_writel(q, BANK + 0x4000 + 0x1200, 1);
     qtest_clock_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, BANK + 0x4000 + 0x1214), ==, 1U << 16);
+    g_clear_pointer(&image, g_free);
+    image = pixels_head(q, 1);
+    assert_color(image, 0, 0, 0);
     qtest_writel(q, BANK + 0x1214, 1U << 16);
     g_assert_true(qtest_get_irq(q, 111 - 32));
     qtest_writel(q, BANK + 0x4000 + 0x1214, 1U << 16);
@@ -416,6 +424,53 @@ static void test_refresh(void)
     qtest_quit(q);
 }
 
+static void test_crop(void)
+{
+    QTestState *q = start();
+    uint32_t base = BANK + 0x4000;
+    uint8_t source[10 * 48];
+    g_autofree char *image = NULL;
+    unsigned x, y;
+
+    /* The original producer already adjusts a cropped pointer. The renderer
+     * must preserve its full row stride and not subtract viewport origin.
+     */
+    for (y = 0; y < 10; y++) {
+        for (x = 0; x < 12; x++) {
+            bool crop = y >= 1 && y < 9 && x >= 2 && x < 10;
+            stl_le_p(source + y * 48 + x * 4,
+                     crop ? 0xff00ff00 : 0xff0000ff);
+        }
+    }
+    qtest_memwrite(q, RAM, source, sizeof(source));
+    packet(q, 1, 0);
+    /* V=(-2,0,8,8), D=(0,0,8,8): pre-canvas10x8, relative layer x2. */
+    qtest_writel(q, base + 0x2204, (8U << 16) | 10);
+    qtest_writel(q, base + 0x2208, 0xfffe);
+    qtest_writel(q, base + 0x2440, RAM + 48 + 2 * 4);
+    qtest_writel(q, base + 0x2500, 48);
+    qtest_writel(q, base + 0x2580, 2);
+    qtest_writel(q, base + 0x1200, 1);
+    wait_completion(q);
+    image = pixels_head(q, 1);
+    assert_color(image, 0, 255, 0);
+    qtest_writel(q, base + 0x1214, 1U << 16);
+    /* Moving the live viewport also clips its trailing edge at the output. */
+    qtest_writel(q, base + 0x2208, 2);
+    wait_completion(q);
+    g_clear_pointer(&image, g_free);
+    image = pixels_head(q, 1);
+    for (y = 0; y < 8; y++) {
+        for (x = 0; x < 8; x++) {
+            unsigned pixel = (y * 8 + x) * 3;
+            g_assert_cmpuint((uint8_t)image[pixel], ==, 0);
+            g_assert_cmpuint((uint8_t)image[pixel + 1], ==, x < 4 ? 0 : 255);
+            g_assert_cmpuint((uint8_t)image[pixel + 2], ==, 0);
+        }
+    }
+    qtest_quit(q);
+}
+
 void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
@@ -428,4 +483,5 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/overlay", test_overlay);
     qtest_add_func("/nikon/image/tables", test_tables);
     qtest_add_func("/nikon/image/refresh", test_refresh);
+    qtest_add_func("/nikon/image/crop", test_crop);
 }

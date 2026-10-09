@@ -53,12 +53,21 @@ typedef struct StorageWindow {
     uint32_t type, control, base, upper, limit, target, target_upper;
 } StorageWindow;
 
+#define TYPE_NIKON_STORAGE_BRIDGE "nikon.storage.bridge"
+OBJECT_DECLARE_SIMPLE_TYPE(StorageBridge, NIKON_STORAGE_BRIDGE)
+
+struct StorageBridge {
+    GPEXHost parent_obj;
+    char *root_path;
+};
+
 struct NikonStorageHost {
     SysBusDevice parent_obj;
-    GPEXHost bridge;
+    StorageBridge bridge;
     PCIDevice *endpoint;
     BlockBackend *media;
     char *media_id;
+    MemoryRegion *dma_memory;
     MemoryRegion dbi, config, memory, phy, platform;
     MemoryRegion bar_alias, dma_root, dma_alias, msi;
     AddressSpace dma;
@@ -75,6 +84,36 @@ struct NikonStorageHost {
     uint8_t intx, state;
     bool cancelling;
     bool dma_initialized;
+};
+
+static const char *storage_root_bus_path(PCIHostState *host, PCIBus *rootbus)
+{
+    StorageBridge *s = NIKON_STORAGE_BRIDGE(host);
+
+    return s->root_path;
+}
+
+static void storage_bridge_finalize(Object *obj)
+{
+    g_free(NIKON_STORAGE_BRIDGE(obj)->root_path);
+}
+
+static void storage_bridge_class_init(ObjectClass *klass, const void *data)
+{
+    PCIHostBridgeClass *hc = PCI_HOST_BRIDGE_CLASS(klass);
+
+    /* GPEX's fixed 0000:00 path is for a single root. Each embedded CPU-domain
+     * host needs its own migration identity without changing guest PCI layout.
+     */
+    hc->root_bus_path = storage_root_bus_path;
+}
+
+static const TypeInfo storage_bridge_type = {
+    .name = TYPE_NIKON_STORAGE_BRIDGE,
+    .parent = TYPE_GPEX_HOST,
+    .instance_size = sizeof(StorageBridge),
+    .instance_finalize = storage_bridge_finalize,
+    .class_init = storage_bridge_class_init,
 };
 
 #define STORAGE_CONFIG_BASE 0x2a800000u
@@ -198,7 +237,7 @@ static uint64_t storage_dbi_read(void *opaque, hwaddr addr, unsigned size)
     StorageWindow *w = &s->window[s->viewport];
     if (addr < 0x100) {
         uint32_t value = pci_host_config_read_common(
-            PCI_DEVICE(&s->bridge.gpex_root), addr, 0x100, size);
+            PCI_DEVICE(&s->bridge.parent_obj.gpex_root), addr, 0x100, size);
         /* Software's link guard consumes this negotiated-speed field. The
          * virtual profile is 2 only after actual attached endpoint training.
          */
@@ -237,7 +276,7 @@ static void storage_dbi_write(void *opaque, hwaddr addr, uint64_t value,
     NikonStorageHost *s = opaque;
     StorageWindow *w = &s->window[s->viewport];
     if (addr < 0x100) {
-        pci_host_config_write_common(PCI_DEVICE(&s->bridge.gpex_root),
+        pci_host_config_write_common(PCI_DEVICE(&s->bridge.parent_obj.gpex_root),
                                      addr, 0x100, value, size);
         return;
     }
@@ -481,6 +520,10 @@ static void storage_realize(DeviceState *dev, Error **errp)
     PCIBus *bus;
     unsigned i;
 
+    if (!s->dma_memory) {
+        error_setg(errp, "Nikon storage requires its CPU domain memory link");
+        return;
+    }
     if (s->media_id) {
         s->media = blk_by_name(s->media_id);
         if (!s->media) {
@@ -488,19 +531,20 @@ static void storage_realize(DeviceState *dev, Error **errp)
             return;
         }
     }
+    s->bridge.root_path = object_get_canonical_path(OBJECT(&s->bridge));
     qdev_prop_set_bit(DEVICE(&s->bridge), "allow-unmapped-accesses", false);
     if (!sysbus_realize(SYS_BUS_DEVICE(&s->bridge), errp)) {
         return;
     }
     bus = PCI_HOST_BRIDGE(&s->bridge)->bus;
     memory_region_init_alias(&s->bar_alias, OBJECT(s), "storage.bar",
-                             &s->bridge.io_mmio, STORAGE_BAR_BASE,
+                             &s->bridge.parent_obj.io_mmio, STORAGE_BAR_BASE,
                              STORAGE_BAR_SIZE);
     memory_region_set_enabled(&s->bar_alias, false);
     memory_region_add_subregion(&s->memory, 0, &s->bar_alias);
     memory_region_init(&s->dma_root, OBJECT(s), "storage.dma", UINT64_MAX);
     memory_region_init_alias(&s->dma_alias, OBJECT(s), "storage.identity",
-                             get_system_memory(), 0, UINT64_MAX);
+                             s->dma_memory, 0, UINT64_MAX);
     memory_region_add_subregion(&s->dma_root, 0, &s->dma_alias);
     memory_region_init_io(&s->msi, OBJECT(s), &storage_msi_ops, s,
                           "storage.msi", 4);
@@ -510,7 +554,7 @@ static void storage_realize(DeviceState *dev, Error **errp)
     s->dma_initialized = true;
     pci_setup_iommu(bus, &storage_iommu, s);
     for (i = 0; i < 4; i++) {
-        gpex_set_irq_num(&s->bridge, i, i);
+        gpex_set_irq_num(&s->bridge.parent_obj, i, i);
         s->intx_inputs[i] = qemu_allocate_irq(storage_intx, s, i);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->bridge), i, s->intx_inputs[i]);
     }
@@ -526,7 +570,7 @@ static void storage_init(Object *obj)
     NikonStorageHost *s = NIKON_STORAGE_HOST(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
     unsigned i;
-    object_initialize_child(obj, "pci", &s->bridge, TYPE_GPEX_HOST);
+    object_initialize_child(obj, "pci", &s->bridge, TYPE_NIKON_STORAGE_BRIDGE);
     memory_region_init_io(&s->dbi, obj, &storage_dbi_ops, s, "storage.dbi", 0x1000);
     memory_region_init_io(&s->config, obj, &storage_config_ops, s,
                           "storage.config", 0x10000);
@@ -561,6 +605,8 @@ static void storage_finalize(Object *obj)
 
 static const Property storage_properties[] = {
     DEFINE_PROP_STRING("drive", NikonStorageHost, media_id),
+    DEFINE_PROP_LINK("memory", NikonStorageHost, dma_memory,
+                     TYPE_MEMORY_REGION, MemoryRegion *),
 };
 
 static const VMStateDescription storage_vmstate = {
@@ -590,6 +636,7 @@ static const TypeInfo storage_type = {
 
 static void storage_register(void)
 {
+    type_register_static(&storage_bridge_type);
     type_register_static(&storage_type);
 }
 

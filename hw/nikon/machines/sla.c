@@ -8,6 +8,7 @@
 #include "qapi/error.h"
 #include "hw/core/boards.h"
 #include "hw/core/irq.h"
+#include "hw/core/or-irq.h"
 #include "hw/core/split-irq.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
@@ -19,6 +20,8 @@
 #include "hw/nikon/notifier.h"
 #include "hw/nikon/counter.h"
 #include "hw/nikon/command.h"
+#include "hw/nikon/lanes.h"
+#include "hw/nikon/storage.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
@@ -355,6 +358,60 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         }
     }
     {
+        DeviceState *signal = sla_device(s, "signal", TYPE_NIKON_SIGNAL);
+        DeviceState *lanes = sla_device(s, "lanes", TYPE_NIKON_LANES);
+        DeviceState *signal_or = sla_device(s, "signal-or", TYPE_OR_IRQ);
+        DeviceState *storage = sla_device(s, "storage", TYPE_NIKON_STORAGE_HOST);
+        static const hwaddr storage_base[] = {
+            [NIKON_STORAGE_DBI] = 0x2a900000,
+            [NIKON_STORAGE_CONFIG] = 0x2a800000,
+            [NIKON_STORAGE_MEMORY] = 0x2a810000,
+            [NIKON_STORAGE_PHY] = 0x2b200000,
+        };
+        static const unsigned storage_irq[] = { 242, 243, 244, 246 };
+
+        /* SOURCE11 1008987c registers IRQ237; 1008989e writes both inputs. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(signal), &error_fatal);
+        sla_map(s, signal, 0, 0x2b000000);
+        sla_map(s, signal, 1, 0x28000000);
+        qdev_prop_set_uint16(signal_or, "num-lines", 5);
+        qdev_realize_and_unref(signal_or, NULL, &error_fatal);
+        for (i = 0; i < 5; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(signal), i,
+                               qdev_get_gpio_in(signal_or, i));
+        }
+        qdev_connect_gpio_out(signal_or, 0, qdev_get_gpio_in(gic, 237 - 32));
+        /* 10089b06 selects one of two write-only configuration apertures. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(lanes), &error_fatal);
+        sla_map(s, lanes, 0, 0x2b001000);
+        sla_map(s, lanes, 1, 0x2b001100);
+        /* Lane writes create no IRQ; only the real storage link feeds route3. */
+        /* SOURCE11 10088a82/10093476 select root mode through COPY1 words0. */
+        object_property_set_link(OBJECT(storage), "memory", OBJECT(&s->system),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(storage), &error_fatal);
+        for (i = 0; i < ARRAY_SIZE(storage_base); i++) {
+            sla_map(s, storage, i, storage_base[i]);
+        }
+        for (i = 0; i < ARRAY_SIZE(storage_irq); i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(storage), i,
+                               qdev_get_gpio_in(gic, storage_irq[i] - 32));
+        }
+        qdev_connect_gpio_out_named(storage, "link", 0,
+                                   qdev_get_gpio_in_named(signal, "signal", 3));
+        /* No drive/endpoint or unsupported MAS platform aperture is supplied. */
+    }
+    {
+        DeviceState *staging = sla_simple(s, "staging",
+                                          TYPE_NIKON_STAGED_CONFIGURATION,
+                                          0x20202000);
+
+        /* SOURCE11 10093e0e registers14e/IRQ123; 10093dc0 ACKs actual status. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(staging), 0,
+                           qdev_get_gpio_in(gic, 123 - 32));
+        /* External event causes remain disconnected. */
+    }
+    {
         static const hwaddr base[] = { 0x04250000, 0x24061000, 0x2c041000 };
         static const unsigned irq[] = {
             49, 50, 51, 52, 53, 54, 55, 56,
@@ -559,34 +616,6 @@ static void sla_domain_class_init(ObjectClass *oc, const void *data)
     dc->hotpluggable = false;
 }
 
-GBytes *nikon_sla_load_boot_prefix(const char *input, Error **errp)
-{
-    char *data;
-    gsize size;
-    g_autoptr(GError) error = NULL;
-
-    if (!input || !*input) {
-        return NULL;
-    }
-    if (!strcmp(input, "erased")) {
-        data = g_malloc(NIKON_SLA_BOOT_PREFIX_SIZE);
-        memset(data, 0xff, NIKON_SLA_BOOT_PREFIX_SIZE);
-        return g_bytes_new_take(data, NIKON_SLA_BOOT_PREFIX_SIZE);
-    }
-    /* QEMU loader.h recommends GLib's whole-file loader; do not truncate. */
-    if (!g_file_get_contents(input, &data, &size, &error)) {
-        error_setg(errp, "Cannot load explicit SLA boot-prefix input '%s': %s",
-                   input, error->message);
-        return NULL;
-    }
-    if (size != NIKON_SLA_BOOT_PREFIX_SIZE) {
-        error_setg(errp, "SLA boot-prefix input must contain exactly 128KiB");
-        g_free(data);
-        return NULL;
-    }
-    return g_bytes_new_take(data, size);
-}
-
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,
                              unsigned num_cpus,
@@ -644,7 +673,7 @@ static void sla_init(MachineState *machine)
     }
     bundle = nikon_bundle_load(machine->firmware, &error_fatal);
     payload = nikon_bundle_component(bundle, NIKON_COMPONENT_SLA);
-    boot_prefix = nikon_sla_load_boot_prefix(m->boot_prefix, &error_fatal);
+    boot_prefix = nikon_boot_prefix_load(m->boot_prefix, &error_fatal);
     if (boot_prefix) {
         error_report("nikonsla: explicit external boot-prefix input=%s; "
                      "erased is counterfactual FF NOR, not original BootROM",

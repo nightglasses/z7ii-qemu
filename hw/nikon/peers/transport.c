@@ -298,14 +298,18 @@ static void peer_event(void *opaque, QEMUChrEvent event)
     }
 }
 
-void nikon_peer_endpoint(NikonPeer *s, const NikonPeerEndpointOps *ops, void *opaque)
+bool nikon_peer_endpoint(NikonPeer *s, const NikonPeerEndpointOps *ops, void *opaque)
 {
+    if (ops && s->incoming) {
+        return false;
+    }
     if (!ops && s->incoming) {
         nikon_peer_endpoint_cancel(s, s->incoming_token);
     }
     g_assert(!s->incoming);
     s->endpoint = ops ? *ops : (NikonPeerEndpointOps) { 0 };
     s->endpoint_opaque = opaque;
+    return true;
 }
 
 bool nikon_peer_endpoint_cancel(NikonPeer *s, uint64_t token)

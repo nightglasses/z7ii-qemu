@@ -22,6 +22,7 @@
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/storage.h"
 #include "hw/nikon/processing.h"
+#include "hw/nikon/sensor.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
@@ -67,9 +68,11 @@ struct Z7IIMachineState {
     unsigned num_cpus;
     char *bundle_path;
     char *sla_boot_prefix;
+    char *mas_boot_prefix;
     NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
+    Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
     MemoryRegion temporary_stack;
@@ -144,8 +147,8 @@ static MemTxResult z7ii_nv_write(void *opaque, hwaddr offset, uint64_t value,
     Z7IINorSlot *slot = opaque;
 
     /* Same MEMC protection and unsupported-command contract, correct PA. */
-    return z7ii_nor_write(slot->machine, slot->base - MAS_BASE + offset,
-                         value, size, attrs);
+    return nikon_memc_nor_access(slot->machine->memc, slot->base + offset,
+                                 size, true, value);
 }
 
 static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
@@ -153,8 +156,9 @@ static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
 {
     Z7IINorSlot *slot = opaque;
 
-    return z7ii_nor_read(slot->machine, slot->base - MAS_BASE + offset,
-                        value, size, attrs);
+    *value = 0; /* ROMD serves valid reads; this path preserves MEMC errors. */
+    return nikon_memc_nor_access(slot->machine->memc, slot->base + offset,
+                                 size, false, 0);
 }
 
 static const MemoryRegionOps z7ii_nv_ops = {
@@ -197,6 +201,20 @@ static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
                                   name, size, &error_fatal);
     memset(memory_region_get_ram_ptr(&slot->region), 0xff, size);
     memory_region_add_subregion(get_system_memory(), base, &slot->region);
+}
+
+static void z7ii_map_boot_prefix(Z7IIMachineState *s, GBytes *bytes)
+{
+    Z7IINorSlot *slot = &s->boot_prefix;
+
+    slot->machine = s;
+    slot->base = 0x10000000;
+    memory_region_init_rom_device(&slot->region, NULL, &z7ii_nv_ops, slot,
+                                  "z7ii.mas-boot-prefix", g_bytes_get_size(bytes),
+                                  &error_fatal);
+    memcpy(memory_region_get_ram_ptr(&slot->region),
+           g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes));
+    memory_region_add_subregion(get_system_memory(), slot->base, &slot->region);
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
@@ -259,6 +277,7 @@ static void z7ii_init(MachineState *machine)
     SysBusDevice *gic_bus;
     int64_t image_size;
     g_autoptr(GBytes) mas = NULL;
+    g_autoptr(GBytes) mas_boot_prefix = NULL;
     unsigned i;
 
     if (strcmp(machine->cpu_type, ARM_CPU_TYPE_NAME("cortex-a7"))) {
@@ -301,6 +320,7 @@ static void z7ii_init(MachineState *machine)
                      (unsigned long long)MAS_MAX_SIZE);
         exit(EXIT_FAILURE);
     }
+    mas_boot_prefix = nikon_boot_prefix_load(s->mas_boot_prefix, &error_fatal);
 
     /* Reject all uncovered addresses, including missing RAM and devices. */
     memory_region_init_io(&s->unknown, OBJECT(s), &z7ii_unknown_ops, s,
@@ -320,6 +340,10 @@ static void z7ii_init(MachineState *machine)
                                    &error_fatal) != image_size) {
         error_report("failed to load the complete MAS diagnostic image");
         exit(EXIT_FAILURE);
+    }
+    if (mas_boot_prefix) {
+        /* Independent external MAS input, never the SLA prefix or clone RAM. */
+        z7ii_map_boot_prefix(s, mas_boot_prefix);
     }
     /*
      * Union of the original external descriptor views3,5..32 and six
@@ -443,6 +467,25 @@ static void z7ii_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(router), i,
                                qdev_get_gpio_in(gic, 86 + i - 32));
         }
+    }
+    {
+        DeviceState *sdes = qdev_new(TYPE_NIKON_SDES);
+        static const hwaddr addresses[NIKON_SDES_REGIONS] = {
+            [NIKON_SDES_CONFIGURATION] = 0x20061000,
+            [NIKON_SDES_STATUS] = 0x20064000,
+            [NIKON_SDES_PARAMETERS] = 0x20065000,
+        };
+
+        object_property_add_child(OBJECT(machine), "sdes", OBJECT(sdes));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdes), &error_fatal);
+        for (i = 0; i < NIKON_SDES_REGIONS; i++) {
+            sysbus_mmio_map(SYS_BUS_DEVICE(sdes), i, addresses[i]);
+        }
+        for (i = 0; i < NIKON_SDES_EVENTS; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(sdes), i,
+                               qdev_get_gpio_in(gic, 89 + i - 32));
+        }
+        /* Original handler/status interface; no invented sensor-frame source. */
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
@@ -658,6 +701,8 @@ static void z7ii_init(MachineState *machine)
         if (blk_by_name("storage")) {
             qdev_prop_set_string(storage, "drive", "storage");
         }
+        object_property_set_link(OBJECT(storage), "memory",
+                                 OBJECT(get_system_memory()), &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(storage), &error_fatal);
         for (i = 0; i < ARRAY_SIZE(storage_addresses); i++) {
             sysbus_mmio_map(SYS_BUS_DEVICE(storage), i, storage_addresses[i]);
@@ -697,7 +742,7 @@ static void z7ii_init(MachineState *machine)
         g_autoptr(GBytes) payload = nikon_bundle_component(s->bundle,
                                                           NIKON_COMPONENT_SLA);
         g_autoptr(GBytes) boot_prefix =
-            nikon_sla_load_boot_prefix(s->sla_boot_prefix, &error_fatal);
+            nikon_boot_prefix_load(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
                                             boot_prefix, Z7II_SLA_CPUS, NULL,
                                             &error_fatal);
@@ -761,6 +806,21 @@ static void z7ii_set_sla_boot_prefix(Object *obj, const char *value, Error **err
     s->sla_boot_prefix = g_strdup(value);
 }
 
+static char *z7ii_get_mas_boot_prefix(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->mas_boot_prefix;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->mas_boot_prefix);
+    s->mas_boot_prefix = g_strdup(value);
+}
+
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -768,6 +828,7 @@ static void z7ii_finalize(Object *obj)
     nikon_bundle_free(s->bundle);
     g_free(s->bundle_path);
     g_free(s->sla_boot_prefix);
+    g_free(s->mas_boot_prefix);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -789,6 +850,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                  z7ii_set_sla_boot_prefix);
     object_class_property_set_description(oc, "sla-boot-prefix",
         "Optional SLA external 128 KiB input: erased or an exact-size file; "
+        "omission leaves the range unavailable");
+    object_class_property_add_str(oc, "mas-boot-prefix", z7ii_get_mas_boot_prefix,
+                                 z7ii_set_mas_boot_prefix);
+    object_class_property_set_description(oc, "mas-boot-prefix",
+        "Independent MAS external 128 KiB input: erased or an exact-size file; "
         "omission leaves the range unavailable");
 }
 

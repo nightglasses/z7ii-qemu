@@ -11,6 +11,34 @@ struct NikonBundle {
     GBytes *component[NIKON_COMPONENT_COUNT];
 };
 
+GBytes *nikon_boot_prefix_load(const char *input, Error **errp)
+{
+    char *data;
+    gsize size;
+    g_autoptr(GError) error = NULL;
+
+    if (!input || !*input) {
+        return NULL;
+    }
+    if (!strcmp(input, "erased")) {
+        data = g_malloc(NIKON_BOOT_PREFIX_SIZE);
+        memset(data, 0xff, NIKON_BOOT_PREFIX_SIZE);
+        return g_bytes_new_take(data, NIKON_BOOT_PREFIX_SIZE);
+    }
+    /* QEMU loader.h recommends GLib's whole-file loader; do not truncate. */
+    if (!g_file_get_contents(input, &data, &size, &error)) {
+        error_setg(errp, "Cannot load explicit boot-prefix input '%s': %s",
+                   input, error->message);
+        return NULL;
+    }
+    if (size != NIKON_BOOT_PREFIX_SIZE) {
+        error_setg(errp, "Boot-prefix input must contain exactly 128KiB");
+        g_free(data);
+        return NULL;
+    }
+    return g_bytes_new_take(data, size);
+}
+
 static const char *const component_names[NIKON_COMPONENT_COUNT] = {
     "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
     "vr1840_010100.bi", "eg1840_sla_01700",

@@ -22,10 +22,14 @@ int tpj_flash (struct tpj *, const char *);
 int tpj_update (struct tpj *, const char *);
 int tpj_save (struct tpj *, const char *);
 int tpj_transform (struct tpj *, const char *);
-/* Finite external scan stream; each884-byte record is LE32 tick delay then
-   220 LE32 measurements. No default sample or contact packet is supplied. */
+/* Finite source-typed stream: LE32kind, LE32ticks. NORMAL adds LE32processing
+   kind (0 NONE/1 BUFFER/2 SCAN), LE32processing ticks, then220words:896B.
+   CAPTURE is request-matched384halfwords; REFERENCE is a baseline frame.
+   No default sample, automatic repetition or contact packet is supplied. */
 int tpj_samples (struct tpj *, const char *);
 int tpj_boundary (struct tpj *);
+/* One shutdown receipt of observed register/transport activity; no guest edits. */
+void tpj_report (struct tpj *);
 int tpj_clock (struct tpj *, uint64_t, uint32_t, unsigned, uint64_t);
 int tpj_i2c (struct tpj *, uint64_t, unsigned, uint32_t, uint64_t);
 void tpj_cancel (struct tpj *, uint64_t);

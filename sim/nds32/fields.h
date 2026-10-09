@@ -112,6 +112,7 @@ TPJ_FIELD (0x80048, 4, 3) /* O15e6 */
 TPJ_FIELD (0x8004c, 1, 3) /* O528 */
 TPJ_FIELD (0x80050, 1, 3) /* Oa18 */
 TPJ_FIELD (0x80064, 2, 3) /* O1496 */
+TPJ_FIELD (0x80064, 1, 2) /* Whole CFG O1672 */
 TPJ_FIELD (0x800c0, 1, 2) /* O5f40 */
 TPJ_FIELD (0x800c0, 4, 2) /* Oabe6 */
 TPJ_FIELD (0x800c8, 1, 3) /* Ob13a */
@@ -140,11 +141,13 @@ TPJ_FIELD (0x80190, 4, 2) /* Oa89e */
 TPJ_FIELD (0x80194, 2, 3) /* O748c */
 TPJ_FIELD (0x80196, 2, 1) /* O7554 */
 TPJ_FIELD (0x80198, 2, 1) /* O7568 */
+TPJ_FIELD (0x8019a, 2, 1) /* Whole CFG O7574 */
 TPJ_FIELD (0x8019c, 1, 3) /* O142a */
 TPJ_FIELD (0x8019d, 1, 3) /* O1436 */
 TPJ_FIELD (0x8019f, 1, 2) /* Oa56e */
 TPJ_FIELD (0x801a5, 1, 3) /* O7052 */
 TPJ_FIELD (0x80200, 1, 3) /* O1626 */
+TPJ_FIELD (0x80202, 1, 1) /* Whole CFG O163e */
 TPJ_FIELD (0x80204, 2, 2) /* Oacd2 */
 TPJ_FIELD (0x80206, 1, 2) /* Oaf62 */
 TPJ_FIELD (0x80207, 1, 2) /* O35f6 */
@@ -174,6 +177,7 @@ TPJ_FIELD (0x80294, 2, 3) /* Oab32 */
 TPJ_FIELD (0x80296, 2, 3) /* Oab40 */
 TPJ_FIELD (0x8029c, 2, 3) /* O1602 */
 TPJ_FIELD (0x8029c, 4, 2) /* Oab26 */
+TPJ_FIELD (0x802a1, 1, 1) /* Whole CFG O12f6 */
 TPJ_FIELD (0x802a2, 1, 1) /* O12cc */
 TPJ_FIELD (0x802b0, 2, 3) /* O53e */
 TPJ_FIELD (0x802b2, 2, 3) /* Ob390 */

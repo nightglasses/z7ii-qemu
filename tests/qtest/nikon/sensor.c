@@ -10,6 +10,7 @@
 
 #define RAM 0xb1800000
 #define SENSOR_PATH "/machine/peripheral/sensor"
+#define SDES_PATH "/machine/sdes"
 
 static char *image, *frame;
 
@@ -247,6 +248,127 @@ static void test_eof(void)
     qtest_quit(q);
 }
 
+static QTestState *sdes_start(void)
+{
+    g_autofree char *bios = g_shell_quote(image);
+    QTestState *q = qtest_initf(
+        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", bios);
+
+    qtest_irq_intercept_out_named(q, SDES_PATH, "sysbus-irq");
+    return q;
+}
+
+static void sdes_word(QTestState *q, unsigned word, uint32_t value)
+{
+    unsigned bit;
+
+    for (bit = 0; bit < 32; bit++) {
+        qtest_set_irq_in(q, SDES_PATH, "status-data", word * 32 + bit,
+                         !!(value & (1U << bit)));
+    }
+}
+
+static void sdes_event(QTestState *q, enum NikonSdesEvent event)
+{
+    qtest_set_irq_in(q, SDES_PATH, "status-publish", event, 0);
+    qtest_set_irq_in(q, SDES_PATH, "status-publish", event, 1);
+}
+
+static void test_sdes_configuration(void)
+{
+    QTestState *q = sdes_start();
+    static const struct {
+        uint64_t address;
+        uint32_t value;
+    } fields[] = {
+        { 0x20061000, 0x00501234 }, { 0x200610e8, 3 },
+        { 0x200610f4, 2 }, { 0x20061014, 0x3fffffff },
+        { 0x200610d4, 0x00a5003c }, { 0x20061120, 0xfedcba98 },
+        { 0x20061264, 0xb1801002 }, { 0x20061268, 0x30 },
+        { 0x20065014, 0x123456 }, { 0x20065414, 0xabcdef },
+        { 0x20065104, 1 }, { 0x20065504, 0 },
+        { 0x2006513c, 0xffff }, { 0x2006553c, 0x1234 },
+        { 0x20065150, 1 }, { 0x20065550, 0 },
+    };
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(fields); i++) {
+        qtest_writel(q, fields[i].address, fields[i].value);
+    }
+    for (i = 0; i < ARRAY_SIZE(fields); i++) {
+        g_assert_cmphex(qtest_readl(q, fields[i].address), ==, fields[i].value);
+    }
+    for (i = 0; i < NIKON_SDES_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_sdes_status(void)
+{
+    QTestState *q = sdes_start();
+    static const uint64_t addresses[] = {
+        0x20064014, 0x20065108, 0x20065024, 0x20065110,
+        0x20065118, 0x2006511c, 0x20065508, 0x20065424,
+        0x20065510, 0x20065518, 0x2006551c,
+    };
+    static const unsigned events[] = { 0, 1, 2, 2, 2, 2, 3, 4, 4, 4, 4 };
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(addresses); i++) {
+        sdes_word(q, i, (1U << i) | 0x80000000);
+    }
+    for (i = 0; i < NIKON_SDES_EVENTS; i++) {
+        sdes_event(q, i);
+        g_assert_true(qtest_get_irq(q, i));
+    }
+    for (i = 0; i < ARRAY_SIZE(addresses); i++) {
+        uint32_t value = (1U << i) | 0x80000000;
+
+        g_assert_cmphex(qtest_readl(q, addresses[i]), ==, value);
+        qtest_writel(q, addresses[i], 1U << i);
+        g_assert_cmphex(qtest_readl(q, addresses[i]), ==, 0x80000000);
+        g_assert_true(qtest_get_irq(q, events[i]));
+    }
+    /* A detailed event remains pending until all its independent words ACK. */
+    for (i = 0; i < ARRAY_SIZE(addresses); i++) {
+        qtest_writel(q, addresses[i], 0x80000000);
+        g_assert_cmphex(qtest_readl(q, addresses[i]), ==, 0);
+    }
+    for (i = 0; i < NIKON_SDES_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_sdes_publication(void)
+{
+    QTestState *q = sdes_start();
+
+    sdes_word(q, 2, 0x40);
+    sdes_event(q, NIKON_SDES_PRIMARY_DETAIL_EVENT);
+    g_assert_false(qtest_get_irq(q, NIKON_SDES_PRIMARY_DETAIL_EVENT));
+    g_assert_cmphex(qtest_readl(q, 0x20065024), ==, 0);
+    sdes_word(q, 3, 0);
+    sdes_word(q, 4, 0);
+    sdes_word(q, 5, 0);
+    sdes_event(q, NIKON_SDES_PRIMARY_DETAIL_EVENT);
+    g_assert_true(qtest_get_irq(q, NIKON_SDES_PRIMARY_DETAIL_EVENT));
+    qtest_writel(q, 0x20065024, 0x40);
+    sdes_event(q, NIKON_SDES_PRIMARY_DETAIL_EVENT);
+    g_assert_false(qtest_get_irq(q, NIKON_SDES_PRIMARY_DETAIL_EVENT));
+    sdes_word(q, 0, 0x123);
+    sdes_event(q, NIKON_SDES_STATUS_EVENT);
+    g_assert_true(qtest_get_irq(q, NIKON_SDES_STATUS_EVENT));
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    g_assert_false(qtest_get_irq(q, NIKON_SDES_STATUS_EVENT));
+    g_assert_cmphex(qtest_readl(q, 0x20064014), ==, 0);
+    sdes_event(q, NIKON_SDES_STATUS_EVENT);
+    g_assert_false(qtest_get_irq(q, NIKON_SDES_STATUS_EVENT));
+    qtest_quit(q);
+}
+
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
@@ -267,6 +389,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/invalid", test_invalid);
     qtest_add_func("/nikon/sensor/buserror", test_bus_error);
     qtest_add_func("/nikon/sensor/eof", test_eof);
+    qtest_add_func("/nikon/sensor/controller/configuration",
+                    test_sdes_configuration);
+    qtest_add_func("/nikon/sensor/controller/status", test_sdes_status);
+    qtest_add_func("/nikon/sensor/controller/publication", test_sdes_publication);
     result = g_test_run();
     unlink(image);
     unlink(frame);
