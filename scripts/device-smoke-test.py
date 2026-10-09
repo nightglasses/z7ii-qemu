@@ -2585,7 +2585,8 @@ def run(binary, output, name, words, expected, reason):
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
     if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-",
-                        "hdmac-", "i2c-", "audio-", "timing-", "copy-", "bridge-")):
+                        "hdmac-", "i2c-", "audio-", "timing-", "copy-", "bridge-",
+                        "ipud-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -2611,8 +2612,25 @@ def run(binary, output, name, words, expected, reason):
             vm.cmd("cont")
             vm.event_wait("RESUME", timeout=5)
             if reason:
-                vm.event_wait("STOP", timeout=5)
+                if name.startswith("ipud-"):
+                    deadline = time.monotonic() + 5
+                    while vm.cmd("query-status")["status"] != "debug":
+                        actual = registers(vm)
+                        if time.monotonic() >= deadline or actual[15] == loop_pc:
+                            (output / "wait-failure.json").write_text(json.dumps({
+                                "phase": "expected-ipud-error", "loop_pc": loop_pc,
+                                "registers": actual, "status": vm.cmd("query-status"),
+                            }, indent=2) + "\n")
+                            raise AssertionError("expected IPUD error not reached")
+                        time.sleep(0.01)
+                else:
+                    vm.event_wait("STOP", timeout=5)
                 assert vm.cmd("query-status")["status"] == "debug"
+                if name == "ipud-fifo-overflow-rejected":
+                    state_file = output / "full-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2402000c 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == 0x2000
                 if name in ("hdmac-source-bus-error", "hdmac-destination-bus-error"):
                     status_file = output / "dma-status.bin"
                     vm.cmd("human-monitor-command", command_line=
