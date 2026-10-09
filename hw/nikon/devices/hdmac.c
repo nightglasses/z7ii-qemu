@@ -38,11 +38,18 @@ typedef struct NikonHDMACChannel {
     uint32_t remaining;
 } NikonHDMACChannel;
 
+typedef struct NikonHDMACReadonlyRange {
+    Int128 start;
+    Int128 end;
+} NikonHDMACReadonlyRange;
+
 struct NikonHDMACState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     MemoryRegion *memory;
-    AddressSpace dma;
+    AddressSpace *dma;
+    MemoryListener memory_listener;
+    GArray *readonly;
     Clock *clock;
     uint32_t bank;
     uint32_t control;
@@ -100,18 +107,46 @@ static MemTxResult nikon_hdmac_write_memory(NikonHDMACState *s,
                                            hwaddr address, const void *data,
                                            unsigned width)
 {
-    hwaddr offset, length = width;
+    hwaddr current = address;
+    unsigned remaining = width;
     RCU_READ_LOCK_GUARD();
-    MemoryRegion *mr = address_space_translate(&s->dma, address, &offset,
-                                              &length, true,
-                                              MEMTXATTRS_UNSPECIFIED);
+
+    /* The listener reports the selected flat view's effective permissions,
+     * including readonly aliases/containers. Translation exposes only a leaf.
+     * Do not use memory_region_find(): it can ascend into another root's AS. */
+    for (unsigned i = 0; i < s->readonly->len; i++) {
+        NikonHDMACReadonlyRange *range = &g_array_index(
+            s->readonly, NikonHDMACReadonlyRange, i);
+
+        if (int128_lt(int128_make64(address), range->end) &&
+            int128_lt(range->start, int128_make64(address + width))) {
+            return MEMTX_ERROR;
+        }
+    }
+
     /* QEMU may intentionally ignore ROM writes. DMA must report their failure,
      * while actual MMIO sinks retain their causal device transactions.
      */
-    if (memory_region_is_rom(mr) || memory_region_is_romd(mr)) {
-        return MEMTX_ERROR;
+    while (remaining) {
+        hwaddr offset, length = remaining;
+        MemoryRegion *mr = address_space_translate(s->dma, current, &offset,
+                                                  &length, true,
+                                                  MEMTXATTRS_UNSPECIFIED);
+
+        if (memory_region_is_rom(mr) || memory_region_is_romd(mr) || !length) {
+            return MEMTX_ERROR;
+        }
+        /* Translation bounds RAM spans. MMIO lengths need not be bounded by
+         * their mapping, so inspect every covered byte without bus accesses.
+         * The actual write below still keeps the original complete beat width.
+         */
+        if (!memory_region_is_ram(mr)) {
+            length = 1;
+        }
+        current += length;
+        remaining -= length;
     }
-    return dma_memory_write(&s->dma, address, data, width,
+    return dma_memory_write(s->dma, address, data, width,
                             MEMTXATTRS_UNSPECIFIED);
 }
 
@@ -164,7 +199,7 @@ static void nikon_hdmac_transfer(void *opaque)
             nikon_hdmac_finish(c, 1);
             return;
         }
-        result = dma_memory_read(&s->dma, c->source, data, width,
+        result = dma_memory_read(s->dma, c->source, data, width,
                                   MEMTXATTRS_UNSPECIFIED);
         if (!c->running || c->generation != generation) {
             return;
@@ -473,12 +508,60 @@ static const Property nikon_hdmac_properties[] = {
                      TYPE_MEMORY_REGION, MemoryRegion *),
 };
 
+static void nikon_hdmac_region_add(MemoryListener *listener,
+                                   MemoryRegionSection *section)
+{
+    NikonHDMACState *s = container_of(listener, NikonHDMACState,
+                                     memory_listener);
+
+    if (section->readonly) {
+        NikonHDMACReadonlyRange range = {
+            .start = int128_make64(section->offset_within_address_space),
+            .end = int128_add(int128_make64(section->offset_within_address_space),
+                              section->size),
+        };
+
+        g_array_append_val(s->readonly, range);
+    }
+}
+
+static void nikon_hdmac_region_del(MemoryListener *listener,
+                                   MemoryRegionSection *section)
+{
+    NikonHDMACState *s = container_of(listener, NikonHDMACState,
+                                     memory_listener);
+    Int128 start = int128_make64(section->offset_within_address_space);
+    Int128 end = int128_add(start, section->size);
+
+    if (!section->readonly) {
+        return;
+    }
+    for (unsigned i = 0; i < s->readonly->len; i++) {
+        NikonHDMACReadonlyRange *range = &g_array_index(
+            s->readonly, NikonHDMACReadonlyRange, i);
+
+        if (int128_eq(range->start, start) && int128_eq(range->end, end)) {
+            g_array_remove_index_fast(s->readonly, i);
+            return;
+        }
+    }
+    g_assert_not_reached();
+}
+
 static void nikon_hdmac_realize(DeviceState *dev, Error **errp)
 {
     NikonHDMACState *s = NIKON_HDMAC(dev);
 
-    address_space_init(&s->dma, s->memory ? s->memory : get_system_memory(),
+    s->dma = g_new0(AddressSpace, 1);
+    address_space_init(s->dma, s->memory ? s->memory : get_system_memory(),
                        "nikon.hdmac");
+    s->readonly = g_array_new(false, false, sizeof(NikonHDMACReadonlyRange));
+    s->memory_listener = (MemoryListener) {
+        .name = "nikon.hdmac",
+        .region_add = nikon_hdmac_region_add,
+        .region_del = nikon_hdmac_region_del,
+    };
+    memory_listener_register(&s->memory_listener, s->dma);
 }
 
 static void nikon_hdmac_unrealize(DeviceState *dev)
@@ -486,7 +569,9 @@ static void nikon_hdmac_unrealize(DeviceState *dev)
     NikonHDMACState *s = NIKON_HDMAC(dev);
 
     nikon_hdmac_reset(dev);
-    address_space_destroy(&s->dma);
+    memory_listener_unregister(&s->memory_listener);
+    g_clear_pointer(&s->readonly, g_array_unref);
+    address_space_destroy_free(g_steal_pointer(&s->dma));
 }
 static const VMStateDescription nikon_hdmac_vmstate = {
     .name = "nikon-hdmac", .unmigratable = true,

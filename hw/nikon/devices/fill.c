@@ -28,7 +28,7 @@ struct NikonFillState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     MemoryRegion *memory;
-    AddressSpace dma;
+    AddressSpace *dma;
     NikonFillEngine engine[2];
     bool reported_error;
 };
@@ -128,7 +128,7 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
     attrs.memory = true;
     result = MEMTX_OK;
     for (hwaddr destination = e->destination; length;) {
-        MemoryRegionSection section = memory_region_find(s->dma.root,
+        MemoryRegionSection section = memory_region_find(s->dma->root,
                                                         destination, length);
         uint64_t span;
 
@@ -145,7 +145,7 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
             break;
         }
         memory_region_unref(section.mr);
-        result = dma_memory_set(&s->dma, destination, 0, span, attrs);
+        result = dma_memory_set(s->dma, destination, 0, span, attrs);
         if (result != MEMTX_OK) {
             break;
         }
@@ -304,7 +304,8 @@ static void nikon_fill_realize(DeviceState *dev, Error **errp)
 {
     NikonFillState *s = NIKON_FILL(dev);
 
-    address_space_init(&s->dma, s->memory ? s->memory : get_system_memory(),
+    s->dma = g_new0(AddressSpace, 1);
+    address_space_init(s->dma, s->memory ? s->memory : get_system_memory(),
                        "nikon.fill");
 }
 
@@ -312,7 +313,7 @@ static void nikon_fill_unrealize(DeviceState *dev)
 {
     NikonFillState *s = NIKON_FILL(dev);
 
-    address_space_destroy(&s->dma);
+    address_space_destroy_free(g_steal_pointer(&s->dma));
 }
 
 static const Property nikon_fill_properties[] = {

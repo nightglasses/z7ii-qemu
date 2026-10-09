@@ -87,6 +87,7 @@ file(GLOB_RECURSE upstream CONFIGURE_DEPENDS LIST_DIRECTORIES true
   RELATIVE "${QEMU_UPSTREAM}" "${QEMU_UPSTREAM}/*" "${QEMU_UPSTREAM}/.*")
 foreach(path IN LISTS upstream)
   if(path MATCHES "^\\.git(/|$)" OR
+     path STREQUAL "meson.build" OR
      path STREQUAL "hw/Kconfig" OR path STREQUAL "hw/meson.build" OR
      path STREQUAL "tests/qtest/meson.build" OR
      path STREQUAL "tests/unit/meson.build" OR
@@ -125,3 +126,4 @@ native_file("tests/qtest/meson.build" "${content}\nsubdir('nikon')\n")
 file(READ "${QEMU_UPSTREAM}/tests/unit/meson.build" content)
 native_file("tests/unit/meson.build" "${content}\nsubdir('nikon')\n")
 include(cmake/rx.cmake)
+include(cmake/system.cmake)
