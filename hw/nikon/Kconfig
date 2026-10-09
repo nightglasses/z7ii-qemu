@@ -1,0 +1,8 @@
+config NIKON_Z7II
+    bool
+    default y
+    depends on TCG && ARM
+    select ARM_GIC
+    select OR_IRQ
+    select SSI
+    select I2C

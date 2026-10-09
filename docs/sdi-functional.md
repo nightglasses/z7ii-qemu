@@ -4,7 +4,7 @@
 
 原 wrapper `394` 的完整保存 native CALL 闭包自动选择 94 BB、5564 B。配置 whitelist 来源是 Ghidra 官方 `Instruction.getPcode` 和 `SymbolicPropogator.flowConstants` 的只读结果 `qemu-rtos-startup/work/sdi-ghidra-official-validated-first/contract.json`，94 BB 原字节/A32 context 核对通过，研究正式冻结 [6a6b721](https://github.com/mashiro01/nightglass/blob/6a6b721/research/z7ii/qemu-rtos-startup-contract.md)。110 个非协议 offset 的每 bank 支持值最多三个，含原训练 retry profile。地址和值按官方 STORE observations 汇总；条件候选写不是一次真实轨迹，未知轮询地址没有当零填入。每次原 poll 的 r0/r1/r2 都来自真实调用参数。未冻结自写语义实验不作为模型证据。
 
-`hw/arm/z7ii-sdi.c` 使用两个独立上游 SysBus 实例，分别映射 `20020000` 与 `20040000`，各实例只支持有限 word 接口。模型保存实际 guest 配置及配置完成标记；PHY init 要求 cold 配置、TOP/PHY release，DDR init 要求 PHY 已完成及 DDR release，mode0..4 训练要求 DDR init 且按原序列进行。训练完成后才允许仲裁与十五个软件 port、最终 interface 初始化。请求尚在进行或完成未 ack 时再次提交会失败；配置未齐、未支持值、offset、宽度和命令仍 `MEMTX_ERROR`。不把整个窗口当 RAM 或任意 regfile。
+`hw/nikon/devices/sdi.c` 使用两个独立上游 SysBus 实例，分别映射 `20020000` 与 `20040000`，各实例只支持有限 word 接口。模型保存实际 guest 配置及配置完成标记；PHY init 要求 cold 配置、TOP/PHY release，DDR init 要求 PHY 已完成及 DDR release，mode0..4 训练要求 DDR init 且按原序列进行。训练完成后才允许仲裁与十五个软件 port、最终 interface 初始化。请求尚在进行或完成未 ack 时再次提交会失败；配置未齐、未支持值、offset、宽度和命令仍 `MEMTX_ERROR`。不把整个窗口当 RAM 或任意 regfile。
 
 TOP/子块 reset 初值为 asserted，具名配置字初值0但配置完成标记为 false，done/pending 初值0。reset assert 会取消所属 timer 和依赖块状态；release 本身不完成 init。每个合法请求由 QEMU 虚拟 timer 在10微秒后产生对应 done；读 callback 不改变状态，写1确认才清 done。五模式训练 backend 明确假设虚拟训练成功，TRAINERR 只在训练完成后可读0；它不能证明物理 DDR/calibration 健康。原代码仍实际执行每次 request、poll、ack、error判断和后续配置，没有 host 改 PC/调用 ISR/填 RAM magic。
 

@@ -1829,7 +1829,7 @@ def run_fill_runtime(binary, output, name):
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             children = vm.cmd("qom-list", path="/machine/unattached")
-            device = [x["name"] for x in children if x["type"] == "child<z7ii-fill-functional>"]
+            device = [x["name"] for x in children if x["type"] == "child<nikon-fill-functional>"]
             assert len(device) == 1, children
             path = "/machine/unattached/" + device[0]
 
@@ -2106,8 +2106,8 @@ def run_peripheral_event_router(binary, output, name):
             "scope": "no firmware; finite config, three virtual pending masks/IRQs and reset"}
 
 
-def control2406_fixtures():
-    error = "control2406-access-or-activation-not-supported"
+def request_status_fixtures():
+    error = "request-status-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, 0x24060000 + offset) + constant(1, value) + [0xe5801000]
@@ -2116,30 +2116,30 @@ def control2406_fixtures():
         return constant(0, 0x24060000 + offset) + [0xe5900000 | reg << 12]
 
     return [
-        ("control2406-packet-and-retained-controls",
+        ("request-status-packet-and-retained-controls",
          write(8, 0) + write(0xc, 0xff) + write(0, 1) + write(0x10, 0xffffffff) +
          write(0x14, 0x12345678) + read(8, 4) + read(0xc, 5) + read(0x10, 6) +
          read(0x14, 7), {4: 0, 5: 0xff, 6: 0xffffffff, 7: 0x12345678}, None),
-        ("control2406-stop-no-ready", write(0, 1) + write(0, 0) + write(0x20, 0) +
+        ("request-status-stop-no-ready", write(0, 1) + write(0, 0) + write(0x20, 0) +
          read(0, 4) + read(0x20, 5) + read(0x24, 6) + read(0x30, 7),
          {4: 0, 5: 0, 6: 0, 7: 0}, None),
-        ("control2406-bool-invalid", write(0, 2), {}, error),
-        ("control2406-byte-field-invalid", write(0xc, 0x100), {}, error),
-        ("control2406-start-unsupported", write(0x20, 1), {}, error),
-        ("control2406-handshake-unsupported", write(0x20, 0x10000), {}, error),
-        ("control2406-unbound-control-bit", write(0x20, 2), {}, error),
-        ("control2406-status-write", write(0x24, 1), {}, error),
-        ("control2406-status30-write", write(0x30, 1), {}, error),
-        ("control2406-gap", read(4, 4), {}, error),
-        ("control2406-cpu-alignment-fault", read(9, 4), {}, "uncovered-address"),
-        ("control2406-byte-width", constant(0, 0x2406000c) + [0xe5d04000], {}, error),
-        ("control2406-halfword-width", constant(0, 0x24060008) + [0xe1d040b0], {}, error),
-        ("control2406-finite-end", read(0x34, 4), {}, "uncovered-address"),
-    ] + [("control2406-qtest-" + name, [], {}, None)
+        ("request-status-bool-invalid", write(0, 2), {}, error),
+        ("request-status-byte-field-invalid", write(0xc, 0x100), {}, error),
+        ("request-status-start-unsupported", write(0x20, 1), {}, error),
+        ("request-status-handshake-unsupported", write(0x20, 0x10000), {}, error),
+        ("request-status-unbound-control-bit", write(0x20, 2), {}, error),
+        ("request-status-status-write", write(0x24, 1), {}, error),
+        ("request-status-status30-write", write(0x30, 1), {}, error),
+        ("request-status-gap", read(4, 4), {}, error),
+        ("request-status-cpu-alignment-fault", read(9, 4), {}, "uncovered-address"),
+        ("request-status-byte-width", constant(0, 0x2406000c) + [0xe5d04000], {}, error),
+        ("request-status-halfword-width", constant(0, 0x24060008) + [0xe1d040b0], {}, error),
+        ("request-status-finite-end", read(0x34, 4), {}, "uncovered-address"),
+    ] + [("request-status-qtest-" + name, [], {}, None)
          for name in ("readback-clock-and-reset", "preflight-preserves-config")]
 
 
-def run_control2406(binary, output, name):
+def run_request_status(binary, output, name):
     output.mkdir()
     image = output / "synthetic.bin"
     payload = struct.pack("<I", 0xeafffffe)
@@ -2148,7 +2148,7 @@ def run_control2406(binary, output, name):
     with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
         with QEMUQtestMachine(str(binary), args=["-bios", str(image), "-smp", "1",
                 "-display", "none", "-serial", "none", "-monitor", "none"],
-                name="control2406", base_temp_dir=sockets, qmp_timer=5) as vm:
+                name="request-status", base_temp_dir=sockets, qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
 
@@ -2208,7 +2208,7 @@ def run_control2406(binary, output, name):
     return {"fixture": name, "qemu_exit_code": 0,
             "scope": "no firmware; finite retained configuration and unavailable status"}
 
-def control2016_profile():
+def byte_event_router_profile():
     profile = {0xc000: 6, 0xc018: 0xf2, 0xc0a4: 0, 0xc0cc: 8,
                0xc0ac: 0, 0xc0b0: 0x60, 0xc0b4: 0, 0xc0b8: 0x71,
                0xc0bc: 0xff, 0xc0c0: 0x12, 0xc0c4: 0x34, 0xc0c8: 0x56,
@@ -2220,8 +2220,8 @@ def control2016_profile():
     return profile
 
 
-def control2016_fixtures():
-    error = "control2016-access-or-activation-not-supported"
+def byte_event_router_fixtures():
+    error = "byte-event-router-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, 0x20160000 + offset) + constant(1, value) + [0xe5c01000]
@@ -2235,34 +2235,34 @@ def control2016_fixtures():
             0xe5d02000, 0xe3520000, 0x1a000003, 0xe2533001, 0x1afffffa,
             0xe3a00001 | reg << 12, 0xea000000, 0xe3a00000 | reg << 12]
 
-    profile = sum([write(x, y) for x, y in control2016_profile().items()], [])
+    profile = sum([write(x, y) for x, y in byte_event_router_profile().items()], [])
     return [
-        ("control2016-original-byte-init-shape", profile + read(0xc000, 4) +
+        ("byte-event-router-original-byte-init-shape", profile + read(0xc000, 4) +
          read(0xc018, 5) + read(0x1f84c, 6) + read(0x5c0, 7),
          {4: 6, 5: 0xf2, 6: 8, 7: 0}, None),
-        ("control2016-disabled-4096-polls-timeout", write(0xc0a4, 0) +
+        ("byte-event-router-disabled-4096-polls-timeout", write(0xc0a4, 0) +
          write(0x1f81c, 0) + timeout(0xc0a8, 4) + timeout(0x1f824, 5) +
          read(0xc0a8, 6) + read(0x1f824, 7), {4: 1, 5: 1, 6: 0, 7: 0}, None),
-        ("control2016-fullbyte-controls-no-ready", write(0xc000, 0xff) +
+        ("byte-event-router-fullbyte-controls-no-ready", write(0xc000, 0xff) +
          write(0xc000, 0xf3) + write(0x7fc, 3) + write(0x10004, 0x1f) +
          read(0xc000, 4) + read(0x7fc, 5) + read(0xc0a8, 6),
          {4: 0xf3, 5: 3, 6: 0}, None),
-        ("control2016-word-width", constant(0, 0x2016c000) + [0xe5904000], {}, error),
-        ("control2016-halfword-width", constant(0, 0x2017f84c) + [0xe1d040b0], {}, error),
-        ("control2016-byte-gap", read(0xc001, 4), {}, error),
-        ("control2016-unsupported-rx-data", read(0x1f80c, 4), {}, error),
-        ("control2016-unsupported-rx-buffer", read(0x1f880, 4), {}, error),
-        ("control2016-unsupported-external-subsource", write(0x201c, 1), {}, error),
-        ("control2016-finite-end", read(0x20000, 4), {}, "uncovered-address"),
-    ] + [(f"control2016-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("byte-event-router-word-width", constant(0, 0x2016c000) + [0xe5904000], {}, error),
+        ("byte-event-router-halfword-width", constant(0, 0x2017f84c) + [0xe1d040b0], {}, error),
+        ("byte-event-router-byte-gap", read(0xc001, 4), {}, error),
+        ("byte-event-router-unsupported-rx-data", read(0x1f80c, 4), {}, error),
+        ("byte-event-router-unsupported-rx-buffer", read(0x1f880, 4), {}, error),
+        ("byte-event-router-unsupported-external-subsource", write(0x201c, 1), {}, error),
+        ("byte-event-router-finite-end", read(0x20000, 4), {}, "uncovered-address"),
+    ] + [(f"byte-event-router-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((0xc0a4, 8), (0x1f81c, 8), (0xc0a8, 1), (0x1f824, 1),
                       (0xc018, 1), (0x7fc, 4), (0x10004, 0x20),
                       (0xc01c, 1), (0x1f850, 1), (0x5c0, 1))] + \
-        [("control2016-qtest-" + suffix, [], {}, None) for suffix in (
+        [("byte-event-router-qtest-" + suffix, [], {}, None) for suffix in (
             "byte-config-and-status", "hierarchy-mask-ack", "preflight-reset-recovery")]
 
 
-def run_control2016(binary, output, name):
+def run_byte_event_router(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -2272,12 +2272,12 @@ def run_control2016(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control2016", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="byte-event-router", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control2016-functional>"]
+                       if x["type"] == "child<nikon-byte-event-router-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -2303,13 +2303,13 @@ def run_control2016(binary, output, name):
                 command(f"set_irq_in {path} pending-bit {index} {level}")
 
             def snapshot():
-                return [read(x) for x in sorted(control2016_profile())] + \
+                return [read(x) for x in sorted(byte_event_router_profile())] + \
                     [read(x) for x in list(range(0x400, 0x424, 4)) +
                      [0x5c0, 0xc0a8, 0x1f824]]
 
             command(f"irq_intercept_out {path} sysbus-irq")
             if name.endswith("byte-config-and-status"):
-                for x, y in control2016_profile().items():
+                for x, y in byte_event_router_profile().items():
                     write(x, y)
                     assert read(x) == y
                 for x in (0xc0a8, 0x1f824):
@@ -2347,7 +2347,7 @@ def run_control2016(binary, output, name):
                 assert read(0x418) == 1 and read(0x5c0) == 2
                 assert levels[1] and not levels[0]
             elif name.endswith("preflight-reset-recovery"):
-                for x, y in control2016_profile().items():
+                for x, y in byte_event_router_profile().items():
                     write(x, y)
                 write(0x600, 0)
                 event(0, 1)
@@ -2385,7 +2385,7 @@ def run_control2016(binary, output, name):
             "scope": "sparse BYTE config/disconnected timeout and virtual simple-child IRQs; no firmware/RX"}
 
 
-def control2014_profile():
+def dual_event_banks_profile():
     return {0: 1, 0x1000: 1, 0x2000: 1, 0x3000: 1,
             0x100: 0, 0x2100: 0, 0x3100: 0, 0x1100: 2,
             0x1200: 0x37f0311c, 0x1204: 0xffff, 0x120c: 0x89abcdef,
@@ -2397,8 +2397,8 @@ def control2014_profile():
             0x500: 0xffffffff, 0x2880: 0x89abcdef, 0x3880: 0x87654321}
 
 
-def control2014_fixtures():
-    error = "control2014-access-or-activation-not-supported"
+def dual_event_banks_fixtures():
+    error = "dual-event-banks-access-or-activation-not-supported"
 
     def write(offset, value, bank=0):
         return constant(0, 0x20140000 + bank * 0x4000 + offset) + \
@@ -2408,44 +2408,44 @@ def control2014_fixtures():
         return constant(0, 0x20140000 + bank * 0x4000 + offset) + [0xe5900000 | reg << 12]
 
     profile = sum([write(x, y, b) for b in range(2)
-                   for x, y in control2014_profile().items()], [])
+                   for x, y in dual_event_banks_profile().items()], [])
     return [
-        ("control2014-original-route-and-init-controls", write(0x1100, 2) +
+        ("dual-event-banks-original-route-and-init-controls", write(0x1100, 2) +
          write(0x1100, 3, 1) + sum([write(x, 0, b) for b in range(2)
                                    for x in (0, 0x1000, 0x2000, 0x3000)], []) +
          read(0x1100, 4) + read(0x1100, 5, 1) + read(0x1214, 6),
          {4: 2, 5: 3, 6: 0}, None),
-        ("control2014-both-settled-config-banks", profile + read(0x1200, 4) +
+        ("dual-event-banks-both-settled-config-banks", profile + read(0x1200, 4) +
          read(0x141c, 5, 1) + read(0x1604, 6),
          {4: 0x37f0311c, 5: 0xffffffff, 6: 0x101}, None),
-        ("control2014-fullword-versus-byte-getter", write(0x500, 0xffffffff) +
+        ("dual-event-banks-fullword-versus-byte-getter", write(0x500, 0xffffffff) +
          write(0x2880, 0x89abcdef, 1) + read(0x500, 4) + read(0x2880, 5, 1),
          {4: 0xffffffff, 5: 0x89abcdef}, None),
-        ("control2014-idle-command-not-ready", write(0x1200, 0x10) +
+        ("dual-event-banks-idle-command-not-ready", write(0x1200, 0x10) +
          write(0x1200, 0) + write(0x100, 0) + read(0x1200, 4) +
          read(0x100, 5) + read(0x1214, 6), {4: 0, 5: 0, 6: 0}, None),
-        ("control2014-global-independent-controls",
+        ("dual-event-banks-global-independent-controls",
          constant(0, 0x2014d100) + constant(1, 1) + [0xe5801000] +
          constant(0, 0x2014e000) + constant(1, 0) + [0xe5801000] +
          constant(0, 0x2014d100) + [0xe5904000] +
          constant(0, 0x2014e000) + [0xe5905000], {4: 1, 5: 0}, None),
-        ("control2014-byte-width", constant(0, 0x20141100) + [0xe5d04000], {}, error),
-        ("control2014-halfword-width", constant(0, 0x20141204) + [0xe1c010b0], {}, error),
-        ("control2014-finite-bank-end", read(0x8000, 4), {}, "uncovered-address"),
-    ] + [(f"control2014-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("dual-event-banks-byte-width", constant(0, 0x20141100) + [0xe5d04000], {}, error),
+        ("dual-event-banks-halfword-width", constant(0, 0x20141204) + [0xe1c010b0], {}, error),
+        ("dual-event-banks-finite-bank-end", read(0x8000, 4), {}, "uncovered-address"),
+    ] + [(f"dual-event-banks-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((0x1200, 1), (0x1200, 0x11), (0x1200, 2), (0x1200, 3),
                       (0x100, 1), (0x2100, 2), (0x3100, 1), (0, 2),
                       (0x1100, 0x100), (0x1404, 0x20), (0x1604, 2),
                       (0x1224, 2), (0x1410, 2), (0x1430, 0))] + \
-        [("control2014-unbound-data-read", read(0x1220, 4), {}, error),
-         ("control2014-unbound-global-request", constant(0, 0x2014d200) +
+        [("dual-event-banks-unbound-data-read", read(0x1220, 4), {}, error),
+         ("dual-event-banks-unbound-global-request", constant(0, 0x2014d200) +
           constant(1, 0x12345678) + [0xe5801000], {}, "uncovered-address")] + \
-        [("control2014-qtest-" + suffix, [], {}, None) for suffix in (
+        [("dual-event-banks-qtest-" + suffix, [], {}, None) for suffix in (
             "config-and-geometry", "shared-route-aggregation",
             "preflight-reset-recovery", "unconfigured-pending-and-reroute")]
 
 
-def run_control2014(binary, output, name):
+def run_dual_event_banks(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -2455,12 +2455,12 @@ def run_control2014(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control2014", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="dual-event-banks", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control2014-functional>"]
+                       if x["type"] == "child<nikon-dual-event-banks-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -2487,13 +2487,13 @@ def run_control2014(binary, output, name):
 
             def snapshot():
                 return [read(x, b) for b in range(2)
-                        for x in sorted(control2014_profile()) + [0x1210, 0x1214]] + \
+                        for x in sorted(dual_event_banks_profile()) + [0x1210, 0x1214]] + \
                     [read(x) for x in (0xb000, 0xd000, 0xd100, 0xe000)]
 
             command(f"irq_intercept_out {path} sysbus-irq")
             if name.endswith("config-and-geometry"):
                 for b in range(2):
-                    for x, y in control2014_profile().items():
+                    for x, y in dual_event_banks_profile().items():
                         write(x, y, b)
                         assert read(x, b) == y
                 write(0x141c, 0x87654321, 1)
@@ -2528,7 +2528,7 @@ def run_control2014(binary, output, name):
                 assert read(0x1214, 1) == 0
             elif name.endswith("preflight-reset-recovery"):
                 for b in range(2):
-                    for x, y in control2014_profile().items():
+                    for x, y in dual_event_banks_profile().items():
                         write(x, y, b)
                 event(0, 1)
                 before = snapshot()
@@ -2583,7 +2583,7 @@ def run_control2014(binary, output, name):
             "scope": "finite dualbank config, virtual pending/mask/IRQ routing; no firmware/frame"}
 
 
-def control20203_profile():
+def parameter_events_profile():
     values = {x: 1 for x in (0, 4, 0x44, 0x4c, 0x50, 0x54, 0x60, 0x64, 0x80, 0x84)}
     values.update({x: 0xff for x in (0x40, 0x5c, 0x6c, 0x8c)})
     values.update({x: 0x89abcdef for x in (0x10, 0x14, 0x20, 0x24,
@@ -2592,9 +2592,9 @@ def control20203_profile():
     return values
 
 
-def control20203_fixtures():
+def parameter_events_fixtures():
     base = 0x20203000
-    error = "control20203-access-or-activation-not-supported"
+    error = "parameter-events-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, base + offset) + constant(1, value) + [0xe5801000]
@@ -2602,42 +2602,42 @@ def control20203_fixtures():
     def read(offset, reg):
         return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
 
-    profile = sum([write(x, y) for x, y in control20203_profile().items()], [])
+    profile = sum([write(x, y) for x, y in parameter_events_profile().items()], [])
     return [
-        ("control20203-original-shadow-publication", write(0x10, 0) + read(0x10, 4) +
+        ("parameter-events-original-shadow-publication", write(0x10, 0) + read(0x10, 4) +
          write(0x14, 0xffffffff) + read(0x14, 5) + read(0x2c, 6),
          {4: 0, 5: 0xffffffff, 6: 0}, None),
-        ("control20203-all-config-and-six-arrays", profile + read(0x68, 4) +
+        ("parameter-events-all-config-and-six-arrays", profile + read(0x68, 4) +
          read(0x90, 5) + read(0xa0, 6) + read(0xfc, 7),
          {4: 0x89abcdef, 5: 0x89abcdef, 6: 0xdeadbeef, 7: 0xdeadbeef}, None),
-        ("control20203-fullword-independent-setters", write(0x68, 0xffffffff) +
+        ("parameter-events-fullword-independent-setters", write(0x68, 0xffffffff) +
          write(0x70, 0x12345678) + write(0x88, 0x87654321) + write(0x90, 0x80000000) +
          read(0x68, 4) + read(0x70, 5) + read(0x88, 6) + read(0x90, 7),
          {4: 0xffffffff, 5: 0x12345678, 6: 0x87654321, 7: 0x80000000}, None),
-        ("control20203-disabled-gates-preserve-parameters", write(0x64, 1) +
+        ("parameter-events-disabled-gates-preserve-parameters", write(0x64, 1) +
          write(0x68, 0x12345678) + write(0x84, 1) + write(0x88, 0x87654321) +
          write(0x64, 0) + write(0x84, 0) + read(0x68, 4) + read(0x88, 5),
          {4: 0x12345678, 5: 0x87654321}, None),
-        ("control20203-opaque-pulse-disconnected", write(0, 1) + write(0, 0) +
+        ("parameter-events-opaque-pulse-disconnected", write(0, 1) + write(0, 0) +
          write(4, 1) + read(4, 4) + read(0x2c, 5), {4: 1, 5: 0}, None),
-        ("control20203-guest-shadow-not-mmio", constant(0, 0xb1801fb0) +
+        ("parameter-events-guest-shadow-not-mmio", constant(0, 0xb1801fb0) +
          constant(1, 0xffffffff) + [0xe5801000, 0xe5c01004] + read(0x80, 4) +
          read(0x84, 5) + read(0x2c, 6), {4: 0, 5: 0, 6: 0}, None),
-        ("control20203-unknown-activation-read", read(8, 4), {}, error),
-        ("control20203-shadow-offset-not-mmio-hole", read(0x98, 4), {}, error),
-        ("control20203-byte-width", constant(0, base + 0x6c) + [0xe5d04000], {}, error),
-        ("control20203-halfword-width", constant(0, base + 0x20) + [0xe1c010b0], {}, error),
-        ("control20203-finite-end", read(0x100, 4), {}, "uncovered-address"),
-    ] + [(f"control20203-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("parameter-events-unknown-activation-read", read(8, 4), {}, error),
+        ("parameter-events-shadow-offset-not-mmio-hole", read(0x98, 4), {}, error),
+        ("parameter-events-byte-width", constant(0, base + 0x6c) + [0xe5d04000], {}, error),
+        ("parameter-events-halfword-width", constant(0, base + 0x20) + [0xe1c010b0], {}, error),
+        ("parameter-events-finite-end", read(0x100, 4), {}, "uncovered-address"),
+    ] + [(f"parameter-events-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((8, 1), (0, 2), (4, 2), (0x44, 2), (0x60, 2),
                       (0x80, 0xffffffff), (0x40, 0x100), (0x5c, 0x100),
                       (0x6c, 0x100), (0x8c, 0x100))] + \
-        [("control20203-qtest-" + suffix, [], {}, None) for suffix in (
+        [("parameter-events-qtest-" + suffix, [], {}, None) for suffix in (
             "config-versus-software-shadow", "pending-ack-and-controls",
             "preflight-reset-recovery")]
 
 
-def run_control20203(binary, output, name):
+def run_parameter_events(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -2647,12 +2647,12 @@ def run_control20203(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control20203", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="parameter-events", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control20203-functional>"]
+                       if x["type"] == "child<nikon-parameter-events-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -2678,12 +2678,12 @@ def run_control20203(binary, output, name):
                 command(f"set_irq_in {path} external-event {index} {level}")
 
             def snapshot():
-                return [read(x) for x in sorted(control20203_profile())] + [read(0x2c)]
+                return [read(x) for x in sorted(parameter_events_profile())] + [read(0x2c)]
 
             command(f"irq_intercept_out {path} sysbus-irq")
             assert read(0x2c) == 0
             if name.endswith("config-versus-software-shadow"):
-                for x, y in control20203_profile().items():
+                for x, y in parameter_events_profile().items():
                     write(x, y)
                     assert read(x) == y
                 before = snapshot()
@@ -2726,7 +2726,7 @@ def run_control20203(binary, output, name):
                 event(1, 1)
                 assert read(0x2c) == 0x400 and levels[0]
             elif name.endswith("preflight-reset-recovery"):
-                for x, y in control20203_profile().items():
+                for x, y in parameter_events_profile().items():
                     write(x, y)
                 event(0, 1)
                 before = snapshot()
@@ -2768,7 +2768,7 @@ def run_control20203(binary, output, name):
             "scope": "finite actual MMIO distinct from software RAM, virtual raw events/IRQ; no firmware/frame"}
 
 
-def control20205_profile():
+def shared_parameter_events_profile():
     values = {0: 1, 4: 1, 0x20: 0x89abcdef, 0x40: 3, 0x44: 3,
               0x48: 0x3ffe, 0x4c: 0x1ffe, 0x50: 0x3ffe, 0x54: 0x1ffe,
               0x58: 0x12345678, 0x5c: 0x17ff0, 0x60: 0xfffffff0,
@@ -2785,9 +2785,9 @@ def control20205_profile():
     return values
 
 
-def control20205_fixtures():
+def shared_parameter_events_fixtures():
     base = 0x20205000
-    error = "control20205-access-or-activation-not-supported"
+    error = "shared-parameter-events-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, base + offset) + constant(1, value) + [0xe5801000]
@@ -2795,38 +2795,38 @@ def control20205_fixtures():
     def read(offset, reg):
         return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
 
-    profile = sum([write(x, y) for x, y in control20205_profile().items()], [])
+    profile = sum([write(x, y) for x, y in shared_parameter_events_profile().items()], [])
     return [
-        ("control20205-original-rmw-initialization", read(0x308, 1) +
+        ("shared-parameter-events-original-rmw-initialization", read(0x308, 1) +
          [0xe3c11003, 0xe5801000] + read(0x308, 4) + read(0x2c, 5), {4: 0, 5: 0}, None),
-        ("control20205-whole-config-and-subarrays", profile + read(0x11c, 4) +
+        ("shared-parameter-events-whole-config-and-subarrays", profile + read(0x11c, 4) +
          read(0xa4, 5) + read(0xa8, 6) + read(0x1ac, 7) + read(0x58, 8),
          {4: 0xff, 5: 0xf, 6: 0xf, 7: 0x7f, 8: 0x12345678}, None),
-        ("control20205-full-byte-overwrites-bool", write(0x11c, 1) +
+        ("shared-parameter-events-full-byte-overwrites-bool", write(0x11c, 1) +
          write(0x11c, 0x80) + read(0x11c, 4), {4: 0x80}, None),
-        ("control20205-opaque-paired-controls", write(0, 1) + write(0x300, 1) +
+        ("shared-parameter-events-opaque-paired-controls", write(0, 1) + write(0x300, 1) +
          write(0, 0) + read(0x300, 4) + write(0x300, 0) + read(0, 5) + read(0x2c, 6),
          {4: 1, 5: 0, 6: 0}, None),
-        ("control20205-retained-generated-rmw", write(0x5c, 0x17ff0) +
+        ("shared-parameter-events-retained-generated-rmw", write(0x5c, 0x17ff0) +
          write(0x5c, 0x10000) + write(0x60, 0xfffffff0) + write(0x60, 0x12345670) +
          read(0x5c, 4) + read(0x60, 5), {4: 0x10000, 5: 0x12345670}, None),
-        ("control20205-shared-neighbor-word", write(0xa8, 4) + write(0xa8, 7) +
+        ("shared-parameter-events-shared-neighbor-word", write(0xa8, 4) + write(0xa8, 7) +
          read(0xa8, 4), {4: 7}, None),
-        ("control20205-unknown-activation-read", read(0x304, 4), {}, error),
-        ("control20205-array-end-hole", read(0x1b0, 4), {}, error),
-        ("control20205-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
-        ("control20205-halfword-width", constant(0, base + 0x308) + [0xe1c010b0], {}, error),
-        ("control20205-finite-end", read(0x318, 4), {}, "uncovered-address"),
-    ] + [(f"control20205-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("shared-parameter-events-unknown-activation-read", read(0x304, 4), {}, error),
+        ("shared-parameter-events-array-end-hole", read(0x1b0, 4), {}, error),
+        ("shared-parameter-events-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
+        ("shared-parameter-events-halfword-width", constant(0, base + 0x308) + [0xe1c010b0], {}, error),
+        ("shared-parameter-events-finite-end", read(0x318, 4), {}, "uncovered-address"),
+    ] + [(f"shared-parameter-events-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((0x304, 1), (0, 2), (0x300, 2), (4, 3), (0x308, 4),
                       (0x310, 2), (0x5c, 1), (0x60, 1), (0x48, 1),
                       (0x54, 0x2000), (0x11c, 0x100), (0xb4, 0x80))] + \
-        [("control20205-qtest-" + suffix, [], {}, None) for suffix in (
+        [("shared-parameter-events-qtest-" + suffix, [], {}, None) for suffix in (
             "whole-config-disconnected", "pending-ack-isr-controls",
             "strict-preflight-reset-recovery")]
 
 
-def run_control20205(binary, output, name):
+def run_shared_parameter_events(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -2836,12 +2836,12 @@ def run_control20205(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control20205", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="shared-parameter-events", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control20205-functional>"]
+                       if x["type"] == "child<nikon-shared-parameter-events-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -2867,14 +2867,14 @@ def run_control20205(binary, output, name):
                 command(f"set_irq_in {path} external-event {index} {level}")
 
             def snapshot():
-                return [read(x) for x in sorted(control20205_profile())] + [read(0x2c)]
+                return [read(x) for x in sorted(shared_parameter_events_profile())] + [read(0x2c)]
 
             command(f"irq_intercept_out {path} sysbus-irq")
             assert read(0x2c) == 0
             if name.endswith("whole-config-disconnected"):
-                for x, y in control20205_profile().items():
+                for x, y in shared_parameter_events_profile().items():
                     write(x, y)
-                for x, y in control20205_profile().items():
+                for x, y in shared_parameter_events_profile().items():
                     assert read(x) == y
                 write(0x11c, 1)
                 write(0x11c, 0xfe)
@@ -2922,7 +2922,7 @@ def run_control20205(binary, output, name):
                 event(1, 1)
                 assert read(0x2c) == 4 and levels[0]
             elif name.endswith("strict-preflight-reset-recovery"):
-                for x, y in control20205_profile().items():
+                for x, y in shared_parameter_events_profile().items():
                     write(x, y)
                 event(0, 1)
                 event(1, 1)
@@ -2962,7 +2962,7 @@ def run_control20205(binary, output, name):
             "scope": "finite shared config words, raw pending/ACK and virtual inputs/IRQ; no count guard/frame"}
 
 
-def control20204_profile():
+def table_sampler_profile():
     values = {0: 1, 4: 1, 8: 1, 0x20: 0x89abcdef,
               0x40: 0x7003f, 0x44: 0x70003, 0x48: 3,
               0x4c: 0x7fff, 0x50: 0x7fff, 0x54: 0x0fffffff,
@@ -2977,9 +2977,9 @@ def control20204_profile():
     return values
 
 
-def control20204_fixtures():
+def table_sampler_fixtures():
     base = 0x20204000
-    error = "control20204-access-or-activation-not-supported"
+    error = "table-sampler-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, base + offset) + constant(1, value) + [0xe5801000]
@@ -2988,35 +2988,35 @@ def control20204_fixtures():
         return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
 
     init = sum([read(x, 1) + [0xe3811001, 0xe5801000] for x in (0, 4)], [])
-    profile = sum([write(x, y) for x, y in control20204_profile().items()], [])
+    profile = sum([write(x, y) for x, y in table_sampler_profile().items()], [])
     return [
-        ("control20204-original-rmw-initialization", init + read(0, 4) +
+        ("table-sampler-original-rmw-initialization", init + read(0, 4) +
          read(4, 5) + read(0x2c, 6), {4: 1, 5: 1, 6: 0}, None),
-        ("control20204-whole-config-and-tables", profile + read(0x5c, 4) +
+        ("table-sampler-whole-config-and-tables", profile + read(0x5c, 4) +
          read(0x94, 5) + read(0x98, 6) + read(0x3fc, 7) + read(0x20, 8),
          {4: 0x3fff, 5: 0x3fff, 6: 0xf, 7: 0x3fff3fff, 8: 0x89abcdef}, None),
-        ("control20204-preserve-rmw-fields", write(0x44, 0x70003) +
+        ("table-sampler-preserve-rmw-fields", write(0x44, 0x70003) +
          read(0x44, 1) + constant(2, 0x70000) + [0xe1c11002, 0xe5801000] +
          read(0x44, 4) + read(0x2c, 5), {4: 3, 5: 0}, None),
-        ("control20204-independent-config-and-data-offset", write(0x1a0, 1) +
+        ("table-sampler-independent-config-and-data-offset", write(0x1a0, 1) +
          read(0x1a0, 4) + write(0x20, 0xffffffff) + read(0x20, 5),
          {4: 1, 5: 0xffffffff}, None),
-        ("control20204-internal-hole", read(0x10, 4), {}, error),
-        ("control20204-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
-        ("control20204-halfword-width", constant(0, base + 0x44) + [0xe1c010b0], {}, error),
-        ("control20204-finite-end", read(0x42c, 4), {}, "uncovered-address"),
-    ] + [(f"control20204-no-data-{x:x}", read(x, 4), {}, error)
+        ("table-sampler-internal-hole", read(0x10, 4), {}, error),
+        ("table-sampler-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
+        ("table-sampler-halfword-width", constant(0, base + 0x44) + [0xe1c010b0], {}, error),
+        ("table-sampler-finite-end", read(0x42c, 4), {}, "uncovered-address"),
+    ] + [(f"table-sampler-no-data-{x:x}", read(x, 4), {}, error)
          for x in (0x194, 0x198, 0x19c, 0x408, 0x428)] + \
-        [(f"control20204-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        [(f"table-sampler-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((0x14, 1), (0, 2), (0x40, 0x40), (0x44, 4), (0x48, 4),
                       (0x4c, 0x8000), (0x54, 0x10000000), (0x94, 0x4000),
                       (0x98, 0x10), (0x3fc, 0x40004000), (0x1a0, 2), (0x404, 0x10000))] + \
-        [("control20204-qtest-" + suffix, [], {}, None) for suffix in (
+        [("table-sampler-qtest-" + suffix, [], {}, None) for suffix in (
             "whole-config-disconnected", "three-word-snapshot-ack",
             "strict-preflight-recovery", "reset-republication")]
 
 
-def run_control20204(binary, output, name):
+def run_table_sampler(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -3026,12 +3026,12 @@ def run_control20204(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control20204", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="table-sampler", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control20204-functional>"]
+                       if x["type"] == "child<nikon-table-sampler-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -3065,14 +3065,14 @@ def run_control20204(binary, output, name):
                 return [read(x) for x in (0x194, 0x198, 0x19c)]
 
             def snapshot():
-                return [read(x) for x in sorted(control20204_profile())] + [read(0x2c)] + sample()
+                return [read(x) for x in sorted(table_sampler_profile())] + [read(0x2c)] + sample()
 
             command(f"irq_intercept_out {path} sysbus-irq")
             assert read(0x2c) == 0
             if name.endswith("whole-config-disconnected"):
-                for x, y in control20204_profile().items():
+                for x, y in table_sampler_profile().items():
                     write(x, y)
-                for x, y in control20204_profile().items():
+                for x, y in table_sampler_profile().items():
                     assert read(x) == y
                 write(0x94, 0x1234)
                 write(0x98, 7)
@@ -3081,9 +3081,9 @@ def run_control20204(binary, output, name):
                     write(offset, value)
                     write(offset, value & 3)
                     assert read(offset) == value & 3
-                before = [read(x) for x in sorted(control20204_profile())]
+                before = [read(x) for x in sorted(table_sampler_profile())]
                 command("clock_step 1000000000")
-                assert [read(x) for x in sorted(control20204_profile())] == before
+                assert [read(x) for x in sorted(table_sampler_profile())] == before
                 assert read(0x2c) == 0 and not any(levels.values())
             elif name.endswith("three-word-snapshot-ack"):
                 event(0, 1)
@@ -3119,7 +3119,7 @@ def run_control20204(binary, output, name):
                 event(0, 1)
                 assert read(0x2c) == 0x100 and sample() == [1, 2, 3] and levels[0]
             elif name.endswith("strict-preflight-recovery"):
-                for x, y in control20204_profile().items():
+                for x, y in table_sampler_profile().items():
                     write(x, y)
                 publish([0x11111111, 0x22222222, 0x33333333])
                 event(0, 1)
@@ -3170,7 +3170,7 @@ def run_control20204(binary, output, name):
             "scope": "finite config/table/raw IRQ and explicitly published three-word samples; no firmware/frame"}
 
 
-def control20201_profile():
+def data_sampler_profile():
     # Original generated shapes; fullword104/20 are not bool/mask fields.
     values = {x: 0x89abcdef for x in (
         0x20, 0x50, 0x54, 0x5c, 0x64, 0xc8, 0xcc, 0x104, 0x108,
@@ -3184,9 +3184,9 @@ def control20201_profile():
     return values
 
 
-def control20201_fixtures():
+def data_sampler_fixtures():
     base = 0x20201000
-    error = "control20201-access-or-activation-not-supported"
+    error = "data-sampler-access-or-activation-not-supported"
 
     def write(offset, value):
         return constant(0, base + offset) + constant(1, value) + [0xe5801000]
@@ -3194,35 +3194,35 @@ def control20201_fixtures():
     def read(offset, reg):
         return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
 
-    profile = sum([write(x, y) for x, y in control20201_profile().items()], [])
+    profile = sum([write(x, y) for x, y in data_sampler_profile().items()], [])
     return [
-        ("control20201-original-initialization", write(0x44, 2) + write(0x48, 0) +
+        ("data-sampler-original-initialization", write(0x44, 2) + write(0x48, 0) +
          read(0x44, 4) + read(0x48, 5) + read(0x2c, 6), {4: 2, 5: 0, 6: 0}, None),
-        ("control20201-all-selections-sequential", write(0x44, 3) + write(0x48, 7) +
+        ("data-sampler-all-selections-sequential", write(0x44, 3) + write(0x48, 7) +
          write(0x44, 1) + read(0x48, 4) + write(0x48, 1) + read(0x44, 5) +
          read(0x48, 6), {4: 7, 5: 1, 6: 1}, None),
-        ("control20201-whole-config", profile + read(0x104, 4) + read(0x100, 5) +
+        ("data-sampler-whole-config", profile + read(0x104, 4) + read(0x100, 5) +
          read(0xb8, 6) + read(0x194, 7),
          {4: 0x89abcdef, 5: 0xd, 6: 0x7ff, 7: 0xdeadbeef}, None),
-        ("control20201-disabled-parameters-retained", write(0x11c, 1) +
+        ("data-sampler-disabled-parameters-retained", write(0x11c, 1) +
          write(0x120, 0x12345678) + write(0x164, 1) + write(0x168, 0x87654321) +
          write(0x11c, 0) + write(0x164, 0) + read(0x120, 4) + read(0x168, 5),
          {4: 0x12345678, 5: 0x87654321}, None),
-        ("control20201-no-default-data", read(0x1a0, 4), {}, error),
-        ("control20201-command-read-unsupported", read(0, 4), {}, error),
-        ("control20201-configuration-hole", read(0x58, 4), {}, error),
-        ("control20201-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
-        ("control20201-halfword-width", constant(0, base + 0x44) + [0xe1c010b0], {}, error),
-        ("control20201-finite-end", read(0x1a4, 4), {}, "uncovered-address"),
-    ] + [(f"control20201-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("data-sampler-no-default-data", read(0x1a0, 4), {}, error),
+        ("data-sampler-command-read-unsupported", read(0, 4), {}, error),
+        ("data-sampler-configuration-hole", read(0x58, 4), {}, error),
+        ("data-sampler-byte-width", constant(0, base + 0x2c) + [0xe5d04000], {}, error),
+        ("data-sampler-halfword-width", constant(0, base + 0x44) + [0xe1c010b0], {}, error),
+        ("data-sampler-finite-end", read(0x1a4, 4), {}, "uncovered-address"),
+    ] + [(f"data-sampler-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((0, 1), (0x14, 1), (0x44, 0), (0x48, 2), (0x4c, 2),
                       (0x60, 0x100), (0xb8, 0x800), (0x100, 2))] + \
-        [("control20201-qtest-" + suffix, [], {}, None) for suffix in (
+        [("data-sampler-qtest-" + suffix, [], {}, None) for suffix in (
             "configuration-disconnected", "published-samples-ack",
             "strict-preflight-recovery", "reset-republication")]
 
 
-def run_control20201(binary, output, name):
+def run_data_sampler(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -3232,12 +3232,12 @@ def run_control20201(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control20201", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="data-sampler", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control20201-functional>"]
+                       if x["type"] == "child<nikon-data-sampler-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -3267,13 +3267,13 @@ def run_control20201(binary, output, name):
                     command(f"set_irq_in {path} data-bit {bit} {(word >> bit) & 1}")
 
             def snapshot():
-                return [read(x) for x in sorted(control20201_profile())] + \
+                return [read(x) for x in sorted(data_sampler_profile())] + \
                        [read(0x44), read(0x48), read(0x2c), read(0x1a0)]
 
             command(f"irq_intercept_out {path} sysbus-irq")
             assert read(0x2c) == 0
             if name.endswith("configuration-disconnected"):
-                for x, y in control20201_profile().items():
+                for x, y in data_sampler_profile().items():
                     write(x, y)
                     assert read(x) == y
                 for a, b in ((2, 0), (3, 7), (1, 1)):
@@ -3285,9 +3285,9 @@ def run_control20201(binary, output, name):
                 write(0x11c, 0)
                 write(0x164, 0)
                 assert read(0x120) == read(0x168) == 0x89abcdef
-                before = [read(x) for x in control20201_profile()]
+                before = [read(x) for x in data_sampler_profile()]
                 command("clock_step 1000000000")
-                assert before == [read(x) for x in control20201_profile()]
+                assert before == [read(x) for x in data_sampler_profile()]
                 assert read(0x2c) == 0 and not any(levels.values())
             elif name.endswith("published-samples-ack"):
                 event(0, 1)
@@ -3318,7 +3318,7 @@ def run_control20201(binary, output, name):
                 event(0, 1)
                 assert read(0x2c) == 1 and read(0x1a0) == 0x01234567 and levels[0]
             elif name.endswith("strict-preflight-recovery"):
-                for x, y in control20201_profile().items():
+                for x, y in data_sampler_profile().items():
                     write(x, y)
                 write(0x44, 3)
                 write(0x48, 7)
@@ -3369,7 +3369,7 @@ def run_control20201(binary, output, name):
             "scope": "finite config/raw IRQ and explicit published fixture samples; no firmware/frame"}
 
 
-def control2038_profile(dual):
+def paired_event_banks_profile(dual):
     # Exact original A006 profile, not inferred physical legal-bit masks.
     return {0: 3, 4: 3, 0xc: 1, 0x84: 0, 0x44: 0,
             0x48: 0x28000e if dual else 0x14000e, 0x4c: 0, 0x50: 0,
@@ -3381,9 +3381,9 @@ def control2038_profile(dual):
             0x3f0: 0x40 if dual else 0x20, 0xf0: 0x8e}
 
 
-def control2038_fixtures():
+def paired_event_banks_fixtures():
     base = 0x20380000
-    error = "control2038-access-or-command-not-supported"
+    error = "paired-event-banks-access-or-command-not-supported"
 
     def write(bank, offset, value):
         return constant(0, base + bank * 0x40000 + offset) + \
@@ -3396,39 +3396,39 @@ def control2038_fixtures():
     init = sum([write(bank, offset, value) for offset, value in
                 ((0xc, 1), (0, 3), (4, 3)) for bank in range(2)], [])
     profiles = sum([write(bank, offset, value) for bank in range(2)
-                    for offset, value in control2038_profile(bool(bank)).items()], [])
+                    for offset, value in paired_event_banks_profile(bool(bank)).items()], [])
     return [
-        ("control2038-original-dual-initialization", init + read(0, 0, 4) +
+        ("paired-event-banks-original-dual-initialization", init + read(0, 0, 4) +
          read(1, 4, 5) + read(1, 0xc, 6) + read(0, 0x24, 7) + read(1, 0x24, 8),
          {4: 3, 5: 3, 6: 1, 7: 0, 8: 0}, None),
-        ("control2038-full-single-dual-config", profiles + read(0, 0x48, 4) +
+        ("paired-event-banks-full-single-dual-config", profiles + read(0, 0x48, 4) +
          read(1, 0x48, 5) + read(0, 0xcc, 6) + read(1, 0xcc, 7) +
          read(1, 0x310, 8), {4: 0x14000e, 5: 0x28000e, 6: 0, 7: 0x14,
                              8: 0xdeadbeef}, None),
-        ("control2038-shared-bank0-selector", write(0, 0xd0, 1) +
+        ("paired-event-banks-shared-bank0-selector", write(0, 0xd0, 1) +
          read(0, 0xd0, 4) + write(0, 0xd0, 0) + read(0, 0xd0, 5), {4: 1, 5: 0}, None),
-        ("control2038-full-mask-and-opaque-f0", write(0, 0xe8, 0xffffff71) +
+        ("paired-event-banks-full-mask-and-opaque-f0", write(0, 0xe8, 0xffffff71) +
          write(1, 0xe8, 0x80000001) + write(0, 0xf0, 0xfc400) +
          read(0, 0xe8, 4) + read(1, 0xe8, 5) + read(0, 0xf0, 6) + read(0, 0x24, 7),
          {4: 0xffffff71, 5: 0x80000001, 6: 0xfc400, 7: 0}, None),
-        ("control2038-bank1-no-selector-alias", write(1, 0xd0, 0), {}, error),
-        ("control2038-unknown-profile", write(0, 0x48, 1), {}, error),
-        ("control2038-unknown-control", write(1, 0xc, 2), {}, error),
-        ("control2038-unknown-f0", write(1, 0xf0, 0), {}, error),
-        ("control2038-unbound-command-read", read(0, 8, 4), {}, error),
-        ("control2038-internal-hole", read(1, 0x28, 4), {}, error),
-        ("control2038-byte-width", constant(0, base + 0x24) + [0xe5d04000], {}, error),
-        ("control2038-halfword-width", constant(0, base + 0x400e8) + [0xe1c010b0], {}, error),
-        ("control2038-aperture-end", read(0, 0x680, 4), {}, "uncovered-address"),
-        ("control2038-bank-gap-unmapped", read(0, 0x10000, 4), {}, "uncovered-address"),
-    ] + [(f"control2038-request-{offset:x}-unbound", write(0, offset, 1), {}, error)
+        ("paired-event-banks-bank1-no-selector-alias", write(1, 0xd0, 0), {}, error),
+        ("paired-event-banks-unknown-profile", write(0, 0x48, 1), {}, error),
+        ("paired-event-banks-unknown-control", write(1, 0xc, 2), {}, error),
+        ("paired-event-banks-unknown-f0", write(1, 0xf0, 0), {}, error),
+        ("paired-event-banks-unbound-command-read", read(0, 8, 4), {}, error),
+        ("paired-event-banks-internal-hole", read(1, 0x28, 4), {}, error),
+        ("paired-event-banks-byte-width", constant(0, base + 0x24) + [0xe5d04000], {}, error),
+        ("paired-event-banks-halfword-width", constant(0, base + 0x400e8) + [0xe1c010b0], {}, error),
+        ("paired-event-banks-aperture-end", read(0, 0x680, 4), {}, "uncovered-address"),
+        ("paired-event-banks-bank-gap-unmapped", read(0, 0x10000, 4), {}, "uncovered-address"),
+    ] + [(f"paired-event-banks-request-{offset:x}-unbound", write(0, offset, 1), {}, error)
          for offset in (8, 0x10, 0x54, 0x60, 0x6c, 0x78, 0x580)] + \
-        [("control2038-qtest-" + suffix, [], {}, None) for suffix in (
+        [("paired-event-banks-qtest-" + suffix, [], {}, None) for suffix in (
             "profiles-and-disconnected", "independent-pending-mask-ack",
             "reset-and-strict-preflight")]
 
 
-def run_control2038(binary, output, name):
+def run_paired_event_banks(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -3438,12 +3438,12 @@ def run_control2038(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control2038", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="paired-event-banks", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control2038-functional>"]
+                       if x["type"] == "child<nikon-paired-event-banks-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -3470,7 +3470,7 @@ def run_control2038(binary, output, name):
 
             def snapshot():
                 return [read(bank, offset) for bank in range(2)
-                        for offset in sorted(control2038_profile(True) | {0xe8: 0, 0x24: 0})] + \
+                        for offset in sorted(paired_event_banks_profile(True) | {0xe8: 0, 0x24: 0})] + \
                        [read(0, 0xd0)]
 
             command(f"irq_intercept_out {path} sysbus-irq")
@@ -3478,12 +3478,12 @@ def run_control2038(binary, output, name):
             if name.endswith("profiles-and-disconnected"):
                 for dual in (False, True):
                     for bank in range(2):
-                        for offset, value in control2038_profile(dual).items():
+                        for offset, value in paired_event_banks_profile(dual).items():
                             write(bank, offset, value)
                         write(bank, 0xe8, 0xffffff71)
                     write(0, 0xd0, int(dual))
                     for bank in range(2):
-                        for offset, value in control2038_profile(dual).items():
+                        for offset, value in paired_event_banks_profile(dual).items():
                             assert read(bank, offset) == value
                     before = snapshot()
                     command("clock_step 1000000000")
@@ -3516,7 +3516,7 @@ def run_control2038(binary, output, name):
                 assert read(1, 0x24) == 0x80 and levels[1]
             elif name.endswith("reset-and-strict-preflight"):
                 for bank in range(2):
-                    for offset, value in control2038_profile(bool(bank)).items():
+                    for offset, value in paired_event_banks_profile(bool(bank)).items():
                         write(bank, offset, value)
                     pin(bank, 7, 1)
                 before = snapshot()
@@ -3553,20 +3553,20 @@ def run_control2038(binary, output, name):
             "scope": "two finite MMIO banks, explicit virtual raw inputs and independent IRQ outputs; no firmware/frame"}
 
 
-def control2010_runtime_fixtures():
-    return [("control2010-qtest-runtime-" + suffix, [], {}, None) for suffix in (
+def event_gate_runtime_fixtures():
+    return [("event-gate-qtest-runtime-" + suffix, [], {}, None) for suffix in (
         "paired-rmw", "whole-packing", "preflight-reset")]
 
 
-def control2010_stop_fixtures():
-    return [("control2010-qtest-stop-" + suffix, [], {}, None) for suffix in (
+def event_gate_stop_fixtures():
+    return [("event-gate-qtest-stop-" + suffix, [], {}, None) for suffix in (
         "idle-repeat-deferred", "masked-ack", "reopen-reset",
         "preflight", "external-independent")]
 
 
-def control2010_gate_fixtures():
+def event_gate_gate_fixtures():
     base = 0x20100000
-    error = "control2010-access-or-command-not-supported"
+    error = "event-gate-access-or-command-not-supported"
 
     def write(offset, value):
         return constant(0, base + offset) + constant(1, value) + [0xe5801000]
@@ -3575,25 +3575,25 @@ def control2010_gate_fixtures():
         return constant(0, base + offset) + [0xe5900000 | reg << 12]
 
     return [
-        ("control2010-gate-original-rmw-enable", read(4, 1) +
+        ("event-gate-gate-original-rmw-enable", read(4, 1) +
          [0xe3c11003, 0xe3811001, 0xe5801000] + read(4, 4) + read(0x18, 5),
          {4: 1, 5: 0}, None),
-        ("control2010-gate-stop-retained-config", write(0x2200, 0xdeadbeef) +
+        ("event-gate-gate-stop-retained-config", write(0x2200, 0xdeadbeef) +
          write(4, 1) + write(4, 0) + read(4, 4) + read(0x2200, 5) + read(0x20, 6),
          {4: 0, 5: 0xdeadbeef, 6: 0}, None),
-        ("control2010-gate-reopen-no-ready", write(4, 1) + write(4, 0) +
+        ("event-gate-gate-reopen-no-ready", write(4, 1) + write(4, 0) +
          write(4, 1) + read(4, 4) + read(0x18, 5) + read(0x1c, 6) + read(0x20, 7),
          {4: 1, 5: 0, 6: 0, 7: 0}, None),
-        ("control2010-gate-byte-width", constant(0, base + 4) + [0xe5c01000], {}, error),
-        ("control2010-gate-halfword-width", constant(0, base + 4) + [0xe1d040b0], {}, error),
-    ] + [(f"control2010-gate-reject-{x:x}-{y:x}", write(x, y), {}, error)
+        ("event-gate-gate-byte-width", constant(0, base + 4) + [0xe5c01000], {}, error),
+        ("event-gate-gate-halfword-width", constant(0, base + 4) + [0xe1d040b0], {}, error),
+    ] + [(f"event-gate-gate-reject-{x:x}-{y:x}", write(x, y), {}, error)
          for x, y in ((4, 2), (4, 3), (4, 4), (4, 5), (0x20a4, 1),
                       (0x2620, 1), (0x2660, 1), (0, 1), (8, 1))] + \
-        [("control2010-qtest-gate-" + suffix, [], {}, None) for suffix in (
+        [("event-gate-qtest-gate-" + suffix, [], {}, None) for suffix in (
             "stop-pending-and-edges", "mask-ack-reopen", "preflight-reset")]
 
 
-def control2010_config_values():
+def event_gate_config_values():
     # Original finite setup shapes, independently transcribed from the source.
     values = {offset: 0xffffffff for first, last in (
         (0x2200, 0x22fc), (0x2300, 0x23fc), (0x2880, 0x28f4),
@@ -3610,7 +3610,7 @@ def control2010_config_values():
     return values | {0x2684: 0xffffffff, 0x2690: 0xffff, 0x2838: 0xffff}
 
 
-def control2010_fixtures():
+def event_gate_fixtures():
     base = 0x20100000
 
     def write(offset, value):
@@ -3620,37 +3620,37 @@ def control2010_fixtures():
         return constant(0, base + offset) + [0xe5900000 | reg << 12]
 
     config = sum([write(offset, value) for offset, value in
-                  sorted(control2010_config_values().items())], [])
-    error = "control2010-access-or-command-not-supported"
+                  sorted(event_gate_config_values().items())], [])
+    error = "event-gate-access-or-command-not-supported"
     return [
-        ("control2010-inactive-init", write(0, 0) + write(4, 0) + write(8, 0) +
+        ("event-gate-inactive-init", write(0, 0) + write(4, 0) + write(8, 0) +
          read(0x18, 4) + read(0x1c, 5) + read(0x20, 6), {4: 0, 5: 0, 6: 0}, None),
-        ("control2010-whole-finite-configuration", config + read(0x22fc, 4) +
+        ("event-gate-whole-finite-configuration", config + read(0x22fc, 4) +
          read(0x23fc, 5) + read(0x2838, 6) + read(0x28f4, 7) + read(0x2924, 8),
          {4: 0xffffffff, 5: 0xffffffff, 6: 0xffff, 7: 0xffffffff, 8: 0xffffffff}, None),
-        ("control2010-three-full-mask-rmw", write(0xc, 0xffffffff) +
+        ("event-gate-three-full-mask-rmw", write(0xc, 0xffffffff) +
          write(0x10, 0x80000001) + write(0x14, 0x13572468) +
          read(0xc, 4) + read(0x10, 5) + read(0x14, 6) + read(0x20, 7),
          {4: 0xffffffff, 5: 0x80000001, 6: 0x13572468, 7: 0}, None),
-        ("control2010-global-mode-unbound", write(4, 2), {}, error),
-        ("control2010-input-mode-unbound", write(0x2000, 2), {}, error),
-        ("control2010-input-pulse-unbound", write(0x20a4, 1), {}, error),
-        ("control2010-config-pulse-unbound", write(0x2660, 1), {}, error),
-        ("control2010-table-submit-unbound", write(0x2800, 1), {}, error),
-        ("control2010-parameter-submit-unbound", write(0x2680, 1), {}, error),
-        ("control2010-generated-field-unbound", write(0x2838, 0x10000), {}, error),
-        ("control2010-unbound-data-monitor", read(0x200, 4), {}, error),
-        ("control2010-unbounded-input-index", read(0x2040, 4), {}, error),
-        ("control2010-configuration-hole", write(0x201c, 0), {}, error),
-        ("control2010-byte-width", constant(0, base + 0xc) + [0xe5c01000], {}, error),
-        ("control2010-halfword-width", constant(0, base + 0x2820) + [0xe1c010b0], {}, error),
-        ("control2010-aperture-end", read(0x2928, 4), {}, "uncovered-address"),
-        ("control2010-aperture-before", read(-4, 4), {}, "uncovered-address"),
-    ] + [("control2010-qtest-" + suffix, [], {}, None) for suffix in (
+        ("event-gate-global-mode-unbound", write(4, 2), {}, error),
+        ("event-gate-input-mode-unbound", write(0x2000, 2), {}, error),
+        ("event-gate-input-pulse-unbound", write(0x20a4, 1), {}, error),
+        ("event-gate-config-pulse-unbound", write(0x2660, 1), {}, error),
+        ("event-gate-table-submit-unbound", write(0x2800, 1), {}, error),
+        ("event-gate-parameter-submit-unbound", write(0x2680, 1), {}, error),
+        ("event-gate-generated-field-unbound", write(0x2838, 0x10000), {}, error),
+        ("event-gate-unbound-data-monitor", read(0x200, 4), {}, error),
+        ("event-gate-unbounded-input-index", read(0x2040, 4), {}, error),
+        ("event-gate-configuration-hole", write(0x201c, 0), {}, error),
+        ("event-gate-byte-width", constant(0, base + 0xc) + [0xe5c01000], {}, error),
+        ("event-gate-halfword-width", constant(0, base + 0x2820) + [0xe1c010b0], {}, error),
+        ("event-gate-aperture-end", read(0x2928, 4), {}, "uncovered-address"),
+        ("event-gate-aperture-before", read(-4, 4), {}, "uncovered-address"),
+    ] + [("event-gate-qtest-" + suffix, [], {}, None) for suffix in (
         "whole-config-reset", "three-pending-mask-ack", "strict-preflight")]
 
 
-def run_control2010(binary, output, name):
+def run_event_gate(binary, output, name):
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     payload = struct.pack("<I", 0xeafffffe)
@@ -3661,12 +3661,12 @@ def run_control2010(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control2010", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="event-gate", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
-                       if x["type"] == "child<z7ii-control2010-functional>"]
+                       if x["type"] == "child<nikon-event-gate-functional>"]
             assert len(devices) == 1, devices
             path = "/machine/unattached/" + devices[0]
 
@@ -3695,10 +3695,10 @@ def run_control2010(binary, output, name):
                 return [read(x) for x in sorted(values)] + \
                        [read(x) for x in (4, 0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)]
 
-            values = control2010_config_values()
+            values = event_gate_config_values()
             command(f"irq_intercept_out {path} sysbus-irq")
             assert [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)] == [0] * 6
-            if name.startswith("control2010-qtest-runtime-"):
+            if name.startswith("event-gate-qtest-runtime-"):
                 runtime = {0x30: 0xffffffff, 0x34: 0xffffffff,
                            0xf4: 0x000fff00, 0x108: 0x000fff00,
                            0x10c: (0xff << 24) | (0xff << 12) | (0xff << 8)}
@@ -3991,7 +3991,7 @@ def run_control2010(binary, output, name):
             "scope": "finite configuration and explicit virtual raw-pending inputs/IRQ output; no firmware or frame"}
 
 
-def control20202_config_masks():
+def staged_configuration_config_masks():
     # Independently transcribed whole-source shapes, not a device table read.
     groups = {
         0xff: (0x40, 0x4c, 0x68, 0x6c, 0x80, 0x84, 0x88, 0xa8, 0xac,
@@ -4009,7 +4009,7 @@ def control20202_config_masks():
     return {offset: mask for mask, offsets in groups.items() for offset in offsets}
 
 
-def control20202_fixtures():
+def staged_configuration_fixtures():
     base = 0x20202000
 
     def write(offset, value):
@@ -4019,47 +4019,47 @@ def control20202_fixtures():
         return constant(0, base + offset) + [0xe5900000 | reg << 12]
 
     config = write(0x10, 0)
-    for offset, mask in sorted(control20202_config_masks().items()):
+    for offset, mask in sorted(staged_configuration_config_masks().items()):
         config += write(offset, mask)
     config += write(0x120, 0xffff8000) + write(0x144, 0xffffffff) + write(0x10, 1)
-    error = "control20202-access-or-phase-not-supported"
+    error = "staged-configuration-access-or-phase-not-supported"
     return [
-        ("control20202-original-disable", write(0x18, 0) + read(8, 4) +
+        ("staged-configuration-original-disable", write(0x18, 0) + read(8, 4) +
          read(0x20, 5) + read(0x2c, 6), {4: 0, 5: 0, 6: 0}, None),
-        ("control20202-whole-config-and-signed-tail", config + read(0xd4, 4) +
+        ("staged-configuration-whole-config-and-signed-tail", config + read(0xd4, 4) +
          read(0x120, 5) + read(0x144, 6) + read(0x250, 7),
          {4: 0x773ff3ff, 5: 0xffff8000, 6: 0xffffffff, 7: 0xffffffff}, None),
-        ("control20202-disconnected-armed-cancel", write(0x18, 1) +
+        ("staged-configuration-disconnected-armed-cancel", write(0x18, 1) +
          write(0x20, 0xffffffff) + write(8, 1) + write(0xc, 1) + write(0x14, 1) +
          read(8, 4) + read(0x2c, 5) + write(0, 1) + write(4, 1) + read(8, 6),
          {4: 1, 5: 0, 6: 0}, None),
-        ("control20202-disable-cancels", write(0x18, 1) + write(8, 1) +
+        ("staged-configuration-disable-cancels", write(0x18, 1) + write(8, 1) +
          write(0x18, 0) + read(8, 4) + read(0x2c, 5), {4: 0, 5: 0}, None),
-        ("control20202-disabled-request-rejected", write(8, 1), {}, error),
-        ("control20202-unknown-command-rejected", write(0x18, 1) + write(0x14, 2), {}, error),
-        ("control20202-unknown-enable-rejected", write(0x18, 2), {}, error),
-        ("control20202-packed-field-rejected", write(0xd4, 0x80000000), {}, error),
-        ("control20202-unsigned-tail-rejected", write(0x120, 0x8000), {}, error),
-        ("control20202-boolean-field-rejected", write(0x224, 2), {}, error),
-        ("control20202-commit-without-bracket-rejected", write(0x10, 1), {}, error),
-        ("control20202-reconfigure-armed-rejected", write(0x18, 1) +
+        ("staged-configuration-disabled-request-rejected", write(8, 1), {}, error),
+        ("staged-configuration-unknown-command-rejected", write(0x18, 1) + write(0x14, 2), {}, error),
+        ("staged-configuration-unknown-enable-rejected", write(0x18, 2), {}, error),
+        ("staged-configuration-packed-field-rejected", write(0xd4, 0x80000000), {}, error),
+        ("staged-configuration-unsigned-tail-rejected", write(0x120, 0x8000), {}, error),
+        ("staged-configuration-boolean-field-rejected", write(0x224, 2), {}, error),
+        ("staged-configuration-commit-without-bracket-rejected", write(0x10, 1), {}, error),
+        ("staged-configuration-reconfigure-armed-rejected", write(0x18, 1) +
          write(8, 1) + write(0x200, 1), {}, error),
-        ("control20202-command-read-unbound", read(0x14, 4), {}, error),
-        ("control20202-byte-access-rejected", constant(0, base + 0x2c) +
+        ("staged-configuration-command-read-unbound", read(0x14, 4), {}, error),
+        ("staged-configuration-byte-access-rejected", constant(0, base + 0x2c) +
          [0xe5d04000], {}, error),
-        ("control20202-halfword-access-rejected", constant(0, base + 0x18) +
+        ("staged-configuration-halfword-access-rejected", constant(0, base + 0x18) +
          [0xe1c010b0], {}, error),
-        ("control20202-internal-hole-rejected", read(0x24, 4), {}, error),
-        ("control20202-array-gap-rejected", write(0x150, 0), {}, error),
-        ("control20202-aperture-end-rejected", read(0x254, 4), {}, "uncovered-address"),
-        ("control20202-aperture-before-rejected", constant(0, base - 4) +
+        ("staged-configuration-internal-hole-rejected", read(0x24, 4), {}, error),
+        ("staged-configuration-array-gap-rejected", write(0x150, 0), {}, error),
+        ("staged-configuration-aperture-end-rejected", read(0x254, 4), {}, "uncovered-address"),
+        ("staged-configuration-aperture-before-rejected", constant(0, base - 4) +
          [0xe5904000], {}, "uncovered-address"),
-    ] + [("control20202-qtest-" + suffix, [], {}, None) for suffix in (
+    ] + [("staged-configuration-qtest-" + suffix, [], {}, None) for suffix in (
         "whole-staged-config", "explicit-events-and-mask", "isr-two-mode-branches",
         "cancel-disable-reset", "transactional-preflight")]
 
 
-def run_control20202(binary, output, name):
+def run_staged_configuration(binary, output, name):
     output.mkdir()
     image = output / "synthetic.bin"
     payload = struct.pack("<I", 0xeafffffe)
@@ -4071,13 +4071,13 @@ def run_control20202(binary, output, name):
         with QEMUQtestMachine(str(binary), args=[
                 "-bios", str(image), "-smp", "1", "-display", "none",
                 "-serial", "none", "-monitor", "none", "-D", str(trace),
-                "-d", "guest_errors"], name="control20202", base_temp_dir=sockets,
+                "-d", "guest_errors"], name="staged-configuration", base_temp_dir=sockets,
                 qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             children = vm.cmd("qom-list", path="/machine/unattached")
             devices = [x["name"] for x in children
-                       if x["type"] == "child<z7ii-control20202-functional>"]
+                       if x["type"] == "child<nikon-staged-configuration-functional>"]
             assert len(devices) == 1, children
             path = "/machine/unattached/" + devices[0]
 
@@ -4109,7 +4109,7 @@ def run_control20202(binary, output, name):
             command(f"irq_intercept_out {path} sysbus-irq")
             assert read(8) == read(0x20) == read(0x2c) == 0
             if name.endswith("whole-staged-config"):
-                table = control20202_config_masks() | {0x120: 0xffff8000, 0x144: 0xffffffff}
+                table = staged_configuration_config_masks() | {0x120: 0xffff8000, 0x144: 0xffffffff}
                 write(0x10, 0)
                 for offset, value in sorted(table.items()):
                     write(offset, value)
@@ -4211,7 +4211,7 @@ def run_control20202(binary, output, name):
                 event(0)
                 assert read(8) == 0 and read(0x2c) == 2
             elif name.endswith("transactional-preflight"):
-                table = control20202_config_masks()
+                table = staged_configuration_config_masks()
                 for offset, mask in sorted(table.items()):
                     write(offset, mask)
                     if mask != 0xffffffff:
@@ -4317,14 +4317,14 @@ def run_ipud_fifo(binary, output, name):
                 "-d", "guest_errors"]
         if external:
             args += ["-chardev", f"socket,id=peer,path={endpoint},server=on,wait=off",
-                     "-global", "z7ii-ipud-functional.peer=peer"]
+                     "-global", "nikon-ipud-functional.peer=peer"]
         with QEMUQtestMachine(str(binary), args=args, name="ipud",
                               base_temp_dir=sockets, qmp_timer=5) as vm:
             vm.set_machine("z7ii-mas-diagnostic")
             vm.launch()
             children = vm.cmd("qom-list", path="/machine/unattached")
             devices = [x["name"] for x in children
-                       if x["type"] == "child<z7ii-ipud-functional>"]
+                       if x["type"] == "child<nikon-ipud-functional>"]
             assert len(devices) == 1, children
             path = "/machine/unattached/" + devices[0]
 
@@ -4586,7 +4586,7 @@ def run_signal_input(binary, output, name):
             vm.launch()
             children = vm.cmd("qom-list", path="/machine/unattached")
             device = [x["name"] for x in children
-                      if x["type"] == "child<z7ii-signal-functional>"]
+                      if x["type"] == "child<nikon-signal-functional>"]
             assert len(device) == 1, children
             path = "/machine/unattached/" + device[0]
 
@@ -4937,7 +4937,7 @@ def run_timing_capture(binary, output, name):
             vm.launch()
             children = vm.cmd("qom-list", path="/machine/unattached")
             device = [x["name"] for x in children
-                      if x["type"] == "child<z7ii-timing-functional>"]
+                      if x["type"] == "child<nikon-timing-functional>"]
             assert len(device) == 1, children
             path = "/machine/unattached/" + device[0]
 
@@ -5144,30 +5144,30 @@ def run_copy_romd_large(binary, output, name):
 def run(binary, output, name, words, expected, reason):
     if name.startswith("event-router-qtest-"):
         return run_peripheral_event_router(binary, output, name)
-    if name.startswith("control2406-qtest-"):
-        return run_control2406(binary, output, name)
-    if name.startswith("control2016-qtest-"):
-        return run_control2016(binary, output, name)
-    if name.startswith("control2014-qtest-"):
-        return run_control2014(binary, output, name)
-    if name.startswith("control20203-qtest-"):
-        return run_control20203(binary, output, name)
-    if name.startswith("control20205-qtest-"):
-        return run_control20205(binary, output, name)
-    if name.startswith("control20204-qtest-"):
-        return run_control20204(binary, output, name)
-    if name.startswith("control20201-qtest-"):
-        return run_control20201(binary, output, name)
-    if name.startswith("control2038-qtest-"):
-        return run_control2038(binary, output, name)
-    if name.startswith("control2010-qtest-"):
-        return run_control2010(binary, output, name)
+    if name.startswith("request-status-qtest-"):
+        return run_request_status(binary, output, name)
+    if name.startswith("byte-event-router-qtest-"):
+        return run_byte_event_router(binary, output, name)
+    if name.startswith("dual-event-banks-qtest-"):
+        return run_dual_event_banks(binary, output, name)
+    if name.startswith("parameter-events-qtest-"):
+        return run_parameter_events(binary, output, name)
+    if name.startswith("shared-parameter-events-qtest-"):
+        return run_shared_parameter_events(binary, output, name)
+    if name.startswith("table-sampler-qtest-"):
+        return run_table_sampler(binary, output, name)
+    if name.startswith("data-sampler-qtest-"):
+        return run_data_sampler(binary, output, name)
+    if name.startswith("paired-event-banks-qtest-"):
+        return run_paired_event_banks(binary, output, name)
+    if name.startswith("event-gate-qtest-"):
+        return run_event_gate(binary, output, name)
     if name.startswith("sysconfig-word-input-"):
         return run_sysconfig_words(binary, output, name)
     if name.startswith("fill-runtime-qtest-"):
         return run_fill_runtime(binary, output, name)
-    if name.startswith("control20202-qtest-"):
-        return run_control20202(binary, output, name)
+    if name.startswith("staged-configuration-qtest-"):
+        return run_staged_configuration(binary, output, name)
     if name.startswith("ipud-qtest-"):
         return run_ipud_fifo(binary, output, name)
     if name.startswith("signal-input-"):
@@ -5190,7 +5190,7 @@ def run(binary, output, name, words, expected, reason):
                         "ipud-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
-        vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
+        vm_args += ["-device", "at24c-eeprom,bus=nikon-i2c0,address=80,rom-size=256"]
     if name.startswith("usio-"):
         serial = output / "serial.bin"
         vm_args[vm_args.index("-serial") + 1] = f"file:{serial}"
@@ -5394,13 +5394,13 @@ def main():
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
-             private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
-             fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
-             control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
-             control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
-             control2016_fixtures() + control2010_gate_fixtures() +
-             control2406_fixtures() + control2010_stop_fixtures() +
-             control2010_runtime_fixtures() + peripheral_event_router_fixtures())
+             private_class_fixtures() + ipud_fixtures() + staged_configuration_fixtures() +
+             fill_runtime_fixtures() + sysconfig_word_fixtures() + event_gate_fixtures() +
+             paired_event_banks_fixtures() + data_sampler_fixtures() + table_sampler_fixtures() +
+             shared_parameter_events_fixtures() + parameter_events_fixtures() + dual_event_banks_fixtures() +
+             byte_event_router_fixtures() + event_gate_gate_fixtures() +
+             request_status_fixtures() + event_gate_stop_fixtures() +
+             event_gate_runtime_fixtures() + peripheral_event_router_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Integrate the one diagnostic machine, then use upstream's native build.
+# Integrate Nikon machines and functional devices, then use upstream's native build.
 set -eu
 if [ "$#" -ne 2 ]; then
     echo "usage: $0 <pinned-qemu-source> <empty-build-directory>" >&2
@@ -13,7 +13,7 @@ if [ "$(git -C "$src" rev-parse HEAD)" != "$ref" ]; then
     exit 1
 fi
 # Do not overwrite an existing integration or anyone else's source changes.
-if [ -e "$src/hw/arm/z7ii.c" ] || [ -n "$(git -C "$src" status --porcelain)" ]; then
+if [ -e "$src/hw/nikon" ] || [ -e "$src/include/hw/nikon" ] || [ -n "$(git -C "$src" status --porcelain)" ]; then
     echo "QEMU source must be clean and not already integrated" >&2
     exit 1
 fi
@@ -23,24 +23,14 @@ if [ -n "$(ls -A "$build")" ]; then
     echo "build directory must be empty" >&2
     exit 1
 fi
-git -C "$src" apply --check "$repo/scripts/z7ii-registration.patch"
-git -C "$src" apply "$repo/scripts/z7ii-registration.patch"
-cp "$repo/hw/arm/z7ii.c" "$repo/hw/arm/z7ii.h" \
-   "$repo/hw/arm/z7ii-timestamp.c" "$repo/hw/arm/z7ii-sdi.c" \
-   "$repo/hw/arm/z7ii-mxic.c" "$repo/hw/arm/z7ii-fill.c" \
-   "$repo/hw/arm/z7ii-usio.c" "$repo/hw/arm/z7ii-sysconfig.c" \
-   "$repo/hw/arm/z7ii-gpio.c" "$repo/hw/arm/z7ii-mxic-config.c" \
-   "$repo/hw/arm/z7ii-spi.c" "$repo/hw/arm/z7ii-exiu.c" \
-   "$repo/hw/arm/z7ii-hdmac.c" "$repo/hw/arm/z7ii-i2c.c" \
-   "$repo/hw/arm/z7ii-audio.c" "$repo/hw/arm/z7ii-timing.c" \
-   "$repo/hw/arm/z7ii-copy.c" "$repo/hw/arm/z7ii-bridge.c" \
-   "$repo/hw/arm/z7ii-signal.c" "$repo/hw/arm/z7ii-ipud.c" \
-   "$repo/hw/arm/z7ii-control20202.c" "$repo/hw/arm/z7ii-control2010.c" \
-   "$repo/hw/arm/z7ii-control2038.c" "$repo/hw/arm/z7ii-control20201.c" \
-   "$repo/hw/arm/z7ii-control20204.c" "$repo/hw/arm/z7ii-control20205.c" \
-   "$repo/hw/arm/z7ii-control20203.c" "$repo/hw/arm/z7ii-control2014.c" \
-   "$repo/hw/arm/z7ii-control2016.c" "$repo/hw/arm/z7ii-control2406.c" \
-   "$src/hw/arm/"
+git -C "$src" apply --check "$repo/scripts/nikon-registration.patch"
+git -C "$src" apply "$repo/scripts/nikon-registration.patch"
+mkdir -p "$src/hw/nikon/machines" "$src/hw/nikon/devices" \
+         "$src/include/hw/nikon"
+cp "$repo/hw/nikon/Kconfig" "$repo/hw/nikon/meson.build" "$src/hw/nikon/"
+cp "$repo/hw/nikon/machines/"*.c "$src/hw/nikon/machines/"
+cp "$repo/hw/nikon/devices/"*.c "$src/hw/nikon/devices/"
+cp "$repo/include/hw/nikon/"*.h "$src/include/hw/nikon/"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm

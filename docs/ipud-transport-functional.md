@@ -4,7 +4,7 @@ Native C is **b117daee3595374d37410f6e3697affcc01eb65b**; final fixture recipe i
 
 Original bytes supply a finite word interface, three-word TX producer, RX readers, software queue/worker/IRQ101 lifecycle and a separate RMU availability check. The bounded receipt contains **1,270 bytes/513 Thumb instructions** and seven saved metadata records validated by exact ranges/counts. Initializer, ISR, constructor, worker and RX native coverage gaps remain original-byte diagnostics. The separate queue-empty predicate is a saved-native 3-block/12-byte/6-instruction closure: it only tests queue+8; it does not remove entries. This does not prove physical IP identity, hardware reset, clock, all field masks or original remote communication.
 
-The new modular `hw/arm/z7ii-ipud.c` uses official Fifo32, Clock, QEMUTimer, CharFrontend and SysBus MMIO/IRQ. It maps only **[24020000,24020098)**; internal holes are rejected by access handlers. Every implemented operation requires aligned32-bit access. Snapshot/migration is explicitly unmigratable.
+The new modular `hw/nikon/devices/ipud.c` uses official Fifo32, Clock, QEMUTimer, CharFrontend and SysBus MMIO/IRQ. It maps only **[24020000,24020098)**; internal holes are rejected by access handlers. Every implemented operation requires aligned32-bit access. Snapshot/migration is explicitly unmigratable.
 
 | Offset | Finite interface and named functional behavior |
 | --- | --- |
