@@ -1,7 +1,8 @@
 /*
  * Finite original 2010 configuration, masks and external pending inputs.
  * Cold zero, retained configuration readback, rising input latches, mask1
- * enable and W1C ACK are virtual laws, not physical pipeline semantics.
+ * enable, gate/stop and W1C ACK are virtual laws, not physical pipeline
+ * semantics.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -86,9 +87,10 @@ static bool z7ii_2010_config(hwaddr offset, uint32_t *mask)
 
 static void z7ii_2010_irq(Z7IIControl2010State *s)
 {
-    qemu_set_irq(s->irq, !!((s->pending[0] & s->mask[0]) |
-                          (s->pending[1] & s->mask[1]) |
-                          (s->pending[2] & s->mask[2])));
+    qemu_set_irq(s->irq, (s->config[1] & 3) == 1 &&
+                         !!((s->pending[0] & s->mask[0]) |
+                            (s->pending[1] & s->mask[1]) |
+                            (s->pending[2] & s->mask[2])));
 }
 
 static void z7ii_2010_input(void *opaque, int index, int level)
@@ -100,7 +102,7 @@ static void z7ii_2010_input(void *opaque, int index, int level)
 
     /* Explicit fixture bits, not names or producers for physical events. */
     s->inputs[word] = (s->inputs[word] & ~bit) | (level ? bit : 0);
-    if (rising) {
+    if (rising && (s->config[1] & 3) == 1) {
         s->pending[word] |= bit;
         z7ii_2010_irq(s);
     }
@@ -166,7 +168,15 @@ static MemTxResult z7ii_2010_write(void *opaque, hwaddr offset,
         s->mask[(offset - 0xc) / 4] = value;
     } else if (offset >= 0x18 && offset <= 0x20) {
         s->pending[(offset - 0x18) / 4] &= ~value;
-    } else if (offset == 0 || offset == 4 || offset == 8 ||
+    } else if (offset == 4) {
+        /* Same retained word for RMW; unknown high-field changes reject. */
+        if ((value & 3) > 1 ||
+            (value && ((value ^ s->config[1]) & ~3U))) {
+            return z7ii_2010_error(s, offset, size, true, value);
+        }
+        /* Stop preserves pending/masks; reopen only recomputes existing IRQ. */
+        s->config[1] = value;
+    } else if (offset == 0 || offset == 8 ||
                offset == 0x20a4 || offset == 0x2620 || offset == 0x2660) {
         /*
          * Only observed inactive/deasserted control. Unknown activation

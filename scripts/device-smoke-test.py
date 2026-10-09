@@ -3289,6 +3289,35 @@ def run_control2038(binary, output, name):
             "scope": "two finite MMIO banks, explicit virtual raw inputs and independent IRQ outputs; no firmware/frame"}
 
 
+def control2010_gate_fixtures():
+    base = 0x20100000
+    error = "control2010-access-or-command-not-supported"
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | reg << 12]
+
+    return [
+        ("control2010-gate-original-rmw-enable", read(4, 1) +
+         [0xe3c11003, 0xe3811001, 0xe5801000] + read(4, 4) + read(0x18, 5),
+         {4: 1, 5: 0}, None),
+        ("control2010-gate-stop-retained-config", write(0x2200, 0xdeadbeef) +
+         write(4, 1) + write(4, 0) + read(4, 4) + read(0x2200, 5) + read(0x20, 6),
+         {4: 0, 5: 0xdeadbeef, 6: 0}, None),
+        ("control2010-gate-reopen-no-ready", write(4, 1) + write(4, 0) +
+         write(4, 1) + read(4, 4) + read(0x18, 5) + read(0x1c, 6) + read(0x20, 7),
+         {4: 1, 5: 0, 6: 0, 7: 0}, None),
+        ("control2010-gate-byte-width", constant(0, base + 4) + [0xe5c01000], {}, error),
+        ("control2010-gate-halfword-width", constant(0, base + 4) + [0xe1d040b0], {}, error),
+    ] + [(f"control2010-gate-reject-{x:x}-{y:x}", write(x, y), {}, error)
+         for x, y in ((4, 2), (4, 3), (4, 4), (4, 5), (0x20a4, 1),
+                      (0x2620, 1), (0x2660, 1), (0, 1), (8, 1))] + \
+        [("control2010-qtest-gate-" + suffix, [], {}, None) for suffix in (
+            "stop-pending-and-edges", "mask-ack-reopen", "preflight-reset")]
+
+
 def control2010_config_values():
     # Original finite setup shapes, independently transcribed from the source.
     values = {offset: 0xffffffff for first, last in (
@@ -3328,7 +3357,7 @@ def control2010_fixtures():
          write(0x10, 0x80000001) + write(0x14, 0x13572468) +
          read(0xc, 4) + read(0x10, 5) + read(0x14, 6) + read(0x20, 7),
          {4: 0xffffffff, 5: 0x80000001, 6: 0x13572468, 7: 0}, None),
-        ("control2010-global-activation-unbound", write(4, 1), {}, error),
+        ("control2010-global-mode-unbound", write(4, 2), {}, error),
         ("control2010-input-activation-unbound", write(0x2000, 1), {}, error),
         ("control2010-input-pulse-unbound", write(0x20a4, 1), {}, error),
         ("control2010-config-pulse-unbound", write(0x2660, 1), {}, error),
@@ -3389,12 +3418,90 @@ def run_control2010(binary, output, name):
 
             def snapshot():
                 return [read(x) for x in sorted(values)] + \
-                       [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)]
+                       [read(x) for x in (4, 0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)]
 
             values = control2010_config_values()
             command(f"irq_intercept_out {path} sysbus-irq")
             assert [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)] == [0] * 6
-            if name.endswith("whole-config-reset"):
+            if name.endswith("gate-stop-pending-and-edges"):
+                for offset in (0xc, 0x10, 0x14):
+                    write(offset, 0xffffffff)
+                # Disconnected/disabled rising levels are remembered, not queued.
+                for index in (0, 32, 64):
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [0, 0, 0]
+                write(4, 1)
+                assert read(4) == 1 and not levels.get(0, False)
+                for index in (0, 32, 64):
+                    pin(index, 0)
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [1, 1, 1] and levels[0]
+                write(4, 0)
+                assert read(4) == 0 and read(0x18) == 1 and not levels[0]
+                for index in (1, 33, 65):
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [1, 1, 1]
+                write(4, 1)
+                assert read(0x18) == 1 and levels[0]
+                for index in (1, 33, 65):
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [1, 1, 1]
+                for index in (1, 33, 65):
+                    pin(index, 0)
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [3, 3, 3]
+            elif name.endswith("gate-mask-ack-reopen"):
+                write(4, 1)
+                for offset in (0xc, 0x10, 0x14):
+                    write(offset, 0xffffffff)
+                for index in (0, 32, 64):
+                    pin(index, 1)
+                assert read(0x20) == 1 and levels[0]
+                write(4, 0)
+                write(0x18, 1)
+                write(0x10, 0)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [0, 1, 1]
+                assert not levels[0]
+                write(4, 1)
+                assert read(0x20) == 1 and levels[0]
+                write(0x14, 0)
+                assert read(0x1c) == read(0x20) == 1 and not levels[0]
+                write(0x10, 1)
+                assert read(0x1c) == 1 and levels[0]
+                write(4, 0)
+                write(0x1c, 1)
+                write(0x20, 1)
+                write(4, 1)
+                assert read(0x1c) == read(0x20) == 0 and not levels[0]
+                before = snapshot()
+                command("clock_step 1000000000")
+                assert snapshot() == before and not levels[0]
+            elif name.endswith("gate-preflight-reset"):
+                for offset, value in values.items():
+                    write(offset, value)
+                write(4, 1)
+                write(0xc, 0xffffffff)
+                pin(0, 1)
+                before = snapshot()
+                for offset, value in ((4, 2), (4, 3), (4, 4), (4, 5),
+                                      (0x20a4, 1), (0x2620, 1), (0x2660, 1),
+                                      (0, 1), (8, 1), (0x2000, 1)):
+                    write(offset, value)
+                    assert snapshot() == before and levels[0]
+                for text in ("writeb 0x20100004 0", "writew 0x20100004 0",
+                             "writel 0x20100005 0"):
+                    command(text)
+                    assert snapshot() == before and levels[0]
+                vm.cmd("system_reset")
+                assert snapshot() == [0] * len(before) and not levels[0]
+                write(0xc, 1)
+                write(4, 1)
+                pin(0, 1)
+                assert read(0x18) == 0 and not levels[0]
+                pin(0, 0)
+                pin(0, 1)
+                assert read(0x18) == 1 and levels[0]
+            elif name.endswith("whole-config-reset"):
                 for offset, value in values.items():
                     write(offset, value)
                 assert [read(x) for x in sorted(values)] == [values[x] for x in sorted(values)]
@@ -3407,6 +3514,7 @@ def run_control2010(binary, output, name):
                 vm.cmd("system_reset")
                 assert snapshot() == [0] * len(before) and not levels.get(0, False)
             elif name.endswith("three-pending-mask-ack"):
+                write(4, 1)
                 for index in (0, 2, 32, 63, 66, 88):
                     pin(index, 1)
                 assert [read(x) for x in (0x18, 0x1c, 0x20)] == [5, 0x80000001, 0x1000004]
@@ -3433,15 +3541,17 @@ def run_control2010(binary, output, name):
                 vm.cmd("system_reset")
                 assert read(0x20) == read(0x14) == 0 and not levels[0]
                 write(0x14, 4)
+                write(4, 1)
                 pin(66, 1)
                 assert read(0x20) == 0 and not levels[0]
             elif name.endswith("strict-preflight"):
                 for offset, value in values.items():
                     write(offset, value)
                 write(0xc, 0xffffffff)
+                write(4, 1)
                 pin(2, 1)
                 before = snapshot()
-                for offset, value in ((0, 1), (4, 1), (8, 1), (0x2000, 1),
+                for offset, value in ((0, 1), (4, 2), (8, 1), (0x2000, 1),
                                       (0x2100, 1), (0x20a4, 1), (0x2620, 1),
                                       (0x2660, 1), (0x2680, 1), (0x2800, 1),
                                       (0x2838, 0x10000), (0x260c, 0x100),
@@ -4872,7 +4982,7 @@ def main():
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
              control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
-             control2016_fixtures())
+             control2016_fixtures() + control2010_gate_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
