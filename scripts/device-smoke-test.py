@@ -1744,6 +1744,267 @@ def bridge_fixtures():
     ]
 
 
+def control20202_config_masks():
+    # Independently transcribed whole-source shapes, not a device table read.
+    groups = {
+        0xff: (0x40, 0x4c, 0x68, 0x6c, 0x80, 0x84, 0x88, 0xa8, 0xac,
+               0xbc, 0xc0, 0xc8, 0x208, 0x20c, 0x218, 0x22c),
+        0xffff: (0x44, 0x48, 0xa0, 0xa4, 0xb4, 0x210),
+        0xffffffff: (0x50, 0x54, 0x58, 0x5c, 0x204, 0x214, 0x220, 0x228,
+                     0x230, 0x234, 0x238, 0x23c, 0x240, 0x244, 0x248, 0x24c, 0x250),
+        0x1f0007: (0x60,), 0x07070707: (0x64,), 0x1fff7fff: (0x8c, 0x90, 0x94),
+        0xf: (0x98,), 0x3f3f3f: (0x9c,), 0xff0fff: (0xb0, 0xc4),
+        0x3f3f: (0xb8,), 0x3fff3fff: (0xcc,), 0xf003f: (0xd0,),
+        0x773ff3ff: (0xd4,), 1: (0x200, 0x224),
+        0x03ff03ff: tuple(range(0x100, 0x120, 4)) +
+                    tuple(range(0x124, 0x144, 4)) + (0x148, 0x14c),
+    }
+    return {offset: mask for mask, offsets in groups.items() for offset in offsets}
+
+
+def control20202_fixtures():
+    base = 0x20202000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | reg << 12]
+
+    config = write(0x10, 0)
+    for offset, mask in sorted(control20202_config_masks().items()):
+        config += write(offset, mask)
+    config += write(0x120, 0xffff8000) + write(0x144, 0xffffffff) + write(0x10, 1)
+    error = "control20202-access-or-phase-not-supported"
+    return [
+        ("control20202-original-disable", write(0x18, 0) + read(8, 4) +
+         read(0x20, 5) + read(0x2c, 6), {4: 0, 5: 0, 6: 0}, None),
+        ("control20202-whole-config-and-signed-tail", config + read(0xd4, 4) +
+         read(0x120, 5) + read(0x144, 6) + read(0x250, 7),
+         {4: 0x773ff3ff, 5: 0xffff8000, 6: 0xffffffff, 7: 0xffffffff}, None),
+        ("control20202-disconnected-armed-cancel", write(0x18, 1) +
+         write(0x20, 0xffffffff) + write(8, 1) + write(0xc, 1) + write(0x14, 1) +
+         read(8, 4) + read(0x2c, 5) + write(0, 1) + write(4, 1) + read(8, 6),
+         {4: 1, 5: 0, 6: 0}, None),
+        ("control20202-disable-cancels", write(0x18, 1) + write(8, 1) +
+         write(0x18, 0) + read(8, 4) + read(0x2c, 5), {4: 0, 5: 0}, None),
+        ("control20202-disabled-request-rejected", write(8, 1), {}, error),
+        ("control20202-unknown-command-rejected", write(0x18, 1) + write(0x14, 2), {}, error),
+        ("control20202-unknown-enable-rejected", write(0x18, 2), {}, error),
+        ("control20202-packed-field-rejected", write(0xd4, 0x80000000), {}, error),
+        ("control20202-unsigned-tail-rejected", write(0x120, 0x8000), {}, error),
+        ("control20202-boolean-field-rejected", write(0x224, 2), {}, error),
+        ("control20202-commit-without-bracket-rejected", write(0x10, 1), {}, error),
+        ("control20202-reconfigure-armed-rejected", write(0x18, 1) +
+         write(8, 1) + write(0x200, 1), {}, error),
+        ("control20202-command-read-unbound", read(0x14, 4), {}, error),
+        ("control20202-byte-access-rejected", constant(0, base + 0x2c) +
+         [0xe5d04000], {}, error),
+        ("control20202-halfword-access-rejected", constant(0, base + 0x18) +
+         [0xe1c010b0], {}, error),
+        ("control20202-internal-hole-rejected", read(0x24, 4), {}, error),
+        ("control20202-array-gap-rejected", write(0x150, 0), {}, error),
+        ("control20202-aperture-end-rejected", read(0x254, 4), {}, "uncovered-address"),
+        ("control20202-aperture-before-rejected", constant(0, base - 4) +
+         [0xe5904000], {}, "uncovered-address"),
+    ] + [("control20202-qtest-" + suffix, [], {}, None) for suffix in (
+        "whole-staged-config", "explicit-events-and-mask", "isr-two-mode-branches",
+        "cancel-disable-reset", "transactional-preflight")]
+
+
+def run_control20202(binary, output, name):
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    commands, levels = [], {}
+    base = 0x20202000
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control20202", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            devices = [x["name"] for x in children
+                       if x["type"] == "child<z7ii-control20202-functional>"]
+            assert len(devices) == 1, children
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {base + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {base + offset:#x}").split()[1], 16)
+
+            def pin(index, level):
+                command(f"set_irq_in {path} external-event {index} {level}")
+
+            def event(index):
+                pin(index, 0)
+                pin(index, 1)
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            assert read(8) == read(0x20) == read(0x2c) == 0
+            if name.endswith("whole-staged-config"):
+                table = control20202_config_masks() | {0x120: 0xffff8000, 0x144: 0xffffffff}
+                write(0x10, 0)
+                for offset, value in sorted(table.items()):
+                    write(offset, value)
+                    assert read(offset) == 0
+                write(0x10, 1)
+                for offset, value in sorted(table.items()):
+                    assert read(offset) == value
+                assert read(0x2c) == 0 and not levels.get(0, False)
+                write(0x10, 0)
+                write(0x200, 0)
+                write(0x120, 0xffff)
+                assert read(0x200) == 1 and read(0x120) == 0xffff8000
+                write(0x10, 1)
+                # 0000ffff is not sign-extended and was rejected, prior kept.
+                assert read(0x200) == 0 and read(0x120) == 0xffff8000
+                write(0x120, 0x7fff)
+                assert read(0x120) == 0x7fff
+            elif name.endswith("explicit-events-and-mask"):
+                for index in range(3):
+                    event(index)
+                assert read(0x2c) == 0
+                write(0x18, 1)
+                for offset in (8, 0xc, 0x14):
+                    write(offset, 1)
+                command("clock_step 1000000000")
+                assert read(8) == 1 and read(0x2c) == 0
+                for index in range(3):
+                    event(index)
+                assert read(8) == 0 and read(0x2c) == 0x10006
+                assert not levels.get(0, False)
+                write(0x20, 0xffffffff)
+                assert levels[0]
+                write(0x2c, 2)
+                assert read(0x2c) == 0x10004 and levels[0]
+                write(0x20, 0x10000)
+                write(0x2c, 0x10000)
+                assert read(0x2c) == 4 and not levels[0]
+                write(0x20, 4)
+                assert levels[0]
+                write(0x2c, read(0x2c))
+                assert read(0x2c) == 0 and not levels[0]
+                event(1)
+                assert read(0x2c) == 0  # No request: repeated input cannot complete.
+            elif name.endswith("isr-two-mode-branches"):
+                write(0x18, 1)
+                write(0x20, 0x10006)
+                for mode, request, index, bit in ((1, 8, 0, 2), (0, 0xc, 2, 0x10000)):
+                    write(0x200, mode)
+                    write(request, 1)
+                    event(index)
+                    raw = read(0x2c)
+                    assert raw == bit and levels[0]
+                    write(0x2c, raw)
+                    assert read(0x200) == mode
+                    if mode:
+                        assert read(8) == 0
+                    write(0, 1)
+                    write(4, 1)
+                    assert not levels[0]
+                saved_mask = 0x10002
+                write(0x20, saved_mask | 4)
+                write(0x14, 1)
+                event(1)
+                raw = read(0x2c)
+                assert raw == 4
+                write(0x2c, raw)
+                write(0, 1)
+                write(4, 1)
+                write(0x18, 0)
+                write(0x20, saved_mask)
+                assert read(0x2c) == 0 and read(0x20) == saved_mask
+            elif name.endswith("cancel-disable-reset"):
+                write(0x18, 1)
+                write(0x20, 0x10006)
+                write(8, 1)
+                write(0, 1)
+                event(0)
+                assert read(8) == read(0x2c) == 0
+                write(8, 1)
+                write(4, 1)
+                event(0)
+                assert read(0x2c) == 0
+                write(8, 1)
+                write(0x18, 0)
+                event(0)
+                assert read(0x2c) == 0
+                write(0x18, 1)
+                write(8, 1)
+                event(0)
+                assert levels[0]
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert read(8) == read(0x20) == read(0x2c) == read(0x200) == 0
+                assert not levels[0]
+                write(0x18, 1)
+                write(8, 1)
+                pin(0, 1)  # Reset retained external high, so no artificial edge.
+                assert read(8) == 1 and read(0x2c) == 0
+                event(0)
+                assert read(8) == 0 and read(0x2c) == 2
+            elif name.endswith("transactional-preflight"):
+                table = control20202_config_masks()
+                for offset, mask in sorted(table.items()):
+                    write(offset, mask)
+                    if mask != 0xffffffff:
+                        badbit = (~mask & 0xffffffff) & -(~mask & 0xffffffff)
+                        write(offset, mask | badbit)
+                        assert read(offset) == mask
+                for offset in (0x120, 0x144):
+                    write(offset, 0xffff8000)
+                    write(offset, 0x8000)
+                    assert read(offset) == 0xffff8000
+                write(0x18, 1)
+                write(8, 1)
+                for offset, value in ((0x200, 0), (0x10, 0), (0x18, 2), (0, 0),
+                                      (4, 2), (0xc, 2), (0x14, 2), (0x24, 0)):
+                    write(offset, value)
+                    assert read(8) == 1 and read(0x200) == 1 and read(0x2c) == 0
+                event(0)
+                assert read(8) == 0 and read(0x2c) == 2
+                write(0x2c, 2)
+                write(0x10, 0)
+                write(0x10, 0)  # Invalid nested begin retains original staging.
+                write(0x200, 0)
+                write(8, 1)  # Invalid activation cannot publish staged config.
+                assert read(8) == 0 and read(0x200) == 1
+                write(0x10, 1)
+                assert read(0x200) == 0
+                write(8, 1)
+                event(0)
+                assert read(0x2c) == 2
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    assert image.read_bytes() == payload
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    return {"fixture": name, "qemu_exit_code": 0,
+            "scope": "no firmware; applied/staged config and explicit virtual qdev event/IRQ outputs"}
+
+
 def ipud_fixtures():
     base = 0x24020000
 
@@ -2567,6 +2828,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control20202-qtest-"):
+        return run_control20202(binary, output, name)
     if name.startswith("ipud-qtest-"):
         return run_ipud_fifo(binary, output, name)
     if name.startswith("signal-input-"):
@@ -2785,7 +3048,7 @@ def main():
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
-             private_class_fixtures() + ipud_fixtures())
+             private_class_fixtures() + ipud_fixtures() + control20202_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
