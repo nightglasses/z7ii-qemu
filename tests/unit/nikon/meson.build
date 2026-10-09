@@ -9,7 +9,8 @@ endif
 
 if have_system and (config_target_mak.has_key('arm-softmmu') and
                    config_all_devices.has_key('CONFIG_NIKON_Z7II'))
-  fixture = executable('nikon_memory_unit', files('memory.c'), genh,
+  foreach name : ['memory', 'copy']
+  fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],
     dependencies: nikon_system['dependencies'],
@@ -17,6 +18,7 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
     include_directories: nikon_system['include_directories'],
     link_args: nikon_system['link_args'],
     link_depends: nikon_system['link_depends'])
-  test('nikon_memory_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  test('nikon_' + name + '_unit', fixture, env: test_env, args: ['--tap', '-k'],
     protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+  endforeach
 endif

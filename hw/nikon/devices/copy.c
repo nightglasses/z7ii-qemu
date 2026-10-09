@@ -37,10 +37,12 @@ typedef struct NikonCopyChannel {
     bool running;
 } NikonCopyChannel;
 
-typedef struct NikonCopyReadonlyRange {
+typedef struct NikonCopyRange {
     Int128 start;
     Int128 end;
-} NikonCopyReadonlyRange;
+    bool readable;
+    bool writable;
+} NikonCopyRange;
 
 struct NikonCopyState {
     SysBusDevice parent_obj;
@@ -48,7 +50,7 @@ struct NikonCopyState {
     MemoryRegion *memory;
     AddressSpace *dma;
     MemoryListener memory_listener;
-    GArray *readonly;
+    GArray *ranges;
     Clock *clock;
     NikonCopyChannel channel[4];
     uint32_t control;
@@ -83,31 +85,27 @@ static bool nikon_copy_memory_range(NikonCopyState *s, hwaddr addr,
 {
     RCU_READ_LOCK_GUARD();
 
-    if (write) {
+    while (length) {
         Int128 start = int128_make64(addr);
-        Int128 end = int128_add(start, int128_make64(length));
+        NikonCopyRange *found = NULL;
+        uint64_t span;
 
-        /* Selected flat-view permissions include readonly aliases/containers. */
-        for (unsigned i = 0; i < s->readonly->len; i++) {
-            NikonCopyReadonlyRange *range = &g_array_index(
-                s->readonly, NikonCopyReadonlyRange, i);
+        /* Translate drops section bounds and only caps RAM, not ROMD. The
+         * selected listener retains the actual effective flat-view sections. */
+        for (unsigned i = 0; i < s->ranges->len; i++) {
+            NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
 
-            if (int128_lt(start, range->end) && int128_lt(range->start, end)) {
-                return false;
+            if (int128_le(range->start, start) && int128_lt(start, range->end)) {
+                found = range;
+                break;
             }
         }
-    }
-    while (length) {
-        hwaddr offset, span = length;
-        MemoryRegion *mr = address_space_translate(s->dma, addr, &offset,
-                                                   &span, write,
-                                                   MEMTXATTRS_UNSPECIFIED);
-
-        /* Translation stays in this AS; a root MR lookup can ascend elsewhere. */
-        if (!span || !memory_access_is_direct(mr, write,
-                                               MEMTXATTRS_UNSPECIFIED) ||
-            (write && (!memory_region_is_ram(mr) ||
-                       memory_region_is_rom(mr) || memory_region_is_romd(mr)))) {
+        if (!found || !(write ? found->writable : found->readable)) {
+            return false;
+        }
+        span = int128_get64(int128_min(int128_sub(found->end, start),
+                                      int128_make64(length)));
+        if (!span) {
             return false;
         }
         addr += span;
@@ -417,15 +415,20 @@ static void nikon_copy_region_add(MemoryListener *listener,
 {
     NikonCopyState *s = container_of(listener, NikonCopyState, memory_listener);
 
-    if (section->readonly) {
-        NikonCopyReadonlyRange range = {
-            .start = int128_make64(section->offset_within_address_space),
-            .end = int128_add(int128_make64(section->offset_within_address_space),
-                              section->size),
-        };
+    NikonCopyRange range = {
+        .start = int128_make64(section->offset_within_address_space),
+        .end = int128_add(int128_make64(section->offset_within_address_space),
+                          section->size),
+        .readable = memory_access_is_direct(section->mr, false,
+                                            MEMTXATTRS_UNSPECIFIED),
+        .writable = !section->readonly && memory_region_is_ram(section->mr) &&
+                    !memory_region_is_rom(section->mr) &&
+                    !memory_region_is_romd(section->mr) &&
+                    memory_access_is_direct(section->mr, true,
+                                            MEMTXATTRS_UNSPECIFIED),
+    };
 
-        g_array_append_val(s->readonly, range);
-    }
+    g_array_append_val(s->ranges, range);
 }
 
 static void nikon_copy_region_del(MemoryListener *listener,
@@ -435,15 +438,12 @@ static void nikon_copy_region_del(MemoryListener *listener,
     Int128 start = int128_make64(section->offset_within_address_space);
     Int128 end = int128_add(start, section->size);
 
-    if (!section->readonly) {
-        return;
-    }
-    for (unsigned i = 0; i < s->readonly->len; i++) {
-        NikonCopyReadonlyRange *range = &g_array_index(
-            s->readonly, NikonCopyReadonlyRange, i);
+    /* Match the old interval, not the MR's current ROMD/permission mode. */
+    for (unsigned i = 0; i < s->ranges->len; i++) {
+        NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
 
         if (int128_eq(range->start, start) && int128_eq(range->end, end)) {
-            g_array_remove_index_fast(s->readonly, i);
+            g_array_remove_index_fast(s->ranges, i);
             return;
         }
     }
@@ -457,7 +457,7 @@ static void nikon_copy_realize(DeviceState *dev, Error **errp)
     s->dma = g_new0(AddressSpace, 1);
     address_space_init(s->dma, s->memory ? s->memory : get_system_memory(),
                        "nikon.copy");
-    s->readonly = g_array_new(false, false, sizeof(NikonCopyReadonlyRange));
+    s->ranges = g_array_new(false, false, sizeof(NikonCopyRange));
     s->memory_listener = (MemoryListener) {
         .name = "nikon.copy",
         .region_add = nikon_copy_region_add,
@@ -473,7 +473,7 @@ static void nikon_copy_unrealize(DeviceState *dev)
     /* No callback may access an address space after its owner disconnects. */
     nikon_copy_reset(dev);
     memory_listener_unregister(&s->memory_listener);
-    g_clear_pointer(&s->readonly, g_array_unref);
+    g_clear_pointer(&s->ranges, g_array_unref);
     address_space_destroy_free(g_steal_pointer(&s->dma));
 }
 
