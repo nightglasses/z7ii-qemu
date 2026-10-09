@@ -1,5 +1,7 @@
 # Five-route signal-control functional profile
 
+This is the historical **77cf5db** stage. Its unsupported pending read and unwired outputs describe that fixed implementation and its unchanged receipts. Later original ISR/registration evidence restores pending read and shared GIC237 wiring in [signal-irq-and-configuration-input.md](signal-irq-and-configuration-input.md); the original source gap is no longer the current interface boundary.
+
 The original `2b000000` first read now belongs to a complete finite input/sampling class, rather than an isolated zero response. Native C and fixture recipe are **77cf5db90badf3cb19bc29a2f888dab6c6f74101**, based on the previously reviewed packet **248d07d8fa0648dd52101ab5d2abcef5581dfee7**. The source contract is `nightglass` research commit **797fdd0190ced9698202523edd7249c6d6c40426**, `research/z7ii/qemu-five-route-signal-control-contract.md`. Its ten saved bodies cover 856 bytes/319 instructions, including guarded five-selector tables; the initializer has a separate saved-native 9-block/86-byte/28-instruction closure. These facts establish software geometry, not physical device identity.
 
 The model uses official qdev inputs, Clock, QEMUTimer and SysBus pending outputs. It maps only `[2b000000,2b00001c)`. Every operation requires aligned 32-bit IO. Unsupported accesses return a real transaction error before changing state. Snapshot/migration is explicitly blocked with official unmigratable VMState.
