@@ -6,7 +6,14 @@ The original C1.70 producer `VA106eeb5c` fills a packet consumed by
 `c10`, and starts with `c18=1`. Control bit3 selects the alternate producer
 which supplies byte extent at `c20` and zero extension/padding at `c24/c28`.
 Its extent is computed from the two dimensions and the numeric byte factor;
-neither a color name nor a framebuffer address is assumed.
+neither a color name nor a framebuffer address is assumed. For ordinary
+single-plane packets with equal geometry and equal numeric format selectors,
+the corresponding byte factors are `4/3/2/2/2/1`. The unconverted transfer
+copies the resulting contiguous byte extent. Contiguous rows follow the
+producer's dimension-only packet; unlike an imported surface's software
+stride, that command has no independent row-pitch register. Rotation, format
+conversion, unequal geometry and combined secondary-plane commands remain
+outside this implemented protocol rather than being silently treated as copy.
 
 `106ee4e4` registers IRQ129/130/131 using the original literal words at
 MAS O`6ce584/588/58c` (`106ee3cb/106ee3d7/106ee3e3`). The respective Thumb
@@ -40,8 +47,8 @@ unchanged packet addresses, delayed completion, IRQ130, and cancellation.
 The sole build owner registers and runs it; no independent build was run by
 this implementation lane.
 
-Remaining work is active, not accepted as a completed GUI: the ordinary
-geometry/stride and conversion commands, the other two IRQ producers,
+Remaining work is active, not accepted as a completed GUI: conversion and
+multi-plane geometry commands, the other two IRQ producers,
 status58 bit26 and command1214, and final scanout must be joined to their
 complete saved source. The DMA destination is not presented as a screen.
 Console output must consume the guest's actual scanout commit and layout.

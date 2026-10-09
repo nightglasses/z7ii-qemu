@@ -159,12 +159,12 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
 {
     NikonTransferState *s = opaque;
     int index = nikon_transfer_register(offset);
+    static const unsigned byte_factors[] = { 4, 3, 2, 2, 2, 1 };
     uint32_t required = (1U << TRANSFER_SOURCE) |
                         (1U << TRANSFER_DESTINATION) |
-                        (1U << TRANSFER_CONTROL) |
-                        (1U << TRANSFER_EXTENT) |
-                        (1U << TRANSFER_EXTENSION) |
-                        (1U << TRANSFER_PADDING);
+                        (1U << TRANSFER_CONTROL);
+    uint64_t extent;
+    unsigned selector;
 
     if (size != 4 || index < 0) {
         goto unsupported;
@@ -184,24 +184,46 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         nikon_transfer_irq(s);
         return MEMTX_OK;
     }
-    /* Snapshot the complete byte-stream packet, never a guessed pixel layout. */
     if (value != 1 || s->running || s->completed ||
-        (s->configured & required) != required ||
-        !(s->reg[TRANSFER_CONTROL] & 8) ||
-        s->reg[TRANSFER_CONTROL] & ~0x00007708U ||
-        ((s->reg[TRANSFER_CONTROL] >> 8) & 7) !=
-        ((s->reg[TRANSFER_CONTROL] >> 12) & 7) ||
-        s->reg[TRANSFER_SECONDARY_SOURCE] ||
-        s->reg[TRANSFER_SECONDARY_DESTINATION] ||
-        s->reg[TRANSFER_EXTENSION] || s->reg[TRANSFER_PADDING] ||
-        !s->reg[TRANSFER_EXTENT] ||
-        s->reg[TRANSFER_SOURCE] > UINT32_MAX - s->reg[TRANSFER_EXTENT] ||
-        s->reg[TRANSFER_DESTINATION] > UINT32_MAX - s->reg[TRANSFER_EXTENT]) {
+        (s->configured & required) != required) {
+        goto unsupported;
+    }
+    if (s->reg[TRANSFER_CONTROL] == 8) {
+        required = (1U << TRANSFER_EXTENT) |
+                   (1U << TRANSFER_EXTENSION) |
+                   (1U << TRANSFER_PADDING);
+        if ((s->configured & required) != required ||
+            s->reg[TRANSFER_EXTENSION] || s->reg[TRANSFER_PADDING]) {
+            goto unsupported;
+        }
+        /* The original producer sends a second command for secondary data. */
+        extent = s->reg[TRANSFER_EXTENT];
+    } else {
+        required = (1U << TRANSFER_SOURCE_GEOMETRY) |
+                   (1U << TRANSFER_DESTINATION_GEOMETRY);
+        selector = (s->reg[TRANSFER_CONTROL] >> 8) & 7;
+        if ((s->configured & required) != required ||
+            s->reg[TRANSFER_CONTROL] & ~0x00007700U ||
+            selector >= ARRAY_SIZE(byte_factors) ||
+            selector != ((s->reg[TRANSFER_CONTROL] >> 12) & 7) ||
+            s->reg[TRANSFER_SOURCE_GEOMETRY] !=
+            s->reg[TRANSFER_DESTINATION_GEOMETRY] ||
+            s->reg[TRANSFER_SECONDARY_SOURCE] ||
+            s->reg[TRANSFER_SECONDARY_DESTINATION]) {
+            goto unsupported;
+        }
+        extent = (uint64_t)(s->reg[TRANSFER_SOURCE_GEOMETRY] & 0xffff) *
+                 (s->reg[TRANSFER_SOURCE_GEOMETRY] >> 16) *
+                 byte_factors[selector];
+    }
+    if (!extent || extent > UINT32_MAX ||
+        s->reg[TRANSFER_SOURCE] > UINT32_MAX - extent ||
+        s->reg[TRANSFER_DESTINATION] > UINT32_MAX - extent) {
         goto unsupported;
     }
     s->source = s->reg[TRANSFER_SOURCE];
     s->destination = s->reg[TRANSFER_DESTINATION];
-    s->remaining = s->reg[TRANSFER_EXTENT];
+    s->remaining = extent;
     if (!nikon_transfer_range(s->source, s->remaining, false) ||
         !nikon_transfer_range(s->destination, s->remaining, true)) {
         return nikon_transfer_error(s, offset, size, true, value,

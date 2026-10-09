@@ -83,9 +83,32 @@ static void test_cancel(void)
     qtest_quit(q);
 }
 
+static void test_geometry(void)
+{
+    QTestState *q = start();
+    uint8_t destination[1024];
+    unsigned i;
+
+    qtest_memset(q, RAM, 0xa5, sizeof(destination));
+    qtest_memset(q, RAM + 0x4000, 0, sizeof(destination));
+    packet(q, RAM, RAM + 0x4000, 0);
+    qtest_writel(q, TRANSFER + 0xc10, 0x2200);
+    qtest_writel(q, TRANSFER + 0xc08, (8U << 16) | 64);
+    qtest_writel(q, TRANSFER + 0xc0c, (8U << 16) | 64);
+    qtest_writel(q, TRANSFER + 0xc18, 1);
+    qtest_clock_step(q, 1000000);
+    qtest_memread(q, RAM + 0x4000, destination, sizeof(destination));
+    for (i = 0; i < sizeof(destination); i++) {
+        g_assert_cmphex(destination[i], ==, 0xa5);
+    }
+    g_assert_true(qtest_get_irq(q, 130 - 32));
+    qtest_quit(q);
+}
+
 void nikon_transfer_add_tests(const char *bios)
 {
     image = bios;
     qtest_add_func("/nikon/transfer/copy", test_copy);
     qtest_add_func("/nikon/transfer/cancel", test_cancel);
+    qtest_add_func("/nikon/transfer/geometry", test_geometry);
 }
