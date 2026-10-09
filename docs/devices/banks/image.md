@@ -135,4 +135,14 @@ surface without IRQ; two ports/shared IRQ; independent register domains;
 a bitmap-selected object; and every packed-table family, plane, bank and both
 object displacements. They use the mature GIC fixture and valid virtual-clock
 advances without `-S`. Synthetic tests do not prove a naturally submitted
-original frame. Corrected compilation/execution await actual builder receipts.
+original frame.
+
+Actual sole-builder receipt: all eight image cases passed in3.83 seconds,
+with the exact RGB,8×8 extent, object, cancellation, fault and packed-table
+assertions retained. Tested device source is `ef0ba27`; the named board endpoint
+is `43ea19b`; fixture `4c1db31` selects the device/head and suppresses unused
+defaults. The preserved log is
+`native-qemu-source/work/validation/gui/imagenativefinal.log`.
+The earlier default-console failure and upstream text-property abort are
+closed by the supported fixture launch contract. No naturally submitted
+original frame or camera measurement follows from this native receipt.
