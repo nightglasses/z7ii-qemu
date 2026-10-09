@@ -37,3 +37,125 @@ Native test content `tests/qtest/nikon/dma.c` supplies seven synthetic cases: al
 The first integrated native run compiled but failed the first resume destination check (`work/validation/gui/dma.log` in the build owner's `native-qemu-source` worktree). Its command passed `-S` with the qtest accelerator. Upstream `system/cpus.c` disables the virtual clock when pausing CPUs, and `util/qemu-timer.c` advances qtest time through timer lists that honor that enable state. The fixture now leaves the qtest virtual clock enabled; qtest does not execute guest instructions. Resume and reentrant-start checks advance to the next actual timer deadline, while held/canceled-state observations still advance a positive interval and Audio completion spans its real repeated clock events. This corrects the fixture's timer eligibility rather than changing device status or transfer semantics. Native validation of this child remains the sole build owner's task.
 
 Unbound reload/wrap/protection/DS/transform semantics are future protocol work, rather than counted as additional devices. Disconnected peripheral requests require a real producer or declared external input. The only currently bound Audio wires are bank1 selectors3/7; input5 has no samples. No source joins these DMA signals to the separate event/EXIU interfaces, so no frame-completion signal is inferred.
+
+## Private component DMA
+
+HDMAC accepts a standard pre-realize `memory` link to a `MemoryRegion`, following
+the Fill execution-domain interface. An unset link uses MAS system memory.
+Each realization owns a fresh heap `AddressSpace` over its selected root; all DMA source
+reads, destination writes and read-only checks use that same root. A real MMIO
+FIFO remains a peripheral transaction in that domain, including its demand
+line transitions and reentrant cancel/pause behavior. No RAM-only restriction
+is imposed on HDMAC endpoints. Read-only destinations report SS4 instead of
+accepting QEMU's ignored ROM write; genuine read and write errors retain SS3/4.
+
+An official MemoryListener tracks effective read-only spans in the selected
+address space, including permissions inherited from aliases or containers and
+live topology changes. This avoids ascending into another root's address space.
+The destination guard checks the complete beat before issuing the bus write.
+A halfword or word crossing writable RAM into ROM is rejected
+before changing either span. MMIO translation is checked byte by byte without
+performing bus accesses; the actual peripheral write retains its original width.
+
+Unrealize first cancels every channel and invalidates its generation using the
+existing reset lifecycle, then retires the owned address space through QEMU's
+`address_space_destroy_free()`. Its heap storage remains valid until QEMU's RCU
+callback finishes, independently of device finalization or a new realization.
+It does not
+free the linked board memory. Normal reset retains the memory link and clears
+only HDMAC state. Timer callbacks cannot survive device removal or move a beat
+into another component's root. The eight channels, 32 request inputs, existing
+IRQ outputs and per-beat external-demand rules remain unchanged; port-to-bank,
+request-selector and IRQ binding is supplied by each component's board source.
+
+`tests/qtest/nikon/hdmac.c` provides four independent native cases: real shared
+file-backed private RAM at the same PA as a MAS sentinel, selected unmapped and
+read-only endpoints, real Audio MMIO FIFO side effects through its own root,
+and all 31 external request selectors with held/resumed beats plus cancel and
+reset. The fixture uses standard QOM links and real MemoryRegions without
+production aliases or fabricated completion. Compilation and actual execution
+remain the sole builder's responsibility; source provision is not a PASS claim.
+
+The complete SLA driver family `1005f644..1005f8aa` preserves the same register
+geometry and lifecycle. Its setup writes IS/BT/BC/TC into CA at bits24/20/16/0
+and TT/TW/SA/DA/SP/DP/RL into CB at bits28/26/25/24/23/22/21. The entire SPI
+consumer pair `1005c70e..1005c7fa` sets BT=BC=SP=DP=RL=0, TT=2, TW=1,
+TC=halfword-count-minus-one. RX fixes SA; TX fixes DA. The optional opposite
+fixed address uses the same preserved SA/DA field. The start family sets CI/EI
+and EB, clears ST for external requests, and uses ST with IS=0 for software
+requests. All of these configurations are supported by the existing HDMAC
+model; mode4's CTRL400 belongs to the SPI endpoint rather than HDMAC global
+control. No transfer transform or reload mode has been inferred.
+
+SLA COPY records `C1004db8` contain the sixteen driver objects: bank0 handles
+12a..131 / IRQ150..157 and bank1 handles132..139 / IRQ142..149. The register
+pointer table `C1004cb4..C1004da4` gives the actual two physical banks2c020000
+and2c030000. Eleven SPI consumer records at `C1007238`, stride68hex, provide
+TX selector `3+2*port` and RX selector `4+2*port`, port0..10. These selectors
+all fit the existing request namespace. Connecting each SPI producer to both
+banks is a board functional routing assumption, distinguished from the
+directly recovered selector and IRQ records; the shared HDMAC device neither
+guesses this wiring nor emits demand or completion on behalf of a producer.
+
+### Native execution receipts
+
+The sole builder compiled and linked the device and independent native fixture.
+All four cases passed across their focused runs: private RAM and read-only
+destination in `work/hdmacprivatefirst.log`, all31 request selectors with actual
+pending-timer cancel/reset in `work/hdmacrequestsfinalreceipt.log` (0.17 seconds),
+and the real selected Audio FIFO in `work/hdmacfifocapacityfinalreceipt.log`
+(0.69 seconds). The first receipt contains passing private/read-only TAP cases
+followed by a failed FIFO case; the whole first run is not reported as PASS.
+Those paths
+belong to the canonical `qemu-submodule` worktree. Earlier failed FIFO receipts
+remain separate: one used an incorrect relative address for an already mapped
+MemoryRegion root; another submitted two beats into the reset one-stage Audio
+FIFO. The passing fixture uses its real mapped addresses and configures the
+established sixteen-stage profile. Device error results and success assertions
+were retained throughout.
+
+The separate SLA owner fixture also passed its entire eleven-port TX/RX group
+using private HDMAC banks, real SPI FIFO/demand wires, actual
+SSI input and a distinct MAS sentinel, recorded in
+`work/slaspidmafinalreceipt.log`. Its native duration is 0.71 seconds; the
+0.85-second tool wall time is not the native test duration. These fixtures establish
+functional address-space and protocol isolation, not original SLA boot, a
+completed GUI or physical DMA timing. No older passing case was rerun solely
+to relabel it as a newer receipt.
+
+### Native boundary and retirement regressions
+
+`tests/unit/nikon/memory.c` links the actual ARM system library and initializes
+QEMU with its qtest accelerator and a `none` machine. It creates real devices
+and independent MemoryRegion roots without production test aliases. The
+fixture roots live under QEMU's standard objects container, so link properties
+resolve a real canonical path. It asserts both the selected QOM root and an
+actual source bus read before submitting the boundary DMA request. Earlier
+native runs failed with source SS3 because their detached QOM owners produced
+an empty link path and selected system memory; they did not exercise the
+destination guard and are retained as failed receipts.
+The boundary case submits aligned halfword and word beats across writable RAM into
+read-only RAM, read-only aliases and read-only containers, checks SS4/EB-clear
+and verifies every destination byte remains unchanged. Live permission changes
+allow a real copy after removing protection and reject it again after restoring
+protection. The retirement case repeatedly queues an old-domain DMA timer,
+unrealizes both HDMAC and Fill, realizes them against the other real root before
+draining RCU, then performs actual copy and fill operations after retirement.
+It verifies the old timer was canceled and the old root remains unchanged;
+device finalization also precedes the final RCU drain.
+
+The sole builder compiled and linked the actual full ARM system-library unit.
+Both new error families passed across their focused runs. The six boundary
+combinations and their live permission transitions passed in
+`work/memoryunitrootreceipt.log`; that run subsequently aborted in the
+lifecycle fixture and is not a whole-run PASS. Its actual cause was attempting
+`qdev_realize()` on a device whose QOM unrealize had retained its parent bus.
+The corrected fixture uses the standard `realized=true` property to re-realize
+that same attached device. The focused lifecycle run passed in
+`work/memoryunitlifecyclereceipt.log`, exit0, 0.79 seconds. It exercised all32
+alternate-root retirements, real copy/fill after prior RCU callbacks, canceled
+old timers, and finalization before the last deferred callbacks. These paths
+belong to the canonical `qemu-submodule` worktree. Earlier source-SS3 and bus
+reattachment failures remain preserved separately; no passing boundary case or
+prior four-group HDMAC fixture was repeated to relabel its receipt. These are
+synthetic correctness results, not original boot or GUI evidence.

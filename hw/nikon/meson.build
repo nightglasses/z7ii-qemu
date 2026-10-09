@@ -12,9 +12,11 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/config.c',
   'devices/fill.c',
   'devices/gpio.c',
+  'devices/hdmac.c',
   'devices/memc.c',
   'devices/mxic.c',
   'devices/sdi.c',
+  'devices/spi.c',
   'devices/sysconfig.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
@@ -31,7 +33,6 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/banks.c',
   'devices/gate.c',
   'devices/exiu.c',
-  'devices/hdmac.c',
   'devices/i2c.c',
   'devices/ipud.c',
   'devices/pairs.c',
@@ -41,7 +42,6 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/status.c',
   'devices/shared.c',
   'devices/signal.c',
-  'devices/spi.c',
   'peers/spi.c',
   'devices/staging.c',
   'devices/table.c',

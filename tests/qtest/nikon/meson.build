@@ -12,7 +12,10 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   }
 endif
 if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
-  nikon_arm_fixtures += {'nikon_fill': files('fill.c')}
+  nikon_arm_fixtures += {
+    'nikon_fill': files('fill.c'),
+    'nikon_hdmac': files('hdmac.c'),
+  }
 endif
 foreach profile : ['SLA', 'EX', 'SENSOR']
   if config_all_devices.has_key('CONFIG_NIKON_' + profile)

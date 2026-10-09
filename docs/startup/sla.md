@@ -125,7 +125,8 @@ that domain's root, with local MP affinities 0/1. Upstream GIC `first-cpu-index`
 uses the first actual global CPU index, so embedding after MAS CPUs does not
 change SLA's banked interrupt identity. Every peripheral is mapped to the
 private root and MXIC only gates that domain's explicit RAM. Fill's standard
-pre-realize `memory` link selects this same root for DMA and guards. The
+pre-realize `memory` link selects this same root for DMA and guards. Both HDMAC
+banks use this same standard link, including actual peripheral FIFO accesses. The
 standalone wrapper exposes an alias solely to its own board tools; embedded
 domains expose no alias to MAS. The glue owner may connect named output
 `peer-ready[0]` to MAS GPIO input99 and attach the borrowed AddressSpace to
@@ -212,3 +213,76 @@ and verifies its IIDR in the native fixture. The firmware's separate
 error; this profile does not manufacture a readback register or silence it.
 GICv2 is an execution capability supported by these source accesses, not a
 new claim about the physical chip.
+
+The private-domain native fixture passed with the named peer output following
+GPIO direction and masked latch writes (builder `56a99b9`). Original two-core
+standalone runs `original4` and controlled `original4b` instead observed CPU0
+polling `0xc1017d40 == 1` at `0x10050038`, while CPU1 was halted after WFE at
+`0x1005006c`. The worker breakpoints were not reached. Both retained the
+complete image and guest-created state. The controlled retry made no debugger
+MMIO reads and ended by `monitor quit`, with both processes exiting0. The first
+run's later debugger read of banked GIC MMIO crashed the observer; that is
+recorded separately from guest behavior in ignored runtime receipts.
+
+Whole source has release SEV/WFE at `0x1002d890/0x1002bff0` and kernel barrier
+SEV/WFE at `0x10050014/0x10050068`. The secondary's counter producer is
+`0x10052b08`, using LDREX/STREX before waiting for the primary to clear it.
+Upstream ARM TCG broadcasts SEV to all ARM CPUs, including separately mapped
+domains. A four-core embedded run is therefore a distinct execution context;
+its progress does not prove this two-core barrier or a physical cross-domain
+event topology. No host event or counter value is injected to release it.
+
+The fifth original standalone run used the builder's `f114196` binary, two SLA
+CPUs and standard `-accel tcg,thread=multi`. It reached the hardware breakpoint
+at `0x100538b0`, CPSR `0x60000033` (Thumb SVC32), SP `0xc19b4fe0`, with the
+barrier counter `0xc1017d40` cleared by the guest and the secondary executing
+its normal IRQ path. This is a separate natural scheduling comparison, with
+no MAS CPU, host flag or firmware edit. It passed the complete MXIC configuration
+family and next rejected CPU1's original `0x1005ed02` write of 1 to SPI5 reset
+at `0x2c0a0560`. The peer worker breakpoints were not reached. Both processes
+exited0 through `monitor quit`; ignored receipts are `work/sla/original5*`.
+Use `-smp 2 -accel tcg,thread=multi` for this loaded two-core profile. The
+earlier single-thread barrier receipt remains a distinct scheduling limitation.
+
+The complete SPI initialization and operating family is source
+`0x1005ec54..0x1005f632`, rather than a special SPI5 reset exception. COPY1
+registry `0xc10015e8` has eleven `0x58`-byte records (parent payload offsets
+`[0x83dabc,0x83de84)`). For channel `i=0..10`, it supplies MMIO
+`0x2c0a0000 + 0x100*i`, first IRQ `193+2*i`, second IRQ `192+2*i`, and both
+callbacks reach the common pending/W1C ISR `0x1005f2f8`. The shared SPI
+device's aggregate IRQ uses the first callback line; the second remains idle,
+an explicit functional routing convention rather than a measured physical split.
+Each private instance retains its SSI peer seam, reset/cancel lifecycle,
+bounded FIFOs, 48 MHz functional master clock and ordinary failure paths.
+No protocol reply is installed for a disconnected peripheral.
+
+Source mode4 at `0x1005f1fc..0x1005f23c` enables CTRL bit `0x400` and EN bit0.
+The actual external DMA consumers `0x1005c70e/0x1005c786` obtain RX FIFO `+4`
+from `0x1005f286` and TX FIFO `+0` from `0x1005f28c`. Their eleven records at
+`0xc1007238`, stride `0x68` (payload `[0x84370c,0x843b84)`), supply byte
+`+0x20` TX selector `3+2*i` and byte `+0x21` RX selector `4+2*i`.
+The driver `0x1005f782` writes these into CA bits24..28. It uses halfword beats,
+fixed peripheral address and optional advancing/fixed RAM endpoint, terminal
+count minus one, and real completion/error interrupt enables. No request level
+is substituted for SPI's actual enabled FIFO-room/data signals.
+
+The independent HDMAC registry `0xc1004db8` consists of two banks with eight
+`0x24`-byte records each (payload `[0x84128c,0x8414cc)`). Bank0 binds
+`0x2c020000`, IRQ150..157 and logical objects `0x12a..0x131`; bank1 binds
+`0x2c030000`, IRQ142..149 and objects `0x132..0x139`. Its pointer table at
+`0xc1004cb4` (payload `[0x841188,0x841288)`) supplies channel CA/CB/SA/DA
+at `base+0x10+0x10*channel`, offsets0/4/8/12. Source
+`0x1005f644..0x1005f8aa` consumes the complete geometry. The domain connects
+each SPI TX/RX demand to its corresponding selector in both private HDMAC
+banks. This shared-selector fanout is an explicit functional request topology
+assumption; registry and consumer fields establish the selector values, without
+establishing the physical fanout. Transfers use actual selected AddressSpace
+transactions and propagate missing/readonly destination errors.
+
+The native fixture exercises all eleven reset/capacity windows and TX request
+and RX selectors, alternating both private banks. An armed halfword transfer remains
+pending while SPI EN is zero; enabling SPI permits the actual RAM-to-FIFO beat
+and only then records HDMAC completion. After the actual master frame, ordinary
+disconnected upstream SSI supplies MISO-low to the RX FIFO; its real data demand
+drives the RX halfword transfer and replaces a RAM sentinel. This tests causal private wiring with
+synthetic data, independently of the original runtime receipt above.

@@ -105,6 +105,46 @@ static void test_loaded_domain(void)
     g_assert_true(qtest_get_irq(qts, 0));
     qtest_writel(qts, 0x04282020, 0x04000000);
     g_assert_false(qtest_get_irq(qts, 0));
+    /* The entire source registry has independent reset and capacity windows. */
+    for (unsigned i = 0; i < 11; i++) {
+        uint64_t base = 0x2c0a0000 + i * 0x100;
+        uint64_t dma = 0x2c020000 + (i % 2) * 0x10000;
+
+        qtest_writel(qts, base + 0x60, 1);
+        g_assert_cmpuint(qtest_readl(qts, base + 0x48) & 0x1ff, >, 0);
+        qtest_writel(qts, base + 0x60, 0);
+        /* Each source TX selector reaches an actual private DMA/FIFO endpoint.
+         * EN=0 holds the request; EN=1 permits the single halfword beat. */
+        qtest_writew(qts, 0xc1940100, 0x1357 + i);
+        qtest_writew(qts, 0xc1940102, 0xaaaa);
+        qtest_writel(qts, base + 0xc, 0x420);
+        qtest_writel(qts, base + 0x10, 15 << 8);
+        qtest_writel(qts, dma, 0x90000000);
+        qtest_writel(qts, dma + 0x18, 0xc1940100);
+        qtest_writel(qts, dma + 0x1c, base);
+        qtest_writel(qts, dma + 0x14, 0x05180000);
+        qtest_writel(qts, dma + 0x10, 0x80000000 | ((3 + 2 * i) << 24));
+        qtest_writel(qts, dma + 0x28, base + 4);
+        qtest_writel(qts, dma + 0x2c, 0xc1940102);
+        qtest_writel(qts, dma + 0x24, 0x06180000);
+        qtest_writel(qts, dma + 0x20, 0x80000000 | ((4 + 2 * i) << 24));
+        qtest_clock_step(qts, 1000);
+        g_assert_cmphex(qtest_readl(qts, dma + 0x14) & 0x70000, ==, 0);
+        g_assert_cmphex(qtest_readl(qts, base + 0x2c), ==, 0);
+        g_assert_cmphex(qtest_readw(qts, 0xc1940102), ==, 0xaaaa);
+        qtest_writel(qts, base + 0x3c, 1);
+        qtest_clock_step(qts, 1000);
+        g_assert_cmphex(qtest_readl(qts, dma + 0x14) & 0x70000, ==, 0x50000);
+        /* Ordinary disconnected upstream SSI produces MISO-low after the
+         * actual master frame; RX demand then drains its genuine FIFO. */
+        qtest_clock_step(qts, 1000);
+        qtest_clock_step(qts, 1000);
+        g_assert_cmphex(qtest_readl(qts, dma + 0x24) & 0x70000, ==, 0x50000);
+        g_assert_cmphex(qtest_readw(qts, 0xc1940102), ==, 0);
+        qtest_writel(qts, base + 0x60, 1);
+        qtest_writel(qts, dma + 0x10, 0);
+        qtest_writel(qts, dma + 0x20, 0);
+    }
     /* Complete source domain4 request applies state before its done flag. */
     qtest_writel(qts, 0x04287000, 0x4100);
     qtest_writel(qts, 0x04287010, 0xa1);

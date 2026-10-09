@@ -24,8 +24,11 @@ The saved runtime consumers cover configuration, submit/stop, mask/status and IS
 
 The device has the standard QEMU `memory` link property, whose target is a
 `MemoryRegion`. Set it before device realization to the executing component's
-physical root. The device creates its own `AddressSpace` over that root and
-destroys only that address space on unrealize; the linked board memory remains
+physical root. Every realization creates a fresh heap `AddressSpace` over that
+root. Unrealize retires it with QEMU's `address_space_destroy_free()`, which
+keeps its storage alive until the deferred RCU callback completes even if the
+device is immediately realized again or finalized. Only that address space is
+retired; the linked board memory remains
 owned by its board. An unset link selects the system root used by MAS.
 
 Every destination lookup and DMA write uses this selected domain. Each mapped
@@ -40,3 +43,17 @@ This change affects address-space ownership only. The original two-engine
 register protocol, synchronous zero mode, result/ACK/mask and reset behavior
 are retained. Native dual-domain validation is supplied separately; this source
 change alone does not establish original SLA execution or GUI progress.
+
+The native system-library retirement fixture in `tests/unit/nikon/memory.c`
+alternates two independent real roots across 32 Fill/HDMAC realizations. It
+drains prior RCU callbacks after the new realization, then submits a real fill
+and verifies only the selected root was zeroed. It also finalizes the devices
+before draining their final retirement callbacks. The sole builder compiled
+the real ARM system-library fixture and passed the focused lifecycle case,
+exit0 and0.79 seconds, recorded in canonical
+`work/memoryunitlifecyclereceipt.log`. The earlier combined run passed its
+separate readonly-boundary case but aborted on the fixture's attempted parent
+bus reattachment; it is not a passing lifecycle receipt. Canonical QOM memory
+paths and the standard `realized` property now preserve both original memory
+selection and existing bus membership across the actual repeated lifecycle.
+No older Fill/HDMAC case or original firmware run was repeated for this fix.
