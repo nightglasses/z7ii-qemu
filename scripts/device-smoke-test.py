@@ -3391,6 +3391,12 @@ def run_control2038(binary, output, name):
             "scope": "two finite MMIO banks, explicit virtual raw inputs and independent IRQ outputs; no firmware/frame"}
 
 
+def control2010_stop_fixtures():
+    return [("control2010-qtest-stop-" + suffix, [], {}, None) for suffix in (
+        "idle-repeat-deferred", "masked-ack", "reopen-reset",
+        "preflight", "external-independent")]
+
+
 def control2010_gate_fixtures():
     base = 0x20100000
     error = "control2010-access-or-command-not-supported"
@@ -3525,7 +3531,94 @@ def run_control2010(binary, output, name):
             values = control2010_config_values()
             command(f"irq_intercept_out {path} sysbus-irq")
             assert [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)] == [0] * 6
-            if name.endswith("gate-stop-pending-and-edges"):
+            if name.endswith("stop-idle-repeat-deferred"):
+                write(0xc, 1)
+                write(4, 0)
+                assert read(4) == read(0x18) == 0 and not levels.get(0, False)
+                command("clock_step 19999")
+                assert read(0x18) == 0
+                write(4, 0)  # Coalesce, without delaying the first request.
+                command("clock_step 1")
+                assert read(0x18) == 1 and levels[0] and read(4) == 0
+                write(4, 0)  # A latched unacknowledged request also coalesces.
+                write(0x18, 1)
+                command("clock_step 1000000000")
+                assert read(0x18) == 0 and not levels[0]
+                write(4, 0)
+                command("clock_step 20000")
+                assert read(0x18) == 1 and levels[0]
+            elif name.endswith("stop-masked-ack"):
+                write(4, 0)
+                command("clock_step 20000")
+                assert read(0x18) == 1 and not levels.get(0, False)
+                write(0xc, 0x80000001)
+                assert levels[0]
+                write(0x18, 0x80000000)
+                assert read(0x18) == 1 and levels[0]
+                write(0xc, 0)
+                assert read(0x18) == 1 and not levels[0]
+                write(0xc, 1)
+                write(0x18, 1)
+                assert read(0x18) == 0 and not levels[0]
+                command("clock_step 1000000000")
+                assert read(0x18) == 0
+            elif name.endswith("stop-reopen-reset"):
+                write(0xc, 1)
+                write(4, 0)
+                command("clock_step 10000")
+                write(4, 1)
+                command("clock_step 20000")
+                assert read(0x18) == 0 and not levels.get(0, False)
+                write(4, 0)
+                command("clock_step 20000")
+                write(4, 1)
+                assert read(0x18) == 1 and levels[0]
+                vm.cmd("system_reset")
+                assert read(0x18) == read(4) == read(0xc) == 0
+                write(0xc, 1)
+                write(4, 0)
+                command("clock_step 10000")
+                vm.cmd("system_reset")
+                command("clock_step 1000000000")
+                assert read(0x18) == read(4) == 0 and not levels[0]
+            elif name.endswith("stop-preflight"):
+                write(0xc, 1)
+                write(0x2200, 0xdeadbeef)
+                write(4, 0)
+                before = snapshot()
+                for offset, value in ((4, 2), (4, 3), (4, 4), (8, 1),
+                                      (0x20a4, 1), (0x2620, 1), (0x2660, 1)):
+                    write(offset, value)
+                    assert snapshot() == before
+                for text in ("writeb 0x20100004 0", "writew 0x20100004 0",
+                             "writel 0x20100005 0"):
+                    command(text)
+                    assert snapshot() == before
+                command("clock_step 20000")
+                assert read(0x18) == 1 and levels[0]
+                assert read(0x2200) == 0xdeadbeef
+            elif name.endswith("stop-external-independent"):
+                for offset in (0xc, 0x10, 0x14):
+                    write(offset, 0xffffffff)
+                write(4, 1)
+                for index in (1, 32, 64):
+                    pin(index, 1)
+                write(4, 0)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [2, 1, 1]
+                assert not levels[0]
+                pin(2, 1)
+                command("clock_step 20000")
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [3, 1, 1]
+                assert levels[0]
+                write(0x18, 1)
+                assert read(0x18) == 2 and not levels[0]
+                write(4, 1)
+                assert levels[0]
+                for offset in (0x18, 0x1c, 0x20):
+                    write(offset, 0xffffffff)
+                command("clock_step 1000000000")
+                assert not levels[0]
+            elif name.endswith("gate-stop-pending-and-edges"):
                 for offset in (0xc, 0x10, 0x14):
                     write(offset, 0xffffffff)
                 # Disconnected/disabled rising levels are remembered, not queued.
@@ -5086,7 +5179,8 @@ def main():
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
              control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
-             control2016_fixtures() + control2010_gate_fixtures() + control2406_fixtures())
+             control2016_fixtures() + control2010_gate_fixtures() +
+             control2406_fixtures() + control2010_stop_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

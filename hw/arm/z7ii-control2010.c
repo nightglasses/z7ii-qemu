@@ -1,7 +1,7 @@
 /*
  * Finite original 2010 configuration, masks and external pending inputs.
  * Cold zero, retained configuration readback, rising input latches, mask1
- * enable, gate/stop and W1C ACK are virtual laws, not physical pipeline
+ * enable, external gate, deferred stop ACK and W1C are virtual laws, not pipeline
  * semantics.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -9,6 +9,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
+#include "qemu/timer.h"
 #include "z7ii.h"
 
 #define CONTROL_BASE 0x20100000ULL
@@ -21,6 +22,8 @@ struct Z7IIControl2010State {
     qemu_irq irq;
     uint32_t config[CONTROL_SIZE / 4];
     uint32_t mask[3], pending[3], inputs[3];
+    QEMUTimer *stop_timer;
+    bool stopping, stop_ack;
     bool reported_error;
 };
 
@@ -87,10 +90,23 @@ static bool z7ii_2010_config(hwaddr offset, uint32_t *mask)
 
 static void z7ii_2010_irq(Z7IIControl2010State *s)
 {
-    qemu_set_irq(s->irq, (s->config[1] & 3) == 1 &&
-                         !!((s->pending[0] & s->mask[0]) |
-                            (s->pending[1] & s->mask[1]) |
-                            (s->pending[2] & s->mask[2])));
+    bool external = (s->config[1] & 3) == 1 &&
+                    !!((s->pending[0] & s->mask[0]) |
+                       (s->pending[1] & s->mask[1]) |
+                       (s->pending[2] & s->mask[2]));
+    bool internal = s->stop_ack && (s->pending[0] & s->mask[0] & 1);
+
+    qemu_set_irq(s->irq, external || internal);
+}
+
+static void z7ii_2010_stop_done(void *opaque)
+{
+    Z7IIControl2010State *s = opaque;
+
+    s->stopping = false;
+    s->stop_ack = true;
+    s->pending[0] |= 1;
+    z7ii_2010_irq(s);
 }
 
 static void z7ii_2010_input(void *opaque, int index, int level)
@@ -168,14 +184,26 @@ static MemTxResult z7ii_2010_write(void *opaque, hwaddr offset,
         s->mask[(offset - 0xc) / 4] = value;
     } else if (offset >= 0x18 && offset <= 0x20) {
         s->pending[(offset - 0x18) / 4] &= ~value;
+        if (offset == 0x18 && (value & 1)) {
+            s->stop_ack = false;
+        }
     } else if (offset == 4) {
         /* Same retained word for RMW; unknown high-field changes reject. */
         if ((value & 3) > 1 ||
             (value && ((value ^ s->config[1]) & ~3U))) {
             return z7ii_2010_error(s, offset, size, true, value);
         }
-        /* Stop preserves pending/masks; reopen only recomputes existing IRQ. */
         s->config[1] = value;
+        if ((value & 3) == 1) {
+            /* Reopen cancels an unfinished drain, not its latched ACK. */
+            timer_del(s->stop_timer);
+            s->stopping = false;
+        } else if (!s->stopping && !s->stop_ack) {
+            /* One outstanding stop; 20us is nominal virtual drain latency. */
+            s->stopping = true;
+            timer_mod(s->stop_timer,
+                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000);
+        }
     } else if (offset == 0 || offset == 8 ||
                offset == 0x20a4 || offset == 0x2620 || offset == 0x2660) {
         /*
@@ -206,6 +234,9 @@ static void z7ii_2010_reset(DeviceState *dev)
 {
     Z7IIControl2010State *s = Z7II_CONTROL2010(dev);
 
+    timer_del(s->stop_timer);
+    s->stopping = false;
+    s->stop_ack = false;
     memset(s->config, 0, sizeof(s->config));
     memset(s->mask, 0, sizeof(s->mask));
     memset(s->pending, 0, sizeof(s->pending));
@@ -218,11 +249,18 @@ static void z7ii_2010_init(Object *obj)
 {
     Z7IIControl2010State *s = Z7II_CONTROL2010(obj);
 
+    s->stop_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                 z7ii_2010_stop_done, s);
     memory_region_init_io(&s->regs, obj, &z7ii_2010_ops, s,
                           "z7ii.control2010", CONTROL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), z7ii_2010_input, "pending-bit", 96);
+}
+
+static void z7ii_2010_finalize(Object *obj)
+{
+    timer_free(Z7II_CONTROL2010(obj)->stop_timer);
 }
 
 static const VMStateDescription z7ii_2010_vmstate = {
@@ -244,6 +282,7 @@ static const TypeInfo z7ii_2010_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Z7IIControl2010State),
     .instance_init = z7ii_2010_init,
+    .instance_finalize = z7ii_2010_finalize,
     .class_init = z7ii_2010_class_init,
 };
 
