@@ -89,9 +89,12 @@ static void test_waveform(void)
     g_assert_false(qtest_get_irq(t.qts, 3));
     qtest_clock_step(t.qts, 1);
     g_assert_true(qtest_get_irq(t.qts, 3));
-    qtest_clock_step(t.qts, 499);
+    /* QEMU's fixed-point 3GHz period reaches compare at 500ns. */
+    qtest_clock_step(t.qts, 498);
+    g_assert_cmphex(qtest_readl(t.qts, second + 0x30), ==, 1497);
     g_assert_true(qtest_get_irq(t.qts, 3));
     qtest_clock_step(t.qts, 1);
+    g_assert_cmphex(qtest_readl(t.qts, second + 0x30), ==, 1500);
     g_assert_false(qtest_get_irq(t.qts, 3));
     g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0);
     qtest_clock_step(t.qts, 500);

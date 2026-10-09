@@ -23,8 +23,8 @@ static QTestState *start(bool execute, unsigned cpus)
 {
     g_autofree char *quoted = g_shell_quote(image);
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp %u -bios %s -serial none -S %s",
-        cpus, quoted, execute ? "-accel tcg,thread=single" : "");
+        "-M z7ii-mas-diagnostic -smp %u -bios %s -serial none %s",
+        cpus, quoted, execute ? "-S -accel tcg,thread=single" : "");
 
     return qtest_init(args);
 }
