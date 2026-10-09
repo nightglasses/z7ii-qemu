@@ -12,6 +12,41 @@ import time
 from qemu.machine import QEMUMachine
 
 
+def software_wait_observer(payload):
+    """Finite original-byte guards and read-only scope for the slot8 wait."""
+    candidate = bytes.fromhex(
+        "c0b2022810b517d1e1f6c6fbb2f723f9e1f60afec6f710fbe4f6c0f8"
+        "e5f6f4f844f63dfe97f6e9f8b5f75dfbe5f6f7fc45f66af889f724ff012010bd")
+    if (payload[0x3e00b0:0x3e00ec] != candidate or
+            payload[0x1e1a24:0x1e1a26] != bytes.fromhex("8847")):
+        raise ValueError("software-wait observer original-byte guard failed")
+    targets = (0x102e1848, 0x103b2306, 0x102e1cd8, 0x103c66e8,
+               0x102e424c, 0x102e52b8, 0x10244d4e, 0x102972aa,
+               0x103b5796, 0x102e5ace, 0x102451b8, 0x10389f30)
+    return {
+        "source_revision": "f4d6e9b0a393fe5699a9f867f73d28e36f8b5c2c",
+        "candidate_source_accepted": False,
+        "candidate_bytes": candidate.hex(),
+        "saved_indirect_call_bytes": "8847",
+        "filters": ["0x104000b0+0x3c"] + [
+            f"{target:#x}+0x4" for target in targets],
+        "direct_calls": [{"site": f"{0x104000b8 + index * 4:#x}",
+                          "post": f"{0x104000bc + index * 4:#x}",
+                          "target": f"{target:#x}"}
+                         for index, target in enumerate(targets)],
+        "final_physical_reads": {
+            "scheduler_candidates": "xp /2wx 0xb2b41604",
+            "current_candidates": "xp /2wx 0xb2b415f4",
+            "taskindp_candidates": "xp /2wx 0xb2b42258",
+            "nested_spin_first_word": "xp /1wx 0xb2b42308",
+            "slot8_index4_descriptor": "xp /2wx 0xb18094b4",
+        },
+        "scope": "Trace entry/post-call registers and final physical snapshots only; "
+                 "descriptor snapshot is not the target at the earlier BLX. No unknown "
+                 "TCB fields, guest writes, model changes, readiness or wait-cause inference.",
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -28,6 +63,8 @@ def main():
                         help="upstream trace of PKGB constructor and SPI init candidates")
     parser.add_argument("--trace-records", action="store_true",
                         help="upstream trace of original record scanner and bank coordinator")
+    parser.add_argument("--trace-software-wait", action="store_true",
+                        help="source-guarded slot8 candidate calls and final scheduler snapshots")
     parser.add_argument("--seconds", type=float, default=5,
                         help="bounded host observation interval")
     args = parser.parse_args()
@@ -36,12 +73,13 @@ def main():
     binary, payload, output = (p.resolve() for p in
                                (args.binary, args.payload, args.output))
     before = payload.read_bytes()
+    observer = software_wait_observer(before) if args.trace_software_wait else None
     output.mkdir(parents=True, exist_ok=False)
     logging.basicConfig(filename=output / "harness.log", level=logging.DEBUG)
     vm_args = ["-accel", f"tcg,thread={args.tcg_thread}", "-bios", str(payload),
                "-serial", "none", "-monitor", "none", "-S",
                "-D", str(output / "qemu.log"), "-d", "guest_errors,int"]
-    if args.trace_kernel or args.trace_pkgb or args.trace_records:
+    if args.trace_kernel or args.trace_pkgb or args.trace_records or observer:
         vm_args[-1] = "guest_errors,int,in_asm,cpu,exec"
         filters = ["0x10100000+0x20000"] if args.trace_kernel else []
         if args.trace_pkgb:
@@ -62,6 +100,8 @@ def main():
                         "0x102a7d56+0x2c", "0x102a874e+0x2c",
                         "0x102a807e+0x2a", "0x102a80a8+0x4e",
                         "0x102a84a2+0x5a", "0x103bf3c6+0x6c"]
+        if observer:
+            filters += observer["filters"]
         vm_args += ["-dfilter", ",".join(filters)]
     if args.trace_irqs:
         for event in ("gic_enable_irq", "gic_set_irq", "gic_acknowledge_irq",
@@ -126,6 +166,10 @@ def main():
         ],
         "whole_boot_verified": False,
     }
+    if observer:
+        observer["recipe_revision"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True).strip()
+        receipt["software_wait_observer"] = observer
     start = time.monotonic()
     vm = None
     try:
@@ -173,6 +217,10 @@ def main():
                         "human-monitor-command", command_line="info registers",
                         cpu_index=cpu["cpu-index"])
                     for cpu in receipt["final_cpus"]}
+                if observer:
+                    observer["final_physical_snapshots"] = {
+                        name: vm.cmd("human-monitor-command", command_line=command)
+                        for name, command in observer["final_physical_reads"].items()}
     except Exception as exc:
         receipt["error"] = repr(exc)
     finally:
