@@ -5,8 +5,11 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/crc-ccitt.h"
 #include "libqtest.h"
 #include "hw/nikon/storage.h"
+#include "hw/nikon/sla.h"
+#include "qobject/qdict.h"
 
 #define ECAM UINT64_C(0x3f008000) /* virt fixture: bus 0, slot 1 */
 #define BAR UINT64_C(0x10000000)
@@ -219,6 +222,86 @@ static void test_host_offline(void)
     storage_quit(&t);
 }
 
+static char *storage_bundle(void)
+{
+    static const char *const names[] = {
+        "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
+        "vr1840_010100.bi", "eg1840_sla_01700",
+    };
+    const size_t header = 208;
+    const size_t total = header + 3 * 6 + 0x80000 + 2 +
+                         NIKON_SLA_ROM_SIZE + 2 + 16;
+    g_autofree uint8_t *data = g_malloc0(total);
+    char *path = NULL;
+    size_t offset = header;
+    unsigned i;
+    int fd;
+
+    memset(data, ' ', 32);
+    stl_be_p(data + 32, ARRAY_SIZE(names));
+    stl_be_p(data + 36, header);
+    for (i = 0; i < ARRAY_SIZE(names); i++) {
+        size_t length = i == 0 ? 0x80000 :
+                       i == 4 ? NIKON_SLA_ROM_SIZE : 4;
+        uint8_t *entry = data + 48 + i * 32;
+
+        memcpy(entry, names[i], strlen(names[i]));
+        stl_be_p(entry + 16, offset);
+        stl_be_p(entry + 20, length + 2);
+        if (i == 0) {
+            stl_le_p(data + offset, 0x20040000);
+            stl_le_p(data + offset + 4, 0x08000009);
+        } else {
+            stl_le_p(data + offset, 0xeafffffe);
+        }
+        stw_be_p(data + offset + length,
+                 crc_ccitt_false(0, data + offset, length));
+        offset += length + 2;
+    }
+    stw_be_p(data + offset, crc_ccitt_false(0, data, offset));
+    fd = g_file_open_tmp("nikon-storage-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)data, total, NULL));
+    return path;
+}
+
+static void test_host_domains(void)
+{
+    g_autofree char *bundle = storage_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
+                              "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
+    const char *const hosts[] = { "/machine/storage", "/machine/sla/storage" };
+    g_autofree char *memory = NULL;
+    unsigned i;
+
+    /* Both real machine factories must finish VMState registration. GPEX's
+     * default fixed root path aborts here even when neither host has media.
+     */
+    for (i = 0; i < ARRAY_SIZE(hosts); i++) {
+        QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                                   "'path':%s,'property':'memory'}}", hosts[i]);
+        const char *selected = qdict_get_str(reply, "return");
+
+        if (i == 0) {
+            memory = g_strdup(selected);
+        } else {
+            g_assert_cmpstr(selected, !=, memory);
+        }
+        qobject_unref(reply);
+        reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                              "'path':%s,'property':'type'}}", hosts[i]);
+        g_assert_cmpstr(qdict_get_str(reply, "return"), ==,
+                        TYPE_NIKON_STORAGE_HOST);
+        qobject_unref(reply);
+    }
+    g_assert_cmpuint(qtest_readl(q, PHY + 0x58) >> 16, ==, 0);
+    g_assert_cmpuint(qtest_readl(q, PHY + 0x210), ==, 0);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 static void test_host_roundtrip_cancel(void)
 {
     StorageTest t = storage_host_init(true);
@@ -402,6 +485,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/storage/errors/reset", test_errors_reset);
     qtest_add_func("/nikon/storage/readonly", test_readonly);
     qtest_add_func("/nikon/storage/host/offline", test_host_offline);
+    qtest_add_func("/nikon/storage/host/domains", test_host_domains);
     qtest_add_func("/nikon/storage/host/roundtrip/cancel", test_host_roundtrip_cancel);
     qtest_add_func("/nikon/storage/host/msi", test_host_msi);
     return g_test_run();

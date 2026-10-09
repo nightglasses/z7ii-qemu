@@ -70,6 +70,34 @@ combined camera menu witness.
 confirmed all three completed with exit 0. Subsequent changes in this fixed
 cohort did not change the RX production source.
 
+## Dual-host identity follow-up
+
+Only the qualified storage production/API fixes `85b0c63` and `5141c19`, plus
+the real two-host fixture, are appended from fixed snapshot
+`c245e238b78f3b86c0b04906fd9e701c2a93e792`. Their two code files are
+`hw/nikon/devices/storage.c` and `tests/qtest/nikon/storage.c`. Other code from
+that later snapshot, including readout and subsequent protocol layers, is not
+part of this integration.
+
+The private GPEX subclass supplies each domain's stable QOM root path through
+the upstream host class API and retains that string in the bridge instance.
+This avoids duplicate native PCI VMState identities while preserving guest PCI
+layout, address spaces and native registration. The sole builder's actual
+dual-host fixture exited0 in1.38s (`storagedualdomainsnativereceipt.log`), and
+the existing roundtrip/cancellation lifecycle exited0 in1.22s
+(`storageidentityroundtripnativereceipt.log`). Integration reads these existing
+receipts without rebuilding or touching the original-run VM.
+
+The separate original whole-bundle observation used fixed `c245e238`, five
+execution contexts and explicitly independent erased-FF prefixes. Its receipt
+is `local-gdb-observers/work/gui/peripherals/receipt.json`. It crossed the
+previous native savevm identity assertion and reached a real CPU3 guest access
+at PC `100944d2`, PA `20100000`, W32 zero after 114,282,000 virtual ns. After
+one bounded continuation, the observer quit through QMP at 140,639,000 ns,
+confirmed the process absent and the input bundle unchanged. The display had
+no QemuConsole. Other execution witnesses from that broader observation do
+not qualify or import its unrelated later device changes into this child.
+
 None of these receipts establishes physical timing, complete original boot,
 an original firmware acknowledgement, a visible menu or reconstructed firmware
 acceptance on the experimental camera.

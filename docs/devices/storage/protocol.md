@@ -17,6 +17,14 @@ property is a BlockBackend ID string; only the native NVMe endpoint attaches
 that backend. Missing media leaves the host offline. The endpoint's serial is
 an explicit virtual identity, not an original card identity.
 
+Each embedded GPEX uses the mature `PCIHostBridgeClass.root_bus_path` extension
+to return its stable QOM domain path, retained by the bridge instance. Upstream
+GPEX's fixed `0000:00` identity collides when MAS and SLA both realize a host,
+even without media, because their root PCI devices register the same VMState
+path. The private subclass changes only that host identity; native PCI VMState
+registration, guest config selectors, endpoint placement and DMA domains remain
+intact. The official dependency is not modified.
+
 The adapter deliberately adds no parallel NVMe register state machine, card-capacity
 guess, host filesystem shortcut, synthetic write acknowledgement or firmware
 request-ring reply. The real guest filesystem must create its own on-media bytes.
@@ -287,6 +295,17 @@ execution or a captured-frame save.
 See [QEMU NVMe documentation](https://www.qemu.org/docs/master/system/devices/nvme.html)
 for the mature controller, namespace and BlockBackend interfaces. The project's
 fixed upstream source remains the authority for available properties and APIs.
+
+The `host/domains` regression supplies a synthetic complete container through
+the actual MAS/SLA machine factories. Both native hosts finish VMState
+registration and expose distinct explicit memory links. Neither gets media or
+a manufactured link. This catches the duplicate-root-path abort that separate
+MAS and SLA invocations cannot detect. The sole builder compiled production
+and fixture from `c245e238`; the dual-host case exited0 in1.38s and the existing
+roundtrip/cancellation lifecycle case exited0 in1.22s. Their ignored receipts
+are `work/storagedualdomainsnativereceipt.log` and
+`work/storageidentityroundtripnativereceipt.log`. Synthetic input does not
+establish original firmware execution or a frame save.
 
 The private AddressSpace selection was compiled as part of fixed source
 `7f241eb9`. Its necessary native host regression exited0 in1.32s, and the
