@@ -210,7 +210,10 @@ guest-written TDR bytes `a5`, `5a`, `77`, and received bytes reaching RAM via
 DMA. It also verifies sixteen-bit low/high ordering and cancellation while
 the second byte waits for real TDR refill. Qtest manually programs the
 synthetic guest registers and does not
-execute Nikon's ISR. This new case awaits sole-builder validation.
+execute Nikon's ISR. Sole-builder qualification passed the focused ninth case
+after the busless reset registration repair (`8819090`), in 0.83 seconds with
+exit 0; the preceding eight cases passed in the original batch. The receipt is
+`work/vrpeerresetreceipt.log` in the canonical `qemu-submodule` worktree.
 
 The complete original image remains strictly stopped at bootstrap
 `fff00167`, reading the four-byte external function-pointer slot `fffc8008`.
@@ -218,3 +221,49 @@ Bootstrap performs `JSR` through that value at `fff00169` before entering
 application `00018583`. This endpoint supplies neither that data slot nor
 target instructions, and its synthetic fixture is not an original VR ACK
 receipt.
+
+## Explicit external input and flash storage
+
+`nikon-vr-input` now supplies a sparse container for the loaded VR domain's
+external interval `[fffc8000,100000000)`. `nikon-vr-span` loads one exact file
+span with an explicit `input` link, `guest-base`, `exact-size`, `origin`, and
+`qualification=data|original-code`. The C API accepts the same exact `GBytes`
+without a file. Overlap, missing origin, unsupported qualification, empty input,
+and 32-bit overflow are errors. No table pointers, signatures, padding bytes,
+resident instructions, or default erased snapshot are generated. Known spans
+use standard QEMU ROM devices and exact aliases; holes and direct guest stores
+return `MEMTX_ERROR`.
+
+Origin and original-code qualification are caller declarations of provenance,
+not cryptographic authentication. `nikon_vr_input_is_original_code()` queries
+that declaration over an exact supplied range. QEMU's generic `MemTxAttrs`
+does not identify instruction fetches: this metadata is not a TCG execute
+permission. Copy/alias consumers must carry the declaration explicitly.
+
+`flash-block=true` separately authorizes a mutable overlay only for a complete
+8192-byte snapshot at the five source descriptor addresses `ffff0000`,
+`ffff2000`, `ffff6000`, `ffff8000`, `ffffa000`, or the independently consumed
+header block `ffffc000`. Smaller exact immutable spans remain possible, including
+genuine header bytes; a signature alone is insufficient to initialize a mutable
+block. Bootstrap's configuration readers probe tails at `ffff60fc`, `ffff80fc`,
+and `ffffaafc`, then conditionally copy entire `100`, `100`, and `b00` byte
+records. Application `0001768f` separately reads `ffffc004–ffffc007`.
+
+The storage producer accepts a supplied block erase or aligned 128-byte-unit
+program request, captures actual source-bus bytes, rejects an attempt to set an
+unerased bit, and commits only at the caller's finite positive virtual duration.
+These block/program units are an explicit functional capability matching the
+descriptors and [Renesas's fixed public RX65N SDK header](https://github.com/renesas/rx-driver-package/blob/bcc409d331b0bff68d4b09bf6fc41376f75d42bc/source/r_flash_rx/r_flash_rx_vx.xx/r_flash_rx/src/targets/rx65n/r_flash_rx65n.h),
+not silicon identification or measured timing. Missing blocks are not created.
+Cancel/reset abort uncommitted requests without completion; committed bytes
+persist across reset. The original `GBytes` snapshot stays unchanged, while a
+modified span ceases to qualify as original code. ROM-device flushes invalidate
+translated code after mutations. Sparse source metadata and pending operations
+are explicitly unmigratable.
+
+This is a storage producer API and an explicit host QOM storage interface; it
+does not supply the unknown resident ABI, FCU registers, IRQ, or peer bytes.
+The new native cases use only synthetic whole-page data and cover exact holes,
+qualifications, bounds/overlap rejection, real erase/program readback, reset,
+cancel, source-bus errors, and preservation of the original snapshot. They await
+sole-builder qualification; the existing nine peripheral cases are unchanged.

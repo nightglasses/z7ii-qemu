@@ -11,7 +11,12 @@ than a cold hardware reset claim.
 
 Direct source evidence is the fixed whole-domain provider in Nightglass
 `work/sla-whole-source-4/sla.S` and its row/context metadata, producer
-`1076d278`, plus `work/sla-native-data-source-3/`. The ROM first branch and reset
+`1076d278`, plus `work/sla-native-data-source-3/`. The peripheral dispatch
+inventory uses `work/sla-whole-source-5/sla.S`, producer
+`43d1909ecd2fb27e422263d01f9fcf2ab390efcd`. Subsequent official I2C/TIMING
+callback qualification is in the source owner's
+`work/sla-supplement/devices-callback-source/instructions.jsonl`.
+The ROM first branch and reset
 vector independently converge on ARM VA `0x1002bcd4`; the vector is at
 `0x10034100`. The complete component is placed at diagnostic PA `0x10020000`.
 Its initial ROM section descriptors at parent O `0x10400` and `0x13040`
@@ -38,6 +43,78 @@ table through the ordinary ROM-to-RAM copy callee. Source `0x10020960` is an
 ordinary return; no external routine is substituted there. The loaded profile
 reuses the existing finite MEMC, clock, GPIO, system configuration, MXIC,
 SDI and fill devices, retaining unsupported access failures.
+
+The adjacent peripheral initializers are bound from complete COPY1 registries.
+Source `0x10067016` consumes the four `0x24`-byte COPY records at `0xc1005c48`
+(original O `0x84211c`), IRQ45..48 and the register pointer table at
+`0xc1005bb8` (O `0x84208c`). The shared four-channel COPY device maps privately
+at `0x04251000`; its standard `memory` link selects the SLA root before
+realization. DMA reads and writes use that domain, including ROM-device reads,
+readonly failures and cancellation, rather than the MAS system AddressSpace.
+
+The four `0x30`-byte I2C records at `0xc1005004` (COPY1 O `0x8414d8`) supply
+instances0..3, bases `0x2c018000/0x2c019000/0x2c01a000/0x2c01b000` and
+IRQ214..217. Each mature controller has its own disconnected I2CBus and uses
+no DMA or global AddressSpace. The source-proved initializer and normal FIFO,
+IRQ and cancel profile are supported; original transaction success is not
+claimed. Official source5 still lacks configuration body `0x1005f9ac..1005fa3b`;
+its final IRQ thunks have since received independent callback-source
+qualification. Unsupported monitor/extended-address
+variants retain their model failures pending that source qualification.
+
+The twelve TIMING records at `0xc1005904` (COPY1 O `0x841dd8`, stride20)
+reference the complete twelve-by23 register pointers at `0xc10054b0`
+(O `0x841984`). ROM IRQ records at VA `0x1016afbc` (O `0x14afbc`) bind
+IRQ172..183. One private mature controller maps its two regions at
+`0x2c010000/0x2c011000` and connects all twelve IRQ outputs to the SLA GIC.
+Its nominal3GHz clock and functional timing behavior remain explicit model
+assumptions. Capture inputs and compare outputs have no external peer;
+unsupported submission/extra-event modes still fail. The source owner's
+callback supplement qualifies the wrappers `0x100603c0..10060432` through
+the original IRQ table and constructor. Their common handler reads status
+through object+8, writes the same word to acknowledge it, and optionally
+calls the guest callback stored at object+`0x10` with argument at object+`0xc`.
+
+USIO registration `0x10058be2` consumes three `0x58`-byte COPY1 descriptors
+at `0xc10059fc` (original O `0x841ed0`). Their offsets0/`0x10`/`0x20` and
+DR literal `0x10058e4c=0x2c090004`, with actual halfword DR consumers,
+bind three private ports at `0x2c090000/0x2c090010/0x2c090020` and
+RX/TX IRQ pairs186/187,188/189,190/191. Port0 retains the explicit serial
+backend used by the earlier polled startup callback; the other ports have no
+input backend and produce no invented RX data. Mature FIFO/IRQ behavior is
+used for the qualified transactions. The missing official low-level body
+`0x10058e74..100591ae` remains a variant qualification limit; word MMIO and
+unsupported clock/mode variants are not enabled merely from these descriptors.
+
+The first mode1 registration `0x10057956` binds object104 at `0xc10015c8`
+(COPY1 O `0x83da9c`), IRQ158 and the register literal
+`0x10057ac8=0x2c01200c`. Its finite event interface maps privately at
+`0x2c012000`, with source mask bits10..12 and pending bits1..3. Functional
+zero reset and clear-on-zero semantics are explicit assumptions. The explicit
+event publisher has no connected provider, so no interrupt source or timing
+event is manufactured. Missing recovered setter bodies remain a qualification
+limit; this mapping does not claim the entire physical event subsystem.
+
+The other mode2 registrations `0x1005fe2c/0x100604fc` bind the finite notifier
+at `0x2c0b0000`, IRQ218, and three counter windows at `0x2c015000` with offsets
+0/`0x20`/`0x40`, IRQ169..171. COPY1 counter descriptor `0xc1005bac`
+(O `0x842080`) contains those exact offsets; notifier software state at
+`0xc1005480..0xc100549c` (O `0x841954..841970`) is initialized zero data.
+Both private devices expose explicit opaque event/state inputs which remain
+disconnected. Submit/configuration bits are retained without inventing a
+clock, busy producer or automatic completion. Missing official helper bodies
+remain independent source limits, rather than grounds for an inferred peer.
+
+Source `0x10057b7e/0x10057bc8` binds two Audio records at `0xc1005100/5134`
+(COPY1 O `0x8415d4/841608`, stride `0x34`), the register literal
+`0x10057ed8=0x2c080000`, and IRQ167/168. The private mature passive FIFO
+device supports the qualified release-only initialization; it performs no
+AddressSpace transactions. Its DMA demand outputs remain disconnected.
+Source Audio selectors3/7/5 overlap the SPI selector profile, and complete
+Audio bank/handle assignment plus physical request mux selection are not yet
+qualified. Connecting a second producer directly to one HDMAC input would
+discard causal line state; no such wiring, inferred OR/mux or DMA completion
+is supplied. Missing Audio setter bodies remain a source boundary.
 
 | Source owner / operation | SLA diagnostic backing | Initial ownership |
 | --- | --- | --- |
@@ -103,7 +180,16 @@ bind IRQ127 and bridge pending/ACK at `0x2013d020/0x2013d028`. The private
 domain therefore maps the shared bridge registers at `0x20130000` and connects
 IRQ127 to its own GIC. `nikon_sla_bridge(domain)` borrows this device for peer
 attachment. Its data windows are not mapped by this registration contract;
-the source aperture and descriptor consumers remain separate requirements.
+the independent class0 converter `0x10060f9c` and CPU LDRD/STRD consumers
+`0x10064728/0x1006474a` qualify the IO aperture `[0x40000000,0x50000000)`.
+The domain maps that exact interval to bridge bank1 region2 at offset
+`0x40000000`. This is a protocol IO window into the borrowed peer AddressSpace:
+the bridge retains its source-bound masks, fields, RMW and reset semantics.
+Cold zero mappings have no valid mask and do not forward; the static index8
+field does not establish a new hardware variant. There is no extra host
+publication scoreboard. The alias supplies no RAM, ring signatures or default
+peer bytes. Incomplete recovered publisher bodies remain a source qualification
+limit, independently of the qualified converter and CPU accessors.
 
 The exact ring extent is `0x18 + 0xc0 * 0x108 = 0xc618`. The SLA guest creates
 its signatures and indices at `0xc60f0000`; nothing is prefilled. Its source
@@ -132,7 +218,7 @@ domains expose no alias to MAS. The glue owner may connect named output
 `peer-ready[0]` to MAS GPIO input99 and attach the borrowed AddressSpace to
 2013 forwarding; live peer-producer execution remains a runtime requirement.
 
-The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
+The native C qtest `vendor/qemu/tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
 component isolation, final-byte availability, unseeded COPY/release RAM,
 independent writable COPY backing, both kernel arena endpoints and causal
@@ -286,3 +372,25 @@ and only then records HDMAC completion. After the actual master frame, ordinary
 disconnected upstream SSI supplies MISO-low to the RX FIFO; its real data demand
 drives the RX halfword transfer and replaces a RAM sentinel. This tests causal private wiring with
 synthetic data, independently of the original runtime receipt above.
+
+The sixth original standalone run used coherent builder `041488c`, two-core
+MTTCG and the complete decoded container. It crossed the whole SPI reset family
+and next rejected CPU1 PC `0x10066c0c`, a 32-bit zero write to `0x0426f004`.
+CPU0 remained in its normal IRQ path at `0x10038a48`; CPU1 reached its original
+abort loop `0x1003410c`. The barrier counter was zero, the six ring-prefix words
+were zero, and none of the three peer-worker breakpoints was reached. Both
+processes exited0 by `monitor quit`; ignored receipts are `work/sla/original6*`.
+
+The complete source GPIO/EXIU registration and configuration family
+`0x10066b60..0x10066df4` supplies an independent SLA binding. Its table at
+`0xc10019f4` has 232 `0x38`-byte records. Exactly eight carry external interrupt
+roles: objects `0x54..0x5b`, GPIO5 bits7..14, EXIU bits0..7, IRQ65..72 and callback
+pointers `0x10066ef9..0x10066f23` (COPY offsets `[0x83f128,0x83f2e8)`). The
+initialization `0x10066c06` writes clear-control `+4=0`, W1C pending `+0x10=0xff`
+and mask `+0=0xff`. Configuration `0x10066d6c` updates polarity `+0x14` and
+edge/level `+0x18`, including mode2's inverted sampled GPIO level. The private
+domain reuses the whole finite EXIU model at `0x0426f000`, connecting these eight
+actual pad and GIC lines. It does not copy MAS's sixteen-line binding. The
+callback records establish registration; execution of their ISR bodies remains
+a separate runtime/source qualification. The native fixture drives all eight
+real GPIO pads and checks masked pending, unmask-to-IRQ and W1C deassertion.

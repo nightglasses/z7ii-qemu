@@ -31,11 +31,15 @@ struct NikonPeer {
     bool pending;
     uint64_t token;
     unsigned bits;
+    NikonPeerKind kind;
+    uint32_t line;
     NikonPeerComplete complete;
     void *complete_opaque;
     bool incoming;
     uint64_t incoming_token;
     unsigned incoming_bits;
+    NikonPeerKind incoming_kind;
+    uint32_t incoming_line;
 };
 
 static void peer_flush(NikonPeer *s);
@@ -136,6 +140,32 @@ static bool peer_send(NikonPeer *s, unsigned type, NikonPeerKind kind,
     return true;
 }
 
+static bool peer_operation(NikonPeerKind kind, unsigned bits, uint32_t line)
+{
+    if (kind == NIKON_PEER_CLOCK) {
+        return bits >= 1 && bits <= 32 && !line;
+    }
+    return kind == NIKON_PEER_I2C && bits == 8 &&
+           line >= NIKON_I2C_START && line <= NIKON_I2C_NACK;
+}
+
+static bool peer_word(unsigned type, NikonPeerKind kind, uint32_t phase,
+                      uint32_t word)
+{
+    if (type == NIKON_WIRE_CANCEL) {
+        return !word;
+    }
+    if (kind == NIKON_PEER_CLOCK) {
+        return true;
+    }
+    if (type == NIKON_WIRE_REPLY) {
+        return word == NIKON_I2C_NAK ||
+               (phase == NIKON_I2C_READ ? word <= 0xff : !word);
+    }
+    return type == NIKON_WIRE_REQUEST &&
+           (phase <= NIKON_I2C_WRITE ? word <= 0xff : !word);
+}
+
 static void peer_frame(NikonPeer *s)
 {
     const uint8_t *frame = s->input;
@@ -162,7 +192,8 @@ static void peer_frame(NikonPeer *s)
         }
         return;
     }
-    if (kind != NIKON_PEER_CLOCK || !token || bits < 1 || bits > 32 || line) {
+    if (!token || !peer_operation(kind, bits, line) ||
+        !peer_word(type, kind, line, word)) {
         peer_invalid(s);
         return;
     }
@@ -171,7 +202,8 @@ static void peer_frame(NikonPeer *s)
         void *opaque;
 
         /* Cancelled and stale replies cannot complete a new transaction. */
-        if (!s->pending || s->token != token || s->bits != bits) {
+        if (!s->pending || s->token != token || s->bits != bits ||
+            s->kind != kind || s->line != line) {
             return;
         }
         complete = s->complete;
@@ -192,12 +224,16 @@ static void peer_frame(NikonPeer *s)
         s->incoming = true;
         s->incoming_token = token;
         s->incoming_bits = bits;
+        s->incoming_kind = kind;
+        s->incoming_line = line;
         if (s->endpoint.request) {
             s->endpoint.request(s->endpoint_opaque, &request);
         }
         /* No endpoint or an unarmed guest retains the request, never replies. */
     } else if (type == NIKON_WIRE_CANCEL) {
-        if (word || !s->incoming || s->incoming_token != token) {
+        if (!s->incoming || s->incoming_token != token ||
+            s->incoming_bits != bits || s->incoming_kind != kind ||
+            s->incoming_line != line) {
             return;
         }
         s->incoming = false;
@@ -287,19 +323,23 @@ bool nikon_peer_state(NikonPeer *s, NikonPeerState notify, void *opaque)
     return true;
 }
 
-bool nikon_peer_clock(NikonPeer *s, uint64_t token, uint32_t word, unsigned bits,
-                      NikonPeerComplete complete, void *opaque)
+static bool peer_request(NikonPeer *s, NikonPeerKind kind, uint64_t token,
+                         uint32_t line, uint32_t word, unsigned bits,
+                         NikonPeerComplete complete, void *opaque)
 {
-    if (!token || !complete || s->pending || bits < 1 || bits > 32 ||
+    if (!token || !complete || s->pending || !peer_operation(kind, bits, line) ||
+        !peer_word(NIKON_WIRE_REQUEST, kind, line, word) ||
         !s->connected || s->failed) {
         return false;
     }
     s->pending = true;
     s->token = token;
     s->bits = bits;
+    s->kind = kind;
+    s->line = line;
     s->complete = complete;
     s->complete_opaque = opaque;
-    if (!peer_send(s, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, token, bits, 0, word)) {
+    if (!peer_send(s, NIKON_WIRE_REQUEST, kind, token, bits, line, word)) {
         s->pending = false;
         s->complete = NULL;
         return false;
@@ -307,11 +347,25 @@ bool nikon_peer_clock(NikonPeer *s, uint64_t token, uint32_t word, unsigned bits
     return true;
 }
 
+bool nikon_peer_clock(NikonPeer *s, uint64_t token, uint32_t word, unsigned bits,
+                      NikonPeerComplete complete, void *opaque)
+{
+    return peer_request(s, NIKON_PEER_CLOCK, token, 0, word, bits,
+                        complete, opaque);
+}
+
+bool nikon_peer_i2c(NikonPeer *s, uint64_t token, NikonI2CPhase phase,
+                    uint8_t value, NikonPeerComplete complete, void *opaque)
+{
+    return peer_request(s, NIKON_PEER_I2C, token, phase, value, 8,
+                        complete, opaque);
+}
+
 void nikon_peer_cancel(NikonPeer *s, uint64_t token)
 {
     if (s->pending && s->token == token) {
-        bool sent = peer_send(s, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK,
-                              token, s->bits, 0, 0);
+        bool sent = peer_send(s, NIKON_WIRE_CANCEL, s->kind,
+                              token, s->bits, s->line, 0);
         s->pending = false;
         s->complete = NULL;
         if (!sent && s->connected) {
@@ -336,8 +390,9 @@ bool nikon_peer_wire(NikonPeer *s, NikonPeerKind kind, uint32_t line, bool level
 bool nikon_peer_reply(NikonPeer *s, uint64_t token, uint32_t word)
 {
     if (!s->incoming || s->incoming_token != token ||
-        !peer_send(s, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, token,
-                   s->incoming_bits, 0, word)) {
+        !peer_word(NIKON_WIRE_REPLY, s->incoming_kind, s->incoming_line, word) ||
+        !peer_send(s, NIKON_WIRE_REPLY, s->incoming_kind, token,
+                   s->incoming_bits, s->incoming_line, word)) {
         return false;
     }
     s->incoming = false;

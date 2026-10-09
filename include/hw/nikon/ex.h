@@ -25,6 +25,10 @@ uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel,
  */
 DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
                                 uint8_t chip_select, Error **errp);
+/*
+ * Stable physical input: 0/1 drive, -1 release. Driven levels survive MCU and
+ * GPIO RCC reset; only the source peer changes its electrical state.
+ */
 qemu_irq nikon_ex_gpio_input(NikonEXState *s, unsigned port, unsigned pin);
 void nikon_ex_gpio_connect_output(NikonEXState *s, unsigned port, unsigned pin,
                                   qemu_irq sink);

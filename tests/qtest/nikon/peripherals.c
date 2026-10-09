@@ -613,9 +613,319 @@ static void test_dma_and_serial(void)
     unlink(path);
 }
 
+static char *test_input_file(const uint8_t *data, size_t size)
+{
+    g_autoptr(GError) error = NULL;
+    char *path = NULL;
+    int fd = g_file_open_tmp("vrinput.XXXXXX", &path, &error);
+
+    g_assert_no_error(error);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)data, size, &error));
+    g_assert_no_error(error);
+    return path;
+}
+
+static QTestState *test_input_start(const char *package, const char *input,
+                                   bool flash)
+{
+    return qtest_initf("-machine nikonvr -bios %s -device nikon-vr-input,id=input "
+                       "-device nikon-vr-span,input=/machine/peripheral/input,"
+                       "file=%s,"
+                       "guest-base=0x%08x,exact-size=%u,origin=synthetic-fixture,"
+                       "qualification=%s,flash-block=%s",
+                       package, input, flash ? 0xffff6000 : 0xfffc8008,
+                       flash ? 8192 : 4, flash ? "data" : "original-code",
+                       flash ? "true" : "false");
+}
+
+static void input_set_number(QTestState *qts, const char *property, uint64_t value)
+{
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':%s,'value':%" PRIu64 "}}", property, value);
+}
+
+static bool input_get_bool(QTestState *qts, const char *property)
+{
+    QDict *reply = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/peripheral/input',"
+        "'property':%s}}", property);
+    bool value;
+
+    /* assert_success_ref extracts a QDict; qom-get returns a scalar. */
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_bool(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
+static uint64_t input_get_number(QTestState *qts, const char *property)
+{
+    QDict *reply = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/peripheral/input',"
+        "'property':%s}}", property);
+    uint64_t value;
+
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_int(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
+static void input_operation(QTestState *qts, const char *operation, bool success)
+{
+    QDict *reply = qtest_qmp(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'operation','value':%s}}", operation);
+
+    g_assert_true(qdict_haskey(reply, success ? "return" : "error"));
+    qobject_unref(reply);
+}
+
+static void test_external_span(void)
+{
+    const uint8_t supplied[] = { 0x91, 0x23, 0x45, 0x67 };
+    g_autofree char *package = test_package();
+    g_autofree char *input = test_input_file(supplied, sizeof(supplied));
+    QTestState *qts = test_input_start(package, input, false);
+
+    g_assert_cmphex(qtest_readl(qts, 0xfffc8008), ==, 0x67452391);
+    g_assert_false(input_get_bool(qts, "access-failed"));
+    input_set_number(qts, "destination", 0xfffc8008);
+    input_set_number(qts, "length", 4);
+    g_assert_true(input_get_bool(qts, "original-code"));
+    input_set_number(qts, "length", 5);
+    g_assert_false(input_get_bool(qts, "original-code"));
+    /* qtest discards MemTxResult; this confirms the error callback was reached. */
+    qtest_readb(qts, 0xfffc8007);
+    g_assert_true(input_get_bool(qts, "access-failed"));
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    g_assert_false(input_get_bool(qts, "access-failed"));
+    qtest_readb(qts, 0xfffc800c);
+    g_assert_true(input_get_bool(qts, "access-failed"));
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    qtest_writel(qts, 0xfffc8008, 0);
+    g_assert_true(input_get_bool(qts, "access-failed"));
+    g_assert_cmphex(qtest_readl(qts, 0xfffc8008), ==, 0x67452391);
+    qtest_quit(qts);
+    unlink(input);
+    unlink(package);
+}
+
+static void test_flash_overlay(void)
+{
+    g_autofree uint8_t *snapshot = g_malloc(8192);
+    uint8_t program[128], readback[128];
+    g_autofree char *package = test_package();
+    g_autofree char *input = NULL;
+    QTestState *qts;
+    unsigned i;
+
+    for (i = 0; i < 8192; i++) {
+        snapshot[i] = (i * 17 + 3) & 255; /* Entire synthetic page, no signature. */
+    }
+    for (i = 0; i < sizeof(program); i++) {
+        program[i] = i ^ 0x96;
+    }
+    input = test_input_file(snapshot, 8192);
+    qts = test_input_start(package, input, true);
+    qtest_memread(qts, 0xffff6000, readback, sizeof(readback));
+    g_assert_cmpmem(readback, sizeof(readback), snapshot, sizeof(readback));
+    input_set_number(qts, "destination", 0xffff6000);
+    input_set_number(qts, "length", 128);
+    g_assert_false(input_get_bool(qts, "original-code"));
+    input_set_number(qts, "token", 1);
+    input_set_number(qts, "delay-ns", 1000);
+    input_operation(qts, "erase", true);
+    g_assert_true(input_get_bool(qts, "busy"));
+    g_assert_cmphex(qtest_readb(qts, 0xffff6000), ==, 3);
+    qtest_clock_step(qts, 999);
+    g_assert_true(input_get_bool(qts, "busy"));
+    qtest_clock_step(qts, 1);
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmpuint(input_get_number(qts, "completed-token"), ==, 1);
+    g_assert_cmphex(qtest_readb(qts, 0xffff7fff), ==, 0xff);
+    qtest_memwrite(qts, 0x1000, program, sizeof(program));
+    input_set_number(qts, "token", 2);
+    input_set_number(qts, "source-address", 0x1000);
+    input_operation(qts, "program", true);
+    g_assert_cmphex(qtest_readb(qts, 0xffff6000), ==, 0xff);
+    qtest_clock_step(qts, 1000);
+    qtest_memread(qts, 0xffff6000, readback, sizeof(readback));
+    g_assert_cmpmem(readback, sizeof(readback), program, sizeof(program));
+    g_assert_cmpuint(input_get_number(qts, "completed-token"), ==, 2);
+    /* Real flash bit constraint and untouched neighbor; no automatic success. */
+    memset(program, 0xff, sizeof(program));
+    qtest_memwrite(qts, 0x1000, program, sizeof(program));
+    input_set_number(qts, "token", 3);
+    input_operation(qts, "program", false);
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmpuint(input_get_number(qts, "completed-token"), ==, 2);
+    g_assert_cmphex(qtest_readb(qts, 0xffff6080), ==, 0xff);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    g_assert_cmphex(qtest_readb(qts, 0xffff6000), ==, 0x96);
+    qtest_quit(qts);
+    /* New instance reads the original snapshot: mutations did not change input. */
+    qts = test_input_start(package, input, true);
+    qtest_memread(qts, 0xffff6000, readback, sizeof(readback));
+    g_assert_cmpmem(readback, sizeof(readback), snapshot, sizeof(readback));
+    qtest_quit(qts);
+    unlink(input);
+    unlink(package);
+}
+
+static void test_flash_cancel_and_bounds(void)
+{
+    uint8_t snapshot[8192], source[128];
+    g_autofree char *package = test_package();
+    g_autofree char *input = NULL;
+    QTestState *qts;
+
+    memset(snapshot, 0x24, sizeof(snapshot));
+    memset(source, 0, sizeof(source));
+    input = test_input_file(snapshot, sizeof(snapshot));
+    qts = test_input_start(package, input, true);
+    input_set_number(qts, "destination", 0xffff6000);
+    input_set_number(qts, "token", 7);
+    input_set_number(qts, "delay-ns", 1000);
+    input_operation(qts, "erase", true);
+    input_set_number(qts, "token", 8);
+    input_operation(qts, "cancel", false);
+    input_operation(qts, "erase", false); /* Busy producer cannot be replaced. */
+    input_set_number(qts, "token", 7);
+    input_operation(qts, "cancel", true);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0xffff6000), ==, 0x24);
+    g_assert_cmpuint(input_get_number(qts, "completed-token"), ==, 0);
+    input_operation(qts, "erase", true);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    qtest_clock_step(qts, 1000);
+    g_assert_false(input_get_bool(qts, "busy"));
+    g_assert_cmphex(qtest_readb(qts, 0xffff6000), ==, 0x24);
+    input_set_number(qts, "destination", 0xffff6080);
+    input_operation(qts, "erase", false);
+    qtest_memwrite(qts, 0x1000, source, sizeof(source));
+    input_set_number(qts, "destination", 0xffff7f80);
+    input_set_number(qts, "source-address", 0x1000);
+    input_set_number(qts, "length", 256); /* Crosses the exact supplied block. */
+    input_operation(qts, "program", false);
+    input_set_number(qts, "length", 128);
+    input_set_number(qts, "source-address", 0xfffc8008); /* Real source bus error. */
+    input_operation(qts, "program", false);
+    g_assert_true(input_get_bool(qts, "access-failed"));
+    g_assert_false(input_get_bool(qts, "busy"));
+    input_set_number(qts, "source-address", 0x1000);
+    input_operation(qts, "program", true); /* Last valid unit commits real data. */
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0xffff7fff), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0xffff7f7f), ==, 0x24);
+    qtest_quit(qts);
+    unlink(input);
+    unlink(package);
+}
+
+static void test_external_conflict(void)
+{
+    if (g_test_subprocess()) {
+        const char *package = g_getenv("NIKON_VR_FIXTURE_PACKAGE");
+        const char *input = g_getenv("NIKON_VR_FIXTURE_INPUT");
+        QTestState *qts = qtest_initf(
+            "-machine nikonvr -bios %s -device nikon-vr-input,id=input "
+            "-device nikon-vr-span,input=/machine/peripheral/input,"
+            "file=%s,guest-base=0xfffc8008,"
+            "exact-size=4,origin=fixture-one,qualification=data "
+            "-device nikon-vr-span,input=/machine/peripheral/input,"
+            "file=%s,guest-base=0xfffc800a,"
+            "exact-size=4,origin=fixture-two,qualification=data",
+            package, input, input);
+
+        qtest_quit(qts);
+        return;
+    }
+    {
+        const uint8_t data[] = { 0xa1, 0xb2, 0xc3, 0xd4 };
+        g_autofree char *package = test_package();
+        g_autofree char *input = test_input_file(data, sizeof(data));
+
+        g_setenv("NIKON_VR_FIXTURE_PACKAGE", package, true);
+        g_setenv("NIKON_VR_FIXTURE_INPUT", input, true);
+        g_test_trap_subprocess(NULL, 5 * G_USEC_PER_SEC, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr("*VR external span conflicts with source 'fixture-one'*");
+        g_unsetenv("NIKON_VR_FIXTURE_PACKAGE");
+        g_unsetenv("NIKON_VR_FIXTURE_INPUT");
+        unlink(input);
+        unlink(package);
+    }
+}
+
+static void test_external_rejection(void)
+{
+    static const struct {
+        const char *properties, *error;
+    } cases[] = {
+        { "guest-base=0xfffc8008,exact-size=5,origin=fixture,qualification=data",
+          "*has 4 bytes, expected 5*" },
+        { "guest-base=0xfffffffe,exact-size=4,origin=fixture,qualification=data",
+          "*VR span exceeds the external 32-bit address domain*" },
+        { "guest-base=0xfffc8008,exact-size=4,origin=,qualification=data",
+          "*source origin and explicit qualification*" },
+        { "guest-base=0xfffc8008,exact-size=4,origin=fixture,qualification=unknown",
+          "*VR span qualification must be data or original-code*" },
+        { "guest-base=0xffff6000,exact-size=4,origin=fixture,qualification=data,flash-block=true",
+          "*complete source-observed 8 KiB block snapshot*" },
+    };
+    unsigned i;
+
+    if (g_test_subprocess()) {
+        QTestState *qts = qtest_initf(
+            "-machine nikonvr -bios %s -device nikon-vr-input,id=input "
+            "-device nikon-vr-span,input=/machine/peripheral/input,"
+            "file=%s,%s",
+            g_getenv("NIKON_VR_FIXTURE_PACKAGE"),
+            g_getenv("NIKON_VR_FIXTURE_INPUT"),
+            g_getenv("NIKON_VR_FIXTURE_PROPERTIES"));
+
+        qtest_quit(qts);
+        return;
+    }
+    {
+        const uint8_t data[] = { 1, 2, 3, 4 };
+        g_autofree char *package = test_package();
+        g_autofree char *input = test_input_file(data, sizeof(data));
+
+        g_setenv("NIKON_VR_FIXTURE_PACKAGE", package, true);
+        g_setenv("NIKON_VR_FIXTURE_INPUT", input, true);
+        for (i = 0; i < ARRAY_SIZE(cases); i++) {
+            g_setenv("NIKON_VR_FIXTURE_PROPERTIES", cases[i].properties, true);
+            g_test_trap_subprocess(NULL, 5 * G_USEC_PER_SEC, 0);
+            g_test_trap_assert_failed();
+            g_test_trap_assert_stderr(cases[i].error);
+        }
+        g_unsetenv("NIKON_VR_FIXTURE_PACKAGE");
+        g_unsetenv("NIKON_VR_FIXTURE_INPUT");
+        g_unsetenv("NIKON_VR_FIXTURE_PROPERTIES");
+        unlink(input);
+        unlink(package);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    qtest_add_func("/nikon/vr/external-span", test_external_span);
+    qtest_add_func("/nikon/vr/flash-overlay", test_flash_overlay);
+    qtest_add_func("/nikon/vr/flash-cancel-bounds", test_flash_cancel_and_bounds);
+    qtest_add_func("/nikon/vr/external-conflict", test_external_conflict);
+    qtest_add_func("/nikon/vr/external-rejection", test_external_rejection);
     qtest_add_func("/nikon/vr/gpio-irq", test_gpio_and_irq);
     qtest_add_func("/nikon/vr/cmt", test_cmt);
     qtest_add_func("/nikon/vr/dma-serial", test_dma_and_serial);

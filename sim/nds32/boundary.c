@@ -61,7 +61,10 @@ nds32_system_attach (SIM_DESC sd, uint32_t address, uint32_t size,
   if (!STATE_CPU (sd, 0)->system_mode || !ops || size == 0 ||
       size - 1 > UINT32_MAX - address)
     return SIM_RC_FAIL;
-  hw = sim_hw_parse (sd, "/boundary@%x", address);
+  /* GNU's generic unit decoder uses strtoul(base0), not implicit hexadecimal.
+     Without0x, addresses containinga..f become partial/colliding tree units;
+     distinct finite regions would then reuse an already bound device. */
+  hw = sim_hw_parse (sd, "/boundary@0x%x", address);
   hw_tree_finish (hw);
   device = hw_data (hw);
   if (device->bound)

@@ -175,6 +175,94 @@ static void io_read(QTestState *qts, uint8_t reg, uint8_t *data, size_t len)
     io_stop(qts);
 }
 
+static bool power_start(QTestState *qts, uint8_t wire, bool read)
+{
+    qtest_writel(qts, 0x40005400, 1 | (1 << 8) | (1 << 10));
+    qtest_writel(qts, 0x40005410, wire | read);
+    uint32_t status = qtest_readl(qts, 0x40005414);
+
+    if (status & 0x400) {
+        return false;
+    }
+    g_assert_cmphex(status & 2, ==, 2);
+    qtest_readl(qts, 0x40005418);
+    return true;
+}
+
+static void power_pointer(QTestState *qts, uint8_t wire, uint16_t reg)
+{
+    g_assert_true(power_start(qts, wire, false));
+    if (wire == 0x20) {
+        qtest_writel(qts, 0x40005410, reg >> 8);
+    }
+    qtest_writel(qts, 0x40005410, reg & 0xff);
+}
+
+static void power_readback(QTestState *qts, uint8_t wire, uint16_t reg,
+                           uint8_t value)
+{
+    for (unsigned i = 0; i < 3; i++) {
+        power_pointer(qts, wire, reg);
+        g_assert_true(power_start(qts, wire, true));
+        g_assert_cmphex(qtest_readl(qts, 0x40005410), ==, value);
+        io_stop(qts);
+    }
+}
+
+static void power_profile(void)
+{
+    QTestState *qts = start();
+
+    /* No register value is invented before the first actual guest write. */
+    power_pointer(qts, 0x9e, 0x23);
+    g_assert_false(power_start(qts, 0x9e, true));
+    io_stop(qts);
+    power_pointer(qts, 0x9e, 0x23);
+    qtest_writel(qts, 0x40005410, 0x88);
+    io_stop(qts);
+    power_readback(qts, 0x9e, 0x23, 0x88);
+
+    /* The optional second peer uses a big-endian 16-bit command pointer. */
+    power_pointer(qts, 0x20, 0x1033);
+    g_assert_false(power_start(qts, 0x20, true));
+    io_stop(qts);
+    power_pointer(qts, 0x20, 0x1033);
+    qtest_writel(qts, 0x40005410, 0x78);
+    io_stop(qts);
+    power_readback(qts, 0x20, 0x1033, 0x78);
+
+    power_pointer(qts, 0x20, 0x3310);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x400, ==, 0x400);
+    g_assert_false(power_start(qts, 0x20, true));
+    io_stop(qts);
+    power_pointer(qts, 0x9e, 0x24);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x400, ==, 0x400);
+    io_stop(qts);
+    power_pointer(qts, 0x9e, 0x23);
+    qtest_writel(qts, 0x40005410, 0x42);
+    qtest_writel(qts, 0x40005410, 0x11);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x400, ==, 0x400);
+    io_stop(qts);
+    power_readback(qts, 0x9e, 0x23, 0x42);
+
+    /* MCU/controller reset preserves the independently powered peer state. */
+    qtest_writel(qts, 0x40023820, 1 << 21);
+    qtest_writel(qts, 0x40023820, 0);
+    power_readback(qts, 0x9e, 0x23, 0x42);
+    qtest_writel(qts, 0xe000ed0c, 0x05fa0004);
+    qtest_clock_step(qts, 1);
+    power_readback(qts, 0x9e, 0x23, 0x42);
+    power_readback(qts, 0x20, 0x1033, 0x78);
+    qtest_system_reset(qts);
+    power_pointer(qts, 0x9e, 0x23);
+    g_assert_false(power_start(qts, 0x9e, true));
+    io_stop(qts);
+    power_pointer(qts, 0x20, 0x1033);
+    g_assert_false(power_start(qts, 0x20, true));
+    io_stop(qts);
+    qtest_quit(qts);
+}
+
 static void io(void)
 {
     QTestState *qts = start();
@@ -204,21 +292,26 @@ static void io(void)
     io_write(qts, 0x62, data, 1);
     data[0] = 0xfd;
     io_write(qts, 0x55, data, 1);
-    qtest_writel(qts, 0x40013c00, 1);
-    qtest_writel(qts, 0x40013c0c, 1); /* active-low INT -> A0 falling EXTI0 */
+    /* Original late mode-8 profile: C8 pull-up, falling EXTI8, NVIC23. */
+    g_assert_cmphex(qtest_readl(qts, 0x40020810) & 0x100, ==, 0x100);
+    qtest_writel(qts, 0x4002080c, 0x10000);
+    qtest_writel(qts, 0x40013810, 2);
+    qtest_writel(qts, 0x40013c00, 0x100);
+    qtest_writel(qts, 0x40013c0c, 0x100);
+    g_assert_false(qtest_get_irq(qts, 23));
     qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
     qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 1);
     io_read(qts, 0x6d, value, 1);
     g_assert_cmphex(value[0], ==, 0xff);
     io_read(qts, 0x59, value, 1);
     g_assert_cmphex(value[0], ==, 2);
-    g_assert_true(qtest_get_irq(qts, 6));
+    g_assert_true(qtest_get_irq(qts, 23));
     io_read(qts, 1, value, 1);
     g_assert_cmphex(value[0], ==, 0xfd);
     io_read(qts, 0x59, value, 1);
     g_assert_cmphex(value[0], ==, 0);
-    qtest_writel(qts, 0x40013c14, 1);
-    g_assert_false(qtest_get_irq(qts, 6));
+    qtest_writel(qts, 0x40013c14, 0x100);
+    g_assert_false(qtest_get_irq(qts, 23));
     qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
     data[0] = 2;
     io_write(qts, 0x69, data, 1);
@@ -464,6 +557,50 @@ static void timer_profile(void)
     qtest_quit(qts);
 }
 
+static void input_reset(void)
+{
+    QTestState *qts = start();
+    const uint32_t gpio = 0x40020800, exti = 0x40013c00;
+    const uint32_t bit = 1 << 5;
+    qtest_set_irq_in(qts, "/machine/ex", "input", 2 * 16 + 5, 1);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, bit);
+    qtest_writel(qts, 0x4001380c, 2 << 4);
+    qtest_writel(qts, exti, bit);
+    qtest_writel(qts, exti + 8, bit);
+    qtest_writel(qts, exti + 12, bit);
+    qtest_writel(qts, exti + 20, bit);
+    /* Routing a driven pad establishes the baseline without an input edge. */
+    g_assert_cmphex(qtest_readl(qts, exti + 20), ==, 0);
+    /* A held external input does not acquire a fictitious reset edge. */
+    qtest_writel(qts, 0x40023810, 1 << 2);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, bit);
+    g_assert_cmphex(qtest_readl(qts, exti + 20), ==, 0);
+    g_assert_false(qtest_get_irq(qts, 23));
+    qtest_writel(qts, 0x40023810, 0);
+    qtest_set_irq_in(qts, "/machine/ex", "input", 2 * 16 + 5, 0);
+    g_assert_true(qtest_get_irq(qts, 23));
+    qtest_writel(qts, exti + 20, bit);
+    qtest_writel(qts, 0x40023810, 1 << 2);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, 0);
+    g_assert_false(qtest_get_irq(qts, 23));
+    qtest_writel(qts, 0x40023810, 0);
+    qtest_set_irq_in(qts, "/machine/ex", "input", 2 * 16 + 5, 1);
+    qtest_system_reset(qts);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, bit);
+    g_assert_cmphex(qtest_readl(qts, exti + 20), ==, 0);
+    /* AIRCR resets only EX; the independently powered driver's level stays. */
+    qtest_writel(qts, 0xe000ed0c, 0x05fa0004);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, bit);
+    /* Release disconnects that source and lets the real pull determine IDR. */
+    qtest_set_irq_in(qts, "/machine/ex", "input", 2 * 16 + 5, -1);
+    qtest_writel(qts, gpio + 12, 2 << 10);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, 0);
+    qtest_writel(qts, gpio + 12, 1 << 10);
+    g_assert_cmphex(qtest_readl(qts, gpio + 0x10) & bit, ==, bit);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -475,5 +612,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/rtc", rtc);
     qtest_add_func("/nikon/ex/io", io);
     qtest_add_func("/nikon/ex/timer", timer_profile);
+    qtest_add_func("/nikon/ex/input", input_reset);
+    qtest_add_func("/nikon/ex/power", power_profile);
     return g_test_run();
 }

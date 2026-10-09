@@ -4,6 +4,11 @@
 #include "qemu/bswap.h"
 #include "hw/nikon/sla.h"
 #include "libqtest-single.h"
+#include "fixture.h"
+
+void nikon_events_test(QTestState *qts, const char *path, uint64_t base);
+void nikon_test_notifier(QTestState *qts);
+void nikon_test_counter(QTestState *qts);
 
 static uint16_t fixture_crc(const uint8_t *data, size_t size)
 {
@@ -197,9 +202,213 @@ static void test_loaded_domain(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_external_interrupts(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+
+    /* One interception per VM, observing the actual upstream GIC inputs. */
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+    qtest_writel(qts, 0x0426f004, 0);
+    qtest_writel(qts, 0x0426f010, 0xff);
+    qtest_writel(qts, 0x0426f000, 0xff);
+    qtest_writel(qts, 0x0426f014, 0xffff);
+    qtest_writel(qts, 0x0426f018, 0xffff);
+    qtest_writel(qts, 0x04282114, 0x7f80);
+    for (unsigned i = 0; i < 8; i++) {
+        unsigned pad = 1U << (7 + i);
+        unsigned input = 65 + i - 32;
+
+        qtest_writel(qts, 0x04282014, (pad << 16) | pad);
+        /* +0xc is raw pending; +8 excludes the currently masked line. */
+        g_assert_cmphex(qtest_readl(qts, 0x0426f00c), ==, 1U << i);
+        g_assert_cmphex(qtest_readl(qts, 0x0426f008), ==, 0);
+        g_assert_false(qtest_get_irq(qts, input));
+        qtest_writel(qts, 0x0426f000, 0xff ^ (1U << i));
+        g_assert_cmphex(qtest_readl(qts, 0x0426f008), ==, 1U << i);
+        g_assert_true(qtest_get_irq(qts, input));
+        qtest_writel(qts, 0x0426f010, 1U << i);
+        g_assert_false(qtest_get_irq(qts, input));
+        qtest_writel(qts, 0x0426f000, 0xff);
+        qtest_writel(qts, 0x04282014, pad << 16);
+    }
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_events(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+
+    nikon_events_test(qts, "/machine/sla/events", 0x2c012000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_notifier(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+
+    nikon_test_notifier(qts);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_counter(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+
+    nikon_test_counter(qts);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_copy_private(void)
+{
+    const uint32_t copy = 0x04251000;
+    const unsigned length = 131075, backend_size = 16384;
+    const unsigned private_length = 4099, source = 0x11, destination = 0x2000;
+    g_autofree char *path = fixture_container();
+    g_autofree char *backend_path = NULL;
+    g_autofree char *memory_path = NULL;
+    g_autofree char *contents = NULL;
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    g_autofree uint8_t *backend = g_malloc0(backend_size);
+    QTestState *qts;
+    QDict *response;
+    const QListEntry *entry;
+    size_t size;
+    int fd = g_file_open_tmp("nikon-copy-private-XXXXXX", &backend_path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    for (unsigned i = 0; i < private_length; i++) {
+        backend[source + i] = 0x71 ^ i ^ (i >> 8);
+    }
+    g_assert_true(g_file_set_contents(backend_path, (char *)backend,
+                                     backend_size, NULL));
+    qts = qtest_initf("-machine nikonsla -smp 2 -bios %s "
+                      "-object memory-backend-file,id=private,size=%u,"
+                      "mem-path=%s,share=on", path, backend_size, backend_path);
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+
+    /* Private SLA ROMD and writable RAM retain their actual byte contents. */
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x83c4d4),
+                    ==, 0xabcdef01);
+    qtest_memread(qts, NIKON_SLA_ROM_BASE + 0x83c4d4, expected, length);
+    g_assert_cmphex((uint32_t)ldl_le_p(expected), ==, 0xabcdef01);
+    qtest_memset(qts, 0xc1940001, 0, length);
+    qtest_writel(qts, copy, 0x10000000);
+    qtest_writel(qts, copy + 0x10, length - 1);
+    qtest_writel(qts, copy + 0x14, NIKON_SLA_ROM_BASE + 0x83c4d4);
+    qtest_writel(qts, copy + 0x18, 0xc1940001);
+    qtest_writel(qts, copy + 0x1c, 0x30f00);
+    qtest_writel(qts, copy + 0x20, 0x30f00);
+    qtest_writel(qts, copy + 0x24, 0);
+    qtest_writel(qts, copy + 0x28, 0x9000);
+    qtest_writel(qts, copy + 0x28, 0x11109003);
+    g_assert_false(qtest_get_irq(qts, 45 - 32));
+    g_assert_cmphex(qtest_readl(qts, 0xc1940001), ==, 0);
+    qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+    qtest_memread(qts, 0xc1940001, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    g_assert_cmphex(qtest_readl(qts, copy + 0x30), ==, 8);
+    g_assert_true(qtest_get_irq(qts, 45 - 32));
+    qtest_writel(qts, copy + 0x30, 0);
+    g_assert_false(qtest_get_irq(qts, 45 - 32));
+
+    /* A ROMD target fails before any write, preserving source and residual. */
+    qtest_writel(qts, copy + 0x10, length - 1);
+    qtest_writel(qts, copy + 0x14, 0xc1940001);
+    qtest_writel(qts, copy + 0x18, NIKON_SLA_ROM_BASE + 0x83c4d4);
+    qtest_writel(qts, copy + 0x28, 0x11109003);
+    qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+    g_assert_cmphex(qtest_readl(qts, copy + 0x30), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, copy + 0x10), ==, length - 1);
+    qtest_memread(qts, NIKON_SLA_ROM_BASE + 0x83c4d4, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+
+    /* Both these DMA addresses are absent from the board's address space.
+     * The linked backend must supply the source and receive the real writes. */
+    response = qtest_qmp(qts, "{'execute':'qom-list',"
+                              " 'arguments':{'path':'/objects/private'}}");
+    QLIST_FOREACH_ENTRY(qdict_get_qlist(response, "return"), entry) {
+        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
+
+        if (!strcmp(qdict_get_str(child, "type"), "child<memory-region>")) {
+            g_assert_null(memory_path);
+            memory_path = g_strdup_printf("/objects/private/%s",
+                                          qdict_get_str(child, "name"));
+        }
+    }
+    qobject_unref(response);
+    g_assert_nonnull(memory_path);
+    qtest_qmp_assert_success(qts, "{'execute':'qom-set',"
+                            " 'arguments':{'path':'/machine/sla/copy',"
+                            " 'property':'realized','value':false}}");
+    qtest_qmp_assert_success(qts, "{'execute':'qom-set',"
+                            " 'arguments':{'path':'/machine/sla/copy',"
+                            " 'property':'memory','value':%s}}", memory_path);
+    qtest_qmp_assert_success(qts, "{'execute':'qom-set',"
+                            " 'arguments':{'path':'/machine/sla/copy',"
+                            " 'property':'realized','value':true}}");
+    qtest_writel(qts, copy, 0x10000000);
+    qtest_writel(qts, copy + 0x10, private_length - 1);
+    qtest_writel(qts, copy + 0x14, source);
+    qtest_writel(qts, copy + 0x18, destination);
+    qtest_writel(qts, copy + 0x1c, 0x30f00);
+    qtest_writel(qts, copy + 0x20, 0x30f00);
+    qtest_writel(qts, copy + 0x24, 0);
+    qtest_writel(qts, copy + 0x28, 0x9000);
+    qtest_writel(qts, copy + 0x28, 0x11109003);
+    qtest_clock_step(qts, (uint64_t)private_length * 1000000000 / 48000000 + 1);
+    g_assert_cmphex(qtest_readl(qts, copy + 0x30), ==, 8);
+    g_assert_true(qtest_get_irq(qts, 45 - 32));
+    g_assert_true(g_file_get_contents(backend_path, &contents, &size, NULL));
+    g_assert_cmpuint(size, ==, backend_size);
+    g_assert_cmpmem(contents + destination, private_length,
+                    backend + source, private_length);
+    g_assert_cmpmem(contents + source, private_length,
+                    backend + source, private_length);
+    qtest_writel(qts, copy + 0x30, 0);
+
+    /* Unrealize cancels the timer before freeing its private address space. */
+    qtest_writel(qts, copy + 0x10, 4095);
+    qtest_writel(qts, copy + 0x14, source);
+    qtest_writel(qts, copy + 0x18, 0x1000);
+    qtest_writel(qts, copy + 0x28, 0x11109003);
+    qtest_qmp_assert_success(qts, "{'execute':'qom-set',"
+                            " 'arguments':{'path':'/machine/sla/copy',"
+                            " 'property':'realized','value':false}}");
+    qtest_clock_step(qts, 1000000);
+    g_clear_pointer(&contents, g_free);
+    g_assert_true(g_file_get_contents(backend_path, &contents, &size, NULL));
+    g_assert_cmpmem(contents + 0x1000, 4096, backend + 0x1000, 4096);
+    g_assert_false(qtest_qom_get_bool(qts, "/machine/sla/copy",
+                                    "channel0-running"));
+    response = qtest_qmp(qts, "{'execute':'qom-get',"
+                              " 'arguments':{'path':'/machine/sla/copy',"
+                              " 'property':'channel0-next-deadline-ns'}}");
+    g_assert_cmpuint(qdict_get_uint(response, "return"), ==, 0);
+    qobject_unref(response);
+    g_assert_false(qtest_get_irq(qts, 45 - 32));
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+    g_assert_cmpint(unlink(backend_path), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/sla/loaded-domain", test_loaded_domain);
+    qtest_add_func("/nikon/sla/copy-private", test_copy_private);
+    qtest_add_func("/nikon/sla/external-interrupts", test_external_interrupts);
+    qtest_add_func("/nikon/sla/events", test_events);
+    qtest_add_func("/nikon/sla/notifier", test_notifier);
+    qtest_add_func("/nikon/sla/counter", test_counter);
     return g_test_run();
 }

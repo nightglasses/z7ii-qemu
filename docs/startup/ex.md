@@ -134,6 +134,17 @@ port/pin input line and drives the normal GPIO/EXTICR/EXTI path. Button/pad and
 MAS transport assignments must come from recovered consumers, not guessed
 MENU mappings or direct calls into firmware GUI routines.
 
+The stable EX `input` endpoint retains only externally supplied drive masks and
+levels: 0/1 drive, -1 release. RCC GPIO reset and local EX system reset replay
+those electrical levels after the receiver resets. Global reset uses Resettable
+exit, after every GPIO reset hold. A held source does not acquire a fictitious
+GPIO-reset edge; actual source transitions still follow GPIO/EXTI/NVIC. Releasing
+a source uses the upstream GPIO `disconnected-pins` property, so the configured
+pull determines the input. No button pattern, power event or firmware flag is
+generated. The new native input case exercises held high/low across RCC, cold
+and local reset, checks the first actual falling edge and release/pull behavior;
+its result is pending the sole builder.
+
 The original MCU transport uses two separate slave channels. RX initialization
 `0x080343a4` queries SPI logical index 0 through `0x08040364`. The original table
 at `0x0804dab8` yields handle `0x73`; `0x08021188` resolves that handle through
@@ -213,11 +224,12 @@ external oscillator. Drive strength is stored; analog current is not modeled.
 
 Floating inputs resolve high when neither an external driver nor configured pull
 drives them; this is an explicit electrical functional assumption. The selected
-original polling mode's IRQ selector at `0x08051738` is `0x33`, which the actual
-registry maps to NVIC26, the TIM11 CC1 service. It is not GPIO ID `0x1a`, nor
-NVIC6. The peer INT remains unconnected in the original profile. Only the empty
-qtest fixture wires INT to A0 to verify GPIO/EXTI/NVIC propagation; that synthetic
-wire establishes no physical board mapping. The 24 named `pad` inputs accept low/high/release
+original mode's IRQ selector at `0x08051738` is `0x33`. Two registry tables map
+it to handle `0x1a`, then NVIC23, the EXTI9_5 service. The handle is neither a
+physical GPIO ID nor a NVIC number. The selected late GPIO initializer configures
+C8 for this EXTI8 consumer. The peer's active-low INT is connected to C8 as an
+explicit software functional wiring assumption; a physical netlist is not known.
+The 24 named `pad` inputs accept low/high/release
 as 0/1/-1 and carry no camera button names. No initial switch pattern or power
 event is synthesized. `nikon_ex_io(ex)` returns the realized bus-owned peer for
 external input connection; the separate `pad-out` group reports output drive or
@@ -240,6 +252,78 @@ The resulting `0x08037ccc` processing has no early return based on an input bit;
 its final `0x08037eac` invokes the registered callback with event `0x04060002`.
 The model supplies the I2C peer, not any of these guest flags or callbacks.
 
+The first snapshot request also has a producer, distinct from the IRQ callback.
+Power dispatcher table `0x0804e394` maps service bit `0x20` to `0x08037799`.
+That Thumb function supplies request selector 1 and callback `0x080380a9` to
+`0x08030740`. Configuration completion callback `0x08038168` signals that same
+power bit `0x20`; power-service bit `0x40000` dispatches `0x08037704`, which
+submits IO mode 1 with this completion callback. That routine also has a direct
+cold-start caller at `0x08037622`; service bit `0x40000` is not a necessary
+exclusive producer of the first request. The other request at
+`0x08037734` registers `0x080380dd` for history sampling only when power state
+`+0x28` contains bit `0x20`. An empty request bank does not prove a missing IRQ.
+
+Cold startup `0x080211d0` obtains the power methods from `0x080370c8` and table
+`0x0804ede8`. Its start method `0x080370da` enters `0x08038714` and signals
+power-service bit 2. That dispatcher invokes `0x08037c2c`: `0x08038c24` saves
+the original EXTI pending snapshot, clears it, and clears rising/falling masks.
+The later cold mode-8 configuration paths `0x08038284` / `0x08038380` use
+completion callback `0x0803815d`, which clears the configuration wait; it does
+not signal the first snapshot-request bit `0x20`. Cold bit 4 instead dispatches
+`0x080377a8`, registering ADC completion `0x080383f8`. That callback saves its
+result, sets power byte `+13` on its zero-status path, and signals service bit
+`0x400`. Its handler `0x080377d4` signals bit `0x10` when the stored status is zero;
+status 3 follows that same final signal, while the other paths select mode-8
+recovery configuration. Bit `0x10` dispatches `0x08037554`.
+
+The whole `0x08037554` family first initializes the timer at `0x08039334`, waits
+through `0x080393a4`, and checks the hardware qualification at `0x08037670`.
+Failed setup or qualification enters recovery `0x08038380`. Successful
+qualification drives the original control outputs and calls `0x08038fe8`, which
+samples reader `0x08038c04` every ten timer counts until its deadline. Fifty
+consecutive zero samples produce success and take `0x08037622` directly to
+`0x08037704`, then the real configuration-completion/request chain above.
+That reader inverts a real GPIO input; its descriptor selects G5. No host pulse
+or retained switch level is inferred from this success condition.
+
+Qualification `0x080389f4` includes three distinct operations. `0x080388b8`
+temporarily configures and reads F9 with pull-up, then configures it as an output
+and drives it low. `0x08038ca4` configures the I2C controller from its original
+descriptor. `0x080387e8` writes the selected byte to wire address `0x9e`, register
+`0x23`, then reads it three times and compares actual readbacks. When the F9 probe
+returns one, `0x08038928` also writes `0x78` to wire address `0x20`, 16-bit register
+`0x1033`, and verifies three readbacks; its other probe path skips that operation.
+These are separate external peer protocols, without an established chip identity.
+`hw/nikon/devices/expower.c` supplies these two separate finite register profiles
+on I2C logical index 0, matching the `0x08038eb4..0x08038ec0` descriptor lookup
+also used by the proven I2C1 PCAL path. The first profile accepts only one-byte
+pointer `0x23`; the second accepts only big-endian two-byte pointer `0x1033`,
+following original address helper `0x080471b0`. Only a guest-written byte has a
+valid readback. Reset, reserved or incomplete selection NACKs; extra write data
+NACKs. Reading an accepted register retains its selection across receive clocks,
+an explicit single-register protocol assumption that also accommodates the
+controller's receive pipeline. These peers supply no GPIO level, IRQ, firmware
+callback, synthetic voltage or ready flag. Global cold reset removes readback
+qualification; MCU/controller reset preserves the independent peer register.
+The new focused native power case tests both pointer widths, the three original
+readbacks, invalid/unwritten selection, extra data and reset boundaries. It has
+not yet been compiled or run by the sole builder. Actual original execution must
+still identify its qualification/recovery path before cold-start or SPI readiness
+can be claimed.
+
+The GPIO profile family distinguishes those states too. `0x080487dc` and
+`0x0804808c` initially configure C8 as an ordinary input with pull-up. After
+the mode-8 configuration wait, both cold paths `0x08038284` / `0x08038380`
+call `0x080390e0` with mask `0xafb9`. Its selected bit 8 supplies GPIO base
+`0x40020800`, pin mask `0x100`, mode `0x10210000` and pull-up. HAL `0x080438f8`
+routes EXTI8 to port C through SYSCFG, enables IMR bit 8 and falling edges, and
+disables rising edges for that pin. A different power substate (`+0x12 == 4`) selects
+`0x080386a6` -> `0x08048a84`, whose original literals `0x08048ce4=0x40020800`
+and `0x08048d00=0x10210000` configure C8 as a falling-edge EXTI input with
+pull-up. That path submits IO mode 11. The cold late-stage initializer independently
+establishes the mode-8 C8 route; it does not establish that the first snapshot
+request was produced. The observed original run had not armed this late C8 route.
+
 Original HAL `0x080442c4` uses BTF and drains two received bytes after STOP.
 The EX controller retains a two-byte DR/shift-register receive pipeline, exposes
 RXNE/BTF from occupancy and preserves the received bytes after STOP. The new
@@ -248,8 +332,10 @@ register writes, AI across holes, external input, edge/latch/read-clear,
 reset-held NACK and reserved-command NACK. The six existing native cases passed
 with EX source `16bc110`; the focused IO case passed with `0afe966` in the shared
 ARM snapshot `56a99b9`. IO reset publishes electrical levels in Resettable exit,
-after GPIO reset hold, preserving the first real falling edge. That synthetic
-fixture does not establish that the original power condition has been satisfied.
+after GPIO reset hold, preserving the first real falling edge. The replacement
+fixture checks the source-bound functional C8 route and its idle high level before
+EXTI configuration; its result is pending the sole builder. Neither fixture
+establishes that the original power condition has been satisfied.
 
 The complete selected-mode tables come from original offsets `0x51738..0x517d7`,
 not from a GPIO-number interpretation of the RAM state:
@@ -261,16 +347,22 @@ not from a GPIO-number interpretation of the RAM state:
 | `0x08051740` | Request callback event ID `0x020d0004` |
 | `0x08051744` | IRQ callback `0x08030409` (Thumb) |
 | `0x08051748` | Twelve-mode words: `0,0,0,0,1,1,0,1,1,0,0,0`; copied to IO state `+0xc0` |
-| `0x08051778` | Same twelve-mode words; copied to `+0xf0`, consumed to register the selected timer |
+| `0x08051778` | Same twelve-mode words; copied to `+0xf0`, consumed to register the selected IRQ |
 | `0x080517a8` | Twelve-mode words: `0,0,0,1,0,0,1,0,0,0,0,0`; consumed by configuration update |
 
-Actual cold initialization `0x080303f6` selects mode 8. Its copied timer-enable
+Actual cold initialization `0x080303f6` selects mode 8. Its copied IRQ-enable
 word is one. Registry pointer `0x2000f330` selects table `0x0804de7c`, whose byte
-`[0x33]` at `0x0804deaf` is `0x1a`, hence NVIC26. IRQ callback `0x08030408`
-disables/clears that timer through the original HAL and signals IoExpSvc bit 8.
-The dispatcher at `0x080304fa` then reads the three-byte snapshot and rearms
-the timer at `0x08030522`. This is periodic guest polling; no physical PCAL INT
-pad can be inferred from that selector.
+`[0x33]` at `0x0804deaf` is handle `0x1a`. The disable, clear and enable routines
+`0x080405e4`, `0x080405c0` and `0x0804060c` all perform the second lookup through
+table `0x0804d8cc`; its byte `[0x1a]` at `0x0804d8e6` is `0x17` (NVIC23).
+Registrar `0x080419a4` stores callbacks at `0x2000f368 + 4*handle`. The EXTI9_5
+handler `0x08040f70` consumes its `+0x68` slot for EXTI8 pending bit `0x100`.
+Thus this source proves EXTI8, and the late cold initializer selects C8. The
+observed G7/EXTI7 route belongs to a separate slot and does not
+establish PCAL INT wiring. IRQ callback `0x08030408` disables/clears that IRQ and
+signals IoExpSvc bit 8. Dispatcher `0x080304fa` reads the three-byte snapshot and
+rearms the IRQ at `0x08030522`. Earlier one-table interpretation as NVIC26/TIM11
+was incorrect; no guest state or wiring was changed on that interpretation.
 
 An actual original run with shared ARM snapshot `56a99b9` completed the I2C
 transactions, producing current/previous input bytes `03 00 00` with CFSR zero.
@@ -278,7 +370,7 @@ It reached the idle PendSV scheduler and the original power condition still had
 bytes `+8=0`, `+13=1`. TIM11 contained CEN=1, DIER=2, PSC=49, ARR=65535 and
 CCR1=20033. The old upstream timer only raises update interrupts when DIER.UIE
 is set, stores CCR without scheduling comparison, and returned unbounded CNT
-`0x0148db97`. Those behaviors cannot deliver this original CC1-only producer.
+`0x0148db97`. Those behaviors cannot implement the original CC1-only timer setup.
 The observer was then closed; no firmware state was changed to bypass the wait.
 
 The independent timer profile uses upstream QEMU Clock, QEMUTimer and OR-IRQ.
@@ -307,7 +399,11 @@ The earlier capability rejection produced CFSR `0x8200`, preserved as a failed
 run receipt. No comparison callback or SPI readiness was claimed for that run.
 The new native timer case checks the CC1-only path, overflow, APB clock changes
 and gating, PSC reload, split/shared IRQs, repetition/one-pulse and real capture.
-Its result is pending the sole builder's qualified snapshot.
+The sole builder's qualified source snapshot `7602518` passed the focused timer
+case (1.13 seconds). A finite original run against full ARM snapshot `041488c`
+then reached the original PendSV idle scheduler with CFSR zero, advancing HAL and
+RTOS ticks, and a bounded TIM11 counter. TIM11 was stopped at the final snapshot;
+that observation does not establish the IoExp callback or SPI worker readiness.
 
 The native C qtest fixture covers delayed oscillator/PLL switching and cancel,
 GPIO edge to grouped NVIC IRQ/W1C, DMA real SRAM copying/IRQ clear, disconnected

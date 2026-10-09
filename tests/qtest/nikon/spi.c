@@ -23,12 +23,13 @@ typedef struct SPIWireTest {
     QTestState *q;
     char *dir;
     int fd[2];
+    int listener;
     unsigned count;
 } SPIWireTest;
 
 static SPIWireTest spi_wire_start_at(unsigned count, unsigned first, bool select)
 {
-    SPIWireTest t = { .fd = { -1, -1 }, .count = count };
+    SPIWireTest t = { .fd = { -1, -1 }, .listener = -1, .count = count };
     g_autoptr(GString) args = g_string_new(NULL);
     int listener[2];
 
@@ -50,10 +51,11 @@ static SPIWireTest spi_wire_start_at(unsigned count, unsigned first, bool select
                              sizeof(address)), ==, 0);
         g_assert_cmpint(listen(listener[i], 1), ==, 0);
         g_string_append_printf(args,
-            " -chardev socket,id=p%u,path=%s"
+            " -chardev socket,id=p%u,path=%s%s"
             " -device nikon-peer,id=wire%u,chardev=p%u"
             " -device nikon-spi-peer,peer=/machine/peripheral/wire%u,"
-            "spi=/machine/spi%u", i, path, i, i, i, first + i);
+            "spi=/machine/spi%u", i, path, select ? ",reconnect-ms=10" : "",
+            i, i, i, first + i);
         if (select) {
             g_string_append(args, ",gpio=/machine/gpio,pin=177");
         }
@@ -66,8 +68,12 @@ static SPIWireTest spi_wire_start_at(unsigned count, unsigned first, bool select
         g_assert_cmpint(g_poll(&pfd, 1, 1000), ==, 1);
         t.fd[i] = accept(listener[i], NULL, NULL);
         g_assert_cmpint(t.fd[i], >=, 0);
-        close(listener[i]);
-        unlink(path);
+        if (select) {
+            t.listener = listener[i];
+        } else {
+            close(listener[i]);
+            unlink(path);
+        }
     }
     qtest_qmp_assert_success(t.q, "{'execute':'cont'}");
     return t;
@@ -83,6 +89,12 @@ static void spi_wire_quit(SPIWireTest *t)
     qtest_quit(t->q);
     for (unsigned i = 0; i < t->count; i++) {
         close(t->fd[i]);
+    }
+    if (t->listener >= 0) {
+        g_autofree char *path = g_strdup_printf("%s/0", t->dir);
+
+        close(t->listener);
+        unlink(path);
     }
     rmdir(t->dir);
     g_free(t->dir);
@@ -415,6 +427,26 @@ static void test_select(void)
     g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
     /* Only PDR is masked; DDR/EPCR are their source whole-port fields. */
     qtest_writel(t.q, GPIO + 0x12c, 2);
+    spi_select_frame(&t, true);
+    qtest_writel(t.q, GPIO + 0x2c, 0x00020000);
+    spi_select_frame(&t, false);
+    qtest_writel(t.q, GPIO + 0x2c, 0x00020002);
+    spi_select_frame(&t, true);
+    /* Reconnect must query this source pad rather than replay stale HIGH. */
+    close(t.fd[0]);
+    qtest_writel(t.q, GPIO + 0x12c, 0);
+    qtest_writel(t.q, GPIO + 0x22c, 2);
+    pfd.fd = t.listener;
+    g_assert_cmpint(g_poll(&pfd, 1, 1000), ==, 1);
+    t.fd[0] = accept(t.listener, NULL, NULL);
+    g_assert_cmpint(t.fd[0], >=, 0);
+    pfd.fd = t.fd[0];
+    qtest_clock_step(t.q, FRAME_NS);
+    g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
+    /* DDR alone is insufficient while EPCR selects an alternate function. */
+    qtest_writel(t.q, GPIO + 0x12c, 2);
+    g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
+    qtest_writel(t.q, GPIO + 0x22c, 0);
     spi_select_frame(&t, true);
     qtest_writel(t.q, GPIO + 0x2c, 0x00020000);
     spi_select_frame(&t, false);

@@ -47,6 +47,9 @@ static void spi_connected(void *opaque, bool connected)
     NikonSPIPeer *s = opaque;
 
     if (connected && s->attached) {
+        if (s->gpio) {
+            s->select_known = nikon_gpio_output(s->gpio, s->pin, &s->selected);
+        }
         if (s->select_known) {
             nikon_peer_wire(s->peer, NIKON_PEER_SELECT, 0, s->selected);
         }

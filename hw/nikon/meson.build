@@ -6,34 +6,40 @@ arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'peers/transport.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
+  'devices/audio.c',
   'devices/bridge.c',
   'devices/clock.c',
   'devices/completion.c',
+  'devices/exiu.c',
   'devices/config.c',
+  'devices/copy.c',
+  'devices/counter.c',
+  'devices/events.c',
   'devices/fill.c',
   'devices/gpio.c',
   'devices/hdmac.c',
+  'devices/i2c.c',
   'devices/memc.c',
   'devices/mxic.c',
+  'devices/notifier.c',
   'devices/sdi.c',
   'devices/spi.c',
   'devices/sysconfig.c',
+  'devices/timing.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
-  'machines/ex.c', 'devices/exio.c', 'devices/extimer.c'))
+  'machines/ex.c', 'devices/exio.c', 'devices/extimer.c',
+  'devices/expower.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
-  'devices/audio.c',
   'devices/dispatcher.c',
-  'devices/copy.c',
   'devices/sampler.c',
   'devices/banks.c',
   'devices/gate.c',
-  'devices/exiu.c',
-  'devices/i2c.c',
+  'peers/i2c.c',
   'devices/ipud.c',
   'devices/pairs.c',
   'devices/router.c',
@@ -45,7 +51,6 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'peers/spi.c',
   'devices/staging.c',
   'devices/table.c',
-  'devices/timing.c',
   'devices/transfer.c',
 ))
 
@@ -55,6 +60,7 @@ rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'devices/access.c',
   'devices/renesas.c',
   'devices/vr.c',
+  'devices/vrinput.c',
   'peers/transport.c',
   'peers/vr.c',
 ))

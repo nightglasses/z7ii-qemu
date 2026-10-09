@@ -15,6 +15,9 @@
 #include "hw/intc/arm_gic.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/events.h"
+#include "hw/nikon/notifier.h"
+#include "hw/nikon/counter.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
@@ -38,7 +41,7 @@ struct NikonSLADomain {
     MemoryRegion system;
     AddressSpace as;
     qemu_irq peer_ready;
-    MemoryRegion image, uncovered;
+    MemoryRegion image, uncovered, bridge_window;
     MemoryRegion ram[SLA_RAM_COUNT], storage[SLA_RAM_COUNT];
     unsigned ram_count;
     DeviceState *memc;
@@ -177,7 +180,7 @@ static void sla_ram(NikonSLADomain *s, DeviceState *mxic, const char *name,
 static void sla_domain_realize(DeviceState *dev, Error **errp)
 {
     NikonSLADomain *s = NIKON_SLA_DOMAIN(dev);
-    DeviceState *mxic, *gic, *fill, *gpio, *hdmac[2];
+    DeviceState *mxic, *gic, *fill, *gpio, *hdmac[2], *usio[3];
     SysBusDevice *gic_bus;
     const void *payload;
     size_t size;
@@ -252,16 +255,17 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     /* COPY1 c1000000 supplies the counter used by source 1002012c/10020158. */
     sla_simple(s, "timestamp", TYPE_NIKON_TIMESTAMP, 0x04266000);
     sla_simple(s, "completion", TYPE_NIKON_COMPLETION, 0x04287000);
-    {
-        DeviceState *usio = sla_device(s, "usio", TYPE_NIKON_USIO);
+    for (i = 0; i < ARRAY_SIZE(usio); i++) {
+        g_autofree char *name = i ? g_strdup_printf("usio%u", i) :
+                                   g_strdup("usio");
 
-        /* Callback 10020294 supplies this port to 10020180/100201ec. */
-        if (s->serial) {
-            qdev_prop_set_chr(usio, "chardev", s->serial);
+        usio[i] = sla_device(s, name, TYPE_NIKON_USIO);
+        /* Callback10020294 uses port0; COPY1 C10059FC supplies offsets0/10/20. */
+        if (!i && s->serial) {
+            qdev_prop_set_chr(usio[i], "chardev", s->serial);
         }
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio), &error_fatal);
-        sla_map(s, usio, 0, 0x2c090000);
-        /* These original callees poll TX; no SLA UART IRQ route is proven. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio[i]), &error_fatal);
+        sla_map(s, usio[i], 0, 0x2c090000 + i * 0x10);
     }
     {
         DeviceState *config = sla_device(s, "mxic-config", TYPE_NIKON_MXIC_CONFIG);
@@ -291,10 +295,105 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sla_map(s, gic, 0, SLA_CBAR + 0x1000);
     sla_map(s, gic, 1, SLA_CBAR + 0x2000);
+    /* Source10058be2 registers RX/TX pairs186/187,188/189,190/191. */
+    for (i = 0; i < ARRAY_SIZE(usio); i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(usio[i]), 0,
+                           qdev_get_gpio_in(gic, 186 + i * 2 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(usio[i]), 1,
+                           qdev_get_gpio_in(gic, 187 + i * 2 - 32));
+    }
+    {
+        DeviceState *events = sla_simple(s, "events", TYPE_NIKON_EVENTS,
+                                         0x2c012000);
+
+        /* 10057956/10057970: object104 and IRQ158; no event provider attached. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(events), 0,
+                           qdev_get_gpio_in(gic, 158 - 32));
+    }
+    {
+        DeviceState *notifier = sla_simple(s, "notifier", TYPE_NIKON_NOTIFIER,
+                                           0x2c0b0000);
+        DeviceState *counter = sla_simple(s, "counter", TYPE_NIKON_COUNTER,
+                                          0x2c015000);
+
+        /* Official1005fe2c/100604fc registrations; providers stay disconnected. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(notifier), 0,
+                           qdev_get_gpio_in(gic, 218 - 32));
+        for (i = 0; i < 3; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(counter), i,
+                               qdev_get_gpio_in(gic, 169 + i - 32));
+        }
+    }
     /* Official 1006ade8/1006ad78: IRQ127, pending/ACK at 2013d020/d028. */
     s->bridge = sla_simple(s, "bridge", TYPE_NIKON_BRIDGE, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(s->bridge), 0,
                        qdev_get_gpio_in(gic, 127 - 32));
+    /* Class0 source converter 10060f9c and CPU accessors 10064728/1006474a.
+     * This IO alias forwards only valid guest-configured mapping records. */
+    memory_region_init_alias(&s->bridge_window, OBJECT(s),
+        "nikon.sla.peer-window", sysbus_mmio_get_region(SYS_BUS_DEVICE(s->bridge), 2),
+        0x40000000, 0x10000000);
+    memory_region_add_subregion(&s->system, 0x40000000, &s->bridge_window);
+    {
+        DeviceState *exiu = sla_simple(s, "exiu", TYPE_NIKON_EXIU, 0x0426f000);
+
+        /* COPY GPIO objects54..5b: own port5[7..14], EXIU0..7, IRQ65..72. */
+        for (i = 0; i < 8; i++) {
+            qdev_connect_gpio_out_named(gpio, "pad", 5 * 16 + 7 + i,
+                                       qdev_get_gpio_in(exiu, i));
+            sysbus_connect_irq(SYS_BUS_DEVICE(exiu), i,
+                               qdev_get_gpio_in(gic, 65 + i - 32));
+        }
+    }
+    {
+        DeviceState *copy = sla_device(s, "copy", TYPE_NIKON_COPY);
+
+        /* 10067016 registers COPY1 C1005C48's four IRQ45..48 records. */
+        object_property_set_link(OBJECT(copy), "memory", OBJECT(&s->system),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(copy), &error_fatal);
+        sla_map(s, copy, 0, 0x04251000);
+        for (i = 0; i < 4; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(copy), i,
+                               qdev_get_gpio_in(gic, 45 + i - 32));
+        }
+    }
+    /* COPY1 C1005004: four 0x30-byte I2C records, initializer 1005f910. */
+    for (i = 0; i < 4; i++) {
+        g_autofree char *name = g_strdup_printf("i2c%u", i);
+        DeviceState *i2c = sla_device(s, name, TYPE_NIKON_I2C);
+
+        qdev_prop_set_uint32(i2c, "instance", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(i2c), &error_fatal);
+        sla_map(s, i2c, 0, 0x2c018000 + i * 0x1000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(i2c), 0,
+                           qdev_get_gpio_in(gic, 214 + i - 32));
+        /* Controller-local I2CBus remains disconnected; no DMA is supplied. */
+    }
+    {
+        DeviceState *timing = sla_device(s, "timing", TYPE_NIKON_TIMING);
+
+        /* COPY1 C1005904/C10054B0 and ROM1016AFBC: twelve local channels. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(timing), &error_fatal);
+        sla_map(s, timing, 0, 0x2c010000);
+        sla_map(s, timing, 1, 0x2c011000);
+        for (i = 0; i < 12; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(timing), i,
+                               qdev_get_gpio_in(gic, 172 + i - 32));
+        }
+        /* Mature nominal3GHz profile; capture/compare have no external peer. */
+    }
+    {
+        DeviceState *audio = sla_simple(s, "audio", TYPE_NIKON_AUDIO,
+                                        0x2c080000);
+
+        /* 10057b7e/10057bc8: two local records and supported release-only init. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(audio), 0,
+                           qdev_get_gpio_in(gic, 167 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(audio), 1,
+                           qdev_get_gpio_in(gic, 168 - 32));
+        /* DMA selectors overlap SPI: no unqualified bank/mux wiring is added. */
+    }
     /* COPY1 C1004DB8: two banks, eight 0x24-byte channel records each. */
     for (i = 0; i < ARRAY_SIZE(hdmac); i++) {
         g_autofree char *name = g_strdup_printf("hdmac%u", i);

@@ -1,4 +1,84 @@
-# Four finite I²C interfaces and the next original data dependency
+# Four I²C interfaces and asynchronous bus transactions
+
+The controller now has an explicit asynchronous board endpoint alongside the
+official synchronous I2CBus. They are mutually exclusive: attachment requires
+an idle controller and an empty local bus, then closes that bus to local slave
+devices. Detaching does not restore a local-bus fallback. Neither controller
+path accesses a global DMA or guest address space; FIFO bytes and clocks belong
+to each individual controller instance.
+
+The public `NikonI2CAsyncOps` seam submits START, WRITE, READ, NACK and STOP with
+an individual nonzero token. START carries the unshifted seven-bit address and
+the receive direction in bit7. WRITE holds its FIFO head until that byte has
+actually been clocked. READ carries zero and publishes only an actual returned
+byte. A final returned byte is followed by an explicit master NACK; the endpoint
+does not add another implicit NACK. STOP completion releases active bus state,
+and non-HOLD transfer COMP is generated only after that real STOP completes.
+Phase completion means a physical functional bus action, not a TPJ application
+acknowledgement. `NIKON_I2C_NAK=0x100` is separate from all valid bytes, including
+an actual returned `ff`.
+
+Address, transmitted-byte and received-byte failures raise the existing NAK
+event and request STOP without reporting successful COMP. RX FIFO full suspends
+further byte requests until the guest pops data. HOLD preserves a selected
+endpoint and allows a same-address repeated START after the previous action has
+completed. Direction changes and repeated START cannot replace an accepted
+pending action. Releasing HOLD while address or data is pending does not skip
+that action. Existing TX starvation timeout raises TIMEOUT and then submits
+STOP; it does not invent a reply deadline for a disconnected remote endpoint.
+
+Backpressured submissions retry only after an actual endpoint readiness event.
+Accepted operations remain pending across disconnect and do not clock twice
+after reconnect. FIFO clear and reset cancel the timer, invalidate the token
+before notifying the endpoint, and discard the controller's queued bytes. Late
+responses cannot complete a replacement operation. Matching-owner detach also
+invalidates callbacks while preserving unfinished bus state until guest cancel.
+The model performs no synchronous host wait. Its nominal byte budget remains
+nine SCL clocks; a final asynchronous byte uses eight plus the explicit one-
+clock NACK. STOP has a declared one-clock functional setup budget. These budgets
+are model timing conventions, not Nikon hardware measurements.
+
+The bound regular TPJ source profile uses I2C0 at `2c018000`, resource100,
+IRQ214 (`d6`) and ISR `1036d5fd`. Constructor `103db654` selects logical I2C0;
+the normal `103dbcec` transaction writes command10 then reads two bytes, or
+command11 then reads seven bytes, at literal address55. The address is passed
+directly to ADDR and is not shifted. The NDS source's normal command handlers
+produce the corresponding status and seven-byte sequence independently. These
+source correspondences identify the protocol; they do not prove an original
+cross-CPU transaction has completed.
+
+The peer's optional GPIO frontend carries actual source roles: resourceAA is
+MAS GPIO10[13] (control), and resource63 is GPIO6[6], EXIU15/IRQ80 (notification).
+The control publication requires a real DDR output and GPIO EPCR selection.
+Floating reset or an input-mode output latch does not publish a driven level.
+Reconnect queries the current pad direction and function; it cannot replay an
+old driven level after the pad has become an input or alternate function.
+An incoming physical notification updates the real external GPIO input and
+normal EXIU path. Neither an I2C ACK nor a timer manufactures a notification,
+and the control wire is not assigned an unsupported reset meaning.
+
+The original SLA receive helper at `1005fb6a` and transmit helper at
+`1005fba2` read IDR at offset28, OR bit1 and write it back. IER/IDR are one
+write-strobe pair controlling IMR, rather than independent stored registers.
+Both read as zero in this functional profile; reading either changes neither
+IMR nor ISR. The [AMD UG1087 IER reference](https://docs.amd.com/r/en-US/ug1087-zynq-ultrascale-registers/Intrpt_Enable-I2C-Register)
+and [IDR reference](https://docs.amd.com/r/en-US/ug1087-zynq-ultrascale-registers/Intrpt_Disable-I2C-Register?contentId=rVK_Cp5TVhjmCqPgmBReMg)
+define their interrupt fields as write-only strobes and document the single
+mask relationship. Read-as-zero is a declared functional readback convention,
+not a measured Nikon silicon value. The dedicated four-port `strobes` fixture
+checks the original IDR read/OR/write sequence, unchanged mask reads, no ISR
+events and the paired enable/disable effect.
+
+`tests/qtest/nikon/i2c.c` supplies nine focused native fixtures. They use actual
+Unix CharBackend sockets and typed forty-byte `wire.h` envelopes, exercise
+every bus phase, delayed/fragmented replies, address/write/read NAK, reset and
+late tokens, eighteen-byte FIFO backpressure, HOLD starvation timeout, four
+offline controllers, two interleaved peers, source control/notification GPIO
+and reconnect without stale output publication,
+and the genuine synchronous AT24C target. The normal command10/11 fixtures use
+synthetic byte arrays to verify the two/seven-byte transaction shapes; those
+arrays are not camera response data. These fixtures await the sole builder;
+no new pass or original application success is claimed here.
 
 This stage implements the four original controller bases `2c018000..2c01b000` and guest IRQs214..217 for [the original MAS startup work](https://github.com/mashiro01/nightglass/issues/331). The original initializer's IDR write `2c018028=2ff` is interrupt masking, not FIFO acknowledgement. Original geometry, configuration, request/cancel and distinct ISR variants are recorded in [the fixed whole-protocol research](https://github.com/mashiro01/nightglass/blob/2f11242/research/z7ii/qemu-i2c-contract.md). Its1160B original-byte candidate coverage is distinct from complete accepted native CFG coverage; only the initializer had previously been dynamically observed.
 
@@ -14,7 +94,7 @@ Native C `9f453e8c91b88fe4d389663266789f4691f709dc` built successfully and14 foc
 
 Follow-up C `059c985af743bb5a5a61629481a48e24d1936ba6` adds active direction-change preflight and source formatting. Its separate incremental native build succeeded;15 focused checks passed in `work/issue331/i2c-059c985/result.json`, including the new pending-request mutation rejection. Existing original9f receipt remains unchanged and is not relabeled as059. Checks cover all four controllers, real bus NACK, attached-endpoint TX/RX/repeated START, mask/W1C, GIC217 IAR/EOI, FIFO errors/clear, timeout, cancellation, real second-entry board reset, quiet slave state and unsupported variants. These device checks do not prove original application transactions or real camera endpoints.
 
-The next independent dependency is the original external record scanner over `[12e00000,12e40000)`. Its absent payload backing and empty/ENDM semantics require a separate finite storage profile; they are not an I²C response or a valid factory-data result.
+At that earlier original run, the independent dependency was the external record scanner over `[12e00000,12e40000)`. Its absent payload backing and empty/ENDM semantics belonged to a separate finite storage profile; they were not an I²C response or a valid factory-data result.
 
 Review found two transaction-boundary defects in the initial implementation: releasing HOLD during a pending address phase could report COMP without executing upstream START; changing TIMEOUT while an acknowledged empty TX was waiting could leave the previous deadline armed. C `2d070f1f1919c0f2efb18d468b2c1624f57a19fc` fixes both generically. HOLD release retains pending-address work; only an addressed, completed TX may complete directly. Mutable waiting timeout deletes the old timer and reschedules from the current virtual instant, or stays waiting when disabled. Failed address selection must still produce the real NACK.
 

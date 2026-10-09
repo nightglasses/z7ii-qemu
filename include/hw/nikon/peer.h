@@ -20,6 +20,17 @@ void nikon_spi_attach_async(DeviceState *, const NikonSPIAsyncOps *, void *);
 void nikon_spi_detach_async(DeviceState *, void *owner);
 void nikon_spi_async_ready(DeviceState *);
 void nikon_spi_async_complete(DeviceState *, uint64_t token, uint32_t received);
+
+/* I2C owner advances START/TX/RX/STOP only on an actual matching response. */
+typedef struct NikonI2CAsyncOps {
+    bool (*request)(void *, uint64_t token, NikonI2CPhase, uint8_t value);
+    void (*cancel)(void *, uint64_t token);
+} NikonI2CAsyncOps;
+
+void nikon_i2c_attach_async(DeviceState *, const NikonI2CAsyncOps *, void *);
+void nikon_i2c_detach_async(DeviceState *, void *owner);
+void nikon_i2c_async_ready(DeviceState *);
+void nikon_i2c_async_complete(DeviceState *, uint64_t token, uint32_t result);
 /* GPIO owner reports a level only when a guest GPIO output actually drives. */
 bool nikon_gpio_output(DeviceState *, unsigned pin, bool *level);
 
@@ -56,6 +67,8 @@ bool nikon_peer_endpoint_cancel(NikonPeer *, uint64_t token);
 bool nikon_peer_state(NikonPeer *, NikonPeerState, void *);
 bool nikon_peer_clock(NikonPeer *, uint64_t token, uint32_t word, unsigned bits,
                       NikonPeerComplete, void *);
+bool nikon_peer_i2c(NikonPeer *, uint64_t token, NikonI2CPhase, uint8_t value,
+                    NikonPeerComplete, void *);
 void nikon_peer_cancel(NikonPeer *, uint64_t token);
 bool nikon_peer_wire(NikonPeer *, NikonPeerKind, uint32_t line, bool level);
 /* Reply only after the endpoint actually clocks its guest peripheral. */

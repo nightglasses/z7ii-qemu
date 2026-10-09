@@ -4,7 +4,7 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   nikon_arm_fixtures += {
     'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c',
                    'sampling.c', 'image.c', 'sdi.c', 'spi.c', 'processing.c',
-                   'config.c'),
+                   'config.c', 'i2c.c'),
     'nikon_timer': files('timer.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
@@ -17,7 +17,12 @@ if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
     'nikon_hdmac': files('hdmac.c'),
   }
 endif
-foreach profile : ['SLA', 'EX', 'SENSOR']
+if config_all_devices.has_key('CONFIG_NIKON_SLA')
+  nikon_arm_fixtures += {
+    'nikon_sla': files('sla.c', 'events.c', 'notifier.c', 'counter.c'),
+  }
+endif
+foreach profile : ['EX', 'SENSOR']
   if config_all_devices.has_key('CONFIG_NIKON_' + profile)
     name = profile.to_lower()
     nikon_arm_fixtures += {'nikon_' + name: files(name + '.c')}

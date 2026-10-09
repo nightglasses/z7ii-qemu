@@ -27,6 +27,7 @@
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/exio.h"
+#include "hw/nikon/expower.h"
 #include "hw/nikon/extimer.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
@@ -111,6 +112,9 @@ struct NikonEXState {
     uint32_t syscfg[9];
     uint32_t exti[6];
     uint16_t input[9];
+    uint16_t external_mask[9];
+    uint16_t external_level[9];
+    uint16_t resetting_ports;
     uint16_t exti_level;
     EXSPI spi[4];
     EXI2C i2c[3];
@@ -167,7 +171,7 @@ SSIBus *nikon_ex_spi_bus(NikonEXState *s, unsigned channel)
 qemu_irq nikon_ex_gpio_input(NikonEXState *s, unsigned port, unsigned pin)
 {
     assert(port < ARRAY_SIZE(s->gpio) && pin < 16);
-    return qdev_get_gpio_in(s->gpio[port], pin);
+    return qdev_get_gpio_in_named(DEVICE(s), "input", port * 16 + pin);
 }
 
 void nikon_ex_gpio_connect_output(NikonEXState *s, unsigned port, unsigned pin,
@@ -417,6 +421,11 @@ static void ex_pin_change(void *opaque, int n, int level)
     unsigned selected = extract32(s->syscfg[2 + r->pin / 4],
                                   4 * (r->pin % 4), 4);
     bool old = s->exti_level & bit;
+
+    if ((s->resetting_ports & (1 << r->port)) &&
+        (s->external_mask[r->port] & bit)) {
+        level = !!(s->external_level[r->port] & bit);
+    }
     s->input[r->port] = deposit32(s->input[r->port], r->pin, 1, !!level);
     qemu_set_irq(s->pad_output[r->port * 16 + r->pin], level);
     if (selected != r->port) {
@@ -428,6 +437,41 @@ static void ex_pin_change(void *opaque, int n, int level)
         s->exti[5] |= bit;
     }
     ex_exti_update(s);
+}
+
+static void ex_replay_port(NikonEXState *s, unsigned port)
+{
+    for (unsigned pin = 0; pin < 16; pin++) {
+        if (s->external_mask[port] & (1 << pin)) {
+            qemu_set_irq(qdev_get_gpio_in(s->gpio[port], pin),
+                         !!(s->external_level[port] & (1 << pin)));
+        }
+    }
+}
+
+static void ex_external_input(void *opaque, int line, int level)
+{
+    NikonEXState *s = opaque;
+    unsigned port = line / 16, pin = line % 16;
+    unsigned bit = 1 << pin;
+    if (level < 0) {
+        s->external_mask[port] &= ~bit;
+        object_property_set_uint(OBJECT(s->gpio[port]), "disconnected-pins",
+                                 bit, &error_abort);
+    } else {
+        s->external_mask[port] |= bit;
+        s->external_level[port] = deposit32(s->external_level[port], pin,
+                                          1, !!level);
+        qemu_set_irq(qdev_get_gpio_in(s->gpio[port], pin), !!level);
+    }
+}
+
+static void ex_reset_port(NikonEXState *s, unsigned port)
+{
+    s->resetting_ports |= 1 << port;
+    device_cold_reset(s->gpio[port]);
+    ex_replay_port(s, port);
+    s->resetting_ports &= ~(1 << port);
 }
 
 static uint64_t ex_pll_hz(NikonEXState *s)
@@ -539,7 +583,7 @@ static void ex_rcc_reset_devices(NikonEXState *s, unsigned off, uint32_t bits)
     if (off == 0x10) {
         for (unsigned i = 0; i < 9; i++) {
             if (bits & (1 << i)) {
-                device_cold_reset(s->gpio[i]);
+                ex_reset_port(s, i);
             }
         }
         for (unsigned c = 0; c < 2; c++) {
@@ -995,6 +1039,17 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             return ex_bad(s, addr, size, true);
         }
         s->syscfg[reg] = reg == 8 ? ((v & 1) | (!(v & 1) << 8)) : v;
+        if (reg >= 2 && reg <= 5) {
+            /* Selecting a pad samples its level; routing is not an edge. */
+            for (unsigned i = 0; i < 4; i++) {
+                unsigned pin = (reg - 2) * 4 + i;
+                unsigned port = extract32(v, i * 4, 4);
+                bool level = port < ARRAY_SIZE(s->input) &&
+                             (s->input[port] & (1 << pin));
+
+                s->exti_level = deposit32(s->exti_level, pin, 1, level);
+            }
+        }
     } else if (aligned >= 0x40013c00 && aligned <= 0x40013c14) {
         unsigned reg = (aligned - 0x40013c00) / 4;
         if (reg == 5) {
@@ -1279,7 +1334,7 @@ static void ex_reset_requested(void *opaque)
     ex_reset(DEVICE(s));
     device_cold_reset(DEVICE(&s->armv7m));
     for (unsigned i = 0; i < ARRAY_SIZE(s->gpio); i++) {
-        device_cold_reset(s->gpio[i]);
+        ex_reset_port(s, i);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(s->uart); i++) {
         device_cold_reset(s->uart[i]);
@@ -1290,6 +1345,23 @@ static void ex_reset_requested(void *opaque)
     for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
         device_cold_reset(DEVICE(&s->timer_or[i]));
     }
+}
+
+static void ex_reset_hold(Object *obj, ResetType type)
+{
+    NikonEXState *s = NIKON_EX(obj);
+
+    s->resetting_ports = (1 << ARRAY_SIZE(s->gpio)) - 1;
+    ex_reset(DEVICE(obj));
+}
+
+static void ex_reset_exit(Object *obj, ResetType type)
+{
+    NikonEXState *s = NIKON_EX(obj);
+    for (unsigned i = 0; i < ARRAY_SIZE(s->gpio); i++) {
+        ex_replay_port(s, i);
+    }
+    s->resetting_ports = 0;
 }
 
 static void ex_sysresetreq(void *opaque, int n, int level)
@@ -1424,7 +1496,24 @@ static void ex_realize(DeviceState *dev, Error **errp)
     }
     s->io = DEVICE(i2c_slave_new(TYPE_NIKON_EX_IO, 0x22));
     object_property_add_child(OBJECT(s), "io", OBJECT(s->io));
+    /* Selected mode 8: handle 0x1a is EXTI8; late GPIO setup selects C8. */
+    qdev_connect_gpio_out_named(s->io, "interrupt", 0,
+                               nikon_ex_gpio_input(s, 2, 8));
     i2c_slave_realize_and_unref(I2C_SLAVE(s->io), s->i2c[0].bus, &error_fatal);
+    const struct {
+        const char *type;
+        const char *name;
+        uint8_t address;
+    } power[] = {
+        { TYPE_NIKON_EX_POWER, "power", 0x4f },
+        { TYPE_NIKON_EX_POWER_AUX, "poweraux", 0x10 },
+    };
+    for (unsigned i = 0; i < ARRAY_SIZE(power); i++) {
+        I2CSlave *peer = i2c_slave_new(power[i].type, power[i].address);
+
+        object_property_add_child(OBJECT(s), power[i].name, OBJECT(peer));
+        i2c_slave_realize_and_unref(peer, s->i2c[0].bus, &error_fatal);
+    }
 }
 
 static void ex_init(Object *obj)
@@ -1449,6 +1538,7 @@ static void ex_init(Object *obj)
     s->reset_bh = qemu_bh_new(ex_reset_requested, s);
     s->adc_bh = qemu_bh_new(ex_adc_dispatch, s);
     qdev_init_gpio_out_named(DEVICE(s), s->pad_output, "pad", ARRAY_SIZE(s->pad_output));
+    qdev_init_gpio_in_named(DEVICE(s), ex_external_input, "input", 9 * 16);
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
@@ -1483,8 +1573,10 @@ static void ex_finalize(Object *obj)
 static void ex_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
     dc->realize = ex_realize;
-    device_class_set_legacy_reset(dc, ex_reset);
+    rc->phases.hold = ex_reset_hold;
+    rc->phases.exit = ex_reset_exit;
     dc->desc = "Nikon EX Cortex-M4 software functional profile";
     dc->user_creatable = false;
 }
@@ -1505,14 +1597,6 @@ static void ex_machine_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    if (qtest_enabled()) {
-        /*
-         * Synthetic fixture wire verifies GPIO/EXTI/NVIC propagation. The
-         * original selected polling mode consumes TIM11 CC1, not this pad.
-         */
-        qdev_connect_gpio_out_named(s->io, "interrupt", 0,
-                                   nikon_ex_gpio_input(s, 0, 0));
-    }
     /* ARMv7M already owns the private board region in its container. */
     memory_region_init_alias(&s->system_view, OBJECT(s), "ex.system-view",
                              &s->armv7m.container, 0, UINT64_C(0x100000000));

@@ -29,6 +29,7 @@ void nikon_sampling_add_tests(const char *bios);
 void nikon_image_add_tests(const char *bios);
 void nikon_sdi_add_tests(const char *bios);
 void nikon_spi_add_tests(const char *bios);
+void nikon_i2c_add_tests(const char *bios);
 void nikon_processing_add_tests(const char *bios);
 void nikon_config_add_tests(const char *bios);
 
@@ -233,6 +234,93 @@ static void test_gpio_input(void)
     /* Configuration resets, while external producers remain connected. */
     for (port = 0; port < 12; port++) {
         g_assert_cmphex(qtest_readl(q, GPIO + port * 4), ==, 0xffff);
+    }
+    qtest_quit(q);
+}
+
+static void test_gpio_descriptors(void)
+{
+    QTestState *q = start(false, 1);
+    const uint16_t valid[] = { 0xff33, 0xffff, 0xffff };
+    unsigned index, bit;
+
+    for (index = 0; index < ARRAY_SIZE(valid); index++) {
+        uint64_t address = GPIO + 0x30 + 4 * index;
+        uint16_t expected = 0;
+
+        g_assert_cmphex(qtest_readl(q, address), ==, 0);
+        /* Original setter grammar: one high mask bit and one low value bit. */
+        for (bit = 0; bit < 16; bit++) {
+            if (!(valid[index] & (1U << bit))) {
+                continue;
+            }
+            qtest_writel(q, address, (1U << (bit + 16)) | (1U << bit));
+            expected |= 1U << bit;
+            g_assert_cmphex(qtest_readl(q, address), ==, expected);
+        }
+        /* Clearing one field preserves the other descriptor fields. */
+        qtest_writel(q, address, 1U << 16);
+        g_assert_cmphex(qtest_readl(q, address), ==, (expected & ~1U));
+        qtest_writeb(q, address, 0);
+        g_assert_cmphex(qtest_readl(q, address), ==, (expected & ~1U));
+    }
+    /* The missing bits are not a license to add another general GPIO port. */
+    qtest_writel(q, GPIO + 0x30, 0x00040004);
+    qtest_writel(q, GPIO + 0x130, 0xffff);
+    qtest_writel(q, GPIO + 0x230, 0xffff);
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x30), ==, 0xff32);
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x2c), ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    for (index = 0; index < ARRAY_SIZE(valid); index++) {
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x30 + 4 * index), ==, 0);
+    }
+    qtest_quit(q);
+}
+
+static void test_gpio_mux(void)
+{
+    QTestState *q = start(false, 1);
+    const char *path = "/machine/gpio";
+    const uint16_t fields[] = { 1, 2, 4, 8, 0x100 };
+    const uint64_t blocks[] = { GPIO + 0x330, GPIO + 0x430 };
+    uint32_t control[2] = { 0 }, data[2] = { 0 };
+    unsigned block, pattern, field, pin;
+
+    qtest_irq_intercept_out_named(q, path, "pad");
+    for (block = 0; block < ARRAY_SIZE(blocks); block++) {
+        g_assert_cmphex(qtest_readl(q, blocks[block]), ==, 0);
+        g_assert_cmphex(qtest_readl(q, blocks[block] + 4), ==, 0);
+        for (pattern = 0; pattern < 32; pattern++) {
+            control[block] = (0x1234U + pattern + block) << 16;
+            for (field = 0; field < ARRAY_SIZE(fields); field++) {
+                if (pattern & (1U << field)) {
+                    control[block] |= fields[field];
+                }
+            }
+            data[block] = 0xa5c30000U | (block << 8) | pattern;
+            qtest_writel(q, blocks[block], control[block]);
+            qtest_writel(q, blocks[block] + 4, data[block]);
+            for (field = 0; field < ARRAY_SIZE(blocks); field++) {
+                g_assert_cmphex(qtest_readl(q, blocks[field]), ==, control[field]);
+                g_assert_cmphex(qtest_readl(q, blocks[field] + 4), ==, data[field]);
+            }
+        }
+        qtest_writel(q, blocks[block], 0x10);
+        qtest_writew(q, blocks[block], 0);
+        qtest_writel(q, blocks[block] + 1, 0);
+        g_assert_cmphex(qtest_readl(q, blocks[block]), ==, control[block]);
+        g_assert_cmphex(qtest_readl(q, blocks[block] + 4), ==, data[block]);
+    }
+    /* Special configuration words do not publish a fabricated pad edge. */
+    for (pin = 0; pin < 192; pin++) {
+        g_assert_false(qtest_get_irq(q, pin));
+    }
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x32c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x42c), ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    for (block = 0; block < ARRAY_SIZE(blocks); block++) {
+        g_assert_cmphex(qtest_readl(q, blocks[block]), ==, 0);
+        g_assert_cmphex(qtest_readl(q, blocks[block] + 4), ==, 0);
     }
     qtest_quit(q);
 }
@@ -681,6 +769,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/gpio/irq", test_gpio_irq);
     qtest_add_func("/nikon/gpio/level", test_gpio_level);
     qtest_add_func("/nikon/gpio/input", test_gpio_input);
+    qtest_add_func("/nikon/gpio/descriptors", test_gpio_descriptors);
+    qtest_add_func("/nikon/gpio/mux", test_gpio_mux);
     qtest_add_func("/nikon/completion", test_completion);
     qtest_add_func("/nikon/bridge", test_bridge);
     nikon_transfer_add_tests(image);
@@ -688,6 +778,7 @@ int main(int argc, char **argv)
     nikon_image_add_tests(image);
     nikon_sdi_add_tests(image);
     nikon_spi_add_tests(image);
+    nikon_i2c_add_tests(image);
     nikon_processing_add_tests(image);
     nikon_config_add_tests(image);
     nikon_bridge_add_tests();
