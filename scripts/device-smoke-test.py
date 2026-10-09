@@ -1944,6 +1944,168 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def peripheral_event_router_profile():
+    profile = {0: 0x3f, 4: 0x21, 8: 0x7fff, 0xc: 0x4321,
+               0x10: 1, 0x14: 0, 0x18: 0, 0x1c: 1, 0x20: 0x7ff, 0x24: 0x321,
+               0x34: 0xffffffff, 0x40: 0x81234567, 0x4c: 0xa5a55a5a,
+               0xa0: 0x12345678, 0xa4: 0x1f, 0xa8: 0xffffffff, 0xac: 0x80000000,
+               0xb0: 0x123, 0x314: 0xffffffff, 0x328: 0xff, 0x32c: 0xa5}
+    profile.update({x: 3 if x == 0x70 else 0x10203040 + x
+                    for x in range(0x70, 0xa0, 4)})
+    profile.update({x: 0xff - x + 0xb4 for x in range(0xb4, 0xc8, 4)})
+    for lane in range(6):
+        for field in (0xc8, 0xcc, 0xd0, 0xd4, 0xd8, 0xdc, 0xe8, 0xec):
+            profile[field + lane * 0x60] = (0xa0 + lane if field == 0xe8 else
+                                           0x80000000 | lane << 16 | field)
+    return profile
+
+
+def peripheral_event_router_fixtures():
+    error = "peripheral-event-router-access-or-activation-not-supported"
+
+    def write(offset, value):
+        return constant(0, 0x20060000 + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, 0x20060000 + offset) + [0xe5900000 | reg << 12]
+
+    return [
+        ("event-router-callback-mask-registration", read(0x34, 1) +
+         constant(2, 0x7ff) + [0xe1811002, 0xe5801000] + read(0x34, 4) +
+         read(0x38, 5) + read(0x44, 6) + read(0x50, 7),
+         {4: 0x7ff, 5: 0, 6: 0, 7: 0}, None),
+        ("event-router-bool-invalid", write(0x10, 2), {}, error),
+        ("event-router-lane-byte-invalid", write(0xe8, 0x100), {}, error),
+        ("event-router-gap", read(0xe0, 4), {}, error),
+        ("event-router-byte-width", constant(0, 0x20060034) + [0xe5d04000], {}, error),
+        ("event-router-halfword-width", constant(0, 0x20060034) + [0xe1d040b0], {}, error),
+        ("event-router-finite-end", read(0x330, 4), {}, "uncovered-address"),
+    ] + [(f"event-router-request-{x:x}-unsupported", write(x, 1), {}, error)
+         for x in (0x28, 0x2c, 0x30)] + [
+        ("event-router-qtest-" + suffix, [], {}, None) for suffix in (
+            "whole-lane-readback", "three-irqs-mask-ack", "preflight-reset")]
+
+
+def run_peripheral_event_router(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="event-router", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<nikon-peripheral-event-router>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {0x20060000 + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {0x20060000 + offset:#x}").split()[1], 16)
+
+            def event(index, level):
+                command(f"set_irq_in {path} external-pending {index} {level}")
+
+            profile = peripheral_event_router_profile()
+
+            def snapshot():
+                return [read(x) for x in sorted(profile)] + \
+                    [read(x) for x in (0x38, 0x44, 0x50)]
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            if name.endswith("whole-lane-readback"):
+                for x, y in profile.items():
+                    write(x, y)
+                    assert read(x) == y, (x, y)
+                assert [read(x) for x in (0x38, 0x44, 0x50)] == [0, 0, 0]
+                before = snapshot()
+                command("clock_step 1000000000")
+                assert snapshot() == before and not any(levels.values())
+                write(0xb0, 0)
+                assert read(0xb0) == 0
+                write(0xb0, 0x80000001)
+                assert read(0xb0) == 0x80000001
+            elif name.endswith("three-irqs-mask-ack"):
+                for pin in (0, 10, 11, 42, 44, 74):
+                    event(pin, 1)
+                assert [read(x) for x in (0x38, 0x44, 0x50)] == \
+                    [0x401, 0x80000001, 0x80000002]
+                assert not any(levels.values())
+                write(0x34, 0x80000001)
+                write(0x40, 1)
+                write(0x4c, 0x80000000)
+                assert [levels.get(x, False) for x in range(3)] == [True] * 3
+                write(0x38, 1)
+                assert read(0x38) == 0x400 and not levels[0]
+                assert read(0x44) == 0x80000001 and levels[1] and levels[2]
+                write(0x34, 0x400)
+                assert levels[0]
+                write(0x40, 0)
+                assert read(0x44) == 0x80000001 and not levels[1]
+                write(0x40, 0x80000000)
+                assert levels[1]
+                for raw in (0x38, 0x44, 0x50):
+                    write(raw, read(raw))
+                assert not any(levels.values())
+                for pin in (0, 10, 11, 42, 44, 74):
+                    event(pin, 1)
+                assert [read(x) for x in (0x38, 0x44, 0x50)] == [0, 0, 0]
+                event(42, 0)
+                event(42, 1)
+                assert read(0x44) == 0x80000000 and levels[1]
+            elif name.endswith("preflight-reset"):
+                for x, y in profile.items():
+                    write(x, y)
+                event(0, 1)
+                before = snapshot()
+                for x, y in ((0, 0x40), (8, 0x8000), (0x10, 2), (0x20, 0x800),
+                             (0xa4, 0x8000001f), (0xe8, 0x100), (0x328, 0x100),
+                             (0xe0, 1), (0x28, 1), (0x2c, 1), (0x30, 1)):
+                    write(x, y)
+                    assert snapshot() == before, (x, y)
+                command("writeb 0x20060034 0xff")
+                command("writew 0x20060040 0xffff")
+                command("writel 0x20060035 0xffffffff")
+                assert snapshot() == before
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert snapshot() == [0] * len(before) and not any(levels.values())
+                write(0x34, 1)
+                event(0, 1)
+                assert read(0x38) == 0 and not levels[0]
+                event(0, 0)
+                event(0, 1)
+                assert read(0x38) == 1 and levels[0]
+            else:
+                raise AssertionError(name)
+            (output / "qemu.log").write_text(vm.get_log() or "")
+        assert vm.exitcode() == 0, vm.get_log()
+    assert image.read_bytes() == payload
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    return {"fixture": name, "qemu_exit_code": 0,
+            "scope": "no firmware; finite config, three virtual pending masks/IRQs and reset"}
+
+
 def control2406_fixtures():
     error = "control2406-access-or-activation-not-supported"
 
@@ -4980,6 +5142,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("event-router-qtest-"):
+        return run_peripheral_event_router(binary, output, name)
     if name.startswith("control2406-qtest-"):
         return run_control2406(binary, output, name)
     if name.startswith("control2016-qtest-"):
@@ -5236,7 +5400,7 @@ def main():
              control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
              control2016_fixtures() + control2010_gate_fixtures() +
              control2406_fixtures() + control2010_stop_fixtures() +
-             control2010_runtime_fixtures())
+             control2010_runtime_fixtures() + peripheral_event_router_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
