@@ -16,6 +16,7 @@
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
+#include "hw/core/or-irq.h"
 #include "hw/intc/arm_gic.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
@@ -1087,10 +1088,20 @@ static void z7ii_init(MachineState *machine)
     }
     {
         DeviceState *signal = qdev_new(TYPE_Z7II_SIGNAL);
+        DeviceState *aggregate = qdev_new(TYPE_OR_IRQ);
 
         sysbus_realize_and_unref(SYS_BUS_DEVICE(signal), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(signal), 0, 0x2b000000);
-        /* Five external inputs and pending outputs deliberately unwired. */
+        sysbus_mmio_map(SYS_BUS_DEVICE(signal), 1, 0x28000000);
+        qdev_prop_set_uint16(aggregate, "num-lines", 5);
+        qdev_realize_and_unref(aggregate, NULL, &error_fatal);
+        for (i = 0; i < 5; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(signal), i,
+                               qdev_get_gpio_in(aggregate, i));
+        }
+        /* Original ISR registration supplies the single shared IRQ237. */
+        qdev_connect_gpio_out(aggregate, 0,
+                             qdev_get_gpio_in(gic, 237 - 32));
     }
     object_initialize_child(OBJECT(s), "completion", &s->completion,
                             TYPE_Z7II_COMPLETION);

@@ -1770,16 +1770,31 @@ def signal_fixtures():
         ("signal-invalid-mask-preserves-state", write(0xc, 0x3ff) + write(0xc, 0x400), {}, error),
         ("signal-invalid-debounce-preserves-state", write(0x14, 0x0333331f) + write(0x14, 0x40), {}, error),
         ("signal-invalid-clear", write(8, 0x400), {}, error),
-        ("signal-command-read-unbound", read(8, 4), {}, error),
+        ("signal-pending-read-cold", read(8, 4), {4: 0}, None),
         ("signal-status-write-rejected", write(0x10, 1), {}, error),
         ("signal-byte-read-rejected", constant(0, base) + [0xe5d04000], {}, error),
         ("signal-halfword-write-rejected", constant(0, base) + [0xe1c010b0], {}, error),
         ("signal-hole", read(0x1c, 4), {}, "uncovered-address"),
         ("signal-adjacent-unbound", read(0x1000, 4), {}, "uncovered-address"),
         ("signal-distinct-base-unbound", read(0x100000, 4), {}, "uncovered-address"),
+    ] + [
+        ("signal-opaque-original-and-fullword", constant(0, 0x28000000) +
+         constant(1, 0xf) + [0xe5801000] + constant(1, 0xffffffff) +
+         [0xe5801000] + read(8, 4) + read(0x10, 5), {4: 0, 5: 0}, None),
+        ("signal-opaque-read-rejected", constant(0, 0x28000000) + [0xe5904000],
+         {}, "signal-configuration-input-not-supported"),
+        ("signal-opaque-byte-write-rejected", constant(0, 0x28000000) + [0xe5c01000],
+         {}, "signal-configuration-input-not-supported"),
+        ("signal-opaque-halfword-write-rejected", constant(0, 0x28000000) + [0xe1c010b0],
+         {}, "signal-configuration-input-not-supported"),
+        ("signal-opaque-next-word-rejected", constant(0, 0x28000004) + [0xe5801000],
+         {}, "uncovered-address"),
+        ("signal-opaque-before-rejected", constant(0, 0x27fffffc) + [0xe5801000],
+         {}, "uncovered-address"),
     ] + [("signal-input-" + suffix, [], {}, None) for suffix in (
         "permutations-and-both-edges", "shared-gate", "masked-pending-and-clear",
-        "debounce-all-codes", "bounce-and-reconfigure", "reset-cancels-retains-input")]
+        "debounce-all-codes", "bounce-and-reconfigure", "reset-cancels-retains-input",
+        "aggregate-isr-pending-lifecycle")]
 
 
 def run_signal_input(binary, output, name):
@@ -1829,12 +1844,55 @@ def run_signal_input(binary, output, name):
             def step(ns):
                 command(f"clock_step {ns}")
 
-            command(f"irq_intercept_out {path} sysbus-irq")
+            if name.endswith("aggregate-isr-pending-lifecycle"):
+                aggregate = [x["name"] for x in children
+                             if x["type"] == "child<or-irq>"]
+                assert len(aggregate) == 1, children
+                command(f"irq_intercept_out /machine/unattached/{aggregate[0]}")
+            else:
+                command(f"irq_intercept_out {path} sysbus-irq")
             write(0, 0x1f)
             write(4, 0x3c)
             write(0xc, 0x3ff)
             assert read(0x10) == 0
-            if name.endswith("permutations-and-both-edges"):
+            if name.endswith("aggregate-isr-pending-lifecycle"):
+                write(0xc, 0)
+                for i in range(5):
+                    pin(i, 1)
+                assert read(8) == 0x155 and not irq_levels.get(0, False)
+                # Reads preserve private pending; mask alone controls the wire.
+                assert read(8) == 0x155
+                write(0xc, 0x3ff)
+                assert irq_levels[0]
+                for bit in bits[:-1]:
+                    write(8, 1 << (2 * bit))
+                    assert irq_levels[0]  # Other routes must keep shared IRQ high.
+                assert read(8) == 1 << (2 * bits[-1])
+                write(8, read(8))  # Original ISR read/writeback W1C.
+                assert read(8) == 0 and not irq_levels[0]
+                assert read(0x10) == 0x1f1f
+                for i in range(5):
+                    pin(i, 0)
+                assert read(8) == 0x2aa and irq_levels[0]
+                command("writel 0x28000000 0xf")
+                command("writel 0x28000000 0xffffffff")
+                assert read(8) == 0x2aa and irq_levels[0]
+                write(8, read(8))
+                assert not irq_levels[0]
+                write(0x14, 0x301)
+                pin(0, 1)
+                step(7999)
+                assert read(8) == 0 and not irq_levels[0]
+                step(1)
+                assert read(8) == 1 and irq_levels[0]
+                # Reset cancels delayed sampling and lowers the aggregate.
+                pin(0, 0)
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                step(10000)
+                assert read(8) == 0 and not irq_levels[0]
+                assert all(read(o) == 0 for o in (0, 4, 0xc, 0x14, 0x18))
+            elif name.endswith("permutations-and-both-edges"):
                 for i, bit in enumerate(bits):
                     pin(i, 1)
                     assert read(0x10) == (1 << bit) * 0x101
@@ -1938,7 +1996,7 @@ def run_signal_input(binary, output, name):
     assert "transaction=error" not in logs + trace.read_text()
     assert image.read_bytes() == payload
     return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
-            "scope": "external signal inputs, virtual debounce and unwired pending outputs"}
+            "scope": "external signal inputs, virtual debounce and pending/OR_IRQ outputs; no firmware execution"}
 
 
 def registers(vm):

@@ -2,7 +2,7 @@
  * Five-route signal-control functional profile, not a bound physical IP.
  * The original interface supplies permutations and fields. Reset/gate/mask
  * polarity, raw/filtered banks, W1C and 1MHz debounce are virtual assumptions.
- * External inputs alone produce sampled edges; pending outputs are unwired.
+ * External inputs alone produce sampled edges; five outputs aggregate to IRQ237.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -26,9 +26,11 @@ typedef struct Z7IISignalRoute {
 struct Z7IISignalState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
+    MemoryRegion configuration_input;
     Clock *clock;
     Z7IISignalRoute route[5];
     uint32_t released, gates, masks, debounce, config;
+    uint32_t opaque_configuration;
     uint16_t pending;
     uint8_t raw, filtered;
     bool reported_error;
@@ -132,6 +134,10 @@ static MemTxResult z7ii_signal_read(void *opaque, hwaddr offset,
     case 4:
         *value = s->gates;
         break;
+    case 8:
+        /* Unfiltered private pending is a named virtual read convention. */
+        *value = s->pending;
+        break;
     case 0xc:
         *value = s->masks;
         break;
@@ -229,6 +235,46 @@ static const MemoryRegionOps z7ii_signal_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4, .unaligned = true },
 };
 
+/* Only the complete original word write is bound at this separate aperture.
+ * Full-value retention and reset0 are virtual conventions, with no IRQ,
+ * forwarding, security or completion meaning assigned to this input.
+ */
+static MemTxResult z7ii_signal_configuration_read(void *opaque, hwaddr offset,
+                                                uint64_t *value, unsigned size,
+                                                MemTxAttrs attrs)
+{
+    Z7IISignalState *s = opaque;
+
+    *value = 0;
+    z7ii_access_error(&s->reported_error, 0x28000000ULL + offset, size,
+                      false, 0, "signal-configuration-input-not-supported");
+    return MEMTX_ERROR;
+}
+
+static MemTxResult z7ii_signal_configuration_write(void *opaque, hwaddr offset,
+                                                 uint64_t value, unsigned size,
+                                                 MemTxAttrs attrs)
+{
+    Z7IISignalState *s = opaque;
+
+    if (offset || size != 4) {
+        z7ii_access_error(&s->reported_error, 0x28000000ULL + offset, size,
+                          true, value,
+                          "signal-configuration-input-not-supported");
+        return MEMTX_ERROR;
+    }
+    s->opaque_configuration = value;
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps z7ii_signal_configuration_ops = {
+    .read_with_attrs = z7ii_signal_configuration_read,
+    .write_with_attrs = z7ii_signal_configuration_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 4, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 4, .unaligned = true },
+};
+
 static void z7ii_signal_reset(DeviceState *dev)
 {
     Z7IISignalState *s = Z7II_SIGNAL(dev);
@@ -236,6 +282,7 @@ static void z7ii_signal_reset(DeviceState *dev)
 
     s->released = s->gates = s->masks = s->debounce = s->config = 0;
     s->filtered = s->pending = 0;
+    s->opaque_configuration = 0;
     s->reported_error = false;
     /* Preserve live provider levels; only cold disconnected inputs are low. */
     clock_update_hz(s->clock, 1000000);
@@ -254,6 +301,10 @@ static void z7ii_signal_init(Object *obj)
     memory_region_init_io(&s->regs, obj, &z7ii_signal_ops, s,
                           "z7ii.signal", 0x1c);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    memory_region_init_io(&s->configuration_input, obj,
+                          &z7ii_signal_configuration_ops, s,
+                          "z7ii.signal-configuration-input", 4);
+    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->configuration_input);
     qdev_init_gpio_in_named(DEVICE(obj), z7ii_signal_input, "signal", 5);
     for (i = 0; i < 5; i++) {
         Z7IISignalRoute *r = &s->route[i];
