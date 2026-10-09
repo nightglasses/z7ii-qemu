@@ -75,6 +75,27 @@ static void test_loaded_domain(void)
     /* Source content is loaded, but neither COPY target nor release is seeded. */
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x83c4d4),
                     ==, 0xabcdef01);
+
+    /* The guest owns metadata at both ends of its source-declared arena. */
+    g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, 0xc4fffffc), ==, 0);
+    qtest_writel(qts, 0xc1940000, 0x19400000);
+    qtest_writel(qts, 0xc4fffffc, 0x4fffffc0);
+    g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 0x19400000);
+    g_assert_cmphex(qtest_readl(qts, 0xc4fffffc), ==, 0x4fffffc0);
+
+    /* The runtime counter is driven by virtual time and can be stopped. */
+    qtest_writel(qts, 0x04266000, 0);
+    qtest_writel(qts, 0x04266008, 0);
+    qtest_writel(qts, 0x0426600c, 0);
+    qtest_writel(qts, 0x04266010, 48000000);
+    qtest_writel(qts, 0x04266000, 3);
+    qtest_clock_step(qts, 1000000);
+    g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
+    qtest_writel(qts, 0x04266000, 0);
+    qtest_clock_step(qts, 1000000);
+    g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
+    g_assert_cmphex(qtest_readb(qts, 0x2c090003) & 2, ==, 2);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x854240),
                     ==, 0x76543210);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_COPY1_BASE), ==, 0);
@@ -102,7 +123,7 @@ static void test_loaded_domain(void)
     g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0);
     /* A destination beyond declared SLA RAM cannot yield successful DMA. */
     qtest_writel(qts, 0xc1017d80, 0xcccccccc);
-    qtest_writel(qts, 0x20070030, 0xc6000000);
+    qtest_writel(qts, 0x20070030, 0xc5000000);
     qtest_writel(qts, 0x20070010, 1);
     g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0x10);
     g_assert_cmphex(qtest_readl(qts, 0xc1017d80), ==, 0xcccccccc);

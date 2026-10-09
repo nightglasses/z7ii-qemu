@@ -59,13 +59,14 @@ interface used by this profile, not the physical MCU identity.
 |---|---|---|
 | RCC | `0x40023800` | Explicit defined registers; oscillator enable/cancel, PLL input validation, delayed ready bits, conditional SWS switching, reset lines |
 | PWR | `0x40007000` | Voltage-scale control and status, writable backup control fields |
+| RTC | `0x40002800` | DBP/WPR protection, clock-dependent INIT/RSF/write-window synchronization, prescaled BCD calendar, leap dates, alarm/wakeup EXTI interrupts, backup registers |
 | flash interface | `0x40023c00` | Byte/halfword/word cache/latency control; W1C status; programming operations fault |
 | GPIO A-I | `0x40020000 + 0x400*port` | Upstream GPIO state machine restricted to the common F4 `0x00..0x27` layout; explicit F4 reset settings |
 | SYSCFG / EXTI | `0x40013800` / `0x40013c00` | Guest EXTICR pad selection, rising/falling edge detection, software requests, masks, pending W1C, grouped NVIC lines |
 | USART 1-6 | standard F4 bases | Upstream STM32 USART, real `serial_hd(0..5)` character backends, receive/transmit IRQ state |
 | timers 1-14 | standard F4 bases | Upstream STM32 counters/interrupt lifecycle; shared update IRQs combine through upstream OR-IRQ devices |
 | ADC 1-3 / common | `0x40012000 + 0x100*adc` / `0x40012304` | Configuration, external sample conversion, resolution/alignment, EOC/overrun, real DMA/IRQ; no fabricated reset samples |
-| SPI 1-3 | `0x40013000`, `0x40003800`, `0x40003c00` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun, IRQ and DMA requests |
+| SPI 1-4 | `0x40013000`, `0x40003800`, `0x40003c00`, `0x40013400` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun with DR/SR clear sequence, IRQ and DMA requests |
 | I2C 1-3 | `0x40005400 + 0x400*channel` | Real I2CBus START/address/data/STOP, actual slave ACK/NACK, SR1/SR2 address-clear sequence and event/error IRQ |
 | DMA 1-2 | `0x40026000 + 0x400*controller` | Eight streams each, real private-address-space bus beats, widths/increments/counts, half/complete/error status and W1C IRQ |
 
@@ -91,7 +92,11 @@ APB clock-rate accuracy and physical oscillator drift are outside this profile.
 Clock enables retain the guest's register state; electrical clock gating is not
 modeled. DMA double-buffer mode fails with transfer-error status; ordinary and
 circular single-buffer beats are implemented. Flash erase/program, SPI CRC,
-ten-bit I2C and electrical signal timing are not claimed.
+ten-bit I2C, RTC timestamp/tamper input and subsecond calibration/shift, and
+electrical signal timing are not claimed. Nonzero RTC shift/calibration requests
+fault. RTC uses a 32 kHz functional LSI or 32.768 kHz LSE; its calendar advances
+from guest-provided values using the actual prescaler and selected clock. The
+backup calendar persists across EX system reset; RCC.BDRST resets it.
 
 The saved complete 1269-function native inventory was queried once for all
 direct peripheral references. It confirms application references to the advanced
@@ -122,12 +127,57 @@ port/pin input line and drives the normal GPIO/EXTICR/EXTI path. Button/pad and
 MAS transport assignments must come from recovered consumers, not guessed
 MENU mappings or direct calls into firmware GUI routines.
 
+The original MCU transport uses two separate slave channels. RX initialization
+`0x080343a4` queries SPI logical index 0 through `0x08040364`. The original table
+at `0x0804dab8` yields handle `0x73`; `0x08021188` resolves that handle through
+the pointer table at `0x2000ee10`. An actual original execution stopped before
+the first RTC WPR write observed descriptor `0x2000e480`, whose base word is
+`0x40013000` (SPI1). TX initialization `0x08034784` queries logical index 4,
+whose handle `0x76` resolves descriptor `0x2000e4a4`, base `0x40013400` (SPI4).
+The respective RCC APB2 reset/enable bits 12 and 13 independently agree.
+Both original initializers configure slave mode, 8-bit words, LSB first,
+CPOL=0/CPHA=1 and software NSS selected internally. The QEMU SSI word interface
+carries complete numeric words; electrical bit-clock timing is not modeled.
+
+Original RX worker `0x0803459c` submits 256-byte DMA reception into
+`0x20017b76`, announces a request using its GPIO descriptor at state offset
+`0x18`, waits for the original completion event, disables SPI and drains DR.
+Validator `0x0803423c` checks the length against byte `0xfc * 240`, sequence
+bytes `0xfc/0xfd`, and the 256-byte additive checksum against `0xff`. Successful
+validation changes the handshake GPIO and calls the registered callback with
+event `0x42010001` and the received buffer. These instructions execute in EX;
+the model neither constructs frames nor generates that event or handshake.
+The saved 1269-function inventory lacks the RX worker entry, so the worker
+evidence additionally uses bounded native GNU objdump over the original bytes.
+
+After EX realization, `nikon_ex_spi_slave(ex, channel, master_bus, cs, errp)`
+attaches an ordinary upstream SSI peripheral to a source-proven master bus.
+Channels are zero based: 0 for MCU RX and 3 for MCU TX. The returned endpoint is
+owned by that bus. Every actual SSI word enters `nikon_ex_spi_transfer()`, causing
+the real EX register/DMA/NVIC lifecycle. No NSS GPIO is guessed because this
+original transport uses internal software NSS. `nikon_ex_gpio_connect_output()`
+connects a physical pad to a real peer input while retaining the EX internal
+EXTI route. The MAS master-bus identities and matching handshake pads must be
+bound from its own consumers before combined-machine connection.
+
 ## Validation status
 
 The native C qtest fixture covers delayed oscillator/PLL switching and cancel,
 GPIO edge to grouped NVIC IRQ/W1C, DMA real SRAM copying/IRQ clear, disconnected
-I2C NACK and peripheral reset. These are protocol tests, not an original firmware
-startup receipt. Compilation and original-container execution are assigned to
-the shared builder; actual runtime evidence will be added after its binary is
-available. No vendor firmware, generated native object, or temporary GDB command
-file is tracked.
+I2C NACK, peripheral reset and RTC protection, delayed INIT handshake, timed wakeup
+and leap-day rollover. The shared builder's binary at
+`work/build/nikon/qemu-system-arm` passed the first five cases against EX source
+`fbc2cf0` (1.05 seconds). The RTC case is pending the next shared build.
+
+The first actual original-container run used that same binary and source. It
+entered at `0x080002b4`, reached `0x08020084` through the guest's original scatter
+dispatcher, and reported `SP=0x20000c08`, `VTOR=0x20000000`. RAM at `0x2000d000`
+held unpacked words `0x08041dd1, 0x08041dd1, 0x08041dcb, 0x08041dd9`; COPY views
+at `0x2003c000` and `0x2003f000` contained Thumb instructions. All inspected ZERO
+destinations held zero. This proves original reset and initialization execution,
+not full application readiness. Continuing naturally exposed RTC WPR at PC
+`0x080395ae` and SSR at `0x08044fb2`, causing a real failed transaction and
+HardFault lockup. Original RTC drivers `0x08045004`, `0x080491dc`, `0x08044eb4`
+and `0x080450a4` establish the whole protection/INIT/alarm group added next.
+Runtime logs and GDB command files stay under ignored `work/ex/`. No vendor
+firmware, generated native object, or temporary GDB command file is tracked.

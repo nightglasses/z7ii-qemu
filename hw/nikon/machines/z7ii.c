@@ -19,6 +19,7 @@
 #include "target/arm/cpu.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/bundle.h"
+#include "hw/nikon/storage.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -195,6 +196,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *mxic;
     DeviceState *gpio;
     DeviceState *exiu;
+    DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
     g_autoptr(GBytes) mas = NULL;
@@ -397,12 +399,19 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(gic, 133 - 32));
     }
     {
-        DeviceState *control = sysbus_create_simple(TYPE_NIKON_DUAL_EVENT_BANKS,
-                              0x20140000, qdev_get_gpio_in(gic, 111 - 32));
+        DeviceState *control = qdev_new(TYPE_NIKON_DUAL_EVENT_BANKS);
         static const hwaddr addresses[] = {
             0x20144000, 0x2014b000, 0x2014d000, 0x2014e000,
+            /* Two source table objects select offsets 0 and 0x10000. */
+            0x24040000, 0x24042000, 0x24045000, 0x24046000,
+            0x24050000, 0x24052000, 0x24055000, 0x24056000,
         };
 
+        control->id = g_strdup("display");
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(control), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(control), 0, 0x20140000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(control), 0,
+                           qdev_get_gpio_in(gic, 111 - 32));
         for (i = 0; i < ARRAY_SIZE(addresses); i++) {
             sysbus_mmio_map(SYS_BUS_DEVICE(control), i + 1, addresses[i]);
         }
@@ -437,8 +446,12 @@ static void z7ii_init(MachineState *machine)
     }
     for (i = 0; i < 11; i++) {
         DeviceState *spi = qdev_new(TYPE_NIKON_SPI);
+        g_autofree char *name = g_strdup_printf("spi%u", i);
 
+        object_property_add_child(OBJECT(machine), name, OBJECT(spi));
+        spi_ports[i] = spi;
         qdev_prop_set_uint32(spi, "channel", i);
+        qdev_prop_set_bit(spi, "dma", i >= 2 && i <= 4);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
         /*
@@ -472,6 +485,17 @@ static void z7ii_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(hdmac), channel,
                                qdev_get_gpio_in(gic, irq - 32));
         }
+        if (i == 0) {
+            /* Original SPI resources 12a..12f bind these six demand wires. */
+            for (channel = 2; channel <= 4; channel++) {
+                unsigned request = 7 + 2 * (channel - 2);
+
+                qdev_connect_gpio_out_named(spi_ports[channel], "dma", 0,
+                                            qdev_get_gpio_in(hdmac, request));
+                qdev_connect_gpio_out_named(spi_ports[channel], "dma", 1,
+                                            qdev_get_gpio_in(hdmac, request + 1));
+            }
+        }
         if (i == 1) {
             DeviceState *audio = qdev_new(TYPE_NIKON_AUDIO);
 
@@ -501,6 +525,7 @@ static void z7ii_init(MachineState *machine)
     {
         DeviceState *copy = qdev_new(TYPE_NIKON_COPY);
 
+        object_property_add_child(OBJECT(machine), "copy", OBJECT(copy));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(copy), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(copy), 0, 0x04251000);
         for (i = 0; i < 4; i++) {
@@ -511,6 +536,15 @@ static void z7ii_init(MachineState *machine)
     {
         DeviceState *signal = qdev_new(TYPE_NIKON_SIGNAL);
         DeviceState *aggregate = qdev_new(TYPE_OR_IRQ);
+        DeviceState *storage = qdev_new(TYPE_NIKON_STORAGE_HOST);
+        static const hwaddr storage_addresses[] = {
+            [NIKON_STORAGE_DBI] = 0x2a900000,
+            [NIKON_STORAGE_CONFIG] = 0x2a800000,
+            [NIKON_STORAGE_MEMORY] = 0x2a810000,
+            [NIKON_STORAGE_PHY] = 0x2b200000,
+            [NIKON_STORAGE_PLATFORM] = 0x2b100000,
+        };
+        static const unsigned storage_irqs[] = {242, 243, 244, 246};
 
         sysbus_realize_and_unref(SYS_BUS_DEVICE(signal), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(signal), 0, 0x2b000000);
@@ -524,6 +558,21 @@ static void z7ii_init(MachineState *machine)
         /* Original ISR registration supplies the single shared IRQ237. */
         qdev_connect_gpio_out(aggregate, 0,
                              qdev_get_gpio_in(gic, 237 - 32));
+
+        object_property_add_child(OBJECT(machine), "storage", OBJECT(storage));
+        if (blk_by_name("storage")) {
+            qdev_prop_set_string(storage, "drive", "storage");
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(storage), &error_fatal);
+        for (i = 0; i < ARRAY_SIZE(storage_addresses); i++) {
+            sysbus_mmio_map(SYS_BUS_DEVICE(storage), i, storage_addresses[i]);
+        }
+        for (i = 0; i < ARRAY_SIZE(storage_irqs); i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(storage), i,
+                               qdev_get_gpio_in(gic, storage_irqs[i] - 32));
+        }
+        qdev_connect_gpio_out_named(storage, "link", 0,
+                                   qdev_get_gpio_in_named(signal, "signal", 3));
     }
     /* The guest registers/enables IRQ250; this is its external SPI input. */
     sysbus_create_simple(TYPE_NIKON_COMPLETION, COMPLETION_BASE,
@@ -592,6 +641,7 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->min_cpus = 1; /* Small synthetic contracts explicitly use -smp 1. */
     mc->max_cpus = Z7II_MAX_CPUS;
     mc->default_ram_size = 0;
+    mc->no_parallel = true;
     mc->ignore_memory_transaction_failures = false;
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",

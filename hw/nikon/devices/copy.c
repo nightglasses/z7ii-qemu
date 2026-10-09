@@ -7,10 +7,12 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/timer.h"
+#include "qemu/units.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-clock.h"
 #include "migration/vmstate.h"
+#include "qapi/visitor.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "hw/nikon/devices.h"
@@ -19,6 +21,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonCopyState, NIKON_COPY)
 
 /* Original setup BFI fields, separate from preserved trigger/mode bits. */
 #define COPY_SETUP_MASK 0x00f09110U
+#define COPY_EVENT_BYTES (64 * KiB)
+#define COPY_DMA_BYTES (4 * KiB)
 
 typedef struct NikonCopyChannel {
     NikonCopyState *owner;
@@ -26,6 +30,8 @@ typedef struct NikonCopyChannel {
     qemu_irq irq;
     uint32_t reg[9];
     uint64_t remaining;
+    uint64_t length;
+    uint64_t started_ns;
     unsigned configured;
     bool running;
 } NikonCopyChannel;
@@ -55,8 +61,11 @@ static void nikon_copy_finish(NikonCopyChannel *c, uint32_t status)
 
 static void nikon_copy_schedule(NikonCopyChannel *c)
 {
-    timer_mod(c->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              clock_ticks_to_ns(c->owner->clock, MIN(c->remaining, 256)) + 1);
+    uint64_t completed = c->length - c->remaining;
+    uint64_t next = completed + MIN(c->remaining, COPY_EVENT_BYTES);
+
+    timer_mod(c->timer, c->started_ns +
+              clock_ticks_to_ns(c->owner->clock, next) + 1);
 }
 
 static bool nikon_copy_memory_range(hwaddr addr, uint64_t length, bool write)
@@ -88,10 +97,11 @@ static bool nikon_copy_memory_range(hwaddr addr, uint64_t length, bool write)
 static void nikon_copy_step(void *opaque)
 {
     NikonCopyChannel *c = opaque;
-    uint8_t buffer[256];
-    unsigned length = MIN(c->remaining, sizeof(buffer));
+    uint8_t buffer[COPY_DMA_BYTES];
+    uint64_t completed = c->length - c->remaining;
+    uint64_t due;
+    uint64_t elapsed = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - c->started_ns;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
-    MemTxResult result;
 
     if (!c->running) {
         return;
@@ -102,23 +112,35 @@ static void nikon_copy_step(void *opaque)
         nikon_copy_finish(c, 1);
         return;
     }
-    result = dma_memory_read(&address_space_memory, c->reg[1], buffer,
-                             length, attrs);
-    if (result == MEMTX_OK) {
-        /* Destinations remain ordinary writable RAM, never ROMD or MMIO. */
-        attrs.memory = true;
-        result = dma_memory_write(&address_space_memory, c->reg[2], buffer,
-                                  length, attrs);
+    due = MIN(c->length, clock_ns_to_ticks(c->owner->clock, elapsed));
+    /* The deadline's extra ns also applies to an exactly integral tick. */
+    if (due && clock_ticks_to_ns(c->owner->clock, due) + 1 > elapsed) {
+        due--;
     }
-    if (result != MEMTX_OK) {
-        nikon_copy_finish(c, 1);
-        return;
+    while (completed < due) {
+        unsigned length = MIN(due - completed, sizeof(buffer));
+        MemTxResult result;
+
+        /* ROMD sources use ordinary read attributes; RAM writes are strict. */
+        attrs.memory = false;
+        result = dma_memory_read(&address_space_memory, c->reg[1], buffer,
+                                 length, attrs);
+        if (result == MEMTX_OK) {
+            attrs.memory = true;
+            result = dma_memory_write(&address_space_memory, c->reg[2], buffer,
+                                      length, attrs);
+        }
+        if (result != MEMTX_OK) {
+            nikon_copy_finish(c, 1);
+            return;
+        }
+        c->reg[1] += length;
+        c->reg[2] += length;
+        c->remaining -= length;
+        completed += length;
+        /* Functional residual, not recovered silicon progress encoding. */
+        c->reg[0] = c->remaining ? c->remaining - 1 : 0;
     }
-    c->reg[1] += length;
-    c->reg[2] += length;
-    c->remaining -= length;
-    /* Functional residual encoding, not recovered silicon progress format. */
-    c->reg[0] = c->remaining ? c->remaining - 1 : 0;
     if (!c->remaining) {
         nikon_copy_finish(c, 8);
     } else {
@@ -233,6 +255,8 @@ static MemTxResult nikon_copy_write(void *opaque, hwaddr offset,
         }
         c->reg[6] = value;
         c->remaining = length;
+        c->length = length;
+        c->started_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
         c->running = true;
         nikon_copy_schedule(c);
         return MEMTX_OK;
@@ -283,9 +307,37 @@ static void nikon_copy_reset(DeviceState *dev)
         timer_del(c->timer);
         memset(c->reg, 0, sizeof(c->reg));
         c->remaining = c->configured = 0;
+        c->length = c->started_ns = 0;
         c->running = false;
         nikon_copy_irq(c);
     }
+}
+
+static void nikon_copy_get_clock(Object *obj, Visitor *v, const char *name,
+                                 void *opaque, Error **errp)
+{
+    uint64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    visit_type_uint64(v, name, &now, errp);
+}
+
+static void nikon_copy_get_deadline(Object *obj, Visitor *v, const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonCopyChannel *c = opaque;
+    uint64_t deadline = timer_pending(c->timer) ?
+                        timer_expire_time_ns(c->timer) : 0;
+
+    visit_type_uint64(v, name, &deadline, errp);
+}
+
+static void nikon_copy_get_running(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    NikonCopyChannel *c = opaque;
+    bool running = c->running;
+
+    visit_type_bool(v, name, &running, errp);
 }
 
 static void nikon_copy_init(Object *obj)
@@ -296,12 +348,31 @@ static void nikon_copy_init(Object *obj)
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-copy-clock");
     memory_region_init_io(&s->regs, obj, &nikon_copy_ops, s, "nikon.copy", 0xd0);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    object_property_add(obj, "virtual-clock-ns", "uint64",
+                        nikon_copy_get_clock, NULL, NULL, NULL);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
+        g_autofree char *start = g_strdup_printf("channel%u-start-ns", i);
+        g_autofree char *total = g_strdup_printf("channel%u-total-bytes", i);
+        g_autofree char *remaining = g_strdup_printf("channel%u-remaining-bytes",
+                                                    i);
+        g_autofree char *deadline = g_strdup_printf("channel%u-next-deadline-ns",
+                                                   i);
+        g_autofree char *running = g_strdup_printf("channel%u-running", i);
 
         c->owner = s;
         c->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_copy_step, c);
         sysbus_init_irq(SYS_BUS_DEVICE(obj), &c->irq);
+        object_property_add_uint64_ptr(obj, start, &c->started_ns,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add_uint64_ptr(obj, total, &c->length,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add_uint64_ptr(obj, remaining, &c->remaining,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add(obj, deadline, "uint64", nikon_copy_get_deadline,
+                            NULL, NULL, c);
+        object_property_add(obj, running, "bool", nikon_copy_get_running,
+                            NULL, NULL, c);
     }
 }
 

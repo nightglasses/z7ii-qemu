@@ -17,7 +17,15 @@ SSIBus *nikon_ex_spi_bus(NikonEXState *s, unsigned channel);
 /* A real external SPI clock, when EX has configured this channel as slave. */
 uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel,
                              uint32_t value);
+/* Realized slave attached to the caller's source-proven master bus.
+ * EX channel is zero-based: original MCU RX is 0 (SPI1), TX is 3 (SPI4).
+ * The master bus owns the returned device; NULL reports realization failure.
+ */
+DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
+                                uint8_t chip_select, Error **errp);
 qemu_irq nikon_ex_gpio_input(NikonEXState *s, unsigned port, unsigned pin);
+void nikon_ex_gpio_connect_output(NikonEXState *s, unsigned port, unsigned pin,
+                                  qemu_irq sink);
 /* Real external analog sample. No samples are fabricated at reset. */
 void nikon_ex_adc_input(NikonEXState *s, unsigned adc, unsigned channel,
                         uint16_t sample);

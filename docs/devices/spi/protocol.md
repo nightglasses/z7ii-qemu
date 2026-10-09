@@ -1,5 +1,65 @@
 # Eleven-channel SPI functional profile
 
+The asynchronous board endpoint uses the same FIFO, frame timer and interrupt
+state as in-process SSI. After the nominal master frame deadline, the device
+submits the unconsumed FIFO head with a monotonically changing transaction
+token. A backpressured endpoint can retry on an explicit readiness notification;
+an accepted request remains busy until an actual peer response completes that
+token. There is no host busy wait, automatic reply, polling completion or retry
+timer. Only completion consumes TX, publishes the received word and sets the
+normal transfer-done interrupt. Thus an attached but offline peer cannot return
+the disconnected SSI zero as a successful response.
+
+Disable, port close and board reset cancel the timer and invalidate the active
+token before notifying the endpoint. A late reply cannot consume a replacement
+transaction. Each device instance owns its own token and pending state. Disable
+preserves FIFO contents under the original register contract; port close and
+board reset flush them. Board attachment is configured only while disabled, and
+the endpoint's operations and opaque object must remain alive until the SPI
+device has been detached by its matching owner. Runtime detach invalidates and
+cancels the active token, retains unfinished busy state, and never switches the
+port to disconnected SSI success. Later transactions also remain offline until
+a real endpoint is attached again. Endpoint callbacks run on QEMU's device
+thread under the BQL, including callbacks originating from a CharBackend.
+
+This seam covers a master word transaction, not a substitute for external slave
+clocks. An asynchronous request is transport framing, not a claim that a remote
+guest has accepted a Nikon application message. Source-backed CS, readiness and
+slave state must be implemented by the actual endpoint before it completes a
+word.
+
+The saved native SPI DMA initialization now binds the whole three-port family.
+`103705a8` copies the 88-byte policy returned by `10207462` into `b1d4ff84`;
+`103705cc` binds DMA resources only in `12a..131`. The original EX transmit
+task `1020b7ba` uses logical0/channel0 and receive task `1020b65a` uses
+logical1/channel1. Both have resource `158`, the unbound sentinel, and their
+mode1 call goes through `10370a14 → 10370d92 → 10243468` (FIFO). The table binds
+SPI2,3,4 to HDMAC bank0 channel pairs0/1,2/3,4/5, with request pairs7/8,9/10,11/12
+respectively. The original `102dc33e` whole bank/channel initializer establishes
+those resource-to-controller records; they are not inferred from resource
+numbers alone.
+
+Those three ports receive an explicit board `dma` binding. CTRL bit400 gates
+two demand wires: enabled TX space and enabled RX data. Existing HDMAC performs
+the real bus transactions, accepts one demand beat, and rechecks FIFO state;
+SPI contains no DMA copy engine. The original VR channel4 uses halfword data at
+TX `+0` and RX `+4`, so those two widths are supported while a source-bound DMA
+port selects CTRL400. Unbound ports retain the DMA rejection. Disable/reset
+deassert demand, reads consume actual RX, and completed external frames free
+actual TX space. No demand depends on a fabricated peer reply. The focused DMA
+fixture checks both RAM-to-MOSI and MISO-to-RAM through the actual existing
+HDMAC, including suspension before SPI enable and while a peer response waits.
+
+The focused native test file exercises the real CharBackend transport with
+ordinary Unix sockets and its shared `wire.h` envelope. It holds a response
+while virtual time advances, checks the actual MOSI word and transaction token,
+sends fragmented MISO input, cancels and rejects late responses after disable
+and close, and interleaves two independently connected ports. An attached peer
+without a chardev stays busy without RX or transfer completion. These are
+synthetic host endpoint transactions, not EX or VR firmware compatibility proof.
+They have been submitted to the sole native builder; no pass is claimed before
+that builder executes the fixed combined model.
+
 This layer continues [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) and [启动外设与任务合同](https://github.com/mashiro01/nightglass/issues/331). It uses the [fixed original-byte whole SPI contract](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md), including the actual `10242fda` initialization anchor, eleven original objects and their two IRQ wrappers, and 23 adjacent methods. The bounded original Thumb analysis covers 2,324 bytes / 964 instructions with guarded jump tables and preserved unknown transfers. These functions were absent from the saved native listing: this is explicitly original-byte diagnostic analysis, not a claim of complete native-function recovery.
 
 The original objects supply `2c0a0000 + channel*100`, IRQ pairs `193/192` through `213/212`, and FIFO-depth consumers at `+48`. Open writes `+60=0`; close/init write `+60=1`. Setup stops and polls EN, programs configuration and watermarks, then real guest transactions push/pop word data and service FIFO progress through the common ISR `102435ec`. The ISR reads pending, W1C acknowledges it and intersects the guest enable mask; overflow follows its original error/event path. No host writes the software objects, enables them, calls their handlers or sets their event flags. [Original whole-method evidence](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md).
@@ -16,7 +76,7 @@ The protocol candidate is the Socionext-authored [fixed SPI register header](htt
 | Common pending to first IRQ | Both original wrappers reach one ISR. All enabled pending events route to the first original IRQ `193+2*channel`; the second line stays disconnected. TX/RX physical routing is unproven. |
 | No external slave clock or peer | Master uses upstream SSI; slave `64=1` records its external request but does not manufacture clocks or data. It keeps waiting until guest cancellation/timeout. |
 
-CTRL/AUX support the actual constructed fields, including Nikon's AUX bit2 that the older header marks reserved. DMA requests fail because the original setup disables DMA and no SPI DMA backend is bound. EN includes the original channel8 selector exception. CS/polarity/framing configuration is retained; no physical chip-select topology or device response is invented on the disconnected bus. Unknown offsets, widths, reset commands and configuration bits return `MEMTX_ERROR` with the normal first-access stop. The device explicitly rejects migration/snapshot through upstream unmigratable VMState. The [whole protocol's exact field and unknown boundaries](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md) remain applicable.
+CTRL/AUX support the actual constructed fields, including Nikon's AUX bit2 that the older header marks reserved. DMA requests on unbound ports fail; source-bound SPI2..4 use the demand wires above. EN includes the original channel8 selector exception. CS/polarity/framing configuration is retained; no physical chip-select topology or device response is invented on the disconnected bus. Unknown offsets, widths, reset commands and configuration bits return `MEMTX_ERROR` with the normal first-access stop. The device explicitly rejects migration/snapshot through upstream unmigratable VMState. The [whole protocol's exact field and unknown boundaries](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md) remain applicable apart from the now source-bound DMA path described above.
 
 Native incremental build exited zero at C `2e1a2b62fdc99d0ab999fe7b022aaef3fa4e2916`. Eleven focused synthetic fixtures passed against that same C: seven in `work/issue331/spi-fixtures-first/result.json`, then three in `spi-fixtures-more/result.json`, and a separate genuine QMP reset/second guest entry in `spi-board-reset-first/result.json`. They verify timed disconnected master transfer/readback, slave waiting, pending reset cancellation and preserved configuration, all eleven depths, genuine GIC IRQ193 acknowledge/W1C/EOI, actual RX FIFO overflow/ack, and width/hole/DMA/reset-command rejection. These bytes are synthetic test instructions, not recovered firmware; this is not a full-suite rerun or endpoint compatibility proof.
 

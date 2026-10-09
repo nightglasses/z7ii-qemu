@@ -169,6 +169,16 @@ static void vr_protection_and_clocks(void)
     qtest_writew(qts, 0x803fe, 0xa500);
     qtest_writel(qts, 0x80020, 0);
     g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0x10c10166);
+    /* SWRR requires PRC1 and its own A501 key; it resets the actual domain. */
+    qtest_writew(qts, 0x800c2, 0xa501);
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0x10c10166);
+    qtest_writew(qts, 0x803fe, 0xa50b);
+    qtest_writew(qts, 0x800c2, 0xa500);
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0x10c10166);
+    qtest_writew(qts, 0x800c2, 0xa501);
+    qtest_qmp_eventwait(qts, "RESET");
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0);
+    g_assert_cmphex(qtest_readw(qts, 0x803fe), ==, 0);
     qtest_quit(qts);
     unlink(path);
 }

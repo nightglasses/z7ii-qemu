@@ -9,12 +9,15 @@ PRP validation, submission/completion queues, completion status, interrupt deliv
 flush, Abort, shutdown and reset. An error returned by the real backend cannot be
 converted to successful firmware completion by this adapter.
 
-The bus owner must provide the actual PCI host configuration aperture, memory
-window, DMA address space and IRQ routing. The adapter chooses none of those
-addresses. A missing bus or backend is an attachment error. The serial is an
-explicit virtual-device identity; it does not claim an original card identity.
+`nikon.storage` now provides the source-local host ports on a private mature
+GPEX PCI bus. The native endpoint has private model devfn8; that placement is
+not an original physical BDF claim. The source CFG0 transaction targets the
+external endpoint directly, independently of GPEX's root device. The `drive`
+property is a BlockBackend ID string; only the native NVMe endpoint attaches
+that backend. Missing media leaves the host offline. The endpoint's serial is
+an explicit virtual identity, not an original card identity.
 
-The adapter deliberately adds no parallel register state machine, card-capacity
+The adapter deliberately adds no parallel NVMe register state machine, card-capacity
 guess, host filesystem shortcut, synthetic write acknowledgement or firmware
 request-ring reply. The real guest filesystem must create its own on-media bytes.
 The DDR device called SDI is unrelated to this storage endpoint.
@@ -55,7 +58,7 @@ every original instruction to the current upstream source.
 
 Original initialization caller `104d4e8a` calls `1052fa12` at `104d5010`.
 The PCI I/O object lives at controller offset `10`: methods `+0/+4` are BAR
-read/write, `+18/+1c` map/unmap, and `+28` controls PCI attributes. Its original
+read/write, `+18/+1c` map/unmap, and `+28` receives attribute-shaped calls. Its original
 provider and the host configuration/translation/IRQ implementation must be
 connected before the original guest can reach this endpoint. They are not
 substituted with an invented ECAM aperture.
@@ -66,16 +69,128 @@ At source `237a800`, the GUID bytes for RAM `b180086c` are
 that exact protocol at `104d4f1c` and stores the returned interface at
 `104d4fd4`. The original registry pair at `b18005f8` names this GUID and the
 interface at `b18006f0`; lookup `107546c2` returns registered interfaces.
-The complete interface callback table is available in the copied source data;
-its `107548xx`–`10754axx` callback bodies need a bounded original-byte decode
-because that region has no saved Listing in the current index. No mapping is
-inferred from the missing index entries.
+The complete interface callback table is available in the copied source data.
+Its `107548xx`–`10754axx` callback bodies were decoded over their bounded original
+byte range using the existing GNU ARM objdump, because that region has no saved
+Listing in the current index. Mem.Read/Write `10754846`/`107548c0` use literal
+`2a810000` plus the passed offset; Map `10754a34` returns the supplied address as
+`{address, 0}` with an identity mapping handle. Config.Read/Write
+`10754938`/`107549b6` use the original selector `b1800721` whose bytes are
+`00010000` (selector bytes 1 and 2 are 1 and 0). Helper `10517b24` computes config addresses:
 
-The earlier DebugTool save chain reaches local file-write entry `105bc2ec` or a
-peer message-ring command. `105bc2ec` constructs and queues a software request;
-the filesystem-to-NVMe namespace dispatch and actual captured-frame caller remain
-separate source bindings. Thus an implemented NVMe endpoint is not a claim that
-the original camera has saved a RAW/JPEG frame.
+* selector byte 1 is zero: `2a900000 + selector[2]*1000 + offset`;
+* otherwise: `2a7f8000 + selector[1]*8000 + selector[2]*1000 + offset`.
+
+Thus the actual endpoint config aperture is `2a800000` and its BAR access is
+`2a810000`; this is not permission to map an arbitrary full ECAM range. The
+interface is a compact original port of PCI I/O, not the complete modern EFI
+structure. At `+28`, `1052fa12` makes attribute-shaped calls but the actual
+callback `10754ab0` returns zero without a hardware effect. At `+2c`, the
+passthrough consumer calls `10754828`, which performs the original cache flush.
+The original `10517b40` creates two outbound iATU regions at root-config offset
+`900`: region 0 has CFG0 type 4, local range `[2a800000,2a810000)`, target zero;
+region 1 has memory type 0, local range `[2a810000,2a900000)`, target `2a810000`.
+Both enable control bit 31. The selector formula is not a proven standard BDF;
+in particular, the actual CFG0 target is zero, not a guessed device-1 target.
+The upstream DesignWare host has matching iATU register fields, but its config
+access interprets target zero as bus 0/devfn 0 on its root bus. That resolves its
+root bridge, whereas this original CFG0 transaction is intended for the external
+endpoint. Reusing that host without resolving the transaction/bus relationship
+would attach the correct NVMe protocol to the wrong config object.
+
+Host `10517aa6` registers handle `149` at `b1801774`; this is a service ID, not
+an IRQ number. `105162be` obtains that exact handle and stores it at `b1800744`.
+The original initializes PHY state at `2b200000` and polls link-state value `11`
+through `10517212`, up to 500 sleeps of 1 ms. Hardware reset values and link
+training timing are not established by these source consumers.
+
+The original registers and enables IRQs `f2`, `f3`, `f4`, `f6`, with handlers
+`10517a7e`, `10517a18`, `105179f0`, `10517980`. Handler `f3` reads/acknowledges
+PHY status `2b200024/2b20002c` through `1051703e`; status word bits 28/29 feed
+host callbacks. Their installed bridge `105156e0/105156f2` reaches the original
+BootServices event and sets flags `200/400`. Handler `f6` reads root MSI status
+`2a900830`. The original CQ-create body `1052f79a` creates queue IDs 1/2 with
+PC=1, IEN=1 and interrupt vector 0. These are actual IRQ/event consumers; they
+must be joined to real PCI interrupt causes by the host frontend. Merely wiring
+a guessed NVMe GIC line would skip these consumers.
+
+The DebugTool save chain reaches local file-write entry `105bc2ec` or a peer
+message-ring command. The local file request worker `1044b300`, command
+`42091001`, reaches `1044b270` → `1047109c` → `104666fe` → `104655c2` →
+`1047e768`, which invokes the registered sector callback at
+`b2b464c0 + volume*88 + 1c`. The original provider registry `10481aec` consumes
+COPY0 table `b1808ac4`; the XQD-named registration's write `104825b2` reaches
+`1049d800`. In mode 1, `104b7ab6` installs table `b1801738`, whose write callback
+is `104b7a42`. That callback invokes `104d5a3a`, which loads Block I/O from
+`b18012ec`, obtains the media ID and block size, converts sector count to bytes
+and directly calls `105143a0` at `104d5a56`. The matching read path reaches
+`105142ac`. This is an actual file-sector-NVMe bridge; it is not inferred from
+the XQD label or physical card specification. The CF-named table's current
+callback is a stub and must not be relabeled as NVMe.
+
+Normal file-object write `10567d8e` → `105671ba` also uses the original write
+API `105bea78` through literal `10567fa8=105bea79`, then updates file position
+and size. The exact captured-frame producer, format and original save completion
+are still to be joined. Thus this implemented and tested endpoint does not claim
+that the original camera has saved a RAW/JPEG frame. The complete host and
+consumer receipts are in the same ignored work tree under `storage/providers/`
+and `storage/consumer/`; no firmware image is committed.
+
+## Source-local host implementation
+
+| SysBus port | Source address/extent | Implemented semantics |
+|---|---|---|
+| 0 DBI | `2a900000`, 4KiB | Native root PCI configuration below100; finite iATU900..91c, MSI820..830, source168/80c/8a8/8bc |
+| 1 CFG0 | `2a800000`, 64KiB | Source region0 type4/target0 selects the external native endpoint's 4KiB config; other slots reject transactions |
+| 2 memory | `2a810000`, 960KiB | Source region1 type0/target2a810000 aliases native PCI BAR memory; disabled windows reject transactions |
+| 3 PHY | `2b200000`, 1KiB | Only source-declared offsets accepted; controls, finite status, causal training/cancel and W1C events |
+| 4 platform | `2b100000`, 16 bytes | Complete10516a28/3e/4c configuration fields; retained values without invented readiness or IRQ |
+
+Four SysBus IRQ outputs are ordered `f2/f3/f4/f6` (242/243/244/246). Real native
+INTx assertion/deassertion latches PHY24 bits28/29 and drives f3. Native PCI MSI
+writes latch DBI830, subject to enable828 and mask82c, and drive f6; W1C830
+acknowledges them. f2/f4 remain low without an implemented source-proven cause;
+they are not used as a substitute completion interrupt. Upstream NVMe supplies
+MSI-X rather than ordinary MSI. The firmware's capability-ID5 branch remains
+conditional; no fake MSI capability is installed.
+
+PCI DMA uses a private identity address space aliasing the actual machine memory.
+Its only overlay is the programmed four-byte MSI destination at DBI820/824.
+That overlay is absent from CPU memory: CPU data at `b1800740` stays RAM and
+cannot trigger a PCI interrupt. All other command/data DMA retains real memory
+transaction results and the existing native PRP validation.
+
+Attached media, PHY mode4/startbit4, control+c bits0/1, and +50bit8 are required
+before a training request can complete. The function model uses an explicitly
+assumed 1ms virtual training delay, state11, DBI98 low4=2, and boolean PHY210=1
+after success. These are software-compatible functional assumptions, not measured
+PCI link speed, timing or performance. PHY +58 state fields never become ready
+from reads alone. Missing media remains offline. The named GPIO output `link`
+index0 is high only in state11; machine glue connects it to the existing signal
+device's route3 input, which owns filtering and raw2b000010 bit10. The host never
+overlaps or seeds that signal register bank.
+
+Cancellation is requested by a rising PHY3c bit4 or PHY50 bit16. It first invokes
+native PCI/NVMe reset, whose existing controller path drains namespaces and cancels
+in-flight commands before freeing queues. Native PCI configuration/BARs reset.
+Only then does a 1ms virtual completion publish state15 and PHY2c bit26 or bit30,
+respectively, through f3. The consumed request bit clears on completion as an
+explicit functional assumption, allowing repeated source cancellations. An ACK
+cannot retrain; a fresh explicit start is required.
+Reset or loss of the programmed link controls cancels pending timers and drops
+link/IRQ outputs. Diagnostic status fields without a proven producer have a
+declared cold-zero functional reset value, not a claimed hardware reset value.
+Unlisted PHY/DBI offsets and config outside the actual external slot reject
+transactions; unsupported iATU regions do not map memory. Snapshot migration is
+explicitly unavailable for this functional host.
+
+The independent platform producer `104b7b88` writes the four fields at2b100000
+before invoking the storage path: +0 has bits8/0, +4 has bit0, +8 carries its
+source word, and +c has bits20/16. They are modeled together rather than leaving
+four unmapped writes. Their physical clock/power identity and relation to link
+training are not proven, so stored configuration never manufactures a completion
+or performance measurement. Source DBI168/80c are also present because the full
+training producer10517c6a accesses them before PHY start.
 
 ## Native verification
 
@@ -90,11 +205,26 @@ cases cover:
   CID reports that it was not aborted; CC disable reaches CSTS.RDY=0.
 * Read-only media rejects a write while retaining successful reads.
 
-These cases exercise the mature controller protocol, not the adapter's eventual
-board-specific call site or original frame-save pipeline. They do not yet test
-Abort racing an outstanding asynchronous request, card hot removal, or the
-original interrupt route. Build and execution are delegated to the single native
-build owner; no test execution is asserted in this source commit.
+Three additional source-host cases use the diagnostic Z7II machine, a four-byte
+loop BIOS and the same real backend:
+
+* Missing media does not train or generate a completion/IRQ.
+* Original two-window iATU/config/PHY sequence selects native NVMe rather than the
+  root bridge; real sector Write/Flush reaches backend bytes, native INTx drives
+  original f3 events, cancellation drains/resets before completion and requires
+  explicit restart/configuration.
+* The real native MSI-X vector issues a PCI write to the original MSI destination;
+  receiver masking/W1C drives f6, while CPU RAM at that address remains unchanged.
+
+The sole builder compiled and linked the complete host with the actual board
+mapping, then ran all three added host cases successfully in 0.71s. The local
+receipt is `work/worktrees/native-qemu-source/work/validation/gui/storageqomfinal.log`.
+The tests do not claim original frame-save execution, racing Abort, or card hot
+removal. Build and execution are delegated to the single native
+build owner. The sole build owner ran these three cases successfully in 0.78 s;
+Identify is part of the roundtrip case. This result applies to the ARM `virt`
+fixture and upstream NVMe endpoint, without extending it to original Z7II host
+execution or a captured-frame save.
 
 See [QEMU NVMe documentation](https://www.qemu.org/docs/master/system/devices/nvme.html)
 for the mature controller, namespace and BlockBackend interfaces. The project's

@@ -104,6 +104,43 @@ static void peripheral_reset(void)
     qtest_quit(qts);
 }
 
+static void rtc(void)
+{
+    QTestState *qts = start();
+    const uint32_t base = 0x40002800;
+    qtest_writel(qts, 0x40007000, 1 << 8);
+    qtest_writel(qts, base, 0x235959);
+    g_assert_cmphex(qtest_readl(qts, base), ==, 0); /* locked */
+    qtest_writel(qts, 0x40023874, 1);
+    qtest_writel(qts, 0x40023870, (1 << 15) | (2 << 8));
+    qtest_clock_step(qts, 100000);
+    qtest_writel(qts, base + 0x24, 0xca);
+    qtest_writel(qts, base + 0x24, 0x53);
+    qtest_writel(qts, base + 0x0c, 0x80);
+    g_assert_cmphex(qtest_readl(qts, base + 0x0c) & 0x40, ==, 0);
+    qtest_clock_step(qts, 62500);
+    g_assert_cmphex(qtest_readl(qts, base + 0x0c) & 0x40, ==, 0x40);
+    qtest_writel(qts, base + 0x10, 0x007f00f9); /* 32 kHz /128 /250 */
+    qtest_writel(qts, base, 0x235959);
+    qtest_writel(qts, base + 4, 0x246228); /* 2024-02-28, Wednesday */
+    qtest_writel(qts, base + 0x0c, 0);
+    qtest_clock_step(qts, 62500);
+    qtest_writel(qts, base + 0x14, 999);
+    qtest_writel(qts, 0x40013c00, 1 << 22);
+    qtest_writel(qts, base + 8, (1 << 10) | (1 << 14));
+    qtest_clock_step(qts, 500000000);
+    g_assert_true(qtest_get_irq(qts, 3));
+    g_assert_cmphex(qtest_readl(qts, base + 0x0c) & (1 << 10), ==, 1 << 10);
+    qtest_writel(qts, base + 0x0c,
+                 qtest_readl(qts, base + 0x0c) & ~(1 << 10));
+    qtest_writel(qts, 0x40013c14, 1 << 22);
+    g_assert_false(qtest_get_irq(qts, 3));
+    qtest_clock_step(qts, 500000000);
+    g_assert_cmphex(qtest_readl(qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, base + 4), ==, 0x248229);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -112,5 +149,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/dma", dma);
     qtest_add_func("/nikon/ex/i2c-absent", i2c_absent);
     qtest_add_func("/nikon/ex/peripheral-reset", peripheral_reset);
+    qtest_add_func("/nikon/ex/rtc", rtc);
     return g_test_run();
 }

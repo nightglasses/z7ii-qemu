@@ -3,7 +3,7 @@ nikon_arm_fixtures = {}
 if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   nikon_arm_fixtures += {
     'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c',
-                   'sampling.c'),
+                   'sampling.c', 'image.c', 'sdi.c', 'spi.c'),
     'nikon_timer': files('timer.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
@@ -23,7 +23,10 @@ if nikon_arm_fixtures.keys().length() > 0
   nikon_targets += {'arm': nikon_arm_fixtures}
 endif
 if config_all_devices.has_key('CONFIG_NIKON_VR')
-  nikon_targets += {'rx': {'nikon_vr': files('vr.c')}}
+  nikon_targets += {'rx': {
+    'nikon_vr': files('vr.c'),
+    'nikon_peripherals': files('peripherals.c'),
+  }}
 endif
 foreach arch, fixtures : nikon_targets
   nikon_emulator = emulators['qemu-system-' + arch]

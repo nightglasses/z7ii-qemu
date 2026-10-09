@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/bswap.h"
 #include "qemu/fifo32.h"
 #include "qemu/timer.h"
 #include "migration/vmstate.h"
@@ -13,6 +14,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/ssi/ssi.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/peer.h"
 
 #define SPI_DEPTH 32
 #define SPI_HZ 48000000
@@ -26,9 +28,14 @@ struct NikonSPIState {
     Clock *clock;
     QEMUTimer *timer;
     qemu_irq irq[2];
+    qemu_irq dma[2];
     uint32_t channel;
     uint32_t div, ctrl, aux, select, polarity, ien, pending;
     uint32_t dma_timeout, delay, enable, watermark, slave_request;
+    const NikonSPIAsyncOps *async_ops;
+    void *async_opaque;
+    uint64_t token;
+    bool dma_bound, async_bound, waiting, submitted;
     bool asserted, shifting, overflow, reported_error;
 };
 
@@ -37,6 +44,13 @@ static void nikon_spi_irq(NikonSPIState *s)
     /* Both guest wrappers use the common ISR. First-line routing is assumed. */
     qemu_set_irq(s->irq[0], !s->asserted && (s->pending & s->ien));
     qemu_set_irq(s->irq[1], 0); /* No external second-line producer. */
+    /* Existing HDMAC consumes one demand beat and rechecks these real FIFOs. */
+    qemu_set_irq(s->dma[0], s->dma_bound && !s->asserted &&
+                 (s->enable & 1) && (s->ctrl & 0x400) &&
+                 !fifo32_is_full(&s->tx));
+    qemu_set_irq(s->dma[1], s->dma_bound && !s->asserted &&
+                 (s->enable & 1) && (s->ctrl & 0x400) &&
+                 !fifo32_is_empty(&s->rx));
 }
 
 static bool nikon_spi_txmark(NikonSPIState *s)
@@ -84,29 +98,20 @@ static void nikon_spi_schedule(NikonSPIState *s)
               MAX(1, clock_ticks_to_ns(s->clock, cycles + s->delay)));
 }
 
-static void nikon_spi_shift(void *opaque)
+static void nikon_spi_complete(NikonSPIState *s, uint32_t received)
 {
-    NikonSPIState *s = opaque;
     unsigned bits = ((s->aux >> 8) & 31) + 1;
     uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
-    uint32_t received;
 
     s->shifting = false;
-    if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
-        fifo32_is_empty(&s->tx)) {
-        return;
-    }
-    /*
-     * Upstream SSI with no attached peripheral returns disconnected MISO=0.
-     * No sensor/flash reply or command acknowledgement is supplied.
-     */
-    received = ssi_transfer(s->bus, fifo32_pop(&s->tx) & mask) & mask;
+    s->waiting = s->submitted = false;
+    fifo32_pop(&s->tx);
     if (!(s->aux & 8)) {
         if (fifo32_is_full(&s->rx)) {
             s->overflow = true;
             s->pending |= 0x80;
         } else {
-            fifo32_push(&s->rx, received);
+            fifo32_push(&s->rx, received & mask);
         }
     }
     if (fifo32_is_empty(&s->tx)) {
@@ -116,10 +121,102 @@ static void nikon_spi_shift(void *opaque)
     nikon_spi_schedule(s);
 }
 
+static void nikon_spi_submit(NikonSPIState *s)
+{
+    uint8_t bytes[4];
+    unsigned bits = ((s->aux >> 8) & 31) + 1;
+    uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
+
+    /* Hold the FIFO head until the peer has actually completed this frame. */
+    if (!s->async_ops || !s->waiting || s->submitted) {
+        return;
+    }
+    fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
+    s->submitted = true;
+    if (!s->async_ops->request(s->async_opaque, s->token,
+                               ldl_le_p(bytes) & mask, bits) && s->waiting) {
+        s->submitted = false;
+    }
+}
+
+static void nikon_spi_shift(void *opaque)
+{
+    NikonSPIState *s = opaque;
+    uint8_t bytes[4];
+    unsigned bits = ((s->aux >> 8) & 31) + 1;
+    uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
+
+    if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
+        fifo32_is_empty(&s->tx)) {
+        s->shifting = false;
+        return;
+    }
+    if (s->async_bound) {
+        s->token++;
+        s->waiting = true;
+        nikon_spi_submit(s);
+        return;
+    }
+    /* In-process upstream SSI retains its disconnected MISO-low behavior. */
+    fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
+    nikon_spi_complete(s, ssi_transfer(s->bus, ldl_le_p(bytes) & mask));
+}
+
+void nikon_spi_async_ready(DeviceState *dev)
+{
+    nikon_spi_submit(NIKON_SPI(dev));
+}
+
+void nikon_spi_async_complete(DeviceState *dev, uint64_t token,
+                              uint32_t received)
+{
+    NikonSPIState *s = NIKON_SPI(dev);
+
+    if (s->waiting && s->submitted && s->token == token) {
+        nikon_spi_complete(s, received);
+    }
+}
+
+void nikon_spi_attach_async(DeviceState *dev, const NikonSPIAsyncOps *ops,
+                            void *opaque)
+{
+    NikonSPIState *s = NIKON_SPI(dev);
+
+    /* Board wiring is immutable while an enabled port owns a transaction. */
+    assert(!(s->enable & 1) && !s->shifting);
+    assert(ops && ops->request && ops->cancel);
+    s->async_bound = true;
+    s->async_ops = ops;
+    s->async_opaque = opaque;
+}
+
 static void nikon_spi_cancel(NikonSPIState *s)
 {
+    uint64_t token = s->token;
+    bool submitted = s->submitted;
+
     timer_del(s->timer);
     s->shifting = false;
+    s->waiting = s->submitted = false;
+    s->token++;
+    if (submitted) {
+        s->async_ops->cancel(s->async_opaque, token);
+    }
+}
+
+void nikon_spi_detach_async(DeviceState *dev, void *owner)
+{
+    NikonSPIState *s = NIKON_SPI(dev);
+    bool busy = s->shifting;
+
+    if (!s->async_ops || s->async_opaque != owner) {
+        return;
+    }
+    nikon_spi_cancel(s);
+    s->async_ops = NULL;
+    s->async_opaque = NULL;
+    /* Unplugging a peer cannot turn its unfinished frame into an SSI zero. */
+    s->shifting = busy;
 }
 
 static void nikon_spi_flush(NikonSPIState *s)
@@ -147,7 +244,8 @@ static MemTxResult nikon_spi_read(void *opaque, hwaddr offset, uint64_t *value,
     NikonSPIState *s = opaque;
 
     *value = 0;
-    if (size != 4 || (offset & 3)) {
+    if ((size != 4 && !(size == 2 && offset == 4 && s->dma_bound &&
+                       (s->ctrl & 0x400))) || (offset & 3)) {
         goto error;
     }
     switch (offset) {
@@ -229,7 +327,8 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
 {
     NikonSPIState *s = opaque;
 
-    if (size != 4 || (offset & 3)) {
+    if ((size != 4 && !(size == 2 && offset == 0 && s->dma_bound &&
+                       (s->ctrl & 0x400))) || (offset & 3)) {
         goto error;
     }
     switch (offset) {
@@ -247,8 +346,9 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         s->div = value;
         break;
     case 0xc:
-        if ((value & ~0xc3f) || (value & 0x400) || (s->enable & 1)) {
-            goto error; /* No DMA engine bound to this SPI profile. */
+        if ((value & ~0xc3f) || ((value & 0x400) && !s->dma_bound) ||
+            (s->enable & 1)) {
+            goto error;
         }
         s->ctrl = value;
         break;
@@ -372,12 +472,14 @@ static void nikon_spi_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[0]);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[1]);
+    qdev_init_gpio_out_named(DEVICE(obj), s->dma, "dma", ARRAY_SIZE(s->dma));
 }
 
 static void nikon_spi_finalize(Object *obj)
 {
     NikonSPIState *s = NIKON_SPI(obj);
 
+    nikon_spi_cancel(s);
     timer_free(s->timer);
     fifo32_destroy(&s->tx);
     fifo32_destroy(&s->rx);
@@ -385,6 +487,7 @@ static void nikon_spi_finalize(Object *obj)
 
 static const Property nikon_spi_properties[] = {
     DEFINE_PROP_UINT32("channel", NikonSPIState, channel, 0),
+    DEFINE_PROP_BOOL("dma", NikonSPIState, dma_bound, false),
 };
 static const VMStateDescription nikon_spi_vmstate = {
     .name = "nikon-spi", .unmigratable = true,

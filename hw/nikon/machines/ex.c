@@ -45,6 +45,7 @@ typedef struct EXSPI {
     uint32_t reg[9];
     uint32_t txdata;
     bool tx_valid;
+    bool ovr_dr_seen;
     SSIBus *bus;
 } EXSPI;
 
@@ -97,6 +98,7 @@ struct NikonEXState {
     OrIRQState timer_or[2];
     EXPinRoute route[9][16];
     qemu_irq pin_route_irq[9][16];
+    qemu_irq pad_output[9 * 16];
     GBytes *firmware;
     uint32_t rcc[38];
     uint32_t pwr[2];
@@ -105,19 +107,28 @@ struct NikonEXState {
     uint32_t exti[6];
     uint16_t input[9];
     uint16_t exti_level;
-    EXSPI spi[3];
+    EXSPI spi[4];
     EXI2C i2c[3];
     EXDMA dma[2];
     EXADC adc[3];
     uint32_t adc_common;
+    uint32_t rtc[40];
+    unsigned rtc_key;
+    bool rtc_unlocked;
+    bool rtc_initialized;
+    QEMUTimer *rtc_sync;
+    QEMUTimer *rtc_tick;
+    QEMUTimer *rtc_wakeup;
     QEMUTimer *osc_timer;
     QEMUBH *reset_bh;
+    QEMUBH *adc_bh;
     qemu_irq reset_irq;
     bool dma_running;
 };
 
-static const uint32_t ex_spi_base[] = { 0x40013000, 0x40003800, 0x40003c00 };
-static const int ex_spi_irq[] = { 35, 36, 51 };
+static const uint32_t ex_spi_base[] = { 0x40013000, 0x40003800, 0x40003c00,
+                                      0x40013400 };
+static const int ex_spi_irq[] = { 35, 36, 51, 84 };
 static const uint32_t ex_i2c_base[] = { 0x40005400, 0x40005800, 0x40005c00 };
 static const int ex_i2c_irq[] = { 31, 33, 72 };
 static const int ex_dma_irq[2][8] = {
@@ -147,6 +158,13 @@ qemu_irq nikon_ex_gpio_input(NikonEXState *s, unsigned port, unsigned pin)
 {
     assert(port < ARRAY_SIZE(s->gpio) && pin < 16);
     return qdev_get_gpio_in(s->gpio[port], pin);
+}
+
+void nikon_ex_gpio_connect_output(NikonEXState *s, unsigned port, unsigned pin,
+                                  qemu_irq sink)
+{
+    assert(port < 9 && pin < 16);
+    qdev_connect_gpio_out_named(DEVICE(s), "pad", port * 16 + pin, sink);
 }
 
 bool nikon_ex_set_firmware(NikonEXState *s, GBytes *component, Error **errp)
@@ -188,6 +206,197 @@ static void ex_exti_update(NikonEXState *s)
     }
     ex_irq(s, 23, pending & 0x03e0);
     ex_irq(s, 40, pending & 0xfc00);
+    ex_irq(s, 41, pending & (1 << 17));
+    ex_irq(s, 3, pending & (1 << 22));
+}
+
+static unsigned ex_rtc_hz(NikonEXState *s)
+{
+    uint32_t bdcr = s->rcc[0x70 / 4];
+    if (!(bdcr & (1 << 15)) || (bdcr & (1 << 16))) {
+        return 0;
+    }
+    switch (extract32(bdcr, 8, 2)) {
+    case 1: return bdcr & 2 ? 32768 : 0;
+    case 2: return s->rcc[0x74 / 4] & 2 ? 32000 : 0;
+    case 3: return s->rcc[0] & (1 << 17) ? EX_HSE_HZ / 8 : 0;
+    default: return 0;
+    }
+}
+
+static uint64_t ex_rtc_period(NikonEXState *s)
+{
+    unsigned hz = ex_rtc_hz(s);
+    uint32_t pre = s->rtc[4];
+    return hz ? (uint64_t)((pre & 0x7fff) + 1) *
+        (extract32(pre, 16, 7) + 1) * NANOSECONDS_PER_SECOND / hz : 0;
+}
+
+static void ex_rtc_schedule(NikonEXState *s)
+{
+    unsigned hz = ex_rtc_hz(s);
+    uint64_t period = ex_rtc_period(s);
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (hz && !timer_pending(s->rtc_sync)) {
+        timer_mod(s->rtc_sync, now + 2 * NANOSECONDS_PER_SECOND / hz);
+    }
+    if (period && !(s->rtc[3] & (1 << 7))) {
+        if (!timer_pending(s->rtc_tick)) {
+            timer_mod(s->rtc_tick, now + period);
+        }
+    } else {
+        timer_del(s->rtc_tick);
+    }
+    if (hz && (s->rtc[2] & (1 << 10))) {
+        unsigned sel = s->rtc[2] & 7;
+        uint64_t count = (s->rtc[5] & 0xffff) + 1;
+        uint64_t wake_period;
+        if (sel < 4) {
+            wake_period = count * (16 >> sel) * NANOSECONDS_PER_SECOND / hz;
+        } else {
+            count += sel >= 6 ? 65536 : 0;
+            wake_period = count * period;
+        }
+        if (!timer_pending(s->rtc_wakeup)) {
+            timer_mod(s->rtc_wakeup, now + wake_period);
+        }
+    } else {
+        timer_del(s->rtc_wakeup);
+    }
+}
+
+static void ex_rtc_sync(void *opaque)
+{
+    NikonEXState *s = opaque;
+    if (!ex_rtc_hz(s)) {
+        return;
+    }
+    s->rtc[3] = deposit32(s->rtc[3], 6, 1, !!(s->rtc[3] & (1 << 7)));
+    if (!(s->rtc[3] & (1 << 7))) {
+        s->rtc[3] |= 1 << 5; /* actual calendar-to-shadow synchronization */
+    }
+    s->rtc[3] = (s->rtc[3] & ~7u) |
+        (!(s->rtc[2] & (1 << 8))) |
+        (!(s->rtc[2] & (1 << 9)) << 1) |
+        (!(s->rtc[2] & (1 << 10)) << 2);
+}
+
+static unsigned ex_bcd_decode(unsigned value)
+{
+    return (value >> 4) * 10 + (value & 15);
+}
+
+static unsigned ex_bcd_encode(unsigned value)
+{
+    return (value / 10 << 4) | (value % 10);
+}
+
+static bool ex_rtc_alarm(NikonEXState *s, unsigned alarm)
+{
+    uint32_t value = s->rtc[alarm ? 8 : 7], tr = s->rtc[0], dr = s->rtc[1];
+    uint32_t masks[] = { 0x7f, 0x7f00, 0x7f0000 };
+    for (unsigned i = 0; i < 3; i++) {
+        if (!(value & (1u << (7 + i * 8))) &&
+            (value & masks[i]) != (tr & masks[i])) {
+            return false;
+        }
+    }
+    unsigned day = value & (1 << 30) ? extract32(dr, 13, 3) : dr & 0x3f;
+    return (value & (1u << 31)) || extract32(value, 24, 6) == day;
+}
+
+static void ex_rtc_tick(void *opaque)
+{
+    NikonEXState *s = opaque;
+    if (!ex_rtc_hz(s) || (s->rtc[3] & (1 << 7))) {
+        return;
+    }
+    uint32_t tr = s->rtc[0], dr = s->rtc[1];
+    unsigned sec = ex_bcd_decode(tr & 0x7f) + 1;
+    unsigned min = ex_bcd_decode((tr >> 8) & 0x7f);
+    unsigned hour = ex_bcd_decode((tr >> 16) & 0x3f);
+    bool pm = tr & (1 << 22), carry_day = false;
+    if (sec >= 60) {
+        sec = 0;
+        if (++min >= 60) {
+            min = 0;
+            hour++;
+            if (s->rtc[2] & (1 << 6)) {
+                if (hour == 12) {
+                    carry_day = pm;
+                    pm = !pm;
+                } else if (hour > 12) {
+                    hour = 1;
+                }
+            } else if (hour >= 24) {
+                hour = 0;
+                carry_day = true;
+            }
+        }
+    }
+    if (carry_day) {
+        static const unsigned days[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        unsigned year = ex_bcd_decode(dr >> 16), month = ex_bcd_decode((dr >> 8) & 0x1f);
+        unsigned day = ex_bcd_decode(dr & 0x3f) + 1;
+        unsigned weekday = extract32(dr, 13, 3) % 7 + 1;
+        if (month >= 1 && month <= 12 && day > days[month - 1] + (month == 2 && !(year % 4))) {
+            day = 1;
+            if (++month > 12) {
+                month = 1;
+                year = (year + 1) % 100;
+            }
+        }
+        s->rtc[1] = ex_bcd_encode(day) | (ex_bcd_encode(month) << 8) |
+            (weekday << 13) | (ex_bcd_encode(year) << 16);
+    }
+    s->rtc[0] = ex_bcd_encode(sec) | (ex_bcd_encode(min) << 8) |
+        (ex_bcd_encode(hour) << 16) | (pm << 22);
+    s->rtc[3] |= 1 << 5;
+    for (unsigned i = 0; i < 2; i++) {
+        if ((s->rtc[2] & (1 << (8 + i))) && ex_rtc_alarm(s, i)) {
+            s->rtc[3] |= 1 << (8 + i);
+            if (s->rtc[2] & (1 << (12 + i))) {
+                s->exti[5] |= 1 << 17;
+            }
+        }
+    }
+    ex_exti_update(s);
+    ex_rtc_schedule(s);
+}
+
+static void ex_rtc_wakeup(void *opaque)
+{
+    NikonEXState *s = opaque;
+    if (!ex_rtc_hz(s) || !(s->rtc[2] & (1 << 10))) {
+        return;
+    }
+    s->rtc[3] |= 1 << 10;
+    if (s->rtc[2] & (1 << 14)) {
+        s->exti[5] |= 1 << 22;
+        ex_exti_update(s);
+    }
+    ex_rtc_schedule(s);
+}
+
+static bool ex_rtc_reg(unsigned reg)
+{
+    return reg <= 6 || (reg >= 7 && reg <= 14) ||
+        (reg >= 16 && reg < 40);
+}
+
+static void ex_rtc_reset(NikonEXState *s)
+{
+    timer_del(s->rtc_sync);
+    timer_del(s->rtc_tick);
+    timer_del(s->rtc_wakeup);
+    memset(s->rtc, 0, sizeof(s->rtc));
+    s->rtc[1] = 0x2101;
+    s->rtc[3] = 7;
+    s->rtc[4] = 0x007f00ff;
+    s->rtc[5] = 0xffff;
+    s->rtc_unlocked = false;
+    s->rtc_initialized = true;
+    s->rtc_key = 0;
 }
 
 static void ex_pin_change(void *opaque, int n, int level)
@@ -199,6 +408,7 @@ static void ex_pin_change(void *opaque, int n, int level)
                                   4 * (r->pin % 4), 4);
     bool old = s->exti_level & bit;
     s->input[r->port] = deposit32(s->input[r->port], r->pin, 1, !!level);
+    qemu_set_irq(s->pad_output[r->port * 16 + r->pin], level);
     if (selected != r->port) {
         return;
     }
@@ -260,6 +470,7 @@ static void ex_clock_settle(void *opaque)
         clock_set_hz(s->cpuclk, hz);
         clock_set_hz(s->refclk, hz / 8);
     }
+    ex_rtc_schedule(s);
 }
 
 static void ex_spi_reset(NikonEXState *s, unsigned i)
@@ -269,6 +480,7 @@ static void ex_spi_reset(NikonEXState *s, unsigned i)
     s->spi[i].reg[4] = 7;
     s->spi[i].reg[8] = 2;
     s->spi[i].tx_valid = false;
+    s->spi[i].ovr_dr_seen = false;
     s->spi[i].txdata = 0;
     ex_irq(s, ex_spi_irq[i], false);
 }
@@ -329,6 +541,9 @@ static void ex_rcc_reset_devices(NikonEXState *s, unsigned off, uint32_t bits)
         }
         if (bits & (1 << 12)) {
             ex_spi_reset(s, 0);
+        }
+        if (bits & (1 << 13)) {
+            ex_spi_reset(s, 3);
         }
         if (bits & (1 << 4)) {
             device_cold_reset(s->uart[0]);
@@ -502,13 +717,21 @@ static void ex_adc_convert(NikonEXState *s, unsigned i)
     ex_adc_update(s);
 }
 
+static void ex_adc_dispatch(void *opaque)
+{
+    NikonEXState *s = opaque;
+    for (unsigned i = 0; i < ARRAY_SIZE(s->adc); i++) {
+        ex_adc_convert(s, i);
+    }
+}
+
 void nikon_ex_adc_input(NikonEXState *s, unsigned adc, unsigned channel,
                         uint16_t sample)
 {
     assert(adc < 3 && channel < 19 && sample < 4096);
     s->adc[adc].sample[channel] = sample;
     s->adc[adc].valid |= 1 << channel;
-    ex_adc_convert(s, adc);
+    qemu_bh_schedule(s->adc_bh);
 }
 
 uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel, uint32_t value)
@@ -518,7 +741,8 @@ uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel, uint32_t value
     unsigned mask = p->reg[0] & (1 << 11) ? 0xffff : 0xff;
     uint32_t outgoing = p->tx_valid ? p->txdata & mask : mask;
 
-    if (!(p->reg[0] & (1 << 6)) || (p->reg[0] & (1 << 2))) {
+    if (!(p->reg[0] & (1 << 6)) || (p->reg[0] & (1 << 2)) ||
+        ((p->reg[0] & (1 << 9)) && (p->reg[0] & (1 << 8)))) {
         return mask;
     }
     if (p->reg[1] & 2) {
@@ -573,6 +797,19 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
         v = s->syscfg[(aligned - 0x40013800) / 4];
     } else if (aligned >= 0x40013c00 && aligned <= 0x40013c14) {
         v = s->exti[(aligned - 0x40013c00) / 4];
+    } else if (aligned >= 0x40002800 && aligned < 0x400028a0 &&
+               ex_rtc_reg((aligned - 0x40002800) / 4)) {
+        unsigned reg = (aligned - 0x40002800) / 4;
+        v = s->rtc[reg];
+        if (reg == 9 || reg == 11) {
+            v = 0; /* documented write-only key/shift interfaces */
+        } else if (reg == 10 && timer_pending(s->rtc_tick)) {
+            uint64_t left = timer_expire_time_ns(s->rtc_tick) -
+                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+            uint64_t period = ex_rtc_period(s);
+            v = period ? MIN((s->rtc[4] & 0x7fff),
+                            left * ((s->rtc[4] & 0x7fff) + 1) / period) : 0;
+        }
     } else if (aligned == 0x40012304) {
         v = s->adc_common;
     } else {
@@ -588,16 +825,23 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 goto found;
             }
         }
-        for (unsigned i = 0; i < 3; i++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
             if (aligned >= ex_spi_base[i] && aligned <= ex_spi_base[i] + 0x20) {
                 unsigned reg = (aligned - ex_spi_base[i]) / 4;
                 v = s->spi[i].reg[reg];
                 if (reg == 3 && consume) {
+                    s->spi[i].ovr_dr_seen = !!(s->spi[i].reg[2] & (1 << 6));
                     s->spi[i].reg[2] &= ~1u;
+                    ex_spi_update(s, i);
+                } else if (reg == 2 && consume && s->spi[i].ovr_dr_seen) {
+                    s->spi[i].reg[2] &= ~(1 << 6);
+                    s->spi[i].ovr_dr_seen = false;
                     ex_spi_update(s, i);
                 }
                 goto found;
             }
+        }
+        for (unsigned i = 0; i < 3; i++) {
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
@@ -672,6 +916,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             v = (v & ~2u) | (s->rcc[off / 4] & 2);
         }
         s->rcc[off / 4] = v;
+        if (off == 0x70 && (v & (1 << 16))) {
+            ex_rtc_reset(s);
+        }
         ex_rcc_reset_devices(s, off, v & ~previous);
         timer_mod(s->osc_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + EX_OSC_DELAY_NS);
     } else if (aligned == 0x40007000) {
@@ -707,6 +954,62 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             }
         }
         ex_exti_update(s);
+    } else if (aligned >= 0x40002800 && aligned < 0x400028a0) {
+        unsigned reg = (aligned - 0x40002800) / 4;
+        if (!(s->pwr[0] & (1 << 8))) {
+            return MEMTX_OK; /* backup-domain writes are protected by DBP */
+        }
+        if (reg == 9) {
+            if ((v & 0xff) == 0xca) {
+                s->rtc_key = 1;
+            } else if ((v & 0xff) == 0x53 && s->rtc_key == 1) {
+                s->rtc_unlocked = true;
+                s->rtc_key = 0;
+            } else {
+                s->rtc_unlocked = false;
+                s->rtc_key = 0;
+            }
+        } else if (reg >= 20 || (reg == 17) || s->rtc_unlocked) {
+            if (reg == 3) {
+                bool initializing = s->rtc[3] & (1 << 7);
+                /* INIT is writable; RSF and event flags are write-zero-clear. */
+                s->rtc[3] &= v | ~0xff20u;
+                s->rtc[3] = deposit32(s->rtc[3], 7, 1, !!(v & (1 << 7)));
+                if (!(v & (1 << 7))) {
+                    s->rtc[3] &= ~(1 << 6);
+                    if (initializing) {
+                        s->rtc[3] |= 1 << 4;
+                    }
+                }
+            } else if (reg == 0 || reg == 1 || reg == 4) {
+                if (s->rtc[3] & (1 << 6)) {
+                    static const uint32_t masks[] = { 0x007f7f7f, 0x00ffff3f };
+                    s->rtc[reg] = reg == 4 ? v & 0x007f7fff : v & masks[reg];
+                }
+            } else if (reg == 2) {
+                s->rtc[2] = v & 0x00ffffff;
+                s->rtc[3] &= ~7u;
+                timer_del(s->rtc_wakeup);
+            } else if (reg == 5) {
+                if (s->rtc[3] & 4) {
+                    s->rtc[5] = v & 0xffff;
+                }
+            } else if (reg == 7 || reg == 8) {
+                if (s->rtc[3] & (1 << (reg - 7))) {
+                    s->rtc[reg] = v;
+                }
+            } else if (reg == 10 || (reg >= 12 && reg <= 14)) {
+                return ex_bad(s, addr, size, true);
+            } else if (reg == 11 || reg == 16) {
+                /* Subsecond shift/calibration requires a timed profile. */
+                if (v) {
+                    return ex_bad(s, addr, size, true);
+                }
+            } else {
+                s->rtc[reg] = v;
+            }
+        }
+        ex_rtc_schedule(s);
     } else if (aligned == 0x40012304) {
         s->adc_common = v & 0x00c3ff1f;
     } else {
@@ -723,13 +1026,13 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     s->adc[i].reg[reg] = v;
                 }
                 if (reg == 2) {
-                    ex_adc_convert(s, i);
+                    qemu_bh_schedule(s->adc_bh);
                 }
                 ex_adc_update(s);
                 return MEMTX_OK;
             }
         }
-        for (unsigned i = 0; i < 3; i++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
             if (aligned >= ex_spi_base[i] && aligned <= ex_spi_base[i] + 0x20) {
                 EXSPI *p = &s->spi[i];
                 unsigned reg = (aligned - ex_spi_base[i]) / 4;
@@ -757,6 +1060,8 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 ex_spi_update(s, i);
                 return MEMTX_OK;
             }
+        }
+        for (unsigned i = 0; i < 3; i++) {
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
@@ -855,12 +1160,19 @@ static const MemoryRegionOps ex_peripheral_ops = {
 static void ex_reset(DeviceState *dev)
 {
     NikonEXState *s = NIKON_EX(dev);
+    uint32_t backup_clock = s->rcc[0x70 / 4];
+    uint32_t lsi_clock = s->rcc[0x74 / 4] & 3;
     qemu_bh_cancel(s->reset_bh);
+    qemu_bh_cancel(s->adc_bh);
     timer_del(s->osc_timer);
     memset(s->rcc, 0, sizeof(s->rcc));
     s->rcc[0] = 0x83;
     s->rcc[1] = 0x24003010;
     s->rcc[0x74 / 4] = 0x0e000000;
+    if (s->rtc_initialized) {
+        s->rcc[0x70 / 4] = backup_clock;
+        s->rcc[0x74 / 4] |= lsi_clock;
+    }
     memset(s->pwr, 0, sizeof(s->pwr));
     s->pwr[0] = 0xc000;
     s->pwr[1] = 0x4000;
@@ -874,6 +1186,13 @@ static void ex_reset(DeviceState *dev)
     memset(s->dma, 0, sizeof(s->dma));
     memset(s->adc, 0, sizeof(s->adc));
     s->adc_common = 0;
+    if (!s->rtc_initialized) {
+        ex_rtc_reset(s);
+    } else {
+        s->rtc[3] &= ~0xe0u; /* system reset preserves the backup calendar */
+        s->rtc_unlocked = false;
+        s->rtc_key = 0;
+    }
     for (unsigned i = 0; i < 3; i++) {
         s->adc[i].reg[9] = 0xfff;
     }
@@ -884,8 +1203,10 @@ static void ex_reset(DeviceState *dev)
             ex_dma_update(s, c, n);
         }
     }
-    for (unsigned i = 0; i < 3; i++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
         ex_spi_reset(s, i);
+    }
+    for (unsigned i = 0; i < 3; i++) {
         ex_i2c_reset(s, i);
     }
     ex_exti_update(s);
@@ -1024,11 +1345,18 @@ static void ex_init(Object *obj)
     clock_set_hz(s->cpuclk, EX_HSI_HZ);
     clock_set_hz(s->refclk, EX_HSI_HZ / 8);
     s->osc_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_clock_settle, s);
+    s->rtc_sync = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_sync, s);
+    s->rtc_tick = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_tick, s);
+    s->rtc_wakeup = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_wakeup, s);
     s->reset_bh = qemu_bh_new(ex_reset_requested, s);
+    s->adc_bh = qemu_bh_new(ex_adc_dispatch, s);
+    qdev_init_gpio_out_named(DEVICE(s), s->pad_output, "pad", ARRAY_SIZE(s->pad_output));
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
-        g_autofree char *spi_name = g_strdup_printf("spi%u", i + 1);
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
+        g_autofree char *spi_name = g_strdup_printf("spi%u", i + 1);
         s->spi[i].bus = ssi_create_bus(DEVICE(s), spi_name);
     }
 }
@@ -1037,7 +1365,11 @@ static void ex_finalize(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
     timer_free(s->osc_timer);
+    timer_free(s->rtc_sync);
+    timer_free(s->rtc_tick);
+    timer_free(s->rtc_wakeup);
     qemu_bh_delete(s->reset_bh);
+    qemu_bh_delete(s->adc_bh);
     qemu_free_irq(s->reset_irq);
     g_clear_pointer(&s->firmware, g_bytes_unref);
     if (DEVICE(s)->realized) {
@@ -1094,7 +1426,61 @@ static void ex_machine_class_init(ObjectClass *klass, const void *data)
     mc->no_parallel = true;
 }
 
+#define TYPE_EX_SPI_SLAVE "nikon-ex-spi-slave"
+typedef struct EXSPISlave {
+    SSIPeripheral parent_obj;
+    NikonEXState *processor;
+    uint32_t channel;
+} EXSPISlave;
+
+static uint32_t ex_slave_transfer(SSIPeripheral *dev, uint32_t value)
+{
+    EXSPISlave *s = (EXSPISlave *)dev;
+    return nikon_ex_spi_transfer(s->processor, s->channel, value);
+}
+
+static void ex_slave_realize(SSIPeripheral *dev, Error **errp)
+{
+    EXSPISlave *s = (EXSPISlave *)dev;
+    if (!s->processor || !DEVICE(s->processor)->realized || s->channel >= 4) {
+        error_setg(errp, "EX SPI endpoint needs a realized processor and channel 0..3");
+    }
+}
+
+static const Property ex_slave_properties[] = {
+    DEFINE_PROP_LINK("processor", EXSPISlave, processor, TYPE_NIKON_EX,
+                     NikonEXState *),
+    DEFINE_PROP_UINT32("channel", EXSPISlave, channel, 0),
+};
+
+static void ex_slave_class_init(ObjectClass *klass, const void *data)
+{
+    SSIPeripheralClass *sc = SSI_PERIPHERAL_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    sc->realize = ex_slave_realize;
+    sc->transfer = ex_slave_transfer;
+    /* The original EX configures SSM=1, SSI=0; no guessed physical NSS pad. */
+    sc->cs_polarity = SSI_CS_NONE;
+    device_class_set_props(dc, ex_slave_properties);
+    dc->user_creatable = false;
+}
+
+DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
+                                uint8_t chip_select, Error **errp)
+{
+    DeviceState *dev = qdev_new(TYPE_EX_SPI_SLAVE);
+    object_property_set_link(OBJECT(dev), "processor", OBJECT(s), &error_abort);
+    qdev_prop_set_uint32(dev, "channel", channel);
+    qdev_prop_set_uint8(dev, "cs", chip_select);
+    if (!ssi_realize_and_unref(dev, bus, errp)) {
+        return NULL;
+    }
+    return dev; /* owned by the master SSI bus */
+}
+
 static const TypeInfo ex_types[] = {
+    { .name = TYPE_EX_SPI_SLAVE, .parent = TYPE_SSI_PERIPHERAL,
+      .instance_size = sizeof(EXSPISlave), .class_init = ex_slave_class_init },
     { .name = TYPE_NIKON_EX, .parent = TYPE_SYS_BUS_DEVICE,
       .instance_size = sizeof(NikonEXState), .instance_init = ex_init,
       .instance_finalize = ex_finalize, .class_init = ex_class_init },

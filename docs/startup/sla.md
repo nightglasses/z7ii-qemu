@@ -18,7 +18,7 @@ supports execution under the guest's own page tables; it does not establish
 physical board ownership.
 
 The functional CPU assumption is Cortex-A7, one core by default with a finite
-two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, WFE, DMB and generic
+two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, UDIV, WFE, DMB and generic
 timer operations occur in actual source. No exact physical core or core count
 has been established. CBAR `0xf8100000` is a named profile input, compatible
 with the source's CBAR-relative GIC access and the image's identity descriptor
@@ -87,7 +87,56 @@ other uncovered transactions fail and report the original access context.
 The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
 component isolation, final-byte availability, unseeded COPY/release RAM,
-independent writable COPY backing and causal fill-DMA completion. It contains
+independent writable COPY backing, both kernel arena endpoints and causal
+fill-DMA completion or failure beyond the arena. It contains
 no original firmware or source opcode arrays. Qtest does not demonstrate
 original instruction execution; the original-run receipts remain in `work/`
-and must be added separately after the single build owner produces the binary.
+and are described separately below.
+
+The first actual native run used the single builder's `2c0bae3` ARM binary and
+the complete original decoded container, one Cortex-A7 under TCG, with native
+HMP observation and guest-error logging. HMP confirmed initial PC
+`0x1002bcd4`, CPSR `0x400001d3` (ARM secure SVC32). The original instructions
+programmed MEMC mode `0x21`, timing `0x153b0902` and clock groups 6/5/7 before
+the first rejected transaction: CPU0 PC `0x10023730`, PA `0x200300b8`, write
+32-bit value `1`, `sdi-config-profile-not-supported`. This is an actual SDI
+configuration difference from the earlier MAS profile's value `3`, not an
+observed O `0x178` startup loop. Receipts are ignored
+`work/sla/original1.json` and `work/sla/original1.log`. The builder also passed
+the original native SLA loaded-domain qtest in 1.01 seconds. This run predates
+the queued kernel-arena addition and complete SLA SDI profile; no COPY,
+allocator, peer or full-boot success is inferred from it.
+
+The second actual run used the builder's immutable SLA `82171ac` and SDI
+`154c855` batch on canonical `b89ee41` plus its integration changes, with two
+cores under single-thread TCG. Both SDI banks completed their original training
+and MXIC committed 17 finite DDR endpoints per unit. Fill zeroed the actual
+`0x8b8000` BSS with bus result 0 and status 1. A native GDB hardware breakpoint
+at `0x100356c8` confirmed that the first 16 bytes of each COPY target matched
+its original ROM source, the guest wrote release magic `0xbabebabe`, and the
+new translation table contained copied descriptors. At `0x10036758`, the
+previously zero kernel arena contained guest allocator metadata, the shared
+SLA-core init flag was 1, and the guest had installed GIC CPU/distributor bases
+`0xf8102000/0xf8101000` and secure physical timer IRQ 29. CPU1 consumed the
+release and reached its original WFE callee `0x10050060`. These are observed
+native instructions and sampled RAM, not a full-byte COPY comparison or full
+application boot claim. Receipts remain in ignored `work/sla/original2*`.
+
+The next actual rejected transaction was CPU0 PC `0x10020134`, a 32-bit read
+from `0x04266000`. The complete `0x1002012c/0x10020158` counter lifecycle
+obtains this address through the guest's COPY1 data at `0xc1000000`, disables
+control bits 0/1, zeroes both count words, programs 48 MHz and then enables
+control 3. The profile now maps the existing finite timestamp QOM device at
+that exact address, with its virtual-time clock and real stopped/running count.
+
+The runtime callback `0x10020294` also supplies literal `0x2c090000` to
+`0x10020180`, whose byte/halfword writes implement the existing USIO protocol.
+`0x100201ec` polls status byte bit 1 and writes the TX halfword. This isolated
+SLA port reuses the shared native USIO device and optional `-serial` backend;
+no UART IRQ connection has been established for these polling callees.
+The native qtest verifies timestamp advance and stop, plus the isolated port's
+TX-ready read. Source `0x10043af4`, named `mailbox` by the initialization string,
+allocates 36-byte RTOS objects through the ordinary guest allocator and links
+them through COPY1 globals `0xc1017c10/0xc1017c18`. Its name supplies no
+physical cross-domain mailbox contract. The `TSmpcallIpiIrq/Level` configuration
+and GIC paths operate on SLA core-local state, also without a proven MAS wire.

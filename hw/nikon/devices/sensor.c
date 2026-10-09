@@ -6,12 +6,11 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/timer.h"
+#include "io/channel-file.h"
 #include "migration/vmstate.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
-#include "hw/core/qdev-properties-system.h"
 #include "system/address-spaces.h"
-#include "system/block-backend.h"
 #include "system/dma.h"
 #include "system/reset.h"
 #include "hw/nikon/sensor.h"
@@ -21,7 +20,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSensorState, NIKON_SENSOR)
 
 struct NikonSensorState {
     DeviceState parent_obj;
-    BlockBackend *input;
+    char *filename;
+    QIOChannelFile *input;
     QEMUTimer *timer;
     qemu_irq output[NIKON_SENSOR_OUTPUTS];
     NikonSensorFrame configuration, active;
@@ -89,6 +89,19 @@ static bool nikon_sensor_writable(hwaddr address, uint64_t length)
     return true;
 }
 
+static int64_t nikon_sensor_frame_length(NikonSensorState *s)
+{
+    struct stat info;
+
+    if (!s->input) {
+        return -ENOMEDIUM;
+    }
+    if (fstat(s->input->fd, &info) < 0) {
+        return -errno;
+    }
+    return info.st_size;
+}
+
 static void nikon_sensor_readout(void *opaque)
 {
     NikonSensorState *s = opaque;
@@ -99,6 +112,8 @@ static void nikon_sensor_readout(void *opaque)
     uint32_t count;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     MemTxResult result;
+    Error *error = NULL;
+    QIOChannelFile *input;
     int64_t input_length;
     int ret;
 
@@ -114,7 +129,7 @@ static void nikon_sensor_readout(void *opaque)
     if (s->phase != NIKON_SENSOR_READING) {
         return;
     }
-    input_length = blk_is_available(s->input) ? blk_getlength(s->input) : -1;
+    input_length = nikon_sensor_frame_length(s);
     if (s->generation != generation || s->phase != NIKON_SENSOR_READING) {
         return;
     }
@@ -125,7 +140,11 @@ static void nikon_sensor_readout(void *opaque)
     count = MIN(SENSOR_CHUNK, s->active.row_bytes - s->column);
     address = s->active.destination + (uint64_t)s->row * s->active.stride +
               s->column;
-    ret = blk_pread(s->input, s->written, count, bytes, 0);
+    input = s->input;
+    object_ref(OBJECT(input));
+    ret = qio_channel_read_all(QIO_CHANNEL(input), bytes, count, &error);
+    object_unref(OBJECT(input));
+    error_free(error);
     if (s->generation != generation || s->phase != NIKON_SENSOR_READING) {
         return;
     }
@@ -133,7 +152,7 @@ static void nikon_sensor_readout(void *opaque)
         nikon_sensor_finish(s, NIKON_SENSOR_ERROR);
         return;
     }
-    input_length = blk_getlength(s->input);
+    input_length = nikon_sensor_frame_length(s);
     if (s->generation != generation || s->phase != NIKON_SENSOR_READING) {
         return;
     }
@@ -204,11 +223,11 @@ bool nikon_sensor_begin_frame(DeviceState *dev, const NikonSensorFrame *frame,
         error_setg(errp, "sensor physical destination overflows");
         return false;
     }
-    if (!s->input || !blk_is_available(s->input)) {
+    if (!s->input) {
         error_setg(errp, "sensor has no supplied frame");
         return false;
     }
-    input_length = blk_getlength(s->input);
+    input_length = nikon_sensor_frame_length(s);
     if (input_length < 0 || length != (uint64_t)input_length) {
         error_setg(errp, "sensor frame length does not match byte geometry");
         return false;
@@ -221,6 +240,10 @@ bool nikon_sensor_begin_frame(DeviceState *dev, const NikonSensorFrame *frame,
     if (now < 0 || frame->exposure_ns > INT64_MAX - now ||
         frame->readout_ns > (INT64_MAX - now - frame->exposure_ns) / steps) {
         error_setg(errp, "sensor virtual deadline overflows");
+        return false;
+    }
+    if (lseek(s->input->fd, 0, SEEK_SET) < 0) {
+        error_setg_errno(errp, errno, "could not rewind sensor frame");
         return false;
     }
     s->active = *frame;
@@ -256,10 +279,26 @@ static void nikon_sensor_set_capture(Object *obj, bool value, Error **errp)
 static void nikon_sensor_realize(DeviceState *dev, Error **errp)
 {
     NikonSensorState *s = NIKON_SENSOR(dev);
+    struct stat info;
 
-    if (s->input && blk_set_perm(s->input, BLK_PERM_CONSISTENT_READ,
-                                BLK_PERM_ALL, errp) < 0) {
-        return;
+    if (s->filename) {
+        s->input = qio_channel_file_new_path(s->filename,
+                                            O_RDONLY | O_NONBLOCK, 0, errp);
+        if (!s->input) {
+            return;
+        }
+        if (fstat(s->input->fd, &info) < 0) {
+            error_setg_errno(errp, errno, "could not inspect sensor frame");
+            object_unref(OBJECT(s->input));
+            s->input = NULL;
+            return;
+        }
+        if (!S_ISREG(info.st_mode)) {
+            error_setg(errp, "sensor frame must be a regular byte file");
+            object_unref(OBJECT(s->input));
+            s->input = NULL;
+            return;
+        }
     }
     /* This external endpoint is not a child of an invented controller bus. */
     qemu_register_resettable(OBJECT(dev));
@@ -267,8 +306,14 @@ static void nikon_sensor_realize(DeviceState *dev, Error **errp)
 
 static void nikon_sensor_unrealize(DeviceState *dev)
 {
+    NikonSensorState *s = NIKON_SENSOR(dev);
+
     nikon_sensor_cancel_frame(dev);
     qemu_unregister_resettable(OBJECT(dev));
+    if (s->input) {
+        object_unref(OBJECT(s->input));
+        s->input = NULL;
+    }
 }
 
 static void nikon_sensor_reset(DeviceState *dev)
@@ -301,7 +346,7 @@ static void nikon_sensor_finalize(Object *obj)
 }
 
 static const Property nikon_sensor_properties[] = {
-    DEFINE_PROP_DRIVE("frame", NikonSensorState, input),
+    DEFINE_PROP_STRING("frame", NikonSensorState, filename),
     DEFINE_PROP_UINT32("row-bytes", NikonSensorState,
                        configuration.row_bytes, 0),
     DEFINE_PROP_UINT32("rows", NikonSensorState, configuration.rows, 0),
