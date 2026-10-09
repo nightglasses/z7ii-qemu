@@ -4,7 +4,8 @@
  * Opcode0 periodic / opcode31 one-shot / opcode1 free-running source, 3GHz,
  * threshold bit0 and W1C are virtual board assumptions. Opcode1 reports its
  * configured threshold once and keeps counting; it is not a periodic alias.
- * Unknown feature requests fail; this is not a DMA engine.
+ * Channels0..4 also expose a nominal compare waveform and period bit4.
+ * Extra feature activation remains unsupported; this is not a DMA engine.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -21,12 +22,14 @@ typedef struct NikonTimingChannel {
     NikonTimingState *owner;
     QEMUTimer *timer;
     qemu_irq irq;
-    uint32_t reset, control, opcode, period, status, captured[2];
-    uint64_t count;
+    uint32_t reset, control, opcode, period, status, captured[2], compare;
+    uint32_t extra_config;
+    uint64_t count, compare_cycles;
     int64_t epoch;
     unsigned index;
     bool configured, running, complete, threshold_reported;
     bool capture_enabled, capture_level;
+    bool compare_enabled, compare_polarity, compare_started;
 } NikonTimingChannel;
 
 struct NikonTimingState {
@@ -34,6 +37,7 @@ struct NikonTimingState {
     MemoryRegion regs[2];
     Clock *clock;
     NikonTimingChannel channel[12];
+    qemu_irq compare_output[5];
     uint32_t reset, master, enabled;
     bool reported_error;
 };
@@ -52,6 +56,22 @@ static uint64_t nikon_timing_count(NikonTimingChannel *c)
 static void nikon_timing_irq(NikonTimingChannel *c)
 {
     qemu_set_irq(c->irq, !!c->status);
+}
+
+/* Virtual waveform: phase < compare, optionally inverted; inactive low. */
+static void nikon_timing_compare_output(NikonTimingChannel *c)
+{
+    bool level = false;
+
+    if (c->index > 4) {
+        return;
+    }
+    if (c->running && c->compare_enabled && c->compare_started) {
+        uint64_t phase = nikon_timing_count(c) % ((uint64_t)c->period + 1);
+
+        level = (phase < c->compare) ^ c->compare_polarity;
+    }
+    qemu_set_irq(c->owner->compare_output[c->index], level);
 }
 
 /* Named virtual mode0: one external signal per capture-capable channel. */
@@ -81,7 +101,17 @@ static void nikon_timing_schedule(NikonTimingChannel *c)
     uint64_t count = nikon_timing_count(c);
     uint64_t remaining = count < period ? period - count : 1;
 
-    if (c->opcode == 1 && c->threshold_reported) {
+    if (c->compare_enabled) {
+        uint64_t phase = count % period;
+
+        remaining = period - phase;
+        if (c->compare > phase && c->compare < period) {
+            remaining = MIN(remaining, c->compare - phase);
+        }
+        if (!c->compare_started) {
+            remaining = 1;
+        }
+    } else if (c->opcode == 1 && c->threshold_reported) {
         return;
     }
     /* Ceil to a nanosecond: no premature expiry from sub-ns nominal ticks. */
@@ -94,15 +124,18 @@ static void nikon_timing_update(NikonTimingChannel *c)
     NikonTimingState *s = c->owner;
     bool enabled = !s->reset && s->master &&
                    (s->enabled & (1U << c->index)) && !c->reset &&
-                   (c->control & 1) && c->configured && !c->complete;
+                   ((c->control & 1) || c->compare_enabled) &&
+                   c->configured && !c->complete;
 
     if (c->running && !enabled) {
         c->count = nikon_timing_count(c);
         c->running = false;
         timer_del(c->timer);
+        nikon_timing_compare_output(c);
     } else if (!c->running && enabled) {
         c->epoch = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
         c->running = true;
+        c->compare_started = false;
         nikon_timing_schedule(c);
     }
 }
@@ -117,11 +150,28 @@ static void nikon_timing_expire(void *opaque)
         return;
     }
     count = nikon_timing_count(c);
+    if (c->compare_enabled) {
+        c->compare_started = true;
+        if (c->opcode == 1) {
+            uint64_t cycles = count / period;
+
+            if (cycles > c->compare_cycles) {
+                c->status |= 0x10;
+                c->compare_cycles = cycles;
+            }
+            c->threshold_reported |= count >= period;
+            nikon_timing_compare_output(c);
+            nikon_timing_schedule(c);
+            nikon_timing_irq(c);
+            return;
+        }
+    }
     if (count < period) {
+        nikon_timing_compare_output(c);
         nikon_timing_schedule(c);
         return;
     }
-    c->status |= 1;
+    c->status |= c->compare_enabled ? 0x10 : 1;
     if (c->opcode == 1) {
         c->threshold_reported = true;
     } else if (c->opcode == 0x31) {
@@ -134,6 +184,7 @@ static void nikon_timing_expire(void *opaque)
         nikon_timing_schedule(c);
     }
     nikon_timing_irq(c);
+    nikon_timing_compare_output(c);
 }
 
 static void nikon_timing_channel_reset(NikonTimingChannel *c)
@@ -143,9 +194,14 @@ static void nikon_timing_channel_reset(NikonTimingChannel *c)
     c->count = 0;
     c->configured = c->running = c->complete = c->threshold_reported = false;
     c->capture_enabled = false;
+    c->compare_enabled = c->compare_polarity = c->compare_started = false;
+    c->compare = 0;
+    c->extra_config = 0;
+    c->compare_cycles = 0;
     c->captured[0] = c->captured[1] = 0;
     /* Reset changes controller state, never an external pad level. */
     nikon_timing_irq(c);
+    nikon_timing_compare_output(c);
 }
 
 static MemTxResult nikon_timing_error(NikonTimingState *s, unsigned bank,
@@ -216,6 +272,32 @@ static MemTxResult nikon_timing_read_bank(NikonTimingState *s, unsigned bank,
             goto error;
         }
         *value = c->captured[((offset & 0xff) - 20) / 4];
+        break;
+    case 36: case 40: case 44: case 48:
+        if (!bank || c->index > 4) {
+            goto error;
+        }
+        switch (offset & 0xff) {
+        case 36:
+            *value = c->compare_enabled;
+            break;
+        case 40:
+            *value = c->compare_polarity;
+            break;
+        case 44:
+            *value = c->compare;
+            break;
+        case 48:
+            /* Virtual phase result; original producer/meaning unknown. */
+            *value = nikon_timing_count(c) % ((uint64_t)c->period + 1);
+            break;
+        }
+        break;
+    case 56: case 60:
+        if (!bank || c->index > 4) {
+            goto error;
+        }
+        *value = (offset & 0xff) == 56 ? 0 : c->extra_config;
         break;
     default:
         goto error;
@@ -297,8 +379,11 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
             c->configured = true;
             c->running = c->complete = c->threshold_reported = false;
             c->captured[0] = c->captured[1] = 0;
-            c->status &= ~6U;
+            c->compare_cycles = 0;
+            c->compare_started = false;
+            c->status &= ~0x16U;
             nikon_timing_irq(c);
+            nikon_timing_compare_output(c);
         } else if (value) {
             goto error;
         }
@@ -328,15 +413,48 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
         }
         break;
     case 36:
+        if (!bank || c->index > 4 || value > 1 ||
+            (value && !c->configured)) {
+            goto error;
+        }
+        c->compare_enabled = value;
+        c->compare_started = false;
+        if (!value) {
+            nikon_timing_compare_output(c);
+        }
+        break;
+    case 40:
+        if (!bank || c->index > 4 || value > 1) {
+            goto error;
+        }
+        c->compare_polarity = value;
+        c->compare_started = false;
+        break;
+    case 44:
+        if (!bank || c->index > 4) {
+            goto error;
+        }
+        c->compare = value;
+        c->compare_started = false;
+        break;
     case 56:
         if (!bank || c->index > 4 || value) {
             goto error;
         }
         break;
+    case 60:
+        if (!bank || c->index > 4) {
+            goto error;
+        }
+        c->extra_config = value;
+        break;
     default:
         goto error;
     }
     nikon_timing_update(c);
+    if (c->running) {
+        nikon_timing_schedule(c);
+    }
     return MEMTX_OK;
 error:
     return nikon_timing_error(s, bank, offset, size, true, value);
@@ -383,6 +501,7 @@ static void nikon_timing_init(Object *obj)
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-timing-clock");
     qdev_init_gpio_in_named(DEVICE(obj), nikon_timing_capture, "capture", 2);
+    qdev_init_gpio_out_named(DEVICE(obj), s->compare_output, "compare", 5);
     memory_region_init_io(&s->regs[0], obj, &nikon_timing_ops0, s,
                           "nikon.timing-a", 0xd00);
     memory_region_init_io(&s->regs[1], obj, &nikon_timing_ops1, s,

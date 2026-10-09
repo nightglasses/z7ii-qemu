@@ -238,7 +238,7 @@ qtests_stm32l4x5 = \
    'stm32l4x5_usart-test']
 
 qtests_arm = \
-  (config_all_devices.has_key('CONFIG_NIKON_Z7II') ? ['nikon'] : []) + \
+  (config_all_devices.has_key('CONFIG_NIKON_Z7II') ? ['nikon', 'nikon_timer'] : []) + \
   (config_all_devices.has_key('CONFIG_MPS2') ? ['sse-timer-test'] : []) + \
   (config_all_devices.has_key('CONFIG_CMSDK_APB_DUALTIMER') ? ['cmsdk-apb-dualtimer-test'] : []) + \
   (config_all_devices.has_key('CONFIG_CMSDK_APB_TIMER') ? ['cmsdk-apb-timer-test'] : []) + \
@@ -475,7 +475,7 @@ foreach dir : target_dirs
     # Executables are shared across targets, declare them only the first time we
     # encounter them
     if not qtest_executables.has_key(test)
-      src = test == 'nikon' ? files('nikon/devices.c') : [test + '.c']
+      src = test == 'nikon' ? files('nikon/devices.c') : (test == 'nikon_timer' ? files('nikon/timer.c') : [test + '.c'])
       deps = [qemuutil, qos]
       if test in qtests
         # use a sourceset to quickly separate sources and deps
@@ -485,7 +485,8 @@ foreach dir : target_dirs
         deps += test_ss.all_dependencies()
       endif
       qtest_executables += {
-        test: executable(test, src, dependencies: deps)
+        test: executable(test, src, dependencies: deps,
+                         include_directories: test in ['nikon', 'nikon_timer'] ? include_directories('.') : [])
       }
     endif
 
@@ -496,11 +497,13 @@ foreach dir : target_dirs
     endif
 
     suites = ['qtest', 'qtest-' + target_base]
-    if test == 'nikon'
+    if test in ['nikon', 'nikon_timer']
       suites += ['nikon']
+    endif
+    if test == 'nikon'
       benchmark('nikon', qtest_executables[test],
                 depends: [test_deps, qtest_emulator, emulator_modules],
-                env: qtest_env, args: ['--tap', '-m', 'perf'],
+                env: qtest_env, args: ['--tap', '-m', 'perf', '-p', '/arm/nikon/bench/dma'],
                 protocol: 'tap', timeout: 60, suite: ['nikon'])
     endif
     test('qtest-@0@/@1@'.format(target_base, test),
