@@ -401,14 +401,153 @@ static void test_copy_private(void)
     g_assert_cmpint(unlink(backend_path), ==, 0);
 }
 
+static void test_local_code(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+    uint64_t last = NIKON_SLA_LOCAL_CODE_BASE + NIKON_SLA_LOCAL_CODE_SIZE - 4;
+
+    /* Allocation has no host clone; both exact end words start cold zero. */
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_LOCAL_CODE_BASE), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, last), ==, 0);
+    qtest_writel(qts, NIKON_SLA_LOCAL_CODE_BASE, 0x13579bdf);
+    qtest_writel(qts, last, 0x2468ace0);
+    qtest_system_reset(qts);
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_LOCAL_CODE_BASE), ==, 0x13579bdf);
+    g_assert_cmphex(qtest_readl(qts, last), ==, 0x2468ace0);
+    qtest_writel(qts, NIKON_SLA_LOCAL_CODE_BASE - 4, 0xdeadbeef);
+    qtest_writel(qts, last + 4, 0xdeadbeef);
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_LOCAL_CODE_BASE - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, last + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_LOCAL_CODE_BASE), ==, 0x13579bdf);
+    g_assert_cmphex(qtest_readl(qts, last), ==, 0x2468ace0);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void prefix_copy(QTestState *qts, uint32_t source, uint32_t destination,
+                        unsigned length)
+{
+    const uint32_t copy = 0x04251000;
+
+    qtest_writel(qts, copy, 0x10000000);
+    qtest_writel(qts, copy + 0x10, length - 1);
+    qtest_writel(qts, copy + 0x14, source);
+    qtest_writel(qts, copy + 0x18, destination);
+    qtest_writel(qts, copy + 0x1c, 0x30f00);
+    qtest_writel(qts, copy + 0x20, 0x30f00);
+    qtest_writel(qts, copy + 0x24, 0);
+    qtest_writel(qts, copy + 0x28, 0x9000);
+    qtest_writel(qts, copy + 0x28, 0x11109003);
+    qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_external_input(void)
+{
+    const unsigned length = NIKON_SLA_BOOT_PREFIX_SIZE + 32;
+    g_autofree char *path = fixture_container();
+    g_autofree char *prefix_path = NULL;
+    g_autofree uint8_t *prefix = g_malloc(NIKON_SLA_BOOT_PREFIX_SIZE + 1);
+    g_autofree uint8_t *expected = g_malloc0(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    g_autofree char *file_option = NULL;
+    const char *options[3];
+    int fd = g_file_open_tmp("nikon-external-prefix-XXXXXX", &prefix_path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    for (unsigned i = 0; i <= NIKON_SLA_BOOT_PREFIX_SIZE; i++) {
+        prefix[i] = 0x73 ^ i ^ (i >> 8);
+    }
+    g_assert_true(g_file_set_contents(prefix_path, (char *)prefix,
+                                     NIKON_SLA_BOOT_PREFIX_SIZE, NULL));
+    file_option = g_strdup_printf(",boot-prefix=%s", prefix_path);
+    options[0] = ""; /* Strict original-package input remains the default. */
+    options[1] = ",boot-prefix=erased";
+    options[2] = file_option;
+    for (unsigned profile = 0; profile < ARRAY_SIZE(options); profile++) {
+        QTestState *qts = qtest_initf("-machine nikonsla%s -smp 2 -bios %s",
+                                      options[profile], path);
+
+        /* Creating an external source never installs destination clone bytes. */
+        qtest_memread(qts, NIKON_SLA_LOCAL_CODE_BASE, actual, length);
+        memset(expected, 0, length);
+        g_assert_cmpmem(actual, length, expected, length);
+        qtest_irq_intercept_in(qts, "/machine/sla/gic");
+        prefix_copy(qts, NIKON_SLA_BOOT_PREFIX_BASE,
+                    NIKON_SLA_LOCAL_CODE_BASE, length);
+        if (!profile) {
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+            g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, length - 1);
+            qtest_memread(qts, NIKON_SLA_LOCAL_CODE_BASE, actual, length);
+            g_assert_cmpmem(actual, length, expected, length);
+        } else {
+            if (profile == 1) {
+                memset(expected, 0xff, NIKON_SLA_BOOT_PREFIX_SIZE);
+            } else {
+                memcpy(expected, prefix, NIKON_SLA_BOOT_PREFIX_SIZE);
+            }
+            stl_le_p(expected + NIKON_SLA_BOOT_PREFIX_SIZE, 0x51a00004);
+            qtest_memread(qts, NIKON_SLA_LOCAL_CODE_BASE, actual, length);
+            g_assert_cmpmem(actual, length, expected, length);
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 8);
+            g_assert_true(qtest_get_irq(qts, 45 - 32));
+            qtest_writel(qts, 0x04251030, 0);
+            g_assert_false(qtest_get_irq(qts, 45 - 32));
+
+            /* CPU writes and selected-AS DMA writes cannot alter the input. */
+            qtest_writel(qts, 0x04264000, 0x29);
+            qtest_writel(qts, 0x04264020, 0x153b0902);
+            qtest_writel(qts, NIKON_SLA_BOOT_PREFIX_BASE, 0x12345678);
+            g_assert_cmphex(qtest_readl(qts, NIKON_SLA_BOOT_PREFIX_BASE), ==,
+                            (uint32_t)ldl_le_p(expected));
+            qtest_writel(qts, NIKON_SLA_LOCAL_CODE_BASE, 0x12345678);
+            prefix_copy(qts, NIKON_SLA_LOCAL_CODE_BASE,
+                        NIKON_SLA_BOOT_PREFIX_BASE, 16);
+            g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+            g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, 15);
+            qtest_memread(qts, NIKON_SLA_BOOT_PREFIX_BASE, actual,
+                          NIKON_SLA_BOOT_PREFIX_SIZE);
+            g_assert_cmpmem(actual, NIKON_SLA_BOOT_PREFIX_SIZE,
+                            expected, NIKON_SLA_BOOT_PREFIX_SIZE);
+            qtest_system_reset(qts);
+            g_assert_cmphex(qtest_readl(qts, NIKON_SLA_BOOT_PREFIX_BASE), ==,
+                            (uint32_t)ldl_le_p(expected));
+        }
+        qtest_quit(qts);
+    }
+    /* Explicit files must have the whole exact extent, with no truncation. */
+    for (int delta = -1; delta <= 1; delta += 2) {
+        g_autofree char *machine = g_strdup_printf("nikonsla,boot-prefix=%s",
+                                                  prefix_path);
+        g_autofree char *error_output = NULL;
+        char *argv[] = { (char *)qtest_qemu_binary(NULL), "-machine", machine,
+                         "-bios", path, "-display", "none", "-monitor", "none",
+                         "-serial", "none", "-S", NULL };
+        int status;
+
+        g_assert_true(g_file_set_contents(prefix_path, (char *)prefix,
+                                         NIKON_SLA_BOOT_PREFIX_SIZE + delta,
+                                         NULL));
+        g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_DEFAULT, NULL, NULL,
+                                   NULL, &error_output, &status, NULL));
+        g_assert_false(g_spawn_check_wait_status(status, NULL));
+        g_assert_nonnull(strstr(error_output, "exactly 128KiB"));
+    }
+    g_assert_cmpint(unlink(prefix_path), ==, 0);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    qtest_add_func("/nikon/sla/external-input", test_external_input);
     qtest_add_func("/nikon/sla/loaded-domain", test_loaded_domain);
     qtest_add_func("/nikon/sla/copy-private", test_copy_private);
     qtest_add_func("/nikon/sla/external-interrupts", test_external_interrupts);
     qtest_add_func("/nikon/sla/events", test_events);
     qtest_add_func("/nikon/sla/notifier", test_notifier);
     qtest_add_func("/nikon/sla/counter", test_counter);
+    qtest_add_func("/nikon/sla/local-code", test_local_code);
     return g_test_run();
 }

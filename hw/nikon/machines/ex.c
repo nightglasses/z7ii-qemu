@@ -10,6 +10,7 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/bswap.h"
+#include "qemu/host-utils.h"
 #include "qemu/log.h"
 #include "qemu/main-loop.h"
 #include "qemu/module.h"
@@ -43,7 +44,12 @@
 #define EX_HSE_HZ 10000000
 #define EX_OSC_DELAY_NS 100000
 
+#define TYPE_EX_SPI_PORT "nikon-ex-spi-port"
 typedef struct EXSPI {
+    SysBusDevice parent_obj;
+    MemoryRegion memory;
+    NikonEXState *processor;
+    unsigned channel;
     uint32_t reg[9];
     uint32_t txdata;
     bool tx_valid;
@@ -909,22 +915,6 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 goto found;
             }
         }
-        for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
-            if (aligned >= ex_spi_base[i] && aligned <= ex_spi_base[i] + 0x20) {
-                unsigned reg = (aligned - ex_spi_base[i]) / 4;
-                v = s->spi[i].reg[reg];
-                if (reg == 3 && consume) {
-                    s->spi[i].ovr_dr_seen = !!(s->spi[i].reg[2] & (1 << 6));
-                    s->spi[i].reg[2] &= ~1u;
-                    ex_spi_update(s, i);
-                } else if (reg == 2 && consume && s->spi[i].ovr_dr_seen) {
-                    s->spi[i].reg[2] &= ~(1 << 6);
-                    s->spi[i].ovr_dr_seen = false;
-                    ex_spi_update(s, i);
-                }
-                goto found;
-            }
-        }
         for (unsigned i = 0; i < 3; i++) {
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
@@ -1139,35 +1129,6 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 return MEMTX_OK;
             }
         }
-        for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
-            if (aligned >= ex_spi_base[i] && aligned <= ex_spi_base[i] + 0x20) {
-                EXSPI *p = &s->spi[i];
-                unsigned reg = (aligned - ex_spi_base[i]) / 4;
-                if (reg == 2) {
-                    p->reg[2] &= v | ~(1 << 4);
-                } else if (reg != 3) {
-                    p->reg[reg] = v;
-                }
-                if (reg == 3) {
-                    p->txdata = v;
-                    p->tx_valid = true;
-                    p->reg[2] &= ~2u;
-                    if ((p->reg[0] & 0x44) == 0x44) {
-                        unsigned word_mask = p->reg[0] & (1 << 11) ? 0xffff : 0xff;
-                        if (p->reg[2] & 1) {
-                            p->reg[2] |= 1 << 6;
-                        } else {
-                            p->reg[3] = ssi_transfer(p->bus, v & word_mask) & word_mask;
-                            p->reg[2] |= 1;
-                        }
-                        p->tx_valid = false;
-                        p->reg[2] |= 2;
-                    }
-                }
-                ex_spi_update(s, i);
-                return MEMTX_OK;
-            }
-        }
         for (unsigned i = 0; i < 3; i++) {
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
@@ -1268,6 +1229,89 @@ static const MemoryRegionOps ex_peripheral_ops = {
     .valid = { .min_access_size = 1, .max_access_size = 4 },
     .impl = { .min_access_size = 1, .max_access_size = 4 },
 };
+
+static MemTxResult ex_spi_port_read(void *opaque, hwaddr offset,
+                                    uint64_t *value, unsigned size,
+                                    MemTxAttrs attrs)
+{
+    EXSPI *p = opaque;
+    unsigned reg = offset / 4;
+    if ((offset & 3) + size > 4 || reg >= ARRAY_SIZE(p->reg)) {
+        return ex_bad(p->processor, ex_spi_base[p->channel] + offset,
+                      size, false);
+    }
+    *value = extract64(p->reg[reg], 8 * (offset & 3), size * 8);
+    if (reg == 3) {
+        p->ovr_dr_seen = !!(p->reg[2] & (1 << 6));
+        p->reg[2] &= ~1u;
+        ex_spi_update(p->processor, p->channel);
+    } else if (reg == 2 && p->ovr_dr_seen) {
+        p->reg[2] &= ~(1 << 6);
+        p->ovr_dr_seen = false;
+        ex_spi_update(p->processor, p->channel);
+    }
+    return MEMTX_OK;
+}
+
+static MemTxResult ex_spi_port_write(void *opaque, hwaddr offset,
+                                     uint64_t value, unsigned size,
+                                     MemTxAttrs attrs)
+{
+    EXSPI *p = opaque;
+    unsigned reg = offset / 4;
+    uint32_t v;
+    if ((offset & 3) + size > 4 || reg >= ARRAY_SIZE(p->reg)) {
+        return ex_bad(p->processor, ex_spi_base[p->channel] + offset,
+                      size, true);
+    }
+    v = deposit32(p->reg[reg], 8 * (offset & 3), size * 8, value);
+    if (reg == 2) {
+        p->reg[2] &= v | ~(1 << 4);
+    } else if (reg != 3) {
+        p->reg[reg] = v;
+    }
+    if (reg == 3) {
+        p->txdata = v;
+        p->tx_valid = true;
+        p->reg[2] &= ~2u;
+        if ((p->reg[0] & 0x44) == 0x44) {
+            unsigned mask = p->reg[0] & (1 << 11) ? 0xffff : 0xff;
+            if (p->reg[2] & 1) {
+                p->reg[2] |= 1 << 6;
+            } else {
+                p->reg[3] = ssi_transfer(p->bus, v & mask) & mask;
+                p->reg[2] |= 1;
+            }
+            p->tx_valid = false;
+            p->reg[2] |= 2;
+        }
+    }
+    ex_spi_update(p->processor, p->channel);
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps ex_spi_port_ops = {
+    .read_with_attrs = ex_spi_port_read,
+    .write_with_attrs = ex_spi_port_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 4 },
+    .impl = { .min_access_size = 1, .max_access_size = 4 },
+};
+
+static void ex_spi_port_realize(DeviceState *dev, Error **errp)
+{
+    EXSPI *p = (EXSPI *)dev;
+    memory_region_init_io(&p->memory, OBJECT(dev), &ex_spi_port_ops, p,
+                          "ex.spi", 0x24);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &p->memory);
+}
+
+static void ex_spi_port_class_init(ObjectClass *klass, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    dc->realize = ex_spi_port_realize;
+    dc->user_creatable = false;
+}
 
 static void ex_reset(DeviceState *dev)
 {
@@ -1420,6 +1464,13 @@ static void ex_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->peripheral, OBJECT(s), &ex_peripheral_ops, s,
                           "ex.peripherals", 0x30000);
     memory_region_add_subregion(&s->memory, 0x40000000, &s->peripheral);
+    for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
+        if (!sysbus_realize(SYS_BUS_DEVICE(&s->spi[i]), errp)) {
+            return;
+        }
+        memory_region_add_subregion_overlap(&s->memory, ex_spi_base[i],
+                                            &s->spi[i].memory, 10);
+    }
 
     qdev_prop_set_uint32(armv7m, "num-irq", 97);
     qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
@@ -1544,8 +1595,12 @@ static void ex_init(Object *obj)
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
+        g_autofree char *port_name = g_strdup_printf("port%u", i + 1);
         g_autofree char *spi_name = g_strdup_printf("spi%u", i + 1);
-        s->spi[i].bus = ssi_create_bus(DEVICE(s), spi_name);
+        object_initialize_child(OBJECT(s), port_name, &s->spi[i], TYPE_EX_SPI_PORT);
+        s->spi[i].processor = s;
+        s->spi[i].channel = i;
+        s->spi[i].bus = ssi_create_bus(DEVICE(&s->spi[i]), spi_name);
     }
 }
 
@@ -1621,12 +1676,36 @@ typedef struct EXSPISlave {
     SSIPeripheral parent_obj;
     NikonEXState *processor;
     uint32_t channel;
+    uint32_t master_bits;
+    bool master_lsb_first;
 } EXSPISlave;
 
 static uint32_t ex_slave_transfer(SSIPeripheral *dev, uint32_t value)
 {
     EXSPISlave *s = (EXSPISlave *)dev;
-    return nikon_ex_spi_transfer(s->processor, s->channel, value);
+    EXSPI *spi = &s->processor->spi[s->channel];
+    unsigned bits = spi->reg[0] & (1 << 11) ? 16 : 8;
+    bool slave_lsb_first = spi->reg[0] & (1 << 7);
+    uint32_t reply = 0;
+
+    /* SSI carries numeric master words, not their width or serial bit order.
+     * Every subword is a complete real EX clock, including its DMA requests.
+     */
+    for (unsigned n = 0; n < s->master_bits / bits; n++) {
+        unsigned shift = s->master_lsb_first ? n * bits :
+                         s->master_bits - (n + 1) * bits;
+        uint32_t input = extract32(value, shift, bits);
+        bool reverse = s->master_lsb_first != slave_lsb_first;
+        if (reverse) {
+            input = bits == 8 ? revbit8(input) : revbit16(input);
+        }
+        uint32_t output = nikon_ex_spi_transfer(s->processor, s->channel, input);
+        if (reverse) {
+            output = bits == 8 ? revbit8(output) : revbit16(output);
+        }
+        reply |= output << shift;
+    }
+    return reply;
 }
 
 static void ex_slave_realize(SSIPeripheral *dev, Error **errp)
@@ -1634,6 +1713,10 @@ static void ex_slave_realize(SSIPeripheral *dev, Error **errp)
     EXSPISlave *s = (EXSPISlave *)dev;
     if (!s->processor || !DEVICE(s->processor)->realized || s->channel >= 4) {
         error_setg(errp, "EX SPI endpoint needs a realized processor and channel 0..3");
+        return;
+    }
+    if (s->master_bits != 16) {
+        error_setg(errp, "EX MCU peer profile requires 16-bit master words");
     }
 }
 
@@ -1641,6 +1724,8 @@ static const Property ex_slave_properties[] = {
     DEFINE_PROP_LINK("processor", EXSPISlave, processor, TYPE_NIKON_EX,
                      NikonEXState *),
     DEFINE_PROP_UINT32("channel", EXSPISlave, channel, 0),
+    DEFINE_PROP_UINT32("master-word-bits", EXSPISlave, master_bits, 16),
+    DEFINE_PROP_BOOL("master-lsb-first", EXSPISlave, master_lsb_first, true),
 };
 
 static void ex_slave_class_init(ObjectClass *klass, const void *data)
@@ -1652,16 +1737,18 @@ static void ex_slave_class_init(ObjectClass *klass, const void *data)
     /* The original EX configures SSM=1, SSI=0; no guessed physical NSS pad. */
     sc->cs_polarity = SSI_CS_NONE;
     device_class_set_props(dc, ex_slave_properties);
-    dc->user_creatable = false;
 }
 
 DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
-                                uint8_t chip_select, Error **errp)
+                                uint8_t chip_select, unsigned master_bits,
+                                bool master_lsb_first, Error **errp)
 {
     DeviceState *dev = qdev_new(TYPE_EX_SPI_SLAVE);
     object_property_set_link(OBJECT(dev), "processor", OBJECT(s), &error_abort);
     qdev_prop_set_uint32(dev, "channel", channel);
     qdev_prop_set_uint8(dev, "cs", chip_select);
+    qdev_prop_set_uint32(dev, "master-word-bits", master_bits);
+    qdev_prop_set_bit(dev, "master-lsb-first", master_lsb_first);
     if (!ssi_realize_and_unref(dev, bus, errp)) {
         return NULL;
     }
@@ -1669,6 +1756,8 @@ DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
 }
 
 static const TypeInfo ex_types[] = {
+    { .name = TYPE_EX_SPI_PORT, .parent = TYPE_SYS_BUS_DEVICE,
+      .instance_size = sizeof(EXSPI), .class_init = ex_spi_port_class_init },
     { .name = TYPE_EX_SPI_SLAVE, .parent = TYPE_SSI_PERIPHERAL,
       .instance_size = sizeof(EXSPISlave), .class_init = ex_slave_class_init },
     { .name = TYPE_NIKON_EX, .parent = TYPE_SYS_BUS_DEVICE,

@@ -601,6 +601,118 @@ static void input_reset(void)
     qtest_quit(qts);
 }
 
+static void spi_dma_arm(QTestState *qts, uint32_t stream, uint32_t peripheral,
+                        uint32_t memory, uint32_t count, uint32_t cr)
+{
+    qtest_writel(qts, stream, 0);
+    qtest_writel(qts, stream + 4, count);
+    qtest_writel(qts, stream + 8, peripheral);
+    qtest_writel(qts, stream + 12, memory);
+    qtest_writel(qts, stream, cr);
+}
+
+static uint16_t spi_master_clock(QTestState *qts, uint32_t master, uint16_t word)
+{
+    qtest_writel(qts, master + 12, word);
+    g_assert_cmphex(qtest_readl(qts, master + 8) & 1, ==, 1);
+    return qtest_readl(qts, master + 12);
+}
+
+static void spi_word_profile(void)
+{
+    /* Ordinary QOM SSI endpoints on two real EX master buses. These masters
+     * supply explicit 16-bit, LSB-first clocks to the original 8-bit slaves.
+     */
+    QTestState *qts = qtest_init(
+        "-machine nikonex -display none "
+        "-device nikon-ex-spi-slave,processor=/machine/ex,channel=0,bus=spi2,"
+        "master-word-bits=16,master-lsb-first=on "
+        "-device nikon-ex-spi-slave,processor=/machine/ex,channel=3,bus=spi3,"
+        "master-word-bits=16,master-lsb-first=on");
+    const uint32_t rx = 0x40013000, tx = 0x40013400;
+    const uint32_t rx_master = 0x40003800, tx_master = 0x40003c00;
+    const uint32_t dma_base = 0x40026400;
+    const uint32_t rx_stream = dma_base + 0x10, tx_stream = dma_base + 0x28;
+    const uint32_t rx_memory = 0x20001000, tx_memory = 0x20002000;
+    qtest_irq_intercept_in(qts, "/machine/ex/armv7m");
+    for (unsigned i = 0; i < 256; i++) {
+        qtest_writeb(qts, rx_memory + i, 0xa5);
+        qtest_writeb(qts, tx_memory + i, (i * 29 + 7) & 0xff);
+    }
+    qtest_writeb(qts, rx_memory + 256, 0x5a);
+    qtest_writel(qts, rx, 0x2c9);
+    qtest_writel(qts, rx + 4, 0x21);
+    qtest_writel(qts, tx, 0x2c9);
+    qtest_writel(qts, tx + 4, 0x22);
+    qtest_writel(qts, rx_master, 0xacd);
+    qtest_writel(qts, tx_master, 0xacd);
+    spi_dma_arm(qts, rx_stream, rx + 12, rx_memory, 256, 0x0602041f);
+    spi_dma_arm(qts, tx_stream, tx + 12, tx_memory, 256, 0x0800045f);
+    for (unsigned i = 0; i < 128; i++) {
+        unsigned low = (2 * i * 17 + 3) & 0xff;
+        unsigned high = ((2 * i + 1) * 17 + 3) & 0xff;
+        uint16_t expected = ((2 * i * 29 + 7) & 0xff) |
+                            ((((2 * i + 1) * 29 + 7) & 0xff) << 8);
+        g_assert_cmphex(spi_master_clock(qts, rx_master, low | (high << 8)),
+                        ==, 0xffff);
+        g_assert_cmphex(spi_master_clock(qts, tx_master, 0xffff), ==, expected);
+        g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 254 - 2 * i);
+        g_assert_cmpuint(qtest_readl(qts, tx_stream + 4), ==, 254 - 2 * i);
+        g_assert_cmphex(qtest_readb(qts, rx_memory + 2 * i), ==, low);
+        g_assert_cmphex(qtest_readb(qts, rx_memory + 2 * i + 1), ==, high);
+        if (i == 63) {
+            g_assert_cmphex(qtest_readl(qts, dma_base) & 0x410, ==, 0x410);
+            g_assert_true(qtest_get_irq(qts, 56));
+            g_assert_true(qtest_get_irq(qts, 57));
+        }
+    }
+    g_assert_cmphex(qtest_readl(qts, dma_base) & 0xc30, ==, 0xc30);
+    g_assert_cmphex(qtest_readl(qts, rx_stream) & 1, ==, 0);
+    g_assert_cmphex(qtest_readl(qts, tx_stream) & 1, ==, 0);
+    g_assert_cmphex(qtest_readb(qts, rx_memory + 256), ==, 0x5a);
+    g_assert_cmphex(spi_master_clock(qts, tx_master, 0xffff), ==, 0xffff);
+    g_assert_cmpuint(qtest_readl(qts, tx_stream + 4), ==, 0);
+    qtest_writel(qts, dma_base + 8, 0xf7d);
+    g_assert_false(qtest_get_irq(qts, 56));
+    g_assert_false(qtest_get_irq(qts, 57));
+
+    /* No frame buffering: cancel DMA between master words, then disable SPE.
+     * Real receive clocks still set RXNE, but cannot consume cancelled memory.
+     */
+    spi_dma_arm(qts, rx_stream, rx + 12, rx_memory, 4, 0x0602041f);
+    spi_master_clock(qts, rx_master, 0x963c);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 2);
+    qtest_writel(qts, rx_stream, qtest_readl(qts, rx_stream) & ~1u);
+    spi_master_clock(qts, rx_master, 0x1122);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 2);
+    qtest_writel(qts, rx, 0x289);
+    g_assert_cmphex(spi_master_clock(qts, rx_master, 0x3344), ==, 0xffff);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 2);
+    qtest_system_reset(qts);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 0);
+    g_assert_cmpuint(qtest_readl(qts, tx_stream + 4), ==, 0);
+    g_assert_false(qtest_get_irq(qts, 56));
+    g_assert_false(qtest_get_irq(qts, 57));
+
+    /* Opposite slave bit order receives actual reversed wire bits per byte. */
+    qtest_writel(qts, rx_master, 0xacd);
+    qtest_writel(qts, rx, 0x249);
+    qtest_writel(qts, rx + 4, 1);
+    spi_dma_arm(qts, rx_stream, rx + 12, rx_memory, 2, 0x0602041f);
+    spi_master_clock(qts, rx_master, 0x963c);
+    g_assert_cmphex(qtest_readb(qts, rx_memory), ==, 0x3c);
+    g_assert_cmphex(qtest_readb(qts, rx_memory + 1), ==, 0x69);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 0);
+    /* DFF=16 consumes one EX word, not two DMA halfwords. */
+    qtest_writel(qts, rx, 0xac9);
+    spi_dma_arm(qts, rx_stream, rx + 12, rx_memory, 1,
+                0x0602041f | (1 << 11) | (1 << 13));
+    spi_master_clock(qts, rx_master, 0x963c);
+    g_assert_cmphex(qtest_readw(qts, rx_memory), ==, 0x963c);
+    g_assert_cmpuint(qtest_readl(qts, rx_stream + 4), ==, 0);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -614,5 +726,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/timer", timer_profile);
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);
+    qtest_add_func("/nikon/ex/word", spi_word_profile);
     return g_test_run();
 }

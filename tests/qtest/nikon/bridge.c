@@ -7,6 +7,9 @@
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/sla.h"
+#include "hw/nikon/ex.h"
+#include "hw/nikon/input.h"
+#include "qobject/qlist.h"
 #include "../libqtest.h"
 #include "bridge.h"
 
@@ -228,7 +231,8 @@ static char *peer_bundle(void)
         "vr1840_010100.bi", "eg1840_sla_01700",
     };
     const size_t header = 208;
-    const size_t total = header + 4 * 6 + NIKON_SLA_ROM_SIZE + 2 + 16;
+    const size_t total = header + 3 * 6 + 0x80000 + 2 +
+                         NIKON_SLA_ROM_SIZE + 2 + 16;
     g_autofree uint8_t *data = g_malloc0(total);
     char *path = NULL;
     size_t offset = header;
@@ -239,13 +243,20 @@ static char *peer_bundle(void)
     stl_be_p(data + 32, ARRAY_SIZE(names));
     stl_be_p(data + 36, header);
     for (i = 0; i < ARRAY_SIZE(names); i++) {
-        size_t length = i == 4 ? NIKON_SLA_ROM_SIZE : 4;
+        size_t length = i == 0 ? 0x80000 :
+                       i == 4 ? NIKON_SLA_ROM_SIZE : 4;
         uint8_t *entry = data + 48 + i * 32;
 
         memcpy(entry, names[i], strlen(names[i]));
         stl_be_p(entry + 16, offset);
         stl_be_p(entry + 20, length + 2);
-        stl_le_p(data + offset, 0xeafffffe); /* Synthetic branch to self. */
+        if (i == 0) {
+            /* Valid finite EX vectors; qtest executes no synthetic code. */
+            stl_le_p(data + offset, 0x20040000);
+            stl_le_p(data + offset + 4, 0x08000009);
+        } else {
+            stl_le_p(data + offset, 0xeafffffe);
+        }
         stw_be_p(data + offset + length,
                  crc_ccitt_false(0, data + offset, length));
         offset += length + 2;
@@ -256,6 +267,31 @@ static char *peer_bundle(void)
     close(fd);
     g_assert_true(g_file_set_contents(path, (const char *)data, total, NULL));
     return path;
+}
+
+static void test_combined_domains(void)
+{
+    g_autofree char *bundle = peer_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
+                              "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
+    QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
+
+    g_assert_cmpuint(qlist_size(qdict_get_qlist(reply, "return")), ==, 5);
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/ex','property':'type'}}");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, TYPE_NIKON_EX);
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/input','property':'type'}}");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, TYPE_NIKON_INPUT);
+    qobject_unref(reply);
+    /* EX private ROM cannot overwrite MAS's original ROM address space. */
+    g_assert_cmphex(qtest_readl(q, 0x10020000), ==, 0xeafffffe);
+    g_assert_cmphex(qtest_readl(q, 0x08000000), ==, 0);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
 static void mapping(QTestState *q, unsigned bank, uint32_t remote,
@@ -414,6 +450,7 @@ static void test_sla_page_table(void)
 
 void nikon_bridge_add_tests(void)
 {
+    qtest_add_func("/nikon/combined/domains", test_combined_domains);
     qtest_add_func("/nikon/bridge/peer-window", test_peer_window);
     qtest_add_func("/nikon/bridge/sla-page-table", test_sla_page_table);
 }

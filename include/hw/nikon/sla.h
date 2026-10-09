@@ -7,9 +7,13 @@
 
 #define TYPE_NIKON_SLA_DOMAIN "nikon-sla-domain"
 
-/* The domain refs payload; interfaces are borrowed for its owned lifetime. */
+/* NULL/empty is strict; "erased" is a counterfactual FF NOR input; otherwise
+ * input names an exact128KiB file. Returns owned bytes, or NULL in strict mode. */
+GBytes *nikon_sla_load_boot_prefix(const char *input, Error **errp);
+/* The domain refs payload and optional prefix; interfaces remain borrowed. */
 DeviceState *nikon_sla_create(Object *parent, const char *name,
-                             GBytes *payload, unsigned num_cpus,
+                             GBytes *payload, GBytes *boot_prefix,
+                             unsigned num_cpus,
                              Chardev *serial, Error **errp);
 AddressSpace *nikon_sla_address_space(DeviceState *domain);
 DeviceState *nikon_sla_bridge(DeviceState *domain);
@@ -23,5 +27,9 @@ DeviceState *nikon_sla_bridge(DeviceState *domain);
 #define NIKON_SLA_COPY1_SIZE 0x17d60ULL
 #define NIKON_SLA_COPY2_BASE 0xc1920000ULL
 #define NIKON_SLA_COPY2_SIZE 0xad4ULL
+#define NIKON_SLA_LOCAL_CODE_BASE 0xc8200000ULL
+#define NIKON_SLA_LOCAL_CODE_SIZE 0x700000ULL
+#define NIKON_SLA_BOOT_PREFIX_BASE 0x10000000ULL
+#define NIKON_SLA_BOOT_PREFIX_SIZE 0x20000ULL
 
 #endif

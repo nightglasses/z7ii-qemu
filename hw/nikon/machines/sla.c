@@ -18,6 +18,7 @@
 #include "hw/nikon/events.h"
 #include "hw/nikon/notifier.h"
 #include "hw/nikon/counter.h"
+#include "hw/nikon/command.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
@@ -31,7 +32,13 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSLADomain, NIKON_SLA_DOMAIN)
 #define SLA_CBAR 0xf8100000ULL
 #define SLA_TIMER_HZ 48000000ULL
 #define SLA_STACK_SIZE 0x4000
-#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 8)
+#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 9)
+
+typedef struct NikonSLANor {
+    MemoryRegion region;
+    NikonSLADomain *domain;
+    hwaddr base;
+} NikonSLANor;
 
 struct NikonSLADomain {
     SysBusDevice parent_obj;
@@ -41,12 +48,14 @@ struct NikonSLADomain {
     MemoryRegion system;
     AddressSpace as;
     qemu_irq peer_ready;
-    MemoryRegion image, uncovered, bridge_window;
+    NikonSLANor image, boot_nor;
+    MemoryRegion uncovered, bridge_window;
     MemoryRegion ram[SLA_RAM_COUNT], storage[SLA_RAM_COUNT];
     unsigned ram_count;
     DeviceState *memc;
     DeviceState *bridge;
     GBytes *payload;
+    GBytes *boot_prefix;
     bool reported_error;
     bool initialized;
 };
@@ -54,6 +63,7 @@ struct NikonSLADomain {
 typedef struct NikonSLAMachine {
     MachineState parent_obj;
     MemoryRegion view;
+    char *boot_prefix;
 } NikonSLAMachine;
 
 static DeviceState *sla_device(NikonSLADomain *s, const char *name,
@@ -123,19 +133,19 @@ static const MemoryRegionOps sla_uncovered_ops = {
 static MemTxResult sla_rom_read(void *opaque, hwaddr offset, uint64_t *value,
                                unsigned size, MemTxAttrs attrs)
 {
-    NikonSLADomain *s = opaque;
+    NikonSLANor *nor = opaque;
 
     *value = 0;
-    return nikon_memc_nor_access(s->memc, NIKON_SLA_ROM_BASE + offset,
+    return nikon_memc_nor_access(nor->domain->memc, nor->base + offset,
                                  size, false, 0);
 }
 
 static MemTxResult sla_rom_write(void *opaque, hwaddr offset, uint64_t value,
                                 unsigned size, MemTxAttrs attrs)
 {
-    NikonSLADomain *s = opaque;
+    NikonSLANor *nor = opaque;
 
-    return nikon_memc_nor_access(s->memc, NIKON_SLA_ROM_BASE + offset,
+    return nikon_memc_nor_access(nor->domain->memc, nor->base + offset,
                                  size, true, value);
 }
 
@@ -146,6 +156,20 @@ static const MemoryRegionOps sla_rom_ops = {
     .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
+
+static void sla_nor(NikonSLADomain *s, NikonSLANor *nor, const char *name,
+                    hwaddr base, GBytes *bytes)
+{
+    gsize size;
+    const void *data = g_bytes_get_data(bytes, &size);
+
+    nor->domain = s;
+    nor->base = base;
+    memory_region_init_rom_device(&nor->region, OBJECT(s), &sla_rom_ops, nor,
+                                  name, size, &error_fatal);
+    memcpy(memory_region_get_ram_ptr(&nor->region), data, size);
+    memory_region_add_subregion(&s->system, base, &nor->region);
+}
 
 static void sla_reset(void *opaque)
 {
@@ -180,9 +204,8 @@ static void sla_ram(NikonSLADomain *s, DeviceState *mxic, const char *name,
 static void sla_domain_realize(DeviceState *dev, Error **errp)
 {
     NikonSLADomain *s = NIKON_SLA_DOMAIN(dev);
-    DeviceState *mxic, *gic, *fill, *gpio, *hdmac[2], *usio[3];
+    DeviceState *mxic, *gic, *fill, *gpio, *completion, *hdmac[2], *usio[3];
     SysBusDevice *gic_bus;
-    const void *payload;
     size_t size;
     unsigned i;
     static const hwaddr stack_top[] = {
@@ -190,7 +213,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         0xc1908000, 0xc1900000, 0xc18f8000,
     };
 
-    payload = g_bytes_get_data(s->payload, &size);
+    size = g_bytes_get_size(s->payload);
     if (size != NIKON_SLA_ROM_SIZE) {
         error_setg(errp, "SLA requires the complete C1.70 component");
         return;
@@ -205,11 +228,11 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion_overlap(&s->system, 0,
                                         &s->uncovered, -1);
     s->memc = sla_simple(s, "memc", TYPE_NIKON_MEMC, 0x04264000);
-    memory_region_init_rom_device(&s->image, OBJECT(s), &sla_rom_ops, s,
-                                  "nikon.sla.image", size, &error_fatal);
-    memcpy(memory_region_get_ram_ptr(&s->image), payload, size);
-    memory_region_add_subregion(&s->system, NIKON_SLA_ROM_BASE,
-                                &s->image);
+    sla_nor(s, &s->image, "nikon.sla.image", NIKON_SLA_ROM_BASE, s->payload);
+    if (s->boot_prefix) {
+        sla_nor(s, &s->boot_nor, "nikon.sla.external-boot-prefix",
+                NIKON_SLA_BOOT_PREFIX_BASE, s->boot_prefix);
+    }
 
     mxic = sla_simple(s, "mxic", TYPE_NIKON_MXIC, 0x20016000);
     /* Original COPY targets only: no initialized resources are host copied. */
@@ -227,6 +250,10 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sla_ram(s, NULL, "nikon.sla.release", 0x04008ffc, 4);
     /* Source header/sender extent: 0x18 + 0xc0 * 0x108, guest owns contents. */
     sla_ram(s, mxic, "nikon.sla.peer-ring", 0xc60f0000, 0xc618);
+    /* 100658e4 record19 and 10065ad8's next-base classifier: normal7MiB RAM.
+     * This is allocation backing only; guest/external clone bytes are absent. */
+    sla_ram(s, mxic, "nikon.sla.local-code", NIKON_SLA_LOCAL_CODE_BASE,
+            NIKON_SLA_LOCAL_CODE_SIZE);
     for (i = 0; i < s->num_cpus; i++) {
         unsigned mode;
         g_autofree char *name = g_strdup_printf("cpu%u", i);
@@ -254,7 +281,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
                                qdev_get_gpio_in_named(dev, "peer-source", 0));
     /* COPY1 c1000000 supplies the counter used by source 1002012c/10020158. */
     sla_simple(s, "timestamp", TYPE_NIKON_TIMESTAMP, 0x04266000);
-    sla_simple(s, "completion", TYPE_NIKON_COMPLETION, 0x04287000);
+    completion = sla_simple(s, "completion", TYPE_NIKON_COMPLETION, 0x04287000);
     for (i = 0; i < ARRAY_SIZE(usio); i++) {
         g_autofree char *name = i ? g_strdup_printf("usio%u", i) :
                                    g_strdup("usio");
@@ -295,6 +322,9 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sla_map(s, gic, 0, SLA_CBAR + 0x1000);
     sla_map(s, gic, 1, SLA_CBAR + 0x2000);
+    /* Second-phase1005bf0e/1005bf4c registers and enables IRQ250. */
+    sysbus_connect_irq(SYS_BUS_DEVICE(completion), 0,
+                       qdev_get_gpio_in(gic, 250 - 32));
     /* Source10058be2 registers RX/TX pairs186/187,188/189,190/191. */
     for (i = 0; i < ARRAY_SIZE(usio); i++) {
         sysbus_connect_irq(SYS_BUS_DEVICE(usio[i]), 0,
@@ -323,6 +353,26 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
             sysbus_connect_irq(SYS_BUS_DEVICE(counter), i,
                                qdev_get_gpio_in(gic, 169 + i - 32));
         }
+    }
+    {
+        static const hwaddr base[] = { 0x04250000, 0x24061000, 0x2c041000 };
+        static const unsigned irq[] = {
+            49, 50, 51, 52, 53, 54, 55, 56,
+            57, 58, 59, 60, 61, 62, 63, 64,
+            227, 228, 247, 248,
+        };
+        DeviceState *command = sla_device(s, "command", TYPE_NIKON_COMMAND);
+
+        /* Source100608c6 and complete three-by25 ROM register pointer words. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(command), &error_fatal);
+        for (i = 0; i < ARRAY_SIZE(base); i++) {
+            sla_map(s, command, i, base[i]);
+        }
+        for (i = 0; i < ARRAY_SIZE(irq); i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(command), i,
+                               qdev_get_gpio_in(gic, irq[i] - 32));
+        }
+        /* Requests carry opaque guest words; no message provider is attached. */
     }
     /* Official 1006ade8/1006ad78: IRQ127, pending/ACK at 2013d020/d028. */
     s->bridge = sla_simple(s, "bridge", TYPE_NIKON_BRIDGE, 0x20130000);
@@ -476,7 +526,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
                  "functional Cortex-A7 cpus=%u CBAR=f8100000 GICv2=256 "
                  "cntfrq=48000000; virtual stack slots=16KiB "
                  "temporary caller stack=256B; guest MMU/COPY/ZERO/release; "
-                 "no BootROM, calibration input or MAS peer ACK supplied",
+                 "loaded software entry; no calibration input or MAS peer ACK",
                  s->num_cpus);
 }
 
@@ -489,6 +539,7 @@ static void sla_finalize(Object *object)
         address_space_destroy(&s->as);
     }
     g_clear_pointer(&s->payload, g_bytes_unref);
+    g_clear_pointer(&s->boot_prefix, g_bytes_unref);
 }
 
 static void sla_domain_init(Object *object)
@@ -508,8 +559,37 @@ static void sla_domain_class_init(ObjectClass *oc, const void *data)
     dc->hotpluggable = false;
 }
 
+GBytes *nikon_sla_load_boot_prefix(const char *input, Error **errp)
+{
+    char *data;
+    gsize size;
+    g_autoptr(GError) error = NULL;
+
+    if (!input || !*input) {
+        return NULL;
+    }
+    if (!strcmp(input, "erased")) {
+        data = g_malloc(NIKON_SLA_BOOT_PREFIX_SIZE);
+        memset(data, 0xff, NIKON_SLA_BOOT_PREFIX_SIZE);
+        return g_bytes_new_take(data, NIKON_SLA_BOOT_PREFIX_SIZE);
+    }
+    /* QEMU loader.h recommends GLib's whole-file loader; do not truncate. */
+    if (!g_file_get_contents(input, &data, &size, &error)) {
+        error_setg(errp, "Cannot load explicit SLA boot-prefix input '%s': %s",
+                   input, error->message);
+        return NULL;
+    }
+    if (size != NIKON_SLA_BOOT_PREFIX_SIZE) {
+        error_setg(errp, "SLA boot-prefix input must contain exactly 128KiB");
+        g_free(data);
+        return NULL;
+    }
+    return g_bytes_new_take(data, size);
+}
+
 DeviceState *nikon_sla_create(Object *parent, const char *name,
-                             GBytes *payload, unsigned num_cpus,
+                             GBytes *payload, GBytes *boot_prefix,
+                             unsigned num_cpus,
                              Chardev *serial, Error **errp)
 {
     DeviceState *dev;
@@ -519,9 +599,15 @@ DeviceState *nikon_sla_create(Object *parent, const char *name,
         error_setg(errp, "SLA requires its complete payload and one or two CPUs");
         return NULL;
     }
+    if (boot_prefix &&
+        g_bytes_get_size(boot_prefix) != NIKON_SLA_BOOT_PREFIX_SIZE) {
+        error_setg(errp, "SLA boot-prefix input must contain exactly 128KiB");
+        return NULL;
+    }
     dev = qdev_new(TYPE_NIKON_SLA_DOMAIN);
     s = NIKON_SLA_DOMAIN(dev);
     s->payload = g_bytes_ref(payload);
+    s->boot_prefix = boot_prefix ? g_bytes_ref(boot_prefix) : NULL;
     s->num_cpus = num_cpus;
     s->serial = serial;
     object_property_add_child(parent, name, OBJECT(dev));
@@ -550,6 +636,7 @@ static void sla_init(MachineState *machine)
     DeviceState *domain;
     NikonBundle *bundle;
     GBytes *payload;
+    g_autoptr(GBytes) boot_prefix = NULL;
 
     if (strcmp(machine->cpu_type, ARM_CPU_TYPE_NAME("cortex-a7"))) {
         error_report("nikonsla requires the functional Cortex-A7 profile");
@@ -557,7 +644,13 @@ static void sla_init(MachineState *machine)
     }
     bundle = nikon_bundle_load(machine->firmware, &error_fatal);
     payload = nikon_bundle_component(bundle, NIKON_COMPONENT_SLA);
-    domain = nikon_sla_create(OBJECT(machine), "sla", payload,
+    boot_prefix = nikon_sla_load_boot_prefix(m->boot_prefix, &error_fatal);
+    if (boot_prefix) {
+        error_report("nikonsla: explicit external boot-prefix input=%s; "
+                     "erased is counterfactual FF NOR, not original BootROM",
+                     m->boot_prefix);
+    }
+    domain = nikon_sla_create(OBJECT(machine), "sla", payload, boot_prefix,
                               machine->smp.cpus, serial_hd(0), &error_fatal);
     g_bytes_unref(payload);
     nikon_bundle_free(bundle);
@@ -565,6 +658,26 @@ static void sla_init(MachineState *machine)
     memory_region_init_alias(&m->view, OBJECT(machine), "nikon.sla.board",
                              &NIKON_SLA_DOMAIN(domain)->system, 0, 1ULL << 32);
     memory_region_add_subregion(get_system_memory(), 0, &m->view);
+}
+
+static char *sla_get_boot_prefix(Object *obj, Error **errp)
+{
+    NikonSLAMachine *s = (NikonSLAMachine *)obj;
+
+    return g_strdup(s->boot_prefix ? s->boot_prefix : "");
+}
+
+static void sla_set_boot_prefix(Object *obj, const char *value, Error **errp)
+{
+    NikonSLAMachine *s = (NikonSLAMachine *)obj;
+
+    g_free(s->boot_prefix);
+    s->boot_prefix = g_strdup(value);
+}
+
+static void sla_machine_finalize(Object *obj)
+{
+    g_free(((NikonSLAMachine *)obj)->boot_prefix);
 }
 
 static void sla_class_init(ObjectClass *oc, const void *data)
@@ -577,12 +690,15 @@ static void sla_class_init(ObjectClass *oc, const void *data)
     mc->default_ram_size = 0;
     mc->max_cpus = SLA_MAX_CPUS;
     mc->ignore_memory_transaction_failures = false;
+    object_class_property_add_str(oc, "boot-prefix", sla_get_boot_prefix,
+                                  sla_set_boot_prefix);
 }
 
 static const TypeInfo sla_machine = {
     .name = TYPE_NIKON_SLA_MACHINE,
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(NikonSLAMachine),
+    .instance_finalize = sla_machine_finalize,
     .class_init = sla_class_init,
     .interfaces = arm_machine_interfaces,
 };

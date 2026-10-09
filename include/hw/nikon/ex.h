@@ -22,9 +22,12 @@ uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel,
 /* Realized slave attached to the caller's source-proven master bus.
  * EX channel is zero-based: original MCU RX is 0 (SPI1), TX is 3 (SPI4).
  * The master bus owns the returned device; NULL reports realization failure.
+ * The MCU peer profile requires explicit 16-bit master words and wire bit order.
+ * An 8-bit EX channel receives two sequential clocks per master word.
  */
 DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
-                                uint8_t chip_select, Error **errp);
+                                uint8_t chip_select, unsigned master_bits,
+                                bool master_lsb_first, Error **errp);
 /*
  * Stable physical input: 0/1 drive, -1 release. Driven levels survive MCU and
  * GPIO RCC reset; only the source peer changes its electrical state.

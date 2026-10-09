@@ -181,7 +181,9 @@ the remaining clock; no first byte is replayed.
 
 The extracted original application programs a 276-byte hardware window:
 `000176b0` writes DMA1 DMCRA at `82048`; the high-select ISR restores DMA1
-count 276 at `00017dce` and DMA0 count 276 at `00017e05`. The low-select ISR
+count 276 at `00017dce`; it restores DMA0 count 276 at `00017e05` only on
+the ordinary path, while update mode 2 delegates that rearm to the resident
+callback. The low-select ISR
 at `00017d6a–00017da7` supplies the guest TX buffer and enables SCR `f2`.
 These counts can cover the MAS 268-byte transfer, but do not prove an original
 completed packet. In particular, a final sixteen-bit beat still needs two
@@ -265,5 +267,213 @@ This is a storage producer API and an explicit host QOM storage interface; it
 does not supply the unknown resident ABI, FCU registers, IRQ, or peer bytes.
 The new native cases use only synthetic whole-page data and cover exact holes,
 qualifications, bounds/overlap rejection, real erase/program readback, reset,
-cancel, source-bus errors, and preservation of the original snapshot. They await
-sole-builder qualification; the existing nine peripheral cases are unchanged.
+cancel, source-bus errors, and preservation of the original snapshot. All five
+passed focused qualification: the sole builder compiled/linked
+production input source `1706171` and qualified all five focused cases after
+fixture corrections `9401ec3`/`b6be0d8`. External-span, flash-overlay,
+flash-cancel-bounds and external-conflict exited 0 in 0.52/0.66/0.52/0.60
+seconds (`work/vrinputscalar0receipt.log` through
+`work/vrinputscalar3receipt.log`); external-rejection exited 0 in 1.44 seconds
+(`work/vrinputrejectionreceipt.log`). These receipts belong to the canonical
+`qemu-submodule` worktree and qualified source snapshot `615a8a94d05dd44986b2fab28a66f3dc1ab7231c`.
+The existing nine peripheral cases were not rerun or changed by this group.
+
+## Bounded update record staging
+
+The source-confirmed upload path is MAS `1039CCDC` → `10393E36` →
+`103AA2C8`, storing the total stream length, source pointer and local cursor
+in `B23C4780`. `103AA3C4` copies at most hexadecimal `106` (262 decimal)
+bytes from source plus cursor into a 268-byte F7 packet: `f7 00 08 01`,
+payload, `00`, and the negative payload byte sum modulo 256. Header bytes
+are excluded from this sum. The cursor is local state, not a transmitted
+flash offset. Partial final chunks leave unspecified tail bytes in this
+producer; this staging profile accepts only complete component streams,
+whose lengths are multiples of 262, and invents no partial padding.
+The 152-byte F5/F8/FA control packets carry `00 10 00` after their command.
+Their unused trailing bytes are not interpreted as fields.
+
+The receiver owns two distinct rings. Application `000175d1` uses base
+`10e19`; DMA1 DAR is SCI5 TDR `8a0a3`, its initial count is 276, and its
+TX buffers are `15654` and `15768` with current pointer at `118fc`.
+DMA0 SAR is SCI5 RDR `8a0a5`; its RX buffers are `1587c` and `15990`,
+with current receive pointer at `11900`. Parser `000177c3` saves the consumed
+RX pointer at `11904` and advances `11900` to the other ring entry.
+At `00017cc9`, R6 is `10e1a`: byte `317[R6]` is last command `10f57`.
+F5 instead sets byte `315[R6]`, update mode `10f55`, to 1. The main loop
+observes it at `00017e90`, quiesces its ordinary work, sets mode 2 at
+`00017e9e`, and calls resident slot +0. On high CS, IRQ15 computes
+`15654 + 276 * RAM[10f53]`, stores it at `118fc`, and calls resident slot
++4 with R1=2 and R2=this **TX** buffer. The incoming frame is separately
+available through `11904`; R2 is not an incoming-record argument.
+
+`vrupload.c` now stores an exact stream of received 262-byte records, preserving
+the first metadata record `04 01 04 00 00 01` and the following `04 01` /
+little-endian destination / 256-byte body records. It checks packet shape,
+the actual checksum, bounded contiguous addresses, and exact total size
+before sealing an immutable snapshot. It reuses `nikon_vr_body()` to validate
+the complete snapshot and separate metadata from body. Failed frames do not
+advance receipt; duplicate destination records are explicitly rejected rather
+than silently interpreted as progress. F8 observes staging without producing
+a status byte. FA seals only a complete stream. These are DATA input snapshots,
+not original-code qualification or a claim about resident flash operations.
+
+The concrete functional entry is `nikon_vr_input_upload_begin()` with exact
+stream length and declared origin, then `nikon_vr_input_upload_capture()` on
+the VR AddressSpace. Capture reads actual guest mode `10f55`, CS P47 PIDR
+`8c044`, consumed RX pointer `11904`, and DMA0 remaining count `82008`.
+It requires high CS, the consumed ring bounds, and an actual 152/268-byte
+window. F5 may be captured in mode 1; data/status/finish require mode 2.
+The explicit QOM operations are `upload-begin`, `upload-capture`, and
+`upload-cancel`, with `length` and `upload-origin`, plus readonly
+`upload-received`/`upload-sealed`. These provide a usable host functional
+profile and an API for a future source-qualified resident consumer; they do
+not intercept a JSR, modify pointers, rearm DMA, or change IRQ/SCI output.
+`nikon_vr_input_upload_snapshot()` exposes the sealed bytes and origin to
+the actual persistence producer. Reset/cancel discard staging, while an
+already returned immutable snapshot remains owned by its caller.
+
+MAS callback `103AA1DA` confirms why receipt alone cannot acknowledge an
+upload: after F7 it requests F8; F8 byte 0 equal to 2 advances the local
+cursor, FF requests a resend, FC/FD/FE fail, and other values poll again.
+After FA, F8 byte 0 equal to 3 finishes successfully. No such byte is
+generated by staging. Flash erase ordering, interpretation of the metadata
+body, and resident +0/+4/+8 effects remain independent source requirements.
+The focused synthetic staging fixture manually supplies mode, RX bytes and
+DMA count; it verifies strict capture, address/checksum rejection, sealing
+and reset/cancel. It does not execute the original ISR or establish an
+original firmware upload receipt.
+
+## Explicit native persistence profile
+
+The addressed source record sequence starts at `fff00000`, advances by 256
+bytes per body record, and contains 3200 body records (819200 bytes) for the
+supplied original component. Thus its exclusive body end is `fffc8000`.
+The first 262-byte metadata record is separate; bytes `04 00 00 01` in its
+prefix are not a program destination. This is the concrete range used by the
+native persistence profile. A caller must supply the entire backing file and
+declare its guest base/size explicitly; neither missing data nor an initial
+erased image is generated. Synthetic tests use the same bounded range with
+explicit synthetic bytes and a shorter record stream.
+
+`vrstore.c` now consumes the actual sealed records via `nikon_vr_body()` and
+standard BlockBackend AIO. It retains the complete metadata on a separate
+explicit 512-byte backend sector (262 source bytes plus preserved supplied
+padding) and maps contiguous body bytes at the offset computed
+from the parsed record destination minus the caller's storage guest base.
+It checks distinct writable available backends, exact backing lengths,
+32-bit mapping bounds, and the full destination range before issuing either
+write. It requires the main AioContext. The sequence is metadata write, body
+write, metadata flush, body flush; only four successful operations produce a
+durable completion. The final notification runs in a BH after the BlockBackend
+callback retires, so backend references and buffers outlive all in-flight I/O.
+The snapshot, metadata, body, and backend references remain owned by the job
+until completion or synchronous cancellation.
+
+The input provider's concrete public entry is
+`nikon_vr_input_upload_persist()`. Standalone QOM uses explicit
+`upload-body-drive` and `upload-metadata-drive` block links plus
+`upload-storage-base`/`upload-storage-size`; `upload-persist` submits the
+sealed source with the existing nonzero `token` property. `busy` remains true
+through both flushes and the completion BH. `persist-completed-token` and
+`persist-error` identify the finished native operation, with result zero only
+meaning success for the matching completed token. A missing backend, unsealed
+source, read-only backend, busy operation, or invalid destination is an error.
+Reset, unrealize and `upload-cancel` synchronously cancel the active job and
+suppress notification; already issued writes can remain and are not rolled
+back. Sealed GBytes returned to another consumer remain independently owned.
+
+This is an explicit native block overlay policy. It does not implement FCU
+erase/program sequencing, upgrade DATA inputs to original instructions,
+replace the loaded guest's ROM mapping, or populate its resident slots.
+It is separate from the finite 8 KiB/128-byte flash-operation capability.
+The standard backend may be a caller-configured raw image or QEMU overlay;
+the device does not invent a disk format or migrate supplied snapshots.
+
+The complete MAS callback family `103AA1DA..103AA2BC` reads only response
+byte 0 (`103AA1E2`), including stages 17/18/19/1A. It does not consume
+response bytes 1..151 as addresses or flash metadata. F5 completion requests
+F8; F7 completion in state 3 requests F8/state 2. F8/state 2 accepts status value `02`
+as chunk completion, advances the local cursor by the saved chunk size, and
+requests the next F7 or FA. FF resends F7, FC/FD/FE terminate with failure,
+and other values poll. FA completion requests F8/state 6; status value `03` then finishes
+successfully. The callback's guards at record offsets `14`/`18` are visible,
+but their external increment mechanism has not been joined, so no retry count
+is asserted. Native storage completion is an eligible persistence result for
+a separately chosen functional service; this provider does not emit either
+status byte or write the selected TX buffer, rearm RX DMA, or return through
+an unknown resident callee. Real SCI replies still require an actual producer
+to supply bytes through the source-confirmed serial path.
+
+The focused synthetic persistence case submits a short addressed stream to
+an explicitly supplied 819200-byte body image and 512-byte metadata sector,
+waits for real native I/O with a bounded host deadline, verifies both files
+after shutdown, opens a new instance, and rejects a stream crossing the body
+boundary before either write. Untouched body bytes and full metadata are
+checked. The sole builder compiled/linked production `155e36b` and passed
+only this focused case in 1.25 seconds with exit 0; its receipt is
+`work/vrstoresectorreceipt.log` in the canonical `qemu-submodule` worktree.
+Staging independently passed with fixture `0d40bc3` in 0.44 seconds with
+exit 0 (`work/vruploadstagingdeclaredreceipt.log`). The already qualified
+external-input five and peripheral nine were not rerun.
+
+QEMU's `block.c:bdrv_co_getlength()` returns sector-rounded lengths, always
+multiples of `BDRV_SECTOR_SIZE`. The metadata backend therefore contains one
+explicit 512-byte sector, rather than pretending the block length can be 262.
+Only the actual 262-byte record is written; the remaining 250 supplied bytes
+are preserved and tested. No padding bytes are taken as firmware metadata.
+
+The explicit `upload-record-persistence=true` profile connects capture to
+per-record native storage. It requires the same two writable exact backends
+and explicit guest mapping. This is a functional storage policy, rather than
+a claim about the unknown resident ROM's flash programming order. The MAS
+source at `103AA1DA..103AA2BC` polls F8 after F5 and after every F7, and advances
+the local cursor only on response byte 0 equal to 2. Waiting until the whole
+stream is sealed before persisting would deadlock that producer. After FA,
+the same source polls F8 until byte 0 equals 3. No other response byte carries
+a destination or cursor in this consumer; destinations come from the actual
+addressed 262-byte records.
+
+F5 starts a real flush of both supplied backends and marks native preparation
+only on success. Each F7 first passes the complete wire checksum and record
+validation. The first record writes all 262 metadata bytes; each subsequent
+record writes its 256 body bytes at its own little-endian address within the
+explicit mapping. Both backends are then flushed. The durable byte count
+advances only after those actual operations succeed. F8 can be captured while
+I/O is pending and leaves the job unchanged. FA requires all preceding
+records to be durable, validates the entire sealed snapshot, and starts a
+final flush of both backends. F8 remains valid after sealing. An I/O failure,
+out-of-range record, pending job, or unprepared stage cannot supply an eligible
+status value. A rejected F7 invalidates preparation until a new F5; the
+previous record's eligible 2 cannot acknowledge MAS's current chunk. Cancel
+and reset suppress pending completion, clear progress,
+and preserve any writes already issued; they do not promise rollback.
+
+`nikon_vr_input_upload_cancel()` exposes the same synchronous stage/job
+cancellation used by QOM and device reset. A native consumer can use the
+begin/capture/progress/status/cancel API without relying on QMP commands.
+`nikon_vr_input_upload_progress()` reports those native facts. The read-only
+`upload-eligible-status` property and `nikon_vr_input_upload_status()` make 2
+available after preparation or a durable record and 3 after the final durable
+barrier. A query with no eligible byte fails instead of returning a made-up
+zero. These queries never transmit a byte, write the selected TX ring, rearm
+DMA, change SCI registers, or raise an IRQ. Source IRQ15's low-CS path at
+`FFF17D59` overwrites selected TX byte 0 with 1; its unknown mode-2 resident
+callback receives selected TX in R2, while incoming RX is at pointer 11904.
+Consequently native storage eligibility alone cannot establish the original
+reply or replace that callback.
+
+The new synthetic per-record case captures the full F5/F7/F8/FA family from
+the source state and buffers, waits with a bounded host deadline for native
+I/O, checks metadata and the entire body image after individual records,
+checks final eligibility, and verifies reset/cancel preserve durable bytes.
+The upload fixtures declare only the exact required mode byte, consumed-RX
+pointer and both 276-byte rings in their synthetic startup ZERO table. The
+production machine continues to map RAM from the input's real startup table;
+it has no added RAM alias. The sole builder compiled/linked exact production
+and fixture `3eecfaa` (RX build session 38012, exit 0), then passed only this
+focused case in 0.81 seconds with exit 0. Its receipt is
+`work/vrrecordprogressreceipt.log`, canonical snapshot
+`d2d94c46c0c56a083197e5595918d150e6b0e3a0`. Prior staging and persistence
+passes were retained, and the external-input five and peripheral nine were
+not rerun. These results do not claim original firmware boot or an original
+peer response.

@@ -9,6 +9,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/audio.c',
   'devices/bridge.c',
   'devices/clock.c',
+  'devices/command.c',
   'devices/completion.c',
   'devices/exiu.c',
   'devices/config.c',
@@ -30,7 +31,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
   'machines/ex.c', 'devices/exio.c', 'devices/extimer.c',
-  'devices/expower.c'))
+  'devices/expower.c', 'devices/input.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
@@ -57,10 +58,12 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
 rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'machines/vr.c',
   'components/bundle.c',
+  'components/vrupload.c',
   'devices/access.c',
   'devices/renesas.c',
   'devices/vr.c',
   'devices/vrinput.c',
+  'devices/vrstore.c',
   'peers/transport.c',
   'peers/vr.c',
 ))
