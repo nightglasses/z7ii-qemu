@@ -33,6 +33,23 @@ static bool z7ii_2010_config(hwaddr offset, uint32_t *mask)
     hwaddr local;
 
     *mask = UINT32_MAX;
+    if (offset == 0x30 || offset == 0x34) {
+        /* Whole runtime RMW accepts an arbitrary 32-bit OR operand. */
+        return true;
+    }
+    if (offset == 0xf4 || offset == 0x108) {
+        *mask = 0x000fff00;
+        return true;
+    }
+    if ((offset >= 0xf8 && offset <= 0x104) ||
+        (offset >= 0x120 && offset <= 0x12c)) {
+        *mask = 0xfffffff0;
+        return true;
+    }
+    if (offset == 0x10c) {
+        *mask = 0xff0fff00;
+        return true;
+    }
     if ((offset >= 0x2200 && offset <= 0x22fc) ||
         (offset >= 0x2300 && offset <= 0x23fc) ||
         (offset >= 0x2880 && offset <= 0x28f4) ||
@@ -173,8 +190,8 @@ static MemTxResult z7ii_2010_write(void *opaque, hwaddr offset,
     }
     if (z7ii_2010_config(offset, &mask)) {
         if ((value & ~mask) ||
-            ((offset == 0x2000 || offset == 0x2100) && (value & 0xf))) {
-            /* Input low-nibble activation has no recovered event source. */
+            ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1)) {
+            /* Independent input enable configuration has no event effect. */
             return z7ii_2010_error(s, offset, size, true, value);
         }
         s->config[offset / 4] = value;

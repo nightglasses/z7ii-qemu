@@ -3391,6 +3391,11 @@ def run_control2038(binary, output, name):
             "scope": "two finite MMIO banks, explicit virtual raw inputs and independent IRQ outputs; no firmware/frame"}
 
 
+def control2010_runtime_fixtures():
+    return [("control2010-qtest-runtime-" + suffix, [], {}, None) for suffix in (
+        "paired-rmw", "whole-packing", "preflight-reset")]
+
+
 def control2010_stop_fixtures():
     return [("control2010-qtest-stop-" + suffix, [], {}, None) for suffix in (
         "idle-repeat-deferred", "masked-ack", "reopen-reset",
@@ -3466,7 +3471,7 @@ def control2010_fixtures():
          read(0xc, 4) + read(0x10, 5) + read(0x14, 6) + read(0x20, 7),
          {4: 0xffffffff, 5: 0x80000001, 6: 0x13572468, 7: 0}, None),
         ("control2010-global-mode-unbound", write(4, 2), {}, error),
-        ("control2010-input-activation-unbound", write(0x2000, 1), {}, error),
+        ("control2010-input-mode-unbound", write(0x2000, 2), {}, error),
         ("control2010-input-pulse-unbound", write(0x20a4, 1), {}, error),
         ("control2010-config-pulse-unbound", write(0x2660, 1), {}, error),
         ("control2010-table-submit-unbound", write(0x2800, 1), {}, error),
@@ -3531,7 +3536,57 @@ def run_control2010(binary, output, name):
             values = control2010_config_values()
             command(f"irq_intercept_out {path} sysbus-irq")
             assert [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)] == [0] * 6
-            if name.endswith("stop-idle-repeat-deferred"):
+            if name.startswith("control2010-qtest-runtime-"):
+                runtime = {0x30: 0xffffffff, 0x34: 0xffffffff,
+                           0xf4: 0x000fff00, 0x108: 0x000fff00,
+                           0x10c: (0xff << 24) | (0xff << 12) | (0xff << 8)}
+                runtime.update({x: 0xfffffff0 for x in
+                                (*range(0xf8, 0x108, 4),
+                                 *range(0x120, 0x130, 4))})
+                if name.endswith("runtime-paired-rmw"):
+                    write(0x30, 0x80000001)
+                    write(0x34, 0x12345678)
+                    write(0x30, read(0x30) | 0x00abc000)
+                    write(0x34, read(0x34) & ~1)
+                    assert read(0x30) == 0x80abc001
+                    assert read(0x34) == 0x12345678
+                    write(0x30, read(0x30) & ~1)
+                    write(0x34, read(0x34) | 0xffffffff)
+                    assert read(0x30) == 0x80abc000
+                    assert read(0x34) == 0xffffffff
+                    for offset in (0x2000, 0x2100):
+                        write(offset, 0x81234560)
+                        write(offset, read(offset) | 1)
+                        assert read(offset) == 0x81234561
+                        write(offset, read(offset) & ~0xf)
+                        assert read(offset) == 0x81234560
+                else:
+                    for offset, value in runtime.items():
+                        write(offset, value)
+                    assert {x: read(x) for x in runtime} == runtime
+                    if name.endswith("runtime-preflight-reset"):
+                        before = {x: read(x) for x in runtime}
+                        for offset, value in ((0xf4, 1), (0x108, 0x100000),
+                                              (0xf8, 1), (0x12c, 1),
+                                              (0x10c, 0x100000), (0x110, 0),
+                                              (0x2000, 2), (0x2100, 0xf)):
+                            write(offset, value)
+                            assert {x: read(x) for x in runtime} == before
+                        for offset in (0x38, 0x3c, 0x40, 0x44, 0x140, 0x144):
+                            read(offset)  # Unknown providers remain errors.
+                            assert {x: read(x) for x in runtime} == before
+                        command("writeb 0x20100030 0")
+                        command("writew 0x20100034 0")
+                        command("writel 0x20100031 0")
+                        assert {x: read(x) for x in runtime} == before
+                        vm.cmd("system_reset")
+                        assert all(read(x) == 0 for x in runtime)
+                    else:
+                        command("clock_step 1000000000")
+                        assert {x: read(x) for x in runtime} == runtime
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [0, 0, 0]
+                assert not levels.get(0, False)
+            elif name.endswith("stop-idle-repeat-deferred"):
                 write(0xc, 1)
                 write(4, 0)
                 assert read(4) == read(0x18) == 0 and not levels.get(0, False)
@@ -3680,7 +3735,7 @@ def run_control2010(binary, output, name):
                 before = snapshot()
                 for offset, value in ((4, 2), (4, 3), (4, 4), (4, 5),
                                       (0x20a4, 1), (0x2620, 1), (0x2660, 1),
-                                      (0, 1), (8, 1), (0x2000, 1)):
+                                      (0, 1), (8, 1), (0x2000, 2)):
                     write(offset, value)
                     assert snapshot() == before and levels[0]
                 for text in ("writeb 0x20100004 0", "writew 0x20100004 0",
@@ -3746,8 +3801,8 @@ def run_control2010(binary, output, name):
                 write(4, 1)
                 pin(2, 1)
                 before = snapshot()
-                for offset, value in ((0, 1), (4, 2), (8, 1), (0x2000, 1),
-                                      (0x2100, 1), (0x20a4, 1), (0x2620, 1),
+                for offset, value in ((0, 1), (4, 2), (8, 1), (0x2000, 2),
+                                      (0x2100, 2), (0x20a4, 1), (0x2620, 1),
                                       (0x2660, 1), (0x2680, 1), (0x2800, 1),
                                       (0x2838, 0x10000), (0x260c, 0x100),
                                       (0x2004, 0x4000), (0x201c, 0)):
@@ -5180,7 +5235,8 @@ def main():
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
              control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
              control2016_fixtures() + control2010_gate_fixtures() +
-             control2406_fixtures() + control2010_stop_fixtures())
+             control2406_fixtures() + control2010_stop_fixtures() +
+             control2010_runtime_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
