@@ -2,7 +2,7 @@
  * Five-route signal-control functional profile, not a bound physical IP.
  * The original interface supplies permutations and fields. Reset/gate/mask
  * polarity, raw/filtered banks, W1C and 1MHz debounce are virtual assumptions.
- * External inputs alone produce sampled edges; five outputs aggregate to IRQ237.
+ * External inputs alone produce sampled edges. Five outputs aggregate to IRQ237.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -235,7 +235,8 @@ static const MemoryRegionOps z7ii_signal_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4, .unaligned = true },
 };
 
-/* Only the complete original word write is bound at this separate aperture.
+/*
+ * Only the complete original word write is bound at this separate aperture.
  * Full-value retention and reset0 are virtual conventions, with no IRQ,
  * forwarding, security or completion meaning assigned to this input.
  */
