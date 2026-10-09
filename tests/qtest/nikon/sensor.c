@@ -29,12 +29,12 @@ static QTestState *start(const char *configuration, bool connected)
     g_autofree char *bios = g_shell_quote(image);
     g_autofree char *path = g_shell_quote(frame);
     g_autofree char *backend = connected ? g_strdup_printf(
-        "-drive if=none,id=frame,format=raw,readonly=on,file=%s", path) :
+        "frame=%s,", path) :
         g_strdup("");
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none %s "
+        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none "
         "-device nikon-sensor,id=sensor,%s%s",
-        bios, backend, connected ? "frame=frame," : "", configuration);
+        bios, backend, configuration);
     QTestState *q = qtest_init(args);
 
     qtest_irq_intercept_out(q, SENSOR_PATH);
@@ -126,6 +126,19 @@ static void test_chunks(void)
     g_assert_true(qtest_get_irq(q, NIKON_SENSOR_FRAME_DONE));
     g_assert_cmphex(qtest_readb(q, RAM + 0x2fff), ==,
                     (uint8_t)(8191 * 17 + 3));
+    qtest_quit(q);
+    /* Byte payloads have no disk-sector padding or synthetic EOF samples. */
+    input(51);
+    q = start("row-bytes=17,rows=3,stride=20,destination=0xb1801000,"
+              "exposure-ns=1000,readout-ns=100", true);
+    qtest_memset(q, RAM + 0x1000, 0x7e, 60);
+    capture(q, true, true);
+    qtest_clock_step(q, 2000);
+    g_assert_cmpuint(property(q, "bytes-written"), ==, 51);
+    g_assert_true(qtest_get_irq(q, NIKON_SENSOR_FRAME_DONE));
+    g_assert_cmphex(qtest_readb(q, RAM + 0x1038), ==,
+                    (uint8_t)(50 * 17 + 3));
+    g_assert_cmphex(qtest_readb(q, RAM + 0x1039), ==, 0x7e);
     qtest_quit(q);
 }
 
