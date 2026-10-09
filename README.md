@@ -1,6 +1,6 @@
 # Nightglass QEMU
 
-Nikon firmware emulation and debugging built on upstream QEMU. This private repository maintains Nikon machine/device additions and the small integration needed to build them against a pinned upstream release. It does not implement a CPU emulator or a second simulation framework.
+Nikon firmware emulation and debugging built on upstream QEMU. This private repository maintains a Nikon vendor tree and the small integration needed to build it against a pinned upstream release. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
 
 The initial target is Nikon Z7II C1.70. Existing camera emulation projects inform device models and tracing. A user-supplied post shows a claimed Nikon Z9 QEMU run reaching a camera error screen; implementation and launch details are unavailable, so that case is a useful lead rather than a reproducible baseline.
 
@@ -14,7 +14,7 @@ Issues are managed through [the Nightglass delivery map](https://github.com/mash
 
 ## MAS diagnostic machine
 
-The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `hw/arm/z7ii.c`. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/timestamp-functional.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/nikon-model-layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/timestamp-functional.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
 
 With a clean checkout of the pinned upstream revision and an empty build directory:
 
@@ -22,7 +22,7 @@ With a clean checkout of the pinned upstream revision and an empty build directo
 scripts/build-qemu.sh /absolute/path/to/qemu-11.1.2 /absolute/path/to/work/build/mas-diagnostic
 ```
 
-The script integrates the registration patch and this repository's board and device source files, then verifies that `-M help` exposes the machine. The QOM type uses the upstream `arm_machine_interfaces` target registration, as existing ARM machines do. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
+`scripts/build-qemu.sh` adds this repository's Nikon vendor tree and public header to the pinned upstream source tree, integrates the registration patch, then verifies that `-M help` exposes the machine. The QOM type uses the upstream `arm_machine_interfaces` target registration, as existing ARM machines do. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
 
 Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
 
