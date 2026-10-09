@@ -1969,7 +1969,7 @@ def control2406_fixtures():
         ("control2406-status-write", write(0x24, 1), {}, error),
         ("control2406-status30-write", write(0x30, 1), {}, error),
         ("control2406-gap", read(4, 4), {}, error),
-        ("control2406-misaligned", read(9, 4), {}, error),
+        ("control2406-cpu-alignment-fault", read(9, 4), {}, "uncovered-address"),
         ("control2406-byte-width", constant(0, 0x2406000c) + [0xe5d04000], {}, error),
         ("control2406-halfword-width", constant(0, 0x24060008) + [0xe1d040b0], {}, error),
         ("control2406-finite-end", read(0x34, 4), {}, "uncovered-address"),
