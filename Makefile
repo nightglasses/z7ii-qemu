@@ -8,7 +8,7 @@ NDS_CONFIG_DIR ?= $(CURDIR)/work/config/nds
 NDS_SOURCE := $(NDS_CONFIG_DIR)/source
 NDS_CONFIGURE_FLAGS ?= --target=nds32le-elf --enable-sim --disable-gdb --disable-binutils --disable-gas --disable-ld --disable-gprof --disable-nls --disable-werror --with-system-zlib
 
-.PHONY: all prepare configure check bench clean distclean nds ndsprepare ndsconfigure ndscheck
+.PHONY: all prepare configure check bench clean distclean nds ndsprepare ndsconfigure ndscheck tpj tpjcheck budgetcheck
 
 all: $(BUILD_DIR)/config-host.mak
 	$(MAKE) -C "$(BUILD_DIR)" all
@@ -38,6 +38,14 @@ ndsconfigure $(NDS_BUILD_DIR)/Makefile: | ndsprepare
 
 ndscheck: nds
 	$(MAKE) -C "$(NDS_BUILD_DIR)/sim/nds32" check-system
+
+tpj: nds
+
+tpjcheck: tpj
+	$(MAKE) -C "$(NDS_BUILD_DIR)/sim/nds32" check-tpj
+
+budgetcheck: nds
+	$(MAKE) -C "$(NDS_BUILD_DIR)/sim/nds32" check-budget
 
 clean:
 	$(MAKE) -C "$(BUILD_DIR)" clean

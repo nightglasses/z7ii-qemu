@@ -42,4 +42,55 @@ level 输入写 pending 不能取消外部信号；edge latch 才由 W1C 清除�
 
 `tests/unit/nds/system.c` 使用 GNU 现成 opcode 宏生成合成指令，通过真实 decoder 执行 IRET、IRQ 选择和总线异常。
 断言覆盖嵌套恢复、overflow return、priority/CPL、level 与 edge 生命周期、真实回调 read 与 fault unwind。
-本文件尚未宣称编译、fixture 或原版 TPJ 运行成功；由唯一构建 owner 返回实际结果后更新。
+唯一构建 owner 已完成官方 provider、system.o、libsim.a 与 run 的原生编译链接，硬件配置 WITH_HW=1。
+无 ELF 的合成 fixture 明确传入 GNU 标准参数 `--endian=little`，五组完整断言已实际执行并 exit 0：
+嵌套 IRET、IRQ priority/CPL、有限 MMIO 与 fault unwind、特权 SR 访问、standby consent/wake。
+原始收据为构建 owner 的 ignored `work/validation/gui/ndsendiancheck.log`；原版 TPJ 尚未宣称启动成功。
+
+## 原生进程入口
+
+`sim/nds32/runner.c` 使用 BFD、GNU simulator 与 POSIX 非阻塞 socket/poll；没有新增执行器或构建包装。
+完整 ELF 的入口为零，每个可分配段都必须可加载、有内容，VMA=LMA 且不重叠，覆盖全部 `[0,e000)`。
+源码 owner 已用 GNU readelf 确认现有完整产物满足该条件；e000 是当前更新包的 TPJ 长度，不是已证明的芯片 ROM 容量。
+加载后 ROM 只读且可执行；原软件完成 RAM COPY/ZERO 与栈初始化，不由 host 提前复制或设置 SP。
+
+传输共享 `include/hw/nikon/wire.h`，连接 QEMU socket CharBackend server。
+一笔 CLOCK 只能由真实设备移位结果完成；SIGNAL 传递物理线电平，CANCEL 取消对应 token。
+输入按完整 40 字节帧校验；输出队列有限，部分读写与背压保持原事件，不生成 guest ACK 或协议包。
+`--ticks` 只表示 GNU instruction/event quantum；`--consent 0|1` 明确给出外部电源许可，默认零。
+`sim/nds32/tpj.c` 接入 11 个有限域：40000、41000、42000、50000、53000、60000、61000、70000、71000、72000、80000。
+`fields.h` 保留完整源码库存里 194 个无跨调用/控制流合并的常量地址表达式及宽度；另接入已逐条证明的
+flash helper、六半字变换、60000 ingress/packet/reply、800c0 初始化循环。空洞及未证明的宽度拒绝访问。
+扫描 RAM 仅绑定原 CPU 循环写入的 `[2a000,2a344)`、`[2b000,2b344)`；不会扩成四个猜测的 4 KiB bank。
+出处：[TPJ 全源协议合同](https://github.com/mashiro01/nightglass/blob/feat/tpj-complete-source/research/z7ii/tpj-source-device-contract.md)。
+
+`--flash FILE` 明确提供外部 NOR 内容，最大 16 MiB；不会将更新包尾部以外的数据填成零。
+41005/06/07 的 55/aa/66 解锁驱动真实命令：ab/b9、06、3b、20、02；41004 为 count−1，
+41012 是固定读 latch，原 helper 的第二次读取仍返回同一字节。擦除以已证明的 1000 stride 操作，
+编程采用显式 NOR 按位与功能模型；awake、write-enable、有限 extent、完整 payload 均检查。
+完成使用 GNU 一 tick 事件，代表功能时序假设，不代表已测设备频率。缺 backing、超范围及未知命令保留 busy 并报告实际边界。
+
+`--transform FILE` 是 24 字节的外部记录：六个 little-endian 输入半字，随后六个真实输出半字。
+53002 请求必须与输入匹配，才由原生事件写入该记录的输出并置 53001 ready。
+没有匹配记录时不会 ready、复制输入或猜测变换算法。
+
+`--snapshot FILE` 每行是 `十六进制地址 十进制宽度 十六进制值`，只接入已证明的可读字段。
+busy、flash read latch 和变换 ready 不能由该文件注入；数据的来源由提供者负责。
+6001c..21、50014/54/94、72024、721c0、80050 的输入走已证明的原 ISR 消费者；
+inactive 事件和普通读写配置的零初态是明确的功能冷启动假设，不是物理复位证明。
+原 guest 清硬件 flag 后撤销 level IRQ，不由 host 修改 RAM 中的等待标志。
+
+`--limit TICKS` 为首次原版观测提供有限指令/事件预算，输出实际 PC 和 sleep；没有 socket 也可独立运行。
+设备遇到第一项无数据生产者/非法字段时输出实际 PC、地址、宽度和原因；这是实际依赖，不能当作完整启动收据。
+normal CLOCK 与 60028 命令、物理 select/GPIO 到 IRQ 的 join 尚由主机驱动源码任务恢复；
+收到 CLOCK 仅保存原 token 等待真实绑定，不伪造 ACK、首字节协议或复用 EX 的 256-byte frame。
+720xx 是配置/状态/缓冲域，不能冒充 SPI TX/RX。
+
+`tests/unit/nds/tpj.c` 使用合成外部文件，覆盖 NOR read latch、缺 payload 不完成、count−1/NOR 编程、
+六半字外部输出、原事件 level 解除与精确 reply 尾界，以及缺 producer/寄存器空洞拒绝。
+唯一构建 owner 已完成 runner 的成熟 GNU 编译链接，并实际执行上述 endpoint fixture exit 0。
+原版首次有限 probe 加载完整 ELF 后在 O b3fe（原 COPY helper 内的 `bnes38`）停止；这是首个 4096 tick quantum。
+该次日志的 unknown signal 0 来自 host 预算 callback 使用了错误的枚举：官方 `SIM_SIGNONE` 是 64，
+不能传字面量零。修复只更正该停止信号，runner 的非零故障检查保持原样，不改 guest PC 或跳过 COPY。
+`tests/unit/nds/budget.c` 独立检查两次预算停止/继续，以及实际非零 native stop 不被接受为预算完成。
+此修复及后续原版 probe 待唯一构建 owner 执行，已有 fixture PASS 仍不替代完整启动证据。
