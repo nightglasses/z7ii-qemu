@@ -23,8 +23,8 @@ if [ -n "$(ls -A "$build")" ]; then
     echo "build directory must be empty" >&2
     exit 1
 fi
-git -C "$src" apply --check "$repo/scripts/nikon-registration.patch"
-git -C "$src" apply "$repo/scripts/nikon-registration.patch"
+git -C "$src" apply --check "$repo/scripts/register.patch"
+git -C "$src" apply "$repo/scripts/register.patch"
 mkdir -p "$src/hw/nikon/machines" "$src/hw/nikon/devices" \
          "$src/include/hw/nikon"
 cp "$repo/hw/nikon/Kconfig" "$repo/hw/nikon/meson.build" "$src/hw/nikon/"

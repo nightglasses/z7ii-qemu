@@ -44,7 +44,7 @@ def initialized(mode=0x21):
 def sdi_contract(arb_reset=None):
     """Synthetic whole bring-up from the independently recovered guest profile."""
     profile = json.loads((Path(__file__).resolve().parents[1] /
-                          "tests/sdi-init-profiles.json").read_text())
+                          "tests/sdi.json").read_text())
     ports = (0x8000, 0x8800, 0x8c00, 0x9000, 0x9800, 0x9c00, 0xa000,
              0xa800, 0xac00, 0xb000, 0xb800, 0xbc00, 0xc000, 0xc800, 0xcc00)
     words = []
@@ -1105,7 +1105,7 @@ def footer_slot_fixtures():
 
 def external_nor_fixtures():
     manifest = json.loads((Path(__file__).resolve().parents[1] /
-                           "tests/nor-external-profile.json").read_text())
+                           "tests/nor.json").read_text())
     views = []
     for row in manifest["descriptors"]:
         if row[0] in manifest["excluded_descriptors"]:
