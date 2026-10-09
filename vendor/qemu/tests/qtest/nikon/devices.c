@@ -276,6 +276,15 @@ static void copy_setup(QTestState *q, unsigned channel, unsigned length)
     qtest_writel(q, base + 24, 0x9000);
 }
 
+static void copy_complete(QTestState *q, unsigned length)
+{
+    /* Each callback schedules the next 256-byte chunk from its actual time. */
+    for (unsigned remaining = length; remaining; ) {
+        qtest_clock_step_next(q);
+        remaining -= MIN(remaining, 256);
+    }
+}
+
 static void test_copy(void)
 {
     uint8_t expected[513], actual[513];
@@ -293,7 +302,7 @@ static void test_copy(void)
 
         copy_setup(q, channel, sizeof(expected));
         qtest_writel(q, COPY + 0x28 + channel * 0x30, 0x11109003);
-        qtest_clock_step(q, 100000);
+        copy_complete(q, sizeof(expected));
         g_assert_cmphex(qtest_readl(q, status), ==, 8);
         qtest_memread(q, RAM + 0x40000, actual, sizeof(actual));
         g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
@@ -369,7 +378,7 @@ static void test_dma_bench(void)
     for (unsigned i = 0; i < rounds; i++) {
         copy_setup(q, 0, length);
         qtest_writel(q, COPY + 0x28, 0x11109003);
-        qtest_clock_step(q, 4000000);
+        copy_complete(q, length);
         g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 8);
         qtest_writel(q, COPY + 0x30, 0);
     }
