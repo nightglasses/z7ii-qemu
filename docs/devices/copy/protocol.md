@@ -25,3 +25,9 @@ The next `work/issue331/original-copy-a9a4b7c/{receipt.json,qemu.log}` binds the
 The earlier7696 trace also contains guest10101cc2 default copies. The RTOS [fixed source/actual join](https://github.com/mashiro01/nightglass/blob/acbe01f5b0d37cc1f2ee730e5fc9efaf22f6d639/research/z7ii/qemu-rtos-startup-contract.md) connects its real caller to independent startup initializer10101d40, not an inferred FF-read failure fallback. The original default-table loop and actual copies/processed flags do not establish valid NV data, a complete82-entry traversal or menus. No host default data is supplied.
 
 No original runtime-copy request is claimed from these two initialization runs. The original firmware, IRQ handlers, task contexts, MMU operations and O178 remain unchanged.
+
+## Issue397 class audit
+
+The [QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397) checked the saved request, configuration, cancel, status and ISR consumers across all four channels. Their ordinary byte-copy lifecycle is already represented; this audit adds no copy behavior or new runtime validation. The fixed-source wrapper at original `103a3bf8` supplies an eight-byte scratch source at `04008fe0+channel*8` and a fixed-source configuration bit, but the saved contract does not bind repetition stride, partial-pattern or format semantics. Implementing it as ordinary byte copy or assigning an eight-byte beat would invent behavior. It remains future protocol work, with explicit rejection before mutation.
+
+The implemented profile depends on real readable RAM/ROMD, writable RAM, the declared nominal clock and GIC45..48. Missing external memory is a bus dependency, not a successful zero source. No saved producer connects copy completion to event/EXIU or frame completion. The historical first-prefix observations above remain unchanged and do not identify a current boot blocker.

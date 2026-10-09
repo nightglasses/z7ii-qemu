@@ -5,6 +5,7 @@
 #include "qemu/bswap.h"
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
+#include "hw/nikon/devices.h"
 #include "../libqtest.h"
 
 #define ROM 0x10020000
@@ -18,6 +19,9 @@
 #define HDMAC 0x2c020000
 
 static char *image;
+
+void nikon_test_completion(QTestState *q);
+void nikon_test_bridge(QTestState *q);
 
 static QTestState *start(bool execute, unsigned cpus)
 {
@@ -170,17 +174,18 @@ static void test_clock(void)
     qtest_quit(q);
 }
 
-static void intercept_gic(QTestState *q)
+static char *device_path(QTestState *q, const char *type)
 {
     QDict *response = qtest_qmp(q, "{'execute': 'qom-list',"
                               " 'arguments': {'path': '/machine/unattached'}}");
     const QListEntry *entry;
-    g_autofree char *path = NULL;
+    char *path = NULL;
+    g_autofree char *child_type = g_strdup_printf("child<%s>", type);
 
     QLIST_FOREACH_ENTRY(qdict_get_qlist(response, "return"), entry) {
         const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
 
-        if (!strcmp(qdict_get_str(child, "type"), "child<arm_gic>")) {
+        if (!strcmp(qdict_get_str(child, "type"), child_type)) {
             g_assert_null(path);
             path = g_strdup_printf("/machine/unattached/%s",
                                    qdict_get_str(child, "name"));
@@ -188,10 +193,71 @@ static void intercept_gic(QTestState *q)
     }
     qobject_unref(response);
     g_assert_nonnull(path);
+    return path;
+}
+
+static void intercept_gic(QTestState *q)
+{
+    g_autofree char *path = device_path(q, "arm_gic");
+
     /* qtest accesses are nonsecure. Observe the actual board SPI input,
      * without pretending that they initialize the guest's secure GIC state.
      */
     qtest_irq_intercept_in(q, path);
+}
+
+static void test_completion(void)
+{
+    QTestState *q = start(false, 1);
+
+    intercept_gic(q);
+    nikon_test_completion(q);
+    qtest_quit(q);
+}
+
+static void test_bridge(void)
+{
+    QTestState *q = start(false, 1);
+
+    nikon_test_bridge(q);
+    qtest_quit(q);
+}
+
+static void test_gpio_input(void)
+{
+    QTestState *q = start(false, 1);
+    g_autofree char *path = device_path(q, TYPE_NIKON_GPIO);
+    unsigned port;
+
+    /* No producer: input follows the explicitly configured pull profile. */
+    for (port = 0; port < 12; port++) {
+        uint64_t offset = port * 4;
+
+        qtest_writel(q, GPIO + 0x300 + offset, 0xffff);
+        qtest_writel(q, GPIO + 0x400 + offset, 0xffff);
+        g_assert_cmphex(qtest_readl(q, GPIO + offset), ==, 0xffff);
+        for (unsigned pin = 0; pin < 16; pin++) {
+            unsigned index = port * 16 + pin;
+            unsigned bit = 1U << pin;
+
+            qtest_set_irq_in(q, path, "external-level", index, 0);
+            g_assert_cmphex(qtest_readl(q, GPIO + offset) & bit, ==, 0);
+            qtest_set_irq_in(q, path, "external-level", index, 1);
+            g_assert_cmphex(qtest_readl(q, GPIO + offset) & bit, ==, bit);
+        }
+        /* Output takes priority, and alternate function restores inputs. */
+        qtest_writel(q, GPIO + 0x100 + offset, 0xffff);
+        qtest_writel(q, GPIO + offset, 0xffff0000);
+        g_assert_cmphex(qtest_readl(q, GPIO + offset), ==, 0);
+        qtest_writel(q, GPIO + 0x200 + offset, 0xffff);
+        g_assert_cmphex(qtest_readl(q, GPIO + offset), ==, 0xffff);
+    }
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    /* Configuration resets, while external producers remain connected. */
+    for (port = 0; port < 12; port++) {
+        g_assert_cmphex(qtest_readl(q, GPIO + port * 4), ==, 0xffff);
+    }
+    qtest_quit(q);
 }
 
 static void test_gpio_irq(void)
@@ -407,6 +473,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/clock", test_clock);
     qtest_add_func("/nikon/gpio/irq", test_gpio_irq);
     qtest_add_func("/nikon/gpio/level", test_gpio_level);
+    qtest_add_func("/nikon/gpio/input", test_gpio_input);
+    qtest_add_func("/nikon/completion", test_completion);
+    qtest_add_func("/nikon/bridge", test_bridge);
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);

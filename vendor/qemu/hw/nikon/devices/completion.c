@@ -86,8 +86,6 @@ static MemTxResult nikon_completion_write(void *opaque, hwaddr offset,
                                         MemTxAttrs attrs)
 {
     NikonCompletionState *s = opaque;
-    unsigned domain = (value >> 12) & 7;
-
     if (size != 4 ||
         (offset != 0 && offset != 4 && offset != 8 && offset != 16)) {
         return nikon_completion_error(s, offset, size, true, value,
@@ -100,9 +98,10 @@ static MemTxResult nikon_completion_write(void *opaque, hwaddr offset,
     }
     switch (offset) {
     case 0:
-        /* Observed domain and request-mode profiles, not full IP legality. */
-        if ((value & ~0x7110U) ||
-            (domain != 0 && domain != 1 && domain != 3)) {
+        /* The complete guest setter encodes a three-bit domain, not a
+         * whitelist of the 0/1/3 immediate callers. Physical domain names
+         * remain unknown; all eight states use this same functional cycle. */
+        if (value & ~0x7110U) {
             return nikon_completion_error(
                 s, offset, size, true, value,
                 "completion-request-profile-not-supported");

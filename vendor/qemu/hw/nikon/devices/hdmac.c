@@ -19,6 +19,8 @@
 #define HDMAC_DE (1U << 31)
 #define HDMAC_EB (1U << 31)
 #define HDMAC_ST (1U << 29)
+#define HDMAC_PB (1U << 30)
+#define HDMAC_DH (1U << 24)
 #define HDMAC_SS (7U << 16)
 #define HDMAC_CI (1U << 19)
 #define HDMAC_EI (1U << 20)
@@ -31,6 +33,7 @@ typedef struct NikonHDMACChannel {
     qemu_irq irq;
     bool running;
     int64_t ready_at;
+    int64_t wait_ns;
     uint64_t generation;
     uint32_t remaining;
 } NikonHDMACChannel;
@@ -51,7 +54,26 @@ static bool nikon_hdmac_requested(NikonHDMACChannel *c)
 {
     unsigned selection = (c->ca >> 24) & 31;
 
-    return !selection || c->owner->request[selection];
+    return !(c->ca & HDMAC_PB) && !(c->owner->control & HDMAC_DH) &&
+           (!selection || c->owner->request[selection]);
+}
+
+static void nikon_hdmac_update(NikonHDMACChannel *c)
+{
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    if (!c->running) {
+        return;
+    }
+    if (!nikon_hdmac_requested(c)) {
+        if (timer_pending(c->timer)) {
+            c->wait_ns = MAX(1, c->ready_at - now);
+            timer_del(c->timer);
+        }
+    } else if (!timer_pending(c->timer)) {
+        c->ready_at = now + MAX(1, c->wait_ns);
+        timer_mod(c->timer, c->ready_at);
+    }
 }
 
 static void nikon_hdmac_irq(NikonHDMACChannel *c)
@@ -103,12 +125,15 @@ static void nikon_hdmac_transfer(void *opaque)
     if (c != trigger && trigger->running) {
         timer_mod(trigger->timer, now);
     }
+    /* Arbitration can select a channel with its own due timer still queued. */
+    timer_del(c->timer);
     width = 1U << ((c->cb >> 26) & 3);
     /* Demand requests accept one beat, then re-evaluate the actual wire. */
     beats = ((c->ca >> 24) & 31) ? 1 : c->remaining;
     fixed_source = c->cb & (1U << 25);
     fixed_destination = c->cb & (1U << 24);
     generation = c->generation;
+    c->wait_ns = MAX(1, clock_ticks_to_ns(s->clock, 1));
 
     for (i = 0; i < beats; i++) {
         MemTxResult result;
@@ -157,11 +182,15 @@ static void nikon_hdmac_transfer(void *opaque)
             c->destination += width;
         }
         c->remaining--;
+        /* PB/DH/DREQ can change through a genuine reentrant bus operation.
+         * Commit the accepted beat once, then suspend before the next one. */
+        if (c->remaining && !nikon_hdmac_requested(c)) {
+            return;
+        }
     }
     if (c->remaining) {
         if (nikon_hdmac_requested(c)) {
-            c->ready_at = now + MAX(1, clock_ticks_to_ns(s->clock, 1));
-            timer_mod(c->timer, c->ready_at);
+            nikon_hdmac_update(c);
         }
         return;
     }
@@ -176,8 +205,8 @@ static bool nikon_hdmac_start_supported(uint32_t ca, uint32_t cb,
     unsigned beat = (ca >> 20) & 15;
     unsigned width = (cb >> 26) & 3;
 
-    /* No wrap/reload, transfer transforms, address pitch or pause emulation. */
-    return width < 3 && !(ca & (1U << 30)) &&
+    /* No wrap/reload, transfer transforms or address pitch emulation. */
+    return width < 3 &&
            (beat == 0 || beat == 8 || beat == 9 || beat == 11 ||
             beat == 13 || beat == 15) &&
            !(cb & 0xc0e0ff00U) && ((cb >> 28) & 3) < 3 &&
@@ -199,11 +228,8 @@ static void nikon_hdmac_schedule(NikonHDMACChannel *c)
     c->running = true;
     c->generation++;
     c->remaining = beats;
-    c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                  MAX(1, clock_ticks_to_ns(s->clock, selection ? 1 : beats));
-    if (nikon_hdmac_requested(c)) {
-        timer_mod(c->timer, c->ready_at);
-    }
+    c->wait_ns = MAX(1, clock_ticks_to_ns(s->clock, selection ? 1 : beats));
+    nikon_hdmac_update(c);
 }
 
 static void nikon_hdmac_request(void *opaque, int selection, int level)
@@ -218,13 +244,7 @@ static void nikon_hdmac_request(void *opaque, int selection, int level)
         if (!c->running || ((c->ca >> 24) & 31) != selection) {
             continue;
         }
-        if (!level) {
-            timer_del(c->timer);
-        } else {
-            c->ready_at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                          MAX(1, clock_ticks_to_ns(s->clock, 1));
-            timer_mod(c->timer, c->ready_at);
-        }
+        nikon_hdmac_update(c);
     }
 }
 
@@ -284,7 +304,8 @@ static MemTxResult nikon_hdmac_write(void *opaque, hwaddr offset, uint64_t value
         return nikon_hdmac_error(s, offset, size, true, value);
     }
     if (!offset) {
-        if (value & ~0x90000000U) {
+        /* Reference DH has only the bound halt1/resume0 encodings. */
+        if (value & ~0x91000000U) {
             return nikon_hdmac_error(s, offset, size, true, value);
         }
         /* Preflight every armed request before changing DE or any timer. */
@@ -305,6 +326,7 @@ static MemTxResult nikon_hdmac_write(void *opaque, hwaddr offset, uint64_t value
                 nikon_hdmac_finish(c, 2);
             } else {
                 nikon_hdmac_schedule(c);
+                nikon_hdmac_update(c);
             }
         }
         return MEMTX_OK;
@@ -313,7 +335,7 @@ static MemTxResult nikon_hdmac_write(void *opaque, hwaddr offset, uint64_t value
     switch (offset & 15) {
     case 0:
         old = c->ca;
-        if (c->running && ((value ^ old) & ~HDMAC_EB)) {
+        if (c->running && ((value ^ old) & ~(HDMAC_EB | HDMAC_PB))) {
             return nikon_hdmac_error(s, offset, size, true, value);
         }
         if ((value & HDMAC_EB) &&
@@ -326,6 +348,7 @@ static MemTxResult nikon_hdmac_write(void *opaque, hwaddr offset, uint64_t value
             nikon_hdmac_finish(c, 2);
         } else {
             nikon_hdmac_schedule(c);
+            nikon_hdmac_update(c);
         }
         break;
     case 4:
@@ -390,6 +413,8 @@ static void nikon_hdmac_reset(DeviceState *dev)
         c->generation++;
         c->ca = c->cb = c->source = c->destination = 0;
         c->running = false;
+        c->remaining = 0;
+        c->ready_at = c->wait_ns = 0;
         nikon_hdmac_irq(c);
     }
 }

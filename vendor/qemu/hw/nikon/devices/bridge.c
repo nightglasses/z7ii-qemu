@@ -2,7 +2,8 @@
  * Finite MAS 2013 control/bridge protocol, not an identified Nikon IP.
  * Original bounded-source contract23d2601: init/request/wait/ISR and the
  * five translation arrays. Reset, 10us timing and internal IRQ causes below
- * are explicit virtual conventions; no peer data/event1 is synthesized.
+ * are explicit virtual conventions. Peer events require external input edges;
+ * no peer data, reply, signature or translated memory is synthesized.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -42,6 +43,9 @@ struct NikonBridgeState {
     uint32_t ready;
     uint32_t irq_status;
     uint32_t irq_enable;
+    uint32_t peer_ack;
+    bool peer_event_level[3];
+    bool peer_ready;
     bool configuration_pending;
     bool reported_error;
 };
@@ -70,6 +74,28 @@ static const struct {
 static void nikon_bridge_irq(NikonBridgeState *s)
 {
     qemu_set_irq(s->irq, !!(s->irq_status & s->irq_enable));
+}
+
+static void nikon_bridge_peer_event(void *opaque, int n, int level)
+{
+    static const unsigned bits[] = { 0, 2, 5 };
+    NikonBridgeState *s = opaque;
+    bool high = !!level;
+
+    /* Disconnected inputs are low. Reset release never invents an edge. */
+    if (high && !s->peer_event_level[n] && !s->reset) {
+        s->irq_status |= 1U << bits[n];
+        nikon_bridge_irq(s);
+    }
+    s->peer_event_level[n] = high;
+}
+
+static void nikon_bridge_peer_ready(void *opaque, int n, int level)
+{
+    NikonBridgeState *s = opaque;
+
+    /* The ISR separately consumes bank1 C908.bit2; this is not bank0 done. */
+    s->peer_ready = !!level;
 }
 
 static int64_t nikon_bridge_deadline(NikonBridgeState *s)
@@ -121,6 +147,7 @@ static void nikon_bridge_cancel(NikonBridgeState *s)
     timer_del(s->control_timer);
     timer_del(s->configuration_timer);
     s->command = s->ready = s->irq_status = 0;
+    s->peer_ack = 0;
     s->configuration_pending = false;
     for (bank = 0; bank < 2; bank++) {
         NikonBridgeBank *b = &s->bank[bank];
@@ -200,6 +227,19 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
             goto error;
         }
         *value = s->ready;
+        return MEMTX_OK;
+    case 0xc908:
+        if (write) {
+            goto error;
+        }
+        *value = s->peer_ready ? 4 : 0;
+        return MEMTX_OK;
+    case 0x829c:
+        /* Original IRQbit2 path writes bank base 029c with bankmask2. */
+        if (!write || *value != 1 || s->reset) {
+            goto error;
+        }
+        s->peer_ack = 1;
         return MEMTX_OK;
     case 0xc90c:
         if (write) {
@@ -424,6 +464,10 @@ static void nikon_bridge_init(Object *obj)
                           "nikon.bridge", 0x10000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_bridge_peer_event,
+                           "peer-event", 3);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_bridge_peer_ready,
+                           "peer-ready", 1);
 }
 
 static void nikon_bridge_finalize(Object *obj)

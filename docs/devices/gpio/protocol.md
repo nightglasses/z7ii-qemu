@@ -1,5 +1,9 @@
 # Twelve-port masked GPIO and boot selectors
 
+The later [explicit pad input](input.md) completes external-level publication
+for these same finite pads. Original runs still attach no external provider;
+the historical native checks and boot observations below are unchanged.
+
 This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). The [fixed original whole GPIO contract](https://github.com/mashiro01/nightglass/blob/b4957f9/research/z7ii/qemu-gpio-contract.md) follows original `O1e0ee4..1e0f68` and COPY0's12×20-byte table: the guest writes twelve PDR words at `04282000+i*4` with upper maskffff, then DDR/EPCR/PUDER/PUDCR at +100/+200/+300/+400. Runtime setters independently produce `(1<<(pin+16))|(value<<pin)` and readers extract the selected low bit. All60 original table words are guest stores; the model does not prefill that table.
 
 The [Socionext authored field definitions](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/include/dd_top.h) at lines334–353 identify GPIO/function EPCR0/1, input/output DDR0/1, low/high PDR0/1 and pull enable/direction. The [manufacturer Linux driver submission](https://lkml.iu.edu/2111.3/02896.html) by Taichi Sugaya, Socionext (2021-11-25, Message-ID1637834276-10466-2-git-send-email-sugaya.taichi@socionext.com) independently uses upper16 masked PDR writes and the same polarity. It is a submitted driver, not a current mainline implementation. Its20×8pin layout and offsets differ; only the compatible field protocol is reused. Nikon's twelve boot ports and software16-bit words are independently observed, not an imported M10V chip identity.

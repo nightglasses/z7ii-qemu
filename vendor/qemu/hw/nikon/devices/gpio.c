@@ -18,6 +18,7 @@ struct NikonGPIOState {
     MemoryRegion regs;
     /* PDR output latch, DDR, EPCR, PUDER, PUDCR. */
     uint16_t ports[5][GPIO_PORTS];
+    uint16_t external[GPIO_PORTS], driven[GPIO_PORTS];
     qemu_irq pads[GPIO_PORTS * 16];
     bool reported_error;
 };
@@ -25,7 +26,9 @@ struct NikonGPIOState {
 static uint16_t nikon_gpio_levels(NikonGPIOState *s, unsigned port)
 {
     uint16_t outputs = s->ports[1][port] & ~s->ports[2][port];
-    uint16_t input = s->ports[3][port] & s->ports[4][port];
+    uint16_t pull = s->ports[3][port] & s->ports[4][port];
+    uint16_t input = (s->external[port] & s->driven[port]) |
+                     (pull & ~s->driven[port]);
 
     return (s->ports[0][port] & outputs) | (input & ~outputs);
 }
@@ -38,6 +41,18 @@ static void nikon_gpio_update(NikonGPIOState *s, unsigned port)
     for (pin = 0; pin < 16; pin++) {
         qemu_set_irq(s->pads[port * 16 + pin], !!(levels & (1U << pin)));
     }
+}
+
+static void nikon_gpio_input(void *opaque, int index, int level)
+{
+    NikonGPIOState *s = opaque;
+    unsigned port = index / 16;
+    uint16_t bit = 1U << (index % 16);
+
+    /* Only an explicit provider publication overrides the floating profile. */
+    s->driven[port] |= bit;
+    s->external[port] = (s->external[port] & ~bit) | (level ? bit : 0);
+    nikon_gpio_update(s, port);
 }
 
 static MemTxResult nikon_gpio_error(NikonGPIOState *s, hwaddr offset,
@@ -69,7 +84,7 @@ static MemTxResult nikon_gpio_read(void *opaque, hwaddr offset, uint64_t *value,
                                "gpio-access-not-supported");
     }
     if (bank == 0) {
-        /* Unconnected input/alternate pads follow pull, otherwise virtual low. */
+        /* Explicit input/alternate levels, otherwise pull or virtual low. */
         *value = nikon_gpio_levels(s, port);
     } else {
         *value = s->ports[bank][port];
@@ -116,7 +131,7 @@ static void nikon_gpio_reset(DeviceState *dev)
     NikonGPIOState *s = NIKON_GPIO(dev);
     unsigned port;
 
-    /* Virtual unconnected GPIO profile: input, no pull, latch low. */
+    /* Reset configuration, retaining actual external provider levels. */
     memset(s->ports, 0, sizeof(s->ports));
     s->reported_error = false;
     for (port = 0; port < GPIO_PORTS; port++) {
@@ -130,6 +145,8 @@ static void nikon_gpio_init(Object *obj)
 
     memory_region_init_io(&s->regs, obj, &nikon_gpio_ops, s, "nikon.gpio", 0x430);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_gpio_input,
+                           "external-level", GPIO_PORTS * 16);
     qdev_init_gpio_out_named(DEVICE(obj), s->pads, "pad", GPIO_PORTS * 16);
 }
 
