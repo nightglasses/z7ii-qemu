@@ -1944,6 +1944,204 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control2014_profile():
+    return {0: 1, 0x1000: 1, 0x2000: 1, 0x3000: 1,
+            0x100: 0, 0x2100: 0, 0x3100: 0, 0x1100: 2,
+            0x1200: 0x37f0311c, 0x1204: 0xffff, 0x120c: 0x89abcdef,
+            0x1224: 1, 0x1240: 0xffff, 0x1250: 0xffff,
+            0x1600: 0x3fff, 0x1604: 0x101, 0x1400: 0xff,
+            0x1404: 0x1f001f1f, 0x1408: 0x1f1f, 0x140c: 0xff,
+            0x1410: 0x301, 0x1414: 0xff01ff, 0x1418: 0xff00ff,
+            0x141c: 0xffffffff, 0x1420: 0x12345678, 0x1424: 0xffff,
+            0x500: 0xffffffff, 0x2880: 0x89abcdef, 0x3880: 0x87654321}
+
+
+def control2014_fixtures():
+    error = "control2014-access-or-activation-not-supported"
+
+    def write(offset, value, bank=0):
+        return constant(0, 0x20140000 + bank * 0x4000 + offset) + \
+            constant(1, value) + [0xe5801000]
+
+    def read(offset, reg, bank=0):
+        return constant(0, 0x20140000 + bank * 0x4000 + offset) + [0xe5900000 | reg << 12]
+
+    profile = sum([write(x, y, b) for b in range(2)
+                   for x, y in control2014_profile().items()], [])
+    return [
+        ("control2014-original-route-and-init-controls", write(0x1100, 2) +
+         write(0x1100, 3, 1) + sum([write(x, 0, b) for b in range(2)
+                                   for x in (0, 0x1000, 0x2000, 0x3000)], []) +
+         read(0x1100, 4) + read(0x1100, 5, 1) + read(0x1214, 6),
+         {4: 2, 5: 3, 6: 0}, None),
+        ("control2014-both-settled-config-banks", profile + read(0x1200, 4) +
+         read(0x141c, 5, 1) + read(0x1604, 6),
+         {4: 0x37f0311c, 5: 0xffffffff, 6: 0x101}, None),
+        ("control2014-fullword-versus-byte-getter", write(0x500, 0xffffffff) +
+         write(0x2880, 0x89abcdef, 1) + read(0x500, 4) + read(0x2880, 5, 1),
+         {4: 0xffffffff, 5: 0x89abcdef}, None),
+        ("control2014-idle-command-not-ready", write(0x1200, 0x10) +
+         write(0x1200, 0) + write(0x100, 0) + read(0x1200, 4) +
+         read(0x100, 5) + read(0x1214, 6), {4: 0, 5: 0, 6: 0}, None),
+        ("control2014-global-independent-controls",
+         constant(0, 0x2014d100) + constant(1, 1) + [0xe5801000] +
+         constant(0, 0x2014e000) + constant(1, 0) + [0xe5801000] +
+         constant(0, 0x2014d100) + [0xe5904000] +
+         constant(0, 0x2014e000) + [0xe5905000], {4: 1, 5: 0}, None),
+        ("control2014-byte-width", constant(0, 0x20141100) + [0xe5d04000], {}, error),
+        ("control2014-halfword-width", constant(0, 0x20141204) + [0xe1c010b0], {}, error),
+        ("control2014-finite-bank-end", read(0x8000, 4), {}, "uncovered-address"),
+    ] + [(f"control2014-reject-{x:x}-{y:x}", write(x, y), {}, error)
+         for x, y in ((0x1200, 1), (0x1200, 0x11), (0x1200, 2), (0x1200, 3),
+                      (0x100, 1), (0x2100, 2), (0x3100, 1), (0, 2),
+                      (0x1100, 0x100), (0x1404, 0x20), (0x1604, 2),
+                      (0x1224, 2), (0x1410, 2), (0x1430, 0))] + \
+        [("control2014-unbound-data-read", read(0x1220, 4), {}, error),
+         ("control2014-unbound-global-request", constant(0, 0x2014d200) +
+          constant(1, 0x12345678) + [0xe5801000], {}, "uncovered-address")] + \
+        [("control2014-qtest-" + suffix, [], {}, None) for suffix in (
+            "config-and-geometry", "shared-route-aggregation",
+            "preflight-reset-recovery", "unconfigured-pending-and-reroute")]
+
+
+def run_control2014(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control2014", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<z7ii-control2014-functional>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value, bank=0):
+                command(f"writel {0x20140000 + bank * 0x4000 + offset:#x} {value:#x}")
+
+            def read(offset, bank=0):
+                return int(command(f"readl {0x20140000 + bank * 0x4000 + offset:#x}").split()[1], 16)
+
+            def event(index, level):
+                command(f"set_irq_in {path} pending-bit {index} {level}")
+
+            def snapshot():
+                return [read(x, b) for b in range(2)
+                        for x in sorted(control2014_profile()) + [0x1210, 0x1214]] + \
+                    [read(x) for x in (0xb000, 0xd000, 0xd100, 0xe000)]
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            if name.endswith("config-and-geometry"):
+                for b in range(2):
+                    for x, y in control2014_profile().items():
+                        write(x, y, b)
+                        assert read(x, b) == y
+                write(0x141c, 0x87654321, 1)
+                assert read(0x141c) == 0xffffffff
+                for x, y in ((0xb000, 0x111), (0xd000, 0x11), (0xd100, 1), (0xe000, 0)):
+                    write(x, y)
+                assert read(0xd100) == 1 and read(0xe000) == 0
+                before = snapshot()
+                command("clock_step 1000000000")
+                assert snapshot() == before and not any(levels.values())
+            elif name.endswith("shared-route-aggregation"):
+                write(0x1100, 2)
+                write(0x1100, 2, 1)
+                event(0, 1)
+                event(32, 1)
+                assert read(0x1214) == read(0x1214, 1) == 1 and levels[1]
+                write(0x1214, 1)
+                assert read(0x1214) == 0 and levels[1]
+                write(0x1210, 1, 1)
+                assert read(0x1214, 1) == 1 and not levels[1]
+                write(0x1210, 0, 1)
+                assert read(0x1214, 1) == 1 and levels[1]
+                write(0x1100, 3, 1)
+                assert read(0x1214, 1) == 1 and not levels[1] and levels[2]
+                for x in (0, 0x1000, 0x2000, 0x3000):
+                    write(x, 1, 1)
+                    write(x, 0, 1)
+                    assert read(0x1214, 1) == 1 and levels[2]
+                write(0x1214, 0xffffffff, 1)
+                assert read(0x1214, 1) == 0 and not levels[2]
+                event(32, 1)
+                assert read(0x1214, 1) == 0
+            elif name.endswith("preflight-reset-recovery"):
+                for b in range(2):
+                    for x, y in control2014_profile().items():
+                        write(x, y, b)
+                event(0, 1)
+                before = snapshot()
+                for x, y in ((0x1200, 1), (0x1200, 0x11), (0x1200, 2), (0x1200, 3),
+                             (0x100, 1), (0x2100, 2), (0x3100, 1), (0, 2),
+                             (0x1100, 0x100), (0x1404, 0x20), (0x1604, 2),
+                             (0x1224, 2), (0x1410, 2), (0x1430, 0), (0xd004, 1)):
+                    write(x, y)
+                    assert snapshot() == before and levels[1]
+                for text in ("writeb 0x20141100 1", "writew 0x20141204 1",
+                             "writel 0x20141101 1", "readl 0x20141220"):
+                    command(text)
+                    assert snapshot() == before and levels[1]
+                write(0x141c, 0x12345678)
+                assert read(0x141c) == 0x12345678
+                write(0x1214, 1)
+                assert read(0x1214) == 0 and not levels[1]
+                vm.cmd("system_reset")
+                assert snapshot() == [0] * len(before) and not any(levels.values())
+                event(0, 1)
+                assert read(0x1214) == 0
+                event(0, 0)
+                event(0, 1)
+                assert read(0x1214) == 1 and not any(levels.values())
+                write(0x1100, 1)
+                assert read(0x1214) == 1 and levels[0]
+            elif name.endswith("unconfigured-pending-and-reroute"):
+                event(31, 1)
+                event(63, 1)
+                assert read(0x1214) == read(0x1214, 1) == 0x80000000
+                assert not any(levels.values())
+                write(0x1100, 1)
+                write(0x1100, 1, 1)
+                assert read(0x1214) == 0x80000000 and levels[0]
+                write(0x1100, 0xff)
+                assert read(0x1214) == 0x80000000 and levels[0]
+                write(0x1100, 0, 1)
+                assert read(0x1214, 1) == 0x80000000 and not levels[0]
+                write(0x1100, 3)
+                assert read(0x1214) == 0x80000000 and levels[2]
+                write(0x1214, 0x80000000)
+                assert read(0x1214) == 0 and not levels[2]
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "finite dualbank config, virtual pending/mask/IRQ routing; no firmware/frame"}
+
+
 def control20203_profile():
     values = {x: 1 for x in (0, 4, 0x44, 0x4c, 0x50, 0x54, 0x60, 0x64, 0x80, 0x84)}
     values.update({x: 0xff for x in (0x40, 0x5c, 0x6c, 0x8c)})
@@ -4245,6 +4443,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control2014-qtest-"):
+        return run_control2014(binary, output, name)
     if name.startswith("control20203-qtest-"):
         return run_control20203(binary, output, name)
     if name.startswith("control20205-qtest-"):
@@ -4492,7 +4692,7 @@ def main():
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
-             control20205_fixtures() + control20203_fixtures())
+             control20205_fixtures() + control20203_fixtures() + control2014_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

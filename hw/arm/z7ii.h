@@ -27,6 +27,7 @@
 #define TYPE_Z7II_CONTROL20204 "z7ii-control20204-functional"
 #define TYPE_Z7II_CONTROL20205 "z7ii-control20205-functional"
 #define TYPE_Z7II_CONTROL20203 "z7ii-control20203-functional"
+#define TYPE_Z7II_CONTROL2014 "z7ii-control2014-functional"
 #define TYPE_Z7II_SDI "z7ii-sdi-functional"
 #define TYPE_Z7II_MXIC "z7ii-mxic-regions-functional"
 #define TYPE_Z7II_MXIC_CONFIG "z7ii-mxic-config-functional"
