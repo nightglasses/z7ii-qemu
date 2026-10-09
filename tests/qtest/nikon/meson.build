@@ -3,7 +3,8 @@ nikon_arm_fixtures = {}
 if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   nikon_arm_fixtures += {
     'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c',
-                   'sampling.c', 'image.c', 'sdi.c', 'spi.c', 'processing.c'),
+                   'sampling.c', 'image.c', 'sdi.c', 'spi.c', 'processing.c',
+                   'config.c'),
     'nikon_timer': files('timer.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),

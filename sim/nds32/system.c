@@ -408,7 +408,8 @@ quantum_end (SIM_DESC sd, void *data)
 {
   sim_cpu *cpu = STATE_CPU (sd, 0);
   *(int *) data = 1;
-  sim_engine_halt (sd, cpu, NULL, CPU_PC_GET (cpu), sim_stopped, 0);
+  /* GNU's simulator signal enum starts at 64; literal 0 is not SIGNONE. */
+  sim_engine_halt (sd, cpu, NULL, CPU_PC_GET (cpu), sim_stopped, SIM_SIGNONE);
 }
 
 SIM_RC

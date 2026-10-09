@@ -6,7 +6,10 @@ arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'peers/transport.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
+  'devices/bridge.c',
   'devices/clock.c',
+  'devices/completion.c',
+  'devices/config.c',
   'devices/fill.c',
   'devices/gpio.c',
   'devices/memc.c',
@@ -15,13 +18,13 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/sysconfig.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
-arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files('machines/ex.c', 'devices/exio.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
+  'machines/ex.c', 'devices/exio.c', 'devices/extimer.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
   'devices/audio.c',
-  'devices/bridge.c',
   'devices/dispatcher.c',
   'devices/copy.c',
   'devices/sampler.c',
@@ -31,12 +34,10 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/hdmac.c',
   'devices/i2c.c',
   'devices/ipud.c',
-  'devices/config.c',
   'devices/pairs.c',
   'devices/router.c',
   'devices/parameters.c',
   'devices/processing.c',
-  'devices/completion.c',
   'devices/status.c',
   'devices/shared.c',
   'devices/signal.c',
@@ -55,4 +56,5 @@ rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'devices/renesas.c',
   'devices/vr.c',
   'peers/transport.c',
+  'peers/vr.c',
 ))

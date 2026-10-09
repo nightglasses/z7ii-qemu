@@ -20,6 +20,8 @@ void nikon_spi_attach_async(DeviceState *, const NikonSPIAsyncOps *, void *);
 void nikon_spi_detach_async(DeviceState *, void *owner);
 void nikon_spi_async_ready(DeviceState *);
 void nikon_spi_async_complete(DeviceState *, uint64_t token, uint32_t received);
+/* GPIO owner reports a level only when a guest GPIO output actually drives. */
+bool nikon_gpio_output(DeviceState *, unsigned pin, bool *level);
 
 typedef struct NikonPeerRequest {
     uint64_t token;
@@ -49,6 +51,8 @@ typedef void (*NikonPeerState)(void *, bool connected);
  * no RX byte, completion IRQ, or guest acknowledgement is manufactured.
  */
 void nikon_peer_endpoint(NikonPeer *, const NikonPeerEndpointOps *, void *);
+/* Cancel an incoming clock without reply; remote master stays uncompleted. */
+bool nikon_peer_endpoint_cancel(NikonPeer *, uint64_t token);
 bool nikon_peer_state(NikonPeer *, NikonPeerState, void *);
 bool nikon_peer_clock(NikonPeer *, uint64_t token, uint32_t word, unsigned bits,
                       NikonPeerComplete, void *);

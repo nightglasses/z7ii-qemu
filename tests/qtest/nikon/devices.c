@@ -30,6 +30,7 @@ void nikon_image_add_tests(const char *bios);
 void nikon_sdi_add_tests(const char *bios);
 void nikon_spi_add_tests(const char *bios);
 void nikon_processing_add_tests(const char *bios);
+void nikon_config_add_tests(const char *bios);
 
 static QTestState *start(bool execute, unsigned cpus)
 {
@@ -202,7 +203,7 @@ static void test_bridge(void)
 static void test_gpio_input(void)
 {
     QTestState *q = start(false, 1);
-    g_autofree char *path = nikon_device_path(q, TYPE_NIKON_GPIO);
+    const char *path = "/machine/gpio";
     unsigned port;
 
     /* No producer: input follows the explicitly configured pull profile. */
@@ -688,6 +689,7 @@ int main(int argc, char **argv)
     nikon_sdi_add_tests(image);
     nikon_spi_add_tests(image);
     nikon_processing_add_tests(image);
+    nikon_config_add_tests(image);
     nikon_bridge_add_tests();
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/copy/transfer", test_copy);

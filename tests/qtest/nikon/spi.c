@@ -13,6 +13,9 @@
 #define FRAME_NS 10000
 #define RAM 0xb1800000
 #define HDMAC 0x2c020000
+#define GPIO 0x04282000
+
+void nikon_spi_add_tests(const char *image);
 
 static const char *bios;
 
@@ -23,13 +26,14 @@ typedef struct SPIWireTest {
     unsigned count;
 } SPIWireTest;
 
-static SPIWireTest spi_wire_start_at(unsigned count, unsigned first)
+static SPIWireTest spi_wire_start_at(unsigned count, unsigned first, bool select)
 {
     SPIWireTest t = { .fd = { -1, -1 }, .count = count };
     g_autoptr(GString) args = g_string_new(NULL);
     int listener[2];
 
     g_assert_cmpuint(count, <=, ARRAY_SIZE(t.fd));
+    g_assert_true(!select || count == 1);
     t.dir = g_dir_make_tmp("qtest-spi-XXXXXX", NULL);
     g_assert_nonnull(t.dir);
     g_string_append_printf(args, "-machine z7ii-mas-diagnostic -smp 1 "
@@ -50,6 +54,9 @@ static SPIWireTest spi_wire_start_at(unsigned count, unsigned first)
             " -device nikon-peer,id=wire%u,chardev=p%u"
             " -device nikon-spi-peer,peer=/machine/peripheral/wire%u,"
             "spi=/machine/spi%u", i, path, i, i, i, first + i);
+        if (select) {
+            g_string_append(args, ",gpio=/machine/gpio,pin=177");
+        }
     }
     t.q = qtest_init(args->str);
     for (unsigned i = 0; i < count; i++) {
@@ -68,7 +75,7 @@ static SPIWireTest spi_wire_start_at(unsigned count, unsigned first)
 
 static SPIWireTest spi_wire_start(unsigned count)
 {
-    return spi_wire_start_at(count, 0);
+    return spi_wire_start_at(count, 0, false);
 }
 
 static void spi_wire_quit(SPIWireTest *t)
@@ -341,7 +348,7 @@ static void spi_dma_setup(QTestState *q, unsigned channel, uint32_t source,
 
 static void test_dma(void)
 {
-    SPIWireTest t = spi_wire_start_at(1, 4);
+    SPIWireTest t = spi_wire_start_at(1, 4, false);
     uint64_t base = BASE + 0x400;
     uint8_t frame[NIKON_WIRE_SIZE];
 
@@ -381,6 +388,44 @@ static void test_dma(void)
     spi_wire_quit(&t);
 }
 
+static void spi_select_frame(SPIWireTest *t, bool high)
+{
+    uint8_t frame[NIKON_WIRE_SIZE];
+
+    spi_wire_read(t, 0, frame);
+    g_assert_cmpuint(frame[NIKON_WIRE_TYPE], ==, NIKON_WIRE_SIGNAL);
+    g_assert_cmpuint(frame[NIKON_WIRE_KIND], ==, NIKON_PEER_SELECT);
+    g_assert_cmpuint(frame[NIKON_WIRE_BITS], ==, 0);
+    g_assert_cmpuint(frame[NIKON_WIRE_RESERVED], ==, 0);
+    g_assert_cmphex(ldq_le_p(frame + NIKON_WIRE_TOKEN), ==, 0);
+    g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_LINE), ==, 0);
+    g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_WORD), ==, high);
+    g_assert_cmphex(ldq_le_p(frame + NIKON_WIRE_PADDING), ==, 0);
+}
+
+static void test_select(void)
+{
+    SPIWireTest t = spi_wire_start_at(1, 4, true);
+    GPollFD pfd = { .fd = t.fd[0], .events = G_IO_IN };
+
+    /* Resource AE is source GPIO11[1]. Floating reset-low is not driven CS. */
+    g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
+    qtest_writel(t.q, GPIO + 0x2c, 0x00020002);
+    g_assert_cmphex(qtest_readl(t.q, GPIO + 0x2c) & 2, ==, 0);
+    g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
+    /* Only PDR is masked; DDR/EPCR are their source whole-port fields. */
+    qtest_writel(t.q, GPIO + 0x12c, 2);
+    spi_select_frame(&t, true);
+    qtest_writel(t.q, GPIO + 0x2c, 0x00020000);
+    spi_select_frame(&t, false);
+    qtest_writel(t.q, GPIO + 0x22c, 2);
+    qtest_writel(t.q, GPIO + 0x2c, 0x00020002);
+    qtest_clock_step(t.q, FRAME_NS);
+    g_assert_cmphex(qtest_readl(t.q, GPIO + 0x2c) & 2, ==, 0);
+    g_assert_cmpint(g_poll(&pfd, 1, 0), ==, 0);
+    spi_wire_quit(&t);
+}
+
 void nikon_spi_add_tests(const char *image)
 {
     bios = image;
@@ -392,4 +437,5 @@ void nikon_spi_add_tests(const char *image)
     qtest_add_func("/nikon/spi/asynchronous", test_async_ports);
     qtest_add_func("/nikon/spi/offline", test_offline);
     qtest_add_func("/nikon/spi/dma", test_dma);
+    qtest_add_func("/nikon/spi/select", test_select);
 }

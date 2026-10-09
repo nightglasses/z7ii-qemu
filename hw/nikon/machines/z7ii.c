@@ -16,6 +16,7 @@
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/system.h"
+#include "system/tcg.h"
 #include "target/arm/cpu.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/bundle.h"
@@ -34,6 +35,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define CBAR_BASE 0xf8100000ULL
 #define TIMER_HZ 48000000ULL
 #define Z7II_MAX_CPUS 2
+#define Z7II_SLA_CPUS 2
 
 /* Source address-class records 21..26, with source-bound storage consumers. */
 static const struct {
@@ -215,6 +217,20 @@ static void z7ii_init(MachineState *machine)
                      "or -machine bundle=<decoded container>");
         exit(EXIT_FAILURE);
     }
+    if (machine->smp.cpus > Z7II_MAX_CPUS) {
+        error_report("the MAS domain supports at most %u CPUs; "
+                     "maxcpus reserves execution capacity for private domains",
+                     Z7II_MAX_CPUS);
+        exit(EXIT_FAILURE);
+    }
+    if (s->bundle_path && tcg_enabled() && qemu_tcg_mttcg_enabled() &&
+        machine->smp.max_cpus < machine->smp.cpus + Z7II_SLA_CPUS) {
+        error_report("multi-thread TCG needs capacity for MAS and private SLA; "
+                     "use -smp cpus=%u,maxcpus=%u or -accel tcg,thread=single",
+                     machine->smp.cpus,
+                     machine->smp.cpus + Z7II_SLA_CPUS);
+        exit(EXIT_FAILURE);
+    }
     if (s->bundle_path) {
         s->bundle = nikon_bundle_load(s->bundle_path, &error_fatal);
         mas = nikon_bundle_component(s->bundle, NIKON_COMPONENT_MAS);
@@ -319,7 +335,10 @@ static void z7ii_init(MachineState *machine)
 
     sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
-    gpio = sysbus_create_simple(TYPE_NIKON_GPIO, 0x04282000, NULL);
+    gpio = qdev_new(TYPE_NIKON_GPIO);
+    object_property_add_child(OBJECT(machine), "gpio", OBJECT(gpio));
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(gpio), 0, 0x04282000);
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
 
@@ -618,13 +637,24 @@ static void z7ii_init(MachineState *machine)
         g_autoptr(GBytes) payload = nikon_bundle_component(s->bundle,
                                                           NIKON_COMPONENT_SLA);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
-                                            2, NULL, &error_fatal);
+                                            Z7II_SLA_CPUS, NULL, &error_fatal);
+        DeviceState *sla_bridge = nikon_sla_bridge(sla);
 
         /* Source-complementary handshake; the board trace is not recovered. */
         qdev_connect_gpio_out_named(sla, "peer-ready", 0,
                                    qdev_get_gpio_in_named(gpio, "external-level",
                                                           6 * 16 + 3));
         nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
+        nikon_bridge_attach_peer(sla_bridge, 1, &address_space_memory);
+        /* Paired request routing is a functional board assumption. */
+        qdev_connect_gpio_out_named(bridge, "peer-start", 0,
+            qdev_get_gpio_in_named(sla_bridge, "peer-control", 0));
+        qdev_connect_gpio_out_named(bridge, "peer-configuration", 0,
+            qdev_get_gpio_in_named(sla_bridge, "peer-control", 1));
+        qdev_connect_gpio_out_named(sla_bridge, "peer-start", 0,
+            qdev_get_gpio_in_named(bridge, "peer-control", 0));
+        qdev_connect_gpio_out_named(sla_bridge, "peer-configuration", 0,
+            qdev_get_gpio_in_named(bridge, "peer-control", 1));
     }
     qemu_register_reset(z7ii_reset, s);
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
@@ -667,7 +697,7 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a7");
     mc->default_cpus = 2; /* Original TSysPrNum/TKerPrNum defaults are two. */
     mc->min_cpus = 1; /* Small synthetic contracts explicitly use -smp 1. */
-    mc->max_cpus = Z7II_MAX_CPUS;
+    mc->max_cpus = Z7II_MAX_CPUS + Z7II_SLA_CPUS;
     mc->default_ram_size = 0;
     mc->no_parallel = true;
     mc->ignore_memory_transaction_failures = false;

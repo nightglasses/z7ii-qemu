@@ -1,8 +1,11 @@
 # GNU sim owns compilation, its libraries, and the native system fixture.
 set(NDS_UPSTREAM "${CMAKE_SOURCE_DIR}/gdb" CACHE PATH "Official GNU NDS32 provider")
 native_provider("${NDS_UPSTREAM}")
-foreach(path sim/nds32/system.c sim/nds32/system.h sim/nds32/boundary.c
-    include/gdb/nds32system.h tests/unit/nds)
+set(owned sim/nds32/system.c sim/nds32/system.h sim/nds32/boundary.c
+  sim/nds32/runner.c sim/nds32/tpj.c sim/nds32/tpj.h sim/nds32/fields.h
+  include/gdb/nds32system.h include/hw/nikon/wire.h
+  tests/unit/nds/system.c tests/unit/nds/tpj.c tests/unit/nds/budget.c)
+foreach(path IN LISTS owned)
   if(EXISTS "${NDS_UPSTREAM}/${path}")
     message(FATAL_ERROR "Project-owned ${path} belongs outside the official gdb/ dependency")
   endif()
@@ -25,8 +28,7 @@ foreach(path IN LISTS upstream)
     native_link("${NDS_UPSTREAM}/${path}" "${NATIVE_VIEW}/${path}")
   endif()
 endforeach()
-foreach(path sim/nds32/system.c sim/nds32/system.h sim/nds32/boundary.c
-    include/gdb/nds32system.h tests/unit/nds/system.c)
+foreach(path IN LISTS owned)
   if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${path}")
     message(FATAL_ERROR "Missing native NDS32 source: ${path}")
   endif()
@@ -35,6 +37,9 @@ foreach(path sim/nds32/system.c sim/nds32/system.h sim/nds32/boundary.c
   native_link("${CMAKE_SOURCE_DIR}/${path}" "${NATIVE_VIEW}/${path}")
 endforeach()
 set(NDS_TEST_RULES [==[
+
+# Keep the fixed GNU provider's declaration semantics across the native simulator.
+CFLAGS += -std=gnu11
 
 # Compile and link the system fixture with the configured GNU simulator ABI.
 SIM_EXTRA_CLEAN += systemtest.o systemtest$(EXEEXT)
@@ -48,6 +53,37 @@ systemtest.o: $(srcroot)/tests/unit/nds/system.c system.h $(SIM_MAIN_DEPS)
 
 systemtest$(EXEEXT): systemtest.o libsim.a $(LIBDEPS)
 	$(CC) $(ALL_CFLAGS) $(LDFLAGS) -o $@ systemtest.o libsim.a $(EXTRA_LIBS)
+
+# TPJ uses this same configured library and finite native endpoint.
+all: tpj$(EXEEXT)
+SIM_EXTRA_CLEAN += runner.o tpj.o tpjtest.o tpj$(EXEEXT) tpjtest$(EXEEXT)
+tpj.o: tpj.c tpj.h fields.h system.h $(srcroot)/include/hw/nikon/wire.h $(SIM_MAIN_DEPS)
+runner.o: runner.c tpj.h system.h $(srcroot)/include/hw/nikon/wire.h $(SIM_MAIN_DEPS)
+tpj$(EXEEXT): runner.o tpj.o libsim.a $(LIBDEPS)
+	$(CC) $(ALL_CFLAGS) $(LDFLAGS) -o $@ runner.o tpj.o libsim.a $(EXTRA_LIBS)
+
+.PHONY: check-tpj
+check-tpj: tpjtest$(EXEEXT)
+	./tpjtest$(EXEEXT)
+
+tpjtest.o: $(srcroot)/tests/unit/nds/tpj.c tpj.h fields.h system.h $(srcroot)/include/hw/nikon/wire.h $(SIM_MAIN_DEPS)
+	$(COMPILE) $(srcroot)/tests/unit/nds/tpj.c
+	$(POSTCOMPILE)
+
+tpjtest$(EXEEXT): tpjtest.o tpj.o libsim.a $(LIBDEPS)
+	$(CC) $(ALL_CFLAGS) $(LDFLAGS) -o $@ tpjtest.o tpj.o libsim.a $(EXTRA_LIBS)
+
+SIM_EXTRA_CLEAN += budgettest.o budgettest$(EXEEXT)
+.PHONY: check-budget
+check-budget: budgettest$(EXEEXT)
+	./budgettest$(EXEEXT)
+
+budgettest.o: $(srcroot)/tests/unit/nds/budget.c system.h $(SIM_MAIN_DEPS)
+	$(COMPILE) $(srcroot)/tests/unit/nds/budget.c
+	$(POSTCOMPILE)
+
+budgettest$(EXEEXT): budgettest.o libsim.a $(LIBDEPS)
+	$(CC) $(ALL_CFLAGS) $(LDFLAGS) -o $@ budgettest.o libsim.a $(EXTRA_LIBS)
 ]==])
 
 find_program(AUTOCONF autoconf REQUIRED)

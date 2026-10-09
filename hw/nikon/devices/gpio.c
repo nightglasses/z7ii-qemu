@@ -9,6 +9,7 @@
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/peer.h"
 
 #define GPIO_PORTS 12
 OBJECT_DECLARE_SIMPLE_TYPE(NikonGPIOState, NIKON_GPIO)
@@ -22,6 +23,20 @@ struct NikonGPIOState {
     qemu_irq pads[GPIO_PORTS * 16];
     bool reported_error;
 };
+
+bool nikon_gpio_output(DeviceState *gpio, unsigned pin, bool *level)
+{
+    NikonGPIOState *s = NIKON_GPIO(gpio);
+    unsigned port = pin / 16;
+    uint16_t bit = 1U << (pin % 16);
+
+    if (pin >= GPIO_PORTS * 16 ||
+        !(s->ports[1][port] & ~s->ports[2][port] & bit)) {
+        return false;
+    }
+    *level = !!(s->ports[0][port] & bit);
+    return true;
+}
 
 static uint16_t nikon_gpio_levels(NikonGPIOState *s, unsigned port)
 {

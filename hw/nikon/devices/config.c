@@ -10,13 +10,33 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonMXICConfigState, NIKON_MXIC_CONFIG)
 
-static const unsigned config_offsets[] = {
-    0x38, 0x3c, 0x100, 0x104, 0x108, 0x10c, 0x110, 0x114, 0x118, 0x11c,
-    0x5004, 0x5020, 0x5024, 0x5028, 0x502c, 0x5030, 0x5034, 0x5038, 0x503c,
+typedef struct NikonMXICFieldGroup {
+    unsigned base;
+    unsigned count;
+    unsigned stride;
+} NikonMXICFieldGroup;
+
+/* MAS snapshot/transaction closure 5b2db90, and SLA source 1076d278
+ * 100538b0/10053b18: two TCFMD words, eight acceptance words, and nine
+ * Nikon group-configuration words. Fields retain guest state, not a profile
+ * of accepted firmware values.
+ */
+static const NikonMXICFieldGroup config_groups[] = {
+    { 0x38, 2, 4 }, { 0x100, 8, 4 },
+    { 0x5004, 1, 4 }, { 0x5020, 8, 4 },
 };
-static const unsigned rate_offsets[] = {
-    0x2648, 0x2490, 0x24a0, 0x2790, 0x2798,
-    0x2628, 0x2658, 0x2660, 0x27b0, 0x2618,
+
+/* Complete source-qualified live TRMC word-zero families. The period/mode
+ * format has a manufacturer counterpart, but the Nikon array bases differ:
+ * do not expose the manufacturer's entire address window by inference.
+ * SLA's row has a configuration pointer followed by ten parameter words;
+ * two parameters have two consumers. MAS additionally programs +2618.
+ * Word-one registers and gaps are not part of either recovered contract.
+ */
+static const NikonMXICFieldGroup rate_groups[] = {
+    { 0x2490, 2, 0x10 }, { 0x2618, 2, 0x10 },
+    { 0x2638, 3, 8 }, { 0x2658, 2, 8 },
+    { 0x2790, 2, 8 }, { 0x27a8, 2, 8 },
 };
 
 struct NikonMXICConfigState {
@@ -25,20 +45,25 @@ struct NikonMXICConfigState {
     QEMUTimer *timer;
     uint32_t draft[19], active[19];
     uint32_t draft_slots[512], active_slots[512];
-    uint32_t routing[4], levels[36], rates[10], selectors[124];
+    uint32_t routing[4], levels[36], rates[13], selectors[124];
     uint32_t written;
     bool slot_written[512];
     unsigned slots_written;
     bool active_view, access, busy, reported_error;
 };
 
-static int field_index(hwaddr offset, const unsigned *offsets, unsigned count)
+static int field_index(hwaddr offset, const NikonMXICFieldGroup *groups,
+                       unsigned count)
 {
-    unsigned i;
+    unsigned i, first = 0;
+
     for (i = 0; i < count; i++) {
-        if (offset == offsets[i]) {
-            return i;
+        if (offset >= groups[i].base &&
+            (offset - groups[i].base) % groups[i].stride == 0 &&
+            (offset - groups[i].base) / groups[i].stride < groups[i].count) {
+            return first + (offset - groups[i].base) / groups[i].stride;
         }
+        first += groups[i].count;
     }
     return -1;
 }
@@ -125,7 +150,7 @@ static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
         *value = offset == 0x44 ? s->active_view : s->access;
         return MEMTX_OK;
     }
-    index = field_index(offset, config_offsets, G_N_ELEMENTS(config_offsets));
+    index = field_index(offset, config_groups, ARRAY_SIZE(config_groups));
     if (index >= 0) {
         *value = s->active_view ? s->active[index] : s->draft[index];
         if (index == 0) {
@@ -147,7 +172,7 @@ static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
         *value = s->levels[index];
         return MEMTX_OK;
     }
-    index = field_index(offset, rate_offsets, G_N_ELEMENTS(rate_offsets));
+    index = field_index(offset, rate_groups, ARRAY_SIZE(rate_groups));
     if (index >= 0) {
         *value = s->rates[index];
         return MEMTX_OK;
@@ -200,7 +225,7 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
         timer_mod_ns(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 10000);
         return MEMTX_OK;
     }
-    index = field_index(offset, config_offsets, G_N_ELEMENTS(config_offsets));
+    index = field_index(offset, config_groups, ARRAY_SIZE(config_groups));
     if (index >= 0) {
         if (!s->access || (value & ~config_mask(index))) {
             goto unsupported;
@@ -223,7 +248,7 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
         s->levels[index] = value;
         return MEMTX_OK;
     }
-    index = field_index(offset, rate_offsets, G_N_ELEMENTS(rate_offsets));
+    index = field_index(offset, rate_groups, ARRAY_SIZE(rate_groups));
     if (index >= 0) {
         if (value & ~0x0fff0003U) {
             goto unsupported;

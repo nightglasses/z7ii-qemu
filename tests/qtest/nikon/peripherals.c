@@ -2,7 +2,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "hw/nikon/wire.h"
 #include "libqtest.h"
+#include "qobject/qdict.h"
+#include "qobject/qlist.h"
 
 static uint16_t package_crc(const uint8_t *data, size_t length)
 {
@@ -105,7 +108,7 @@ static void test_gpio_and_irq(void)
 
     qtest_writeb(qts, 0x8c11f, 0);
     qtest_writeb(qts, 0x8c11f, 0x40);
-    qtest_writeb(qts, 0x8c14f, 0x74); /* Original P17 ISEL and SCI mux. */
+    qtest_writeb(qts, 0x8c14f, 0x4a); /* Source #74: P17 ISEL and SCI mux. */
     qtest_writeb(qts, 0x8c11f, 0x80);
     qtest_writeb(qts, 0x87507, 8);
     qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 15, 1);
@@ -350,6 +353,221 @@ static void test_rspi2_frames(void)
     unlink(path);
 }
 
+static void peer_send(int fd, unsigned type, NikonPeerKind kind,
+                      uint64_t token, unsigned bits, unsigned line,
+                      uint32_t word)
+{
+    uint8_t frame[NIKON_WIRE_SIZE] = { 0 };
+
+    stl_le_p(frame, NIKON_WIRE_MAGIC);
+    frame[NIKON_WIRE_TYPE] = type;
+    frame[NIKON_WIRE_KIND] = kind;
+    frame[NIKON_WIRE_BITS] = bits;
+    stq_le_p(frame + NIKON_WIRE_TOKEN, token);
+    stl_le_p(frame + NIKON_WIRE_LINE, line);
+    stl_le_p(frame + NIKON_WIRE_WORD, word);
+    g_assert_cmpint(send(fd, frame, sizeof(frame), 0), ==, sizeof(frame));
+}
+
+static void peer_receive(int fd, unsigned type, NikonPeerKind kind,
+                         uint64_t token, unsigned bits, unsigned line,
+                         uint32_t word)
+{
+    uint8_t frame[NIKON_WIRE_SIZE];
+    size_t received = 0;
+    GPollFD pfd = { .fd = fd, .events = G_IO_IN };
+    int64_t deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+
+    g_test_message("peer receive: type=%u kind=%u token=%" PRIu64
+                   " bits=%u line=%u", type, kind, token, bits, line);
+    while (received < sizeof(frame)) {
+        ssize_t count;
+        int64_t remaining = deadline - g_get_monotonic_time();
+
+        g_assert_cmpint(remaining, >, 0);
+        g_assert_cmpint(g_poll(&pfd, 1, (remaining + 999) / 1000), ==, 1);
+        count = recv(fd, frame + received, sizeof(frame) - received, 0);
+        g_assert_cmpint(count, >, 0);
+        received += count;
+    }
+    g_assert_cmphex(ldl_le_p(frame), ==, NIKON_WIRE_MAGIC);
+    g_assert_cmphex(frame[NIKON_WIRE_TYPE], ==, type);
+    g_assert_cmphex(frame[NIKON_WIRE_KIND], ==, kind);
+    g_assert_cmphex(ldq_le_p(frame + NIKON_WIRE_TOKEN), ==, token);
+    g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_LINE), ==, line);
+    g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_WORD), ==, word);
+    g_assert_cmphex(frame[NIKON_WIRE_BITS], ==, bits);
+}
+
+static void peer_no_reply(int fd)
+{
+    GPollFD pfd = { .fd = fd, .events = G_IO_IN };
+
+    g_assert_cmpint(g_poll(&pfd, 1, 20), ==, 0);
+}
+
+static void peer_wait_pad(QTestState *qts, uint32_t address,
+                          unsigned mask, unsigned level)
+{
+    int64_t deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+
+    while ((qtest_readb(qts, address) & mask) != level) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+}
+
+static void peer_arm(QTestState *qts, uint32_t output,
+                     unsigned transmit, unsigned receive)
+{
+    qtest_writeb(qts, 0x8a0a2, 2); /* Program descriptors before TX is enabled. */
+    qtest_writel(qts, 0x1100, output);
+    qtest_writeb(qts, 0x87400, 84);
+    qtest_writeb(qts, 0x87404, 85);
+    program_dma(qts, 0, 0x8a0a5, 0x1200, 0x0080, receive);
+    program_dma(qts, 1, 0x1100, 0x8a0a3, 0x8000, transmit);
+    qtest_writew(qts, 0x82010, 0x2001);
+    qtest_writew(qts, 0x82050, 0x2001);
+    qtest_writeb(qts, 0x82200, 1);
+    qtest_writeb(qts, 0x8a0a0, 0x80);
+    qtest_writeb(qts, 0x8a0a2, 0xf2);
+    qtest_clock_step(qts, 1);
+}
+
+static void peer_wait_disconnected(QTestState *qts)
+{
+    int64_t deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+    bool disconnected = false;
+
+    while (!disconnected) {
+        QDict *response = qtest_qmp(qts, "{'execute':'query-chardev'}");
+        const QListEntry *entry;
+
+        QLIST_FOREACH_ENTRY(qdict_get_qlist(response, "return"), entry) {
+            QDict *info = qobject_to(QDict, qlist_entry_obj(entry));
+
+            if (!strcmp(qdict_get_str(info, "label"), "s0")) {
+                disconnected = g_str_has_prefix(qdict_get_str(info, "filename"),
+                                                "disconnected:");
+            }
+        }
+        qobject_unref(response);
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        if (!disconnected) {
+            g_usleep(1000);
+        }
+    }
+}
+
+static void test_sci5_peer(void)
+{
+    g_autofree char *path = test_package();
+    g_autofree char *args = g_strdup_printf(
+        "-machine nikonvr -bios %s -display none "
+        "-device nikon-peer,id=wire,chardev=s0 "
+        "-device nikon-vr-peer,id=vrpeer,peer=wire,"
+        "peripherals=/machine/vr-peripherals", path);
+    int fd;
+    QTestState *qts = qtest_init_with_serial(args, &fd);
+
+    qtest_irq_intercept_out_named(qts, "/machine/vr-peripherals", "sysbus-irq");
+
+    /* Output direction produces physical GPIO wire levels, not clock replies. */
+    qtest_writeb(qts, 0x8c020, 1);
+    qtest_writeb(qts, 0x8c000, 1);
+    peer_receive(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 0, 1);
+    qtest_writeb(qts, 0x8c020, 0);
+    peer_receive(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 0, 0);
+
+    qtest_writeb(qts, 0x8c11f, 0);
+    qtest_writeb(qts, 0x8c11f, 0x40);
+    qtest_writeb(qts, 0x8c167, 0x40);
+    qtest_writeb(qts, 0x8c11f, 0x80);
+    qtest_writeb(qts, 0x8750f, 12);
+    qtest_writeb(qts, 0x8734f, 9);
+    qtest_writeb(qts, 0x87209, 0x80);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    peer_wait_pad(qts, 0x8c044, 0x80, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8704f), ==, 1);
+    g_assert_true(qtest_get_irq(qts, 0));
+    qtest_set_irq_in(qts, "/machine/vr-peripherals", "ack", 0, 79);
+    g_assert_false(qtest_get_irq(qts, 0));
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 1, 8, 0, 0x31);
+    peer_no_reply(fd); /* CS and an unarmed guest cannot produce a byte. */
+
+    peer_send(fd, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK, 1, 8, 0, 0);
+    /* This physical input confirms earlier frames on the same stream ran. */
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 8, 1);
+    peer_wait_pad(qts, 0x8c041, 1, 1);
+    peer_arm(qts, 0xa5, 1, 1);
+    peer_no_reply(fd);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x82048), ==, 0);
+
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 2, 8, 0, 0x31);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 2, 8, 0, 0xa5);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x31);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 0);
+
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 1);
+    peer_wait_pad(qts, 0x8c044, 0x80, 0x80);
+    peer_arm(qts, 0x5a, 1, 1);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 3, 8, 0, 0x32);
+    peer_no_reply(fd);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_SELECT, 0, 0, 0, 0);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 3, 8, 0, 0x5a);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x32);
+
+    peer_arm(qts, 0x5aa5, 2, 2);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 4, 16, 0, 0x4321);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 4, 16, 0, 0x5aa5);
+    g_assert_cmphex(qtest_readw(qts, 0x1200), ==, 0x4321);
+    g_assert_cmphex(qtest_readl(qts, 0x82004), ==, 0x1202);
+    g_assert_cmphex(qtest_readl(qts, 0x82040), ==, 0x1102);
+
+    /* The second byte waits for TDR refill; cancel cannot reclock the first. */
+    peer_arm(qts, 0x6c, 1, 2);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 5, 16, 0, 0x6543);
+    peer_wait_pad(qts, 0x1200, 0xff, 0x43);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
+    peer_no_reply(fd);
+    peer_send(fd, NIKON_WIRE_CANCEL, NIKON_PEER_CLOCK, 5, 16, 0, 0);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 8, 0);
+    peer_wait_pad(qts, 0x8c041, 1, 0);
+    peer_arm(qts, 0x55, 1, 1);
+    peer_no_reply(fd);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x43);
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 6, 8, 0, 0x76);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 6, 8, 0, 0x55);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x76);
+
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 7, 8, 0, 0x33);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 8, 1);
+    peer_wait_pad(qts, 0x8c041, 1, 1);
+    peer_no_reply(fd);
+    qtest_qmp_assert_success(qts, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(qts, "RESET");
+    peer_arm(qts, 0x77, 1, 1);
+    peer_no_reply(fd); /* Reset cancelled token 7, no stale clock is retried. */
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 8, 8, 0, 0x33);
+    peer_receive(fd, NIKON_WIRE_REPLY, NIKON_PEER_CLOCK, 8, 8, 0, 0x77);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x33);
+
+    peer_send(fd, NIKON_WIRE_REQUEST, NIKON_PEER_CLOCK, 9, 8, 0, 0x34);
+    peer_send(fd, NIKON_WIRE_SIGNAL, NIKON_PEER_GPIO, 0, 0, 9, 1);
+    peer_wait_pad(qts, 0x8c041, 2, 2);
+    peer_no_reply(fd);
+    close(fd);
+    peer_wait_disconnected(qts);
+    peer_arm(qts, 0x44, 1, 1);
+    g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x1200), ==, 0x33);
+    qtest_quit(qts);
+    unlink(path);
+}
+
 static void test_dma_and_serial(void)
 {
     g_autofree char *path = test_package();
@@ -406,5 +624,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/vr/dtc-chain", test_dtc_chain);
     qtest_add_func("/nikon/vr/sci10-transmit", test_sci10_transmit);
     qtest_add_func("/nikon/vr/rspi2-frames", test_rspi2_frames);
+    qtest_add_func("/nikon/vr/sci5-peer", test_sci5_peer);
     return g_test_run();
 }

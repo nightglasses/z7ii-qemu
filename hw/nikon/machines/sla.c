@@ -41,6 +41,7 @@ struct NikonSLADomain {
     MemoryRegion ram[SLA_RAM_COUNT], storage[SLA_RAM_COUNT];
     unsigned ram_count;
     DeviceState *memc;
+    DeviceState *bridge;
     GBytes *payload;
     bool reported_error;
     bool initialized;
@@ -289,6 +290,10 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sla_map(s, gic, 0, SLA_CBAR + 0x1000);
     sla_map(s, gic, 1, SLA_CBAR + 0x2000);
+    /* Official 1006ade8/1006ad78: IRQ127, pending/ACK at 2013d020/d028. */
+    s->bridge = sla_simple(s, "bridge", TYPE_NIKON_BRIDGE, 0x20130000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(s->bridge), 0,
+                       qdev_get_gpio_in(gic, 127 - 32));
     fill = sla_device(s, "fill", TYPE_NIKON_FILL);
     object_property_set_link(OBJECT(fill), "memory", OBJECT(&s->system),
                              &error_fatal);
@@ -384,6 +389,11 @@ DeviceState *nikon_sla_create(Object *parent, const char *name,
 AddressSpace *nikon_sla_address_space(DeviceState *domain)
 {
     return &NIKON_SLA_DOMAIN(domain)->as;
+}
+
+DeviceState *nikon_sla_bridge(DeviceState *domain)
+{
+    return NIKON_SLA_DOMAIN(domain)->bridge;
 }
 
 static void sla_init(MachineState *machine)
