@@ -557,3 +557,92 @@ The private mapper connects IRQ0 to its own GIC123 and leaves all three
 `external-event` inputs disconnected. The fresh synthetic fixture calls the
 whole-family helper and checks that the disconnected Storage host supplies
 no Signal link event. Its native qualification remains pending.
+
+The next complete source audit establishes three independent SLA bindings,
+without borrowing MAS register ownership. SOURCE11 is fixed TOOL producer
+`ef6395d18386f58f8551fc663df309ee7f8475f5` (project10), canonical recovered
+SOURCE `9a9fd191f4cbe4ed0f0a38c2a3fc345ea2f0ad30`. The getter and method arrays
+above lead to these original bodies:
+
+| Source family | Private regions | Actual IRQ outputs |
+| --- | --- | --- |
+| 9EE4C / 9EE7E, handlers9EE12/9EDE8/9EDD4 | Router 20060000/330 | 86..88 |
+| 9E27C / 9E2BE, complete9E1B4..9EBA4 | SDES configuration20061000/500, status20064000/2C, parameters20065000/554 | 89..93 |
+| 9CFD0 / 9D018, five handlers and9D056/9D3C0 | CaptureControl20068000/1180 | 94..98 |
+
+All numbers in the region column are hexadecimal. Router's three handlers
+acknowledge pending words at38/44/50; the first iterates its low eleven causes.
+Its extra IRQ enable calls89..93 do not create additional Router outputs.
+SDES owns its separate eleven-word external status snapshots. CaptureControl
+owns eight status words grouped2/1/2/2/1, and supports the actual SLA initialization
+writes `+18=FFF` and `+C=C`. Known control/configuration coldzero values are a
+declared functional reset assumption; unknown external data is not supplied.
+All three are private QOM instances with independent pending state and GIC
+connections. No physical sensor, frame, automatic IRQ or completion provider is
+attached. The distinct source references2006B000/2006B3B8 remain outside this
+binding; they are not absorbed into CaptureControl or assigned pixel semantics.
+Router's larger unqualified configuration gaps retain their existing rejection
+boundary. The fresh Router fixture uses its complete source-audited helper;
+shared SDES/CaptureControl tests independently validate their event contracts.
+Native qualification of this private three-family graph remains pending.
+
+A further complete source audit of `1009C76E/1009C832/1009C866/1009C96C`
+qualifies the separate ReadoutControl parameter bank `2006B000/404`. Literal
+`9CA04` supplies its base and `9CA08` supplies `2006B3B8`. The domain maps only
+region `NIKON_READOUT_PARAMETERS` of an independent instance. Region0's
+`20069800/384` buffer protocol has a mature MAS implementation, but its earlier
+SLA9B consumers still require their own complete audit, so it remains unmapped
+in this layer. There is no IRQ. Known configuration coldzero is an explicit
+functional assumption; external raw data is not provided. Command `2006B400=1`
+produces a real request output with no connected provider, rather than completion.
+
+The remaining source-qualified second-phase graph is a separate queued layer:
+Flags201A0300/20 with IRQ118 and disconnected event inputs; Status24060000/34
+with no physical IRQ229; the two existing SDI banks with output0 to IRQ125/126;
+and the existing MXIC/config pair with its original region and view connections.
+These additions do not wait for external event or DRAM data producers and do
+not supply any such data. SDI exposes eight actual pending/W1C words per bank;
+DDR initialization and training retain their existing causal completion events,
+while unknown MRR data remains unsupported.
+
+MXIC output0 feeds config's named `region[0]` input; config output0 alone feeds
+GIC128. Config's named `view[0]` output feeds MXIC's named `view[0]` input, selecting
+the actual first-region table view. Both devices remain private and use no DMA
+AddressSpace. The complete source Listing grammar for5A354/5A5E2 and parameter
+families is admitted as a functional protocol profile; its original
+`source_accepted:false` executable-reassembly boundary remains distinct from
+that model support. The focused private fixture tests view selection and two
+independent timed completion causes, including ACK of one cause while the other
+keeps IRQ128 asserted. Fresh Flags and Status helpers independently exercise
+their finite protocols. Qualification of this separate layer is pending; it
+does not alter the already delivered Storage/Staging/Router/capture layer.
+## Private EventGate control
+
+The bounded canonical `c245` five-context run crossed the preceding Staging
+initializer. Its first actual SLA rejection was CPU3 at `0x100944d2`, writing
+word0 to PA `0x20100000` at virtual114282000ns. The original Listing joins
+caller `0x10093d60` to initializer `0x100944ac`; literal `0x10094738` supplies
+that address. Registration `0x100943ce` uses logical object146 at `0xc10012c4`
+and IRQ102. These source facts use the fixed SOURCE11 producer
+`ef6395d18386f58f8551fc663df309ee7f8475f5` and recovered source
+`9a9fd191f4cbe4ed0f0a38c2a3fc345ea2f0ad30`.
+
+The domain reuses `TYPE_NIKON_EVENT_GATE` at private `0x20100000/0x2928`, with
+its single output connected to private GIC102. No DMA, global address-space
+access or data backend is required by this finite control model. All96
+external pending-bit inputs remain disconnected. The existing20us stop
+acknowledgement is an explicit functional timing convention; it is not a
+new physical producer inferred from the initialization write. Unknown submit
+pulses and data remain rejected. The shared owner audits the full recovered
+`0x100943ce..0x100953e2` family and separately tracks missing ISR/wait bodies.
+The following `0x10095408` family targets `0x24073400` and is not covered by
+this mapping.
+
+A fresh synthetic `/nikon/sla/gate` wrapper calls the shared whole-protocol
+fixture through `/machine/sla/gate`. This mapper and fixture require sole-builder
+qualification; no compile or native pass is claimed here. In the original run,
+COPY remained active with status0 and residual `0x136b8f` at the final
+snapshot. The known package prefix at `0xc8220000` matched only partially;
+neither a complete clone nor a successful remap is established. One ordinary
+continue entered the NOR abort consequence, after which QMP quit released the
+binary. Ignored receipts stay in the observer's `work/gui/peripherals`.

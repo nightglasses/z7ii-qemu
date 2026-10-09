@@ -42,15 +42,20 @@ static QTestState *start(const char *configuration, bool connected)
     return q;
 }
 
-static uint64_t property(QTestState *q, const char *name)
+static uint64_t property_at(QTestState *q, const char *path, const char *name)
 {
     QDict *response = qtest_qmp(q,
         "{'execute':'qom-get','arguments':{'path':%s,'property':%s}}",
-        SENSOR_PATH, name);
+        path, name);
     uint64_t value = qdict_get_int(response, "return");
 
     qobject_unref(response);
     return value;
+}
+
+static uint64_t property(QTestState *q, const char *name)
+{
+    return property_at(q, SENSOR_PATH, name);
 }
 
 static void capture(QTestState *q, bool active, bool success)
@@ -258,14 +263,20 @@ static QTestState *sdes_start(void)
     return q;
 }
 
-static void sdes_word(QTestState *q, unsigned word, uint32_t value)
+static void status_word(QTestState *q, const char *path,
+                        unsigned word, uint32_t value)
 {
     unsigned bit;
 
     for (bit = 0; bit < 32; bit++) {
-        qtest_set_irq_in(q, SDES_PATH, "status-data", word * 32 + bit,
+        qtest_set_irq_in(q, path, "status-data", word * 32 + bit,
                          !!(value & (1U << bit)));
     }
+}
+
+static void sdes_word(QTestState *q, unsigned word, uint32_t value)
+{
+    status_word(q, SDES_PATH, word, value);
 }
 
 static void sdes_event(QTestState *q, enum NikonSdesEvent event)
@@ -292,6 +303,10 @@ static void test_sdes_configuration(void)
     };
     unsigned i;
 
+    g_assert_cmphex(qtest_readl(q, 0x200610e8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x200610f4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20065104), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20065504), ==, 0);
     for (i = 0; i < ARRAY_SIZE(fields); i++) {
         qtest_writel(q, fields[i].address, fields[i].value);
     }
@@ -369,6 +384,286 @@ static void test_sdes_publication(void)
     qtest_quit(q);
 }
 
+#define CAPTURE_PATH "/machine/capture-control"
+#define CAPTURE_BASE 0x20068000
+
+static QTestState *capture_start(const char *output)
+{
+    g_autofree char *bios = g_shell_quote(image);
+    QTestState *q = qtest_initf(
+        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", bios);
+
+    if (output) {
+        qtest_irq_intercept_out_named(q, CAPTURE_PATH, output);
+    } else {
+        qtest_irq_intercept_out_named(q, CAPTURE_PATH, "sysbus-irq");
+    }
+    return q;
+}
+
+static void publish_capture(QTestState *q, unsigned event)
+{
+    qtest_set_irq_in(q, CAPTURE_PATH, "status-publish", event, 0);
+    qtest_set_irq_in(q, CAPTURE_PATH, "status-publish", event, 1);
+}
+
+static void test_capture_configuration(void)
+{
+    QTestState *q = capture_start(NULL);
+    static const struct {
+        unsigned first, last;
+    } ranges[] = {
+        { 0x500, 0x500 }, { 0x508, 0x81c }, { 0xa00, 0xafc },
+        { 0xc00, 0xe3c }, { 0xf00, 0x100c }, { 0x1100, 0x117c },
+    };
+    unsigned i, offset;
+
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x18, 0xfff);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xc);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==, 0xfff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xc), ==, 0xc);
+    for (i = 0; i < 8; i++) {
+        uint64_t mask = CAPTURE_BASE + 0x200 + i * 0x20;
+
+        g_assert_cmphex(qtest_readl(q, mask), ==, 0);
+        qtest_writel(q, mask, qtest_readl(q, mask) | (1U << i));
+        g_assert_cmphex(qtest_readl(q, mask), ==, 1U << i);
+    }
+    for (i = 0; i < ARRAY_SIZE(ranges); i++) {
+        for (offset = ranges[i].first; offset <= ranges[i].last; offset += 4) {
+            qtest_writel(q, CAPTURE_BASE + offset, 0x90000000 | offset);
+        }
+    }
+    for (i = 0; i < ARRAY_SIZE(ranges); i++) {
+        for (offset = ranges[i].first; offset <= ranges[i].last; offset += 4) {
+            g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + offset), ==,
+                            0x90000000 | offset);
+        }
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x100, 1);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x80);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x100), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x104), ==, 0x80);
+    for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+
+    q = capture_start("command-data");
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x12345678);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x90abcdef);
+    for (i = 0; i < 64; i++) {
+        uint32_t value = i < 32 ? 0x12345678 : 0x90abcdef;
+
+        g_assert_cmpint(qtest_get_irq(q, i), ==,
+                        !!(value & (1U << (i % 32))));
+    }
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    for (i = 0; i < 64; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_status(void)
+{
+    QTestState *q = capture_start(NULL);
+    static const unsigned events[] = { 0, 0, 1, 2, 2, 3, 3, 4 };
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(events); i++) {
+        status_word(q, CAPTURE_PATH, i, 1U << i);
+    }
+    for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        publish_capture(q, i);
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    /* Complete events latch before masks are programmed. Enabling their
+     * actual pending bits makes the corresponding interrupt observable.
+     */
+    for (i = 0; i < ARRAY_SIZE(events); i++) {
+        uint64_t mask = CAPTURE_BASE + 0x200 + i * 0x20;
+        uint64_t status = mask + 0x10;
+
+        g_assert_cmphex(qtest_readl(q, status), ==, 1U << i);
+        qtest_writel(q, mask, 1U << i);
+        g_assert_true(qtest_get_irq(q, events[i]));
+        qtest_writel(q, mask, 0);
+        g_assert_false(qtest_get_irq(q, events[i]));
+    }
+    for (i = 0; i < ARRAY_SIZE(events); i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x210, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE + 0x230, 2);
+    g_assert_false(qtest_get_irq(q, 0));
+    for (i = 2; i < ARRAY_SIZE(events); i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x210 + i * 0x20, 1U << i);
+    }
+    for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_publication(void)
+{
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, CAPTURE_BASE + 0x2a0, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x2c0, UINT32_MAX);
+    status_word(q, CAPTURE_PATH, 5, 0x40);
+    publish_capture(q, 3);
+    g_assert_false(qtest_get_irq(q, 3));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x2b0), ==, 0);
+    status_word(q, CAPTURE_PATH, 6, 0);
+    publish_capture(q, 3);
+    g_assert_true(qtest_get_irq(q, 3));
+    qtest_writel(q, CAPTURE_BASE + 0x2b0, 0x40);
+    publish_capture(q, 3);
+    g_assert_false(qtest_get_irq(q, 3));
+    status_word(q, CAPTURE_PATH, 5, 0x40);
+    status_word(q, CAPTURE_PATH, 6, 0);
+    publish_capture(q, 3);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    g_assert_false(qtest_get_irq(q, 3));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x2b0), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x2a0), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x2a0, UINT32_MAX);
+    publish_capture(q, 3);
+    g_assert_false(qtest_get_irq(q, 3));
+    qtest_quit(q);
+}
+
+#define READOUT_PATH "/machine/readout-control"
+#define READOUT_BUFFERS 0x20069800
+#define READOUT_PARAMETERS 0x2006b000
+
+static QTestState *readout_start(void)
+{
+    g_autofree char *bios = g_shell_quote(image);
+    QTestState *q = qtest_initf(
+        "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", bios);
+
+    qtest_irq_intercept_out_named(q, READOUT_PATH, "readout-request");
+    return q;
+}
+
+static void test_readout_configuration(void)
+{
+    QTestState *q = readout_start();
+    static const struct {
+        unsigned offset;
+        uint32_t value;
+    } fields[] = {
+        { 0x310, 0xfedcba98 }, { 0x318, 0x80000001 },
+        { 0x324, 0x005a00a5 }, { 0x334, 0xffff }, { 0x354, 0xff },
+        { 0x364, 0xffff00ff }, { 0x36c, 0xabcdef },
+        { 0x388, 0x03ff03ff }, { 0x390, 0x01230321 },
+        { 0x3a4, 0x80 }, { 0x3b8, 0xabcdef },
+        { 0x3bc, 0xdeadbeef }, { 0x3c0, 1 },
+        { 0x3c4, RAM + 0x1000 }, { 0x3c8, RAM + 0x2000 },
+        { 0x3dc, 0x1800 }, { 0x3e8, RAM + 0x3000 },
+        { 0x3ec, 0x3000 }, { 0x3f0, 0x6000 },
+        { 0x3f4, RAM + 0x9000 }, { 0x3fc, 0x00400040 },
+    };
+    unsigned i;
+
+    /* Original coefficient loop writes129 zero-extended halfwords. */
+    for (i = 0; i < 129; i++) {
+        g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + i * 4), ==, 0);
+        qtest_writel(q, READOUT_PARAMETERS + i * 4, i * 509);
+        g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + i * 4), ==, i * 509);
+    }
+    for (i = 0; i < ARRAY_SIZE(fields); i++) {
+        uint64_t address = READOUT_PARAMETERS + fields[i].offset;
+
+        g_assert_cmphex(qtest_readl(q, address), ==, 0);
+        qtest_writel(q, address, fields[i].value);
+        g_assert_cmphex(qtest_readl(q, address), ==, fields[i].value);
+    }
+    /* Invalid scalar/pair widths must preserve the previous configuration. */
+    qtest_writel(q, READOUT_PARAMETERS, 0x10000);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS), ==, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x388, 0x040003ff);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x388), ==, 0x03ff03ff);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
+static void test_readout_buffers(void)
+{
+    QTestState *q = readout_start();
+    unsigned selector, bank, word;
+
+    for (selector = 0; selector < 4; selector++) {
+        for (bank = 0; bank < 2; bank++) {
+            for (word = 0; word < 4; word++) {
+                uint64_t address = READOUT_BUFFERS + selector * 0x100 +
+                    0x50 + bank * 0x10 + word * 4;
+                uint32_t value = RAM + selector * 0x10000 +
+                    bank * 0x1000 + word * 0x100;
+
+                g_assert_cmphex(qtest_readl(q, address), ==, 0);
+                qtest_writel(q, address, value);
+            }
+        }
+    }
+    qtest_writel(q, READOUT_BUFFERS + 0x3c, 1);
+    qtest_writel(q, READOUT_BUFFERS + 0x23c, 0x155);
+    for (selector = 0; selector < 4; selector++) {
+        for (bank = 0; bank < 2; bank++) {
+            for (word = 0; word < 4; word++) {
+                uint64_t address = READOUT_BUFFERS + selector * 0x100 +
+                    0x50 + bank * 0x10 + word * 4;
+                uint32_t value = RAM + selector * 0x10000 +
+                    bank * 0x1000 + word * 0x100;
+
+                g_assert_cmphex(qtest_readl(q, address), ==, value);
+            }
+        }
+    }
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    g_assert_cmphex(qtest_readl(q, READOUT_BUFFERS + 0x3c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, READOUT_BUFFERS + 0x23c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, READOUT_BUFFERS + 0x36c), ==, 0);
+    qtest_quit(q);
+}
+
+static void test_readout_request(void)
+{
+    QTestState *q = readout_start();
+
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c4, RAM + 0x1000);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 2);
+    g_assert_false(qtest_get_irq(q, 0)); /* Synchronous request pulse finished. */
+    g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 2);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 2);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x400), ==, 1);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "requests"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x400), ==, 0);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
+    qtest_quit(q);
+}
+
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
@@ -393,6 +688,14 @@ int main(int argc, char **argv)
                     test_sdes_configuration);
     qtest_add_func("/nikon/sensor/controller/status", test_sdes_status);
     qtest_add_func("/nikon/sensor/controller/publication", test_sdes_publication);
+    qtest_add_func("/nikon/sensor/capture/configuration",
+                    test_capture_configuration);
+    qtest_add_func("/nikon/sensor/capture/status", test_capture_status);
+    qtest_add_func("/nikon/sensor/capture/publication", test_capture_publication);
+    qtest_add_func("/nikon/sensor/readout/configuration",
+                    test_readout_configuration);
+    qtest_add_func("/nikon/sensor/readout/buffers", test_readout_buffers);
+    qtest_add_func("/nikon/sensor/readout/request", test_readout_request);
     result = g_test_run();
     unlink(image);
     unlink(frame);

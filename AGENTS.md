@@ -67,3 +67,11 @@
 | [sla.md](docs/devices/staging/sla.md) | SLA 原 staged configuration、显式事件与 IRQ |
 | [protocol.md](docs/devices/update/protocol.md) | 有界功能更新端点、原子 claim 与实际持久化 |
 | [layers.md](docs/validation/layers.md) | 控制器及外部输入层的固定源码与原生验证收据 |
+| [interrupts.md](docs/devices/config/interrupts.md) | 独立配置事务、选择性发布、完成 IRQ 和 live 参数 |
+| [protocol.md](docs/devices/flags/protocol.md) | 有限 flag 字段、外部输入与 W1C 合同 |
+| [sla.md](docs/devices/gate/sla.md) | SLA 原 Gate 控制、显式事件与功能 stop 请求 |
+| [sla.md](docs/devices/router/sla.md) | SLA 私有 Router 字段与独立事件接线 |
+| [runtime.md](docs/devices/sdi/runtime.md) | 双 bank SDI 运行时字段、宽度与独立事务 |
+| [sla.md](docs/devices/status/sla.md) | SLA 有限 status 输入、配置与 IRQ 合同 |
+| [sla.md](docs/devices/sysconfig/sla.md) | SLA 原 sysconfig 字段与复用协议 |
+| [controllers.md](docs/validation/controllers.md) | Capture／Readout／Router／Gate 与 phase-two 的固定资格范围 |

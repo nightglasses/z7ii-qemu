@@ -4,8 +4,10 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "qemu/timer.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonMXICState, NIKON_MXIC)
@@ -26,9 +28,36 @@ struct NikonMXICState {
     MemoryRegion regs;
     NikonRegionUnit unit[2];
     uint32_t configuration[32];
+    QEMUTimer *timer;
+    qemu_irq irq;
+    uint32_t enable, pending, diagnostics[4];
+    uint32_t draft_config[3], active_config[3];
+    bool active_view, busy;
+    bool region_view;
     GArray *endpoints;
     bool reported_error;
 };
+
+static void nikon_mxic_view(void *opaque, int n, int level)
+{
+    NikonMXICState *s = opaque;
+    s->region_view = level;
+}
+
+static void nikon_mxic_update_irq(NikonMXICState *s)
+{
+    qemu_set_irq(s->irq, s->enable & s->pending);
+}
+
+static void nikon_mxic_complete(void *opaque)
+{
+    NikonMXICState *s = opaque;
+
+    memcpy(s->active_config, s->draft_config, sizeof(s->active_config));
+    s->busy = false;
+    s->pending |= 1;
+    nikon_mxic_update_irq(s);
+}
 
 /* Explicit virtual preloader decode profile, using original boot configuration.
  * These are not observed physical reset registers or installed DDR capacity. */
@@ -119,7 +148,31 @@ static MemTxResult nikon_mxic_read(void *opaque, hwaddr offset,
                                "mxic-access-not-supported");
     }
     if (unit >= 0) {
-        *value = s->unit[unit].draft[word];
+        bool active = unit == 0 ? s->region_view : s->active_view;
+        *value = active ? s->unit[unit].active[word] : s->unit[unit].draft[word];
+        return MEMTX_OK;
+    }
+    if (offset == 0x808 || offset == 0x80c) {
+        *value = offset == 0x808 ? s->enable : s->pending;
+        return MEMTX_OK;
+    }
+    if (offset == 0x810 || offset == 0x814 ||
+        offset == 0x820 || offset == 0x824) {
+        word = (offset >= 0x820 ? 2 : 0) + ((offset & 7) == 4);
+        *value = s->diagnostics[word];
+        return MEMTX_OK;
+    }
+    if (offset == 0x838) {
+        *value = s->active_view;
+        return MEMTX_OK;
+    }
+    if (offset == 0x830 || offset == 0x840 || offset == 0x844) {
+        word = offset == 0x830 ? 0 : 1 + (offset - 0x840) / 4;
+        *value = s->active_view ? s->active_config[word] :
+                                 s->draft_config[word];
+        if (word == 0) {
+            *value |= !s->busy;
+        }
         return MEMTX_OK;
     }
     if (offset >= 0xa00 && offset < 0xa80) {
@@ -141,6 +194,52 @@ static MemTxResult nikon_mxic_write(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         return nikon_mxic_error(s, offset, size, true, value,
                                "mxic-access-not-supported");
+    }
+    if (offset == 0x808 || offset == 0x80c) {
+        if (value & ~7U) {
+            return nikon_mxic_error(s, offset, size, true, value,
+                                   "mxic-interrupt-field-not-supported");
+        }
+        if (offset == 0x808) {
+            s->enable = value;
+        } else {
+            s->pending &= ~value;
+        }
+        nikon_mxic_update_irq(s);
+        return MEMTX_OK;
+    }
+    if (offset == 0x834 && value == 1) {
+        memset(s->diagnostics, 0, sizeof(s->diagnostics));
+        return MEMTX_OK;
+    }
+    if (offset == 0x838 && value <= 1) {
+        s->active_view = value;
+        return MEMTX_OK;
+    }
+    if (offset == 0x82c || offset == 0x830 ||
+        offset == 0x840 || offset == 0x844) {
+        if (s->busy || s->active_view) {
+            return nikon_mxic_error(s, offset, size, true, value,
+                                   "mxic-configuration-not-writable");
+        }
+        if (offset == 0x82c) {
+            if (value != 1) {
+                return nikon_mxic_error(s, offset, size, true, value,
+                                       "mxic-configuration-command-not-supported");
+            }
+            s->busy = true;
+            timer_mod_ns(s->timer,
+                         qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 10000);
+        } else {
+            uint32_t mask = offset == 0x830 ? 0x33331 : 0x1f1f1f1f;
+            if (value & ~mask) {
+                return nikon_mxic_error(s, offset, size, true, value,
+                                       "mxic-configuration-field-not-supported");
+            }
+            word = offset == 0x830 ? 0 : 1 + (offset - 0x840) / 4;
+            s->draft_config[word] = word == 0 ? value & ~1U : value;
+        }
+        return MEMTX_OK;
     }
     if (unit >= 0) {
         s->unit[unit].draft[word] = value;
@@ -207,6 +306,13 @@ static void nikon_mxic_reset(DeviceState *dev)
         s->unit[unit].written = 0;
     }
     s->reported_error = false;
+    timer_del(s->timer);
+    s->enable = s->pending = 0;
+    s->active_view = s->region_view = s->busy = false;
+    memset(s->diagnostics, 0, sizeof(s->diagnostics));
+    memset(s->draft_config, 0, sizeof(s->draft_config));
+    memset(s->active_config, 0, sizeof(s->active_config));
+    nikon_mxic_update_irq(s);
     memset(s->configuration, 0, sizeof(s->configuration));
     nikon_mxic_apply(s);
 }
@@ -216,9 +322,12 @@ static void nikon_mxic_init(Object *obj)
     NikonMXICState *s = NIKON_MXIC(obj);
 
     s->endpoints = g_array_new(false, false, sizeof(NikonRAMEndpoint));
+    s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_mxic_complete, s);
     memory_region_init_io(&s->regs, obj, &nikon_mxic_ops, s,
                           "nikon.mxic-regions", 0xd60);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_mxic_view, "view", 1);
 }
 
 static void nikon_mxic_finalize(Object *obj)
@@ -226,6 +335,7 @@ static void nikon_mxic_finalize(Object *obj)
     NikonMXICState *s = NIKON_MXIC(obj);
 
     g_array_free(s->endpoints, true);
+    timer_free(s->timer);
 }
 
 static const VMStateDescription nikon_mxic_vmstate = {

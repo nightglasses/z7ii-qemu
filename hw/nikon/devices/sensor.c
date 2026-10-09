@@ -676,9 +676,20 @@ static const MemoryRegionOps nikon_sdes_ops = {
 static void nikon_sdes_reset(DeviceState *dev)
 {
     NikonSdesState *s = NIKON_SDES(dev);
+    unsigned bank, offset;
+    uint32_t mask;
 
     memset(s->configuration, 0, sizeof(s->configuration));
     memset(s->known, 0, sizeof(s->known));
+    /* Explicit functional cold-zero profile for known control registers.
+     * Unknown data/status apertures do not acquire a reset value here.
+     */
+    for (bank = 0; bank < NIKON_SDES_REGIONS; bank++) {
+        for (offset = 0; offset < SDES_WORDS * 4; offset += 4) {
+            s->known[bank][offset / 4] =
+                nikon_sdes_config(bank, offset, &mask);
+        }
+    }
     memset(s->pending, 0, sizeof(s->pending));
     memset(s->levels, 0, sizeof(s->levels));
     memset(s->seen, 0, sizeof(s->seen));
@@ -733,9 +744,578 @@ static const TypeInfo nikon_sdes_type = {
     .class_init = nikon_sdes_class_init,
 };
 
+/* Capture configuration packet10238fbc and handlers1020a836..1020a9b2.
+ * Status has an explicit provider. Register writes never manufacture it.
+ */
+#define CAPTURE_SIZE 0x1180
+#define CAPTURE_WORDS (CAPTURE_SIZE / 4)
+#define CAPTURE_STATUS_WORDS 8
+OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureControl, NIKON_CAPTURE_CONTROL)
+
+struct NikonCaptureControl {
+    SysBusDevice parent_obj;
+    MemoryRegion memory;
+    qemu_irq irq[NIKON_CAPTURE_EVENTS];
+    qemu_irq command_data[64], command_publish[2];
+    uint32_t configuration[CAPTURE_WORDS];
+    bool known[CAPTURE_WORDS];
+    uint32_t pending[CAPTURE_STATUS_WORDS];
+    uint32_t levels[CAPTURE_STATUS_WORDS], seen[CAPTURE_STATUS_WORDS];
+    uint32_t event_levels;
+    bool reported_error;
+};
+
+static const unsigned nikon_capture_events[CAPTURE_STATUS_WORDS] = {
+    0, 0, 1, 2, 2, 3, 3, 4,
+};
+
+static bool nikon_capture_config(unsigned offset, uint32_t *mask)
+{
+    *mask = UINT32_MAX;
+    /* Complete original stores, not an enclosing peripheral aperture.
+     * Six seven-word subtables at871c..87c0 fill the middle of this range.
+     */
+    if (offset == 0x500 || (offset >= 0x508 && offset <= 0x81c) ||
+        (offset >= 0xa00 && offset <= 0xafc) ||
+        (offset >= 0xc00 && offset <= 0xe3c) ||
+        (offset >= 0xf00 && offset <= 0x100c) ||
+        (offset >= 0x1100 && offset <= 0x117c)) {
+        return true;
+    }
+    if (offset >= 0x200 && offset <= 0x2e0 && !(offset & 0x1f)) {
+        return true;
+    }
+    switch (offset) {
+    case 0: case 4: case 0x18:
+        *mask = 0xfff;
+        return true;
+    case 0xc:
+        *mask = 0xc;
+        return true;
+    case 8: case 0x8c: case 0x100: case 0x104:
+        return true;
+    case 0x88:
+        *mask = 0xff;
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
+                                 uint32_t *value)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+    uint32_t mask;
+
+    if (!value || offset >= CAPTURE_SIZE || (offset & 3) ||
+        !nikon_capture_config(offset, &mask) || !s->known[offset / 4]) {
+        return false;
+    }
+    *value = s->configuration[offset / 4];
+    return true;
+}
+
+static void nikon_capture_irqs(NikonCaptureControl *s)
+{
+    uint32_t active[NIKON_CAPTURE_EVENTS] = { 0 };
+    unsigned i;
+
+    /* Functional mask law:1 enables. Explicit cold-zero masks allow original
+     * RMW while leaving all interrupts disabled until configured.
+     */
+    for (i = 0; i < CAPTURE_STATUS_WORDS; i++) {
+        unsigned offset = 0x200 + i * 0x20;
+
+        if (s->known[offset / 4]) {
+            active[nikon_capture_events[i]] |=
+                s->pending[i] & s->configuration[offset / 4];
+        }
+    }
+    for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        qemu_set_irq(s->irq[i], !!active[i]);
+    }
+}
+
+bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
+                           const uint32_t *words, size_t count, Error **errp)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+    size_t expected = 0, n = 0;
+    unsigned i;
+
+    if ((unsigned)event >= NIKON_CAPTURE_EVENTS || !words) {
+        error_setg(errp, "invalid capture control external event");
+        return false;
+    }
+    for (i = 0; i < CAPTURE_STATUS_WORDS; i++) {
+        expected += nikon_capture_events[i] == event;
+    }
+    if (count != expected) {
+        error_setg(errp, "capture event needs %zu complete status words",
+                   expected);
+        return false;
+    }
+    for (i = 0; i < CAPTURE_STATUS_WORDS; i++) {
+        if (nikon_capture_events[i] == event) {
+            s->pending[i] |= words[n++];
+        }
+    }
+    nikon_capture_irqs(s);
+    return true;
+}
+
+static void nikon_capture_data(void *opaque, int index, int level)
+{
+    NikonCaptureControl *s = opaque;
+    uint32_t bit = 1U << (index % 32);
+    unsigned word = index / 32;
+
+    s->levels[word] = (s->levels[word] & ~bit) | (level ? bit : 0);
+    s->seen[word] |= bit;
+}
+
+static void nikon_capture_event(void *opaque, int event, int level)
+{
+    NikonCaptureControl *s = opaque;
+    uint32_t words[2];
+    unsigned i, count = 0;
+    bool rising = level && !(s->event_levels & (1U << event));
+
+    s->event_levels = (s->event_levels & ~(1U << event)) | (!!level << event);
+    if (!rising) {
+        return;
+    }
+    for (i = 0; i < CAPTURE_STATUS_WORDS; i++) {
+        if (nikon_capture_events[i] == event) {
+            if (s->seen[i] != UINT32_MAX) {
+                return;
+            }
+            words[count++] = s->levels[i];
+        }
+    }
+    nikon_capture_publish(DEVICE(s), event, words, count, &error_abort);
+    for (i = 0; i < CAPTURE_STATUS_WORDS; i++) {
+        if (nikon_capture_events[i] == event) {
+            s->seen[i] = 0;
+        }
+    }
+}
+
+static MemTxResult nikon_capture_error(NikonCaptureControl *s, hwaddr offset,
+                                      unsigned size, bool write, uint64_t value)
+{
+    nikon_access_error(&s->reported_error, s->memory.addr + offset,
+                      size, write, value,
+                      "capture-control-access-or-reset-value-not-supported");
+    return MEMTX_ERROR;
+}
+
+static MemTxResult nikon_capture_read(void *opaque, hwaddr offset,
+                                     uint64_t *value, unsigned size,
+                                     MemTxAttrs attrs)
+{
+    NikonCaptureControl *s = opaque;
+    uint32_t word;
+
+    *value = 0;
+    if (size != 4 || (offset & 3)) {
+        return nikon_capture_error(s, offset, size, false, 0);
+    }
+    if (offset >= 0x210 && offset <= 0x2f0 && (offset & 0x1f) == 0x10) {
+        *value = s->pending[(offset - 0x210) / 0x20];
+        return MEMTX_OK;
+    }
+    if (nikon_capture_configuration(DEVICE(s), offset, &word)) {
+        *value = word;
+        return MEMTX_OK;
+    }
+    return nikon_capture_error(s, offset, size, false, 0);
+}
+
+static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
+                                      uint64_t value, unsigned size,
+                                      MemTxAttrs attrs)
+{
+    NikonCaptureControl *s = opaque;
+    uint32_t mask;
+    unsigned i;
+
+    if (size != 4 || (offset & 3)) {
+        return nikon_capture_error(s, offset, size, true, value);
+    }
+    if (offset >= 0x210 && offset <= 0x2f0 && (offset & 0x1f) == 0x10) {
+        s->pending[(offset - 0x210) / 0x20] &= ~value;
+        nikon_capture_irqs(s);
+        return MEMTX_OK;
+    }
+    if (!nikon_capture_config(offset, &mask) || (value & ~mask)) {
+        return nikon_capture_error(s, offset, size, true, value);
+    }
+    s->configuration[offset / 4] = value;
+    s->known[offset / 4] = true;
+    if (offset == 0x100 || offset == 0x104) {
+        unsigned command = (offset - 0x100) / 4;
+
+        /* Synchronous explicit request only. A provider can inspect known
+         * configuration through the public API; no provider is connected by
+         * default and no status is generated from this pulse.
+         */
+        for (i = 0; i < 32; i++) {
+            qemu_set_irq(s->command_data[command * 32 + i],
+                         !!(value & (1U << i)));
+        }
+        qemu_set_irq(s->command_publish[command], 1);
+        qemu_set_irq(s->command_publish[command], 0);
+    }
+    nikon_capture_irqs(s);
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps nikon_capture_ops = {
+    .read_with_attrs = nikon_capture_read,
+    .write_with_attrs = nikon_capture_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4,
+               .unaligned = false },
+};
+
+static void nikon_capture_reset(DeviceState *dev)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+    unsigned i;
+    uint32_t mask;
+
+    memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->known, 0, sizeof(s->known));
+    for (i = 0; i < CAPTURE_WORDS; i++) {
+        s->known[i] = nikon_capture_config(i * 4, &mask);
+    }
+    memset(s->pending, 0, sizeof(s->pending));
+    memset(s->levels, 0, sizeof(s->levels));
+    memset(s->seen, 0, sizeof(s->seen));
+    s->event_levels = 0;
+    s->reported_error = false;
+    for (i = 0; i < ARRAY_SIZE(s->command_data); i++) {
+        qemu_set_irq(s->command_data[i], 0);
+    }
+    for (i = 0; i < ARRAY_SIZE(s->command_publish); i++) {
+        qemu_set_irq(s->command_publish[i], 0);
+    }
+    nikon_capture_irqs(s);
+}
+
+static void nikon_capture_init(Object *obj)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(obj);
+    unsigned i;
+
+    memory_region_init_io(&s->memory, obj, &nikon_capture_ops, s,
+                          "nikon-capture-control", CAPTURE_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
+    for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq[i]);
+    }
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_data, "status-data",
+                            CAPTURE_STATUS_WORDS * 32);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_event, "status-publish",
+                            NIKON_CAPTURE_EVENTS);
+    qdev_init_gpio_out_named(DEVICE(s), s->command_data, "command-data", 64);
+    qdev_init_gpio_out_named(DEVICE(s), s->command_publish, "command-publish", 2);
+}
+
+static const VMStateDescription nikon_capture_vmstate = {
+    .name = "nikon-capture-control",
+    .unmigratable = true,
+};
+
+static void nikon_capture_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    dc->vmsd = &nikon_capture_vmstate;
+    device_class_set_legacy_reset(dc, nikon_capture_reset);
+}
+
+static const TypeInfo nikon_capture_type = {
+    .name = TYPE_NIKON_CAPTURE_CONTROL,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(NikonCaptureControl),
+    .instance_init = nikon_capture_init,
+    .class_init = nikon_capture_class_init,
+};
+
+/* Buffer selectors1020c334..1020c366 and readout packet1020c788..1020c7c6.
+ * Geometry and address words are retained without guessing pixel semantics.
+ */
+#define READOUT_WORDS (0x404 / 4)
+OBJECT_DECLARE_SIMPLE_TYPE(NikonReadoutControl, NIKON_READOUT_CONTROL)
+
+typedef struct NikonReadoutBank {
+    MemoryRegion memory;
+    NikonReadoutControl *s;
+    unsigned region;
+} NikonReadoutBank;
+
+struct NikonReadoutControl {
+    SysBusDevice parent_obj;
+    NikonReadoutBank bank[NIKON_READOUT_REGIONS];
+    uint32_t configuration[NIKON_READOUT_REGIONS][READOUT_WORDS];
+    bool known[NIKON_READOUT_REGIONS][READOUT_WORDS];
+    uint32_t observed[11];
+    bool observed_known[11];
+    qemu_irq request;
+    uint64_t requests;
+    bool reported_error;
+};
+
+/* Exact data words consumed by102092fa. Selector2 shares69870 with0. */
+static const unsigned nikon_readout_observed[] = {
+    0x70, 0x74, 0x78, 0x7c, 0x178, 0x17c,
+    0x274, 0x278, 0x27c, 0x378, 0x37c,
+};
+static const unsigned nikon_readout_queries[4][4] = {
+    { 0, 1, 2, 3 }, { 4, 5 }, { 0, 6, 7, 8 }, { 9, 10 },
+};
+static const unsigned nikon_readout_query_words[] = { 4, 2, 4, 2 };
+
+static bool nikon_readout_config(unsigned region, unsigned offset,
+                                 uint32_t *mask)
+{
+    *mask = UINT32_MAX;
+    if (region == NIKON_READOUT_BUFFERS) {
+        if ((offset >= 0x50 && offset <= 0x6c) ||
+            (offset >= 0x150 && offset <= 0x16c) ||
+            (offset >= 0x250 && offset <= 0x26c) ||
+            (offset >= 0x350 && offset <= 0x36c)) {
+            return true;
+        }
+        switch (offset) {
+        case 0x14: case 0x40: case 0x214: case 0x240: case 0x280: case 0x380:
+            return true;
+        case 8: case 0x108: case 0x208: case 0x308:
+            *mask = 0xffff;
+            return true;
+        case 0x18: case 0x44: case 0x48: case 0x4c:
+        case 0x218: case 0x224: case 0x244: case 0x248: case 0x24c:
+            *mask = 0xff;
+            return true;
+        case 0x3c: case 0x23c:
+            *mask = 0x1ff;
+            return true;
+        default:
+            return false;
+        }
+    }
+    if (region != NIKON_READOUT_PARAMETERS) {
+        return false;
+    }
+    if (offset <= 0x200) {
+        *mask = 0xffff;
+        return true;
+    }
+    if (offset >= 0x310 && offset <= 0x3fc) {
+        switch (offset) {
+        case 0x324: case 0x360: case 0x3fc:
+            *mask = 0x00ff00ff;
+            break;
+        case 0x328: case 0x338: case 0x33c: case 0x340:
+        case 0x354: case 0x368: case 0x3a4: case 0x3c0:
+            *mask = 0xff;
+            break;
+        case 0x334: case 0x34c: case 0x370: case 0x384: case 0x3dc:
+            *mask = 0xffff;
+            break;
+        case 0x350: case 0x358: case 0x35c: case 0x36c: case 0x3b8:
+            *mask = 0xffffff;
+            break;
+        case 0x364:
+            *mask = 0xffff00ff;
+            break;
+        case 0x388: case 0x38c: case 0x390:
+            *mask = 0x03ff03ff;
+            break;
+        }
+        return true;
+    }
+    if (offset == 0x400) {
+        *mask = 1;
+        return true;
+    }
+    return false;
+}
+
+bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion region,
+                                 unsigned offset, uint32_t *value)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+    uint32_t mask;
+
+    if (!value || (unsigned)region >= NIKON_READOUT_REGIONS ||
+        offset >= READOUT_WORDS * 4 || (offset & 3) ||
+        !nikon_readout_config(region, offset, &mask) ||
+        !s->known[region][offset / 4]) {
+        return false;
+    }
+    *value = s->configuration[region][offset / 4];
+    return true;
+}
+
+bool nikon_readout_publish(DeviceState *dev, unsigned selector,
+                           const uint32_t *words, size_t count, Error **errp)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+    unsigned i;
+
+    if (selector >= ARRAY_SIZE(nikon_readout_queries) || !words ||
+        count != nikon_readout_query_words[selector]) {
+        error_setg(errp, "readout observation needs its exact complete query");
+        return false;
+    }
+    for (i = 0; i < count; i++) {
+        unsigned word = nikon_readout_queries[selector][i];
+
+        s->observed[word] = words[i];
+        s->observed_known[word] = true;
+    }
+    return true;
+}
+
+static MemTxResult nikon_readout_error(NikonReadoutBank *bank, hwaddr offset,
+                                      unsigned size, bool write, uint64_t value)
+{
+    nikon_access_error(&bank->s->reported_error, bank->memory.addr + offset,
+                      size, write, value,
+                      "readout-control-access-or-external-data-not-supported");
+    return MEMTX_ERROR;
+}
+
+static MemTxResult nikon_readout_read(void *opaque, hwaddr offset,
+                                     uint64_t *value, unsigned size,
+                                     MemTxAttrs attrs)
+{
+    NikonReadoutBank *bank = opaque;
+    NikonReadoutControl *s = bank->s;
+    uint32_t word;
+    unsigned i;
+
+    *value = 0;
+    if (size != 4 || (offset & 3)) {
+        return nikon_readout_error(bank, offset, size, false, 0);
+    }
+    if (bank->region == NIKON_READOUT_BUFFERS) {
+        for (i = 0; i < ARRAY_SIZE(nikon_readout_observed); i++) {
+            if (offset == nikon_readout_observed[i] && s->observed_known[i]) {
+                *value = s->observed[i];
+                return MEMTX_OK;
+            }
+        }
+    }
+    if (nikon_readout_configuration(DEVICE(s), bank->region, offset, &word)) {
+        *value = word;
+        return MEMTX_OK;
+    }
+    return nikon_readout_error(bank, offset, size, false, 0);
+}
+
+static MemTxResult nikon_readout_write(void *opaque, hwaddr offset,
+                                      uint64_t value, unsigned size,
+                                      MemTxAttrs attrs)
+{
+    NikonReadoutBank *bank = opaque;
+    NikonReadoutControl *s = bank->s;
+    uint32_t mask;
+
+    if (size != 4 || (offset & 3) ||
+        !nikon_readout_config(bank->region, offset, &mask) || (value & ~mask)) {
+        return nikon_readout_error(bank, offset, size, true, value);
+    }
+    s->configuration[bank->region][offset / 4] = value;
+    s->known[bank->region][offset / 4] = true;
+    if (bank->region == NIKON_READOUT_PARAMETERS && offset == 0x400 && value) {
+        s->requests++;
+        qemu_set_irq(s->request, 1);
+        qemu_set_irq(s->request, 0);
+    }
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps nikon_readout_ops = {
+    .read_with_attrs = nikon_readout_read,
+    .write_with_attrs = nikon_readout_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4,
+               .unaligned = false },
+};
+
+static void nikon_readout_reset(DeviceState *dev)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+    unsigned region, word;
+    uint32_t mask;
+
+    memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->known, 0, sizeof(s->known));
+    memset(s->observed, 0, sizeof(s->observed));
+    memset(s->observed_known, 0, sizeof(s->observed_known));
+    for (region = 0; region < NIKON_READOUT_REGIONS; region++) {
+        for (word = 0; word < READOUT_WORDS; word++) {
+            s->known[region][word] =
+                nikon_readout_config(region, word * 4, &mask);
+        }
+    }
+    s->requests = 0;
+    s->reported_error = false;
+    qemu_set_irq(s->request, 0);
+}
+
+static void nikon_readout_init(Object *obj)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(obj);
+    static const unsigned sizes[] = { 0x384, 0x404 };
+    static const char * const names[] = {
+        "nikon-readout-buffers", "nikon-readout-parameters",
+    };
+    unsigned i;
+
+    for (i = 0; i < NIKON_READOUT_REGIONS; i++) {
+        s->bank[i].s = s;
+        s->bank[i].region = i;
+        memory_region_init_io(&s->bank[i].memory, obj, &nikon_readout_ops,
+                              &s->bank[i], names[i], sizes[i]);
+        sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->bank[i].memory);
+    }
+    qdev_init_gpio_out_named(DEVICE(s), &s->request, "readout-request", 1);
+    object_property_add_uint64_ptr(obj, "requests", &s->requests,
+                                   OBJ_PROP_FLAG_READ);
+}
+
+static const VMStateDescription nikon_readout_vmstate = {
+    .name = "nikon-readout-control",
+    .unmigratable = true,
+};
+
+static void nikon_readout_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    dc->vmsd = &nikon_readout_vmstate;
+    device_class_set_legacy_reset(dc, nikon_readout_reset);
+}
+
+static const TypeInfo nikon_readout_type = {
+    .name = TYPE_NIKON_READOUT_CONTROL,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(NikonReadoutControl),
+    .instance_init = nikon_readout_init,
+    .class_init = nikon_readout_class_init,
+};
+
 static void nikon_sensor_register_types(void)
 {
     type_register_static(&nikon_sensor_type);
     type_register_static(&nikon_sdes_type);
+    type_register_static(&nikon_capture_type);
+    type_register_static(&nikon_readout_type);
 }
 type_init(nikon_sensor_register_types)

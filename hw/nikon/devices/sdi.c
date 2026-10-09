@@ -7,6 +7,7 @@
 #include "migration/vmstate.h"
 #include "qemu/timer.h"
 #include "qapi/error.h"
+#include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/nikon/devices.h"
@@ -107,6 +108,7 @@ static const struct {
 struct NikonSDIState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
+    qemu_irq irq;
     unsigned bank;
     uint32_t config[SDI_CONFIG_WORDS];
     bool configured[SDI_CONFIG_WORDS];
@@ -118,6 +120,27 @@ struct NikonSDIState {
     bool top_reset;
     bool reported_error;
 };
+
+/* SLA callbacks 1005c07c/1005c0ce read and acknowledge all eight DDR flags.
+ * Only init[0] and training[6] have established producers in this profile.
+ * The virtual bank IRQ is their pending OR; unbound errors/MRR never fire.
+ */
+static void nikon_sdi_irq(NikonSDIState *s)
+{
+    qemu_set_irq(s->irq, s->channel[SDI_DDR].done ||
+                         s->channel[SDI_TRAIN].done);
+}
+
+static int nikon_sdi_ddr_status_channel(hwaddr offset)
+{
+    if (offset == 0x3300) {
+        return SDI_DDR;
+    }
+    if (offset == 0x3318) {
+        return SDI_TRAIN;
+    }
+    return -1;
+}
 
 static MemTxResult nikon_sdi_error(NikonSDIState *s, hwaddr offset,
                                   unsigned size, bool write,
@@ -215,6 +238,7 @@ static void nikon_sdi_complete(void *opaque)
         s->next_training_mode = (mode + 1) % 5;
         s->training_result_known = true;
     }
+    nikon_sdi_irq(s);
     qemu_log_mask(LOG_GUEST_ERROR,
                   "nikon-sdi: bank=%u channel=%u request=0x%x "
                   "modeled-complete done=1 training=0x%x error=0x%x\n",
@@ -342,6 +366,12 @@ static MemTxResult nikon_sdi_read(void *opaque, hwaddr offset,
         *value = s->training_error;
         return MEMTX_OK;
     }
+    if (offset >= 0x3300 && offset <= 0x331c) {
+        int channel = nikon_sdi_ddr_status_channel(offset);
+
+        *value = channel < 0 ? 0 : s->channel[channel].done;
+        return MEMTX_OK;
+    }
     for (i = 0; i < ARRAY_SIZE(channel_map); i++) {
         if (offset == channel_map[i].reset) {
             *value = s->channel[i].reset;
@@ -376,6 +406,7 @@ static void nikon_sdi_reset(DeviceState *dev)
     s->training_result_known = false;
     s->top_reset = true;
     s->reported_error = false;
+    nikon_sdi_irq(s);
 }
 
 static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
@@ -400,6 +431,23 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
         } else {
             s->top_reset = false;
         }
+        return MEMTX_OK;
+    }
+    if (offset >= 0x3300 && offset <= 0x331c) {
+        int channel = nikon_sdi_ddr_status_channel(offset);
+
+        /* Readback W1C accepts an inactive word's zero without manufacturing
+         * an event. Unknown status fields remain unsupported for nonzero ACK.
+         */
+        if ((channel < 0 && value) || value > 1 ||
+            (channel >= 0 && value && s->channel[channel].pending)) {
+            return nikon_sdi_error(s, offset, size, true, value,
+                                  "sdi-ack-not-supported");
+        }
+        if (channel >= 0 && value) {
+            s->channel[channel].done = false;
+        }
+        nikon_sdi_irq(s);
         return MEMTX_OK;
     }
     for (i = 0; i < ARRAY_SIZE(channel_map); i++) {
@@ -427,6 +475,7 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
             } else {
                 channel->reset = false;
             }
+            nikon_sdi_irq(s);
             return MEMTX_OK;
         }
         if (offset == channel_map[i].request) {
@@ -498,6 +547,7 @@ static void nikon_sdi_init(Object *obj)
     memory_region_init_io(&s->regs, obj, &nikon_sdi_ops, s,
                           "nikon.sdi", 0x20000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
 }
 
 static void nikon_sdi_finalize(Object *obj)

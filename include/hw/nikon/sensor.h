@@ -8,6 +8,41 @@
 
 #define TYPE_NIKON_SENSOR "nikon-sensor"
 #define TYPE_NIKON_SDES "nikon-sdes"
+#define TYPE_NIKON_CAPTURE_CONTROL "nikon-capture-control"
+#define TYPE_NIKON_READOUT_CONTROL "nikon-readout-control"
+
+enum NikonReadoutRegion {
+    NIKON_READOUT_BUFFERS,       /* VA20069800, size0x384 */
+    NIKON_READOUT_PARAMETERS,    /* VA2006b000, size0x404 */
+    NIKON_READOUT_REGIONS,
+};
+
+/* Actual query102092fa selects0..3 and reads4/2/4/2 words.
+ * No observed data, request completion or IRQ is produced by configuration.
+ * Explicit command2006b400=1 pulses named readout-request; no default provider.
+ */
+bool nikon_readout_publish(DeviceState *dev, unsigned selector,
+                           const uint32_t *words, size_t count, Error **errp);
+bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion region,
+                                 unsigned offset, uint32_t *value);
+
+/* Original configuration/commit family at VA20068000, IRQ94..98.
+ * One region of size0x1180. Status publication word counts are2/1/2/2/1.
+ * No pixel encoding, destination or completion meaning is assigned here.
+ */
+enum NikonCaptureEvent {
+    NIKON_CAPTURE_FIRST_EVENT,
+    NIKON_CAPTURE_SECOND_EVENT,
+    NIKON_CAPTURE_THIRD_EVENT,
+    NIKON_CAPTURE_FOURTH_EVENT,
+    NIKON_CAPTURE_FIFTH_EVENT,
+    NIKON_CAPTURE_EVENTS,
+};
+
+bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
+                           const uint32_t *words, size_t count, Error **errp);
+bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
+                                 uint32_t *value);
 
 /* SDES Driver's three independently mapped regions, in this order. */
 enum NikonSdesRegion {

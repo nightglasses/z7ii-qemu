@@ -68,7 +68,7 @@ static bool nikon_event_gate_config(hwaddr offset, uint32_t *mask)
             /* Dynamic RMW retains arbitrary high configuration bits. */
             return true;
         case 4:
-            *mask = 0x3fff;
+            /* SOURCE11 94640 clears bit0 then ORs an unclamped word. */
             return true;
         case 8:
             *mask = 0xff;
