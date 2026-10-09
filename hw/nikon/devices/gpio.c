@@ -19,6 +19,8 @@ struct NikonGPIOState {
     MemoryRegion regs;
     /* PDR output latch, DDR, EPCR, PUDER, PUDCR. */
     uint16_t ports[5][GPIO_PORTS];
+    uint16_t extra_pdr[3];
+    uint32_t mux[2][2];
     uint16_t external[GPIO_PORTS], driven[GPIO_PORTS];
     qemu_irq pads[GPIO_PORTS * 16];
     bool reported_error;
@@ -87,6 +89,33 @@ static bool nikon_gpio_decode(hwaddr offset, unsigned size,
     return size == 4 && !(offset & 3) && *bank < 5 && *port < GPIO_PORTS;
 }
 
+static bool nikon_gpio_mux_decode(hwaddr offset, unsigned size,
+                                 unsigned *block, unsigned *reg)
+{
+    if (size != 4) {
+        return false;
+    }
+    if (offset == 0x330 || offset == 0x334) {
+        *block = 0;
+    } else if (offset == 0x430 || offset == 0x434) {
+        *block = 1;
+    } else {
+        return false;
+    }
+    *reg = (offset & 4) >> 2;
+    return true;
+}
+
+static bool nikon_gpio_extra_decode(hwaddr offset, unsigned size,
+                                   unsigned *index)
+{
+    if (size != 4 || offset < 0x30 || offset > 0x38 || (offset & 3)) {
+        return false;
+    }
+    *index = (offset - 0x30) >> 2;
+    return true;
+}
+
 static MemTxResult nikon_gpio_read(void *opaque, hwaddr offset, uint64_t *value,
                                  unsigned size, MemTxAttrs attrs)
 {
@@ -94,6 +123,14 @@ static MemTxResult nikon_gpio_read(void *opaque, hwaddr offset, uint64_t *value,
     unsigned bank, port;
 
     *value = 0;
+    if (nikon_gpio_extra_decode(offset, size, &port)) {
+        *value = s->extra_pdr[port];
+        return MEMTX_OK;
+    }
+    if (nikon_gpio_mux_decode(offset, size, &bank, &port)) {
+        *value = s->mux[bank][port];
+        return MEMTX_OK;
+    }
     if (!nikon_gpio_decode(offset, size, &bank, &port)) {
         return nikon_gpio_error(s, offset, size, false, 0,
                                "gpio-access-not-supported");
@@ -113,6 +150,27 @@ static MemTxResult nikon_gpio_write(void *opaque, hwaddr offset, uint64_t value,
     NikonGPIOState *s = opaque;
     unsigned bank, port;
 
+    if (nikon_gpio_extra_decode(offset, size, &port)) {
+        uint16_t mask = value >> 16;
+        uint16_t valid = port == 0 ? 0xff33 : 0xffff;
+
+        if (mask & ~valid) {
+            return nikon_gpio_error(s, offset, size, true, value,
+                                   "gpio-extra-field-not-supported");
+        }
+        /* Descriptor PDR readback; no source-bound DDR, pad or IRQ drive. */
+        s->extra_pdr[port] = (s->extra_pdr[port] & ~mask) | (value & mask);
+        return MEMTX_OK;
+    }
+    if (nikon_gpio_mux_decode(offset, size, &bank, &port)) {
+        /* E7 producer packs a halfword and five boolean fields, then data. */
+        if (port == 0 && (value & ~UINT64_C(0xffff010f))) {
+            return nikon_gpio_error(s, offset, size, true, value,
+                                   "gpio-mux-field-not-supported");
+        }
+        s->mux[bank][port] = value;
+        return MEMTX_OK;
+    }
     if (!nikon_gpio_decode(offset, size, &bank, &port)) {
         return nikon_gpio_error(s, offset, size, true, value,
                                "gpio-access-not-supported");
@@ -148,6 +206,8 @@ static void nikon_gpio_reset(DeviceState *dev)
 
     /* Reset configuration, retaining actual external provider levels. */
     memset(s->ports, 0, sizeof(s->ports));
+    memset(s->extra_pdr, 0, sizeof(s->extra_pdr));
+    memset(s->mux, 0, sizeof(s->mux));
     s->reported_error = false;
     for (port = 0; port < GPIO_PORTS; port++) {
         nikon_gpio_update(s, port);
@@ -158,7 +218,7 @@ static void nikon_gpio_init(Object *obj)
 {
     NikonGPIOState *s = NIKON_GPIO(obj);
 
-    memory_region_init_io(&s->regs, obj, &nikon_gpio_ops, s, "nikon.gpio", 0x430);
+    memory_region_init_io(&s->regs, obj, &nikon_gpio_ops, s, "nikon.gpio", 0x438);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_gpio_input,
                            "external-level", GPIO_PORTS * 16);

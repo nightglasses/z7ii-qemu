@@ -12,6 +12,62 @@ timestamp records sender virtual time; it does not advance the other CPU.
 Transport uses native nonblocking character writes and a bounded output
 queue. One clock request may be outstanding per peer.
 
+The same transport binds the asynchronous I2C master through
+`hw/nikon/peers/i2c.c`, using `nikon-i2c-peer` with strong `peer` and `i2c`
+links. One operation may be outstanding: START, WRITE, READ, STOP or NACK.
+This explicit asynchronous controller seam is necessary because the fixed
+upstream `include/hw/i2c/i2c.h` supports asynchronous sends but its receive
+callback returns a byte immediately. Waiting for another CPU's ISR cannot
+use that synchronous callback or block the host main loop.
+
+For I2C, envelope kind is 4, payload width is 8, and `line` contains phase
+1 through 5 respectively. START carries the unshifted 7-bit address and
+receive direction in bit 7; WRITE carries the actual byte. READ, STOP and
+NACK carry zero. The final READ is followed by an explicit NACK operation,
+then STOP when the guest releases HOLD. A reply echoes kind, phase, width
+and token. READ returns the actual byte or `0x100` for NAK; other replies
+contain zero for a completed bus action or `0x100` for NAK. A completed
+STOP is not a slave acknowledgement or an application acknowledgement.
+Schema validation rejects reserved fields, illegal phases and malformed
+results. Mismatched or stale phase/token replies cannot complete an operation.
+Disconnect does not synthesize a successful START, byte or STOP.
+
+The source-qualified normal touch host uses MAS I2C0 at PA `2C018000`
+with IRQ 214. Constructor VA `103DB654` obtains logical I2C0;
+`103DBCEC` writes one command byte to unshifted address `55`, then reads
+the requested length. Command `10` reads two bytes and command `11` reads
+seven bytes. TPJ's initialized key table maps these to original handlers
+`DFE` and `23D0`, which write output at `60040` from actual guest state.
+The TPJ endpoint must run these original consumers and observe their output;
+the transport does not construct touch records from the command number.
+MAS resource 63 is GPIO6[6] with an actual event callback; resource AA is
+GPIO10[13], which the original worker drives high before a delay. Physical
+board wiring and the meaning of that control pin remain distinct evidence.
+
+An I2C frontend can be attached with
+`-device nikon-i2c-peer,peer=/machine/peripheral/wire0,i2c=/machine/i2c0`.
+The machine owner provides the source-bound controller path. Native socket
+fixtures exercise the controller and this wrapper; those tests do not prove
+that the original TPJ has completed its boot or produced a touch event.
+
+The touch profile also has two named wire roles: `NIKON_TOUCH_NOTIFY` (1)
+and `NIKON_TOUCH_CONTROL` (2), carried as GPIO signals. TPJ's original
+report-pending path `04DC` calls `1848` to clear `71010` bit 2; its
+consumption path `21D2` calls `18A4` to set that bit. Startup sets it high.
+These actual guest output writes provide the notify level. Pairing this
+producer with MAS GPIO6[6] is an explicit functional board assumption,
+supported by the complementary software paths rather than a board netlist.
+
+The frontend exposes `notify[0]` output and `control[0]` input. Optional
+`gpio`, `control` and `notify` properties bind the actual source pins;
+`gpio=/machine/gpio,control=173,notify=102` selects MAS GPIO10[13] and
+GPIO6[6]. The control signal is published only while the original guest
+actually drives its GPIO, using the same direction/function query as the
+SPI select frontend. Incoming notify signals drive the input without host
+timer pulses or command-dependent levels. The control pin's hardware
+meaning is not inferred from its name. A disconnected peer does not change
+the notify level into an invented successful event.
+
 An accepted clock completes only after an actual reply with matching token
 and width. Fragmented input is accumulated before decoding. Wrong or late
 reply tokens cannot complete a new transfer. Disconnect cancels the remote

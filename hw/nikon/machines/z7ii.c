@@ -500,7 +500,9 @@ static void z7ii_init(MachineState *machine)
     }
     for (i = 0; i < 4; i++) {
         DeviceState *i2c = qdev_new(TYPE_NIKON_I2C);
+        g_autofree char *name = g_strdup_printf("i2c%u", i);
 
+        object_property_add_child(OBJECT(machine), name, OBJECT(i2c));
         qdev_prop_set_uint32(i2c, "instance", i);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(i2c), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(i2c), 0, 0x2c018000 + i * 0x1000);

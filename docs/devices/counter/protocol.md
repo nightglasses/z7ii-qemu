@@ -1,0 +1,23 @@
+# Three counter configuration and status windows
+
+`counter.c` implements the complete finite fields consumed by the official SLA family VA `10060444..100607d2`. Its name describes the sixteen-bit parameter/configuration shape; it does not identify silicon, assert a clock frequency or assign physical meanings to the three software modes. It is independent of the existing twelve-channel Timing and five-route Signal devices.
+
+The exact official rows, original bytes, Thumb contexts and resource ranges are in ignored `work/source/families.json`, read from `sla-whole-source-5/sla-rows.jsonl`. Literal VA `100607d8` is PA `2c01500c`. Literal `100607dc` points to VA `c1005bac`, whose three original COPY1 words at O`842080` are `0,20,40` in hexadecimal. Thus each of the three private channel windows is0x20 bytes apart. IRQ169/170/171 (`a9/aa/ab`) are registered through actual wrappers `100604f7/100604f1/100604eb`, each tail calling `10060444` with its channel object. Software handles105/106/107 are not IRQs or address indices.
+
+| Channel offset | Complete source contract | Device interface |
+| --- | --- | --- |
+| `04` | All three setters insert a16-bit setup quantity while preserving high bits | Sixteen-bit retained quantity, initial high bits0 |
+| `0c` | Setters change bits5/6; `6076c` reads state0/1 and flags2/3/4, then clears observed flags by RMW | Opaque control5/6, actual provider state0/1, three independent W0C pending flags2/3/4 |
+| `14` | Setters change mode fields3..13, clear7/14 and write15=1; `6076c` reads flag14 and clears it before clear7/set15 | Retain complete sixteen-bit mode/control word except derived flag14; W0C for flag14; source submit bit15 does not manufacture completion |
+
+The setters `1006056a`, `100605fe` and `10060680` configure software modes1,0,2 respectively. Mode1 places its two-bit selector at8 and forces bits10..11 to1. Mode0 clears bits8..11 and sets bit6. Mode2 places its selector at10 and clears8..9. All retain their source boolean fields and quantity. Configuration and status use the same real channel state; there are no per-value whitelists or aliases for individual callers.
+
+The mode submit word is retained immediately with the rest of the finite fields. Its physical start/commit/clock effects are not proven by these consumers. No duration or source timer callback is available here, so no arbitrary timer, fake periodic interrupt or synthetic counter-ready state is added. Only aligned little-endian word access to04/0c/14 of the three windows is accepted. Unknown fields, widths or holes return `MEMTX_ERROR` and leave state unchanged.
+
+The explicit provider boundary has12 rising-edge `event` inputs, grouped four per channel: indices0/1/2 publish flags2/3/4 in0c, and index3 publishes flag14 in14. Six `state` inputs provide the two low state bits per channel. These names describe fields, not physical pins or a reconstructed camera endpoint. Provider changes to state alone do not raise IRQ. Actual event edges latch independent status, and IRQ remains high until all that channel's pending events have been acknowledged. Configuration writes, repeated polling and virtual time do not generate events. No IRQ-enable role is guessed for opaque mode/control bits.
+
+Cold disconnected inputs and pending state are0, as a functional reset convention. Machine reset clears quantities, configuration and pending flags, preserving real provider state/edge levels; an already-held high event remains acknowledged until a genuine new edge. No unproven control pulse is assigned cancellation or reset semantics. Machine ownership maps the actual three-window region in the private SLA root and connects its three SysBus IRQs in source order169/170/171. The native fixture uses stable QOM child `/machine/sla/counter`.
+
+Native coverage supplies all three source mode shapes to all three channels; checks quantity retention and isolation, no elapsed-time completion, real external state/event publication, multi-flag W0C, held-edge suppression, invalid width/quantity/hole retention, and reset with a new provider edge. It uses the existing standalone synthetic SLA bundle fixture. It does not execute factory firmware or prove physical clock behavior.
+
+Intervals `60562..6056a` and `60712..6076c` currently have no official CODE/Data/direct incoming qualification. They are not assumed to be timer start/stop bodies. The sole source owner continues their actual consumer investigation, and these questions do not gate the already-qualified finite device interface. This child was not compiled; the sole builder owns validation and integration.

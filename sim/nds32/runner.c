@@ -35,6 +35,8 @@ struct transport {
   unsigned output_length;
   uint64_t pending;
   unsigned pending_bits;
+  unsigned pending_kind;
+  uint32_t pending_line;
 };
 
 struct image_layout {
@@ -168,7 +170,8 @@ emit (void *opaque, unsigned type, unsigned kind, uint64_t token,
   struct transport *transport = opaque;
   unsigned char *frame;
   if (type == NIKON_WIRE_REPLY &&
-      (!token || token != transport->pending || bits != transport->pending_bits))
+      (!token || token != transport->pending || bits != transport->pending_bits ||
+       kind != transport->pending_kind || line != transport->pending_line))
     return 0;
   if (transport->output_start &&
       transport->output_start + transport->output_length + NIKON_WIRE_SIZE >
@@ -213,7 +216,15 @@ receive_frame (struct transport *transport)
     return !token && !bits && word <= 1 &&
            (kind == NIKON_PEER_SELECT || kind == NIKON_PEER_GPIO) &&
            tpj_signal (transport->device, kind, line, word, time);
-  if (kind != NIKON_PEER_CLOCK || !token || !bits || bits > 32 || line)
+  if (kind == NIKON_PEER_I2C)
+    {
+      if (!token || bits != 8 || line < NIKON_I2C_START ||
+          line > NIKON_I2C_NACK ||
+          (type == NIKON_WIRE_CANCEL ? word != 0 :
+           (line <= NIKON_I2C_WRITE ? word > 0xff : word != 0)))
+        return 0;
+    }
+  else if (kind != NIKON_PEER_CLOCK || !token || !bits || bits > 32 || line)
     return 0;
   if (type == NIKON_WIRE_CANCEL)
     {
@@ -221,6 +232,9 @@ receive_frame (struct transport *transport)
         return 0;
       if (transport->pending == token)
         {
+          if (kind != transport->pending_kind || bits != transport->pending_bits ||
+              line != transport->pending_line)
+            return 0;
           transport->pending = 0;
           tpj_cancel (transport->device, token);
         }
@@ -230,6 +244,10 @@ receive_frame (struct transport *transport)
     return 0;
   transport->pending = token;
   transport->pending_bits = bits;
+  transport->pending_kind = kind;
+  transport->pending_line = line;
+  if (kind == NIKON_PEER_I2C)
+    return tpj_i2c (transport->device, token, line, word, time);
   return tpj_clock (transport->device, token, word, bits, time);
 }
 
@@ -291,7 +309,8 @@ usage (const char *name)
 {
   fprintf (stderr, "Usage: %s --image whole.elf [--socket path] "
                    "[--ticks 4096] [--limit ticks] [--consent 0|1] "
-                   "[--flash bytes] [--snapshot fields] [--transform sample]\n"
+                   "[--flash fullnor | --update payload] [--save fullnor] "
+                   "[--snapshot fields] [--transform sample] [--samples scans]\n"
                    "Ticks are GNU instruction/event slices, not a CPU frequency.\n",
                    name);
 }
@@ -306,13 +325,18 @@ main (int argc, char **argv)
     { "consent", required_argument, NULL, 'c' },
     { "limit", required_argument, NULL, 'l' },
     { "flash", required_argument, NULL, 'f' },
+    { "update", required_argument, NULL, 'u' },
+    { "save", required_argument, NULL, 'o' },
     { "snapshot", required_argument, NULL, 'p' },
     { "transform", required_argument, NULL, 'x' },
+    { "samples", required_argument, NULL, 'm' },
     { NULL, 0, NULL, 0 }
   };
   char *sim_argv[] = { "tpj", "--nds32-system", "--endian=little", NULL };
   const char *image_path = NULL, *socket_path = NULL;
   const char *flash_path = NULL, *snapshot_path = NULL, *transform_path = NULL;
+  const char *update_path = NULL, *save_path = NULL;
+  const char *samples_path = NULL;
   uint64_t ticks = 4096;
   uint64_t limit = 0, executed = 0;
   int option, consent = 0, status = 1;
@@ -329,8 +353,11 @@ main (int argc, char **argv)
         case 'i': image_path = optarg; break;
         case 's': socket_path = optarg; break;
         case 'f': flash_path = optarg; break;
+        case 'u': update_path = optarg; break;
+        case 'o': save_path = optarg; break;
         case 'p': snapshot_path = optarg; break;
         case 'x': transform_path = optarg; break;
+        case 'm': samples_path = optarg; break;
         case 'l':
           errno = 0;
           limit = strtoull (optarg, &end, 0);
@@ -351,7 +378,8 @@ main (int argc, char **argv)
         default: goto bad_arguments;
         }
     }
-  if (!image_path || optind != argc)
+  if (!image_path || optind != argc || (flash_path && update_path) ||
+      (save_path && !flash_path && !update_path))
     goto bad_arguments;
   signal (SIGINT, interrupt);
   signal (SIGTERM, interrupt);
@@ -387,8 +415,10 @@ main (int argc, char **argv)
   if (tpj_boundary (transport.device))
     goto cleanup_sim;
   if ((flash_path && !tpj_flash (transport.device, flash_path)) ||
+      (update_path && !tpj_update (transport.device, update_path)) ||
       (snapshot_path && !tpj_snapshot (transport.device, snapshot_path)) ||
-      (transform_path && !tpj_transform (transport.device, transform_path)))
+      (transform_path && !tpj_transform (transport.device, transform_path)) ||
+      (samples_path && !tpj_samples (transport.device, samples_path)))
     {
       fprintf (stderr, "Invalid or inaccessible TPJ external input.\n");
       goto cleanup_sim;
@@ -442,6 +472,11 @@ cleanup_sim:
     {
       if (transport.pending)
         tpj_cancel (transport.device, transport.pending);
+      if (save_path && !tpj_save (transport.device, save_path))
+        {
+          fprintf (stderr, "Cannot save complete idle TPJ NOR: %s\n", save_path);
+          status = 1;
+        }
       tpj_quiesce (transport.device);
     }
   if (transport.fd >= 0)

@@ -25,6 +25,7 @@
 | [protocol.md](docs/devices/sysconfig/protocol.md) | 第二系统配置对象、有限字段和四bank原RMW请求状态 |
 | [runtime.md](docs/devices/gic/runtime.md) | 原active/EOI初始化与成熟GIC版本选择、真实PPI轨迹 |
 | [protocol.md](docs/devices/gpio/protocol.md) | 十二port掩码输出、方向/功能/pull输入与启动选择字段 |
+| [mux.md](docs/devices/gpio/mux.md) | 原配置族的 packed mux、描述符读回和有限字段 |
 | [protocol.md](docs/devices/config/protocol.md) | active快照、draft槽表事务和独立live参数、原版下一控制组 |
 | [stacks.md](docs/runtime/stacks.md) | 原内核精确复制、每核虚拟模式栈和真实SGI/IRQ后继 |
 | [runtime.md](docs/devices/clock/runtime.md) | 两bank运行时位请求、原RMW合同和下一真实外设 |
@@ -46,6 +47,13 @@
 | [protocol.md](docs/devices/bridge/protocol.md) | 有限桥控制事务、真实IRQ/取消、外部GPIO依赖和原版下一并发停点 |
 | [sla.md](docs/startup/sla.md) | 独立 SLA 载入域、原版复制/清零与精确 RAM |
 | [ex.md](docs/startup/ex.md) | EX 处理器和功能外设模型、外部数据输入边界 |
+| [vr.md](docs/startup/vr.md) | RX 载入域、外部来源资格和有限 flash overlay |
+| [system.md](docs/startup/system.md) | 原生 GNU NDS32 系统模式、有限 TPJ 输入和运行证据 |
+| [peer.md](docs/devices/peer.md) | 原生非阻塞 peer 传输、SPI 与 typed I2C 合同 |
+| [protocol.md](docs/devices/events/protocol.md) | SLA 事件掩码、真实外部发布和 W1C |
+| [protocol.md](docs/devices/notifier/protocol.md) | SLA 通知状态、外部原因和有限 IRQ 合同 |
+| [protocol.md](docs/devices/counter/protocol.md) | SLA 三组寄存器、外部计数输入和 IRQ 合同 |
 | [protocol.md](docs/devices/sensor/protocol.md) | 原生帧输入、真实 DMA 和未连接固件控制器的边界 |
 | [protocol.md](docs/devices/storage/protocol.md) | 成熟 NVMe 控制器、真实块介质与原生 PCI fixture |
 | [capture.md](docs/devices/timing/capture.md) | 外部真实输入边沿、计数捕获、IRQ 生命周期与原版后继 RAM 范围 |
+| [peripherals.md](docs/validation/peripherals.md) | 已验证外设整合的固定源码范围与原生收据 |

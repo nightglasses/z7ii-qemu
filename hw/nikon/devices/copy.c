@@ -11,6 +11,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-clock.h"
+#include "hw/core/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qapi/visitor.h"
 #include "system/address-spaces.h"
@@ -36,9 +37,20 @@ typedef struct NikonCopyChannel {
     bool running;
 } NikonCopyChannel;
 
+typedef struct NikonCopyRange {
+    Int128 start;
+    Int128 end;
+    bool readable;
+    bool writable;
+} NikonCopyRange;
+
 struct NikonCopyState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
+    MemoryRegion *memory;
+    AddressSpace *dma;
+    MemoryListener memory_listener;
+    GArray *ranges;
     Clock *clock;
     NikonCopyChannel channel[4];
     uint32_t control;
@@ -68,24 +80,35 @@ static void nikon_copy_schedule(NikonCopyChannel *c)
               clock_ticks_to_ns(c->owner->clock, next) + 1);
 }
 
-static bool nikon_copy_memory_range(hwaddr addr, uint64_t length, bool write)
+static uint64_t nikon_copy_memory_span(NikonCopyState *s, hwaddr addr,
+                                       uint64_t length, bool write)
+{
+    RCU_READ_LOCK_GUARD();
+    Int128 start = int128_make64(addr);
+
+    /* Translate drops section bounds and only caps RAM, not ROMD. Preflight
+     * and actual DMA must both use these effective flat-view intervals. */
+    for (unsigned i = 0; i < s->ranges->len; i++) {
+        NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
+
+        if (int128_le(range->start, start) && int128_lt(start, range->end)) {
+            if (!(write ? range->writable : range->readable)) {
+                return 0;
+            }
+            return int128_get64(int128_min(int128_sub(range->end, start),
+                                           int128_make64(length)));
+        }
+    }
+    return 0;
+}
+
+static bool nikon_copy_memory_range(NikonCopyState *s, hwaddr addr,
+                                    uint64_t length, bool write)
 {
     while (length) {
-        MemoryRegionSection section = memory_region_find(get_system_memory(),
-                                                        addr, length);
-        uint64_t span;
-        bool direct;
+        uint64_t span = nikon_copy_memory_span(s, addr, length, write);
 
-        if (!section.mr) {
-            return false;
-        }
-        span = int128_get64(section.size);
-        direct = section.offset_within_address_space == addr && span &&
-                 memory_access_is_direct(section.mr, write,
-                                         MEMTXATTRS_UNSPECIFIED) &&
-                 (!write || !section.readonly);
-        memory_region_unref(section.mr);
-        if (!direct) {
+        if (!span) {
             return false;
         }
         addr += span;
@@ -107,8 +130,8 @@ static void nikon_copy_step(void *opaque)
         return;
     }
     /* ROMD is a direct source, but QEMU's memory attribute only admits RAM. */
-    if (!nikon_copy_memory_range(c->reg[1], c->remaining, false) ||
-        !nikon_copy_memory_range(c->reg[2], c->remaining, true)) {
+    if (!nikon_copy_memory_range(c->owner, c->reg[1], c->remaining, false) ||
+        !nikon_copy_memory_range(c->owner, c->reg[2], c->remaining, true)) {
         nikon_copy_finish(c, 1);
         return;
     }
@@ -121,13 +144,21 @@ static void nikon_copy_step(void *opaque)
         unsigned length = MIN(due - completed, sizeof(buffer));
         MemTxResult result;
 
+        /* A direct ROMD transaction otherwise reads through a short alias's
+         * hidden backing instead of translating the next effective section. */
+        length = nikon_copy_memory_span(c->owner, c->reg[1], length, false);
+        length = nikon_copy_memory_span(c->owner, c->reg[2], length, true);
+        if (!length) {
+            nikon_copy_finish(c, 1);
+            return;
+        }
         /* ROMD sources use ordinary read attributes; RAM writes are strict. */
         attrs.memory = false;
-        result = dma_memory_read(&address_space_memory, c->reg[1], buffer,
+        result = dma_memory_read(c->owner->dma, c->reg[1], buffer,
                                  length, attrs);
         if (result == MEMTX_OK) {
             attrs.memory = true;
-            result = dma_memory_write(&address_space_memory, c->reg[2], buffer,
+            result = dma_memory_write(c->owner->dma, c->reg[2], buffer,
                                       length, attrs);
         }
         if (result != MEMTX_OK) {
@@ -390,11 +421,86 @@ static const VMStateDescription nikon_copy_vmstate = {
     .name = "nikon-copy", .unmigratable = true,
 };
 
+static void nikon_copy_region_add(MemoryListener *listener,
+                                  MemoryRegionSection *section)
+{
+    NikonCopyState *s = container_of(listener, NikonCopyState, memory_listener);
+
+    NikonCopyRange range = {
+        .start = int128_make64(section->offset_within_address_space),
+        .end = int128_add(int128_make64(section->offset_within_address_space),
+                          section->size),
+        .readable = memory_access_is_direct(section->mr, false,
+                                            MEMTXATTRS_UNSPECIFIED),
+        .writable = !section->readonly && memory_region_is_ram(section->mr) &&
+                    !memory_region_is_rom(section->mr) &&
+                    !memory_region_is_romd(section->mr) &&
+                    memory_access_is_direct(section->mr, true,
+                                            MEMTXATTRS_UNSPECIFIED),
+    };
+
+    g_array_append_val(s->ranges, range);
+}
+
+static void nikon_copy_region_del(MemoryListener *listener,
+                                  MemoryRegionSection *section)
+{
+    NikonCopyState *s = container_of(listener, NikonCopyState, memory_listener);
+    Int128 start = int128_make64(section->offset_within_address_space);
+    Int128 end = int128_add(start, section->size);
+
+    /* Match the old interval, not the MR's current ROMD/permission mode. */
+    for (unsigned i = 0; i < s->ranges->len; i++) {
+        NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
+
+        if (int128_eq(range->start, start) && int128_eq(range->end, end)) {
+            g_array_remove_index_fast(s->ranges, i);
+            return;
+        }
+    }
+    g_assert_not_reached();
+}
+
+static void nikon_copy_realize(DeviceState *dev, Error **errp)
+{
+    NikonCopyState *s = NIKON_COPY(dev);
+
+    s->dma = g_new0(AddressSpace, 1);
+    address_space_init(s->dma, s->memory ? s->memory : get_system_memory(),
+                       "nikon.copy");
+    s->ranges = g_array_new(false, false, sizeof(NikonCopyRange));
+    s->memory_listener = (MemoryListener) {
+        .name = "nikon.copy",
+        .region_add = nikon_copy_region_add,
+        .region_del = nikon_copy_region_del,
+    };
+    memory_listener_register(&s->memory_listener, s->dma);
+}
+
+static void nikon_copy_unrealize(DeviceState *dev)
+{
+    NikonCopyState *s = NIKON_COPY(dev);
+
+    /* No callback may access an address space after its owner disconnects. */
+    nikon_copy_reset(dev);
+    memory_listener_unregister(&s->memory_listener);
+    g_clear_pointer(&s->ranges, g_array_unref);
+    address_space_destroy_free(g_steal_pointer(&s->dma));
+}
+
+static const Property nikon_copy_properties[] = {
+    DEFINE_PROP_LINK("memory", NikonCopyState, memory,
+                     TYPE_MEMORY_REGION, MemoryRegion *),
+};
+
 static void nikon_copy_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_copy_vmstate;
+    dc->realize = nikon_copy_realize;
+    dc->unrealize = nikon_copy_unrealize;
+    device_class_set_props(dc, nikon_copy_properties);
     dc->user_creatable = false;
     device_class_set_legacy_reset(dc, nikon_copy_reset);
 }

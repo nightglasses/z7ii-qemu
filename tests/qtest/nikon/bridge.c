@@ -343,9 +343,79 @@ static void test_peer_window(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+static void test_sla_page_table(void)
+{
+    /* Eight chunks serialized from the original five SLA region records. */
+    static const uint32_t pages[40] = {
+        0xe6000, 0xe8000, 0xa8000, 0xb0000,
+        0x50000, 0xc0000, 0xd0000, 0xb0000,
+        0xfe000, 0xfe000, 0xf8000, 0xf8000,
+        0xf8000, 0xf0000, 0xf0000, 0xf0000,
+        0x00000, 0x02000, 0x08000, 0x10000,
+        0x18000, 0x20000, 0x30000, 0x40000,
+    };
+    g_autofree char *bundle = peer_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s -smp 2 "
+                               "-serial none", quoted);
+    const uint64_t register_view = 0x40030000;
+    const uint64_t receive_view = 0x47cf0000;
+    const uint64_t mas_ring = 0xb7cf0000;
+    const uint64_t sample = UINT64_C(0x0817263544536271);
+    unsigned i;
+
+    qtest_writeq(q, mas_ring, sample);
+    /* Access the real private SLA bridge MMIO through the MAS bridge. */
+    mapping(q, 1, 0x20130000, register_view, 0xffff0);
+    qtest_writel(q, register_view + 0xc5e0, 0xf000f);
+    qtest_writel(q, register_view + 0xc5e0, 0);
+    /* A frozen record index8 is not a published remote-page descriptor. */
+    qtest_writel(q, register_view + 0xd0d0, 0xb7cf0);
+    g_assert_cmphex(qtest_readl(q, register_view + 0xd0d0), ==, 0xb7cf0);
+    mapping(q, 1, 0x40000000, 0x40000000, 0xf0000);
+    qtest_writeq(q, receive_view, 0);
+    g_assert_cmphex(qtest_readq(q, mas_ring), ==, sample);
+
+    mapping(q, 1, 0x20130000, register_view, 0xffff0);
+    for (i = 0; i < ARRAY_SIZE(pages); i++) {
+        qtest_writel(q, register_view + 0xd0b0 + i * 4, pages[i]);
+        g_assert_cmphex(qtest_readl(q, register_view + 0xd0b0 + i * 4),
+                        ==, pages[i]);
+    }
+    /* Slot7 is the class0 page; slot8 is mask0 in this full packet. */
+    g_assert_cmphex(qtest_readl(q, register_view + 0xd0cc), ==, 0xb0000);
+    g_assert_cmphex(qtest_readl(q, register_view + 0xd0d0), ==, 0xfe000);
+    mapping(q, 1, 0x40000000, 0x40000000, 0xf0000);
+    g_assert_cmphex(qtest_readq(q, receive_view), ==, sample);
+    qtest_writew(q, receive_view + 10, 0x9768);
+    g_assert_cmphex(qtest_readw(q, mas_ring + 10), ==, 0x9768);
+
+    /* A dynamic remote-page update changes the target, not a mask/alias. */
+    mapping(q, 1, 0x20130000, register_view, 0xffff0);
+    qtest_writel(q, register_view + 0xd0cc, 0xa0000);
+    mapping(q, 1, 0x40000000, 0x40000000, 0xf0000);
+    qtest_writeq(q, receive_view, 0);
+    g_assert_cmphex(qtest_readq(q, mas_ring), ==, sample);
+    mapping(q, 1, 0x20130000, register_view, 0xffff0);
+    qtest_writel(q, register_view + 0xd0cc, 0xb0000);
+    mapping(q, 1, 0x40000000, 0x40000000, 0xf0000);
+    g_assert_cmphex(qtest_readq(q, receive_view), ==, sample);
+
+    mapping(q, 1, 0x20130000, register_view, 0xffff0);
+    qtest_writel(q, register_view + 0xc5e0, 0xf000f);
+    qtest_writel(q, register_view + 0xc5e0, 0);
+    mapping(q, 1, 0x40000000, 0x40000000, 0xf0000);
+    qtest_writeq(q, receive_view, 0);
+    g_assert_cmphex(qtest_readq(q, mas_ring), ==, sample);
+    g_assert_cmphex(qtest_readw(q, mas_ring + 10), ==, 0x9768);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 void nikon_bridge_add_tests(void)
 {
     qtest_add_func("/nikon/bridge/peer-window", test_peer_window);
+    qtest_add_func("/nikon/bridge/sla-page-table", test_sla_page_table);
 }
 
 void nikon_test_bridge(QTestState *q)

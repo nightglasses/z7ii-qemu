@@ -3,6 +3,9 @@
 The later [explicit pad input](input.md) completes external-level publication
 for these same finite pads. Original runs still attach no external provider;
 the historical native checks and boot observations below are unchanged.
+The [source-qualified additional descriptor and packed configuration family](mux.md)
+adds finite register state beyond the twelve ordinary ports, with its separate
+reset/readback assumptions and no added pad or IRQ drive.
 
 This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). The [fixed original whole GPIO contract](https://github.com/mashiro01/nightglass/blob/b4957f9/research/z7ii/qemu-gpio-contract.md) follows original `O1e0ee4..1e0f68` and COPY0's12×20-byte table: the guest writes twelve PDR words at `04282000+i*4` with upper maskffff, then DDR/EPCR/PUDER/PUDCR at +100/+200/+300/+400. Runtime setters independently produce `(1<<(pin+16))|(value<<pin)` and readers extract the selected low bit. All60 original table words are guest stores; the model does not prefill that table.
 
