@@ -1867,9 +1867,10 @@ def run_fill_runtime(binary, output, name):
                 assert read(1, 8) == 1  # Stop does not impersonate raw ACK.
                 vm.cmd("system_reset")
                 vm.event_wait("RESET", timeout=5)
-                assert not levels[0] and not levels[1]
                 for engine in range(2):
                     assert all(read(engine, offset) == 0 for offset in range(0, 0x34, 4))
+                # A qtest response drains its queued asynchronous IRQ lines.
+                assert not levels[0] and not levels[1]
             elif name.endswith("activation-preflight"):
                 destination = 0xb1804000
                 config(0, destination)
