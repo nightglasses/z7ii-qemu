@@ -4,6 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "hw/nikon/devices.h"
 #include "libqtest.h"
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
@@ -35,7 +36,8 @@ static TimingTest timing_init(const char *outputs)
     QLIST_FOREACH_ENTRY(qdict_get_qlist(reply, "return"), entry) {
         const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
 
-        if (!strcmp(qdict_get_str(child, "type"), "child<nikon-timing>")) {
+        if (!strcmp(qdict_get_str(child, "type"),
+                    "child<" TYPE_NIKON_TIMING ">")) {
             g_assert_null(t.device);
             t.device = g_strdup_printf("/machine/unattached/%s",
                                        qdict_get_str(child, "name"));
@@ -171,6 +173,39 @@ static void test_preflight(void)
     timing_quit(&t);
 }
 
+static void test_transition(void)
+{
+    TimingTest t = timing_init("sysbus-irq");
+    uint64_t first = FIRST + 0x100, second = SECOND + 0x100;
+
+    timing_program(&t, 0, 1);
+    qtest_writel(t.qts, first, 1);
+    qtest_writel(t.qts, SECOND, 1);
+    qtest_clock_step(t.qts, 1001);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0x10);
+    qtest_writel(t.qts, first + 0x10, 0x10);
+    qtest_writel(t.qts, second + 0x24, 0);
+    qtest_clock_step(t.qts, 10000);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0);
+    g_assert_false(qtest_get_irq(t.qts, 0));
+    g_assert_cmphex(qtest_readl(t.qts, second + 0xc), >=, 33003);
+    /* Reenable does not report periods elapsed while the feature was off. */
+    qtest_writel(t.qts, second + 0x24, 1);
+    qtest_clock_step(t.qts, 1);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0);
+    qtest_clock_step(t.qts, 1000);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0x10);
+    /* Reprogramming cancels old edges and rearms the basic threshold. */
+    qtest_writel(t.qts, second + 0x24, 0);
+    qtest_writel(t.qts, first + 0x10, 0x10);
+    qtest_writel(t.qts, second + 8, 29999);
+    qtest_clock_step(t.qts, 1000);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 0);
+    qtest_clock_step(t.qts, 9001);
+    g_assert_cmphex(qtest_readl(t.qts, first + 0x10), ==, 1);
+    timing_quit(&t);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -179,5 +214,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/timing-compare/irq-one-shot-source-reset",
                    test_irq_reset);
     qtest_add_func("/nikon/timing-compare/geometry-preflight", test_preflight);
+    qtest_add_func("/nikon/timing-compare/basic-feature-transition",
+                   test_transition);
     return g_test_run();
 }

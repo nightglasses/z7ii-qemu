@@ -23,6 +23,9 @@ opcode1 keeps its monotonic count and reports each elapsed compare period.
 The primary basic/capture callback routing remains distinct. Pause preserves
 count, stops the timer, and deasserts output; resume continues that phase.
 Comparator or polarity updates preserve phase and schedule the next edge.
+Switching back to an already-reported source1 basic counter cancels any old
+compare timer. Reenabling compare ignores periods elapsed while the feature
+was disabled; period reprogramming cancels old edges and rearms the counter.
 Channel or global reset cancels timers, clears feature state and pending IRQ,
 and deasserts output without producing completion.
 

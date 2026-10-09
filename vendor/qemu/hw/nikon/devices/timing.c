@@ -112,6 +112,8 @@ static void nikon_timing_schedule(NikonTimingChannel *c)
             remaining = 1;
         }
     } else if (c->opcode == 1 && c->threshold_reported) {
+        /* A feature transition must also cancel its previous edge timer. */
+        timer_del(c->timer);
         return;
     }
     /* Ceil to a nanosecond: no premature expiry from sub-ns nominal ticks. */
@@ -416,6 +418,11 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
         if (!bank || c->index > 4 || value > 1 ||
             (value && !c->configured)) {
             goto error;
+        }
+        if (value && !c->compare_enabled) {
+            /* Free-running basic time is not a completed compare period. */
+            c->compare_cycles = nikon_timing_count(c) /
+                                ((uint64_t)c->period + 1);
         }
         c->compare_enabled = value;
         c->compare_started = false;
