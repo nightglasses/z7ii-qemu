@@ -3,7 +3,8 @@
 This integration starts at merged main `7f8fa9bc98fff35b95ce321208bb183fbbd145c9`
 and takes only the QEMU-owned changes from fixed native source
 `87810ead59cbcdb17e17e68dcc7359aa85fe5ba2`. Its source, headers, native test
-registration and fixtures match that snapshot. The sole compiler's live
+registration and fixtures match that snapshot except for the two review
+corrections qualified below. The sole compiler's live
 worktree, binaries and running original-firmware observation are not modified.
 
 The previous I2C conflict rollback, COPY effective-section preflight and actual
@@ -46,6 +47,18 @@ the builds or tests. Every focused invocation listed here exited 0.
 | VR bounded staging | `vruploadstagingdeclaredreceipt.log` | 0.44 s |
 | VR sector persistence | `vrstoresectorreceipt.log` | 1.25 s |
 | VR durable record progress | `vrrecordprogressreceipt.log` | 0.81 s |
+| VR short capture rejection | `vrshortcapturereceipt.log` | 0.91 s |
+| Command RX-to-TX frame reuse | `commandreceivereceipt.log` | 0.76 s |
+
+Independent review found two lifecycle defects. VR capture rejection could
+retain a previous F7 chunk's durable eligibility; the correction from
+`17f5e4cdf2a4a5fb71196b4159f2e2a52df3200f` invalidates that eligibility
+for a rejected new F7, including short DMA input, without invalidating F8.
+Command RX retirement and a new TX claim could retain old received frame
+words; `fe4677d` clears those frames and requires all nine current words
+before START. Both focused cases above passed with the actual native
+compile/link recorded in `commandvrp2build.log`. Unchanged cases were not
+repeated. Neither correction claims original-firmware protocol completion.
 
 The composition receipt precedes the final EX SysBus reentry guard correction;
 the later EX word receipt qualifies that correction. The early unrooted input
