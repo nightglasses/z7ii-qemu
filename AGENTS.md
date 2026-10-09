@@ -41,3 +41,5 @@
 | [docs/nor-external-profile.md](docs/nor-external-profile.md) | 全33描述符有限外部输入、共享物理状态/保留洞与实际新对象范围 |
 | [docs/synthetic-wait-budgets.md](docs/synthetic-wait-budgets.md) | 合成虚拟期限与取消顺序、CI忙等诊断和focused验证范围 |
 | [docs/message-ring-functional.md](docs/message-ring-functional.md) | 原完整发送ring容量、guest索引/无对端回复与phase2实际入口 |
+| [docs/bridge2013-functional.md](docs/bridge2013-functional.md) | 有限桥控制事务、真实IRQ/取消、外部GPIO依赖和原版下一并发停点 |
+| [docs/timing-capture-functional.md](docs/timing-capture-functional.md) | 外部真实输入边沿、计数捕获、IRQ生命周期与原版后继RAM范围 |

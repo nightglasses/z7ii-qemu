@@ -1,8 +1,10 @@
 /*
  * Original twelve-channel timing interface, explicitly functional semantics.
  * Period/current-count geometry comes from guest tables and setup callers.
- * Opcode0 periodic / opcode31 one-shot, 3GHz, expiry bit0 and W1C are virtual
- * board assumptions. Unknown feature requests fail; this is not a DMA engine.
+ * Opcode0 periodic / opcode31 one-shot / opcode1 free-running source, 3GHz,
+ * threshold bit0 and W1C are virtual board assumptions. Opcode1 reports its
+ * configured threshold once and keeps counting; it is not a periodic alias.
+ * Unknown feature requests fail; this is not a DMA engine.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -19,11 +21,12 @@ typedef struct Z7IITimingChannel {
     Z7IITimingState *owner;
     QEMUTimer *timer;
     qemu_irq irq;
-    uint32_t reset, control, opcode, period, status;
+    uint32_t reset, control, opcode, period, status, captured[2];
     uint64_t count;
     int64_t epoch;
     unsigned index;
-    bool configured, running, complete;
+    bool configured, running, complete, threshold_reported;
+    bool capture_enabled, capture_level;
 } Z7IITimingChannel;
 
 struct Z7IITimingState {
@@ -51,12 +54,36 @@ static void z7ii_timing_irq(Z7IITimingChannel *c)
     qemu_set_irq(c->irq, !!c->status);
 }
 
+/* Named virtual mode0: one external signal per capture-capable channel. */
+static void z7ii_timing_capture(void *opaque, int input, int level)
+{
+    Z7IITimingState *s = opaque;
+    Z7IITimingChannel *c = &s->channel[5 + input];
+    unsigned edge = level ? 0 : 1;
+    unsigned gate = 1U << (edge + 1);
+
+    if (c->capture_level == !!level) {
+        return;
+    }
+    c->capture_level = !!level;
+    if (!c->capture_enabled || !c->running || !(c->control & gate)) {
+        return;
+    }
+    c->captured[edge] = (uint32_t)z7ii_timing_count(c);
+    /* The guest's primary callback consumes status bits1/2, not PWM bit4. */
+    c->status |= gate;
+    z7ii_timing_irq(c);
+}
+
 static void z7ii_timing_schedule(Z7IITimingChannel *c)
 {
     uint64_t period = (uint64_t)c->period + 1;
     uint64_t count = z7ii_timing_count(c);
     uint64_t remaining = count < period ? period - count : 1;
 
+    if (c->opcode == 1 && c->threshold_reported) {
+        return;
+    }
     /* Ceil to a nanosecond: no premature expiry from sub-ns nominal ticks. */
     timer_mod(c->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                         clock_ticks_to_ns(c->owner->clock, remaining) + 1);
@@ -95,7 +122,9 @@ static void z7ii_timing_expire(void *opaque)
         return;
     }
     c->status |= 1;
-    if (c->opcode == 0x31) {
+    if (c->opcode == 1) {
+        c->threshold_reported = true;
+    } else if (c->opcode == 0x31) {
         c->count = period;
         c->running = false;
         c->complete = true;
@@ -112,7 +141,10 @@ static void z7ii_timing_channel_reset(Z7IITimingChannel *c)
     timer_del(c->timer);
     c->control = c->opcode = c->period = c->status = 0;
     c->count = 0;
-    c->configured = c->running = c->complete = false;
+    c->configured = c->running = c->complete = c->threshold_reported = false;
+    c->capture_enabled = false;
+    c->captured[0] = c->captured[1] = 0;
+    /* Reset changes controller state, never an external pad level. */
     z7ii_timing_irq(c);
 }
 
@@ -165,14 +197,25 @@ static MemTxResult z7ii_timing_read_bank(Z7IITimingState *s, unsigned bank,
             goto error;
         }
         count = z7ii_timing_count(c);
-        *value = c->opcode == 0x31 ? MIN(count, (uint64_t)c->period + 1) :
-                                    count % ((uint64_t)c->period + 1);
+        if (c->opcode == 1) {
+            *value = (uint32_t)count;
+        } else {
+            *value = c->opcode == 0x31 ? MIN(count, (uint64_t)c->period + 1) :
+                                        count % ((uint64_t)c->period + 1);
+        }
         break;
     case 16:
         if (bank) {
             goto error;
         }
         *value = c->status;
+        break;
+    case 20:
+    case 24:
+        if (!bank || (c->index != 5 && c->index != 6)) {
+            goto error;
+        }
+        *value = c->captured[((offset & 0xff) - 20) / 4];
         break;
     default:
         goto error;
@@ -218,7 +261,7 @@ static MemTxResult z7ii_timing_write_bank(Z7IITimingState *s, unsigned bank,
     c = &s->channel[(offset >> 8) - 1];
     switch (offset & 0xff) {
     case 0:
-        if (value > 1) {
+        if (value & ~((!bank && (c->index == 5 || c->index == 6)) ? 7U : 1U)) {
             goto error;
         }
         if (bank) {
@@ -232,10 +275,13 @@ static MemTxResult z7ii_timing_write_bank(Z7IITimingState *s, unsigned bank,
         break;
     case 4:
         if (bank) {
-            if (value != 0 && value != 0x31) {
+            if (value != 0 && value != 1 && value != 0x31) {
                 goto error;
             }
             if (c->running && value != c->opcode) {
+                goto error;
+            }
+            if (c->capture_enabled && value != 1) {
                 goto error;
             }
             c->opcode = value;
@@ -249,17 +295,25 @@ static MemTxResult z7ii_timing_write_bank(Z7IITimingState *s, unsigned bank,
             c->period = value;
             c->count = 0;
             c->configured = true;
-            c->running = c->complete = false;
+            c->running = c->complete = c->threshold_reported = false;
+            c->captured[0] = c->captured[1] = 0;
+            c->status &= ~6U;
+            z7ii_timing_irq(c);
         } else if (value) {
             goto error;
         }
         break;
     case 16:
         if (bank) {
-            /* Only actual channels5/6 expose this optional enable word. */
-            if ((c->index != 5 && c->index != 6) || value) {
+            /*
+             * Only channels5/6 expose mode0 external capture. Preflight all
+             * requirements before retaining an armed configuration.
+             */
+            if ((c->index != 5 && c->index != 6) || value > 1 ||
+                (value && (!c->configured || c->opcode != 1))) {
                 goto error;
             }
+            c->capture_enabled = value;
         } else {
             if (value & ~0x3fU) {
                 goto error;
@@ -328,6 +382,7 @@ static void z7ii_timing_init(Object *obj)
     unsigned i;
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-timing-clock");
+    qdev_init_gpio_in_named(DEVICE(obj), z7ii_timing_capture, "capture", 2);
     memory_region_init_io(&s->regs[0], obj, &z7ii_timing_ops0, s,
                           "z7ii.timing-a", 0xd00);
     memory_region_init_io(&s->regs[1], obj, &z7ii_timing_ops1, s,

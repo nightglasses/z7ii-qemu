@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from qemu.machine import QEMUMachine
+from qemu.machine.qtest import QEMUQtestMachine
 from qemu.qmp import ExecuteError
 
 BASE = 0x10020000
@@ -1207,7 +1208,71 @@ def timing_fixtures():
     irq += write(0xf8102010, 183) + read(0xf810200c, 5)
     disabled = setup() + write(a + 0x100, 0) + delay()
     disabled += read(a + 0x110, 4)
+    # Source1 is free-running with a once-per-programmed-threshold report.
+    # MAX encodes 2**32 ticks; a short observation must not wrap it to zero.
+    direct = setup(5, 1, 0xffffffff) + delay()
+    direct += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct += [0xe3550000, 0x13a06001, 0x03a06000]
+    direct += read(b + 0x604, 7) + read(b + 0x608, 8)
+    threshold = setup(5, 1) + wait(5) + write(a + 0x610, 1) + delay()
+    threshold += read(a + 0x610, 4) + read(b + 0x60c, 5)
+    threshold += constant(0, 30000) + [0xe1550000, 0x83a06001, 0x93a06000]
+    gates = setup(5, 1, 0xffffffff) + write(b, 0) + read(b + 0x60c, 4)
+    gates += delay() + read(b + 0x60c, 5)
+    gates += [0xe1540005, 0x03a06001, 0x13a06000]
+    gates += write(b, 0x20) + delay() + write(a + 4, 0) + read(b + 0x60c, 7)
+    gates += delay() + read(b + 0x60c, 8)
+    gates += [0xe1570008, 0x03a09001, 0x13a09000, 0xe1570004,
+              0x83a0a001, 0x93a0a000]
+    local = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    local += write(a + 0x600, 0) + read(b + 0x60c, 4) + delay()
+    local += read(b + 0x60c, 5) + [0xe1540005, 0x03a06001, 0x13a06000]
+    local += write(a + 0x600, 1) + delay() + read(a + 0x610, 7)
+    local += read(b + 0x60c, 8) + [0xe1580005, 0x83a09001, 0x93a09000]
+    reprogram = setup(5, 1) + wait(5) + write(a + 0x610, 1)
+    reprogram += write(b + 0x608, 59999) + wait(5) + read(a + 0x610, 4)
+    reprogram += write(a + 0x610, 1) + delay() + read(a + 0x610, 5)
+    reset_direct = setup(5, 1) + write(b + 0x600, 1) + write(b + 0x600, 0)
+    reset_direct += delay() + read(a + 0x610, 4) + read(b + 0x60c, 5)
+    direct_irq = write(0xf8101000, 1) + constant(2, 0xf8101000)
+    direct_irq += constant(1, 1) + [0xe5c218b1]
+    direct_irq += write(0xf8101114, 0x20000) + write(0xf8102004, 0xff)
+    direct_irq += write(0xf8102000, 1) + setup(5, 1) + wait(5)
+    direct_irq += read(0xf810200c, 4) + write(a + 0x610, 1)
+    direct_irq += write(0xf8102010, 177) + read(0xf810200c, 5)
+    error = "timing-access-or-feature-not-supported"
     return [
+        ("timing-source1-max-is-not-immediate", direct,
+         {4: 0, 6: 1, 7: 1, 8: 0xffffffff}, None),
+        ("timing-source1-threshold-once-keeps-counting", threshold,
+         {4: 0, 6: 1}, None),
+        ("timing-source1-bitmap-and-master-pause", gates,
+         {6: 1, 9: 1, 10: 1}, None),
+        ("timing-source1-local-resume-no-repeat", local,
+         {6: 1, 7: 0, 9: 1}, None),
+        ("timing-source1-reprogram-new-threshold", reprogram,
+         {4: 1, 5: 0}, None),
+        ("timing-source1-reset-cancels-threshold", reset_direct,
+         {4: 0, 5: 0}, None),
+        ("timing-source1-real-irq177", direct_irq, {4: 177, 5: 1023}, None),
+        ("timing-source1-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 2), {}, error),
+        ("timing-source1-active-change-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x604, 0x31), {}, error),
+        ("timing-source1-capture-value-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 2), {}, error),
+        ("timing-source1-capture-mode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(a + 0x608, 0x20),
+         {}, error),
+        ("timing-source1-capture-armed-opcode-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b + 0x610, 1) + write(b, 0) +
+         write(b + 0x604, 0), {}, error),
+        ("timing-capture-source-preflight", setup(5, 0x31, 0xffffffff) +
+         write(b + 0x610, 1), {}, error),
+        ("timing-capture-result-readonly", write(b + 0x614, 0), {}, error),
+        ("timing-capture-absent-capability", read(b + 0x114, 4), {}, error),
+        ("timing-source1-bitmap-reject-preserves-state",
+         setup(5, 1, 0xffffffff) + write(b, 0x1020), {}, error),
         ("timing-one-shot-expiry-ack", once, {4: 30000, 5: 0}, None),
         ("timing-periodic-expiry-after-ack", periodic, {4: 1}, None),
         ("timing-bitmap-pauses-counter", paused, {6: 1, 7: 0}, None),
@@ -1227,7 +1292,10 @@ def timing_fixtures():
          "timing-access-or-feature-not-supported"),
         ("timing-unknown-width", constant(0, a) + [0xe5d01000], {},
          "timing-access-or-feature-not-supported"),
-    ]
+    ] + [("timing-capture-input-" + name, [], {}, None) for name in (
+        "disconnected", "edges-and-irq-output", "two-channels-disable",
+        "gates-no-config-edge", "reset-retains-external-level",
+        "period-reprogram-clears-samples")]
 
 
 def audio_fixtures():
@@ -1428,6 +1496,128 @@ def copy_fixtures():
     return cases
 
 
+def bridge_fixtures():
+    base = 0x20130000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | reg << 12]
+
+    def delay():
+        # 20 us observes after the named 10 us apply deadline.
+        return (constant(1, 960) + [0xee0e1f12] + constant(1, 1) +
+                [0xee0e1f32, 0xee1e1f32, 0xe3110004, 0x0afffffc])
+
+    def prepare(bank=1, reset=True):
+        words = []
+        if reset:
+            words += write(0xc5e0, 0xf000f)
+            words += write(0xc5f4, 0x1b) + write(0xc5f8, 0x1b)
+            words += write(0xc5e0, 0)
+        for context in range(4):
+            for group in range(2):
+                offset = bank * 0x8000 + context * 0x400 + group * 0x200
+                words += write(offset + 0x88, 2) + write(offset + 0x8c, 3)
+        return words
+
+    def wait_lane(offset=0x8104):
+        return constant(0, base + offset) + [
+            0xe5902000, 0xe3520003, 0x1afffffc]
+
+    ready = prepare() + write(0xc128, 0xf00f) + wait_lane()
+    cold = read(0x8104, 4) + read(0x8304, 5) + read(0xd020, 6)
+    selected = prepare() + write(0xc128, 0x1002) + wait_lane(0x8504)
+    selected += read(0x8304, 4) + read(0x8504, 5) + read(0x8104, 6)
+    selected += read(0x8704, 7) + read(0xd020, 8)
+    windows = prepare()
+    for context in range(4):
+        windows += write(0xc5f0, 0x10000 << context)
+        for offset, value in ((0x81c8, 0x44), (0x81cc, 0x1c), (0x81ec, 0x20)):
+            windows += write(offset, value)
+    windows += read(0x81c8, 4) + read(0x81cc, 5) + read(0x81ec, 6)
+    control = ready + write(0xd024, 0xffff) + write(0xc90c, 6)
+    control += delay() + read(0x4908, 4) + read(0xd020, 5)
+    control += write(0xd028, 2) + read(0xd020, 6)
+    control += write(0xc90c, 4) + delay() + read(0xd020, 7)
+    packet = ready.copy()
+    for index in range(40):
+        packet += write(0xd0b0 + index * 4, index + 1 if index < 24 else 0)
+    handshake = ready + write(0xc13c, 2) + delay() + read(0xd020, 4)
+    mapping = handshake + write(0xd028, 0x40)
+    mapping += packet[len(ready):] + read(0xd0b0, 5) + read(0xd10c, 6)
+    mapping += read(0xd020, 7)
+    cancelled = prepare() + write(0xc128, 0xf00f)
+    cancelled += write(0xc5e0, 0xf000f) + write(0xc5e0, 0) + delay()
+    cancelled += read(0x8104, 4) + read(0xd020, 5)
+    cancelled_control = ready + write(0xc90c, 6)
+    cancelled_control += write(0xc5e0, 0xf000f) + delay()
+    cancelled_control += read(0x4908, 4) + read(0xd020, 5)
+    cancelled_configuration = ready + write(0xc13c, 2) + write(0xc5e0, 0xf000f)
+    cancelled_configuration += delay() + read(0xd020, 4) + read(0xd0b0, 5)
+    lifecycle = prepare(0) + prepare(1, reset=False)
+    for bank in range(2):
+        for context in range(4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 1)
+    lifecycle += write(0xc910, 4) + read(0xc910, 4) + read(0x8cac, 5)
+    for bank in range(2):
+        for context in range(1, 4):
+            lifecycle += write(bank * 0x8000 + context * 0x400 + 0xac, 0)
+        lifecycle += write(bank * 0x8000 + 0x4128, 0xe00e)
+    lifecycle += wait_lane(0x504) + wait_lane(0x8504)
+    for bank in range(2):
+        lifecycle += write(bank * 0x8000 + 0x4120, 4)
+        lifecycle += write(bank * 0x8000 + 0x4124, 4)
+    lifecycle += write(0xc13c, 2) + delay() + read(0xd020, 6)
+    lifecycle += write(0xd028, 0x40) + read(0x8cac, 7)
+    lifecycle += read(0xc120, 8) + read(0xc124, 9)
+    irq = write(0xd024, 2) + ready
+    irq += constant(0, 0xf8101000) + constant(1, 1) + [0xe5801000]
+    irq += constant(2, 0xf8101000) + [0xe5c2187f]
+    irq += constant(0, 0xf810110c) + constant(1, 0x80000000) + [0xe5801000]
+    irq += constant(0, 0xf8102004) + constant(1, 0xff) + [0xe5801000]
+    irq += constant(0, 0xf8102000) + constant(1, 1) + [0xe5801000]
+    irq += write(0xc90c, 6) + delay()
+    irq += constant(0, 0xf810200c) + [0xe5904000]
+    irq += write(0xd028, 2)
+    irq += constant(0, 0xf8102010) + constant(1, 127) + [0xe5801000]
+    irq += constant(0, 0xf810200c) + [0xe5905000]
+    error = "bridge-access-or-protocol-not-supported"
+    return [
+        ("bridge-cold-no-ready-or-peer-event", cold, {4: 0, 5: 0, 6: 0}, None),
+        ("bridge-selected-lanes-only-no-event1", selected,
+         {4: 3, 5: 3, 6: 0, 7: 0, 8: 0}, None),
+        ("bridge-high-selector-window", windows, {4: 0x44, 5: 0x1c, 6: 0x20}, None),
+        ("bridge-control-command-and-w1c", control, {4: 1, 5: 2, 6: 0, 7: 2}, None),
+        ("bridge-handshake-before-arrays-no-array-irq", mapping,
+         {4: 0x40, 5: 1, 6: 24, 7: 0}, None),
+        ("bridge-late-whole-lifecycle", lifecycle,
+         {4: 4, 5: 1, 6: 0x40, 7: 0, 8: 4, 9: 4}, None),
+        ("bridge-real-gic-irq127", irq, {4: 127, 5: 1023}, None),
+        ("bridge-reset-cancels-lanes", cancelled, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-control", cancelled_control, {4: 0, 5: 0}, None),
+        ("bridge-reset-cancels-configuration", cancelled_configuration, {4: 0, 5: 0}, None),
+        ("bridge-board-reset", read(0xc5e0, 2) + write(0xc5e0, 0xf000f),
+         {2: 0}, None),
+        ("bridge-control-overlap-rejected", ready + write(0xc90c, 6) +
+         write(0xc90c, 4), {}, error),
+        ("bridge-map-trailing-array-profile", write(0xd110, 1), {}, error),
+        ("bridge-request-before-configuration", write(0xc128, 0xf00f), {}, error),
+        ("bridge-configuration-before-lanes", write(0xc13c, 2), {}, error),
+        ("bridge-context-mode-reject-preserves-state", write(0x80ac, 1) +
+         write(0x80ac, 2), {}, error),
+        ("bridge-late-field-reject-preserves-state", write(0xc120, 4) +
+         write(0xc120, 5), {}, error),
+        ("bridge-low-selector-unsupported", write(0xc5f0, 1), {}, error),
+        ("bridge-unknown-config-value", write(0x8088, 9), {}, error),
+        ("bridge-unknown-command", ready + write(0xc90c, 5), {}, error),
+        ("bridge-other-bank-ready-not-alias", read(0xc908, 4), {}, error),
+        ("bridge-unknown-offset", read(0x829c, 4), {}, error),
+        ("bridge-unknown-width", constant(0, base + 0xd020) + [0xe5d01000], {}, error),
+    ]
+
+
 def registers(vm):
     response = vm.cmd("human-monitor-command", command_line="info registers")
     return {int(reg): int(value, 16) for reg, value in
@@ -1459,7 +1649,169 @@ def ring_fixtures():
     ]
 
 
+def run_timing_capture(binary, output, name):
+    """Drive external pins through upstream qtest; never write sampled results."""
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    a, b = 0x2c010000, 0x2c011000
+    commands = []
+    irq_levels = {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="capture", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            device = [x["name"] for x in children
+                      if x["type"] == "child<z7ii-timing-functional>"]
+            assert len(device) == 1, children
+            path = "/machine/unattached/" + device[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    irq_levels[int(index)] = action == "raise"
+                    # The official Python client returns one protocol line.
+                    # A qtest comment has no response or side effect, so it
+                    # lets us consume asynchronous IRQs before the queued OK.
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                (output / "qtest-commands.json").write_text(
+                    json.dumps(commands, indent=2) + "\n")
+                assert response.startswith("OK"), response
+                return response
+
+            def write(address, value):
+                command(f"writel {address:#x} {value:#x}")
+
+            def read(address):
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            def step(ns=1000):
+                command(f"clock_step {ns}")
+
+            def pin(index, level):
+                command(f"set_irq_in {path} capture {index} {level}")
+
+            def setup(channel=5, control=7):
+                offset = 0x100 + channel * 0x100
+                write(a + 4, 1)
+                write(b + offset, 1)
+                write(b + offset, 0)
+                write(b + offset + 4, 1)
+                write(b + offset + 8, 0xffffffff)
+                write(b + offset + 16, 1)
+                write(a + offset, control)
+                write(b, read(b) | (1 << channel))
+
+            setup()
+            if name.endswith("disconnected"):
+                setup(6)
+                step()
+                for offset in (0x614, 0x618, 0x714, 0x718):
+                    assert read(b + offset) == 0
+                assert read(a + 0x610) == read(a + 0x710) == 0
+                assert read(b + 0x60c) > 0
+            elif name.endswith("edges-and-irq-output"):
+                # qtest bus requests are Non-secure; GIC Group0 IAR tests
+                # use the separate executing secure ARM IRQ177 fixture.
+                command(f"irq_intercept_out {path} sysbus-irq")
+                step()
+                count = read(b + 0x60c)
+                pin(0, 1)
+                assert read(b + 0x614) == count > 0
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 2
+                assert irq_levels[5]
+                write(a + 0x610, 2)
+                assert not irq_levels[5]
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == count and read(a + 0x610) == 0
+                count = read(b + 0x60c)
+                pin(0, 0)
+                assert read(b + 0x618) == count and read(a + 0x610) == 4
+                assert irq_levels[5]
+            elif name.endswith("two-channels-disable"):
+                setup(6)
+                step()
+                pin(0, 1)
+                assert read(a + 0x610) == 2 and read(a + 0x710) == 0
+                assert read(b + 0x714) == 0
+                step()
+                pin(1, 1)
+                assert read(b + 0x714) == read(b + 0x70c) > 0
+                assert read(a + 0x710) == 2
+                write(a + 0x610, 2)
+                write(b + 0x610, 0)
+                pin(0, 0)
+                assert read(b + 0x618) == 0 and read(a + 0x610) == 0
+            elif name.endswith("gates-no-config-edge"):
+                write(a + 0x600, 1)
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(a + 0x600, 7)
+                assert read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                write(a + 0x610, 4)
+                write(b, 0)
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                write(b, 0x20)
+                assert read(a + 0x610) == 0
+            elif name.endswith("reset-retains-external-level"):
+                step()
+                pin(0, 1)
+                write(b + 0x600, 1)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                setup()
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0 and read(a + 0x610) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+            elif name.endswith("period-reprogram-clears-samples"):
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) > 0 and read(a + 0x610) == 2
+                write(b + 0x608, 0xffffffff)
+                assert read(b + 0x614) == read(b + 0x618) == 0
+                assert read(a + 0x610) == 0
+                step()
+                pin(0, 1)
+                assert read(b + 0x614) == 0
+                pin(0, 0)
+                assert read(b + 0x618) == read(b + 0x60c) > 0
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "qtest external capture inputs and official virtual clock only"}
+
+
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("timing-capture-input-"):
+        return run_timing_capture(binary, output, name)
     output.mkdir()
     image, trace = output / "synthetic.bin", output / "guest.log"
     loop_pc = BASE + len(words) * 4
@@ -1470,7 +1822,7 @@ def run(binary, output, name, words, expected, reason):
                "-display", "none", "-serial", "none", "-monitor", "none",
                "-S", "-D", str(trace), "-d", "guest_errors,int"]
     if name.startswith(("sdi-arb-reset-", "usio-", "mxic-config-", "spi-",
-                        "hdmac-", "i2c-", "audio-", "timing-", "copy-")):
+                        "hdmac-", "i2c-", "audio-", "timing-", "copy-", "bridge-")):
         vm_args += ["-icount", "shift=0"]
     if name.startswith("i2c-endpoint-"):
         vm_args += ["-device", "at24c-eeprom,bus=z7ii-i2c0,address=80,rom-size=256"]
@@ -1517,6 +1869,23 @@ def run(binary, output, name, words, expected, reason):
                     vm.cmd("human-monitor-command", command_line=
                            f'pmemsave 0x2c08010c 4 "{state_file}"')
                     assert struct.unpack("<I", state_file.read_bytes())[0] == 0x07800000
+                if name in ("bridge-context-mode-reject-preserves-state",
+                            "bridge-late-field-reject-preserves-state"):
+                    address, value = ((0x201380ac, 1) if "context" in name
+                                      else (0x2013c120, 4))
+                    state_file = output / "bridge-configuration.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave {address} 4 "{state_file}"')
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == value
+                if name.startswith("timing-source1-") and "reject-preserves" in name:
+                    state_file = output / "timing-source1-state.bin"
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011604 8 "{state_file}"')
+                    assert struct.unpack("<II", state_file.read_bytes()) == (1, 0xffffffff)
+                    vm.cmd("human-monitor-command", command_line=
+                           f'pmemsave 0x2c011000 4 "{state_file}"')
+                    expected_bitmap = 0 if "armed-opcode" in name else 0x20
+                    assert struct.unpack("<I", state_file.read_bytes())[0] == expected_bitmap
             else:
                 deadline = time.monotonic() + 5
                 while (actual := registers(vm))[15] != loop_pc:
@@ -1547,7 +1916,7 @@ def run(binary, output, name, words, expected, reason):
                             "record-slot-alternate-board-reset",
                             "timing-board-reset",
                             "copy-board-reset", "record-footer-board-reset",
-                            "external-nor-board-reset"):
+                            "external-nor-board-reset", "bridge-board-reset"):
                     vm.cmd("system_reset")
                     vm.event_wait("RESET", timeout=5)
                     assert registers(vm)[15] == BASE
@@ -1604,14 +1973,16 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path, help="new output directory")
     args = parser.parse_args()
+    cases = (fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
+             i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
+             timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
+             external_nor_fixtures() + bridge_fixtures())
+    names = [case[0] for case in cases]
+    assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     results = [run(args.binary.resolve(), output / name, name, words,
-                   expected, reason) for name, words, expected, reason in
-               fixtures() + spi_fixtures() + exiu_fixtures() + hdmac_fixtures() +
-               i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
-               timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
-               external_nor_fixtures()]
+                   expected, reason) for name, words, expected, reason in cases]
     result = {"scope": "synthetic contracts only; no firmware boot proof",
               "results": results}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
