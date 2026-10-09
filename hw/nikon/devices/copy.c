@@ -80,31 +80,34 @@ static void nikon_copy_schedule(NikonCopyChannel *c)
               clock_ticks_to_ns(c->owner->clock, next) + 1);
 }
 
+static uint64_t nikon_copy_memory_span(NikonCopyState *s, hwaddr addr,
+                                       uint64_t length, bool write)
+{
+    RCU_READ_LOCK_GUARD();
+    Int128 start = int128_make64(addr);
+
+    /* Translate drops section bounds and only caps RAM, not ROMD. Preflight
+     * and actual DMA must both use these effective flat-view intervals. */
+    for (unsigned i = 0; i < s->ranges->len; i++) {
+        NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
+
+        if (int128_le(range->start, start) && int128_lt(start, range->end)) {
+            if (!(write ? range->writable : range->readable)) {
+                return 0;
+            }
+            return int128_get64(int128_min(int128_sub(range->end, start),
+                                           int128_make64(length)));
+        }
+    }
+    return 0;
+}
+
 static bool nikon_copy_memory_range(NikonCopyState *s, hwaddr addr,
                                     uint64_t length, bool write)
 {
-    RCU_READ_LOCK_GUARD();
-
     while (length) {
-        Int128 start = int128_make64(addr);
-        NikonCopyRange *found = NULL;
-        uint64_t span;
+        uint64_t span = nikon_copy_memory_span(s, addr, length, write);
 
-        /* Translate drops section bounds and only caps RAM, not ROMD. The
-         * selected listener retains the actual effective flat-view sections. */
-        for (unsigned i = 0; i < s->ranges->len; i++) {
-            NikonCopyRange *range = &g_array_index(s->ranges, NikonCopyRange, i);
-
-            if (int128_le(range->start, start) && int128_lt(start, range->end)) {
-                found = range;
-                break;
-            }
-        }
-        if (!found || !(write ? found->writable : found->readable)) {
-            return false;
-        }
-        span = int128_get64(int128_min(int128_sub(found->end, start),
-                                      int128_make64(length)));
         if (!span) {
             return false;
         }
@@ -141,6 +144,14 @@ static void nikon_copy_step(void *opaque)
         unsigned length = MIN(due - completed, sizeof(buffer));
         MemTxResult result;
 
+        /* A direct ROMD transaction otherwise reads through a short alias's
+         * hidden backing instead of translating the next effective section. */
+        length = nikon_copy_memory_span(c->owner, c->reg[1], length, false);
+        length = nikon_copy_memory_span(c->owner, c->reg[2], length, true);
+        if (!length) {
+            nikon_copy_finish(c, 1);
+            return;
+        }
         /* ROMD sources use ordinary read attributes; RAM writes are strict. */
         attrs.memory = false;
         result = dma_memory_read(c->owner->dma, c->reg[1], buffer,

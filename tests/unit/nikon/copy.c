@@ -15,6 +15,7 @@ int (*qemu_main)(void);
 typedef struct CopyFixture {
     Object *owner;
     MemoryRegion root, romd, alias, ram, mmio, adjacent, protection;
+    MemoryRegion neighbor_ram, neighbor_romd;
     DeviceState *dev;
     qemu_irq irq;
     unsigned reads, rom_reads;
@@ -177,6 +178,39 @@ static void test_romd_boundary(void)
     g_assert_cmpuint(f->rom_reads, ==, 0);
     for (unsigned i = 4; i < 32; i++) {
         g_assert_cmphex(destination[i], ==, 0xa5);
+    }
+
+    /* Legal adjacent mappings must supply their own bytes. The hidden ROMD
+     * backing past this short alias contains different, readable bytes. */
+    memory_region_init_ram_flags_nomigrate(&f->neighbor_ram, f->owner,
+                                          "test.neighbor-ram", 16, 0,
+                                          &error_abort);
+    memory_region_init_rom_device(&f->neighbor_romd, f->owner, &rom_ops, f,
+                                  "test.neighbor-romd", 16, &error_abort);
+    for (unsigned romd = 0; romd < 2; romd++) {
+        MemoryRegion *neighbor = romd ? &f->neighbor_romd : &f->neighbor_ram;
+        uint8_t *neighbor_bytes = memory_region_get_ram_ptr(neighbor);
+        uint8_t expected[8];
+
+        for (unsigned i = 0; i < 16; i++) {
+            neighbor_bytes[i] = (romd ? 0xd0 : 0xc0) + i;
+        }
+        memcpy(expected, source + 5, 3);
+        memcpy(expected + 3, neighbor_bytes, 5);
+        memset(destination, 0xa5, 32);
+        memory_region_add_subregion(&f->root, 0x1105, neighbor);
+        copy_request(f, 0x1102, 0x2000, sizeof(expected));
+        g_assert_cmphex(read_register(f, 0x30), ==, 8);
+        g_assert_cmphex(read_register(f, 0x14), ==, 0x110a);
+        g_assert_cmphex(read_register(f, 0x10), ==, 0);
+        g_assert_cmpmem(destination, sizeof(expected), expected,
+                        sizeof(expected));
+        g_assert_cmpuint(f->reads, ==, 0);
+        g_assert_cmpuint(f->rom_reads, ==, 0);
+        for (unsigned i = sizeof(expected); i < 32; i++) {
+            g_assert_cmphex(destination[i], ==, 0xa5);
+        }
+        memory_region_del_subregion(&f->root, neighbor);
     }
 
     /* Effective readonly permissions survive the same all-section cache. */
