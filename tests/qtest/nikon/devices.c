@@ -25,6 +25,8 @@ void nikon_test_completion(QTestState *q);
 void nikon_test_bridge(QTestState *q);
 void nikon_transfer_add_tests(const char *bios);
 void nikon_sampling_add_tests(const char *bios);
+void nikon_image_add_tests(const char *bios);
+void nikon_sdi_add_tests(const char *bios);
 
 static QTestState *start(bool execute, unsigned cpus)
 {
@@ -310,16 +312,246 @@ static void copy_setup(QTestState *q, unsigned channel, unsigned length)
     qtest_writel(q, base + 12, 0x30f00);
     qtest_writel(q, base + 16, 0x30f00);
     qtest_writel(q, base + 20, 0);
-    qtest_writel(q, base + 24, 0x9000);
+    qtest_writel(q, base + 24,
+                 (qtest_readl(q, base + 24) & ~0x00f09110U) | 0x9000);
 }
 
 static void copy_complete(QTestState *q, unsigned length)
 {
-    /* Each callback schedules the next 256-byte chunk from its actual time. */
-    for (unsigned remaining = length; remaining; ) {
-        qtest_clock_step_next(q);
-        remaining -= MIN(remaining, 256);
+    /* One late callback must commit every byte whose absolute time is due. */
+    qtest_clock_step(q, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void copy_request(QTestState *q, unsigned channel, uint32_t source,
+                         uint32_t destination, unsigned length)
+{
+    uint64_t base = COPY + 0x10 + channel * 0x30;
+
+    copy_setup(q, channel, length);
+    qtest_writel(q, base + 4, source);
+    qtest_writel(q, base + 8, destination);
+    qtest_writel(q, base + 24, 0x11109003);
+}
+
+static void copy_pattern(uint8_t *data, unsigned length, unsigned seed)
+{
+    for (unsigned i = 0; i < length; i++) {
+        data[i] = seed ^ i ^ (i >> 8) ^ (i >> 16);
     }
+}
+
+static void test_copy_large_jump(void)
+{
+    const unsigned sizes[] = { 3 * 1024 * 1024, 8 * 1024 * 1024 };
+    g_autofree uint8_t *expected = g_malloc(sizes[1]);
+    g_autofree uint8_t *actual = g_malloc(sizes[1]);
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    for (unsigned i = 0; i < ARRAY_SIZE(sizes); i++) {
+        unsigned length = sizes[i];
+        uint32_t source = RAM + 0x100000;
+        uint32_t destination = RAM + 0x2000000;
+
+        copy_pattern(expected, length, i + 0x35);
+        qtest_memwrite(q, source, expected, length);
+        qtest_memset(q, destination, 0, length);
+        copy_request(q, 0, source, destination, length);
+        g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 0);
+        g_assert_false(qtest_get_irq(q, 45 - 32));
+        g_assert_cmphex(qtest_readb(q, destination), ==, 0);
+        copy_complete(q, length);
+        qtest_memread(q, destination, actual, length);
+        g_assert_cmpmem(actual, length, expected, length);
+        g_assert_cmphex(qtest_readl(q, COPY + 0x14), ==, source + length);
+        g_assert_cmphex(qtest_readl(q, COPY + 0x18), ==, destination + length);
+        g_assert_cmphex(qtest_readl(q, COPY + 0x10), ==, 0);
+        g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 8);
+        g_assert_true(qtest_get_irq(q, 45 - 32));
+        /* Writing the existing bit preserves it; zero acknowledges it. */
+        qtest_writel(q, COPY + 0x30, 8);
+        g_assert_true(qtest_get_irq(q, 45 - 32));
+        qtest_writel(q, COPY + 0x30, 0);
+        g_assert_false(qtest_get_irq(q, 45 - 32));
+    }
+    qtest_quit(q);
+}
+
+static void test_copy_partial_cancel(void)
+{
+    const unsigned length = 3 * 1024 * 1024, progress = 65536;
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    QTestState *q = start(false, 1);
+
+    copy_pattern(expected, length, 0x75);
+    qtest_memwrite(q, RAM + 0x100000, expected, length);
+    qtest_memset(q, RAM + 0x2000000, 0, length);
+    nikon_intercept_gic(q);
+    copy_request(q, 0, RAM + 0x100000, RAM + 0x2000000, length);
+    copy_complete(q, progress);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x10), ==, length - progress - 1);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x14), ==,
+                   RAM + 0x100000 + progress);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x18), ==,
+                   RAM + 0x2000000 + progress);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 0);
+    g_assert_false(qtest_get_irq(q, 45 - 32));
+    qtest_memread(q, RAM + 0x2000000, actual, length);
+    g_assert_cmpmem(actual, progress, expected, progress);
+    for (unsigned i = progress; i < length; i++) {
+        g_assert_cmphex(actual[i], ==, 0);
+    }
+    qtest_writel(q, COPY + 0x28, 0x11109000);
+    copy_complete(q, length);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 1);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x10), ==, length - progress - 1);
+    g_assert_true(qtest_get_irq(q, 45 - 32));
+    qtest_memread(q, RAM + 0x2000000, actual, length);
+    memset(expected + progress, 0, length - progress);
+    g_assert_cmpmem(actual, length, expected, length);
+    qtest_writel(q, COPY + 0x30, 0);
+    g_assert_false(qtest_get_irq(q, 45 - 32));
+    qtest_quit(q);
+}
+
+static void test_copy_concurrent(void)
+{
+    const unsigned progress = 65536;
+    g_autofree uint8_t *expected = g_malloc(4 * progress);
+    g_autofree uint8_t *actual = g_malloc(4 * progress);
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    for (unsigned channel = 0; channel < 4; channel++) {
+        unsigned length = (channel + 1) * progress;
+        uint32_t source = RAM + 0x100000 + channel * 0x100000;
+        uint32_t destination = RAM + 0x2000000 + channel * 0x100000;
+
+        copy_pattern(expected, length, channel + 0x51);
+        qtest_memwrite(q, source, expected, length);
+        qtest_memset(q, destination, 0, length);
+        copy_request(q, channel, source, destination, length);
+    }
+    copy_complete(q, progress);
+    for (unsigned channel = 0; channel < 4; channel++) {
+        unsigned length = (channel + 1) * progress;
+        uint64_t base = COPY + 0x10 + channel * 0x30;
+
+        g_assert_cmphex(qtest_readl(q, base), ==,
+                       channel ? length - progress - 1 : 0);
+        g_assert_cmphex(qtest_readl(q, base + 32), ==, channel ? 0 : 8);
+        g_assert_cmpint(qtest_get_irq(q, 45 + channel - 32), ==, !channel);
+        qtest_memread(q, RAM + 0x2000000 + channel * 0x100000,
+                      actual, length);
+        copy_pattern(expected, length, channel + 0x51);
+        g_assert_cmpmem(actual, progress, expected, progress);
+        for (unsigned i = progress; i < length; i++) {
+            g_assert_cmphex(actual[i], ==, 0);
+        }
+    }
+    copy_complete(q, 3 * progress);
+    for (unsigned channel = 0; channel < 4; channel++) {
+        unsigned length = (channel + 1) * progress;
+        uint64_t status = COPY + 0x30 + channel * 0x30;
+
+        copy_pattern(expected, length, channel + 0x51);
+        qtest_memread(q, RAM + 0x2000000 + channel * 0x100000,
+                      actual, length);
+        g_assert_cmpmem(actual, length, expected, length);
+        g_assert_cmphex(qtest_readl(q, status), ==, 8);
+        g_assert_true(qtest_get_irq(q, 45 + channel - 32));
+        qtest_writel(q, status, 0);
+        g_assert_false(qtest_get_irq(q, 45 + channel - 32));
+    }
+    qtest_quit(q);
+}
+
+static void test_copy_romd(void)
+{
+    const unsigned length = 3 * 1024 * 1024;
+    const uint32_t idle[] = { 0xeafffffe };
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    QTestState *q;
+
+    copy_pattern(expected, length, 0x93);
+    g_assert_true(g_file_set_contents(image, (char *)expected, length, NULL));
+    q = start(false, 1);
+    nikon_intercept_gic(q);
+    copy_request(q, 0, ROM, RAM + 0x2000000, length);
+    copy_complete(q, length);
+    qtest_memread(q, RAM + 0x2000000, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    qtest_memread(q, ROM, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 8);
+    g_assert_true(qtest_get_irq(q, 45 - 32));
+    qtest_writel(q, COPY + 0x30, 0);
+    /* ROMD is readable source backing, never an accepted destination. */
+    copy_request(q, 0, RAM + 0x2000000, ROM, length);
+    copy_complete(q, length);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 1);
+    g_assert_true(qtest_get_irq(q, 45 - 32));
+    qtest_memread(q, ROM, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    qtest_writel(q, COPY + 0x30, 0);
+    copy_request(q, 0, 0xdead0000, RAM + 0x2000000, 7);
+    copy_complete(q, 7);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 1);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x10), ==, 6);
+    qtest_quit(q);
+    write_image(idle, ARRAY_SIZE(idle));
+}
+
+static uint64_t copy_property(QTestState *q, const char *name)
+{
+    QDict *response = qtest_qmp(q, "{'execute':'qom-get',"
+                              " 'arguments':{'path':'/machine/copy',"
+                              " 'property':%s}}", name);
+    uint64_t value;
+
+    g_assert_true(qdict_haskey(response, "return"));
+    value = qdict_get_uint(response, "return");
+    qobject_unref(response);
+    return value;
+}
+
+static void test_copy_telemetry(void)
+{
+    const unsigned length = 3 * 1024 * 1024, progress = 65536;
+    QTestState *q = start(false, 1);
+    uint64_t start_ns = copy_property(q, "virtual-clock-ns");
+    uint64_t deadline;
+    QDict *response;
+
+    qtest_memset(q, RAM + 0x100000, 0x5a, length);
+    qtest_memset(q, RAM + 0x2000000, 0, length);
+    copy_request(q, 3, RAM + 0x100000, RAM + 0x2000000, length);
+    g_assert_cmpuint(copy_property(q, "channel3-start-ns"), ==, start_ns);
+    g_assert_cmpuint(copy_property(q, "channel3-total-bytes"), ==, length);
+    g_assert_true(qtest_qom_get_bool(q, "/machine/copy", "channel3-running"));
+    deadline = copy_property(q, "channel3-next-deadline-ns");
+    g_assert_cmpuint(deadline, >, start_ns);
+    qtest_clock_step(q, deadline - start_ns);
+    g_assert_cmpuint(copy_property(q, "virtual-clock-ns"), ==, deadline);
+    g_assert_cmpuint(copy_property(q, "channel3-remaining-bytes"), ==,
+                     length - progress);
+    g_assert_cmpuint(copy_property(q, "channel3-next-deadline-ns"), >, deadline);
+    g_assert_cmpuint(copy_property(q, "channel0-total-bytes"), ==, 0);
+    g_assert_cmphex(qtest_readb(q, RAM + 0x2000000 + progress - 1), ==, 0x5a);
+    g_assert_cmphex(qtest_readb(q, RAM + 0x2000000 + progress), ==, 0);
+    response = qtest_qmp(q, "{'execute':'qom-set',"
+                        " 'arguments':{'path':'/machine/copy',"
+                        " 'property':'channel3-remaining-bytes','value':0}}");
+    g_assert_true(qdict_haskey(response, "error"));
+    qobject_unref(response);
+    qtest_writel(q, COPY, 0);
+    g_assert_cmpuint(copy_property(q, "channel3-remaining-bytes"), ==,
+                     length - progress);
+    g_assert_cmpuint(copy_property(q, "channel3-next-deadline-ns"), ==, 0);
+    g_assert_false(qtest_qom_get_bool(q, "/machine/copy", "channel3-running"));
+    qtest_quit(q);
 }
 
 static void test_copy(void)
@@ -449,9 +681,16 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/bridge", test_bridge);
     nikon_transfer_add_tests(image);
     nikon_sampling_add_tests(image);
+    nikon_image_add_tests(image);
+    nikon_sdi_add_tests(image);
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);
+    qtest_add_func("/nikon/copy/large-jump", test_copy_large_jump);
+    qtest_add_func("/nikon/copy/partial-cancel", test_copy_partial_cancel);
+    qtest_add_func("/nikon/copy/concurrent", test_copy_concurrent);
+    qtest_add_func("/nikon/copy/romd", test_copy_romd);
+    qtest_add_func("/nikon/copy/telemetry", test_copy_telemetry);
     qtest_add_func("/nikon/hdmac/transfer", test_hdmac);
     qtest_add_func("/nikon/hdmac/pending", test_hdmac_pending);
     qtest_add_func("/nikon/bench/dma", test_dma_bench);

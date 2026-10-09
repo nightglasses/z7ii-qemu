@@ -18,7 +18,7 @@ supports execution under the guest's own page tables; it does not establish
 physical board ownership.
 
 The functional CPU assumption is Cortex-A7, one core by default with a finite
-two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, WFE, DMB and generic
+two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, UDIV, WFE, DMB and generic
 timer operations occur in actual source. No exact physical core or core count
 has been established. CBAR `0xf8100000` is a named profile input, compatible
 with the source's CBAR-relative GIC access and the image's identity descriptor
@@ -87,7 +87,8 @@ other uncovered transactions fail and report the original access context.
 The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
 component isolation, final-byte availability, unseeded COPY/release RAM,
-independent writable COPY backing and causal fill-DMA completion. It contains
+independent writable COPY backing, both kernel arena endpoints and causal
+fill-DMA completion or failure beyond the arena. It contains
 no original firmware or source opcode arrays. Qtest does not demonstrate
 original instruction execution; the original-run receipts remain in `work/`
 and are described separately below.

@@ -8,6 +8,7 @@
 #include "qemu/bswap.h"
 #include "qemu/host-utils.h"
 #include "qemu/timer.h"
+#include "qemu/main-loop.h"
 #include "qapi/error.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
@@ -24,7 +25,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonVRSlave, NIKON_VR_SCI_SLAVE)
 enum VRBankID {
     VR_DMA, VR_DTC, VR_ICU, VR_PORT, VR_SCI1, VR_SCI5, VR_MTU,
     VR_MTU6, VR_ADC, VR_RSPI0, VR_RSPI1, VR_SCIFA10, VR_TPU,
-    VR_MTU1, VR_MTU2, VR_BANKS
+    VR_MTU1, VR_MTU2, VR_RSPI2, VR_BANKS
 };
 
 typedef struct VRBank {
@@ -36,8 +37,13 @@ typedef struct VRBank {
 } VRBank;
 
 typedef struct VRSCI {
+    NikonVRState *soc;
+    SSIBus *bus;
+    QEMUTimer *timer;
+    unsigned channel;
     uint8_t smr, brr, scr, tdr, ssr, rdr, scmr, semr, spmr;
-    bool tdr_full;
+    uint8_t mode[0x20];
+    bool tdr_full, shifting;
 } VRSCI;
 
 typedef struct VRSPI {
@@ -45,8 +51,9 @@ typedef struct VRSPI {
     SSIBus *bus;
     QEMUTimer *timer;
     unsigned channel;
-    uint32_t tx, rx;
-    bool full, shifting, received;
+    uint32_t tx[4], rx[4];
+    unsigned tx_head, tx_count, rx_head, rx_count, batch_remaining;
+    bool shifting;
 } VRSPI;
 
 typedef struct VRCounterDef {
@@ -96,8 +103,8 @@ struct NikonVRState {
     AddressSpace as;
     VRBank bank[VR_BANKS];
     RCMTState cmt;
-    VRSCI sci[2];
-    VRSPI spi[2];
+    VRSCI sci[3];
+    VRSPI spi[3];
     VRCounter counter[ARRAY_SIZE(vr_counter_def)];
     QEMUTimer *adc_timer;
     uint16_t analog[3], analog_connected, adc_valid;
@@ -106,14 +113,33 @@ struct NikonVRState {
     uint8_t ir[256], ier[32], ipr[256], dtcer[256], dmrsr[8];
     uint8_t irqcr[16], input[19], connected[19];
     uint16_t fir;
-    uint32_t grp[5], gen[5];
+    uint32_t grp[6], gen[6];
     bool source[256];
     int requested;
     uint64_t pclk_hz;
     qemu_irq irq, fastirq;
     qemu_irq output[19 * 8];
+    QEMUBH *event_bh;
+    bool deferred[256], dtc_active;
     bool dma_active, reported_error, as_initialized;
 };
+
+static void vr_request_event(NikonVRState *s, unsigned vector);
+
+static unsigned vr_spi_bank(unsigned channel)
+{
+    return channel == 2 ? VR_RSPI2 : VR_RSPI0 + channel;
+}
+
+static unsigned vr_spi_channel(VRBank *b)
+{
+    return b->id == VR_RSPI2 ? 2 : b->id - VR_RSPI0;
+}
+
+static unsigned vr_sci_channel(VRBank *b)
+{
+    return b->id == VR_SCIFA10 ? 2 : b->id == VR_SCI5;
+}
 
 struct NikonVRSlave {
     SSIPeripheral parent_obj;
@@ -173,7 +199,7 @@ static void vr_irq_input(void *opaque, int n, int level)
 
     /* CMT and the public inputs are edge events, group levels are internal. */
     if (level && !s->source[n]) {
-        s->ir[n] = 1;
+        vr_request_event(s, n);
     }
     s->source[n] = !!level;
     vr_icu_update(s);
@@ -181,7 +207,7 @@ static void vr_irq_input(void *opaque, int n, int level)
 
 static void vr_group_update(NikonVRState *s, unsigned group)
 {
-    static const unsigned vector[] = { 106, 110, 111, 112, 113 };
+    static const unsigned vector[] = { 106, 110, 111, 112, 113, 107 };
     unsigned v = vector[group];
 
     s->source[v] = !!(s->grp[group] & s->gen[group]);
@@ -192,13 +218,14 @@ static void vr_group_update(NikonVRState *s, unsigned group)
 static void vr_sci_group(NikonVRState *s, unsigned channel)
 {
     VRSCI *sci = &s->sci[channel];
-    unsigned shift = channel ? 10 : 2;
+    unsigned shift = channel == 2 ? 8 : channel ? 10 : 2;
+    unsigned group = channel == 2 ? 3 : 1;
     uint32_t mask = 3U << shift;
     uint32_t state = ((sci->ssr & 4) && (sci->scr & 4) ? 1 : 0) |
                      ((sci->ssr & 0x38) && (sci->scr & 0x40) ? 2 : 0);
 
-    s->grp[1] = (s->grp[1] & ~mask) | (state << shift);
-    vr_group_update(s, 1);
+    s->grp[group] = (s->grp[group] & ~mask) | (state << shift);
+    vr_group_update(s, group);
 }
 
 static MemTxResult vr_error(VRBank *b, hwaddr offset, unsigned size,
@@ -327,19 +354,162 @@ static bool vr_dma_request(NikonVRState *s, unsigned vector)
     return taken;
 }
 
-static void vr_sci_event(NikonVRState *s, unsigned channel, bool transmit)
+static bool vr_dtc_request(NikonVRState *s, unsigned vector)
 {
-    VRSCI *sci = &s->sci[channel];
-    unsigned vector = (channel ? 84 : 60) + transmit;
-    unsigned enable = transmit ? 0x80 : 0x40;
+    VRBank *b = &s->bank[VR_DTC];
+    uint8_t pointer[4], descriptor[16], data[4];
+    uint32_t address;
+    bool interrupt = false;
+    unsigned chain;
+    MemTxResult result;
 
-    if ((sci->scr & enable) && !vr_dma_request(s, vector)) {
+    if (!(b->regs[12] & 1) || !s->dtcer[vector] ||
+        !(s->ier[vector / 8] & (1U << (vector & 7)))) {
+        return false;
+    }
+    if (s->ir[vector]) {
+        return true; /* ICU discards reactivation while IR is pending. */
+    }
+    if (b->regs[8] & 1) {
+        vr_error(b, 8, 1, false, b->regs[8]);
+        return true; /* Original descriptors use full address mode. */
+    }
+    result = address_space_read(&s->as, ldl_le_p(b->regs + 4) + vector * 4,
+                                MEMTXATTRS_UNSPECIFIED, pointer, 4);
+    if (result != MEMTX_OK) {
+        vr_error(b, 4, 4, false, ldl_le_p(b->regs + 4));
+        return true;
+    }
+    address = ldl_le_p(pointer);
+    s->dtc_active = true;
+    stw_le_p(b->regs + 14, 0x8000 | vector);
+    for (chain = 0; chain < 256; chain++, address += sizeof(descriptor)) {
+        unsigned mra, mrb, mode, size, sm, dm, count, initial;
+        uint32_t sar, dar;
+        bool last, writeback;
+
+        result = address_space_read(&s->as, address, MEMTXATTRS_UNSPECIFIED,
+                                    descriptor, sizeof(descriptor));
+        if (result != MEMTX_OK) {
+            break;
+        }
+        /* RX little-endian full-address descriptors: MRA/MRB at bytes 3/2. */
+        mra = descriptor[3];
+        mrb = descriptor[2];
+        mode = mra >> 6;
+        size = 1U << ((mra >> 4) & 3);
+        sm = (mra >> 2) & 3;
+        dm = (mrb >> 2) & 3;
+        writeback = !(mra & 1);
+        if (mode > 1 || size > 4 || sm == 3 || dm == 3 || (mrb & 3)) {
+            result = MEMTX_ERROR;
+            break;
+        }
+        sar = ldl_le_p(descriptor + 4);
+        dar = ldl_le_p(descriptor + 8);
+        initial = lduw_le_p(descriptor + 14);
+        count = mode == 1 ? initial & 255 : initial;
+        if (!count) {
+            count = mode == 1 ? 256 : 65536;
+        }
+        result = address_space_read(&s->as, sar, MEMTXATTRS_UNSPECIFIED,
+                                    data, size);
+        if (result == MEMTX_OK) {
+            result = address_space_write(&s->as, dar, MEMTXATTRS_UNSPECIFIED,
+                                         data, size);
+        }
+        if (result != MEMTX_OK) {
+            break;
+        }
+        sar = vr_dma_step(sar, sm, size);
+        dar = vr_dma_step(dar, dm, size);
+        last = count == 1;
+        count--;
+        if (mode == 1 && last) {
+            unsigned repeat = initial >> 8;
+            unsigned repeats = repeat ? repeat : 256;
+
+            count = repeat;
+            if (mrb & 0x10) {
+                if (sm == 1) {
+                    sar += repeats * size;
+                } else if (sm == 2) {
+                    sar -= repeats * size;
+                }
+            } else if (dm == 1) {
+                dar += repeats * size;
+            } else if (dm == 2) {
+                dar -= repeats * size;
+            }
+        }
+        if (writeback) {
+            stl_le_p(descriptor + 4, sar);
+            stl_le_p(descriptor + 8, dar);
+            stw_le_p(descriptor + 14, mode == 1 ?
+                     (initial & 0xff00) | count : count);
+            result = address_space_write(&s->as, address,
+                                         MEMTXATTRS_UNSPECIFIED, descriptor,
+                                         sizeof(descriptor));
+            if (result != MEMTX_OK) {
+                break;
+            }
+        }
+        interrupt = !!(mrb & 0x20) || (last && writeback && !mode);
+        if (!(mrb & 0x80) || ((mrb & 0x40) && !last)) {
+            if (last && writeback && !mode) {
+                s->dtcer[vector] = 0;
+            }
+            break;
+        }
+    }
+    s->dtc_active = false;
+    stw_le_p(b->regs + 14, vector);
+    if (result != MEMTX_OK || chain == 256) {
+        vr_error(b, 4, 4, false, address);
+        return true;
+    }
+    return !interrupt;
+}
+
+static void vr_request_event(NikonVRState *s, unsigned vector)
+{
+    if (s->dma_active || s->dtc_active) {
+        s->deferred[vector] = true;
+        qemu_bh_schedule(s->event_bh);
+        return;
+    }
+    if (!vr_dma_request(s, vector) && !vr_dtc_request(s, vector)) {
         s->ir[vector] = 1;
-        vr_icu_update(s);
+    }
+    vr_icu_update(s);
+}
+
+static void vr_deferred_events(void *opaque)
+{
+    NikonVRState *s = opaque;
+    unsigned vector;
+
+    for (vector = 0; vector < 256; vector++) {
+        if (s->deferred[vector]) {
+            s->deferred[vector] = false;
+            vr_request_event(s, vector);
+        }
     }
 }
 
-static void vr_selected_event(NikonVRState *s, bool select_a, unsigned event)
+static void vr_sci_event(NikonVRState *s, unsigned channel, bool transmit)
+{
+    VRSCI *sci = &s->sci[channel];
+    unsigned vector = (channel == 2 ? 104 : channel ? 84 : 60) + transmit;
+    unsigned enable = transmit ? 0x80 : 0x40;
+
+    if (sci->scr & enable) {
+        vr_request_event(s, vector);
+    }
+}
+
+static void vr_selected_events(NikonVRState *s, bool select_a, unsigned event,
+                               uint64_t count)
 {
     unsigned first = select_a ? 208 : 128;
     unsigned last = select_a ? 256 : 208;
@@ -347,12 +517,20 @@ static void vr_selected_event(NikonVRState *s, bool select_a, unsigned event)
     unsigned vector;
 
     for (vector = first; vector < last; vector++) {
-        if (s->bank[VR_ICU].regs[base + vector - first] == event &&
-            !vr_dma_request(s, vector)) {
-            s->ir[vector] = 1;
+        if (s->bank[VR_ICU].regs[base + vector - first] == event) {
+            uint64_t n;
+
+            for (n = 0; n < count && !s->ir[vector]; n++) {
+                vr_request_event(s, vector);
+            }
         }
     }
     vr_icu_update(s);
+}
+
+static void vr_selected_event(NikonVRState *s, bool select_a, unsigned event)
+{
+    vr_selected_events(s, select_a, event, 1);
 }
 
 static unsigned vr_counter_period(VRCounter *c)
@@ -419,14 +597,16 @@ static void vr_counter_advance(VRCounter *c, uint64_t ticks)
         if (target <= period && ticks >= distance) {
             r[d->tsr] |= 1U << i;
             if (r[d->tier] & (1U << i)) {
-                vr_selected_event(s, d->select_a, d->event + i);
+                vr_selected_events(s, d->select_a, d->event + i,
+                                   1 + (ticks - distance) / period);
             }
         }
     }
     if (period == 65536 && ticks >= 65536U - c->count) {
         r[d->tsr] |= 0x10;
         if (r[d->tier] & 0x10) {
-            vr_selected_event(s, d->select_a, d->event + d->compares);
+            vr_selected_events(s, d->select_a, d->event + d->compares,
+                               1 + (ticks - (65536U - c->count)) / 65536);
         }
     }
     c->count = (c->count + ticks) % period;
@@ -443,10 +623,10 @@ static void vr_counter_sync(VRCounter *c)
         ticks = muldiv64(now - c->epoch, c->soc->pclk_hz,
                          (uint64_t)NANOSECONDS_PER_SECOND * divisor);
         if (ticks) {
-            vr_counter_advance(c, ticks);
             c->epoch += muldiv64(ticks,
                                 (uint64_t)NANOSECONDS_PER_SECOND * divisor,
                                 c->soc->pclk_hz);
+            vr_counter_advance(c, ticks);
         }
     }
 }
@@ -601,8 +781,9 @@ static void vr_adc_complete(void *opaque)
     for (i = 0; i < 3; i++) {
         if (selected & (1U << i)) {
             bool addition = !!(lduw_le_p(r + 8) & (1U << i));
-            uint16_t data = addition && !(r[12] & 0x80) ?
-                            s->adc_sum[i] : s->adc_sum[i] / s->adc_samples;
+            uint16_t data = !addition ? s->analog[i] :
+                            !(r[12] & 0x80) ? s->adc_sum[i] :
+                            s->adc_sum[i] / s->adc_samples;
 
             if (lduw_le_p(r + 14) & 0x8000) {
                 data <<= 4;
@@ -644,32 +825,101 @@ static void vr_sci_tx_ready(NikonVRState *s, unsigned channel)
     }
 }
 
+static void vr_sci_schedule(VRSCI *sci)
+{
+    uint64_t cycles;
+
+    if (!(sci->smr & 0x80) || (sci->scr & 2) || !(sci->scr & 0x20) ||
+        !sci->tdr_full || sci->shifting) {
+        return;
+    }
+    cycles = 8 * 4 * (sci->brr + 1) * (1U << ((sci->smr & 3) * 2));
+    sci->shifting = true;
+    timer_mod(sci->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+              MAX(1, muldiv64(cycles, NANOSECONDS_PER_SECOND,
+                             sci->soc->pclk_hz)));
+}
+
+static uint32_t vr_sci_frame(VRSCI *sci, uint32_t value, bool receive)
+{
+    NikonVRState *s = sci->soc;
+    uint32_t output = 0;
+
+    if ((sci->scr & 0x20) && sci->tdr_full) {
+        output = sci->tdr;
+        sci->tdr_full = false;
+        sci->ssr &= ~4;
+    }
+    if (receive && (sci->scr & 0x10)) {
+        if (sci->ssr & 0x40) {
+            sci->ssr |= 0x20;
+        } else {
+            sci->rdr = value & 255;
+            sci->ssr |= 0x40;
+            vr_sci_event(s, sci->channel, false);
+        }
+    }
+    vr_sci_tx_ready(s, sci->channel);
+    if (!sci->tdr_full) {
+        sci->ssr |= 4;
+    }
+    vr_sci_group(s, sci->channel);
+    vr_sci_schedule(sci);
+    return output;
+}
+
+static void vr_sci_master_shift(void *opaque)
+{
+    VRSCI *sci = opaque;
+    bool connected = !QTAILQ_EMPTY(&BUS(sci->bus)->children);
+    uint32_t value;
+
+    sci->shifting = false;
+    if (!(sci->scr & 0x20) || !sci->tdr_full || (sci->scr & 2)) {
+        return;
+    }
+    value = ssi_transfer(sci->bus, sci->tdr);
+    /* An unconnected synchronous input does not supply a peer's byte. */
+    vr_sci_frame(sci, value, connected);
+}
+
 static void vr_spi_schedule(VRSPI *spi);
+
+static void vr_spi_group(VRSPI *spi)
+{
+    NikonVRState *s = spi->soc;
+    uint8_t *r = s->bank[vr_spi_bank(spi->channel)].regs;
+    unsigned shift = 16 + spi->channel * 2;
+    uint32_t state = ((r[15] & 4) && !spi->tx_count && !spi->shifting ? 1 : 0) |
+                     ((r[0] & 2) && (r[3] & 0x1d) ? 2 : 0);
+
+    s->grp[3] = (s->grp[3] & ~(3U << shift)) | (state << shift);
+    vr_group_update(s, 3);
+}
 
 static void vr_spi_event(VRSPI *spi, bool transmit)
 {
     NikonVRState *s = spi->soc;
-    uint8_t *r = s->bank[VR_RSPI0 + spi->channel].regs;
-    unsigned vector = 38 + spi->channel * 2 + transmit;
+    uint8_t *r = s->bank[vr_spi_bank(spi->channel)].regs;
+    unsigned vector = (spi->channel == 2 ? 108 : 38 + spi->channel * 2) +
+                      transmit;
 
-    if ((r[0] & (transmit ? 0x20 : 0x80)) &&
-        !vr_dma_request(s, vector)) {
-        s->ir[vector] = 1;
-        vr_icu_update(s);
+    if (r[0] & (transmit ? 0x20 : 0x80)) {
+        vr_request_event(s, vector);
     }
 }
 
 static void vr_spi_ready(VRSPI *spi)
 {
-    uint8_t *r = spi->soc->bank[VR_RSPI0 + spi->channel].regs;
+    uint8_t *r = spi->soc->bank[vr_spi_bank(spi->channel)].regs;
 
-    if (!spi->full) {
-        r[3] |= 0x20;
+    if (r[3] & 0x20) {
         if ((r[0] & 0x48) == 0x48) {
             vr_spi_event(spi, true);
         }
     }
     vr_spi_schedule(spi);
+    vr_spi_group(spi);
 }
 
 static unsigned vr_spi_bits(uint16_t command)
@@ -685,40 +935,56 @@ static void vr_spi_shift(void *opaque)
 {
     VRSPI *spi = opaque;
     NikonVRState *s = spi->soc;
-    VRBank *b = &s->bank[VR_RSPI0 + spi->channel];
+    VRBank *b = &s->bank[vr_spi_bank(spi->channel)];
     unsigned command_index = b->regs[9] & 7;
     unsigned bits = vr_spi_bits(lduw_le_p(b->regs + 16 + command_index * 2));
     uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
+    uint32_t received;
 
     spi->shifting = false;
-    if ((b->regs[0] & 0x48) != 0x48 || !spi->full) {
+    if ((b->regs[0] & 0x48) != 0x48 || !spi->tx_count) {
         return;
     }
     /* Unattached upstream SSI has functional MISO idle=0, no peer reply. */
-    if (spi->received) {
+    received = ssi_transfer(spi->bus, spi->tx[spi->tx_head] & mask) & mask;
+    if (spi->rx_count == (b->regs[11] & 3) + 1U) {
         b->regs[3] |= 1;
     } else {
-        spi->rx = ssi_transfer(spi->bus, spi->tx & mask) & mask;
-        spi->received = true;
-        b->regs[3] |= 0x80;
+        spi->rx[(spi->rx_head + spi->rx_count) & 3] =
+            received;
+        spi->rx_count++;
+        if (spi->rx_count == (b->regs[11] & 3) + 1U) {
+            b->regs[3] |= 0x80;
+        }
     }
-    spi->full = false;
-    b->regs[3] &= ~2;
+    spi->tx_head = (spi->tx_head + 1) & 3;
+    spi->tx_count--;
+    if (!--spi->batch_remaining) {
+        b->regs[3] |= 0x60;
+    }
     b->regs[9] = (command_index + 1) % ((b->regs[8] & 7) + 1);
-    vr_spi_event(spi, false);
+    if (b->regs[3] & 0x80) {
+        vr_spi_event(spi, false);
+    }
     vr_spi_ready(spi);
 }
 
 static void vr_spi_schedule(VRSPI *spi)
 {
     NikonVRState *s = spi->soc;
-    VRBank *b = &s->bank[VR_RSPI0 + spi->channel];
+    VRBank *b = &s->bank[vr_spi_bank(spi->channel)];
     uint16_t command = lduw_le_p(b->regs + 16 + (b->regs[9] & 7) * 2);
     unsigned bits = vr_spi_bits(command);
     uint64_t cycles;
 
-    if ((b->regs[0] & 0x48) != 0x48 || !spi->full || spi->shifting) {
+    if ((b->regs[0] & 0x48) != 0x48 || !spi->tx_count || spi->shifting) {
         return;
+    }
+    if (!spi->batch_remaining) {
+        if (spi->tx_count < (b->regs[11] & 3) + 1U) {
+            return;
+        }
+        spi->batch_remaining = spi->tx_count;
     }
     if (!bits) {
         vr_error(b, 16, 2, true, command);
@@ -726,7 +992,7 @@ static void vr_spi_schedule(VRSPI *spi)
     }
     cycles = bits * 2 * (b->regs[10] + 1) * (1U << ((command >> 2) & 3));
     spi->shifting = true;
-    b->regs[3] |= 2;
+    b->regs[3] &= ~0x40;
     timer_mod(spi->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
               MAX(1, muldiv64(cycles, NANOSECONDS_PER_SECOND, s->pclk_hz)));
 }
@@ -734,33 +1000,13 @@ static void vr_spi_schedule(VRSPI *spi)
 static uint32_t vr_sci_clock(NikonVRState *s, uint32_t value)
 {
     VRSCI *sci = &s->sci[1];
-    uint32_t output = 0;
 
     /* External clock frames are accepted only in the configured 8-bit mode. */
     if (!(sci->smr & 0x80) || (sci->scr & 3) != 2) {
         vr_error(&s->bank[VR_SCI5], 2, 1, false, 0);
         return 0;
     }
-    if ((sci->scr & 0x20) && sci->tdr_full) {
-        output = sci->tdr;
-        sci->tdr_full = false;
-        sci->ssr &= ~4;
-    }
-    if (sci->scr & 0x10) {
-        if (sci->ssr & 0x40) {
-            sci->ssr |= 0x20;
-        } else {
-            sci->rdr = value & 255;
-            sci->ssr |= 0x40;
-            vr_sci_event(s, 1, false);
-        }
-    }
-    vr_sci_tx_ready(s, 1);
-    if (!sci->tdr_full) {
-        sci->ssr |= 4;
-    }
-    vr_sci_group(s, 1);
-    return output;
+    return vr_sci_frame(sci, value, true);
 }
 
 static bool vr_port_valid(hwaddr offset)
@@ -801,22 +1047,25 @@ static void vr_pad_input(void *opaque, int pin, int level)
     NikonVRState *s = opaque;
     unsigned port = pin / 8, bit = pin & 7;
     bool old = !!(vr_pad(s, port) & (1U << bit));
+    int irq = port == 1 && bit == 7 ? 7 :
+              port == 4 && bit == 7 ? 15 : -1;
 
     s->connected[port] |= 1U << bit;
     s->input[port] = (s->input[port] & ~(1U << bit)) | (!!level << bit);
-    /* Original SCI5 select wire is P47, configured as IRQ15 by the guest. */
-    if (port == 4 && bit == 7 && (s->bank[VR_PORT].regs[0x167] & 0x40)) {
-        unsigned mode = (s->irqcr[15] >> 2) & 3;
-        bool now = !!(vr_pad(s, port) & 0x80);
+    /* Source-configured P17/IRQ7 and SCI5 select P47/IRQ15. */
+    if (irq >= 0 && (s->bank[VR_PORT].regs[0x140 + pin] & 0x40)) {
+        unsigned mode = (s->irqcr[irq] >> 2) & 3;
+        unsigned vector = 64 + irq;
+        bool now = !!(vr_pad(s, port) & (1U << bit));
         bool fire = mode == 0 ? !now :
                     mode == 1 ? old && !now :
                     mode == 2 ? !old && now : old != now;
 
         if (mode == 0) {
-            s->source[79] = !now;
-            s->ir[79] = !now;
+            s->source[vector] = !now;
+            s->ir[vector] = !now;
         } else if (fire) {
-            s->ir[79] = 1;
+            vr_request_event(s, vector);
         }
         vr_icu_update(s);
     }
@@ -837,7 +1086,9 @@ static void vr_port_update(NikonVRState *s)
 
 static int vr_group_register(hwaddr offset, bool *enable)
 {
-    static const unsigned address[] = { 0x600, 0x630, 0x634, 0x638, 0x63c };
+    static const unsigned address[] = {
+        0x600, 0x630, 0x634, 0x830, 0x834, 0x638,
+    };
     unsigned i;
 
     for (i = 0; i < ARRAY_SIZE(address); i++) {
@@ -943,7 +1194,7 @@ static MemTxResult vr_sci_read(VRBank *b, hwaddr offset, uint64_t *value,
                               unsigned size)
 {
     NikonVRState *s = b->soc;
-    unsigned channel = b->id == VR_SCI5;
+    unsigned channel = vr_sci_channel(b);
     VRSCI *sci = &s->sci[channel];
 
     if (size != 1) {
@@ -962,6 +1213,12 @@ static MemTxResult vr_sci_read(VRBank *b, hwaddr offset, uint64_t *value,
     case 6: *value = sci->scmr; break;
     case 7: *value = sci->semr; break;
     case 13: *value = sci->spmr; break;
+    case 28:
+        if (channel != 2) {
+            return vr_error(b, offset, size, false, 0);
+        }
+        *value = sci->mode[offset];
+        break;
     default: return vr_error(b, offset, size, false, 0);
     }
     return MEMTX_OK;
@@ -971,7 +1228,7 @@ static MemTxResult vr_sci_write(VRBank *b, hwaddr offset, uint64_t value,
                                unsigned size)
 {
     NikonVRState *s = b->soc;
-    unsigned channel = b->id == VR_SCI5;
+    unsigned channel = vr_sci_channel(b);
     VRSCI *sci = &s->sci[channel];
 
     if (size != 1) {
@@ -983,6 +1240,8 @@ static MemTxResult vr_sci_write(VRBank *b, hwaddr offset, uint64_t value,
     case 2:
         sci->scr = value;
         if (!(value & 0x20)) {
+            timer_del(sci->timer);
+            sci->shifting = false;
             sci->tdr_full = false;
             sci->ssr |= 0x84;
         }
@@ -1000,9 +1259,26 @@ static MemTxResult vr_sci_write(VRBank *b, hwaddr offset, uint64_t value,
     case 6: sci->scmr = value; break;
     case 7: sci->semr = value; break;
     case 13: sci->spmr = value; break;
+    case 28:
+        if (channel != 2) {
+            return vr_error(b, offset, size, true, value);
+        }
+        /* Normal-mode FIFO reset commands are self-clearing. */
+        if (value & 4) {
+            sci->ssr &= ~0x78;
+        }
+        if (value & 2) {
+            sci->tdr_full = false;
+            sci->shifting = false;
+            timer_del(sci->timer);
+            sci->ssr |= 0x84;
+        }
+        sci->mode[offset] = value & ~6;
+        break;
     default: return vr_error(b, offset, size, true, value);
     }
     vr_sci_group(s, channel);
+    vr_sci_schedule(sci);
     return MEMTX_OK;
 }
 
@@ -1073,6 +1349,9 @@ static bool vr_config_reg(VRBank *b, hwaddr offset, unsigned size)
 {
     switch (b->id) {
     case VR_DTC:
+        if (offset == 14) {
+            return size == 2;
+        }
         return (offset == 0 || offset == 8 || offset == 12) ? size == 1 :
                offset == 4 && size == 4;
     case VR_MTU: case VR_MTU6: return vr_mtu_reg(offset, size);
@@ -1093,7 +1372,7 @@ static bool vr_config_reg(VRBank *b, hwaddr offset, unsigned size)
         }
     case VR_TPU: return vr_tpu_reg(offset, size);
     case VR_ADC: return vr_adc_reg(offset, size);
-    case VR_RSPI0: case VR_RSPI1: case VR_SCIFA10:
+    case VR_RSPI0: case VR_RSPI1: case VR_RSPI2:
         return vr_serial_reg(offset, size);
     default: return false;
     }
@@ -1108,7 +1387,8 @@ static MemTxResult vr_read(void *opaque, hwaddr offset, uint64_t *value,
     *value = 0;
     switch (b->id) {
     case VR_ICU: return vr_icu_read(b, offset, value, size);
-    case VR_SCI1: case VR_SCI5: return vr_sci_read(b, offset, value, size);
+    case VR_SCI1: case VR_SCI5: case VR_SCIFA10:
+        return vr_sci_read(b, offset, value, size);
     case VR_PORT:
         if (size != 1 || !vr_port_valid(offset)) {
             break;
@@ -1122,19 +1402,23 @@ static MemTxResult vr_read(void *opaque, hwaddr offset, uint64_t *value,
         }
         *value = vr_load(b->regs + offset, size);
         return MEMTX_OK;
-    case VR_RSPI0: case VR_RSPI1:
+    case VR_RSPI0: case VR_RSPI1: case VR_RSPI2:
         if (!vr_serial_reg(offset, size)) {
             break;
         }
         if (offset == 4) {
-            VRSPI *spi = &s->spi[b->id - VR_RSPI0];
+            VRSPI *spi = &s->spi[vr_spi_channel(b)];
 
-            if (!spi->received) {
+            if (!spi->rx_count) {
                 break;
             }
-            *value = spi->rx;
-            spi->received = false;
-            b->regs[3] &= ~0x80;
+            *value = spi->rx[spi->rx_head];
+            spi->rx_head = (spi->rx_head + 1) & 3;
+            if (!--spi->rx_count) {
+                b->regs[3] &= ~0x80;
+            } else if (b->regs[3] & 0x80) {
+                vr_spi_event(spi, false);
+            }
         } else {
             *value = vr_load(b->regs + offset, size);
         }
@@ -1163,7 +1447,8 @@ static MemTxResult vr_write(void *opaque, hwaddr offset, uint64_t value,
 
     switch (b->id) {
     case VR_ICU: return vr_icu_write(b, offset, value, size);
-    case VR_SCI1: case VR_SCI5: return vr_sci_write(b, offset, value, size);
+    case VR_SCI1: case VR_SCI5: case VR_SCIFA10:
+        return vr_sci_write(b, offset, value, size);
     case VR_PORT:
         if (size != 1 || !vr_port_valid(offset) ||
             (offset >= 0x40 && offset < 0x60)) {
@@ -1196,22 +1481,26 @@ static MemTxResult vr_write(void *opaque, hwaddr offset, uint64_t value,
         /* A real empty TDR supplies the initial TX request after DTE changes. */
         vr_sci_tx_ready(s, 0);
         vr_sci_tx_ready(s, 1);
+        vr_sci_tx_ready(s, 2);
         vr_spi_ready(&s->spi[0]);
         vr_spi_ready(&s->spi[1]);
+        vr_spi_ready(&s->spi[2]);
         return MEMTX_OK;
-    case VR_RSPI0: case VR_RSPI1:
+    case VR_RSPI0: case VR_RSPI1: case VR_RSPI2:
         if (!vr_serial_reg(offset, size)) {
             break;
         }
         if (offset == 4) {
-            VRSPI *spi = &s->spi[b->id - VR_RSPI0];
+            VRSPI *spi = &s->spi[vr_spi_channel(b)];
 
-            if (spi->full) {
+            if (!(b->regs[3] & 0x20) ||
+                spi->tx_count >= (b->regs[11] & 3) + 1U) {
                 break;
             }
-            spi->tx = value;
-            spi->full = true;
-            b->regs[3] &= ~0x20;
+            spi->tx[(spi->tx_head + spi->tx_count) & 3] = value;
+            if (++spi->tx_count == (b->regs[11] & 3) + 1U) {
+                b->regs[3] &= ~0x20;
+            }
         } else if (offset == 3) {
             b->regs[3] = (b->regs[3] & 0xe2) | (b->regs[3] & value & 0x1d);
         } else if (offset == 9) {
@@ -1220,16 +1509,19 @@ static MemTxResult vr_write(void *opaque, hwaddr offset, uint64_t value,
             vr_store(b->regs + offset, value, size);
         }
         if (offset == 0 && !(value & 0x40)) {
-            VRSPI *spi = &s->spi[b->id - VR_RSPI0];
+            VRSPI *spi = &s->spi[vr_spi_channel(b)];
 
             timer_del(spi->timer);
             spi->shifting = false;
-            b->regs[3] &= ~2;
+            b->regs[3] |= 0x40;
         }
-        vr_spi_ready(&s->spi[b->id - VR_RSPI0]);
+        vr_spi_ready(&s->spi[vr_spi_channel(b)]);
         return MEMTX_OK;
     default:
         if (!vr_config_reg(b, offset, size)) {
+            break;
+        }
+        if (b->id == VR_DTC && offset == 14) {
             break;
         }
         if (b->id == VR_ADC && offset >= 32 && offset <= 36) {
@@ -1276,7 +1568,9 @@ static void vr_reset(void *opaque)
     memset(s->grp, 0, sizeof(s->grp));
     memset(s->gen, 0, sizeof(s->gen));
     memset(s->source, 0, sizeof(s->source));
-    memset(s->sci, 0, sizeof(s->sci));
+    memset(s->deferred, 0, sizeof(s->deferred));
+    qemu_bh_cancel(s->event_bh);
+    s->dtc_active = false;
     s->requested = -1;
     s->fir = 0;
     s->reported_error = s->dma_active = false;
@@ -1296,11 +1590,16 @@ static void vr_reset(void *opaque)
             stw_le_p(s->bank[c->def->bank].regs + c->def->tgr[compare], 0xffff);
         }
     }
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 3; i++) {
         timer_del(s->spi[i].timer);
-        s->spi[i].full = s->spi[i].shifting = s->spi[i].received = false;
-        s->spi[i].tx = s->spi[i].rx = 0;
-        s->bank[VR_RSPI0 + i].regs[3] = 0x20;
+        s->spi[i].shifting = false;
+        s->spi[i].tx_head = s->spi[i].tx_count = 0;
+        s->spi[i].rx_head = s->spi[i].rx_count = 0;
+        s->spi[i].batch_remaining = 0;
+        s->bank[vr_spi_bank(i)].regs[3] = 0x60;
+        timer_del(s->sci[i].timer);
+        memset(&s->sci[i].smr, 0,
+               sizeof(VRSCI) - offsetof(VRSCI, smr));
         s->sci[i].brr = s->sci[i].tdr = 0xff;
         s->sci[i].ssr = 0x84;
         s->sci[i].scmr = 0x72;
@@ -1313,7 +1612,7 @@ static void vr_init(Object *obj)
 {
     static const struct { hwaddr base; unsigned size; const char *name; } map[] = {
         { 0x82000, 0x205, "vr.dmac" },
-        { 0x82400, 0x00d, "vr.dtc" },
+        { 0x82400, 0x010, "vr.dtc" },
         { 0x87000, 0xa02, "vr.icub" },
         { 0x8c000, 0x200, "vr.port-mpc" },
         { 0x8a020, 0x00e, "vr.sci1" },
@@ -1327,6 +1626,7 @@ static void vr_init(Object *obj)
         { 0x88100, 0x070, "vr.tpu" },
         { 0xc1380, 0x020, "vr.mtu1" },
         { 0xc1400, 0x020, "vr.mtu2" },
+        { 0xd0300, 0x021, "vr.rspi2" },
     };
     NikonVRState *s = NIKON_VR_PERIPHERALS(obj);
     unsigned i;
@@ -1345,10 +1645,11 @@ static void vr_init(Object *obj)
     qdev_init_gpio_in(DEVICE(obj), vr_irq_input, 256);
     qdev_init_gpio_in_named(DEVICE(obj), vr_ack, "ack", 1);
     qdev_init_gpio_in_named(DEVICE(obj), vr_pad_input, "pad", 19 * 8);
-    qdev_init_gpio_out_named(DEVICE(obj), s->output, "pad", 19 * 8);
+    qdev_init_gpio_out_named(DEVICE(obj), s->output, "pad-out", 19 * 8);
     qdev_init_gpio_in_named(DEVICE(obj), vr_counter_clock, "timer-clock",
                            ARRAY_SIZE(s->counter));
     qdev_init_gpio_in_named(DEVICE(obj), vr_analog_input, "analog", 3);
+    s->event_bh = qemu_bh_new(vr_deferred_events, s);
     s->adc_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, vr_adc_complete, s);
     object_initialize_child(obj, "cmt", &s->cmt, TYPE_RENESAS_CMT);
     for (i = 0; i < ARRAY_SIZE(s->counter); i++) {
@@ -1358,14 +1659,21 @@ static void vr_init(Object *obj)
         c->def = &vr_counter_def[i];
         c->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, vr_counter_expire, c);
     }
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 3; i++) {
         VRSPI *spi = &s->spi[i];
+        VRSCI *sci = &s->sci[i];
         g_autofree char *name = g_strdup_printf("rspi%u", i);
+        g_autofree char *sci_name = g_strdup_printf("sci%u", i == 2 ? 10 :
+                                                  i == 1 ? 5 : 1);
 
         spi->soc = s;
         spi->channel = i;
         spi->bus = ssi_create_bus(DEVICE(obj), name);
         spi->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, vr_spi_shift, spi);
+        sci->soc = s;
+        sci->channel = i;
+        sci->bus = ssi_create_bus(DEVICE(obj), sci_name);
+        sci->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, vr_sci_master_shift, sci);
     }
 }
 
@@ -1402,13 +1710,15 @@ static void vr_finalize(Object *obj)
     if (s->as_initialized) {
         address_space_destroy(&s->as);
     }
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 3; i++) {
         timer_free(s->spi[i].timer);
+        timer_free(s->sci[i].timer);
     }
     for (i = 0; i < ARRAY_SIZE(s->counter); i++) {
         timer_free(s->counter[i].timer);
     }
     timer_free(s->adc_timer);
+    qemu_bh_delete(s->event_bh);
 }
 
 static const Property vr_properties[] = {

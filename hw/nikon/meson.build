@@ -50,4 +50,5 @@ rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'components/bundle.c',
   'devices/access.c',
   'devices/renesas.c',
+  'devices/vr.c',
 ))

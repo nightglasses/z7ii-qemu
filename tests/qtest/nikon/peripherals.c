@@ -103,6 +103,14 @@ static void test_gpio_and_irq(void)
     qtest_set_irq_in(qts, "/machine/vr-peripherals", "ack", 0, 79);
     g_assert_cmphex(qtest_readb(qts, 0x8704f), ==, 0);
 
+    qtest_writeb(qts, 0x8c11f, 0);
+    qtest_writeb(qts, 0x8c11f, 0x40);
+    qtest_writeb(qts, 0x8c14f, 0x74); /* Original P17 ISEL and SCI mux. */
+    qtest_writeb(qts, 0x8c11f, 0x80);
+    qtest_writeb(qts, 0x87507, 8);
+    qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 15, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x87047), ==, 1);
+
     /* Output direction and peripheral mux determine actual PIDR readback. */
     qtest_writeb(qts, 0x8c020, 0x55);
     qtest_writeb(qts, 0x8c000, 0xff);
@@ -225,6 +233,122 @@ static void test_adc_input(void)
     unlink(path);
 }
 
+static void test_dtc_chain(void)
+{
+    g_autofree char *path = test_package();
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
+
+    qtest_writel(qts, 0x1348, 0x1100); /* DTCVBR1000, vector210 pointer. */
+    qtest_writel(qts, 0x1100, 0x01000000); /* WBDIS, byte, normal. */
+    qtest_writel(qts, 0x1104, 0x1200);
+    qtest_writel(qts, 0x1108, 0x1204);
+    qtest_writel(qts, 0x110c, 0x00010000);
+    qtest_writeb(qts, 0x1200, 0xa5);
+    qtest_writel(qts, 0x82404, 0x1000);
+    qtest_writeb(qts, 0x871d2, 1);
+    qtest_writeb(qts, 0x8721a, 4);
+    qtest_writeb(qts, 0x8240c, 1);
+    qtest_writeb(qts, 0x879d2, 8);
+    qtest_writeb(qts, 0xc1380, 0x20);
+    qtest_writeb(qts, 0xc1384, 1);
+    qtest_writew(qts, 0xc1388, 59);
+    qtest_writeb(qts, 0xc1280, 2);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0x1204), ==, 0xa5);
+    g_assert_cmphex(qtest_readl(qts, 0x110c), ==, 0x00010000);
+    g_assert_cmphex(qtest_readb(qts, 0x871d2), ==, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x870d2), ==, 0);
+    qtest_writeb(qts, 0x1200, 0x5a);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0x1204), ==, 0x5a);
+
+    qtest_writeb(qts, 0xc1280, 0);
+    qtest_writel(qts, 0x1100, 0x60c80000); /* Original repeat+completion chain. */
+    qtest_writel(qts, 0x1104, 0x1210);
+    qtest_writel(qts, 0x1108, 0x1300);
+    qtest_writel(qts, 0x110c, 0x02020000);
+    qtest_writel(qts, 0x1110, 0x01200000); /* Original WBDIS+DISEL chain end. */
+    qtest_writel(qts, 0x1114, 0x1220);
+    qtest_writel(qts, 0x1118, 0x1221);
+    qtest_writel(qts, 0x111c, 0x00010000);
+    qtest_writel(qts, 0x1210, 0x12345678);
+    qtest_writeb(qts, 0x1220, 0xcc);
+    qtest_writeb(qts, 0xc1280, 2);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readl(qts, 0x1300), ==, 0x12345678);
+    g_assert_cmphex(qtest_readw(qts, 0x110e), ==, 0x0201);
+    g_assert_cmphex(qtest_readb(qts, 0x870d2), ==, 0);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readl(qts, 0x1304), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(qts, 0x1108), ==, 0x1300);
+    g_assert_cmphex(qtest_readw(qts, 0x110e), ==, 0x0202);
+    g_assert_cmphex(qtest_readb(qts, 0x1221), ==, 0xcc);
+    g_assert_cmphex(qtest_readb(qts, 0x870d2), ==, 1);
+    qtest_quit(qts);
+    unlink(path);
+}
+
+static void test_sci10_transmit(void)
+{
+    g_autofree char *path = test_package();
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
+
+    qtest_writeb(qts, 0x1100, 0x12);
+    qtest_writeb(qts, 0x1101, 0x34);
+    qtest_writeb(qts, 0x87418, 105);
+    qtest_writeb(qts, 0x8741c, 104);
+    program_dma(qts, 6, 0x1100, 0xd0043, 0x8000, 2);
+    program_dma(qts, 7, 0xd0045, 0x1200, 0x0080, 2);
+    qtest_writew(qts, 0x82190, 0x2001);
+    qtest_writew(qts, 0x821d0, 0x2001);
+    qtest_writeb(qts, 0x82200, 1);
+    qtest_writeb(qts, 0xd0040, 0x80);
+    qtest_writeb(qts, 0xd0041, 3);
+    qtest_writeb(qts, 0xd0046, 0x7a);
+    qtest_writeb(qts, 0xd005c, 4);
+    g_assert_cmphex(qtest_readb(qts, 0xd005c), ==, 0);
+    qtest_writeb(qts, 0xd0042, 0xf0);
+    g_assert_cmphex(qtest_readl(qts, 0x82188), ==, 1);
+    qtest_clock_step(qts, 10000);
+    qtest_clock_step(qts, 10000);
+    g_assert_cmphex(qtest_readl(qts, 0x82188), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8219c), ==, 0);
+    g_assert_cmphex(qtest_readb(qts, 0xd0044) & 4, ==, 4);
+    /* No SCI10 peer is connected: actual TX clocks do not supply RX bytes. */
+    g_assert_cmphex(qtest_readl(qts, 0x821c8), ==, 2);
+    g_assert_cmphex(qtest_readb(qts, 0xd0044) & 0x40, ==, 0);
+    qtest_quit(qts);
+    unlink(path);
+}
+
+static void test_rspi2_frames(void)
+{
+    g_autofree char *path = test_package();
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
+    unsigned i;
+
+    qtest_writeb(qts, 0xd030b, 0x23); /* SPLW, four buffered frames. */
+    qtest_writew(qts, 0xd0310, 0x0600); /* 32-bit command. */
+    qtest_writeb(qts, 0xd0300, 0x48);
+    for (i = 0; i < 3; i++) {
+        qtest_writel(qts, 0xd0304, i + 1);
+    }
+    qtest_clock_step(qts, 100000);
+    g_assert_cmphex(qtest_readb(qts, 0xd0303) & 0x80, ==, 0);
+    qtest_writel(qts, 0xd0304, 4);
+    for (i = 0; i < 4; i++) {
+        qtest_clock_step(qts, 100000);
+    }
+    g_assert_cmphex(qtest_readb(qts, 0xd0303) & 0xe0, ==, 0xe0);
+    for (i = 0; i < 4; i++) {
+        /* Upstream SSI idle wire, no claimed sensor receipt. */
+        g_assert_cmphex(qtest_readl(qts, 0xd0304), ==, 0);
+    }
+    g_assert_cmphex(qtest_readb(qts, 0xd0303) & 0x80, ==, 0);
+    qtest_quit(qts);
+    unlink(path);
+}
+
 static void test_dma_and_serial(void)
 {
     g_autofree char *path = test_package();
@@ -276,5 +400,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/vr/dma-serial", test_dma_and_serial);
     qtest_add_func("/nikon/vr/counter-events", test_counter_events);
     qtest_add_func("/nikon/vr/adc-input", test_adc_input);
+    qtest_add_func("/nikon/vr/dtc-chain", test_dtc_chain);
+    qtest_add_func("/nikon/vr/sci10-transmit", test_sci10_transmit);
+    qtest_add_func("/nikon/vr/rspi2-frames", test_rspi2_frames);
     return g_test_run();
 }

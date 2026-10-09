@@ -401,6 +401,9 @@ static void z7ii_init(MachineState *machine)
                               0x20140000, qdev_get_gpio_in(gic, 111 - 32));
         static const hwaddr addresses[] = {
             0x20144000, 0x2014b000, 0x2014d000, 0x2014e000,
+            /* Two source table objects select offsets 0 and 0x10000. */
+            0x24040000, 0x24042000, 0x24045000, 0x24046000,
+            0x24050000, 0x24052000, 0x24055000, 0x24056000,
         };
 
         for (i = 0; i < ARRAY_SIZE(addresses); i++) {
@@ -501,6 +504,7 @@ static void z7ii_init(MachineState *machine)
     {
         DeviceState *copy = qdev_new(TYPE_NIKON_COPY);
 
+        object_property_add_child(OBJECT(machine), "copy", OBJECT(copy));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(copy), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(copy), 0, 0x04251000);
         for (i = 0; i < 4; i++) {

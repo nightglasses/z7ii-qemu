@@ -9,6 +9,7 @@
 #include "hw/nikon/renesas.h"
 #include "hw/nikon/devices.h"
 #include "hw/core/qdev-properties.h"
+#include "system/runstate.h"
 
 typedef struct NikonRXRegister {
     uint16_t address;
@@ -43,6 +44,7 @@ static const NikonRXRegister system_registers[] = {
     { 0xa1, 1, 2, 0 },                    /* RSTCKCR */
     { 0xa2, 1, 2, 0 },                    /* MOSCWTCR */
     { 0xa3, 1, 2, 0 },                    /* SOSCWTCR */
+    { 0xc2, 2, 2, 0 },                    /* SWRR: A501 software reset key */
     { 0x3fe, 2, 0, 0 },                   /* PRCR: A5 key, PRC[3,1,0] */
     { 0x101c, 1, 1, 0 },                  /* MEMWAIT: software-selected wait */
 };
@@ -104,7 +106,7 @@ static MemTxResult system_read(void *opaque, hwaddr address, uint64_t *value,
     NikonRXSystem *s = opaque;
     int i = system_index(address, size);
 
-    if (i < 0) {
+    if (i < 0 || address == 0xc2) {
         nikon_access_error(&s->reported_error, 0x80000 + address, size,
                            false, 0, "RX SYSTEM unknown register or width");
         *value = 0;
@@ -134,6 +136,13 @@ static MemTxResult system_write(void *opaque, hwaddr address, uint64_t value,
     if (system_registers[i].protect &&
         !(system_value(s, 0x3fe) & system_registers[i].protect)) {
         return MEMTX_OK; /* Hardware write protection ignores locked writes. */
+    }
+    if (address == 0xc2) {
+        /* Original application 17b99 requests a real loaded-domain reset. */
+        if (value == 0xa501) {
+            qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+        }
+        return MEMTX_OK;
     }
     s->values[i] = value;
     if (address == 0x28 || address == 0x2a ||

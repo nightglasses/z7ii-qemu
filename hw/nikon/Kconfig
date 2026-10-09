@@ -52,3 +52,5 @@ config NIKON_VR
     bool
     default y
     depends on TCG && RX
+    select RENESAS_CMT
+    select SSI

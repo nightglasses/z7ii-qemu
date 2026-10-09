@@ -66,7 +66,7 @@ interface used by this profile, not the physical MCU identity.
 | USART 1-6 | standard F4 bases | Upstream STM32 USART, real `serial_hd(0..5)` character backends, receive/transmit IRQ state |
 | timers 1-14 | standard F4 bases | Upstream STM32 counters/interrupt lifecycle; shared update IRQs combine through upstream OR-IRQ devices |
 | ADC 1-3 / common | `0x40012000 + 0x100*adc` / `0x40012304` | Configuration, external sample conversion, resolution/alignment, EOC/overrun, real DMA/IRQ; no fabricated reset samples |
-| SPI 1-3 | `0x40013000`, `0x40003800`, `0x40003c00` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun, IRQ and DMA requests |
+| SPI 1-4 | `0x40013000`, `0x40003800`, `0x40003c00`, `0x40013400` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun with DR/SR clear sequence, IRQ and DMA requests |
 | I2C 1-3 | `0x40005400 + 0x400*channel` | Real I2CBus START/address/data/STOP, actual slave ACK/NACK, SR1/SR2 address-clear sequence and event/error IRQ |
 | DMA 1-2 | `0x40026000 + 0x400*controller` | Eight streams each, real private-address-space bus beats, widths/increments/counts, half/complete/error status and W1C IRQ |
 
@@ -126,6 +126,39 @@ message or successful command. `nikon_ex_gpio_input()` returns a physical
 port/pin input line and drives the normal GPIO/EXTICR/EXTI path. Button/pad and
 MAS transport assignments must come from recovered consumers, not guessed
 MENU mappings or direct calls into firmware GUI routines.
+
+The original MCU transport uses two separate slave channels. RX initialization
+`0x080343a4` queries SPI logical index 0 through `0x08040364`. The original table
+at `0x0804dab8` yields handle `0x73`; `0x08021188` resolves that handle through
+the pointer table at `0x2000ee10`. An actual original execution stopped before
+the first RTC WPR write observed descriptor `0x2000e480`, whose base word is
+`0x40013000` (SPI1). TX initialization `0x08034784` queries logical index 4,
+whose handle `0x76` resolves descriptor `0x2000e4a4`, base `0x40013400` (SPI4).
+The respective RCC APB2 reset/enable bits 12 and 13 independently agree.
+Both original initializers configure slave mode, 8-bit words, LSB first,
+CPOL=0/CPHA=1 and software NSS selected internally. The QEMU SSI word interface
+carries complete numeric words; electrical bit-clock timing is not modeled.
+
+Original RX worker `0x0803459c` submits 256-byte DMA reception into
+`0x20017b76`, announces a request using its GPIO descriptor at state offset
+`0x18`, waits for the original completion event, disables SPI and drains DR.
+Validator `0x0803423c` checks the length against byte `0xfc * 240`, sequence
+bytes `0xfc/0xfd`, and the 256-byte additive checksum against `0xff`. Successful
+validation changes the handshake GPIO and calls the registered callback with
+event `0x42010001` and the received buffer. These instructions execute in EX;
+the model neither constructs frames nor generates that event or handshake.
+The saved 1269-function inventory lacks the RX worker entry, so the worker
+evidence additionally uses bounded native GNU objdump over the original bytes.
+
+After EX realization, `nikon_ex_spi_slave(ex, channel, master_bus, cs, errp)`
+attaches an ordinary upstream SSI peripheral to a source-proven master bus.
+Channels are zero based: 0 for MCU RX and 3 for MCU TX. The returned endpoint is
+owned by that bus. Every actual SSI word enters `nikon_ex_spi_transfer()`, causing
+the real EX register/DMA/NVIC lifecycle. No NSS GPIO is guessed because this
+original transport uses internal software NSS. `nikon_ex_gpio_connect_output()`
+connects a physical pad to a real peer input while retaining the EX internal
+EXTI route. The MAS master-bus identities and matching handshake pads must be
+bound from its own consumers before combined-machine connection.
 
 ## Validation status
 
