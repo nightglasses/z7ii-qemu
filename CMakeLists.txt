@@ -65,6 +65,9 @@ foreach(path IN LISTS upstream)
   endif()
 endforeach()
 
+# Meson owns downloaded subprojects; refresh their declared native overlays too.
+include(cmake/wrap.cmake)
+
 foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
     RELATIVE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/${directory}/*")
