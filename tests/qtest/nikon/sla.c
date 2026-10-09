@@ -83,6 +83,19 @@ static void test_loaded_domain(void)
     qtest_writel(qts, 0xc4fffffc, 0x4fffffc0);
     g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 0x19400000);
     g_assert_cmphex(qtest_readl(qts, 0xc4fffffc), ==, 0x4fffffc0);
+
+    /* The runtime counter is driven by virtual time and can be stopped. */
+    qtest_writel(qts, 0x04266000, 0);
+    qtest_writel(qts, 0x04266008, 0);
+    qtest_writel(qts, 0x0426600c, 0);
+    qtest_writel(qts, 0x04266010, 48000000);
+    qtest_writel(qts, 0x04266000, 3);
+    qtest_clock_step(qts, 1000000);
+    g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
+    qtest_writel(qts, 0x04266000, 0);
+    qtest_clock_step(qts, 1000000);
+    g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
+    g_assert_cmphex(qtest_readb(qts, 0x2c090003) & 2, ==, 2);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x854240),
                     ==, 0x76543210);
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_COPY1_BASE), ==, 0);

@@ -107,6 +107,19 @@ pending;1046bcb0 calls object+10;1046efee installs literal callback1046efa9;
 1046efa8 translates rawbits16/20 and calls real guest event APIs. Host code
 never writes guest flags, object metadata or runtime handler tables.
 
+The board names this QEMU device `display`. Consumers use QMP `screendump`
+with `device: "display"` and `head: 0` or `1`, rather than assuming console
+index0. Mature QEMU preserves console numbering after display initialization;
+an existing monitor text console can retain index0 when this lazy graphical
+console is first created. The explicit endpoint selects the actual completed
+bank surface without creating an early placeholder or changing its dimensions.
+These fixtures use `-nodefaults`, retaining libqtest's explicit QMP socket.
+Otherwise an unused default parallel VC creates a fixed text console even
+when `-serial none` was requested. Upstream device-based console lookup visits
+that text object and tries to read its absent `device` property. Suppressing
+unused default devices avoids this upstream limitation through the supported
+launch contract; the camera display model and pixel assertions are unchanged.
+
 This implements guest-buffer/object-record→composition→console output. It
 does not establish the original sensor join, physical scanout IP or an
 original menu receipt. CMOS input remains separate until its source-bound

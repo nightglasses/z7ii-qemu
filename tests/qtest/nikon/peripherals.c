@@ -308,6 +308,7 @@ static void test_sci10_transmit(void)
     qtest_writeb(qts, 0xd005c, 4);
     g_assert_cmphex(qtest_readb(qts, 0xd005c), ==, 0);
     qtest_writeb(qts, 0xd0042, 0xf0);
+    qtest_clock_step(qts, 1); /* Return to the main loop for the TX request. */
     g_assert_cmphex(qtest_readl(qts, 0x82188), ==, 1);
     qtest_clock_step(qts, 10000);
     qtest_clock_step(qts, 10000);
@@ -366,6 +367,7 @@ static void test_dma_and_serial(void)
     qtest_writew(qts, 0xd0110, 0x0f03);
     qtest_writeb(qts, 0xd010a, 0);
     qtest_writeb(qts, 0xd0100, 0xe8);
+    qtest_clock_step(qts, 1); /* DMA runs after the configuration callback. */
     g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1); /* Initial empty TDR. */
     g_assert_cmphex(qtest_readl(qts, 0x82048), ==, 2); /* No RX before clock. */
     qtest_clock_step(qts, 100000);
@@ -385,6 +387,7 @@ static void test_dma_and_serial(void)
     qtest_writeb(qts, 0x8201e, 0);
     program_dma(qts, 0, 0x60000000, 0xd0104, 0x8000, 1);
     qtest_writeb(qts, 0xd0100, 0xe8);
+    qtest_clock_step(qts, 1);
     g_assert_cmphex(qtest_readb(qts, 0x8201e) & 0x11, ==, 1);
     g_assert_cmphex(qtest_readl(qts, 0x82008), ==, 1);
     g_assert_cmphex(qtest_readb(qts, 0x8201c), ==, 0);

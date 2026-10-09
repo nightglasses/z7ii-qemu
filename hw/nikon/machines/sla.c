@@ -9,12 +9,14 @@
 #include "hw/core/boards.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
+#include "system/system.h"
 #include "target/arm/cpu.h"
 
 #define TYPE_NIKON_SLA_MACHINE MACHINE_TYPE_NAME("nikonsla")
@@ -201,6 +203,19 @@ static void sla_init(MachineState *machine)
     sysbus_create_simple(TYPE_NIKON_CLOCK_GATES, 0x04281000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
     sysbus_create_simple(TYPE_NIKON_GPIO, 0x04282000, NULL);
+    /* COPY1 c1000000 supplies the counter used by source 1002012c/10020158. */
+    sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
+    {
+        DeviceState *usio = qdev_new(TYPE_NIKON_USIO);
+
+        /* Callback 10020294 supplies this port to 10020180/100201ec. */
+        if (serial_hd(0)) {
+            qdev_prop_set_chr(usio, "chardev", serial_hd(0));
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(usio), 0, 0x2c090000);
+        /* These original callees poll TX; no SLA UART IRQ route is proven. */
+    }
     {
         DeviceState *config = qdev_new(TYPE_NIKON_MXIC_CONFIG);
 

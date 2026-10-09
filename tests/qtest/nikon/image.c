@@ -17,7 +17,7 @@ static QTestState *start(void)
 {
     g_autofree char *quoted = g_shell_quote(bios_image);
     g_autofree char *args = g_strdup_printf(
-        "-M z7ii-mas-diagnostic -smp 2 -bios %s -serial none", quoted);
+        "-M z7ii-mas-diagnostic -smp 2 -bios %s -nodefaults", quoted);
     QTestState *q = qtest_init(args);
 
     nikon_intercept_gic(q);
@@ -69,7 +69,8 @@ static char *pixels(QTestState *q)
     g_assert_cmpint(fd, >=, 0);
     close(fd);
     reply = qtest_qmp(q, "{'execute':'screendump','arguments':"
-                        "{'filename':%s,'format':'ppm'}}", path);
+                        "{'filename':%s,'format':'ppm',"
+                        "'device':'display','head':0}}", path);
     g_assert_false(qdict_haskey(reply, "error"));
     qobject_unref(reply);
     g_assert_true(g_file_get_contents(path, &contents, &length, NULL));

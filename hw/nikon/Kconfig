@@ -14,6 +14,7 @@ config NIKON_Z7II
     select SSI
     select I2C
     select NIKON_MEMORY
+    select NIKON_STORAGE
 
 config NIKON_SLA
     bool
@@ -47,6 +48,7 @@ config NIKON_STORAGE
     depends on TCG && ARM
     select PCI
     select NVME_PCI
+    select PCI_EXPRESS_GENERIC_BRIDGE
 
 config NIKON_VR
     bool

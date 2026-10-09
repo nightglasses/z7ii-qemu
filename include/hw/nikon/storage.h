@@ -4,6 +4,21 @@
 
 #include "hw/pci/pci.h"
 #include "system/block-backend.h"
+#include "hw/core/sysbus.h"
+
+#define TYPE_NIKON_STORAGE_HOST "nikon.storage"
+OBJECT_DECLARE_SIMPLE_TYPE(NikonStorageHost, NIKON_STORAGE_HOST)
+
+/* Source-local ports, not ECAM. SysBus IRQs are f2, f3, f4, f6 in this order.
+ * The optional drive property supplies real media; absent media stays offline.
+ */
+enum {
+    NIKON_STORAGE_DBI,
+    NIKON_STORAGE_CONFIG,
+    NIKON_STORAGE_MEMORY,
+    NIKON_STORAGE_PHY,
+    NIKON_STORAGE_PLATFORM,
+};
 
 /* The caller owns the source-bound PCI host, DMA address space and IRQ route.
  * The returned device is owned by its bus. No register or IRQ address is chosen

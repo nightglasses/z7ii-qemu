@@ -120,7 +120,8 @@ struct NikonVRState {
     qemu_irq irq, fastirq;
     qemu_irq output[19 * 8];
     QEMUBH *event_bh;
-    bool deferred[256], dtc_active;
+    uint64_t deferred[256];
+    bool dtc_active;
     bool dma_active, reported_error, as_initialized;
 };
 
@@ -471,17 +472,22 @@ static bool vr_dtc_request(NikonVRState *s, unsigned vector)
     return !interrupt;
 }
 
-static void vr_request_event(NikonVRState *s, unsigned vector)
+static bool vr_dispatch_event(NikonVRState *s, unsigned vector)
 {
-    if (s->dma_active || s->dtc_active) {
-        s->deferred[vector] = true;
-        qemu_bh_schedule(s->event_bh);
-        return;
-    }
-    if (!vr_dma_request(s, vector) && !vr_dtc_request(s, vector)) {
+    bool transferred = vr_dma_request(s, vector) || vr_dtc_request(s, vector);
+
+    if (!transferred) {
         s->ir[vector] = 1;
     }
     vr_icu_update(s);
+    return transferred;
+}
+
+static void vr_request_event(NikonVRState *s, unsigned vector)
+{
+    /* A peripheral register callback must return before DMA accesses it. */
+    s->deferred[vector] = MAX(s->deferred[vector], 1);
+    qemu_bh_schedule(s->event_bh);
 }
 
 static void vr_deferred_events(void *opaque)
@@ -491,8 +497,14 @@ static void vr_deferred_events(void *opaque)
 
     for (vector = 0; vector < 256; vector++) {
         if (s->deferred[vector]) {
-            s->deferred[vector] = false;
-            vr_request_event(s, vector);
+            uint64_t count = s->deferred[vector], n;
+
+            s->deferred[vector] = 0;
+            for (n = 0; n < count; n++) {
+                if (!vr_dispatch_event(s, vector)) {
+                    break; /* A pending CPU request coalesces further edges. */
+                }
+            }
         }
     }
 }
@@ -518,11 +530,8 @@ static void vr_selected_events(NikonVRState *s, bool select_a, unsigned event,
 
     for (vector = first; vector < last; vector++) {
         if (s->bank[VR_ICU].regs[base + vector - first] == event) {
-            uint64_t n;
-
-            for (n = 0; n < count && !s->ir[vector]; n++) {
-                vr_request_event(s, vector);
-            }
+            s->deferred[vector] += count;
+            qemu_bh_schedule(s->event_bh);
         }
     }
     vr_icu_update(s);

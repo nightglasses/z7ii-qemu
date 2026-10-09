@@ -63,8 +63,12 @@ peripheral request. It reads the vector pointer and full-address descriptor
 from guest RAM and performs each actual address-space transaction. Normal
 and repeat modes implement byte/word/longword size, address updates, repeat
 area reload, chain activation, DISEL and WBDIS. WBDIS preserves the guest
-descriptor and DTCER rather than silently completing it. Nested requests from
-MMIO writes are deferred until the current DMA/DTC transaction returns.
+descriptor and DTCER rather than silently completing it. All peripheral
+requests use a QEMU bottom half after their register callback returns, so
+DMA/DTC never reenters the MMIO region which raised the request. Repeated
+timer activations retain their count; ordinary ready requests coalesce while
+pending. Nested requests from MMIO writes are processed after the current
+DMA/DTC transaction returns.
 Unsupported descriptor phases or failed bus transactions report errors.
 
 The complete original extracted body contains the DTC vector table at body
@@ -124,11 +128,11 @@ groups are implemented as separate regions:
 | PORT/MPC | `8c000–8c1ff` | Bootstrap `fff001f8`; SCI1 P17 and SCI5 P47 mux/input consumers |
 | ICUb | `87000–87a01` | Bootstrap `fff009a4`; IRQ7/15, groups BL0/AL0, DMA selectors and selectable A/B vectors |
 | DMA0–7 | `82000–82204` | SCI5 RX/TX 84/85, SCI1 RX 60, SCI10 RX/TX 104/105 and RSPI requests |
-| DTC | `82400–8240f` | Application `fff16a69`; original RAM descriptors for vectors 108/109/212 |
-| SCI1 / SCI5 | `8a020–8a02d` / `8a0a0–8a0ad` | Application `fff2f34b` / original MAS transport |
-| SCI10 | `d0040–d005f` | Application `fff17373`; synchronous master, DMA6/7, FIFO reset command |
+| DTC | `82400–8240f` | Application `00016a69`; original RAM descriptors for vectors 108/109/212 |
+| SCI1 / SCI5 | `8a020–8a02d` / `8a0a0–8a0ad` | Application `0002f34b` / original MAS transport |
+| SCI10 | `d0040–d005f` | Application `00017373`; synchronous master, DMA6/7, FIFO reset command |
 | CMT | `88000–8800f` | Bootstrap CMT initialization; upstream timer vectors 28/29 |
-| TPU0–5 | `88100–8816f` | Application `fff2f0ba` TPU5 external clock and effective TCNT `88166` |
+| TPU0–5 | `88100–8816f` | Application `0002f0ba` TPU5 external clock and effective TCNT `88166` |
 | MTU1/2/3/4/6/7 | `c1200–c12ff`, `c1380–c139f`, `c1400–c141f`, `c1a00–c1aff` | Bootstrap counter setup; application compare consumers and MTU4 selected vector 212 |
 | ADC channels 0–2 | `89000–890e2` | Bootstrap sixteen-sample addition; application result consumers |
 | RSPI0 / 1 / 2 | `d0100–d0120`, `d0140–d0160`, `d0300–d0320` | Application SPI initialization and RSPI2 DTC sensor transport |
@@ -136,5 +140,5 @@ groups are implemented as separate regions:
 Each window admits only named registers with their actual access width; a
 window is not a claim that every offset is implemented. SYSTEM/RTC consumers
 are owned by the separate Renesas devices, including keyed software reset at
-`800c2`. Application loads of `80000` in the arithmetic helper near `fff20818`
+`800c2`. Application loads of `80000` in the arithmetic helper near `00020818`
 are numeric constants, not register accesses.
