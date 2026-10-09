@@ -1,11 +1,28 @@
 cmake_minimum_required(VERSION 3.24)
 project(Nightglass LANGUAGES NONE)
 
-set(QEMU_UPSTREAM "${CMAKE_SOURCE_DIR}/vendor/qemu")
+set(QEMU_UPSTREAM "${CMAKE_SOURCE_DIR}/qemu")
 set(QEMU_VIEW "${CMAKE_BINARY_DIR}/source")
 if(NOT EXISTS "${QEMU_UPSTREAM}/configure")
   message(FATAL_ERROR "Initialize dependencies: git submodule update --init --recursive")
 endif()
+find_package(Git REQUIRED)
+execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${QEMU_UPSTREAM}" rev-parse --show-toplevel
+  OUTPUT_VARIABLE upstream_root OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE git_status)
+if(NOT git_status STREQUAL "0" OR NOT upstream_root STREQUAL QEMU_UPSTREAM)
+  message(FATAL_ERROR "qemu/ must be the initialized official Git submodule")
+endif()
+execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${QEMU_UPSTREAM}" diff
+  --quiet --ignore-submodules=untracked HEAD -- RESULT_VARIABLE git_status)
+if(NOT git_status STREQUAL "0")
+  message(FATAL_ERROR "Official qemu/ has tracked changes; maintain Nikon source in the parent repository")
+endif()
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
+  if(EXISTS "${QEMU_UPSTREAM}/${directory}")
+    message(FATAL_ERROR "Project-owned ${directory} belongs outside the official qemu/ dependency")
+  endif()
+endforeach()
 
 # QEMU provides no external machine source option. Compose its native source
 # graph without changing the upstream checkout or copying its implementation.

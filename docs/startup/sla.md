@@ -84,7 +84,7 @@ machine must supply a separate CPU memory view and connect only subsequently
 proven shared endpoints. External BootROM, calibration, lens/sensor inputs and
 other uncovered transactions fail and report the original access context.
 
-The native C qtest `vendor/qemu/tests/qtest/nikon/sla.c` constructs a synthetic
+The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
 component isolation, final-byte availability, unseeded COPY/release RAM,
 independent writable COPY backing and causal fill-DMA completion. It contains

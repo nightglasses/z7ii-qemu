@@ -21,6 +21,6 @@ Issue [394](https://github.com/mashiro01/nightglass/issues/394) 将 Nikon 实现
 
 这些名字不证明 Nikon 的 SoC 型号、物理复位值或完整硬件能力。现有协议文档中的原始地址、观察结果、假设、失败和历史运行身份全部保留。重构后的类型名和日志前缀变化不将旧 receipt 升级为新构建证明。
 
-固定 QEMU `v11.1.2` 位于 `vendor/qemu/` 官方 Git submodule，许可证、上游 Git 历史和嵌套依赖保留。Nikon 文件属于本仓库的 `hw/nikon`、`include/hw/nikon` 与 `tests/qtest/nikon`。CMake 生成 ignored 原生构建源图和三个 Kconfig/Meson 接入点，上游工作树保持干净。根 `Makefile` 随后使用官方 configure 和 Make/Meson/Ninja 构建；`make check` 和 `make bench` 进入 Nikon 原生 C qtest 链。具体依赖和所有权见 [build.md](build.md)。没有 fork、patch、源码复制或本项目 Python 调度器。依赖结构迁移不宣称完成原版完整启动。
+固定 QEMU `v11.1.2` 位于 `qemu/` 官方 Git submodule，许可证、上游 Git 历史和嵌套依赖保留。Nikon 文件属于本仓库的 `hw/nikon`、`include/hw/nikon` 与 `tests/qtest/nikon`。CMake 生成 ignored 原生构建源图和三个 Kconfig/Meson 接入点，上游工作树保持干净。根 `Makefile` 随后使用官方 configure 和 Make/Meson/Ninja 构建；`make check` 和 `make bench` 进入 Nikon 原生 C qtest 链。具体依赖和所有权见 [build.md](build.md)。没有 fork、patch、源码复制或本项目 Python 调度器。依赖结构迁移不宣称完成原版完整启动。
 
 事件路由器模块来自固定提交 `a955007714bead0742fc6ee1f1be2602d75faf14`，当前文件名为 `router.c`。该固定阶段的完整代码与 13 个原合成夹具结果保留为历史证据，并在 Z7II machine 将其三个 SysBus IRQ 接至 GIC86/87/88。实际 native 构建仍由整合阶段执行；没有另外的 constructor 或机型兼容入口。

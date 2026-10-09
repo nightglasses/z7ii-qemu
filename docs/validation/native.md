@@ -3,7 +3,9 @@
 The integration uses QEMU 11.1.2 at upstream commit
 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The configured development
 build is `work/build/mas-diagnostic`; its source is the matching fixed upstream
-checkout `work/upstream/qemu-11.1.2`. Maintained source lives in `vendor/qemu`.
+checkout `work/upstream/qemu-11.1.2`. Maintained Nikon source lives in the parent
+repository's `hw/nikon`, `include/hw/nikon` and `tests/*/nikon`; the current
+official dependency is the read-only root `qemu/` submodule.
 Only the changed native source files were synchronized for incremental builds.
 
 The `106a0ce` build compiled and linked the complete six-class storage profile,

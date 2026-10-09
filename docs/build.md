@@ -1,6 +1,8 @@
 # 原生构建和依赖
 
-`vendor/qemu` 是官方 [qemu/qemu](https://github.com/qemu/qemu) 的 Git submodule，固定在 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`（`v11.1.2`）。官方许可证、Git 历史和嵌套 ROM submodule 都属于上游；本仓库不复制官方源码，不维护另一个 QEMU fork。
+`qemu` 是官方 [qemu/qemu](https://github.com/qemu/qemu) 的 Git submodule，固定在 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`（`v11.1.2`）。官方许可证、Git 历史和嵌套 ROM submodule 都属于上游；本仓库不复制官方源码，不维护另一个 QEMU fork。
+
+它直接位于根 `qemu/`，不增加中间依赖目录。模拟器需要 QEMU 的 CPU/TCG、QOM、总线、IRQ、计时器与原生 executable 实现参与链接，因此依赖包括官方源码，不能只保留头文件。本项目源码只在根 `hw/nikon`、`include/hw/nikon` 和 `tests/*/nikon`，不得写进官方树。CMake 在生成源图之前检查官方 checkout 的 tracked 内容干净，并拒绝在依赖内发现自有 Nikon 目录；失败直接中止，不修改依赖或回退旧路径。
 
 初始化 checkout 后执行：
 
