@@ -128,9 +128,55 @@ static void vr_reset_and_exception(void)
     unlink(path);
 }
 
+static void vr_protection_and_clocks(void)
+{
+    g_autofree char *path = vr_test_bundle();
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s -S", path);
+
+    /* A locked or incorrectly keyed write cannot change protected clocks. */
+    qtest_writel(qts, 0x80020, 0x10c10166);
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0);
+    qtest_writew(qts, 0x803fe, 0xa40b);
+    g_assert_cmphex(qtest_readw(qts, 0x803fe), ==, 0);
+    qtest_writew(qts, 0x803fe, 0xa50b);
+    g_assert_cmphex(qtest_readw(qts, 0x803fe), ==, 0xb);
+    qtest_writel(qts, 0x80020, 0x10c10166);
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0x10c10166);
+
+    /* Status follows a running input and PLL enable, after virtual settling. */
+    qtest_writeb(qts, 0x800a2, 120);
+    qtest_writeb(qts, 0x80032, 0);
+    qtest_writew(qts, 0x80028, 0x1301);
+    qtest_writeb(qts, 0x8002a, 0);
+    g_assert_cmphex(qtest_readb(qts, 0x8003c), ==, 0);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0x8003c), ==, 5);
+    qtest_writeb(qts, 0x8002a, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x8003c), ==, 1);
+    qtest_writeb(qts, 0x80032, 1);
+    g_assert_cmphex(qtest_readb(qts, 0x8003c), ==, 0);
+
+    /* RTC reset is an operation that self-clears, never a fixed ready value. */
+    qtest_writeb(qts, 0x8c428, 1);
+    qtest_writeb(qts, 0x8c424, 2);
+    g_assert_cmphex(qtest_readb(qts, 0x8c424), ==, 2);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readb(qts, 0x8c424), ==, 0);
+    qtest_writeb(qts, 0x8c426, 2);
+    g_assert_cmphex(qtest_readb(qts, 0x8c426), ==, 2);
+    g_assert_cmphex(qtest_readb(qts, 0x8c428), ==, 1);
+
+    qtest_writew(qts, 0x803fe, 0xa500);
+    qtest_writel(qts, 0x80020, 0);
+    g_assert_cmphex(qtest_readl(qts, 0x80020), ==, 0x10c10166);
+    qtest_quit(qts);
+    unlink(path);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/vr/reset-exception", vr_reset_and_exception);
+    qtest_add_func("/nikon/vr/protection-clocks", vr_protection_and_clocks);
     return g_test_run();
 }

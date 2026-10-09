@@ -1,35 +1,42 @@
-arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
-  'machines/z7ii.c',
+arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'components/bundle.c',
   'devices/access.c',
+))
+arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
+  'devices/clock.c',
+  'devices/fill.c',
+  'devices/gpio.c',
+  'devices/memc.c',
+  'devices/mxic.c',
+  'devices/sdi.c',
+  'devices/sysconfig.c',
+))
+arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files('machines/ex.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
+  'machines/z7ii.c',
   'devices/audio.c',
   'devices/bridge.c',
   'devices/dispatcher.c',
-  'devices/clock.c',
   'devices/copy.c',
   'devices/sampler.c',
   'devices/banks.c',
   'devices/gate.c',
   'devices/exiu.c',
-  'devices/fill.c',
-  'devices/gpio.c',
   'devices/hdmac.c',
   'devices/i2c.c',
   'devices/ipud.c',
-  'devices/memc.c',
   'devices/config.c',
-  'devices/mxic.c',
   'devices/pairs.c',
   'devices/router.c',
   'devices/parameters.c',
   'devices/completion.c',
   'devices/status.c',
-  'devices/sdi.c',
   'devices/shared.c',
   'devices/signal.c',
   'devices/spi.c',
   'devices/staging.c',
-  'devices/sysconfig.c',
   'devices/table.c',
   'devices/timestamp.c',
   'devices/timing.c',
@@ -41,4 +48,5 @@ rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'machines/vr.c',
   'components/bundle.c',
   'devices/access.c',
+  'devices/renesas.c',
 ))

@@ -4,10 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
-#include "hw/nikon/devices.h"
 #include "libqtest.h"
-#include "qobject/qdict.h"
-#include "qobject/qlist.h"
 
 #define BASE 0x2c090000
 #define FRAME 10000 /* Nominal 100MHz / (BGR99 + 1), 8N1. */
@@ -18,14 +15,12 @@ typedef struct USIOTest {
     int socket;
 } USIOTest;
 
-static USIOTest usio_init(bool connected)
+static USIOTest usio_init(bool connected, unsigned channel)
 {
     USIOTest t = { .socket = -1 };
     uint32_t loop = cpu_to_le32(0xeafffffe);
     g_autofree char *args = NULL;
-    QDict *reply;
-    const QListEntry *entry;
-    bool found = false;
+    g_autofree char *path = NULL;
     int fd = g_file_open_tmp("nikon-usio-XXXXXX", &t.image, NULL);
 
     g_assert_cmpint(fd, >=, 0);
@@ -39,23 +34,8 @@ static USIOTest usio_init(bool connected)
     } else {
         t.qts = qtest_initf("%s -serial none", args);
     }
-    reply = qtest_qmp(t.qts, "{'execute':'qom-list','arguments':"
-                      "{'path':'/machine/unattached'}}");
-    QLIST_FOREACH_ENTRY(qdict_get_qlist(reply, "return"), entry) {
-        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
-
-        if (!strcmp(qdict_get_str(child, "type"),
-                    "child<" TYPE_NIKON_USIO ">")) {
-            g_autofree char *path = g_strdup_printf("/machine/unattached/%s",
-                                                    qdict_get_str(child, "name"));
-
-            g_assert_false(found);
-            found = true;
-            qtest_irq_intercept_out_named(t.qts, path, "sysbus-irq");
-        }
-    }
-    qobject_unref(reply);
-    g_assert_true(found);
+    path = g_strdup_printf("/machine/usio%u", channel);
+    qtest_irq_intercept_out_named(t.qts, path, "sysbus-irq");
     /* Virtual timers must run; -S inherited from libqtest is not a deadline. */
     qtest_qmp_assert_success(t.qts, "{'execute':'cont'}");
     qtest_writeb(t.qts, BASE + 1, 0x80);
@@ -107,7 +87,7 @@ static void usio_receive(USIOTest *t, const char *input, unsigned expected)
 
 static void test_transmit(void)
 {
-    USIOTest t = usio_init(true);
+    USIOTest t = usio_init(true, 0);
 
     qtest_writew(t.qts, BASE + 0xc, 0x405);
     qtest_writeb(t.qts, BASE + 1, 5);
@@ -138,7 +118,7 @@ static void test_transmit(void)
 
 static void test_receive(void)
 {
-    USIOTest t = usio_init(true);
+    USIOTest t = usio_init(true, 0);
 
     qtest_writew(t.qts, BASE + 0xc, 0xf);
     qtest_writeb(t.qts, BASE + 0xf, 2);
@@ -171,7 +151,7 @@ static void test_receive(void)
 
 static void test_retransmit(void)
 {
-    USIOTest t = usio_init(true);
+    USIOTest t = usio_init(true, 0);
 
     qtest_writew(t.qts, BASE + 0xc, 0x15);
     qtest_writeb(t.qts, BASE + 1, 1);
@@ -201,7 +181,7 @@ static void test_retransmit(void)
 
 static void test_disconnected(void)
 {
-    USIOTest t = usio_init(false);
+    USIOTest t = usio_init(false, 0);
 
     qtest_writeb(t.qts, BASE + 2, 4);
     qtest_writeb(t.qts, BASE + 7, 1);
@@ -217,6 +197,54 @@ static void test_disconnected(void)
     usio_quit(&t);
 }
 
+static void test_channels(void)
+{
+    for (unsigned observed = 0; observed < 3; observed++) {
+        USIOTest t = usio_init(false, observed);
+        uint64_t selected = BASE + 0x10 * observed;
+
+        for (unsigned channel = 0; channel < 3; channel++) {
+            uint64_t base = BASE + 0x10 * channel;
+
+            qtest_writeb(t.qts, base + 1, 0x80);
+            qtest_writeb(t.qts, base, 1);
+            qtest_writeb(t.qts, base + 2, 0);
+            qtest_writew(t.qts, base + 6, 99 + channel);
+            qtest_writew(t.qts, base + 0xc, 0xf);
+            qtest_writeb(t.qts, base + 0xf, 2 + channel);
+            qtest_writew(t.qts, base + 4, 'A' + channel);
+        }
+        g_assert_false(qtest_get_irq(t.qts, 0));
+        g_assert_false(qtest_get_irq(t.qts, 1));
+        /* Only the selected transmitter is enabled and can drain its word. */
+        qtest_writeb(t.qts, selected + 1, 5);
+        g_assert_false(qtest_get_irq(t.qts, 1));
+        qtest_clock_step(t.qts, FRAME + observed * 100);
+        g_assert_true(qtest_get_irq(t.qts, 1));
+        for (unsigned channel = 0; channel < 3; channel++) {
+            uint64_t base = BASE + 0x10 * channel;
+
+            g_assert_cmphex(qtest_readw(t.qts, base + 6), ==, 99 + channel);
+            g_assert_cmphex(qtest_readb(t.qts, base + 0xe), ==,
+                            channel == observed ? 0 : 1);
+            g_assert_cmphex(qtest_readw(t.qts, base + 4), ==, 'A' + channel);
+            g_assert_cmphex(qtest_readb(t.qts, base + 3) & 4, ==, 0);
+        }
+        /* Enabling receive has no input producer on any disconnected port. */
+        qtest_writeb(t.qts, selected + 1, 0x13);
+        g_assert_false(qtest_get_irq(t.qts, 0));
+        g_assert_false(qtest_get_irq(t.qts, 1));
+        qtest_writeb(t.qts, selected + 1, 0x80);
+        for (unsigned channel = 0; channel < 3; channel++) {
+            if (channel != observed) {
+                g_assert_cmphex(qtest_readb(t.qts, BASE + 0x10 * channel +
+                                           0xe), ==, 1);
+            }
+        }
+        usio_quit(&t);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -224,5 +252,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/usio/receive-threshold-idle-flush", test_receive);
     qtest_add_func("/nikon/usio/retransmit-flush", test_retransmit);
     qtest_add_func("/nikon/usio/disconnected-ninebit-lanes", test_disconnected);
+    qtest_add_func("/nikon/usio/three-channel-isolation", test_channels);
     return g_test_run();
 }

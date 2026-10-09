@@ -44,3 +44,6 @@
 | [budgets.md](docs/validation/budgets.md) | 合成虚拟期限与取消顺序、CI忙等诊断和focused验证范围 |
 | [observation.md](docs/runtime/wait/observation.md) | 原软件等待、事件标志与后续唤醒的实际研究结论 |
 | [protocol.md](docs/devices/bridge/protocol.md) | 有限桥控制事务、真实IRQ/取消、外部GPIO依赖和原版下一并发停点 |
+| [sla.md](docs/startup/sla.md) | 独立 SLA 载入域、原版复制/清零与精确 RAM |
+| [ex.md](docs/startup/ex.md) | EX 处理器和功能外设模型、外部数据输入边界 |
+| [protocol.md](docs/devices/sensor/protocol.md) | 原生帧输入、真实 DMA 和未连接固件控制器的边界 |

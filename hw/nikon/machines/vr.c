@@ -11,6 +11,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/renesas.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "target/rx/cpu.h"
@@ -186,6 +187,9 @@ static void vr_init(MachineState *machine)
     memcpy(memory_region_get_ram_ptr(&s->image), body, size);
     memory_region_add_subregion(get_system_memory(), 0xfff00000, &s->image);
     vr_map_ram(s, body, size);
+
+    sysbus_create_simple(TYPE_NIKON_RX_SYSTEM, 0x80000, NULL);
+    sysbus_create_simple(TYPE_NIKON_RX_RTC, 0x8c400, NULL);
 
     object_initialize_child(OBJECT(s), "cpu", &s->cpu, TYPE_RX62N_CPU);
     qdev_prop_set_bit(DEVICE(&s->cpu), "has-extb", true);

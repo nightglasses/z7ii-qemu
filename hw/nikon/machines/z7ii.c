@@ -314,15 +314,6 @@ static void z7ii_init(MachineState *machine)
     sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
     gpio = sysbus_create_simple(TYPE_NIKON_GPIO, 0x04282000, NULL);
-    {
-        DeviceState *usio = qdev_new(TYPE_NIKON_USIO);
-
-        if (serial_hd(0)) {
-            qdev_prop_set_chr(usio, "chardev", serial_hd(0));
-        }
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio), &error_fatal);
-        sysbus_mmio_map(SYS_BUS_DEVICE(usio), 0, 0x2c090000);
-    }
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
 
@@ -343,6 +334,23 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
     sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
+    for (i = 0; i < 3; i++) {
+        DeviceState *usio = qdev_new(TYPE_NIKON_USIO);
+        g_autofree char *name = g_strdup_printf("usio%u", i);
+
+        /* Original three copied driver records select offsets 0, 0x10, 0x20. */
+        object_property_add_child(OBJECT(machine), name, OBJECT(usio));
+        if (serial_hd(i)) {
+            qdev_prop_set_chr(usio, "chardev", serial_hd(i));
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(usio), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(usio), 0, 0x2c090000 + i * 0x10);
+        /* Original six ISR registrations: even RX, odd TX, channels 0..2. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(usio), 0,
+                           qdev_get_gpio_in(gic, 186 + i * 2 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(usio), 1,
+                           qdev_get_gpio_in(gic, 187 + i * 2 - 32));
+    }
     {
         DeviceState *router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
 
