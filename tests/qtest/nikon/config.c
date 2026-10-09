@@ -3,6 +3,9 @@
  */
 #include "qemu/osdep.h"
 #include "../libqtest.h"
+#include "hw/nikon/devices.h"
+#include "qobject/qdict.h"
+#include "qobject/qlist.h"
 
 #define CONFIG 0x20010000
 #define SLOTS 0x24074000
@@ -33,10 +36,10 @@ static QTestState *start(void)
 static uint32_t configuration_word(unsigned index)
 {
     if (index == 0) {
-        return 0x12345601;
+        return 0xffffff01;
     }
     if (index == 1) {
-        return 0x78;
+        return 0xff;
     }
     if (index < 10) {
         return 0x04030201 + index;
@@ -182,15 +185,12 @@ static void test_transaction(void)
 {
     QTestState *q = start();
 
-    draft(q, ARRAY_SIZE(snapshot_offsets) - 1, 511);
-    qtest_writel(q, SLOTS, slot_word(0)); /* duplicate cannot fill missing slot */
-    qtest_writel(q, CONFIG + 0x34, 1);
+    draft(q, ARRAY_SIZE(snapshot_offsets), 512);
+    qtest_writel(q, CONFIG + 0x34, 2); /* invalid command cannot publish */
     qtest_clock_step(q, 10000);
     qtest_writel(q, CONFIG + 0x44, 1);
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, 0);
     qtest_writel(q, CONFIG + 0x44, 0);
-    qtest_writel(q, CONFIG + 0x503c, configuration_word(18));
-    qtest_writel(q, SLOTS + 511 * 4, slot_word(511));
     qtest_writel(q, CONFIG + 0x34, 1);
     qtest_writel(q, CONFIG + 0x38, 1); /* snapshot cannot manufacture ready */
     qtest_writel(q, CONFIG + 0x100, 0);
@@ -206,6 +206,155 @@ static void test_transaction(void)
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x4804), ==, slot_word(1));
     qtest_writel(q, CONFIG + 0x100, 0); /* active view cannot mutate draft */
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, configuration_word(2));
+    qtest_quit(q);
+}
+
+static void intercept(QTestState *q, const char *type)
+{
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-list','arguments':"
+                              "{'path':'/machine/unattached'}}");
+    const QListEntry *entry;
+    g_autofree char *wanted = g_strdup_printf("child<%s>", type);
+    g_autofree char *path = NULL;
+
+    QLIST_FOREACH_ENTRY(qdict_get_qlist(reply, "return"), entry) {
+        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
+        if (!strcmp(qdict_get_str(child, "type"), wanted)) {
+            g_assert_null(path);
+            path = g_strdup_printf("/machine/unattached/%s",
+                                   qdict_get_str(child, "name"));
+        }
+    }
+    qobject_unref(reply);
+    g_assert_nonnull(path);
+    qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+}
+
+static void test_partial(void)
+{
+    QTestState *q = start();
+
+    intercept(q, TYPE_NIKON_MXIC_CONFIG);
+    qtest_writel(q, CONFIG + 0xc, 0x1e); /* no completion enable */
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CONFIG + 0x60, 1);
+    /* Exact source5A2EE sparse shape: eight banks, three ports, four
+     * 16-byte rows with two word stores in each row (192 distinct words). */
+    for (unsigned bank = 0; bank < 8; bank++) {
+        for (unsigned port = 0; port < 3; port++) {
+            for (unsigned row = 0; row < 4; row++) {
+                for (unsigned word = 0; word < 2; word++) {
+                    unsigned offset = bank * 0x100 + port * 0x40 +
+                                      row * 0x10 + word * 4;
+                    qtest_writel(q, SLOTS + offset, 0x01020304);
+                }
+            }
+        }
+    }
+    qtest_writel(q, CONFIG + 0x60, 0);
+    qtest_writel(q, CONFIG + 0x38, 0xffffff00);
+    qtest_writel(q, CONFIG + 0x3c, 0xff);
+    qtest_writel(q, CONFIG + 0x100, 0x01020304);
+    qtest_writel(q, CONFIG + 0x34, 1);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x10), ==, 0);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x10), ==, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CONFIG + 0xc, 0x1f);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CONFIG + 0x10, 2); /* W1C unrelated cause */
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CONFIG + 0x10, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CONFIG + 0x60, 1);
+    qtest_writel(q, SLOTS, 0x05060708);
+    qtest_writel(q, SLOTS + 0x40, 0x090a0b0c);
+    qtest_writel(q, CONFIG + 0x60, 0);
+    qtest_writel(q, CONFIG + 0x38, 0x200); /* only arbiter0 port1 */
+    qtest_writel(q, CONFIG + 0x3c, 0);
+    qtest_writel(q, CONFIG + 0x34, 1);
+    qtest_clock_step(q, 10000);
+    qtest_writel(q, CONFIG + 0x44, 1);
+    qtest_writel(q, CONFIG + 0x60, 1);
+    g_assert_cmphex(qtest_readl(q, SLOTS), ==, 0x01020304);
+    g_assert_cmphex(qtest_readl(q, SLOTS + 0x40), ==, 0x090a0b0c);
+    g_assert_cmphex(qtest_readl(q, SLOTS + 8), ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x10), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
+static void test_second(void)
+{
+    QTestState *q = start();
+
+    intercept(q, TYPE_NIKON_MXIC);
+    qtest_writel(q, MXIC + 0x808, 7);
+    qtest_writel(q, MXIC + 0x80c, 7);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, MXIC + 0x830, 0x33330);
+    qtest_writel(q, MXIC + 0x840, 0x01020304);
+    qtest_writel(q, MXIC + 0x844, 0x05060708);
+    qtest_writel(q, MXIC + 0x838, 1);
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x840), ==, 0);
+    qtest_writel(q, MXIC + 0x838, 0);
+    qtest_writel(q, MXIC + 0x82c, 1);
+    qtest_writel(q, MXIC + 0x830, 1); /* cannot manufacture ready */
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x830) & 1, ==, 0);
+    qtest_clock_step(q, 9999);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x80c), ==, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, MXIC + 0x838, 1);
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x840), ==, 0x01020304);
+    qtest_writel(q, MXIC + 0x80c, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, MXIC + 0x838, 0);
+    qtest_writel(q, MXIC + 0x840, 0x20); /* reserved field */
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x840), ==, 0x01020304);
+    qtest_writel(q, MXIC + 0x82c, 1);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x830), ==, 1);
+    g_assert_cmphex(qtest_readl(q, MXIC + 0x80c), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
+static void test_parameters(void)
+{
+    QTestState *q = start();
+    const unsigned bases[] = { 0x2400, 0x2600, 0x5400, 0x5600 };
+
+    for (unsigned bank = 0; bank < 4; bank++) {
+        for (unsigned row = 0; row < (bank < 2 ? 63 : 32); row++) {
+            uint64_t address = CONFIG + bases[bank] + row * 8;
+            uint32_t value = 2 | ((row & 0x3ff) << 18);
+            qtest_writel(q, address, value);
+            qtest_writel(q, address + 4, 0x002a0b15);
+            g_assert_cmphex(qtest_readl(q, address), ==, value);
+            g_assert_cmphex(qtest_readl(q, address + 4), ==, 0x002a0b15);
+            qtest_writel(q, address + 4, 0x00400000);
+            g_assert_cmphex(qtest_readl(q, address + 4), ==, 0x002a0b15);
+        }
+    }
+    for (unsigned group = 0; group < 2; group++) {
+        for (unsigned port = 0; port < 4; port++) {
+            for (unsigned level = 0; level < 3; level++) {
+                uint64_t address = CONFIG + 0x2000 + group * 0x100 +
+                                   port * 0x40 + level * 12;
+                qtest_writel(q, address, 0xb);
+                g_assert_cmphex(qtest_readl(q, address), ==, 0xb);
+            }
+        }
+    }
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    for (unsigned bank = 0; bank < 4; bank++) {
+        g_assert_cmphex(qtest_readl(q, CONFIG + bases[bank]), ==, 0);
+        g_assert_cmphex(qtest_readl(q, CONFIG + bases[bank] + 4), ==, 0);
+    }
     qtest_quit(q);
 }
 
@@ -244,4 +393,7 @@ void nikon_config_add_tests(const char *bios)
     qtest_add_data_func("/nikon/config/sla", GUINT_TO_POINTER(1), test_family);
     qtest_add_func("/nikon/config/transaction", test_transaction);
     qtest_add_func("/nikon/config/resetfields", test_reset_fields);
+    qtest_add_func("/nikon/config/partial", test_partial);
+    qtest_add_func("/nikon/config/second", test_second);
+    qtest_add_func("/nikon/config/parameters", test_parameters);
 }

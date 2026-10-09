@@ -29,6 +29,7 @@ config NIKON_SLA
     select OR_IRQ
     select NIKON_MEMORY
     select NIKON_STORAGE
+    select NIKON_SENSOR
 
 config NIKON_EX
     bool

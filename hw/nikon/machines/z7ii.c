@@ -487,6 +487,34 @@ static void z7ii_init(MachineState *machine)
         }
         /* Original handler/status interface; no invented sensor-frame source. */
     }
+    {
+        DeviceState *capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
+
+        object_property_add_child(OBJECT(machine), "capture-control",
+                                  OBJECT(capture));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(capture), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(capture), 0, 0x20068000);
+        for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(capture), i,
+                               qdev_get_gpio_in(gic, 94 + i - 32));
+        }
+        /* Original status/command interface; external publication is unbound. */
+    }
+    {
+        DeviceState *readout = qdev_new(TYPE_NIKON_READOUT_CONTROL);
+        static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
+            [NIKON_READOUT_BUFFERS] = 0x20069800,
+            [NIKON_READOUT_PARAMETERS] = 0x2006b000,
+        };
+
+        object_property_add_child(OBJECT(machine), "readout-control",
+                                  OBJECT(readout));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(readout), &error_fatal);
+        for (i = 0; i < NIKON_READOUT_REGIONS; i++) {
+            sysbus_mmio_map(SYS_BUS_DEVICE(readout), i, addresses[i]);
+        }
+        /* Guest requests have no default provider, IRQ or pixel data source. */
+    }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);

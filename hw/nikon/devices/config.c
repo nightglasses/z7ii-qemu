@@ -6,6 +6,7 @@
 #include "qemu/timer.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonMXICConfigState, NIKON_MXIC_CONFIG)
@@ -31,26 +32,50 @@ static const NikonMXICFieldGroup config_groups[] = {
  * do not expose the manufacturer's entire address window by inference.
  * SLA's row has a configuration pointer followed by ten parameter words;
  * two parameters have two consumers. MAS additionally programs +2618.
- * Word-one registers and gaps are not part of either recovered contract.
+ * These thirteen period interfaces retain their original twelve-bit field;
+ * the later complete SLA banks below add narrower ten-bit producer fields.
  */
-static const NikonMXICFieldGroup rate_groups[] = {
+static const NikonMXICFieldGroup period_groups[] = {
     { 0x2490, 2, 0x10 }, { 0x2618, 2, 0x10 },
     { 0x2638, 3, 8 }, { 0x2658, 2, 8 },
     { 0x2790, 2, 8 }, { 0x27a8, 2, 8 },
+};
+
+/* Source5 5AABE/5ACB2/5AD94: complete two 63-row and two 32-row
+ * live parameter banks, with separate mode/period and RMW parameter words. */
+static const NikonMXICFieldGroup rate_groups[] = {
+    { 0x2400, 63, 8 }, { 0x2600, 63, 8 },
+    { 0x5400, 32, 8 }, { 0x5600, 32, 8 },
+};
+static const NikonMXICFieldGroup parameter_groups[] = {
+    { 0x2404, 63, 8 }, { 0x2604, 63, 8 },
+    { 0x5404, 32, 8 }, { 0x5604, 32, 8 },
 };
 
 struct NikonMXICConfigState {
     SysBusDevice parent_obj;
     MemoryRegion regs, slots;
     QEMUTimer *timer;
+    qemu_irq irq, view;
+    uint32_t enable, pending, diagnostics[4], detection[8];
+    bool region_irq;
     uint32_t draft[19], active[19];
     uint32_t draft_slots[512], active_slots[512];
-    uint32_t routing[4], levels[36], rates[13], selectors[124];
-    uint32_t written;
-    bool slot_written[512];
-    unsigned slots_written;
+    uint32_t routing[4], levels[72], rates[190], parameters[190], selectors[124];
     bool active_view, access, busy, reported_error;
 };
+
+static void config_update_irq(NikonMXICConfigState *s)
+{
+    qemu_set_irq(s->irq, s->region_irq || (s->enable & s->pending));
+}
+
+static void config_region_irq(void *opaque, int n, int level)
+{
+    NikonMXICConfigState *s = opaque;
+    s->region_irq = level;
+    config_update_irq(s);
+}
 
 static int field_index(hwaddr offset, const NikonMXICFieldGroup *groups,
                        unsigned count)
@@ -71,17 +96,18 @@ static int field_index(hwaddr offset, const NikonMXICFieldGroup *groups,
 static int level_index(hwaddr offset)
 {
     unsigned group, row, word;
-    if (offset < 0x2000 || offset >= 0x2164) {
+    if (offset < 0x2000 || offset >= 0x21e4) {
         return -1;
     }
     group = (offset - 0x2000) / 0x100;
     offset = (offset - 0x2000) % 0x100;
     row = offset / 0x40;
     word = offset % 0x40;
-    if (group > 1 || row > 1 || word >= 0x24) {
+    if (group > 1 || row > 3 || word >= 0x24 ||
+        (row >= 2 && word % 12)) {
         return -1;
     }
-    return group * 18 + row * 9 + word / 4;
+    return group * 36 + row * 9 + word / 4;
 }
 
 static uint32_t config_mask(unsigned index)
@@ -127,14 +153,33 @@ static MemTxResult config_error(NikonMXICConfigState *s, hwaddr address,
 static void config_complete(void *opaque)
 {
     NikonMXICConfigState *s = opaque;
-    memcpy(s->active, s->draft, sizeof(s->active));
-    memcpy(s->active_slots, s->draft_slots, sizeof(s->active_slots));
+    unsigned bank, port;
+
+    /* TCFMD selects four ports per arbiter. Unselected table state survives
+     * a partial update; TAEN gates table access, not configuration execution. */
+    for (bank = 0; bank < 8; bank++) {
+        unsigned targets = bank < 6 ? s->draft[0] >> (8 + bank * 4) :
+                                     s->draft[1] >> ((bank - 6) * 4);
+        for (port = 0; port < 4; port++) {
+            if (targets & (1U << port)) {
+                unsigned first = bank * 64 + port * 16;
+                uint32_t mask = 0xffU << (port * 8);
+                memcpy(s->active_slots + first, s->draft_slots + first,
+                       16 * sizeof(uint32_t));
+                s->active[2 + bank] =
+                    (s->active[2 + bank] & ~mask) |
+                    (s->draft[2 + bank] & mask);
+            }
+        }
+    }
+    /* Nikon-specific group words have no physical master assignment. */
+    memcpy(s->active + 10, s->draft + 10, 9 * sizeof(uint32_t));
+    memcpy(s->active, s->draft, 2 * sizeof(uint32_t));
     s->busy = false;
-    s->written = 0;
-    s->slots_written = 0;
-    memset(s->slot_written, 0, sizeof(s->slot_written));
+    s->pending |= 1;
+    config_update_irq(s);
     qemu_log_mask(LOG_GUEST_ERROR,
-                  "nikon-mxic-config: configuration and 512 slots applied\n");
+                  "nikon-mxic-config: selected configuration applied\n");
 }
 
 static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
@@ -145,6 +190,23 @@ static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
     *value = 0;
     if (size != 4 || (offset & 3)) {
         goto unsupported;
+    }
+    if (offset == 0xc || offset == 0x10) {
+        *value = offset == 0xc ? s->enable : s->pending;
+        return MEMTX_OK;
+    }
+    if (offset == 0x18 || offset == 0x1c ||
+        offset == 0x28 || offset == 0x2c) {
+        index = (offset >= 0x28 ? 2 : 0) + ((offset & 7) == 4);
+        *value = s->diagnostics[index];
+        return MEMTX_OK;
+    }
+    if (offset >= 0x1420 && offset <= 0x149c &&
+        (offset - 0x1420) % 0x28 <= 4) {
+        index = ((offset - 0x1420) / 0x28) * 2 +
+                ((offset - 0x1420) % 0x28) / 4;
+        *value = s->detection[index];
+        return MEMTX_OK;
     }
     if (offset == 0x44 || offset == 0x60) {
         *value = offset == 0x44 ? s->active_view : s->access;
@@ -177,6 +239,11 @@ static MemTxResult config_read(void *opaque, hwaddr offset, uint64_t *value,
         *value = s->rates[index];
         return MEMTX_OK;
     }
+    index = field_index(offset, parameter_groups, ARRAY_SIZE(parameter_groups));
+    if (index >= 0) {
+        *value = s->parameters[index];
+        return MEMTX_OK;
+    }
     index = selector_index(offset);
     if (index >= 0) {
         *value = s->selectors[index];
@@ -195,6 +262,23 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
     if (size != 4 || (offset & 3)) {
         goto unsupported;
     }
+    /* Enable and W1C acknowledgement are live even during configuration. */
+    if (offset == 0xc || offset == 0x10) {
+        if (value & ~0x1fU) {
+            goto unsupported;
+        }
+        if (offset == 0xc) {
+            s->enable = value;
+        } else {
+            s->pending &= ~value;
+        }
+        config_update_irq(s);
+        return MEMTX_OK;
+    }
+    if (offset == 0x40 && value == 1) {
+        memset(s->diagnostics, 0, sizeof(s->diagnostics));
+        return MEMTX_OK;
+    }
     if (s->busy) {
         return config_error(s, s->regs.addr + offset, size, true, value,
                             "mxic-config-busy");
@@ -205,6 +289,7 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
         }
         if (offset == 0x44) {
             s->active_view = value;
+            qemu_set_irq(s->view, s->active_view);
         } else {
             s->access = value;
         }
@@ -215,10 +300,9 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
                             "mxic-config-active-view-write");
     }
     if (offset == 0x34) {
-        if (value != 1 || !s->access || s->written != 0x7ffff ||
-            s->slots_written != 512) {
+        if (value != 1) {
             return config_error(s, s->regs.addr + 0x34, size, true, value,
-                                "mxic-config-incomplete-transaction");
+                                "mxic-config-command-not-supported");
         }
         s->busy = true;
         /* Explicit virtual completion latency; not measured silicon timing. */
@@ -227,12 +311,11 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
     }
     index = field_index(offset, config_groups, ARRAY_SIZE(config_groups));
     if (index >= 0) {
-        if (!s->access || (value & ~config_mask(index))) {
+        if (value & ~config_mask(index)) {
             goto unsupported;
         }
         /* TCFLG is state-produced: snapshot writeback cannot set completion. */
         s->draft[index] = index == 0 ? value & ~1U : value;
-        s->written |= 1U << index;
         return MEMTX_OK;
     }
     if (offset >= 0x5010 && offset < 0x5020) {
@@ -241,7 +324,8 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
     }
     index = level_index(offset);
     if (index >= 0) {
-        uint32_t mask = index % 3 == 0 ? 0x3f3f030f : 0x003f3f03;
+        uint32_t mask = index % 36 >= 18 ? 0xf :
+                        index % 3 == 0 ? 0x3f3f030f : 0x003f3f03;
         if (value & ~mask) {
             goto unsupported;
         }
@@ -250,10 +334,21 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
     }
     index = field_index(offset, rate_groups, ARRAY_SIZE(rate_groups));
     if (index >= 0) {
-        if (value & ~0x0fff0003U) {
+        uint32_t mask = field_index(offset, period_groups,
+                                   ARRAY_SIZE(period_groups)) >= 0 ?
+                        0x0fff0003U : 0x0ffc0003U;
+        if (value & ~mask) {
             goto unsupported;
         }
         s->rates[index] = value;
+        return MEMTX_OK;
+    }
+    index = field_index(offset, parameter_groups, ARRAY_SIZE(parameter_groups));
+    if (index >= 0) {
+        if (value & ~0x003f0f1fU) {
+            goto unsupported;
+        }
+        s->parameters[index] = value;
         return MEMTX_OK;
     }
     index = selector_index(offset);
@@ -275,8 +370,13 @@ static MemTxResult slot_read(void *opaque, hwaddr offset, uint64_t *value,
 {
     NikonMXICConfigState *s = opaque;
     *value = 0;
+    if (size == 4 && !(offset & 3) && s->access && !s->busy) {
+        *value = s->active_view ? s->active_slots[offset / 4] :
+                                 s->draft_slots[offset / 4];
+        return MEMTX_OK;
+    }
     return config_error(s, s->slots.addr + offset, size, false, 0,
-                        "mxic-slot-write-window-read");
+                        "mxic-slot-read-not-supported");
 }
 
 static MemTxResult slot_write(void *opaque, hwaddr offset, uint64_t value,
@@ -290,10 +390,6 @@ static MemTxResult slot_write(void *opaque, hwaddr offset, uint64_t value,
                             "mxic-slot-access-not-supported");
     }
     s->draft_slots[index] = value;
-    if (!s->slot_written[index]) {
-        s->slot_written[index] = true;
-        s->slots_written++;
-    }
     return MEMTX_OK;
 }
 
@@ -317,10 +413,15 @@ static void config_reset(DeviceState *dev)
     memset(s->routing, 0, sizeof(s->routing));
     memset(s->levels, 0, sizeof(s->levels));
     memset(s->rates, 0, sizeof(s->rates));
+    memset(s->parameters, 0, sizeof(s->parameters));
     memset(s->selectors, 0, sizeof(s->selectors));
-    memset(s->slot_written, 0, sizeof(s->slot_written));
-    s->written = s->slots_written = 0;
+    memset(s->diagnostics, 0, sizeof(s->diagnostics));
+    memset(s->detection, 0, sizeof(s->detection));
+    s->enable = s->pending = 0;
+    s->region_irq = false;
+    config_update_irq(s);
     s->active_view = s->access = s->busy = s->reported_error = false;
+    qemu_set_irq(s->view, 0);
 }
 
 static void config_init(Object *obj)
@@ -328,11 +429,14 @@ static void config_init(Object *obj)
     NikonMXICConfigState *s = NIKON_MXIC_CONFIG(obj);
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, config_complete, s);
     memory_region_init_io(&s->regs, obj, &config_ops, s,
-                          "nikon.mxic-config", 0x5040);
+                          "nikon.mxic-config", 0x5700);
     memory_region_init_io(&s->slots, obj, &slot_ops, s,
                           "nikon.mxic-slot-write", 0x800);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->slots);
+    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_in_named(DEVICE(obj), config_region_irq, "region", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->view, "view", 1);
 }
 
 static void config_finalize(Object *obj)

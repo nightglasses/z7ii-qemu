@@ -22,6 +22,8 @@
 #include "hw/nikon/command.h"
 #include "hw/nikon/lanes.h"
 #include "hw/nikon/storage.h"
+#include "hw/nikon/sensor.h"
+#include "hw/nikon/flags.h"
 #include "hw/nikon/sla.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
@@ -207,7 +209,8 @@ static void sla_ram(NikonSLADomain *s, DeviceState *mxic, const char *name,
 static void sla_domain_realize(DeviceState *dev, Error **errp)
 {
     NikonSLADomain *s = NIKON_SLA_DOMAIN(dev);
-    DeviceState *mxic, *gic, *fill, *gpio, *completion, *hdmac[2], *usio[3];
+    DeviceState *mxic, *config, *gic, *fill, *gpio, *completion;
+    DeviceState *hdmac[2], *usio[3], *sdi[2];
     SysBusDevice *gic_bus;
     size_t size;
     unsigned i;
@@ -297,20 +300,22 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         sysbus_realize_and_unref(SYS_BUS_DEVICE(usio[i]), &error_fatal);
         sla_map(s, usio[i], 0, 0x2c090000 + i * 0x10);
     }
-    {
-        DeviceState *config = sla_device(s, "mxic-config", TYPE_NIKON_MXIC_CONFIG);
-
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(config), &error_fatal);
-        sla_map(s, config, 0, 0x20010000);
-        sla_map(s, config, 1, 0x24074000);
-    }
-    for (i = 0; i < 2; i++) {
+    config = sla_device(s, "mxic-config", TYPE_NIKON_MXIC_CONFIG);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(config), &error_fatal);
+    sla_map(s, config, 0, 0x20010000);
+    sla_map(s, config, 1, 0x24074000);
+    /* Source59dd0 consumes both genuine config and region status groups. */
+    sysbus_connect_irq(SYS_BUS_DEVICE(mxic), 0,
+                       qdev_get_gpio_in_named(config, "region", 0));
+    qdev_connect_gpio_out_named(config, "view", 0,
+                               qdev_get_gpio_in_named(mxic, "view", 0));
+    for (i = 0; i < ARRAY_SIZE(sdi); i++) {
         g_autofree char *name = g_strdup_printf("sdi%u", i);
-        DeviceState *sdi = sla_device(s, name, TYPE_NIKON_SDI);
 
-        qdev_prop_set_uint32(sdi, "bank", i);
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi), &error_fatal);
-        sla_map(s, sdi, 0, 0x20020000 + i * 0x20000);
+        sdi[i] = sla_device(s, name, TYPE_NIKON_SDI);
+        qdev_prop_set_uint32(sdi[i], "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi[i]), &error_fatal);
+        sla_map(s, sdi[i], 0, 0x20020000 + i * 0x20000);
     }
 
     gic = sla_device(s, "gic", TYPE_ARM_GIC);
@@ -325,6 +330,54 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sla_map(s, gic, 0, SLA_CBAR + 0x1000);
     sla_map(s, gic, 1, SLA_CBAR + 0x2000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(config), 0,
+                       qdev_get_gpio_in(gic, 128 - 32));
+    for (i = 0; i < ARRAY_SIZE(sdi); i++) {
+        /* 5c11e callbacks5c0ce/5c07c consume each bank's eight status words. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(sdi[i]), 0,
+                           qdev_get_gpio_in(gic, 125 + i - 32));
+    }
+    /* 59240's IRQ229 callback has no physical status/ACK producer. */
+    sla_simple(s, "status", TYPE_NIKON_REQUEST_STATUS, 0x24060000);
+    {
+        DeviceState *flags = sla_simple(s, "flags", TYPE_NIKON_FLAGS, 0x201a0300);
+
+        /* 59972/59904: six snapshot/ACK words, external events disconnected. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(flags), 0,
+                           qdev_get_gpio_in(gic, 118 - 32));
+    }
+    {
+        DeviceState *router = sla_simple(s, "router",
+                               TYPE_NIKON_PERIPHERAL_EVENT_ROUTER, 0x20060000);
+        DeviceState *sdes = sla_device(s, "sdes", TYPE_NIKON_SDES);
+        DeviceState *capture = sla_simple(s, "capture",
+                                  TYPE_NIKON_CAPTURE_CONTROL, 0x20068000);
+        DeviceState *readout = sla_device(s, "readout",
+                                         TYPE_NIKON_READOUT_CONTROL);
+
+        /* SOURCE11 9ee4c/9e27c/9cfd0: independent original SLA namespaces. */
+        for (i = 0; i < 3; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(router), i,
+                               qdev_get_gpio_in(gic, 86 + i - 32));
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdes), &error_fatal);
+        sla_map(s, sdes, NIKON_SDES_CONFIGURATION, 0x20061000);
+        sla_map(s, sdes, NIKON_SDES_STATUS, 0x20064000);
+        sla_map(s, sdes, NIKON_SDES_PARAMETERS, 0x20065000);
+        for (i = 0; i < NIKON_SDES_EVENTS; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(sdes), i,
+                               qdev_get_gpio_in(gic, 89 + i - 32));
+        }
+        for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(capture), i,
+                               qdev_get_gpio_in(gic, 94 + i - 32));
+        }
+        /* Complete source9c76e..9c96c qualifies only the parameter bank here. */
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(readout), &error_fatal);
+        sla_map(s, readout, NIKON_READOUT_PARAMETERS, 0x2006b000);
+        /* Buffer bank20069800 needs its own SLA consumer audit; no IRQ exists. */
+        /* All event providers are disconnected; registration creates no data. */
+    }
     /* Second-phase1005bf0e/1005bf4c registers and enables IRQ250. */
     sysbus_connect_irq(SYS_BUS_DEVICE(completion), 0,
                        qdev_get_gpio_in(gic, 250 - 32));
@@ -410,6 +463,15 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         sysbus_connect_irq(SYS_BUS_DEVICE(staging), 0,
                            qdev_get_gpio_in(gic, 123 - 32));
         /* External event causes remain disconnected. */
+    }
+    {
+        DeviceState *gate = sla_simple(s, "gate", TYPE_NIKON_EVENT_GATE,
+                                       0x20100000);
+
+        /* SOURCE11 943ce/944ac: original SLA control and physical IRQ102. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(gate), 0,
+                           qdev_get_gpio_in(gic, 102 - 32));
+        /* No pending-bit provider or data/submission backend is connected. */
     }
     {
         static const hwaddr base[] = { 0x04250000, 0x24061000, 0x2c041000 };

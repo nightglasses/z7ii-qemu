@@ -12,6 +12,10 @@ void nikon_test_counter(QTestState *qts);
 void nikon_signal_test(QTestState *qts, const char *path, uint64_t signal,
                        uint64_t configuration, uint64_t lanes);
 void nikon_staging_test(QTestState *qts, const char *path, uint64_t base);
+void nikon_router_test(QTestState *qts, const char *path, uint64_t base);
+void nikon_gate_test(QTestState *qts, const char *path, uint64_t base);
+void nikon_status_test(QTestState *qts, uint64_t status, uint64_t system);
+void nikon_test_flags(QTestState *qts);
 
 static uint16_t fixture_crc(const uint8_t *data, size_t size)
 {
@@ -585,6 +589,83 @@ static void test_staging(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_gate(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_gate_test(qts, "/machine/sla/gate", 0x20100000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_router(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_router_test(qts, "/machine/sla/router", 0x20060000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_status(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_status_test(qts, 0x24060000, 0x04280000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_flags(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_test_flags(qts);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_config_links(void)
+{
+    const uint32_t config = 0x20010000, mxic = 0x20016000;
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+    uint32_t active = qtest_readl(qts, mxic + 0x20);
+    uint32_t draft = active ^ 0x10000;
+
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+    /* The original config view selector selects the actual MXIC table view. */
+    qtest_writel(qts, mxic + 0x20, draft);
+    g_assert_cmphex(qtest_readl(qts, mxic + 0x20), ==, draft);
+    qtest_writel(qts, config + 0x44, 1);
+    g_assert_cmphex(qtest_readl(qts, mxic + 0x20), ==, active);
+    qtest_writel(qts, config + 0x44, 0);
+    g_assert_cmphex(qtest_readl(qts, mxic + 0x20), ==, draft);
+
+    qtest_writel(qts, config + 0xc, 1);
+    qtest_writel(qts, mxic + 0x808, 1);
+    qtest_writel(qts, config + 0x34, 1);
+    qtest_writel(qts, mxic + 0x82c, 1);
+    g_assert_false(qtest_get_irq(qts, 128 - 32));
+    qtest_clock_step(qts, 9999);
+    g_assert_false(qtest_get_irq(qts, 128 - 32));
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, config + 0x10), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, mxic + 0x80c), ==, 1);
+    g_assert_true(qtest_get_irq(qts, 128 - 32));
+    /* ACKing one real cause cannot discard the other group's pending IRQ. */
+    qtest_writel(qts, config + 0x10, 1);
+    g_assert_true(qtest_get_irq(qts, 128 - 32));
+    qtest_writel(qts, mxic + 0x80c, 1);
+    g_assert_false(qtest_get_irq(qts, 128 - 32));
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -598,5 +679,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sla/local-code", test_local_code);
     qtest_add_func("/nikon/sla/signal", test_signal);
     qtest_add_func("/nikon/sla/staging", test_staging);
+    qtest_add_func("/nikon/sla/router", test_router);
+    qtest_add_func("/nikon/sla/gate", test_gate);
+    qtest_add_func("/nikon/sla/status", test_status);
+    qtest_add_func("/nikon/sla/flags", test_flags);
+    qtest_add_func("/nikon/sla/config-links", test_config_links);
     return g_test_run();
 }

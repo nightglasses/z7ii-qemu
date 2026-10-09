@@ -3,6 +3,9 @@
  */
 #include "qemu/osdep.h"
 #include "../libqtest.h"
+#include "hw/nikon/devices.h"
+#include "qobject/qdict.h"
+#include "qobject/qlist.h"
 
 static const char *sdi_bios;
 
@@ -298,6 +301,86 @@ static void test_preconditions(void)
     qtest_quit(q);
 }
 
+static void intercept_bank_irq(QTestState *q, unsigned bank)
+{
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-list','arguments':"
+                           "{'path':'/machine/unattached'}}");
+    const QListEntry *entry;
+    g_autofree char *device = NULL;
+
+    QLIST_FOREACH_ENTRY(qdict_get_qlist(reply, "return"), entry) {
+        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
+
+        if (!strcmp(qdict_get_str(child, "type"),
+                    "child<" TYPE_NIKON_SDI ">")) {
+            g_autofree char *path = g_strdup_printf("/machine/unattached/%s",
+                                                   qdict_get_str(child, "name"));
+            QDict *property = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                                      "{'path':%s,'property':'bank'}}", path);
+
+            if ((uint64_t)qdict_get_int(property, "return") == bank) {
+                g_assert_null(device);
+                device = g_strdup(path);
+            }
+            qobject_unref(property);
+        }
+    }
+    qobject_unref(reply);
+    g_assert_nonnull(device);
+    qtest_irq_intercept_out_named(q, device, "sysbus-irq");
+}
+
+static void test_runtime_status_irq(gconstpointer data)
+{
+    unsigned bank = GPOINTER_TO_UINT(data);
+    uint64_t base = bank_base(bank);
+    QTestState *q = start();
+
+    intercept_bank_irq(q, bank);
+    configure(q, bank, true);
+    qtest_writel(q, base + 0x2000, 0);
+    complete(q, base, 0x2100, 0x2300, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x3000, 0);
+    qtest_writel(q, base + 0x3100, 0x10001);
+    qtest_clock_step(q, 9999);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_clock_step(q, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x3118, 1);
+    qtest_clock_step(q, 10000);
+    /* IRQ remains high until both distinct produced words are acknowledged. */
+    for (unsigned word = 0; word < 8; word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x3300 + word * 4), ==,
+                        word == 0 || word == 6);
+    }
+    qtest_writel(q, base + 0x3300, 0);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x3304, 1); /* Unbound event cannot be acknowledged. */
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x3300, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    for (unsigned word = 0; word < 8; word++) {
+        uint64_t address = base + 0x3300 + word * 4;
+
+        qtest_writel(q, address, qtest_readl(q, address));
+    }
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x3118, 0x10001);
+    qtest_writel(q, base + 0x3000, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_false(qtest_get_irq(q, 0));
+    for (unsigned word = 0; word < 8; word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x3300 + word * 4), ==, 0);
+    }
+    /* No response producer is bound: submitting an MRR cannot set flag[7]. */
+    qtest_writel(q, base + 0x311c, 0x05010001);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, base + 0x331c), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
 void nikon_sdi_add_tests(const char *bios)
 {
     sdi_bios = bios;
@@ -306,4 +389,8 @@ void nikon_sdi_add_tests(const char *bios)
     qtest_add_func("/nikon/sdi/retry", test_retry);
     qtest_add_func("/nikon/sdi/cancel", test_cancel);
     qtest_add_func("/nikon/sdi/preconditions", test_preconditions);
+    qtest_add_data_func("/nikon/sdi/runtime-bank0", GUINT_TO_POINTER(0),
+                        test_runtime_status_irq);
+    qtest_add_data_func("/nikon/sdi/runtime-bank1", GUINT_TO_POINTER(1),
+                        test_runtime_status_irq);
 }
