@@ -2,7 +2,8 @@
  * Five-route signal-control functional profile, not a bound physical IP.
  * The original interface supplies permutations and fields. Reset/gate/mask
  * polarity, raw/filtered banks, W1C and 1MHz debounce are virtual assumptions.
- * External inputs alone produce sampled edges. Five outputs aggregate to IRQ237.
+ * External inputs alone produce sampled edges.
+ * Five outputs aggregate to IRQ237.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
