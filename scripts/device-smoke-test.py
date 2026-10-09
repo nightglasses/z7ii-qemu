@@ -1755,6 +1755,10 @@ def ipud_fixtures():
 
     init = write(0x10, 0x1d00) + write(0x20, 0x7ffff)
     init += write(0x18, 0xffffffff) + write(0x1c, 0x3b)
+    overflow = init.copy()
+    for _ in range(10):
+        overflow += write(4, 1) + write(4, 2) + write(4, 3) + write(8, 2)
+    overflow += write(4, 1) + write(4, 2) + write(4, 3)
     error = "ipud-access-or-phase-not-supported"
     return [
         ("ipud-original-bootstrap-unavailable", init + read(0xc, 4) +
@@ -1764,6 +1768,7 @@ def ipud_fixtures():
          write(0x1c, 0xfffffffb) + read(0x1c, 5),
          {4: 4, 5: 0xfffffffb}, None),
         ("ipud-rx-empty-rejected", read(0, 4), {}, error),
+        ("ipud-fifo-overflow-rejected", overflow, {}, error),
         ("ipud-incomplete-commit-rejected", init + write(4, 1) + write(8, 2), {}, error),
         ("ipud-unconfigured-commit-rejected", write(4, 1) + write(4, 2) +
          write(4, 3) + write(8, 2), {}, error),
@@ -1991,10 +1996,9 @@ def run_ipud_fifo(binary, output, name):
             (output / "qemu.log").write_text(logs)
         assert vm.exitcode() == 0, vm.get_log()
     combined = logs + trace.read_text()
-    if preflight:
-        assert "reason=ipud-access-or-phase-not-supported" in combined
-    else:
-        assert "transaction=error" not in combined
+    # The board deliberately excludes debugger/qtest probes from guest-error
+    # receipts. Executing ARM negatives verify errors; this case verifies state.
+    assert "transaction=error" not in combined
     assert image.read_bytes() == payload
     (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     return {"fixture": name, "expected_error": preflight, "qemu_exit_code": 0,
