@@ -611,8 +611,8 @@ def fixtures():
          {4: 1, 5: 0x4000, 6: 0x4000}, None),
         ("fill-virtual-rmw-reset", constant(0, FILL) +
          [0xe5904014, 0xe5905020, 0xe5906024], {4: 0, 5: 0, 6: 0}, None),
-        ("fill-unsupported-ack", constant(0, FILL + 8) +
-         constant(1, 0x11) + [0xe5801000], {}, "fill-ack-not-supported"),
+        ("fill-raw-ack-empty", constant(0, FILL + 8) +
+         constant(1, 0xffffffff) + [0xe5801000, 0xe5904000], {4: 0}, None),
         ("fill-real-bss-and-tail", fill,
          {4: 0, 5: 0, 6: 0, 7: 1, 8: 0, 9: 0x12345678, 10: 0x12345678}, None),
         ("fill-bus-error-ack", fill_error, {4: 0x10, 5: 0}, None),
@@ -624,12 +624,14 @@ def fixtures():
          "fill-result-not-acknowledged"),
         ("fill-incomplete-request", constant(0, FILL + 0x10) +
          constant(1, 1) + [0xe5801000], {}, "fill-request-profile-not-supported"),
-        ("fill-unsupported-count", constant(0, FILL + 0x28) +
-         constant(1, 0) + [0xe5801000], {}, "fill-value-profile-not-supported"),
-        ("fill-unsupported-pattern", constant(0, FILL + 0x18) +
-         constant(1, 1) + [0xe5801000], {}, "fill-value-profile-not-supported"),
-        ("fill-reserved-offset", constant(0, FILL + 0x0c) + [0xe5901000], {},
-         "fill-access-not-supported"),
+        ("fill-zero-count-activation-rejected", fill_contract(count=0), {},
+         "fill-request-profile-not-supported"),
+        ("fill-pattern-activation-rejected", fill_contract()[:-5] +
+         constant(0, FILL + 0x18) + constant(1, 1) + [0xe5801000] +
+         constant(0, FILL + 0x10) + constant(1, 1) + [0xe5801000], {},
+         "fill-request-profile-not-supported"),
+        ("fill-error-detail-reset", constant(0, FILL + 0x0c) +
+         [0xe5904000], {4: 0}, None),
         ("fill-byte-write", constant(0, FILL + 0x10) + [0xe5c01000], {},
          "fill-access-not-supported"),
         ("mxic-region-commit-readback", mxic_contract() +
@@ -1744,6 +1746,172 @@ def bridge_fixtures():
     ]
 
 
+def fill_runtime_fixtures():
+    def write(offset, value):
+        return constant(0, FILL + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, FILL + offset) + [0xe5900000 | reg << 12]
+
+    config = []
+    for engine in range(2):
+        for offset, value in ((0, 0), (4, 0xffffffff), (0x14, 0x11),
+                              (0x18, 0x3ffffff), (0x1c, 0xabcd),
+                              (0x20, 0x1234), (0x24, 0x5678), (0x28, 0xffff),
+                              (0x2c, 0x11223344), (0x30, 0x55667788)):
+            config += write(engine * 0x40 + offset, value)
+    stop = write(0, 1) + write(0x40, 1)
+    stop += read(0, 4) + read(0x40, 5) + write(0, 0) + write(0x40, 0)
+    stop += write(0x10, 0) + read(0x10, 6) + read(0x50, 7)
+    stop += write(0x50, 0) + read(0x50, 8) + write(0, 1) + write(0x40, 1)
+    error = "fill-value-profile-not-supported"
+    return [
+        ("fill-runtime-two-controls-stop", stop,
+         {4: 1, 5: 1, 6: 2, 7: 0, 8: 2}, None),
+        ("fill-runtime-whole-config-retention", config + read(0x1c, 4) +
+         read(0x5c, 5) + read(0x2c, 6) + read(0x70, 7),
+         {4: 0xabcd, 5: 0xabcd, 6: 0x11223344, 7: 0x55667788}, None),
+        ("fill-runtime-unknown-control", write(0x40, 2), {}, error),
+        ("fill-runtime-unknown-trigger", write(0x50, 2), {}, error),
+        ("fill-runtime-halfword-overflow", write(0x5c, 0x10000), {}, error),
+        ("fill-runtime-unknown-flags", write(0x54, 2), {}, error),
+        ("fill-runtime-unknown-format", write(0x58, 0x4000000), {}, error),
+        ("fill-runtime-first-hole", read(0x34, 4), {}, "fill-access-not-supported"),
+        ("fill-runtime-second-hole", read(0x74, 4), {}, "fill-access-not-supported"),
+        ("fill-runtime-aperture-end", read(0x80, 4), {}, "uncovered-address"),
+        ("fill-runtime-halfword-width", constant(0, FILL + 0x40) +
+         [0xe1d040b0], {}, "fill-access-not-supported"),
+    ] + [("fill-runtime-qtest-" + suffix, [], {}, None) for suffix in (
+        "two-real-transfers", "error-isr-stop-and-reset", "activation-preflight")]
+
+
+def run_fill_runtime(binary, output, name):
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=["-bios", str(image), "-smp", "1",
+                "-display", "none", "-serial", "none", "-monitor", "none"],
+                name="fill-runtime", base_temp_dir=sockets, qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            device = [x["name"] for x in children if x["type"] == "child<z7ii-fill-functional>"]
+            assert len(device) == 1, children
+            path = "/machine/unattached/" + device[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(engine, offset, value):
+                command(f"writel {FILL + engine * 0x40 + offset:#x} {value:#x}")
+
+            def read(engine, offset):
+                return int(command(f"readl {FILL + engine * 0x40 + offset:#x}").split()[1], 16)
+
+            def memread(address):
+                return int(command(f"readl {address:#x}").split()[1], 16)
+
+            def config(engine, destination):
+                for offset, value in ((0, 0), (4, 0x11), (0x14, 1), (0x18, 0),
+                                      (0x1c, 0), (0x20, 0x4000), (0x24, 0x4000),
+                                      (0x28, 1), (0x2c, 0), (0x30, destination)):
+                    write(engine, offset, value)
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            if name.endswith("two-real-transfers"):
+                for engine, destination in ((0, 0xb1804000), (1, 0xb180c000)):
+                    config(engine, destination)
+                    command(f"memset {destination - 4:#x} 0x4008 0xa5")
+                    write(engine, 0x10, 1)
+                    assert read(engine, 8) == 1 and levels[engine]
+                    actual = command(f"read {destination:#x} 0x4000").split()[1]
+                    assert bytes.fromhex(actual.removeprefix("0x")) == bytes(0x4000)
+                    assert memread(destination - 4) == memread(destination + 0x4000) == 0xa5a5a5a5
+                write(0, 8, read(0, 8))
+                assert not levels[0] and levels[1]
+                write(1, 8, 0xffffffff)
+                assert not levels[1]
+                config(0, 0xb1814000)
+                command("memset 0xb1814000 0x4000 0xff")
+                write(0, 0x10, 1)
+                assert read(0, 8) == 1 and memread(0xb1817ffc) == 0
+                assert read(1, 8) == 0
+                write(0, 8, 1)
+            elif name.endswith("error-isr-stop-and-reset"):
+                config(0, 0x04000000)
+                config(1, 0xb1804000)
+                write(0, 0x10, 1)
+                write(1, 0x10, 1)
+                assert read(0, 8) == 0x10 and read(0, 0xc) == 0x10000
+                assert levels[0] and levels[1]
+                raw = read(0, 8)
+                write(0, 8, raw)
+                write(0, 0x10, 0)
+                assert read(0, 0x10) & 3 == 2
+                write(0, 0, 1)
+                assert not levels[0] and levels[1]
+                assert read(0, 0xc) == 0x10000 and read(1, 8) == 1
+                write(1, 0x10, 0)
+                assert read(1, 8) == 1  # Stop does not impersonate raw ACK.
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                assert not levels[0] and not levels[1]
+                for engine in range(2):
+                    assert all(read(engine, offset) == 0 for offset in range(0, 0x34, 4))
+            elif name.endswith("activation-preflight"):
+                destination = 0xb1804000
+                config(0, destination)
+                command(f"memset {destination:#x} 0x4000 0x5a")
+                for offset, value, prior in ((0x1c, 1, 0), (0x2c, 0x11223344, 0),
+                        (0x14, 0x11, 1), (0x18, 1, 0), (0x18, 0x1000000, 0),
+                        (0x20, 0x2000, 0x4000), (0x24, 0x2000, 0x4000),
+                        (0x28, 0, 1), (0x30, destination + 1, destination), (0, 1, 0)):
+                    write(0, offset, value)
+                    write(0, 0x10, 1)
+                    assert read(0, offset) == value
+                    assert read(0, 8) == read(0, 0x10) == 0
+                    assert not levels.get(0, False) and memread(destination) == 0x5a5a5a5a
+                    write(0, offset, prior)
+                write(0, 0x10, 1)
+                assert read(0, 8) == 1 and levels[0] and memread(destination) == 0
+                for offset, value in ((0x30, destination + 0x4000), (0x14, 0x11), (0x10, 1)):
+                    before = read(0, offset)
+                    write(0, offset, value)
+                    assert read(0, offset) == before and read(0, 8) == 1
+                write(0, 4, 0)
+                assert not levels[0] and read(0, 8) == 1
+                write(0, 4, 1)
+                assert levels[0]
+                write(0, 8, 0xffffffff)
+                config(0, destination)
+                write(0, 0x10, 0)
+                assert read(0, 0x10) == 2
+                write(0, 0x10, 2)
+                assert read(0, 0x10) == 2
+                write(0, 0x10, 1)
+                assert read(0, 8) == 1 and read(0, 0x10) == 0
+            else:
+                raise AssertionError(name)
+            (output / "qemu.log").write_text(vm.get_log() or "")
+        assert vm.exitcode() == 0, vm.get_log()
+    assert image.read_bytes() == payload
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    return {"fixture": name, "qemu_exit_code": 0,
+            "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
+
+
 def control20202_config_masks():
     # Independently transcribed whole-source shapes, not a device table read.
     groups = {
@@ -2828,6 +2996,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("fill-runtime-qtest-"):
+        return run_fill_runtime(binary, output, name)
     if name.startswith("control20202-qtest-"):
         return run_control20202(binary, output, name)
     if name.startswith("ipud-qtest-"):
@@ -3048,7 +3218,8 @@ def main():
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
-             private_class_fixtures() + ipud_fixtures() + control20202_fixtures())
+             private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
+             fill_runtime_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()

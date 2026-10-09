@@ -949,8 +949,6 @@ static void z7ii_init(MachineState *machine)
                             (i / ARRAY_SIZE(stack_top) + 1) * STACK_SLOT_SIZE);
     }
 
-    sysbus_create_simple(TYPE_Z7II_FILL, 0x20070000, NULL);
-
     s->num_cpus = machine->smp.cpus;
     for (i = 0; i < s->num_cpus; i++) {
         g_autofree char *name = g_strdup_printf("cpu%u", i);
@@ -1007,6 +1005,12 @@ static void z7ii_init(MachineState *machine)
                          qdev_get_gpio_in(gic, 101 - 32));
     sysbus_create_simple(TYPE_Z7II_CONTROL20202, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
+    {
+        DeviceState *fill = sysbus_create_simple(TYPE_Z7II_FILL, 0x20070000,
+                                                qdev_get_gpio_in(gic, 103 - 32));
+        sysbus_connect_irq(SYS_BUS_DEVICE(fill), 1,
+                           qdev_get_gpio_in(gic, 104 - 32));
+    }
     exiu = sysbus_create_simple(TYPE_Z7II_EXIU, 0x0426f000, NULL);
     /* Original 16 EXIU objects map GPIO5[7:15]/GPIO6[0:6] to IRQ65..80. */
     for (i = 0; i < 16; i++) {
