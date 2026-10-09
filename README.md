@@ -39,7 +39,7 @@ mkdir work/r1
   -D work/r1/qemu.log -d guest_errors,int
 ```
 
-Use an ARM-capable GDB to connect to the socket, inspect reset registers and use `hbreak *0x10020178` before continuing. A hardware breakpoint observes the original self-loop without changing its bytes. The original C1.70 entry word is `20 2f 00 ea`; `O0x178` remains `fe ff ff ea`. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish a stopped access, an architectural exception, a wait and a running loop. `-d in_asm,cpu` may be added for a short controlled trace; it produces substantially more output.
+Use the upstream GDB stub and QMP to inspect reset registers, stopped accesses and CPU state. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish an architectural exception, a wait and a running loop. Temporary debugger commands, breakpoint scripts, address-check helpers and local operation notes belong in ignored `work/debug/`; logs and sockets remain local. Maintained device behavior and actual research findings belong in `docs/`, including the [software-wait observations](docs/software-wait-observation.md). Debugger observations do not change the original firmware bytes or establish whole-camera boot.
 
 For a bounded original run with preserved receipts, use the existing upstream Python library through the thin entry below. It uses a short temporary QMP socket, records the upstream launch command, reset/final registers and first-stop log, and directly compares payload bytes before and after. Choose a new output directory each time. `--seconds` bounds host observation, not modeled boot time; a timeout or process exit is not boot completion.
 

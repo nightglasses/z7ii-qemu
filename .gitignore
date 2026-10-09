@@ -2,3 +2,8 @@ work/
 __pycache__/
 *.pyc
 .DS_Store
+# Local debugger commands and run outputs belong in work/debug/.
+*.gdb
+.gdbinit*
+*.log
+*.sock
