@@ -196,6 +196,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *mxic;
     DeviceState *gpio;
     DeviceState *exiu;
+    DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
     g_autoptr(GBytes) mas = NULL;
@@ -445,8 +446,12 @@ static void z7ii_init(MachineState *machine)
     }
     for (i = 0; i < 11; i++) {
         DeviceState *spi = qdev_new(TYPE_NIKON_SPI);
+        g_autofree char *name = g_strdup_printf("spi%u", i);
 
+        object_property_add_child(OBJECT(machine), name, OBJECT(spi));
+        spi_ports[i] = spi;
         qdev_prop_set_uint32(spi, "channel", i);
+        qdev_prop_set_bit(spi, "dma", i >= 2 && i <= 4);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
         /*
@@ -479,6 +484,17 @@ static void z7ii_init(MachineState *machine)
 
             sysbus_connect_irq(SYS_BUS_DEVICE(hdmac), channel,
                                qdev_get_gpio_in(gic, irq - 32));
+        }
+        if (i == 0) {
+            /* Original SPI resources 12a..12f bind these six demand wires. */
+            for (channel = 2; channel <= 4; channel++) {
+                unsigned request = 7 + 2 * (channel - 2);
+
+                qdev_connect_gpio_out_named(spi_ports[channel], "dma", 0,
+                                            qdev_get_gpio_in(hdmac, request));
+                qdev_connect_gpio_out_named(spi_ports[channel], "dma", 1,
+                                            qdev_get_gpio_in(hdmac, request + 1));
+            }
         }
         if (i == 1) {
             DeviceState *audio = qdev_new(TYPE_NIKON_AUDIO);
@@ -625,6 +641,7 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     mc->min_cpus = 1; /* Small synthetic contracts explicitly use -smp 1. */
     mc->max_cpus = Z7II_MAX_CPUS;
     mc->default_ram_size = 0;
+    mc->no_parallel = true;
     mc->ignore_memory_transaction_failures = false;
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",

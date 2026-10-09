@@ -3,6 +3,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'devices/access.c',
   'devices/timestamp.c',
   'devices/usio.c',
+  'peers/transport.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/clock.c',
@@ -39,6 +40,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/shared.c',
   'devices/signal.c',
   'devices/spi.c',
+  'peers/spi.c',
   'devices/staging.c',
   'devices/table.c',
   'devices/timing.c',
@@ -51,4 +53,5 @@ rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'devices/access.c',
   'devices/renesas.c',
   'devices/vr.c',
+  'peers/transport.c',
 ))
