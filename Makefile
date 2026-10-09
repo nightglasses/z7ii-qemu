@@ -6,7 +6,7 @@ CONFIGURE_FLAGS ?= --target-list=arm-softmmu,rx-softmmu --enable-tcg --disable-d
 NDS_BUILD_DIR ?= $(CURDIR)/work/build/nds
 NDS_CONFIG_DIR ?= $(CURDIR)/work/config/nds
 NDS_SOURCE := $(NDS_CONFIG_DIR)/source
-NDS_CONFIGURE_FLAGS ?= --target=nds32le-elf --enable-sim --disable-gdb --disable-binutils --disable-gas --disable-ld --disable-gprof --disable-nls --disable-werror
+NDS_CONFIGURE_FLAGS ?= --target=nds32le-elf --enable-sim --disable-gdb --disable-binutils --disable-gas --disable-ld --disable-gprof --disable-nls --disable-werror --with-system-zlib
 
 .PHONY: all prepare configure check bench clean distclean nds ndsprepare ndsconfigure ndscheck
 
@@ -27,7 +27,7 @@ bench: all
 	$(MAKE) -C "$(BUILD_DIR)" bench-nikon
 
 nds: $(NDS_BUILD_DIR)/Makefile
-	$(MAKE) -C "$(NDS_BUILD_DIR)" all-sim
+	$(MAKE) -C "$(NDS_BUILD_DIR)" all-sim MAKEINFO=true
 
 ndsprepare:
 	cmake -S "$(CURDIR)" -B "$(NDS_CONFIG_DIR)" -DNATIVE_COMPONENT=nds
