@@ -19,6 +19,6 @@ diff --git a/hw/arm/meson.build b/hw/arm/meson.build
 +++ b/hw/arm/meson.build
 @@ -1,3 +1,4 @@
  arm_common_ss = ss.source_set()
-+arm_common_ss.add(when: 'CONFIG_Z7II_MAS_DIAGNOSTIC', if_true: files('z7ii.c', 'z7ii-timestamp.c', 'z7ii-sdi.c', 'z7ii-mxic.c', 'z7ii-fill.c', 'z7ii-usio.c', 'z7ii-sysconfig.c', 'z7ii-gpio.c', 'z7ii-mxic-config.c', 'z7ii-spi.c', 'z7ii-exiu.c', 'z7ii-hdmac.c', 'z7ii-i2c.c', 'z7ii-audio.c', 'z7ii-timing.c', 'z7ii-copy.c', 'z7ii-bridge.c', 'z7ii-signal.c', 'z7ii-ipud.c', 'z7ii-control20202.c', 'z7ii-control2010.c', 'z7ii-control2038.c', 'z7ii-control20201.c'))
++arm_common_ss.add(when: 'CONFIG_Z7II_MAS_DIAGNOSTIC', if_true: files('z7ii.c', 'z7ii-timestamp.c', 'z7ii-sdi.c', 'z7ii-mxic.c', 'z7ii-fill.c', 'z7ii-usio.c', 'z7ii-sysconfig.c', 'z7ii-gpio.c', 'z7ii-mxic-config.c', 'z7ii-spi.c', 'z7ii-exiu.c', 'z7ii-hdmac.c', 'z7ii-i2c.c', 'z7ii-audio.c', 'z7ii-timing.c', 'z7ii-copy.c', 'z7ii-bridge.c', 'z7ii-signal.c', 'z7ii-ipud.c', 'z7ii-control20202.c', 'z7ii-control2010.c', 'z7ii-control2038.c', 'z7ii-control20201.c', 'z7ii-control20204.c'))
  arm_common_ss.add(when: 'CONFIG_ARM_VIRT', if_true: files('virt.c'))
  arm_common_ss.add(when: 'CONFIG_ACPI', if_true: files('virt-acpi-build.c'))

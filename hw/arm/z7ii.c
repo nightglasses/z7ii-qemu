@@ -1009,6 +1009,8 @@ static void z7ii_init(MachineState *machine)
                          qdev_get_gpio_in(gic, 102 - 32));
     sysbus_create_simple(TYPE_Z7II_CONTROL20201, 0x20201000,
                          qdev_get_gpio_in(gic, 116 - 32));
+    sysbus_create_simple(TYPE_Z7II_CONTROL20204, 0x20204000,
+                         qdev_get_gpio_in(gic, 121 - 32));
     {
         DeviceState *control = sysbus_create_simple(TYPE_Z7II_CONTROL2038,
                               0x20380000, qdev_get_gpio_in(gic, 99 - 32));
