@@ -13,8 +13,6 @@
 #define CLOCK 0x04281000
 #define GPIO 0x04282000
 #define EXIU 0x0426f000
-#define GICD 0xf8101000
-#define GICC 0xf8102000
 #define FILL 0x20070000
 #define COPY 0x04251000
 #define HDMAC 0x2c020000
@@ -172,31 +170,45 @@ static void test_clock(void)
     qtest_quit(q);
 }
 
-static void enable_irq(QTestState *q, unsigned irq)
+static void intercept_gic(QTestState *q)
 {
-    qtest_writel(q, GICD, 1);
-    qtest_writeb(q, GICD + 0x800 + irq, 1);
-    qtest_writel(q, GICD + 0x100 + (irq / 32) * 4, 1U << (irq % 32));
-    qtest_writel(q, GICC + 4, 0xff);
-    qtest_writel(q, GICC, 1);
+    QDict *response = qtest_qmp(q, "{'execute': 'qom-list',"
+                              " 'arguments': {'path': '/machine/unattached'}}");
+    const QListEntry *entry;
+    g_autofree char *path = NULL;
+
+    QLIST_FOREACH_ENTRY(qdict_get_qlist(response, "return"), entry) {
+        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
+
+        if (!strcmp(qdict_get_str(child, "type"), "child<arm_gic>")) {
+            g_assert_null(path);
+            path = g_strdup_printf("/machine/unattached/%s",
+                                   qdict_get_str(child, "name"));
+        }
+    }
+    qobject_unref(response);
+    g_assert_nonnull(path);
+    /* qtest accesses are nonsecure. Observe the actual board SPI input,
+     * without pretending that they initialize the guest's secure GIC state.
+     */
+    qtest_irq_intercept_in(q, path);
 }
 
 static void test_gpio_irq(void)
 {
     QTestState *q = start(false, 1);
 
-    enable_irq(q, 65);
+    intercept_gic(q);
     qtest_writel(q, EXIU, 0xfffe);
     qtest_writel(q, GPIO + 0x114, 0x80);
     qtest_writel(q, GPIO + 0x14, 0x00800080);
     g_assert_cmphex(qtest_readl(q, GPIO + 0x14), ==, 0x80);
     g_assert_cmphex(qtest_readl(q, EXIU + 0xc), ==, 1);
-    g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, 65);
+    g_assert_true(qtest_get_irq(q, 65 - 32));
     /* CLR is a command register: read zero, acknowledge only selected bits. */
     g_assert_cmphex(qtest_readl(q, EXIU + 0x10), ==, 0);
     qtest_writel(q, EXIU + 0x10, 1);
-    qtest_writel(q, GICC + 0x10, 65);
-    g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, 1023);
+    g_assert_false(qtest_get_irq(q, 65 - 32));
     qtest_quit(q);
 }
 
@@ -274,21 +286,20 @@ static void test_copy(void)
         expected[i] = i;
     }
     qtest_memwrite(q, RAM + 0x100, expected, sizeof(expected));
+    intercept_gic(q);
     for (channel = 0; channel < 4; channel++) {
         unsigned irq = 45 + channel;
         uint64_t status = COPY + 0x30 + channel * 0x30;
 
-        enable_irq(q, irq);
         copy_setup(q, channel, sizeof(expected));
         qtest_writel(q, COPY + 0x28 + channel * 0x30, 0x11109003);
         qtest_clock_step(q, 100000);
         g_assert_cmphex(qtest_readl(q, status), ==, 8);
         qtest_memread(q, RAM + 0x40000, actual, sizeof(actual));
         g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
-        g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, irq);
+        g_assert_true(qtest_get_irq(q, irq - 32));
         qtest_writel(q, status, 0);
-        qtest_writel(q, GICC + 0x10, irq);
-        g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, 1023);
+        g_assert_false(qtest_get_irq(q, irq - 32));
     }
     qtest_quit(q);
 }
@@ -311,7 +322,7 @@ static void test_hdmac(void)
 {
     QTestState *q = start(false, 1);
 
-    enable_irq(q, 150);
+    intercept_gic(q);
     qtest_writel(q, RAM + 0x100, 0x11223344);
     qtest_writel(q, RAM + 0x104, 0x55667788);
     qtest_writel(q, HDMAC, 0x90000000);
@@ -323,10 +334,9 @@ static void test_hdmac(void)
     g_assert_cmphex(qtest_readl(q, RAM + 0x200), ==, 0x11223344);
     g_assert_cmphex(qtest_readl(q, RAM + 0x204), ==, 0x55667788);
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, 0x081d0000);
-    g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, 150);
+    g_assert_true(qtest_get_irq(q, 150 - 32));
     qtest_writel(q, HDMAC + 0x14, 0x08000000);
-    qtest_writel(q, GICC + 0x10, 150);
-    g_assert_cmphex(qtest_readl(q, GICC + 0xc), ==, 1023);
+    g_assert_false(qtest_get_irq(q, 150 - 32));
     qtest_quit(q);
 }
 
