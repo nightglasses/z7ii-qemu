@@ -1,0 +1,12 @@
+# Machine 与设备代码规范
+
+- 遵守固定上游 QEMU 的 C 风格与 QOM/SysBusDevice API，复用已有设备和状态机。
+- Nikon 代码位于 `vendor/qemu/hw/nikon/`；`machines/` 保存各型号的地址布局、CPU、RAM 和 IRQ 连线，`devices/` 保存通用功能协议。
+- 维护文件名不使用连字符，优先使用一个清楚单词；重命名同时更新调用入口，不保留旧文件名兼容入口。
+- 通用设备及公共头使用 `Nikon` / `nikon` 命名；设备名描述已知功能，不以机型或 MMIO 地址数字命名，也不推断物理 SoC/IP 身份。
+- 设备寄存器的绝对地址由 machine 映射；设备诊断使用实际映射地址。公共边界在 `vendor/qemu/include/hw/nikon/devices.h`。
+- CPU 型号、复位状态、地址空间、镜像放置、入口、模式和核连线必须显式说明证据或假设；VA 不冒充已证 PA。
+- 已知 MMIO 明确 endian、访问宽度、复位值与副作用；未知访问记录 CPU/PC/地址/方向/宽度并保留阻断。
+- 不用广域 read-zero/write-discard 或自动 ready/IRQ/握手绕过启动依赖。
+- 图像运算等外设可按实际软件协议简化；简化范围与影响写入证据，不要求一开始模拟全部物理细节。
+- 不提交原厂代码数组、固件、编译产物或另造 CPU/ISA 解码器。

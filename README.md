@@ -1,10 +1,10 @@
 # Nightglass QEMU
 
-Nikon firmware emulation and debugging built on upstream QEMU. This private repository maintains a Nikon vendor tree and the small integration needed to build it against a pinned upstream release. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
+Nikon firmware emulation and debugging built on upstream QEMU. This repository includes the fixed upstream source in `vendor/qemu`, with Nikon machines and devices registered directly in its native build. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
 
 The initial target is Nikon Z7II C1.70. Existing camera emulation projects inform device models and tracing. A user-supplied post shows a claimed Nikon Z9 QEMU run reaching a camera error screen; implementation and launch details are unavailable, so that case is a useful lead rather than a reproducible baseline.
 
-Upstream baseline: QEMU `v11.1.2`, commit `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. Build dependencies and original firmware remain in ignored `work/`. Firmware recovery tools remain in [Nightglass](https://github.com/mashiro01/nightglass), and maintained firmware source remains in [Nightglass Firmware](https://github.com/mashiro01/nightglass-firmware).
+Upstream baseline: QEMU `v11.1.2`, commit `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The upstream licenses remain with the vendored source. Build outputs and original firmware remain in ignored `work/`. Firmware recovery tools remain in [Nightglass](https://github.com/mashiro01/nightglass), and maintained firmware source remains in [Nightglass Firmware](https://github.com/mashiro01/nightglass-firmware).
 
 The current route implements the original firmware's device protocols with explicit virtual reset and timing assumptions, aiming to reach RTOS tasks and menus. CPU/reset/load assumptions remain visible. Unknown addresses, widths and commands still stop execution; physical-camera acceptance remains a separate result. Rebuilt firmware is then compared in the same model.
 
@@ -14,15 +14,18 @@ Issues are managed through [the Nightglass delivery map](https://github.com/mash
 
 ## MAS diagnostic machine
 
-The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/devices/timestamp/protocol.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `vendor/qemu/hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `vendor/qemu/hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `vendor/qemu/include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/devices/timestamp/protocol.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
 
-With a clean checkout of the pinned upstream revision and an empty build directory:
+Install QEMU's native build dependencies (a C compiler, Make, Ninja, pkg-config, GLib, pixman and Python for upstream build tooling), then build from this checkout:
 
 ```sh
-scripts/build.sh /absolute/path/to/qemu-11.1.2 /absolute/path/to/work/build/mas-diagnostic
+make -j8
+make check
 ```
 
-`scripts/build.sh` adds this repository's Nikon vendor tree and public header to the pinned upstream source tree, integrates the registration patch, then verifies that `-M help` exposes the machine. The QOM type uses the upstream `arm_machine_interfaces` target registration, as existing ARM machines do. Later source edits can be copied into that checkout and rebuilt with `ninja -C /absolute/path/to/work/build/mas-diagnostic qemu-system-arm`; do not rerun initial integration on a dirty checkout. This repository does not fetch firmware or install dependencies.
+The root Makefile invokes the official `vendor/qemu/configure` and the generated QEMU Makefile. Kconfig and Meson register Nikon sources directly; there is no patch, overlay copy or project build script. `make check` uses QEMU's native qtest chain. The default ARM system binary is `work/build/qemu/qemu-system-arm`.
+
+Use standard configure options for a different host or toolchain. Run `make configure CONFIGURE_FLAGS='--target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'`, then `make`. `BUILD_DIR=/absolute/path/to/build` selects an out-of-tree build. Dependencies fetched by QEMU's official Meson wraps retain their upstream pinned definitions; camera firmware is never fetched. The vendored engineering change itself has not yet received its integrated native build/test result.
 
 Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
 
@@ -30,7 +33,7 @@ Run the extracted **MAS component payload**, not the complete Nikon update file,
 # Run from this repository; choose another short unused name for later runs.
 mkdir -p work
 mkdir work/r1
-/absolute/path/to/work/build/mas-diagnostic/qemu-system-arm \
+work/build/qemu/qemu-system-arm \
   -M z7ii-mas-diagnostic -accel tcg,thread=single \
   -bios /absolute/path/to/02_eg1840_mas_01700.payload.bin \
   -display none -serial none -monitor none -S \
@@ -41,18 +44,7 @@ mkdir work/r1
 
 Use the upstream GDB stub and QMP to inspect reset registers, stopped accesses and CPU state. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish an architectural exception, a wait and a running loop. Temporary debugger commands, breakpoint scripts, address-check helpers and local operation notes belong in ignored `work/debug/`; logs and sockets remain local. Maintained device behavior and actual research findings belong in `docs/`, including the [software-wait observations](docs/runtime/wait/observation.md). Debugger observations do not change the original firmware bytes or establish whole-camera boot.
 
-For a bounded original run with preserved receipts, use the existing upstream Python library through the thin entry below. It uses a short temporary QMP socket, records the upstream launch command, reset/final registers and first-stop log, and directly compares payload bytes before and after. Choose a new output directory each time. `--seconds` bounds host observation, not modeled boot time; a timeout or process exit is not boot completion.
-
-```sh
-PYTHONPATH=/absolute/path/to/qemu-11.1.2/python \
-  /absolute/path/to/work/build/mas-diagnostic/pyvenv/bin/python \
-  scripts/run.py \
-  /absolute/path/to/work/build/mas-diagnostic/qemu-system-arm \
-  /absolute/path/to/02_eg1840_mas_01700.payload.bin \
-  work/original-r6 --machine-revision <actual-machine-Git-ref>
-```
-
-Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/un.h#L74-L78), so absolute paths containing full Git revisions can exceed it. Use `--tcg-thread multi` for a separate MTTCG observation; default single-thread scheduling may stop CPU0 before CPU1 runs.
+Run observations with the native QEMU binary, QMP and GDB. Keep commands, logs, registers and byte-preservation evidence in a new ignored per-run directory. A bounded observation or process exit is not boot completion. Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/un.h#L74-L78). Select `-accel tcg,thread=multi` for a separate MTTCG observation; single-thread scheduling may stop CPU0 before CPU1 runs.
 
 Earlier [first MAS](docs/startup/first.md), [MEMC](docs/startup/memc.md), [two-core](docs/startup/smp.md) and [strict clock-bank](docs/devices/clock/protocol.md) reports preserve fixed-stage evidence. The functional sequence subsequently passed [PLL](docs/startup/protocol.md), [dual-bank SDI](docs/devices/sdi/protocol.md), [finite region decode](docs/devices/mxic/protocol.md) and [real bus fill](docs/devices/fill/protocol.md). Original GIC translation faults led to the [page-table-consistent CBAR](docs/startup/peripherals.md); the [original allocator arena](docs/runtime/allocator.md) and [counter configuration](docs/devices/timestamp/runtime.md) then passed. The fixed counter-stage trace actually shows the original scheduler entering the initial task at `10103bc8`, with guest-produced stack and parameters. No host task context or PC is supplied.
 

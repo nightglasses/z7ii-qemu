@@ -4,7 +4,7 @@
 |---|---|
 | [README.md](README.md) | 项目范围、上游依赖和运行阶段 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Issue、分支、审查和合并流程 |
-| [AGENTS.md](hw/nikon/AGENTS.md) | Nikon machine 与设备实现规范 |
+| [AGENTS.md](vendor/qemu/hw/nikon/AGENTS.md) | Nikon machine 与设备实现规范 |
 | [AGENTS.md](scripts/AGENTS.md) | 最小构建与运行入口规范 |
 | [AGENTS.md](docs/AGENTS.md) | 运行证据和模型边界规范 |
 | [layout.md](docs/layout.md) | Nikon 机型连线、通用设备协议与公共接口的分层结构 |
