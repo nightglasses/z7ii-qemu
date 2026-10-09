@@ -44,6 +44,7 @@ SDI and fill devices, retaining unsupported access failures.
 | Third tuple, zero length | No new backing | No bytes manufactured |
 | ZERO start/length from `0x1002c05c/60` | `0xc1017d80`, `0x8b8000` bytes | Guest fill rounds length to 16 KiB blocks |
 | ROM table copy at `0x10020270` | `0xc18e4000`, `0x4000` bytes | Guest copy owns PTEs |
+| Kernel bounds at `0x1002038c/90` | `[0xc1940000,0xc5000000)` | Guest allocator owns all metadata and allocation |
 | Six SPs at `0x1002c024..38` | 16 KiB per mode/core below each top | Explicit finite virtual capacity |
 | Early SP `0x04008f00` | `[0x04008e00,0x04008f00)` | Explicit 256-byte virtual caller-stack assumption |
 | Secondary release at `0x04008ffc` | Four RAM bytes | Guest `0x1002d880` writes magic then SEV |
@@ -55,10 +56,19 @@ only the declared byte range is mapped. MXIC enables finite endpoints using
 its real draft/commit protocol. Fill uses actual DMA memory transactions and
 reports their result, rather than acknowledging an unperformed request.
 
-The original Thumb call at `0x10052f70` reaches ARM `0x10020178`, whose original
-instruction is a self branch. The model retains it. Later configuration and
-runtime consumers cannot be reported as boot reached without actual evidence
-of a loader replacement or another entry contract. COPY2's conditional Thumb
+Whole source further resolves the formerly unexpanded `0x100200ac` callee:
+it copies the translation table, releases the secondary CPU, then tail-calls
+`0x100200a4` to `0x100356c8` and `0x10036758`, the native kernel initialization
+chain. Configuration `0x100202f4` supplies arena bounds `0xc1940000/c5000000`;
+`0x10035758..68` stores them at `0xc101689c/c10168a0`, and the arena initializer
+`0x10039e68..f18` consumes those bounds and writes the guest's metadata. This
+source-declared finite arena is backed without creating host allocator state.
+The old local path's Thumb call at `0x10052f70` reaches ARM `0x10020178`, whose
+original instruction is a self branch; `0x100200a8` is also an original self
+branch after its kernel callee. Both remain unchanged. These observations
+must not be turned into a claim that all entry execution stops at O `0x178`:
+the complete kernel chain occurs in its earlier callee. Actual runtime receipts
+determine which frontier is reached. COPY2's conditional Thumb
 call at `0xc1920000` is a real execution edge, but its flag producers and
 buffer `0xc13ea858` are not established by the two COPY ranges. The complete
 entry's independent BSS fill does include that buffer in this functional
@@ -74,7 +84,7 @@ machine must supply a separate CPU memory view and connect only subsequently
 proven shared endpoints. External BootROM, calibration, lens/sensor inputs and
 other uncovered transactions fail and report the original access context.
 
-The native C qtest `tests/qtest/nikon/sla.c` constructs a synthetic
+The native C qtest `vendor/qemu/tests/qtest/nikon/sla.c` constructs a synthetic
 full-sized SLA in a correctly checksummed five-component container. It checks
 component isolation, final-byte availability, unseeded COPY/release RAM,
 independent writable COPY backing and causal fill-DMA completion. It contains

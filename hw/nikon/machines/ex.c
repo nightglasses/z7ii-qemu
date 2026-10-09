@@ -82,6 +82,7 @@ struct NikonEXState {
     SysBusDevice parent_obj;
     ARMv7MState armv7m;
     MemoryRegion memory;
+    MemoryRegion system_view;
     MemoryRegion flash;
     MemoryRegion flash_alias;
     MemoryRegion ram;
@@ -1074,7 +1075,10 @@ static void ex_machine_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    memory_region_add_subregion(get_system_memory(), 0, &s->memory);
+    /* ARMv7M already owns the private board region in its container. */
+    memory_region_init_alias(&s->system_view, OBJECT(s), "ex.system-view",
+                             &s->armv7m.container, 0, UINT64_C(0x100000000));
+    memory_region_add_subregion(get_system_memory(), 0, &s->system_view);
 }
 
 static void ex_machine_class_init(ObjectClass *klass, const void *data)

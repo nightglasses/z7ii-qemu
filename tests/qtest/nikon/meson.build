@@ -2,7 +2,8 @@ nikon_targets = {}
 nikon_arm_fixtures = {}
 if config_all_devices.has_key('CONFIG_NIKON_Z7II')
   nikon_arm_fixtures += {
-    'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c'),
+    'nikon': files('devices.c', 'completion.c', 'bridge.c', 'transfer.c',
+                   'sampling.c'),
     'nikon_timer': files('timer.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
@@ -15,6 +16,9 @@ foreach profile : ['SLA', 'EX', 'SENSOR']
     nikon_arm_fixtures += {'nikon_' + name: files(name + '.c')}
   endif
 endforeach
+if config_all_devices.has_key('CONFIG_NIKON_STORAGE') and config_all_devices.has_key('CONFIG_ARM_VIRT')
+  nikon_arm_fixtures += {'nikon_storage': files('storage.c')}
+endif
 if nikon_arm_fixtures.keys().length() > 0
   nikon_targets += {'arm': nikon_arm_fixtures}
 endif

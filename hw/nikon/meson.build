@@ -14,6 +14,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files('machines/ex.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
   'devices/audio.c',

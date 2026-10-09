@@ -67,8 +67,8 @@ MMU banks have `TTBR0_S=b2b74000`, `TTBCR_S=0`, `DACR_S=55555555` and
 The next first unsupported access is CPU0 **PC103bc668**, **WRITE8 PA2c09000f=2**,
 USIO, at line26601; the actual secure abort registers are `DFSR_S=1808` and
 `DFAR_S=2c09000f`. This identifies a UART runtime/FIFO protocol dependency,
-not a new storage allocation. A separate owner is replacing the prior polling
-transmit value profile with the complete source-supported USIO model.
+not a new storage allocation. The subsequent source-supported USIO model replaced
+that polling transmit profile and the three source-bound ports are now connected.
 
 The GDB command completed with exit0 in **0.380554292 s** of host wall time.
 QEMU exited0 through QMP `quit`; direct comparison of the complete container
@@ -78,3 +78,38 @@ or performance measurement. Ignored receipts and original logs are
 launch rejected an overlong UNIX QMP socket path before guest initialization;
 the actual run used the local TCP QMP endpoint. No GUI or whole-boot success is
 claimed.
+
+## Original synchronization after UART integration
+
+Canonical integration **7622568d1ac2a44a4cecaf60d2dd9a3b3fd16d8d** builds the
+three physical UARTs at `2c090000`, `2c090010` and `2c090020`, with RX/TX interrupt
+pairs 186/187, 188/189 and 190/191. All five native UART cases pass. The original
+complete container runs unchanged on this binary. Its thirty recorded callback
+returns include role0 phase3 through slot2 and role1 phase3 through slot13;
+role1 then actually enters slot14 at `10200462`. No unsupported transaction is
+recorded. Neither a frame nor a complete boot is established by this run.
+
+A read-only QMP stop followed by GDB captures both cores, all 512 source-sized
+event records, all 512 source-sized task records, and 43 blocked task stacks.
+Both cores are in original idle paths (`10107074` and `10107094`), with zero
+current-task pointers. Task5 is queued on flag `01000003`, requiring bit `10`;
+the flag's current pattern is zero. Task4 waits on bit2 of the same flag, while
+the original main task waits for both bits `c`. Queue links and wait specifications
+distinguish these flag waiters from objects in other RTOS namespaces.
+
+The original initialization coordinator, task `010000b9`, has descriptor
+`b20a16b0` and entry `10200ac3`. It reaches `10200ad4` and calls `1036820a(0)`;
+its actual task record and stack show an indefinite wait on flag `01000015`,
+mask1, mode1. That flag's pattern is also zero and its only queued waiter is
+this coordinator. The full entry body and its later initialization calls are
+captured together so the next dependency is the complete worker/producer
+protocol, rather than another guessed memory range or a forced event bit.
+
+Ignored evidence is `work/gui/namespace/{receipt.json,gdb.log,events.bin,
+tasks.bin,stacks.log,producer.log,trace.json,waits.json}`. Complete GDB capture,
+the additional stack capture and native mapped-byte disassembly all exit0;
+QEMU exits0 and the input remains directly equal to the pre-run clone. The
+earlier PTY interrupt ended the host debugger without a capture, and the QMP
+client received a socket reset after its successful quit reply. Both are
+recorded explicitly in the receipt. The guest was never restarted or modified
+to obtain the subsequent complete stopped snapshot.

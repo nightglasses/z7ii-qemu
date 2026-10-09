@@ -24,6 +24,7 @@ static char *image;
 void nikon_test_completion(QTestState *q);
 void nikon_test_bridge(QTestState *q);
 void nikon_transfer_add_tests(const char *bios);
+void nikon_sampling_add_tests(const char *bios);
 
 static QTestState *start(bool execute, unsigned cpus)
 {
@@ -447,6 +448,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/completion", test_completion);
     qtest_add_func("/nikon/bridge", test_bridge);
     nikon_transfer_add_tests(image);
+    nikon_sampling_add_tests(image);
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);

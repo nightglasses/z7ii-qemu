@@ -102,7 +102,7 @@ static void test_loaded_domain(void)
     g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0);
     /* A destination beyond declared SLA RAM cannot yield successful DMA. */
     qtest_writel(qts, 0xc1017d80, 0xcccccccc);
-    qtest_writel(qts, 0x20070030, 0xc2000000);
+    qtest_writel(qts, 0x20070030, 0xc6000000);
     qtest_writel(qts, 0x20070010, 1);
     g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0x10);
     g_assert_cmphex(qtest_readl(qts, 0xc1017d80), ==, 0xcccccccc);

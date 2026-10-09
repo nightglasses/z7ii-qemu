@@ -1,24 +1,23 @@
-# Finite 20201 configuration and conditional data profile
+# Requested word sampling
 
-Native C and fixture recipe are `5c9f89a9a74f7bd81add3edd96e49fd60e216899`, following the independently frozen 2038 report `ad1e7a018517feb9f298f69f31d8f93da15bd4ab`. Source is `0c47d4a52c447829cb8cb2329926d827f59c14e0`, `research/z7ii/qemu-20201-control-contract.md` in the source worktree. The original-byte diagnostic covers 962 B / 422 instructions, excluding its pool and the next independent 20200000 family. The actual command method 102946c0 is separately saved as 6 BB / 34 B / 17 instructions / zero frontiers. Other initializer/ISR/configuration methods retain their native coverage gaps; continuous diagnostic decoding does not establish accepted native CFG, general EA or P-code. Physical identity, pulse effects, data producers and event meanings remain unknown.
+The device owns `20201000..202011a3`, with its board IRQ connected to GIC116. The ec048f saved native source closes initializer, configuration, activation, ISR and the software event consumer. Original entries include `10294364` (ISR), `102944a6` (configuration), `102946ae` (request), and `10244a62` (request/wait consumer). Their complete original bodies are indexed static evidence; a physical image source has not been identified.
 
-The new SysBus device owns `[20201000,202011a4)` and connects its IRQ to original GIC116. All supported MMIO is aligned 32-bit; internal holes and other widths reject. Cold configuration zero and retained readback are named virtual conventions, not physical reset or legal-bit proof. Generated field restrictions come from original setters, with fullword 104 distinct from bool 11c/164 and fullword 20 distinct from a mask.
+`102946ae` calls command1, which writes `44=3`, `48=7`, then writes `14=1`. The model implements this as one outstanding sample request. Named `sample-request` GPIO rises after this sequence and falls when an explicit provider completes the word. No provider is connected by default. A request alone creates no data, pending, IRQ or software event.
 
-| Configuration | Accepted shape |
+The provider writes all32 `data-bit` GPIO inputs after each request, then raises `external-event[0]`. Only fresh complete publication while armed atomically locks the word into1a0 and latches pending2c bit0. Partial, unsolicited and stale publications cannot complete it. Held-high inputs create no new edge. This handshake is a functional convention; the source does not identify physical lanes, packing or a sensor/ISP join.
+
+ISR `10294364` reads2c, writes the same raw value back, then reads1a0 if bit0 was present. ACK therefore retains the sample. Explicit external events1/2 latch raw bits1/6 without inventing data. Modeled pending is W1C for bits0/1/6 and drives GIC116. Offset20 remains a guest parameter, with no inferred interrupt mask.
+
+The ISR's bits1/6 branches and packet configurator write `00=1` followed by0. These controls are accepted and retained, without inferred reset, clearing or completion effects. They preserve sample and pending state. Object callbacks and later RTOS flag operations execute in guest code; the model never writes callbacks, flags or objects.
+
+| Aligned32-bit fields | Software-generated values |
 |---|---|
-| 04, 4c, c4, 11c, 164 | 0 or 1, retained without inferred external activation |
-| 60 | low byte |
-| b8, bc, c0 | low 11 bits |
-| 100 | generated bits 0, 2 and 3 |
-| 20, 50, 54, 5c, 64, c8, cc, 104, 108, 10c, 110, 118, 120, 124, 128, 12c, 160, 168, 16c, 170 | full word |
-| a0..b4, 130..14c, 178..194 | finite aligned fullword arrays |
+| 00,04,4c,c4,11c,164 | bool |
+| 60 /b8,bc,c0 /100 | low8 /low11 /bits0,2,3 |
+| 20,50,54,5c,64,c8,cc,104,108,10c,110,118,120,124,128,12c,160,168,16c,170 | fullword |
+| a0..b4,130..14c,178..194 | finite fullword arrays |
+| 44 /48 | independent selections1/2/3 and0/1/7 |
 
-Opaque selection 44 retains values 1/2/3, and 48 retains 0/1/7. The three original sequences are `(2,0)`, `(3,7)` and `(1,1)`; writes stay independent so intermediate new44/old48 is valid. These values do not trigger, reset, acknowledge or complete work. Clearing 11c/164 preserves 120/168 because the original zero branch does not write those parameters. Unknown assert00 and activation14 reject before state changes; deassert00=0 has no inferred reset effect. Preceding separate configuration writes remain guest-owned, without an invented whole-packet rollback.
+Reset clears configuration, pending, validity, request and publication tracking. Actual input levels survive without an invented edge. Cold zero, readback, handshake and W1C are functional conventions rather than physical reset claims. Unknown accesses and widths fail explicitly; the device is unmigratable.
 
-Raw pending2c uses a named W1C convention for bits 0/1/6. IRQ reflects any latched implemented pending bit; offset20 is not used as a mask. Three optional `external-event` fixture pins produce those bits on rising edges. Original runs leave them disconnected. Event0 requires every one of 32 `data-bit` pins to have been explicitly published since reset, then snapshots the current provider word for conditional 1a0 reads. There is no default valid sample: reading 1a0 before a valid event rejects. Publication alone, reads, configuration and elapsed time do not produce pending or update the snapshot. ACK retains the sample because the original ISR acknowledges raw before reading 1a0. Held-high events do not reassert after ACK. The provider is a pure virtual test interface, not recovered frame wiring or a guessed DMA source. Bits1/6 can latch without a data sample, but their original ISR's later assert00 remains unsupported, so no complete original ISR or callback success is claimed.
-
-Reset clears configuration, pending, sample validity and publication tracking, lowers IRQ, and preserves actual provider/event levels to avoid inventing edges. A fresh complete publication and a fresh edge are required for a new sample. The class is explicitly unmigratable. No host guest-object, callback, flag, frame, signature, reply, code or PTE is supplied.
-
-Incremental native build exited zero at pinned upstream `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. All 24 board C/header inputs directly equal the built upstream files. Checkpatch reported zero errors and one new-file MAINTAINERS reminder. `work/issue331/control20201-5c9f89a/result.json` records 22 unique Mac-local focused checks, all passed in `1.758863375056535` seconds: 18 ARM fixtures cover original initialization, sequential selection, every finite configuration field, parameter preservation, no default data, unsupported command/read/hole/width/boundary/generated-field inputs; four no-firmware qtests cover disconnected stability, full/partial publication, raw pending and IRQ output, ACK-before-data, sample retention and recapture, full-state preflight and valid recovery, reset with held levels and fresh publication. They do not prove original GIC IAR/EOI, callbacks or physical event delivery. There were no failed focused runs in this stage; older suites were not repeated.
-
-The one changed-stage original run is `work/issue331/original-control20201-5c9f89a/receipt.json`: exit zero after `0.251693292055279` seconds, unchanged 38,239,096-byte MAS input and whole-boot false. It crossed the previous 20201044 boundary and next stopped at CPU1 `PC103b04f2`, READ32 `20204000`, reason `uncovered-address`, qemu.log line 19230; line 19234 records `DFSR1008` / `DFAR20204000`. The future-run filters now include original aggregate 102018e4+30 and candidate word7 wrapper 103ff8c4+38; old receipts were not changed. The next family was handed to its source owner. No phase, slot6, task/menu or firmware usability completion is inferred, and this Mac packet is not Linux CI.
+Native regression `tests/qtest/nikon/sampling.c` covers requested publication, stale/unsolicited rejection, ACK-before-data retention, original00 pulses, rearm and freshness through device GPIOs and the board GIC. Build/run evidence belongs to the sole native builder's fixed batch receipt; no run is claimed before it.

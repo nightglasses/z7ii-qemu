@@ -1,7 +1,7 @@
 /*
- * Finite 20201 configuration and disconnected external-data profile.
- * Cold state, retained readback, W1C and fixture sampling are virtual laws;
- * no physical frame source, pulse reset or activation meaning is inferred.
+ * Source-bound one-word sample requests and explicit provider publication.
+ * Reset/readback/W1C and the provider handshake are functional conventions;
+ * physical input identity, frame format and reset pulse effects are unbound.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -16,11 +16,11 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonDataSamplerState, NIKON_DATA_SAMPLER)
 struct NikonDataSamplerState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
-    qemu_irq irq;
+    qemu_irq irq, request;
     uint32_t config[CONFIG_WORDS];
     uint32_t pending, data_levels, data_seen, sample;
     uint8_t events;
-    bool sample_valid, reported_error;
+    bool sample_valid, armed, reported_error;
 };
 
 /* Source-generated field bounds, not physical writable-mask claims. */
@@ -33,7 +33,7 @@ static bool nikon_control_config(hwaddr offset, uint32_t *mask)
         return true;
     }
     switch (offset) {
-    case 4: case 0x4c: case 0xc4: case 0x11c: case 0x164:
+    case 0: case 4: case 0x4c: case 0xc4: case 0x11c: case 0x164:
         *mask = 1;
         break;
     case 0x20: case 0x50: case 0x54: case 0x5c: case 0x64:
@@ -79,13 +79,16 @@ static void nikon_control_event(void *opaque, int index, int level)
     bool rising = level && !(s->events & (1 << index));
 
     s->events = (s->events & ~(1 << index)) | (!!level << index);
-    if (!rising || (!index && s->data_seen != UINT32_MAX)) {
+    if (!rising || (!index && (!s->armed ||
+                              s->data_seen != UINT32_MAX))) {
         return;
     }
     if (!index) {
-        /* Explicit fixture publication, never an invented frame or reply. */
+        /* Complete the request with the provider's actual current word. */
         s->sample = s->data_levels;
         s->sample_valid = true;
+        s->armed = false;
+        qemu_set_irq(s->request, 0);
     }
     s->pending |= pending[index];
     nikon_control_irq(s);
@@ -145,14 +148,23 @@ static MemTxResult nikon_control_write(void *opaque, hwaddr offset,
         s->config[offset / 4] = value;
     } else if (offset == 0x48 && (value == 0 || value == 1 || value == 7)) {
         s->config[offset / 4] = value;
+    } else if (offset == 0x14) {
+        /* Original102946ae selects3/7 before this single-word request. */
+        if (value != 1 || s->armed || s->config[0x44 / 4] != 3 ||
+            s->config[0x48 / 4] != 7) {
+            return nikon_control_error(s, offset, size, true, value);
+        }
+        s->data_seen = 0;
+        s->armed = true;
+        qemu_set_irq(s->request, 1);
     } else if (offset == 0x2c) {
         /* ISR acknowledges before reading1A0: ACK must retain the sample. */
         s->pending &= ~(value & 0x43);
         nikon_control_irq(s);
-    } else if (offset != 0 || value != 0) {
+    } else {
         return nikon_control_error(s, offset, size, true, value);
     }
-    /* Deasserted00 has no inferred reset, pending or configuration effect. */
+    /* Stored00 pulses never synthesize an event, sample or reset effect. */
     return MEMTX_OK;
 }
 
@@ -170,7 +182,8 @@ static void nikon_control_reset(DeviceState *dev)
 
     memset(s->config, 0, sizeof(s->config));
     s->pending = s->data_seen = s->sample = 0;
-    s->sample_valid = s->reported_error = false;
+    s->sample_valid = s->armed = s->reported_error = false;
+    qemu_set_irq(s->request, 0);
     /* Preserve pin levels without creating an edge; require new publication. */
     nikon_control_irq(s);
 }
@@ -183,6 +196,7 @@ static void nikon_control_init(Object *obj)
                           "nikon.data-sampler", 0x1a4);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->request, "sample-request", 1);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_control_event,
                            "external-event", 3);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_control_data, "data-bit", 32);

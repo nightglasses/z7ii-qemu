@@ -24,7 +24,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSLAMachine, NIKON_SLA_MACHINE)
 #define SLA_CBAR 0xf8100000ULL
 #define SLA_TIMER_HZ 48000000ULL
 #define SLA_STACK_SIZE 0x4000
-#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 6)
+#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 7)
 
 struct NikonSLAMachine {
     MachineState parent_obj;
@@ -177,6 +177,8 @@ static void sla_init(MachineState *machine)
     sla_ram(s, mxic, "nikon.sla.bss", 0xc1017d80, 0x8b8000);
     /* Original secondary table COPY and startup caller range. */
     sla_ram(s, mxic, "nikon.sla.table", 0xc18e4000, 0x4000);
+    /* Source config bounds consumed by the native kernel arena initializer. */
+    sla_ram(s, mxic, "nikon.sla.kernel-arena", 0xc1940000, 0x36c0000);
     sla_ram(s, NULL, "nikon.sla.temporary-stack", 0x04008e00, 0x100);
     sla_ram(s, NULL, "nikon.sla.release", 0x04008ffc, 4);
     s->num_cpus = machine->smp.cpus;

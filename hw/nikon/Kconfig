@@ -41,6 +41,13 @@ config NIKON_SENSOR
     depends on TCG && ARM
     select NIKON_ARM
 
+config NIKON_STORAGE
+    bool
+    default y
+    depends on TCG && ARM
+    select PCI
+    select NVME_PCI
+
 config NIKON_VR
     bool
     default y

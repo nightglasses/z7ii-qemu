@@ -131,7 +131,7 @@ static void vr_reset_and_exception(void)
 static void vr_protection_and_clocks(void)
 {
     g_autofree char *path = vr_test_bundle();
-    QTestState *qts = qtest_initf("-machine nikonvr -bios %s -S", path);
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s", path);
 
     /* A locked or incorrectly keyed write cannot change protected clocks. */
     qtest_writel(qts, 0x80020, 0x10c10166);

@@ -4,7 +4,6 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
-#include "qobject/qbool.h"
 #include "qobject/qdict.h"
 #include "../libqtest.h"
 #include "hw/nikon/sensor.h"
@@ -55,15 +54,13 @@ static uint64_t property(QTestState *q, const char *name)
 
 static void capture(QTestState *q, bool active, bool success)
 {
-    QBool *value = qbool_from_bool(active);
     QDict *response = qtest_qmp(q,
         "{'execute':'qom-set','arguments':{'path':%s,'property':'capture',"
-        "'value':%p}}", SENSOR_PATH, value);
+        "'value':%i}}", SENSOR_PATH, active);
 
     g_assert_cmpint(qdict_haskey(response, "return"), ==, success);
     g_assert_cmpint(qdict_haskey(response, "error"), ==, !success);
     qobject_unref(response);
-    qobject_unref(value);
 }
 
 static void test_frame(void)
