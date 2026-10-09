@@ -240,7 +240,7 @@ def sysconfig_word_fixtures():
          "sysconfig-access-not-supported"),
         ("sysconfig-bank-reject-unaligned-preserves-state", seed +
          constant(0, SYSCONFIG + 0x7d) + [0xe5801000], {},
-         "sysconfig-access-not-supported"),
+         "uncovered-address"),
         ("sysconfig-bank-reject-hole-preserves-state", seed +
          constant(0, SYSCONFIG + 0x70) + [0xe5801000], {},
          "sysconfig-access-not-supported"),
@@ -2757,6 +2757,13 @@ def run_sysconfig_words(binary, output, name):
             for bank in range(5):
                 state[bank] = 0xa5a5a5a5 ^ (bank * 0x11111111)
                 write(bank, state[bank])
+            # Direct bus access reaches the device's strict alignment/width
+            # checks; a CPU Device-memory unaligned STR aborts before MMIO.
+            for text in ("writel 0x0428007d 0xffffffff",
+                         "writew 0x04280088 0xffff",
+                         "writeb 0x04280078 0xff"):
+                command(text)
+                assert [read(i) for i in range(5)] == state
             for bank in range(5):
                 for bit in range(32):
                     for setting in (False, True, False):
@@ -3296,6 +3303,8 @@ def run(binary, output, name, words, expected, reason):
             assert serial.read_bytes() == expected_serial, (name, serial.read_bytes())
         logs = (vm.get_log() or "") + trace.read_text()
         if reason:
+            if name == "sysconfig-bank-reject-unaligned-preserves-state":
+                assert "DFSR 0x801 DFAR 0x428007d" in logs, logs
             assert f"reason={reason}" in logs, logs
             assert "transaction=error" in logs, logs
         else:
