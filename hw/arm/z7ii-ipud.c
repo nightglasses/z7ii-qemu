@@ -54,17 +54,15 @@ static void z7ii_ipud_consume(void *opaque)
 {
     Z7IIIPUDState *s = opaque;
     unsigned before = fifo32_num_used(&s->tx);
-    uint32_t contiguous;
-    const uint8_t *bytes;
+    uint8_t bytes[4];
     int consumed;
 
     s->consuming = false;
     if (!s->committed) {
         return;
     }
-    /* FIFO words are aligned in the byte storage; retain until fully sent. */
-    bytes = fifo8_peek_buf(&s->tx.fifo, 4, &contiguous);
-    assert(contiguous == 4);
+    /* Official peek leaves the queued word retained until fully sent. */
+    assert(fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes)) == sizeof(bytes));
     if (qemu_chr_fe_backend_connected(&s->peer)) {
         consumed = qemu_chr_fe_write(&s->peer, bytes + s->written,
                                      4 - s->written);
