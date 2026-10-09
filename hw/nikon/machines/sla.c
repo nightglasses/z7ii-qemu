@@ -7,6 +7,7 @@
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "hw/core/boards.h"
+#include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/nikon/bundle.h"
@@ -282,6 +283,7 @@ static const TypeInfo sla_machine = {
     .instance_size = sizeof(NikonSLAMachine),
     .instance_finalize = sla_finalize,
     .class_init = sla_class_init,
+    .interfaces = arm_machine_interfaces,
 };
 
 static void sla_register_types(void)

@@ -21,6 +21,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
 #include "hw/arm/armv7m.h"
+#include "hw/arm/machines-qom.h"
 #include "hw/char/stm32f2xx_usart.h"
 #include "hw/timer/stm32f2xx_timer.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
@@ -1094,7 +1095,8 @@ static const TypeInfo ex_types[] = {
       .instance_size = sizeof(NikonEXState), .instance_init = ex_init,
       .instance_finalize = ex_finalize, .class_init = ex_class_init },
     { .name = MACHINE_TYPE_NAME("nikonex"), .parent = TYPE_MACHINE,
-      .class_init = ex_machine_class_init },
+      .class_init = ex_machine_class_init,
+      .interfaces = arm_machine_interfaces },
 };
 
 DEFINE_TYPES(ex_types)
