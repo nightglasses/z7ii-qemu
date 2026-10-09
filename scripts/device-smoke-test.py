@@ -1944,6 +1944,186 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control2010_config_values():
+    # Original finite setup shapes, independently transcribed from the source.
+    values = {offset: 0xffffffff for first, last in (
+        (0x2200, 0x22fc), (0x2300, 0x23fc), (0x2880, 0x28f4),
+        (0x2900, 0x2924), (0x2820, 0x2834))
+        for offset in range(first, last + 1, 4)}
+    for base in (0x2000, 0x2100):
+        values.update({base: 0xfffffff0, base + 4: 0x3fff,
+                       base + 8: 0xff, base + 0x10: 0xffffffff,
+                       base + 0x14: 0x87654321, base + 0x18: 0xffff})
+    for base in (0x2600, 0x2640):
+        values.update({base: 0xffff, base + 4: 0xffffffff,
+                       base + 8: 0x87654321, base + 0xc: 0xff,
+                       base + 0x10: 0xffff00ff, base + 0x18: 0xff})
+    return values | {0x2684: 0xffffffff, 0x2690: 0xffff, 0x2838: 0xffff}
+
+
+def control2010_fixtures():
+    base = 0x20100000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | reg << 12]
+
+    config = sum([write(offset, value) for offset, value in
+                  sorted(control2010_config_values().items())], [])
+    error = "control2010-access-or-command-not-supported"
+    return [
+        ("control2010-inactive-init", write(0, 0) + write(4, 0) + write(8, 0) +
+         read(0x18, 4) + read(0x1c, 5) + read(0x20, 6), {4: 0, 5: 0, 6: 0}, None),
+        ("control2010-whole-finite-configuration", config + read(0x22fc, 4) +
+         read(0x23fc, 5) + read(0x2838, 6) + read(0x28f4, 7) + read(0x2924, 8),
+         {4: 0xffffffff, 5: 0xffffffff, 6: 0xffff, 7: 0xffffffff, 8: 0xffffffff}, None),
+        ("control2010-three-full-mask-rmw", write(0xc, 0xffffffff) +
+         write(0x10, 0x80000001) + write(0x14, 0x13572468) +
+         read(0xc, 4) + read(0x10, 5) + read(0x14, 6) + read(0x20, 7),
+         {4: 0xffffffff, 5: 0x80000001, 6: 0x13572468, 7: 0}, None),
+        ("control2010-global-activation-unbound", write(4, 1), {}, error),
+        ("control2010-input-activation-unbound", write(0x2000, 1), {}, error),
+        ("control2010-input-pulse-unbound", write(0x20a4, 1), {}, error),
+        ("control2010-config-pulse-unbound", write(0x2660, 1), {}, error),
+        ("control2010-table-submit-unbound", write(0x2800, 1), {}, error),
+        ("control2010-parameter-submit-unbound", write(0x2680, 1), {}, error),
+        ("control2010-generated-field-unbound", write(0x2838, 0x10000), {}, error),
+        ("control2010-unbound-data-monitor", read(0x200, 4), {}, error),
+        ("control2010-unbounded-input-index", read(0x2040, 4), {}, error),
+        ("control2010-configuration-hole", write(0x201c, 0), {}, error),
+        ("control2010-byte-width", constant(0, base + 0xc) + [0xe5c01000], {}, error),
+        ("control2010-halfword-width", constant(0, base + 0x2820) + [0xe1c010b0], {}, error),
+        ("control2010-aperture-end", read(0x2928, 4), {}, "uncovered-address"),
+        ("control2010-aperture-before", read(-4, 4), {}, "uncovered-address"),
+    ] + [("control2010-qtest-" + suffix, [], {}, None) for suffix in (
+        "whole-config-reset", "three-pending-mask-ack", "strict-preflight")]
+
+
+def run_control2010(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    base = 0x20100000
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control2010", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<z7ii-control2010-functional>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {base + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {base + offset:#x}").split()[1], 16)
+
+            def pin(index, level):
+                command(f"set_irq_in {path} pending-bit {index} {level}")
+
+            def snapshot():
+                return [read(x) for x in sorted(values)] + \
+                       [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)]
+
+            values = control2010_config_values()
+            command(f"irq_intercept_out {path} sysbus-irq")
+            assert [read(x) for x in (0xc, 0x10, 0x14, 0x18, 0x1c, 0x20)] == [0] * 6
+            if name.endswith("whole-config-reset"):
+                for offset, value in values.items():
+                    write(offset, value)
+                assert [read(x) for x in sorted(values)] == [values[x] for x in sorted(values)]
+                # Deassert/pulse controls do not silently clear configured tables.
+                for offset in (0, 4, 8, 0x20a4, 0x2620, 0x2660):
+                    write(offset, 0)
+                before = snapshot()
+                command("clock_step 1000000000")
+                assert snapshot() == before and not levels.get(0, False)
+                vm.cmd("system_reset")
+                assert snapshot() == [0] * len(before) and not levels.get(0, False)
+            elif name.endswith("three-pending-mask-ack"):
+                for index in (0, 2, 32, 63, 66, 88):
+                    pin(index, 1)
+                assert [read(x) for x in (0x18, 0x1c, 0x20)] == [5, 0x80000001, 0x1000004]
+                assert not levels.get(0, False)
+                for offset in (0xc, 0x10, 0x14):
+                    write(offset, 0xffffffff)
+                assert read(0x20) == 0x1000004 and levels[0]
+                write(0x18, 1)
+                assert read(0x18) == 4 and read(0x1c) == 0x80000001 and levels[0]
+                for offset in (0x18, 0x1c):
+                    write(offset, 0xffffffff)
+                assert read(0x18) == read(0x1c) == 0 and levels[0]
+                write(0x14, 0)
+                assert read(0x20) == 0x1000004 and not levels[0]
+                write(0x14, 0x1000004)
+                assert read(0x20) == 0x1000004 and levels[0]
+                write(0x20, 0xffffffff)
+                assert read(0x20) == 0 and not levels[0]
+                pin(66, 1)
+                assert read(0x20) == 0  # held-high ACK never creates an edge
+                pin(66, 0)
+                pin(66, 1)
+                assert read(0x20) == 4 and levels[0]
+                vm.cmd("system_reset")
+                assert read(0x20) == read(0x14) == 0 and not levels[0]
+                write(0x14, 4)
+                pin(66, 1)
+                assert read(0x20) == 0 and not levels[0]
+            elif name.endswith("strict-preflight"):
+                for offset, value in values.items():
+                    write(offset, value)
+                write(0xc, 0xffffffff)
+                pin(2, 1)
+                before = snapshot()
+                for offset, value in ((0, 1), (4, 1), (8, 1), (0x2000, 1),
+                                      (0x2100, 1), (0x20a4, 1), (0x2620, 1),
+                                      (0x2660, 1), (0x2680, 1), (0x2800, 1),
+                                      (0x2838, 0x10000), (0x260c, 0x100),
+                                      (0x2004, 0x4000), (0x201c, 0)):
+                    write(offset, value)
+                    assert snapshot() == before and levels[0]
+                for text in ("writeb 0x2010000c 0xff", "writew 0x20102820 0xffff",
+                             "writel 0x2010000d 0xffffffff", "readl 0x20100200",
+                             "readl 0x201001b4", "readl 0x20102040"):
+                    command(text)
+                    assert snapshot() == before and levels[0]
+                write(0x2820, 0xdeadbeef)
+                assert read(0x2820) == 0xdeadbeef and read(0x18) == 4
+                write(0x18, 4)
+                assert read(0x18) == 0 and not levels[0]
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "finite configuration and explicit virtual raw-pending inputs/IRQ output; no firmware or frame"}
+
+
 def control20202_config_masks():
     # Independently transcribed whole-source shapes, not a device table read.
     groups = {
@@ -3095,6 +3275,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control2010-qtest-"):
+        return run_control2010(binary, output, name)
     if name.startswith("sysconfig-word-input-"):
         return run_sysconfig_words(binary, output, name)
     if name.startswith("fill-runtime-qtest-"):
@@ -3328,7 +3510,7 @@ def main():
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
-             fill_runtime_fixtures() + sysconfig_word_fixtures())
+             fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
