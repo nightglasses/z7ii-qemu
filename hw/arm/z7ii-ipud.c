@@ -54,6 +54,7 @@ static void z7ii_ipud_consume(void *opaque)
 {
     Z7IIIPUDState *s = opaque;
     unsigned before = fifo32_num_used(&s->tx);
+    uint32_t copied;
     uint8_t bytes[4];
     int consumed;
 
@@ -62,7 +63,8 @@ static void z7ii_ipud_consume(void *opaque)
         return;
     }
     /* Official peek leaves the queued word retained until fully sent. */
-    assert(fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes)) == sizeof(bytes));
+    copied = fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
+    assert(copied == sizeof(bytes));
     if (qemu_chr_fe_backend_connected(&s->peer)) {
         consumed = qemu_chr_fe_write(&s->peer, bytes + s->written,
                                      4 - s->written);
