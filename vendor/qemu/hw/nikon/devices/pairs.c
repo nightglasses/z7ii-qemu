@@ -8,7 +8,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define BANK_SIZE 0x680
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPairedEventBanksState, NIKON_PAIRED_EVENT_BANKS)

@@ -7,7 +7,7 @@
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-clock.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define TIMESTAMP_NOMINAL_HZ 48000000
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTimestampState, NIKON_TIMESTAMP)

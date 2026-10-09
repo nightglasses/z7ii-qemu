@@ -6,6 +6,7 @@
 #include "qemu/main-loop.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCompletionState, NIKON_COMPLETION)

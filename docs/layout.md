@@ -21,6 +21,6 @@ Issue [394](https://github.com/mashiro01/nightglass/issues/394) 将模拟器组�
 
 这些名字不证明 Nikon 的 SoC 型号、物理复位值或完整硬件能力。现有协议文档中的原始地址、观察结果、假设、失败和历史运行身份全部保留。重构后的类型名和日志前缀变化不将旧 receipt 升级为新构建证明。
 
-固定 QEMU `v11.1.2` 的完整官方源码位于 `vendor/qemu/`，许可证随源码保留。Nikon 文件直接属于该原生源码树，Kconfig、Meson 和 ARM 默认设备配置直接注册它们；没有复制 overlay 或注册 patch。根 `Makefile` 通过官方 configure 和 Make/Meson/Ninja 构建，`make check` 进入官方 qtest 构建链。官方内部构建脚本保留在依赖目录，项目不提供 Python 构建或测试调度器。新原生工程的实际构建与 qtest 验证由整合阶段执行，本次导入不宣称完成该验证或原版完整启动。
+固定 QEMU `v11.1.2` 的完整官方源码位于 `vendor/qemu/`，许可证随源码保留。Nikon 文件直接属于该原生源码树，Kconfig、Meson 和 ARM 默认设备配置直接注册它们；没有复制 overlay 或注册 patch。根 `Makefile` 通过官方 configure 和 Make/Meson/Ninja 构建，`make check` 进入官方 Nikon qtest 构建链，`make bench` 使用同一原生 C 测试的 GLib 性能模式。官方内部构建脚本保留在依赖目录，项目不提供 Python 构建或测试调度器。新原生工程的实际构建与 qtest 验证由整合阶段执行，本次导入不宣称完成该验证或原版完整启动。
 
 事件路由器模块来自固定提交 `a955007714bead0742fc6ee1f1be2602d75faf14`，当前文件名为 `router.c`。本结构分支保留该模块的完整代码和 13 个合成夹具，并在 Z7II machine 将其三个 SysBus IRQ 接至 GIC86/87/88。实际 native 构建仍由整合阶段执行；没有另外的 constructor 或机型兼容入口。

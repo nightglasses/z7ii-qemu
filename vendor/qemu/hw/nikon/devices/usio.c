@@ -11,7 +11,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define UART_NOMINAL_HZ 100000000
 OBJECT_DECLARE_SIMPLE_TYPE(NikonUSIOState, NIKON_USIO)

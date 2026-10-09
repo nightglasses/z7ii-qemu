@@ -13,7 +13,7 @@
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-clock.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTimingState, NIKON_TIMING)
 

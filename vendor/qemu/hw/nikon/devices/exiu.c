@@ -8,7 +8,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define EXIU_MASK 0xffff
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEXIUState, NIKON_EXIU)

@@ -13,7 +13,7 @@
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCopyState, NIKON_COPY)
 

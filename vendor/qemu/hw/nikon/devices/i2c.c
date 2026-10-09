@@ -13,7 +13,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/i2c/i2c.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define I2C_IRQ_MASK 0x2ff
 #define I2C_HOLD 0x10

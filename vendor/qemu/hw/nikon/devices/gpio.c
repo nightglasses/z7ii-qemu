@@ -8,7 +8,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define GPIO_PORTS 12
 OBJECT_DECLARE_SIMPLE_TYPE(NikonGPIOState, NIKON_GPIO)

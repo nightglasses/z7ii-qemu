@@ -10,7 +10,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "qemu/timer.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define CONTROL_SIZE 0x2928
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEventGateState, NIKON_EVENT_GATE)

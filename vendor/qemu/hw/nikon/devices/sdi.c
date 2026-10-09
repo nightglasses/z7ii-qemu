@@ -9,7 +9,7 @@
 #include "qapi/error.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-properties.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSDIState, NIKON_SDI)
 

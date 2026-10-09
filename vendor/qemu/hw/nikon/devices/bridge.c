@@ -12,7 +12,7 @@
 #include "hw/core/qdev-clock.h"
 #include "qemu/timer.h"
 #include "qemu/host-utils.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonBridgeState, NIKON_BRIDGE)
 

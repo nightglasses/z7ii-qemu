@@ -21,9 +21,10 @@ Install QEMU's native build dependencies (a C compiler, Make, Ninja, pkg-config,
 ```sh
 make -j8
 make check
+make bench
 ```
 
-The root Makefile invokes the official `vendor/qemu/configure` and the generated QEMU Makefile. Kconfig and Meson register Nikon sources directly; there is no patch, overlay copy or project build script. `make check` uses QEMU's native qtest chain. The default ARM system binary is `work/build/qemu/qemu-system-arm`.
+The root Makefile invokes the official `vendor/qemu/configure` and the generated QEMU Makefile. Kconfig and Meson register Nikon sources directly; there is no patch, overlay copy or project build script. `make check` runs the Nikon native qtest suite; `make bench` runs that C executable in GLib performance mode. Tests cover synthetic ARM execution and two-core WFE/SEV, device state, GPIO/GIC IRQ delivery and real fill/copy/HDMAC RAM transfers; they use no original firmware. The default ARM system binary is `work/build/qemu/qemu-system-arm`.
 
 Use standard configure options for a different host or toolchain. Run `make configure CONFIGURE_FLAGS='--target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'`, then `make`. `BUILD_DIR=/absolute/path/to/build` selects an out-of-tree build. Dependencies fetched by QEMU's official Meson wraps retain their upstream pinned definitions; camera firmware is never fetched. The vendored engineering change itself has not yet received its integrated native build/test result.
 

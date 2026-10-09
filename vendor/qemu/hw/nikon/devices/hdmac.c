@@ -14,7 +14,7 @@
 #include "hw/core/qdev-properties.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define HDMAC_DE (1U << 31)
 #define HDMAC_EB (1U << 31)

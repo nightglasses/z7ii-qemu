@@ -12,7 +12,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/ssi/ssi.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define SPI_DEPTH 32
 #define SPI_HZ 48000000

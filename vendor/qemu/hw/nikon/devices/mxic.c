@@ -6,7 +6,7 @@
 #include "qemu/log.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonMXICState, NIKON_MXIC)
 

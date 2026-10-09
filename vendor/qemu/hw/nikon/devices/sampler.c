@@ -8,7 +8,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
-#include "nikon.h"
+#include "hw/nikon/devices.h"
 
 #define CONFIG_WORDS (0x1a4 / 4)
 OBJECT_DECLARE_SIMPLE_TYPE(NikonDataSamplerState, NIKON_DATA_SAMPLER)
