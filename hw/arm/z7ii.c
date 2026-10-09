@@ -1016,6 +1016,13 @@ static void z7ii_init(MachineState *machine)
     sysbus_create_simple(TYPE_Z7II_CONTROL20203, 0x20203000,
                          qdev_get_gpio_in(gic, 124 - 32));
     {
+        DeviceState *control = sysbus_create_simple(TYPE_Z7II_CONTROL2016,
+                              0x20160000, qdev_get_gpio_in(gic, 132 - 32));
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(control), 1,
+                           qdev_get_gpio_in(gic, 133 - 32));
+    }
+    {
         DeviceState *control = sysbus_create_simple(TYPE_Z7II_CONTROL2014,
                               0x20140000, qdev_get_gpio_in(gic, 111 - 32));
         static const hwaddr addresses[] = {

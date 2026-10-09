@@ -1944,6 +1944,183 @@ def run_fill_runtime(binary, output, name):
             "scope": "no firmware; two real zero-fill buses/results/IRQ outputs and causal stop acknowledgement"}
 
 
+def control2016_profile():
+    profile = {0xc000: 6, 0xc018: 0xf2, 0xc0a4: 0, 0xc0cc: 8,
+               0xc0ac: 0, 0xc0b0: 0x60, 0xc0b4: 0, 0xc0b8: 0x71,
+               0xc0bc: 0xff, 0xc0c0: 0x12, 0xc0c4: 0x34, 0xc0c8: 0x56,
+               0x1f81c: 0, 0x1f84c: 8, 0x1f82c: 0, 0x1f830: 0x60,
+               0x1f834: 0, 0x1f838: 0x71, 0x1f83c: 0xff, 0x1f840: 0x12,
+               0x1f844: 0x34, 0x1f848: 0x56, 0x7fc: 0, 0x10004: 0x1f}
+    profile.update({0x600 + i * 4: value for i, value in enumerate(
+        (0xff, 0xff, 0x13, 0xb, 0x3d, 0, 0x7f, 0xff, 0))})
+    return profile
+
+
+def control2016_fixtures():
+    error = "control2016-access-or-activation-not-supported"
+
+    def write(offset, value):
+        return constant(0, 0x20160000 + offset) + constant(1, value) + [0xe5c01000]
+
+    def read(offset, reg):
+        return constant(0, 0x20160000 + offset) + [0xe5d00000 | reg << 12]
+
+    def timeout(offset, reg):
+        # Explicit source-shaped bounded status observation: zero returns1.
+        return write(offset, 0) + constant(3, 4096) + [
+            0xe5d02000, 0xe3520000, 0x1a000003, 0xe2533001, 0x1afffffa,
+            0xe3a00001 | reg << 12, 0xea000000, 0xe3a00000 | reg << 12]
+
+    profile = sum([write(x, y) for x, y in control2016_profile().items()], [])
+    return [
+        ("control2016-original-byte-init-shape", profile + read(0xc000, 4) +
+         read(0xc018, 5) + read(0x1f84c, 6) + read(0x5c0, 7),
+         {4: 6, 5: 0xf2, 6: 8, 7: 0}, None),
+        ("control2016-disabled-4096-polls-timeout", write(0xc0a4, 0) +
+         write(0x1f81c, 0) + timeout(0xc0a8, 4) + timeout(0x1f824, 5) +
+         read(0xc0a8, 6) + read(0x1f824, 7), {4: 1, 5: 1, 6: 0, 7: 0}, None),
+        ("control2016-fullbyte-controls-no-ready", write(0xc000, 0xff) +
+         write(0xc000, 0xf3) + write(0x7fc, 3) + write(0x10004, 0x1f) +
+         read(0xc000, 4) + read(0x7fc, 5) + read(0xc0a8, 6),
+         {4: 0xf3, 5: 3, 6: 0}, None),
+        ("control2016-word-width", constant(0, 0x2016c000) + [0xe5904000], {}, error),
+        ("control2016-halfword-width", constant(0, 0x2017f84c) + [0xe1d040b0], {}, error),
+        ("control2016-byte-gap", read(0xc001, 4), {}, error),
+        ("control2016-unsupported-rx-data", read(0x1f80c, 4), {}, error),
+        ("control2016-unsupported-rx-buffer", read(0x1f880, 4), {}, error),
+        ("control2016-unsupported-external-subsource", write(0x201c, 1), {}, error),
+        ("control2016-finite-end", read(0x20000, 4), {}, "uncovered-address"),
+    ] + [(f"control2016-reject-{x:x}-{y:x}", write(x, y), {}, error)
+         for x, y in ((0xc0a4, 8), (0x1f81c, 8), (0xc0a8, 1), (0x1f824, 1),
+                      (0xc018, 1), (0x7fc, 4), (0x10004, 0x20),
+                      (0xc01c, 1), (0x1f850, 1), (0x5c0, 1))] + \
+        [("control2016-qtest-" + suffix, [], {}, None) for suffix in (
+            "byte-config-and-status", "hierarchy-mask-ack", "preflight-reset-recovery")]
+
+
+def run_control2016(binary, output, name):
+    output.mkdir()
+    image, trace = output / "synthetic.bin", output / "guest.log"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    commands, levels = [], {}
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        with QEMUQtestMachine(str(binary), args=[
+                "-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"], name="control2016", base_temp_dir=sockets,
+                qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            devices = [x["name"] for x in vm.cmd("qom-list", path="/machine/unattached")
+                       if x["type"] == "child<z7ii-control2016-functional>"]
+            assert len(devices) == 1, devices
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writeb {0x20160000 + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readb {0x20160000 + offset:#x}").split()[1], 16)
+
+            def event(index, level):
+                command(f"set_irq_in {path} pending-bit {index} {level}")
+
+            def snapshot():
+                return [read(x) for x in sorted(control2016_profile())] + \
+                    [read(x) for x in list(range(0x400, 0x424, 4)) +
+                     [0x5c0, 0xc0a8, 0x1f824]]
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            if name.endswith("byte-config-and-status"):
+                for x, y in control2016_profile().items():
+                    write(x, y)
+                    assert read(x) == y
+                for x in (0xc0a8, 0x1f824):
+                    write(x, 0)
+                    assert all(read(x) == 0 for _ in range(32))
+                before = snapshot()
+                command("clock_step 1000000000")
+                assert snapshot() == before and not any(levels.values())
+                assert all(read(x) == 0 for x in range(0x400, 0x424, 4))
+            elif name.endswith("hierarchy-mask-ack"):
+                for x in range(0x600, 0x624, 4):
+                    write(x, 0)
+                event(0, 1)
+                event(8, 1)
+                event(16, 1)
+                event(24, 1)
+                assert read(0x5c0) == 0xd2 and levels[0] and levels[1]
+                assert all(read(x) == 1 for x in (0x400, 0x404, 0x40c, 0x418))
+                write(0x400, read(0x400))
+                assert read(0x5c0) == 0x52 and levels[0] and levels[1]
+                write(0x604, 1)
+                assert read(0x404) == 1 and read(0x5c0) == 0x12
+                write(0x40c, 1)
+                assert read(0x5c0) == 2 and not levels[0] and levels[1]
+                write(0x418, read(0x418))
+                assert read(0x5c0) == 0 and not any(levels.values())
+                write(0x604, 0)
+                assert read(0x5c0) == 0x40 and levels[0]
+                write(0x404, 0xff)
+                assert read(0x5c0) == 0 and not levels[0]
+                event(24, 1)
+                assert read(0x418) == 0
+                event(24, 0)
+                event(24, 1)
+                assert read(0x418) == 1 and read(0x5c0) == 2
+                assert levels[1] and not levels[0]
+            elif name.endswith("preflight-reset-recovery"):
+                for x, y in control2016_profile().items():
+                    write(x, y)
+                write(0x600, 0)
+                event(0, 1)
+                before = snapshot()
+                for x, y in ((0xc0a4, 8), (0x1f81c, 8), (0xc0a8, 1), (0x1f824, 1),
+                             (0xc018, 1), (0x7fc, 4), (0x10004, 0x20),
+                             (0xc01c, 1), (0x1f850, 1), (0x5c0, 1), (0xc001, 0)):
+                    write(x, y)
+                    assert snapshot() == before and levels[0]
+                for text in ("writel 0x2016c000 0", "writew 0x2017f84c 0",
+                             "readb 0x2017f80c", "readb 0x2017f880"):
+                    command(text)
+                    assert snapshot() == before and levels[0]
+                write(0xc000, 0xff)
+                write(0xc000, 0xf3)
+                assert read(0x400) == 1 and levels[0]
+                write(0x400, 1)
+                assert read(0x5c0) == 0 and not levels[0]
+                vm.cmd("system_reset")
+                assert snapshot() == [0] * len(before) and not any(levels.values())
+                event(0, 1)
+                assert read(0x400) == 0
+                event(0, 0)
+                event(0, 1)
+                assert read(0x400) == 1 and levels[0]
+            else:
+                raise AssertionError(name)
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    assert "transaction=error" not in logs + trace.read_text()
+    assert image.read_bytes() == payload
+    return {"fixture": name, "expected_error": None, "qemu_exit_code": 0,
+            "scope": "sparse BYTE config/disconnected timeout and virtual simple-child IRQs; no firmware/RX"}
+
+
 def control2014_profile():
     return {0: 1, 0x1000: 1, 0x2000: 1, 0x3000: 1,
             0x100: 0, 0x2100: 0, 0x3100: 0, 0x1100: 2,
@@ -4443,6 +4620,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("control2016-qtest-"):
+        return run_control2016(binary, output, name)
     if name.startswith("control2014-qtest-"):
         return run_control2014(binary, output, name)
     if name.startswith("control20203-qtest-"):
@@ -4692,7 +4871,8 @@ def main():
              private_class_fixtures() + ipud_fixtures() + control20202_fixtures() +
              fill_runtime_fixtures() + sysconfig_word_fixtures() + control2010_fixtures() +
              control2038_fixtures() + control20201_fixtures() + control20204_fixtures() +
-             control20205_fixtures() + control20203_fixtures() + control2014_fixtures())
+             control20205_fixtures() + control20203_fixtures() + control2014_fixtures() +
+             control2016_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
