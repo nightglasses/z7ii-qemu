@@ -34,7 +34,7 @@ cp "$repo/hw/arm/z7ii.c" "$repo/hw/arm/z7ii.h" \
    "$repo/hw/arm/z7ii-hdmac.c" "$repo/hw/arm/z7ii-i2c.c" \
    "$repo/hw/arm/z7ii-audio.c" "$repo/hw/arm/z7ii-timing.c" \
    "$repo/hw/arm/z7ii-copy.c" "$repo/hw/arm/z7ii-bridge.c" \
-   "$repo/hw/arm/z7ii-signal.c" "$src/hw/arm/"
+   "$repo/hw/arm/z7ii-signal.c" "$repo/hw/arm/z7ii-ipud.c" "$src/hw/arm/"
 cd "$build"
 "$src/configure" --target-list=arm-softmmu --disable-docs --disable-werror
 ninja qemu-system-arm

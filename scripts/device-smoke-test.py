@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import socket
 import struct
 import tempfile
 import time
@@ -1743,6 +1744,263 @@ def bridge_fixtures():
     ]
 
 
+def ipud_fixtures():
+    base = 0x24020000
+
+    def write(offset, value):
+        return constant(0, base + offset) + constant(1, value) + [0xe5801000]
+
+    def read(offset, reg):
+        return constant(0, base + offset) + [0xe5900000 | (reg << 12)]
+
+    init = write(0x10, 0x1d00) + write(0x20, 0x7ffff)
+    init += write(0x18, 0xffffffff) + write(0x1c, 0x3b)
+    error = "ipud-access-or-phase-not-supported"
+    return [
+        ("ipud-original-bootstrap-unavailable", init + read(0xc, 4) +
+         read(0x14, 5) + read(0x1c, 6) + read(0x80, 7),
+         {4: 0, 5: 0, 6: 0x3b, 7: 0}, None),
+        ("ipud-full-mask-retention", init + write(0x1c, 4) + read(0x1c, 4) +
+         write(0x1c, 0xfffffffb) + read(0x1c, 5),
+         {4: 4, 5: 0xfffffffb}, None),
+        ("ipud-rx-empty-rejected", read(0, 4), {}, error),
+        ("ipud-incomplete-commit-rejected", init + write(4, 1) + write(8, 2), {}, error),
+        ("ipud-unconfigured-commit-rejected", write(4, 1) + write(4, 2) +
+         write(4, 3) + write(8, 2), {}, error),
+        ("ipud-unknown-command-rejected", init + write(8, 1), {}, error),
+        ("ipud-unknown-config-rejected", init + write(0x10, 0x1d01), {}, error),
+        ("ipud-unknown-endpoint-config-rejected", init + write(0x20, 0x80000), {}, error),
+        ("ipud-config-readback-unbound", init + read(0x10, 4), {}, error),
+        ("ipud-ack-readback-unbound", read(0x18, 4), {}, error),
+        ("ipud-rmu-request-rejected", write(0x84, 1), {}, error),
+        ("ipud-rmu-data-rejected", write(0x88, 0), {}, error),
+        ("ipud-byte-access-rejected", constant(0, base + 0xc) + [0xe5d04000], {}, error),
+        ("ipud-halfword-access-rejected", constant(0, base + 4) + [0xe1c010b0], {}, error),
+        ("ipud-internal-hole-rejected", read(0x24, 4), {}, error),
+        ("ipud-aperture-end-rejected", read(0x98, 4), {}, "uncovered-address"),
+        ("ipud-aperture-before-rejected", constant(0, base - 4) + [0xe5904000],
+         {}, "uncovered-address"),
+    ] + [("ipud-qtest-" + suffix, [], {}, None) for suffix in (
+        "staged-and-committed-sink", "pressure-mask-and-ack",
+        "reset-cancels-packets", "external-rx-ack-no-second-pop",
+        "external-capacity-and-disconnect", "external-tx-exact-words",
+        "preflight-errors-preserve-state")]
+
+
+def run_ipud_fifo(binary, output, name):
+    output.mkdir()
+    image = output / "synthetic.bin"
+    payload = struct.pack("<I", 0xeafffffe)
+    image.write_bytes(payload)
+    trace = output / "guest.log"
+    commands, levels = [], {}
+    external = "external-" in name
+    preflight = "preflight-errors" in name
+    peer = None
+    with tempfile.TemporaryDirectory(prefix="ng-", dir="/tmp") as sockets:
+        endpoint = Path(sockets) / "peer.sock"
+        args = ["-bios", str(image), "-smp", "1", "-display", "none",
+                "-serial", "none", "-monitor", "none", "-D", str(trace),
+                "-d", "guest_errors"]
+        if external:
+            args += ["-chardev", f"socket,id=peer,path={endpoint},server=on,wait=off",
+                     "-global", "z7ii-ipud-functional.peer=peer"]
+        with QEMUQtestMachine(str(binary), args=args, name="ipud",
+                              base_temp_dir=sockets, qmp_timer=5) as vm:
+            vm.set_machine("z7ii-mas-diagnostic")
+            vm.launch()
+            children = vm.cmd("qom-list", path="/machine/unattached")
+            devices = [x["name"] for x in children
+                       if x["type"] == "child<z7ii-ipud-functional>"]
+            assert len(devices) == 1, children
+            path = "/machine/unattached/" + devices[0]
+
+            def command(text):
+                response = vm.qtest(text).strip()
+                events = []
+                while response.startswith("IRQ "):
+                    events.append(response)
+                    _, action, index = response.split()
+                    levels[int(index)] = action == "raise"
+                    response = vm.qtest("# consume pending command response").strip()
+                commands.append([text, response, events])
+                assert response.startswith("OK"), response
+                return response
+
+            def write(offset, value):
+                command(f"writel {0x24020000 + offset:#x} {value:#x}")
+
+            def read(offset):
+                return int(command(f"readl {0x24020000 + offset:#x}").split()[1], 16)
+
+            def step(ns):
+                command(f"clock_step {ns}")
+
+            def status(rx, tx):
+                assert read(0xc) == rx | (tx << 8)
+
+            def packet(words=(0x11223344, 0x55667788, 0x99aabbcc)):
+                for word in words:
+                    write(4, word)
+                write(8, 2)
+
+            def wait_rx(count):
+                deadline = time.monotonic() + 5
+                while read(0xc) & 0xff != count:
+                    assert time.monotonic() < deadline, "external RX did not arrive"
+                    time.sleep(0.005)
+
+            command(f"irq_intercept_out {path} sysbus-irq")
+            write(0x10, 0x1d00)
+            write(0x20, 0x7ffff)
+            write(0x1c, 0x3b)
+            status(0, 0)
+            assert read(0x14) == 0 and read(0x80) == 0
+            if external:
+                peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                peer.settimeout(5)
+                peer.connect(str(endpoint))
+                # Real socket input/output, with explicit virtual framing.
+                vm.cmd("query-status")
+            if name.endswith("staged-and-committed-sink"):
+                for word in (1, 2, 3):
+                    write(4, word)
+                step(1000000)
+                status(0, 3)
+                assert read(0x14) == 0
+                write(8, 2)
+                step(665)
+                status(0, 3)
+                step(1)
+                status(0, 2)
+                write(0x10, 0x1d00)
+                write(0x20, 0x7ffff)
+                status(0, 2)
+                step(1332)
+                status(0, 0)
+                assert read(0x14) == 0 and not levels.get(0, False)
+                write(8, 4)
+                status(0, 0)
+            elif name.endswith("pressure-mask-and-ack"):
+                for _ in range(10):
+                    packet()
+                write(4, 1)
+                write(4, 2)
+                status(0, 32)
+                step(1998)
+                status(0, 29)
+                assert read(0x14) == 4 and not levels.get(0, False)
+                write(0x1c, 4)
+                assert levels[0]
+                write(0x1c, 0xfffffffb)
+                assert read(0x14) == 4 and not levels[0]
+                write(0x1c, 4)
+                assert levels[0]
+                write(0x18, 0xffffffff)
+                assert read(0x14) == 0 and not levels[0]
+                write(4, 3)
+                write(8, 2)
+                step(666)
+                assert read(0x14) == 4 and levels[0]
+                write(0x18, 4)
+                step(100000)
+                status(0, 0)
+                assert read(0x14) == 0 and not levels[0]
+            elif name.endswith("reset-cancels-packets"):
+                for _ in range(10):
+                    packet()
+                write(4, 7)
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                step(100000)
+                status(0, 0)
+                assert read(0x14) == read(0x1c) == read(0x80) == 0
+                assert not levels.get(0, False)
+            elif name.endswith("external-rx-ack-no-second-pop"):
+                frame = struct.pack("<6I", 11, 22, 33, 44, 55, 66)
+                peer.sendall(frame[:4])
+                time.sleep(0.01)
+                status(0, 0)
+                assert read(0x14) == 0
+                peer.sendall(frame[4:])
+                wait_rx(6)
+                assert read(0x14) == 1 and levels[0]
+                assert [read(0) for _ in range(3)] == [11, 22, 33]
+                write(8, 4)
+                status(3, 0)  # ACK cannot pop another word or packet.
+                assert [read(0) for _ in range(3)] == [44, 55, 66]
+                write(8, 4)
+                status(0, 0)
+                write(0x18, read(0x14))
+                assert read(0x14) == 0 and not levels[0]
+            elif name.endswith("external-capacity-and-disconnect"):
+                frame = struct.pack("<33I", *range(33))
+                peer.sendall(frame)
+                wait_rx(30)
+                time.sleep(0.01)
+                status(30, 0)  # Complete packets reserve three words atomically.
+                assert [read(0) for _ in range(3)] == [0, 1, 2]
+                write(8, 4)
+                wait_rx(30)
+                assert [read(0) for _ in range(30)] == list(range(3, 33))
+                write(8, 4)
+                write(0x18, 0xffffffff)
+                peer.sendall(b"\x11\x22\x33\x44")
+                time.sleep(0.01)
+                peer.close()
+                peer = None
+                time.sleep(0.01)
+                status(0, 0)
+                assert read(0x14) == 0
+                vm.cmd("system_reset")
+                vm.event_wait("RESET", timeout=5)
+                status(0, 0)
+            elif name.endswith("external-tx-exact-words"):
+                packet()
+                step(1998)
+                status(0, 0)
+                delivered = b""
+                while len(delivered) < 12:
+                    delivered += peer.recv(12 - len(delivered))
+                assert delivered == struct.pack("<3I", 0x11223344, 0x55667788, 0x99aabbcc)
+                status(0, 0)  # External output never loops back a fabricated reply.
+                (output / "external-transmitted.bin").write_bytes(delivered)
+            elif preflight:
+                for _ in range(10):
+                    packet()
+                write(4, 1)
+                write(4, 2)
+                status(0, 32)
+                for offset, value in ((4, 3), (8, 2), (8, 3), (0x10, 0),
+                                      (0x20, 0), (0x84, 1), (0x88, 0)):
+                    write(offset, value)
+                    status(0, 32)
+                    assert read(0x14) == 0 and read(0x80) == 0
+                step(1998)
+                status(0, 29)
+                write(4, 3)
+                write(8, 2)  # Retained configuration permits a real recovery.
+                step(100000)
+                status(0, 0)
+                assert read(0x14) == 4
+            else:
+                raise AssertionError(name)
+            if peer is not None:
+                peer.close()
+            logs = vm.get_log() or ""
+            (output / "qemu.log").write_text(logs)
+        assert vm.exitcode() == 0, vm.get_log()
+    combined = logs + trace.read_text()
+    if preflight:
+        assert "reason=ipud-access-or-phase-not-supported" in combined
+    else:
+        assert "transaction=error" not in combined
+    assert image.read_bytes() == payload
+    (output / "qtest-commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    return {"fixture": name, "expected_error": preflight, "qemu_exit_code": 0,
+            "scope": "no firmware; real FIFO/clock/IRQ output and optional explicit external socket frames"}
+
+
 def signal_fixtures():
     base = 0x2b000000
 
@@ -2305,6 +2563,8 @@ def run_copy_romd_large(binary, output, name):
 
 
 def run(binary, output, name, words, expected, reason):
+    if name.startswith("ipud-qtest-"):
+        return run_ipud_fifo(binary, output, name)
     if name.startswith("signal-input-"):
         return run_signal_input(binary, output, name)
     if name == "copy-romd-three-mib-exact-bytes":
@@ -2503,7 +2763,7 @@ def main():
              i2c_fixtures() + record_slot_fixtures() + audio_fixtures() +
              timing_fixtures() + copy_fixtures() + footer_slot_fixtures() +
              external_nor_fixtures() + bridge_fixtures() + signal_fixtures() +
-             private_class_fixtures())
+             private_class_fixtures() + ipud_fixtures())
     names = [case[0] for case in cases]
     assert len(names) == len(set(names)), "duplicate synthetic fixture names"
     output = args.output.resolve()
