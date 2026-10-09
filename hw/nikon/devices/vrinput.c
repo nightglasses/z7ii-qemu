@@ -484,6 +484,7 @@ bool nikon_vr_input_upload_begin(DeviceState *dev, uint32_t stream_size,
 }
 
 static bool vr_input_store_frame(NikonVRInput *s, uint8_t command, Error **errp);
+static void vr_input_store_cancel(NikonVRInput *s);
 
 bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
                                  Error **errp)
@@ -491,17 +492,14 @@ bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
     NikonVRInput *s = NIKON_VR_INPUT(dev);
     uint8_t mode, cs, pointer[4], count[4], frame[268];
     uint32_t address, remaining, size;
+    bool record = false;
     g_autoptr(GBytes) bytes = NULL;
 
     if (!source || !s->upload) {
         error_setg(errp, "VR upload capture needs a real source and begun stage");
         return false;
     }
-    if (address_space_read(source, 0x10f55, MEMTXATTRS_UNSPECIFIED,
-                           &mode, 1) != MEMTX_OK ||
-        address_space_read(source, 0x8c044, MEMTXATTRS_UNSPECIFIED,
-                           &cs, 1) != MEMTX_OK ||
-        address_space_read(source, 0x11904, MEMTXATTRS_UNSPECIFIED,
+    if (address_space_read(source, 0x11904, MEMTXATTRS_UNSPECIFIED,
                            pointer, 4) != MEMTX_OK ||
         address_space_read(source, 0x82008, MEMTXATTRS_UNSPECIFIED,
                            count, 4) != MEMTX_OK) {
@@ -510,6 +508,25 @@ bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
     }
     address = ldl_le_p(pointer);
     remaining = ldl_le_p(count);
+    /* Identify a started command before rejecting its capture envelope.  The
+     * command is meaningful only in an actual RX ring with a received byte;
+     * an empty ring must not turn stale contents into a new record attempt.
+     */
+    if ((address == 0x1587c || address == 0x15990) && remaining < 276) {
+        if (address_space_read(source, address, MEMTXATTRS_UNSPECIFIED,
+                               frame, 1) != MEMTX_OK) {
+            error_setg(errp, "VR upload RX command bus read failed");
+            return false;
+        }
+        record = frame[0] == 0xf7;
+    }
+    if (address_space_read(source, 0x10f55, MEMTXATTRS_UNSPECIFIED,
+                           &mode, 1) != MEMTX_OK ||
+        address_space_read(source, 0x8c044, MEMTXATTRS_UNSPECIFIED,
+                           &cs, 1) != MEMTX_OK) {
+        error_setg(errp, "VR upload capture state bus read failed");
+        goto rejected;
+    }
     /* Source IRQ15 invokes 177C3 on a partial 276-byte receive before calling
      * the resident callback. 11904 is consumed RX; its R2 is selected TX.
      */
@@ -517,47 +534,51 @@ bool nikon_vr_input_upload_capture(DeviceState *dev, AddressSpace *source,
         (address != 0x1587c && address != 0x15990)) {
         error_setg(errp, "VR upload requires guest update mode, high CS and "
                    "the actual consumed RX ring");
-        return false;
+        goto rejected;
     }
     size = 276 - remaining;
     if (size != 152 && size != 268) {
         error_setg(errp, "VR upload DMA count does not describe a whole packet");
-        return false;
+        goto rejected;
     }
     if (address_space_read(source, address, MEMTXATTRS_UNSPECIFIED,
                            frame, size) != MEMTX_OK) {
         error_setg(errp, "VR upload RX packet bus read failed");
-        return false;
+        goto rejected;
     }
     if (frame[0] != 0xf5 && mode != 2) {
         error_setg(errp, "VR record/status capture requires actual guest mode 2");
-        return false;
+        goto rejected;
     }
     if (s->store && frame[0] != 0xf8) {
         error_setg(errp, "VR update must poll until actual persistence completes");
-        return false;
+        goto rejected;
     }
     if (s->upload_record_persistence && frame[0] != 0xf5 &&
         frame[0] != 0xf8 &&
         (!s->upload_prepared || s->store_error ||
          s->upload_durable_received != nikon_vr_upload_received(s->upload))) {
         error_setg(errp, "VR update needs durable preparation and prior records");
-        return false;
+        goto rejected;
     }
     bytes = g_bytes_new(frame, size);
     if (!nikon_vr_upload_receive(s->upload, bytes, errp)) {
-        if (s->upload_record_persistence && frame[0] == 0xf7) {
-            /* A rejected current record must not reuse the previous record's
-             * eligible 2: MAS applies that byte to its current chunk cursor.
-             * A new F5 explicitly restarts the functional storage stage.
-             */
-            s->store_error = -EINVAL;
-            s->upload_prepared = s->upload_durable_final = false;
-        }
-        return false;
+        goto rejected;
     }
     return !s->upload_record_persistence ||
            vr_input_store_frame(s, frame[0], errp);
+
+rejected:
+    if (s->upload_record_persistence && record) {
+        /* MAS applies status 2 to the current chunk, including a short F7.
+         * Suppress an old in-flight completion as well as its eligibility.
+         * Issued disk writes are not rolled back; a new F5 starts a new stage.
+         */
+        vr_input_store_cancel(s);
+        s->store_error = -EINVAL;
+        s->upload_prepared = s->upload_durable_final = false;
+    }
+    return false;
 }
 
 GBytes *nikon_vr_input_upload_snapshot(DeviceState *dev, const char **origin)

@@ -861,13 +861,14 @@ static void test_flash_cancel_and_bounds(void)
     unlink(package);
 }
 
-static void upload_capture(QTestState *qts, uint8_t command,
-                           const uint8_t *record, bool success)
+static void upload_capture_bytes(QTestState *qts, uint8_t command,
+                                 const uint8_t *record, unsigned size,
+                                 bool success)
 {
     uint8_t packet[268] = { command, 0, 0x10, 0 };
-    unsigned size = command == 0xf7 ? 268 : 152;
     unsigned i;
 
+    g_assert_cmpuint(size, <=, sizeof(packet));
     if (record) {
         packet[2] = 8;
         packet[3] = 1;
@@ -880,6 +881,13 @@ static void upload_capture(QTestState *qts, uint8_t command,
     qtest_writel(qts, 0x11904, 0x1587c);
     qtest_writel(qts, 0x82008, 276 - size);
     input_operation(qts, "upload-capture", success);
+}
+
+static void upload_capture(QTestState *qts, uint8_t command,
+                           const uint8_t *record, bool success)
+{
+    upload_capture_bytes(qts, command, record,
+                         command == 0xf7 ? 268 : 152, success);
 }
 
 static void test_upload_staging(void)
@@ -1160,6 +1168,86 @@ static void test_upload_record_progress(void)
     unlink(package);
 }
 
+static void test_upload_capture_rejection(void)
+{
+    uint8_t record[262] = { 4, 1, 4, 0, 0, 1 };
+    uint8_t metadata_seed[512] = { 0 }, metadata_expected[512] = { 4, 1, 4, 0, 0, 1 };
+    g_autofree uint8_t *body = g_malloc0(819200);
+    g_autofree char *package = test_package(true);
+    g_autofree char *body_path = test_input_file(body, 819200);
+    g_autofree char *metadata_path = test_input_file(metadata_seed, 512);
+    g_autofree char *readback = NULL;
+    g_autoptr(GError) error = NULL;
+    gsize size;
+    unsigned attempt;
+    QTestState *qts = qtest_initf("-machine nikonvr -bios %s "
+        "-drive if=none,id=uploadbody,format=raw,file=%s "
+        "-drive if=none,id=uploadmetadata,format=raw,file=%s "
+        "-device nikon-vr-input,id=input,upload-body-drive=uploadbody,"
+        "upload-metadata-drive=uploadmetadata,upload-storage-base=0xfff00000,"
+        "upload-storage-size=819200,upload-record-persistence=true",
+        package, body_path, metadata_path);
+
+    input_set_number(qts, "length", 3 * 262);
+    qtest_qmp_assert_success(qts,
+        "{'execute':'qom-set','arguments':{'path':'/machine/peripheral/input',"
+        "'property':'upload-origin','value':'synthetic-capture-rejection'}}");
+    input_operation(qts, "upload-begin", true);
+    for (attempt = 0; attempt < 4; attempt++) {
+        record[0] = 4;
+        record[1] = 1;
+        record[2] = 4;
+        record[3] = record[4] = 0;
+        record[5] = 1;
+        memset(record + 6, 0, 256);
+        qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 1);
+        qtest_writeb(qts, 0x10f55, 2);
+        upload_capture(qts, 0xf5, NULL, true);
+        upload_wait_store(qts);
+        upload_capture(qts, 0xf7, record, true);
+        upload_wait_store(qts);
+        g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 2);
+        /* A rejected short poll, or an empty ring containing a stale F7,
+         * is not a new chunk and must leave the previous eligibility alone.
+         */
+        upload_capture_bytes(qts, 0xf8, NULL, 151, false);
+        g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 2);
+        qtest_writeb(qts, 0x1587c, 0xf7);
+        qtest_writel(qts, 0x82008, 276);
+        input_operation(qts, "upload-capture", false);
+        g_assert_cmpuint(input_get_number(qts, "upload-eligible-status"), ==, 2);
+
+        stl_le_p(record + 2, 0xfff00000);
+        memset(record + 6, 0xa5, 256);
+        if (attempt == 2) {
+            qtest_writeb(qts, 0x10f55, 1);
+        } else if (attempt == 3) {
+            qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 0);
+        }
+        upload_capture_bytes(qts, 0xf7, record,
+                             attempt == 0 ? 267 : attempt == 1 ? 1 : 268,
+                             false);
+        g_assert_false(input_get_bool(qts, "upload-prepared"));
+        g_assert_cmpuint(input_get_number(qts, "upload-received"), ==, 262);
+        g_assert_cmpuint(input_get_number(qts, "upload-durable-received"), ==, 262);
+        qtest_writeb(qts, 0x10f55, 2);
+        qtest_set_irq_in(qts, "/machine/vr-peripherals", "pad", 39, 1);
+        upload_capture(qts, 0xf8, NULL, true);
+        upload_status_unavailable(qts);
+    }
+    qtest_quit(qts);
+    g_assert_true(g_file_get_contents(body_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, body, 819200);
+    g_clear_pointer(&readback, g_free);
+    g_assert_true(g_file_get_contents(metadata_path, &readback, &size, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(readback, size, metadata_expected, 512);
+    unlink(body_path);
+    unlink(metadata_path);
+    unlink(package);
+}
+
 static void test_external_conflict(void)
 {
     if (g_test_subprocess()) {
@@ -1252,6 +1340,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/vr/upload-staging", test_upload_staging);
     qtest_add_func("/nikon/vr/upload-persistence", test_upload_persistence);
     qtest_add_func("/nikon/vr/upload-record-progress", test_upload_record_progress);
+    qtest_add_func("/nikon/vr/upload-capture-rejection", test_upload_capture_rejection);
     qtest_add_func("/nikon/vr/external-span", test_external_span);
     qtest_add_func("/nikon/vr/flash-overlay", test_flash_overlay);
     qtest_add_func("/nikon/vr/flash-cancel-bounds", test_flash_cancel_and_bounds);
