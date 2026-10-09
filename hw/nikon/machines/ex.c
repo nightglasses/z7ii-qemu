@@ -23,11 +23,11 @@
 #include "hw/arm/armv7m.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/char/stm32f2xx_usart.h"
-#include "hw/timer/stm32f2xx_timer.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/exio.h"
+#include "hw/nikon/extimer.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
 #include "system/qtest.h"
@@ -95,11 +95,12 @@ struct NikonEXState {
     AddressSpace dma_as;
     Clock *cpuclk;
     Clock *refclk;
+    Clock *timerclk[14];
     DeviceState *gpio[9];
     DeviceState *uart[6];
     DeviceState *timer[14];
     DeviceState *io;
-    OrIRQState timer_or[2];
+    OrIRQState timer_or[6];
     EXPinRoute route[9][16];
     qemu_irq pin_route_irq[9][16];
     qemu_irq pad_output[9 * 16];
@@ -441,6 +442,22 @@ static uint64_t ex_pll_hz(NikonEXState *s)
     return (uint64_t)((cfg & (1 << 22)) ? EX_HSE_HZ : EX_HSI_HZ) * n / m / p;
 }
 
+static void ex_timer_clocks(NikonEXState *s)
+{
+    static const unsigned ppre[] = { 1, 1, 1, 1, 2, 4, 8, 16 };
+    static const unsigned apb2_bits[] = { 0, 1, 16, 17, 18 };
+    uint32_t cfg = s->rcc[2];
+    uint64_t hclk = clock_get_hz(s->cpuclk);
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timerclk); i++) {
+        bool apb2 = i >= 9;
+        unsigned divider = ppre[extract32(cfg, apb2 ? 13 : 10, 3)];
+        unsigned bit = apb2 ? apb2_bits[i - 9] : i;
+        bool enabled = s->rcc[(apb2 ? 0x44 : 0x40) / 4] & (1 << bit);
+        uint64_t hz = enabled ? hclk / divider * (divider > 1 ? 2 : 1) : 0;
+        clock_update_hz(s->timerclk[i], hz);
+    }
+}
+
 static void ex_clock_settle(void *opaque)
 {
     NikonEXState *s = opaque;
@@ -476,9 +493,10 @@ static void ex_clock_settle(void *opaque)
     }
     hz /= hpre[extract32(cfg, 4, 4)];
     if (hz) {
-        clock_set_hz(s->cpuclk, hz);
-        clock_set_hz(s->refclk, hz / 8);
+        clock_update_hz(s->cpuclk, hz);
+        clock_update_hz(s->refclk, hz / 8);
     }
+    ex_timer_clocks(s);
     ex_rtc_schedule(s);
 }
 
@@ -951,6 +969,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             ex_rtc_reset(s);
         }
         ex_rcc_reset_devices(s, off, v & ~previous);
+        if (off == 0x40 || off == 0x44 || off == 8) {
+            ex_timer_clocks(s);
+        }
         timer_mod(s->osc_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + EX_OSC_DELAY_NS);
     } else if (aligned == 0x40007000) {
         s->pwr[0] = v & 0x0003ffff;
@@ -1246,8 +1267,9 @@ static void ex_reset(DeviceState *dev)
         ex_i2c_reset(s, i);
     }
     ex_exti_update(s);
-    clock_set_hz(s->cpuclk, EX_HSI_HZ);
-    clock_set_hz(s->refclk, EX_HSI_HZ / 8);
+    clock_update_hz(s->cpuclk, EX_HSI_HZ);
+    clock_update_hz(s->refclk, EX_HSI_HZ / 8);
+    ex_timer_clocks(s);
 }
 
 static void ex_reset_requested(void *opaque)
@@ -1300,8 +1322,15 @@ static void ex_realize(DeviceState *dev, Error **errp)
     static const uint32_t timer_base[] = { 0x40000000, 0x40000400, 0x40000800,
         0x40000c00, 0x40001000, 0x40001400, 0x40001800, 0x40001c00,
         0x40002000, 0x40010000, 0x40010400, 0x40014000, 0x40014400, 0x40014800 };
-    static const int timer_irq[] = { 28, 29, 30, 50, 54, 55, 43, -1,
-                                     45, -1, -1, 24, -1, 26 };
+    static const int timer_irq[] = { 28, 29, 30, 50, 54, 55, -1, -1,
+                                    -1, -1, -1, -1, -1, -1 };
+    static const unsigned timer_channels[] = { 4, 4, 4, 4, 0, 0, 2, 1,
+                                               1, 4, 4, 2, 1, 1 };
+    static const unsigned timer_number[] = { 2, 3, 4, 5, 6, 7, 12, 13,
+                                             14, 1, 8, 9, 10, 11 };
+    static const unsigned shared_irq[] = { 24, 25, 26, 43, 44, 45 };
+    static const unsigned shared_small[] = { 11, 12, 13, 6, 7, 8 };
+    static const unsigned advanced_output[] = { 3, 0, 2 };
 
     memory_region_init(&s->memory, OBJECT(s), "ex.address-space", UINT64_C(0x100000000));
     address_space_init(&s->dma_as, &s->memory, "ex.dma");
@@ -1339,25 +1368,36 @@ static void ex_realize(DeviceState *dev, Error **errp)
         ex_map_device(s, uart, uart_base[i], uart_irq[i]);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(timer_base); i++) {
-        DeviceState *timer = qdev_new(TYPE_STM32F2XX_TIMER);
+        DeviceState *timer = qdev_new(TYPE_NIKON_EX_TIMER);
+        g_autofree char *name = g_strdup_printf("timer%u", i);
         s->timer[i] = timer;
-        qdev_prop_set_uint64(timer, "clock-frequency", EX_HSI_HZ);
+        object_property_add_child(OBJECT(s), name, OBJECT(timer));
+        qdev_prop_set_uint32(timer, "width", i == 0 || i == 3 ? 32 : 16);
+        qdev_prop_set_uint32(timer, "channels", timer_channels[i]);
+        qdev_prop_set_uint32(timer, "number", timer_number[i]);
+        qdev_prop_set_bit(timer, "advanced", i == 9 || i == 10);
+        qdev_prop_set_uint64(timer, "base", timer_base[i]);
+        object_property_set_link(OBJECT(timer), "cpu", OBJECT(s->armv7m.cpu),
+                                 &error_abort);
+        qdev_connect_clock_in(timer, "clk", s->timerclk[i]);
         ex_map_device(s, timer, timer_base[i], timer_irq[i]);
     }
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
         qdev_prop_set_uint32(DEVICE(&s->timer_or[i]), "num-lines", 2);
         qdev_realize(DEVICE(&s->timer_or[i]), NULL, &error_fatal);
         qdev_connect_gpio_out(DEVICE(&s->timer_or[i]), 0,
-                              qdev_get_gpio_in(armv7m, i ? 44 : 25));
+                              qdev_get_gpio_in(armv7m, shared_irq[i]));
+        unsigned advanced = i < 3 ? 9 : 10;
+        sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[advanced]),
+                            advanced_output[i % 3],
+                            qdev_get_gpio_in(DEVICE(&s->timer_or[i]), 0));
+        sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[shared_small[i]]), 0,
+                            qdev_get_gpio_in(DEVICE(&s->timer_or[i]), 1));
     }
-    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[9]), 0,
-                        qdev_get_gpio_in(DEVICE(&s->timer_or[0]), 0));
-    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[12]), 0,
-                        qdev_get_gpio_in(DEVICE(&s->timer_or[0]), 1));
-    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[10]), 0,
-                        qdev_get_gpio_in(DEVICE(&s->timer_or[1]), 0));
-    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[7]), 0,
-                        qdev_get_gpio_in(DEVICE(&s->timer_or[1]), 1));
+    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[9]), 1,
+                        qdev_get_gpio_in(armv7m, 27));
+    sysbus_connect_irq(SYS_BUS_DEVICE(s->timer[10]), 1,
+                        qdev_get_gpio_in(armv7m, 46));
     for (unsigned i = 0; i < ARRAY_SIZE(s->gpio); i++) {
         DeviceState *gpio = qdev_new(TYPE_STM32L4X5_GPIO);
         g_autofree char *name = g_strdup_printf("EX GPIO%c", 'A' + i);
@@ -1384,10 +1424,6 @@ static void ex_realize(DeviceState *dev, Error **errp)
     }
     s->io = DEVICE(i2c_slave_new(TYPE_NIKON_EX_IO, 0x22));
     object_property_add_child(OBJECT(s), "io", OBJECT(s->io));
-    /* Original logical IRQ0 maps to EXTI0. A0 is the explicit functional
-     * net assignment, selected by the original EXTICR reset value. */
-    qdev_connect_gpio_out_named(s->io, "interrupt", 0,
-                               nikon_ex_gpio_input(s, 0, 0));
     i2c_slave_realize_and_unref(I2C_SLAVE(s->io), s->i2c[0].bus, &error_fatal);
 }
 
@@ -1395,11 +1431,15 @@ static void ex_init(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
     object_initialize_child(obj, "armv7m", &s->armv7m, TYPE_ARMV7M);
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
         object_initialize_child(obj, "timer-or[*]", &s->timer_or[i], TYPE_OR_IRQ);
     }
     s->cpuclk = clock_new(obj, "cpuclk");
     s->refclk = clock_new(obj, "refclk");
+    for (unsigned i = 0; i < ARRAY_SIZE(s->timerclk); i++) {
+        g_autofree char *name = g_strdup_printf("timerclk%u", i);
+        s->timerclk[i] = clock_new(obj, name);
+    }
     clock_set_hz(s->cpuclk, EX_HSI_HZ);
     clock_set_hz(s->refclk, EX_HSI_HZ / 8);
     s->osc_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_clock_settle, s);
@@ -1465,6 +1505,14 @@ static void ex_machine_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    if (qtest_enabled()) {
+        /*
+         * Synthetic fixture wire verifies GPIO/EXTI/NVIC propagation. The
+         * original selected polling mode consumes TIM11 CC1, not this pad.
+         */
+        qdev_connect_gpio_out_named(s->io, "interrupt", 0,
+                                   nikon_ex_gpio_input(s, 0, 0));
+    }
     /* ARMv7M already owns the private board region in its container. */
     memory_region_init_alias(&s->system_view, OBJECT(s), "ex.system-view",
                              &s->armv7m.container, 0, UINT64_C(0x100000000));

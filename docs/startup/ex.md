@@ -57,7 +57,7 @@ assumption supported by the original Thumb/v7-M/FPU register accesses.
 Peripheral addresses and the reset group were inspected together in the
 original `0x080001e0..0x08000f7c` startup paths using native GNU ARM objdump;
 runtime descriptor evidence additionally identifies the three I2C bases and
-IRQ31/32 routing. [ST RM0090](https://www.st.com/resource/en/reference_manual/rm0090-stm32f4xx-reference-manual-stmicroelectronics.pdf)
+IRQ31/32 routing. [ST RM0090](https://www.st.com/resource/en/reference_manual/dm00031020-stm32f10x-microcontrollers-stmicroelectronics.pdf)
 is the public protocol reference. Matching addresses establish the software
 interface used by this profile, not the physical MCU identity.
 
@@ -70,7 +70,7 @@ interface used by this profile, not the physical MCU identity.
 | GPIO A-I | `0x40020000 + 0x400*port` | Upstream GPIO state machine restricted to the common F4 `0x00..0x27` layout; explicit F4 reset settings |
 | SYSCFG / EXTI | `0x40013800` / `0x40013c00` | Guest EXTICR pad selection, rising/falling edge detection, software requests, masks, pending W1C, grouped NVIC lines |
 | USART 1-6 | standard F4 bases | Upstream STM32 USART, real `serial_hd(0..5)` character backends, receive/transmit IRQ state |
-| timers 1-14 | standard F4 bases | Upstream STM32 counters/interrupt lifecycle; shared update IRQs combine through upstream OR-IRQ devices |
+| timers 1-14 | standard F4 bases | QEMU Clock/QEMUTimer counter, update and CC1-4 scheduling; upstream OR-IRQ combines the six shared advanced/small timer lines |
 | ADC 1-3 / common | `0x40012000 + 0x100*adc` / `0x40012304` | Configuration, external sample conversion, resolution/alignment, EOC/overrun, real DMA/IRQ; no fabricated reset samples |
 | SPI 1-4 | `0x40013000`, `0x40003800`, `0x40003c00`, `0x40013400` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun with DR/SR clear sequence, IRQ and DMA requests |
 | I2C 1-3 | `0x40005400 + 0x400*channel` | Real I2CBus START/address/data/STOP, actual slave ACK/NACK, SR1/SR2 address-clear sequence and event/error IRQ |
@@ -93,10 +93,11 @@ apertures would silently let missing peripherals return zero.
 The functional timing assumptions are a 16 MHz reset HSI, a 10 MHz board HSE
 consistent with the original reset PLL arguments, and a 100 microsecond
 oscillator settling time. RCC derives CPU/SysTick clocks from the guest PLL and
-AHB divider. The reused peripheral timers currently use the fixed reset clock;
-APB clock-rate accuracy and physical oscillator drift are outside this profile.
-Clock enables retain the guest's register state; electrical clock gating is not
-modeled. DMA double-buffer mode fails with transfer-error status; ordinary and
+AHB divider. Timer clocks follow RCC APB1/APB2 enables and dividers, including
+the doubled timer clock when the APB divider exceeds one. Gating freezes the
+counter phase. Other peripheral clock enables retain their register state;
+electrical clock gating is not modeled for those devices. Physical oscillator
+drift is not modeled. DMA double-buffer mode fails with transfer-error status; ordinary and
 circular single-buffer beats are implemented. Flash erase/program, SPI CRC,
 ten-bit I2C, RTC timestamp/tamper input and subsecond calibration/shift, and
 electrical signal timing are not claimed. Nonzero RTC shift/calibration requests
@@ -210,25 +211,90 @@ and physical reset. Reserved commands NACK. Debounce uses actual P0_0 clock
 edges, including the initial nine-cycle qualification, without inventing an
 external oscillator. Drive strength is stored; analog current is not modeled.
 
-Two electrical choices are explicit functional assumptions: floating inputs
-resolve high when neither an external driver nor configured pull drives them;
-active-low INT is connected to EX A0, since original logical IRQ0 resolves to
-NVIC6 (EXTI0) and the observed EXTICR0 selects A. This is a software net assignment,
-not a recovered board netlist. The 24 named `pad` inputs accept low/high/release
+Floating inputs resolve high when neither an external driver nor configured pull
+drives them; this is an explicit electrical functional assumption. The selected
+original polling mode's IRQ selector at `0x08051738` is `0x33`, which the actual
+registry maps to NVIC26, the TIM11 CC1 service. It is not GPIO ID `0x1a`, nor
+NVIC6. The peer INT remains unconnected in the original profile. Only the empty
+qtest fixture wires INT to A0 to verify GPIO/EXTI/NVIC propagation; that synthetic
+wire establishes no physical board mapping. The 24 named `pad` inputs accept low/high/release
 as 0/1/-1 and carry no camera button names. No initial switch pattern or power
 event is synthesized. `nikon_ex_io(ex)` returns the realized bus-owned peer for
-external input connection. Cold board reset resets its registers; EX AIRCR
+external input connection; the separate `pad-out` group reports output drive or
+high impedance. Cold board reset resets its registers; EX AIRCR
 resets only the MCU and preserves the independent peer. Its active-low `reset`
 input resets the peer and makes it NACK until released. Physical RESET wiring
 remains unconnected rather than assigning an undocumented EX output.
+
+The original snapshot completion is distinct from a camera key. At `0x08030740`,
+request selector 1 and a non-null callback enter one of six slots at `0x2001ffcc`
+and signal IoExpSvc flag `0x20`. Outer dispatcher `0x080304ac` tail-branches to
+`0x0803042c`, where load `0x08030478` and BLX `0x08030488` consume that same bank
+and pass current/previous three-byte snapshots to the callback. The separate
+flag `0x10` bank at `0x2001ffb4` is not this request. `0x080380a8` unconditionally sets power
+state `0x200159a4 + 8` to 1, copies both snapshots and derives falling bits as
+`(~current & previous) & 0xffffff`, then calls `0x08038124`. No particular pad
+pattern gates that store. `0x08038124` waits for bytes `+8` and `+13` to both equal
+1, signals the original power descriptor with `0x1000` and clears both bytes.
+The resulting `0x08037ccc` processing has no early return based on an input bit;
+its final `0x08037eac` invokes the registered callback with event `0x04060002`.
+The model supplies the I2C peer, not any of these guest flags or callbacks.
 
 Original HAL `0x080442c4` uses BTF and drains two received bytes after STOP.
 The EX controller retains a two-byte DR/shift-register receive pipeline, exposes
 RXNE/BTF from occupancy and preserves the received bytes after STOP. The new
 native fixture checks this original three-byte finish in addition to cyclic
 register writes, AI across holes, external input, edge/latch/read-clear,
-reset-held NACK and reserved-command NACK. These changes await the sole builder;
-they do not yet establish that the original power condition has been satisfied.
+reset-held NACK and reserved-command NACK. The six existing native cases passed
+with EX source `16bc110`; the focused IO case passed with `0afe966` in the shared
+ARM snapshot `56a99b9`. IO reset publishes electrical levels in Resettable exit,
+after GPIO reset hold, preserving the first real falling edge. That synthetic
+fixture does not establish that the original power condition has been satisfied.
+
+The complete selected-mode tables come from original offsets `0x51738..0x517d7`,
+not from a GPIO-number interpretation of the RAM state:
+
+| Original address | Content / consuming source |
+|---|---|
+| `0x08051738` | IRQ selector `0x33`; `0x08030664..0x0803068a` resolves, installs callback and enables it |
+| `0x0805173c` | Snapshot event ID `0x020d0001` |
+| `0x08051740` | Request callback event ID `0x020d0004` |
+| `0x08051744` | IRQ callback `0x08030409` (Thumb) |
+| `0x08051748` | Twelve-mode words: `0,0,0,0,1,1,0,1,1,0,0,0`; copied to IO state `+0xc0` |
+| `0x08051778` | Same twelve-mode words; copied to `+0xf0`, consumed to register the selected timer |
+| `0x080517a8` | Twelve-mode words: `0,0,0,1,0,0,1,0,0,0,0,0`; consumed by configuration update |
+
+Actual cold initialization `0x080303f6` selects mode 8. Its copied timer-enable
+word is one. Registry pointer `0x2000f330` selects table `0x0804de7c`, whose byte
+`[0x33]` at `0x0804deaf` is `0x1a`, hence NVIC26. IRQ callback `0x08030408`
+disables/clears that timer through the original HAL and signals IoExpSvc bit 8.
+The dispatcher at `0x080304fa` then reads the three-byte snapshot and rearms
+the timer at `0x08030522`. This is periodic guest polling; no physical PCAL INT
+pad can be inferred from that selector.
+
+An actual original run with shared ARM snapshot `56a99b9` completed the I2C
+transactions, producing current/previous input bytes `03 00 00` with CFSR zero.
+It reached the idle PendSV scheduler and the original power condition still had
+bytes `+8=0`, `+13=1`. TIM11 contained CEN=1, DIER=2, PSC=49, ARR=65535 and
+CCR1=20033. The old upstream timer only raises update interrupts when DIER.UIE
+is set, stores CCR without scheduling comparison, and returned unbounded CNT
+`0x0148db97`. Those behaviors cannot deliver this original CC1-only producer.
+The observer was then closed; no firmware state was changed to bypass the wait.
+
+The independent timer profile uses upstream QEMU Clock, QEMUTimer and OR-IRQ.
+It schedules bounded CNT, CC1-4 and update events, buffered PSC/ARR/CCR reload,
+up/down/center counting, repetition and one-pulse stop. TIM1/8 split update,
+compare, trigger/COM and break interrupts. Defined capture, trigger, break,
+output and DMA-request endpoints carry real supplied events. No board timer
+DMA or external waveform is invented; no such physical connection is established
+by this profile. Encoder mode and nonzero capture filters fail rather than
+silently approximate an absent sampled input. Complementary output dead time,
+internal trigger cross-routing and analog output behavior are not modeled.
+Register capabilities distinguish the advanced, general, basic and small timers;
+unsupported offsets fail with the actual CPU/PC/mapped address diagnostic.
+The new native timer case checks the CC1-only path, overflow, APB clock changes
+and gating, PSC reload, split/shared IRQs, repetition/one-pulse and real capture.
+Its result is pending the sole builder's qualified snapshot.
 
 The native C qtest fixture covers delayed oscillator/PLL switching and cancel,
 GPIO edge to grouped NVIC IRQ/W1C, DMA real SRAM copying/IRQ clear, disconnected

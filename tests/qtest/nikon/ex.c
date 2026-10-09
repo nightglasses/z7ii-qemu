@@ -293,6 +293,167 @@ static void io(void)
     qtest_quit(qts);
 }
 
+static void timer_profile(void)
+{
+    QTestState *qts = start();
+    const uint32_t tim11 = 0x40014800, tim1 = 0x40010000;
+    const uint32_t enr = 0x40023844, cfgr = 0x40023808;
+    /* Original IO polling mode: CC1 only, not update IRQ or GPIO INT. */
+    qtest_writel(qts, enr, 1 << 18);
+    qtest_writel(qts, tim11 + 0x28, 15);
+    qtest_writel(qts, tim11 + 0x2c, 31);
+    qtest_writel(qts, tim11 + 0x34, 7);
+    qtest_writel(qts, tim11 + 0x0c, 2);
+    qtest_writel(qts, tim11 + 0x14, 1);
+    qtest_writel(qts, tim11 + 0x10, 0);
+    qtest_writel(qts, tim11, 1);
+    qtest_clock_step(qts, 6999);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x24), ==, 6);
+    g_assert_false(qtest_get_irq(qts, 26));
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x10), ==, 2);
+    g_assert_true(qtest_get_irq(qts, 26));
+    qtest_writel(qts, tim11 + 0x10, ~2U);
+    g_assert_false(qtest_get_irq(qts, 26));
+    qtest_clock_step(qts, 25000);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x24), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x10), ==, 1);
+    /* Gate retains counter phase; PSC writes take effect on update. */
+    qtest_clock_step(qts, 3000);
+    qtest_writel(qts, enr, 0);
+    qtest_clock_step(qts, 20000);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x24), ==, 3);
+    qtest_writel(qts, tim11 + 0x28, 31);
+    qtest_writel(qts, enr, 1 << 18);
+    qtest_clock_step(qts, 4000);
+    g_assert_true(qtest_get_irq(qts, 26));
+    qtest_clock_step(qts, 25000);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x24), ==, 0);
+    qtest_writel(qts, tim11 + 0x10, 0);
+    qtest_clock_step(qts, 13999);
+    g_assert_false(qtest_get_irq(qts, 26));
+    qtest_clock_step(qts, 1);
+    g_assert_true(qtest_get_irq(qts, 26));
+    qtest_writel(qts, tim11, 0);
+    qtest_writel(qts, tim11 + 0x10, 0);
+    /* APB2 /4 supplies doubled timer clock, hence HCLK /2. */
+    qtest_writel(qts, cfgr, 5 << 13);
+    qtest_clock_step(qts, 100000);
+    qtest_writel(qts, tim11 + 0x28, 7);
+    qtest_writel(qts, tim11 + 0x14, 1);
+    qtest_writel(qts, tim11 + 0x10, 0);
+    qtest_writel(qts, tim11, 1);
+    qtest_clock_step(qts, 7000);
+    g_assert_cmphex(qtest_readl(qts, tim11 + 0x24), ==, 7);
+    qtest_writel(qts, tim11, 0);
+    qtest_writel(qts, tim11 + 0x10, 0);
+    qtest_writel(qts, cfgr, 0);
+    qtest_clock_step(qts, 100000);
+    /* TIM1 split compare/update IRQs, repetition and one-pulse stop. */
+    qtest_writel(qts, enr, (1 << 18) | 1 | (1 << 17));
+    qtest_writel(qts, tim1 + 0x28, 15);
+    qtest_writel(qts, tim1 + 0x2c, 3);
+    qtest_writel(qts, tim1 + 0x30, 1);
+    qtest_writel(qts, tim1 + 0x34, 2);
+    qtest_writel(qts, tim1 + 0x0c, 3);
+    qtest_writel(qts, tim1 + 0x14, 1);
+    qtest_writel(qts, tim1 + 0x10, 0);
+    qtest_writel(qts, tim1, 9);
+    qtest_clock_step(qts, 2000);
+    g_assert_true(qtest_get_irq(qts, 27));
+    g_assert_false(qtest_get_irq(qts, 25));
+    qtest_writel(qts, tim1 + 0x10, 0);
+    qtest_clock_step(qts, 2000);
+    g_assert_false(qtest_get_irq(qts, 25));
+    qtest_clock_step(qts, 4000);
+    g_assert_true(qtest_get_irq(qts, 25));
+    g_assert_cmphex(qtest_readl(qts, tim1) & 1, ==, 0);
+    /* Clearing one shared source cannot clear the other source. */
+    qtest_writel(qts, 0x4001440c, 1);
+    qtest_writel(qts, 0x40014414, 1);
+    qtest_writel(qts, tim1 + 0x10, 0);
+    g_assert_true(qtest_get_irq(qts, 25));
+    qtest_writel(qts, 0x40014410, 0);
+    g_assert_false(qtest_get_irq(qts, 25));
+    const uint32_t advanced[] = { tim1, 0x40010400 };
+    const unsigned irq[][4] = { { 25, 27, 26, 24 }, { 44, 46, 45, 43 } };
+    for (unsigned i = 0; i < 2; i++) {
+        qtest_writel(qts, advanced[i] + 0x0c, 0xff);
+        qtest_writel(qts, advanced[i] + 0x14, 0xff);
+        for (unsigned j = 0; j < 4; j++) {
+            g_assert_true(qtest_get_irq(qts, irq[i][j]));
+        }
+        qtest_writel(qts, advanced[i] + 0x10, 0);
+        for (unsigned j = 0; j < 4; j++) {
+            g_assert_false(qtest_get_irq(qts, irq[i][j]));
+        }
+    }
+    /* TIM2 retains 32-bit ARR/CNT and external capture sets real CC1IF. */
+    const uint32_t tim2 = 0x40000000;
+    qtest_writel(qts, 0x40023840, 1);
+    qtest_writel(qts, tim2 + 0x28, 15);
+    qtest_writel(qts, tim2 + 0x2c, 0x10001);
+    qtest_writel(qts, tim2 + 0x14, 1);
+    qtest_writel(qts, tim2 + 0x10, 0);
+    qtest_writel(qts, tim2, 1);
+    qtest_clock_step(qts, 0x10000 * INT64_C(1000));
+    g_assert_cmphex(qtest_readl(qts, tim2 + 0x24), ==, 0x10000);
+    qtest_writel(qts, tim2 + 0x18, 1);
+    qtest_writel(qts, tim2 + 0x20, 1);
+    qtest_writel(qts, tim2 + 0x0c, 2);
+    qtest_set_irq_in(qts, "/machine/ex/timer0", "capture", 0, 1);
+    g_assert_true(qtest_get_irq(qts, 28));
+    g_assert_cmphex(qtest_readl(qts, tim2 + 0x34), ==, 0x10000);
+    g_assert_false(qtest_get_irq(qts, 28));
+    qtest_writel(qts, tim2 + 0x10, 0);
+    qtest_clock_step(qts, 2000);
+    g_assert_cmphex(qtest_readl(qts, tim2 + 0x24), ==, 0);
+    /* Full 32-bit period with maximum PSC exercises overflow-safe deadline. */
+    qtest_writel(qts, tim2 + 0x2c, UINT32_MAX);
+    qtest_writel(qts, tim2 + 0x28, UINT16_MAX);
+    qtest_writel(qts, tim2 + 0x14, 1);
+    qtest_clock_step(qts, 4096000);
+    g_assert_cmphex(qtest_readl(qts, tim2 + 0x24), ==, 1);
+    qtest_writel(qts, 0x40023820, 1);
+    g_assert_cmphex(qtest_readl(qts, tim2), ==, 0);
+    g_assert_false(qtest_get_irq(qts, 28));
+    /* All four compare flags; down and center counting select real edges. */
+    const uint32_t tim3 = 0x40000400;
+    qtest_writel(qts, 0x40023840, 3);
+    qtest_writel(qts, tim3 + 0x28, 15);
+    qtest_writel(qts, tim3 + 0x2c, 9);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_writel(qts, tim3 + 0x34 + 4 * i, 2 * (i + 1));
+    }
+    qtest_writel(qts, tim3 + 0x0c, 0x1e);
+    qtest_writel(qts, tim3 + 0x14, 1);
+    qtest_writel(qts, tim3 + 0x10, 0);
+    qtest_writel(qts, tim3, 1);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_clock_step(qts, 2000);
+        g_assert_cmphex(qtest_readl(qts, tim3 + 0x10), ==,
+                        (2U << (i + 1)) - 2);
+    }
+    qtest_writel(qts, tim3, 0x11);
+    qtest_writel(qts, tim3 + 0x14, 1);
+    qtest_writel(qts, tim3 + 0x10, 0);
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readl(qts, tim3 + 0x24), ==, 8);
+    g_assert_cmphex(qtest_readl(qts, tim3 + 0x10), ==, 0x10);
+    qtest_writel(qts, tim3, 0);
+    qtest_writel(qts, tim3, 0x21);
+    qtest_writel(qts, tim3 + 0x14, 1);
+    qtest_writel(qts, tim3 + 0x10, 0);
+    qtest_clock_step(qts, 9000);
+    g_assert_cmphex(qtest_readl(qts, tim3 + 0x24), ==, 9);
+    g_assert_false(qtest_get_irq(qts, 29));
+    qtest_clock_step(qts, 1000);
+    g_assert_cmphex(qtest_readl(qts, tim3 + 0x24), ==, 8);
+    g_assert_cmphex(qtest_readl(qts, tim3 + 0x10) & 0x1e, ==, 0x10);
+    g_assert_true(qtest_get_irq(qts, 29));
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -303,5 +464,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/peripheral-reset", peripheral_reset);
     qtest_add_func("/nikon/ex/rtc", rtc);
     qtest_add_func("/nikon/ex/io", io);
+    qtest_add_func("/nikon/ex/timer", timer_profile);
     return g_test_run();
 }
