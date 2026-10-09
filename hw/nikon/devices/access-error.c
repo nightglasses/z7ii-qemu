@@ -31,4 +31,3 @@ void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
     qemu_log_mask(LOG_GUEST_ERROR, "%s\n", message);
     qemu_system_vmstop_request(RUN_STATE_DEBUG);
 }
-

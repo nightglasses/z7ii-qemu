@@ -1,22 +1,14 @@
 diff --git a/hw/Kconfig b/hw/Kconfig
 --- a/hw/Kconfig
 +++ b/hw/Kconfig
-@@ -45,6 +45,7 @@
- source vfio/Kconfig
- source vfio-user/Kconfig
+@@ -47,2 +47,3 @@
  source vmapple/Kconfig
 +source nikon/Kconfig
  source xen/Kconfig
- source watchdog/Kconfig
- 
 diff --git a/hw/meson.build b/hw/meson.build
 --- a/hw/meson.build
 +++ b/hw/meson.build
-@@ -68,6 +68,7 @@
- subdir('vfio-user')
- subdir('virtio')
+@@ -70,2 +70,3 @@
  subdir('vmapple')
 +subdir('nikon')
  subdir('watchdog')
- subdir('xen')
- subdir('fsi')
