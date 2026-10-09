@@ -62,6 +62,10 @@ if have_system or have_tools
   endif
 endif
 
+if have_system and config_all_devices.has_key('CONFIG_NIKON_Z7II')
+  tests += {'nikon_bundle': ['../../hw/nikon/components/bundle.c']}
+endif
+
 if have_block
   tests += {
     'test-coroutine': [testblock],
@@ -188,7 +192,7 @@ slow_tests = {
 }
 
 foreach test_name, extra: tests
-  src = [test_name + '.c']
+  src = test_name == 'nikon_bundle' ? files('nikon/bundle.c') : [test_name + '.c']
   deps = [qemuutil]
   if extra.length() > 0
     # use a sourceset to quickly separate sources and deps
@@ -206,5 +210,5 @@ foreach test_name, extra: tests
        protocol: 'tap',
        timeout: slow_tests.get(test_name, 30),
        priority: slow_tests.get(test_name, 30),
-       suite: ['unit'])
+       suite: test_name == 'nikon_bundle' ? ['unit', 'nikon'] : ['unit'])
 endforeach

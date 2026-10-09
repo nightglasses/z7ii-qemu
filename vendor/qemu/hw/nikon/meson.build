@@ -1,5 +1,6 @@
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
+  'components/bundle.c',
   'devices/access.c',
   'devices/audio.c',
   'devices/bridge.c',
