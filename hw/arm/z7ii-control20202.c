@@ -54,17 +54,39 @@ static bool z7ii_control_config(hwaddr offset, uint32_t *mask, bool *sign16)
     case 0x244: case 0x248: case 0x24c: case 0x250:
         *mask = UINT32_MAX;
         break;
-    case 0x60: *mask = 0x001f0007; break;
-    case 0x64: *mask = 0x07070707; break;
-    case 0x8c: case 0x90: case 0x94: *mask = 0x1fff7fff; break;
-    case 0x98: *mask = 0xf; break;
-    case 0x9c: *mask = 0x003f3f3f; break;
-    case 0xb0: case 0xc4: *mask = 0x00ff0fff; break;
-    case 0xb8: *mask = 0x00003f3f; break;
-    case 0xcc: *mask = 0x3fff3fff; break;
-    case 0xd0: *mask = 0x000f003f; break;
-    case 0xd4: *mask = 0x773ff3ff; break;
-    case 0x200: case 0x224: *mask = 1; break;
+    case 0x60:
+        *mask = 0x001f0007;
+        break;
+    case 0x64:
+        *mask = 0x07070707;
+        break;
+    case 0x8c: case 0x90: case 0x94:
+        *mask = 0x1fff7fff;
+        break;
+    case 0x98:
+        *mask = 0xf;
+        break;
+    case 0x9c:
+        *mask = 0x003f3f3f;
+        break;
+    case 0xb0: case 0xc4:
+        *mask = 0x00ff0fff;
+        break;
+    case 0xb8:
+        *mask = 0x00003f3f;
+        break;
+    case 0xcc:
+        *mask = 0x3fff3fff;
+        break;
+    case 0xd0:
+        *mask = 0x000f003f;
+        break;
+    case 0xd4:
+        *mask = 0x773ff3ff;
+        break;
+    case 0x200: case 0x224:
+        *mask = 1;
+        break;
     default:
         return false;
     }
@@ -97,7 +119,8 @@ static MemTxResult z7ii_control_error(Z7IIControl20202State *s,
                                     bool write, uint64_t value)
 {
     z7ii_access_error(&s->reported_error, CONTROL_BASE + offset, size,
-                      write, value, "control20202-access-or-phase-not-supported");
+                      write, value,
+                      "control20202-access-or-phase-not-supported");
     return MEMTX_ERROR;
 }
 
@@ -119,9 +142,15 @@ static MemTxResult z7ii_control_read(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     switch (offset) {
-    case 8: *value = !!(s->requests & 1); break;
-    case 0x20: *value = s->mask; break;
-    case 0x2c: *value = s->pending; break;
+    case 8:
+        *value = !!(s->requests & 1);
+        break;
+    case 0x20:
+        *value = s->mask;
+        break;
+    case 0x2c:
+        *value = s->pending;
+        break;
     default:
         return z7ii_control_error(s, offset, size, false, 0);
     }
@@ -148,7 +177,7 @@ static MemTxResult z7ii_control_write(void *opaque, hwaddr offset,
         if (s->configuring) {
             s->staged[offset / 4] = value;
         } else {
-            /* Original subblock setters also have direct, unbracketed writes. */
+            /* Original subblock setters also write without a bracket. */
             s->applied[offset / 4] = value;
         }
         return MEMTX_OK;
@@ -230,7 +259,8 @@ static void z7ii_control_init(Object *obj)
                           "z7ii.control20202", 0x254);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
-    qdev_init_gpio_in_named(DEVICE(obj), z7ii_control_event, "external-event", 3);
+    qdev_init_gpio_in_named(DEVICE(obj), z7ii_control_event,
+                           "external-event", 3);
 }
 
 static const VMStateDescription z7ii_control_vmstate = {
