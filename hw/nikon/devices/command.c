@@ -223,13 +223,15 @@ static MemTxResult command_write(void *opaque, hwaddr offset, uint64_t value,
             command_clear(b, engine, mask);
             memset(e, 0, sizeof(*e));
         } else if (!e->request.slots) {
+            /* A new owner must supply its own frame, including after RX. */
+            memset(e, 0, sizeof(*e));
             e->request.slots = value;
         }
         /* A lost arbitration retains the actual owner for guest readback. */
         break;
     case 8:
         if (value != 1 || !e->request.slots || e->active || e->received ||
-            e->causes || !e->request.written) {
+            e->causes || (e->request.written & 0x1ff) != 0x1ff) {
             return command_error(b, offset, size, true, value);
         }
         e->active = true;
@@ -244,8 +246,8 @@ static MemTxResult command_write(void *opaque, hwaddr offset, uint64_t value,
             return command_error(b, offset, size, true, value);
         }
         command_clear(b, engine, value);
-        e->request.slots = 0;
-        e->received = false;
+        /* Retiring RX also retires its words and written-word provenance. */
+        memset(e, 0, sizeof(*e));
         break;
     case 0x34:
         if (value & ~0xffffU || !e->causes || value != e->causes) {

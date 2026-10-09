@@ -141,13 +141,17 @@ static void test_command(void)
 
     /* Reset/cancel retires the token; an old completion cannot finish a reuse. */
     write_port(&f, 0, 0x100, 1, MEMTX_OK);
-    write_port(&f, 0, 0x140, words[0], MEMTX_OK);
+    for (i = 0; i < G_N_ELEMENTS(words); i++) {
+        write_port(&f, 0, 0x140 + i * 4, words[i], MEMTX_OK);
+    }
     write_port(&f, 0, 0x108, 1, MEMTX_OK);
     g_assert_true(nikon_command_request(f.dev, 0, 0, &request));
     device_cold_reset(f.dev);
     g_assert_false(nikon_command_complete(f.dev, 0, 0, request.token, 1));
     write_port(&f, 0, 0x100, 1, MEMTX_OK);
-    write_port(&f, 0, 0x140, words[0], MEMTX_OK);
+    for (i = 0; i < G_N_ELEMENTS(words); i++) {
+        write_port(&f, 0, 0x140 + i * 4, words[i], MEMTX_OK);
+    }
     write_port(&f, 0, 0x108, 1, MEMTX_OK);
     g_assert_true(nikon_command_request(f.dev, 0, 0, &second));
     g_assert_cmpuint(second.token, !=, request.token);
@@ -168,6 +172,75 @@ static void test_command(void)
     }
 }
 
+static void test_receive_reuse(void)
+{
+    CommandFixture f = { .dev = qdev_new(TYPE_NIKON_COMMAND) };
+    NikonCommandRequest request;
+    uint32_t received[9], transmitted[9];
+    unsigned i;
+
+    f.irq[0] = qemu_allocate_irq(line, f.levels, 0);
+    f.request[0] = qemu_allocate_irq(line, f.requests, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq[0]);
+    qdev_connect_gpio_out_named(f.dev, "request", 0, f.request[0]);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    device_cold_reset(f.dev);
+    for (i = 0; i < G_N_ELEMENTS(received); i++) {
+        received[i] = 0xa5003100 ^ (i * 0x10203);
+        transmitted[i] = 0x5a002000 ^ (i * 0x30405);
+    }
+
+    g_assert_true(nikon_command_receive(f.dev, 0, 0, 0, received, 9));
+    g_assert_true(f.levels[0]);
+    write_port(&f, 0, 0x114, 1, MEMTX_OK);
+    g_assert_false(f.levels[0]);
+    for (i = 0; i < NIKON_COMMAND_WORDS; i++) {
+        g_assert_cmphex(read_port(&f, 0, 0x140 + i * 4), ==, 0);
+    }
+
+    /* Neither an empty claim nor one new word can reuse the old RX frame. */
+    write_port(&f, 0, 0x100, 1, MEMTX_OK);
+    write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
+    g_assert_false(f.requests[0]);
+    g_assert_false(nikon_command_request(f.dev, 0, 0, &request));
+    write_port(&f, 0, 0x140, transmitted[0], MEMTX_OK);
+    write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
+    g_assert_false(f.requests[0]);
+    g_assert_false(nikon_command_request(f.dev, 0, 0, &request));
+
+    /* Releasing a partial TX frame requires all nine words on the new claim. */
+    write_port(&f, 0, 0x100, 0, MEMTX_OK);
+    write_port(&f, 0, 0x140, received[0], MEMTX_OK);
+    write_port(&f, 0, 0x100, 1, MEMTX_OK);
+    for (i = 1; i < G_N_ELEMENTS(transmitted); i++) {
+        write_port(&f, 0, 0x140 + i * 4, transmitted[i], MEMTX_OK);
+    }
+    write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
+    g_assert_false(f.requests[0]);
+    write_port(&f, 0, 0x140, transmitted[0], MEMTX_OK);
+    write_port(&f, 0, 0x108, 1, MEMTX_OK);
+    g_assert_true(f.requests[0]);
+    g_assert_true(nikon_command_request(f.dev, 0, 0, &request));
+    g_assert_cmphex(request.written, ==, 0x1ff);
+    g_assert_cmpmem(request.words, sizeof(transmitted),
+                    transmitted, sizeof(transmitted));
+    for (i = G_N_ELEMENTS(transmitted); i < NIKON_COMMAND_WORDS; i++) {
+        g_assert_cmphex(request.words[i], ==, 0);
+    }
+    g_assert_false(f.levels[0]);
+    g_assert_true(nikon_command_complete(f.dev, 0, 0, request.token, 1));
+    g_assert_false(f.requests[0]);
+    g_assert_true(f.levels[0]);
+    write_port(&f, 0, 0x134, 1, MEMTX_OK);
+    g_assert_false(f.levels[0]);
+
+    qdev_unrealize(f.dev);
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    qemu_free_irq(f.irq[0]);
+    qemu_free_irq(f.request[0]);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -184,6 +257,7 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     g_test_add_func("/nikon/command/causality", test_command);
+    g_test_add_func("/nikon/command/receive-reuse", test_receive_reuse);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
