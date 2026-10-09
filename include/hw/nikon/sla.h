@@ -12,6 +12,7 @@ DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, unsigned num_cpus,
                              Chardev *serial, Error **errp);
 AddressSpace *nikon_sla_address_space(DeviceState *domain);
+DeviceState *nikon_sla_bridge(DeviceState *domain);
 /* Named GPIO output peer-ready[0] forwards original GPIO8[10] guest output. */
 
 /* Loaded C1.70 SLA software-domain profile; these are not board reset facts. */

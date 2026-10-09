@@ -6,7 +6,10 @@ arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'peers/transport.c',
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
+  'devices/bridge.c',
   'devices/clock.c',
+  'devices/completion.c',
+  'devices/config.c',
   'devices/fill.c',
   'devices/gpio.c',
   'devices/memc.c',
@@ -21,7 +24,6 @@ arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
   'devices/audio.c',
-  'devices/bridge.c',
   'devices/dispatcher.c',
   'devices/copy.c',
   'devices/sampler.c',
@@ -31,12 +33,10 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/hdmac.c',
   'devices/i2c.c',
   'devices/ipud.c',
-  'devices/config.c',
   'devices/pairs.c',
   'devices/router.c',
   'devices/parameters.c',
   'devices/processing.c',
-  'devices/completion.c',
   'devices/status.c',
   'devices/shared.c',
   'devices/signal.c',

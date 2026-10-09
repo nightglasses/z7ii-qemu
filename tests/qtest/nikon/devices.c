@@ -30,6 +30,7 @@ void nikon_image_add_tests(const char *bios);
 void nikon_sdi_add_tests(const char *bios);
 void nikon_spi_add_tests(const char *bios);
 void nikon_processing_add_tests(const char *bios);
+void nikon_config_add_tests(const char *bios);
 
 static QTestState *start(bool execute, unsigned cpus)
 {
@@ -688,6 +689,7 @@ int main(int argc, char **argv)
     nikon_sdi_add_tests(image);
     nikon_spi_add_tests(image);
     nikon_processing_add_tests(image);
+    nikon_config_add_tests(image);
     nikon_bridge_add_tests();
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/copy/transfer", test_copy);

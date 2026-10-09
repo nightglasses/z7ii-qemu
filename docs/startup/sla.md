@@ -79,7 +79,7 @@ profile; that establishes backing without supplying a flag producer or
 proving a runtime call. The whole component is available to execution; this is not
 a claim that every instruction or camera subsystem has run.
 
-The source-qualified peer worker `0x10053638` consumes its own registered
+The bounded peer worker candidate `0x10053638` consumes its registered
 descriptor, calls `0x10060cee` to drive logical GPIO87 high, then `0x10061116`
 to drive it low and check the peer header. Its GPIO object `0xc100377c` binds
 port8 bit10, with the original direction table selecting output. The MAS
@@ -88,6 +88,22 @@ for high then for low. Connecting these complementary software endpoints is
 an explicit functional cross-chip wiring assumption; physical wiring remains
 unestablished. The named `peer-ready[0]` output forwards the original SLA
 GPIO8[10] level, without generating a host ready pulse.
+
+These worker/wrapper ranges come from continuous original-byte Thumb
+candidates and COPY1 descriptors, rather than official Listing ownership or
+an observed worker execution. The current official whole provider has no
+direct flow to bridge helpers `0x1006c40a/0x1006c772/0x1006c0ba`.
+The candidate flag-zero path sets GPIO high, calls `0x1006c40a`, then calls
+`0x1006c772` before setting it low. Their actual wait conditions, MMIO binding
+and runtime consumption require qualification before declaring the handshake
+complete. Original runtime receipts below end before this worker.
+
+The independent official registration `0x1006ade8` and ISR `0x1006ad78`
+bind IRQ127 and bridge pending/ACK at `0x2013d020/0x2013d028`. The private
+domain therefore maps the shared bridge registers at `0x20130000` and connects
+IRQ127 to its own GIC. `nikon_sla_bridge(domain)` borrows this device for peer
+attachment. Its data windows are not mapped by this registration contract;
+the source aperture and descriptor consumers remain separate requirements.
 
 The exact ring extent is `0x18 + 0xc0 * 0x108 = 0xc618`. The SLA guest creates
 its signatures and indices at `0xc60f0000`; nothing is prefilled. Its source
