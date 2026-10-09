@@ -21,4 +21,13 @@ make bench
 
 `BUILD_DIR` 指定 QEMU 输出目录，`CONFIG_DIR` 指定 CMake 配置目录，`CONFIGURE_FLAGS` 接受官方 configure 参数。更改编译选项或增加源文件后执行 `make configure`。现有源码编辑由原生 Ninja 依赖管理。
 
-设备改动通过本仓库正常 PR 合并。上游依赖更新独立更新 gitlink，并记录新版本；不要修改或提交 submodule 工作树。当前迁移承接已验证 ARM/loader/fixture `cdfdf75` 和已真实编译 RX 注册 `4751c8b`，包括正确 VR record 地址与 DMA deadline IRQ 观测。后续 paired transfer planes `e3f7294` 未进入这次已验证同步，其构建和运行仍属于下一批。迁移后的完整配置构建由唯一 builder 执行；原版运行和完整 GUI 结果仍需对应实际运行记录，依赖迁移不冒充启动完成。
+使用上游已有的 `MTESTARGS` 选择新测试，不另建测试运行器。完整首次构建仍执行 `make configure`、`make -j8`；新增 USIO 和 VR 测试可执行：
+
+```sh
+make check MTESTARGS='nikon_usio nikon_vr'
+make check MTESTARGS='nikon --test-args="-p /arm/nikon/transfer/planes"'
+```
+
+`MTESTARGS` 由递归 Make 原样传给 QEMU 官方生成的测试目标；无参数的 `make check` 执行完整 Nikon suite。首次迁移 source-view 工程的实际构建由唯一 builder 完成，源码一致不冒充已完成新构建。
+
+设备改动通过本仓库正常 PR 合并。上游依赖更新独立更新 gitlink，并记录新版本；不要修改或提交 submodule 工作树。当前迁移完整承接 `f44817e` 已编译 ARM/RX、loader、VR 精确 storage/offset alias、generic access、USIO 和 paired transfer planes，以及 26 个新增 case 的实际 PASS（之前 20 + USIO 4 + planes 1 + RX 1）。后续 `528446c` 文档收据同时同步。原版运行和完整 GUI 结果仍需对应实际运行记录，依赖迁移不冒充启动完成。

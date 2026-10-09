@@ -9,10 +9,17 @@ Its extent is computed from the two dimensions and the numeric byte factor;
 neither a color name nor a framebuffer address is assumed. For ordinary
 single-plane packets with equal geometry and equal numeric format selectors,
 the corresponding byte factors are `4/3/2/2/2/1`. The unconverted transfer
-copies the resulting contiguous byte extent. Contiguous rows follow the
+copies the resulting contiguous byte extent. The original selector function
+`106eeaf0` maps only format `1c` to selector5. Its ordinary command also
+supplies a secondary address pair at `c34/c38`; the same producer's alternate
+byte-stream equivalent gives that second plane the same width*height byte
+extent (`width*height*8 >> 3`). This source-backed second plane is copied
+after the first and completes as one packet, without interpreting either
+plane's colors. Both extents are validated before any bytes are written.
+Contiguous rows follow the
 producer's dimension-only packet; unlike an imported surface's software
 stride, that command has no independent row-pitch register. Rotation, format
-conversion, unequal geometry and combined secondary-plane commands remain
+conversion, unequal geometry and unbound secondary-plane formats remain
 outside this implemented protocol rather than being silently treated as copy.
 
 `106ee4e4` registers IRQ129/130/131 using the original literal words at
@@ -21,6 +28,16 @@ handlers `106ee3ca/106ee3d6/106ee3e2` write zero to `20181020/20180c18/2018001c`
 and dispatch software notification masks `1/4/2` to the same continuation.
 The registration and kernel user-handler table consumer form the static
 binding; the guest has not yet run these handlers in the original boot.
+
+The shared continuation `106ee4c6` keeps notification values 2 or 4 and maps
+other values to 1, then sends the first packet word through
+`106d4ffe -> 105a65a4`. The corresponding query
+`106ee436 -> 106d5034 -> 105a6626` uses the original 20-byte record at
+`VA10788f00` (MAS O`768f00`): words `0,7,21,0,ffffffff` in hex. The query
+replaces record+c with its output pointer. These are real guest event-handle
+and wait/clear consumers; the device never fills their RAM or returns a
+host-generated event flag. IRQ130's original handler supplies mask4, which
+the subsequent command3 consumer explicitly checks.
 
 The byte-stream model snapshots a complete packet, validates the complete
 source and destination ranges against actual directly backed memory, and
@@ -54,7 +71,7 @@ The sole build owner registers and runs it; no independent build was run by
 this implementation lane.
 
 Remaining work is active, not accepted as a completed GUI: conversion and
-multi-plane geometry commands, the other two IRQ producers,
+other geometry commands, the other two IRQ producers,
 status58 bit26 and command1214, and final scanout must be joined to their
 complete saved source. The DMA destination is not presented as a screen.
 Console output must consume the guest's actual scanout commit and layout.

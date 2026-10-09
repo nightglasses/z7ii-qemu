@@ -5,7 +5,7 @@
 #include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "system/runstate.h"
-#include "target/arm/cpu.h"
+#include "hw/core/cpu.h"
 #include "hw/nikon/devices.h"
 
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,

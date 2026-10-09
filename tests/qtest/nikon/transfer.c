@@ -123,10 +123,47 @@ static void test_geometry(void)
     qtest_quit(q);
 }
 
+static void test_planes(void)
+{
+    QTestState *q = start();
+    uint8_t destination[1024];
+    unsigned i;
+
+    qtest_memset(q, RAM, 0x5a, sizeof(destination));
+    qtest_memset(q, RAM + 0x8000, 0xa5, sizeof(destination));
+    qtest_memset(q, RAM + 0x4000, 0, sizeof(destination));
+    qtest_memset(q, RAM + 0xc000, 0, sizeof(destination));
+    packet(q, RAM, RAM + 0x4000, 0);
+    qtest_writel(q, TRANSFER + 0xc10, 0x5500);
+    qtest_writel(q, TRANSFER + 0xc08, (16U << 16) | 64);
+    qtest_writel(q, TRANSFER + 0xc0c, (16U << 16) | 64);
+    qtest_writel(q, TRANSFER + 0xc34, RAM + 0x8000);
+    qtest_writel(q, TRANSFER + 0xc38, RAM + 0xc000);
+    qtest_writel(q, TRANSFER + 0xc18, 1);
+    qtest_clock_step_next(q);
+    g_assert_false(qtest_get_irq(q, 130 - 32));
+    qtest_memread(q, RAM + 0xc000, destination, sizeof(destination));
+    g_assert_cmpmem(destination, sizeof(destination),
+                    (uint8_t[1024]) { 0 }, sizeof(destination));
+    wait_completion(q);
+    qtest_memread(q, RAM + 0x4000, destination, sizeof(destination));
+    for (i = 0; i < sizeof(destination); i++) {
+        g_assert_cmphex(destination[i], ==, 0x5a);
+    }
+    qtest_memread(q, RAM + 0xc000, destination, sizeof(destination));
+    for (i = 0; i < sizeof(destination); i++) {
+        g_assert_cmphex(destination[i], ==, 0xa5);
+    }
+    qtest_writel(q, TRANSFER + 0xc18, 0);
+    g_assert_false(qtest_get_irq(q, 130 - 32));
+    qtest_quit(q);
+}
+
 void nikon_transfer_add_tests(const char *bios)
 {
     image = bios;
     qtest_add_func("/nikon/transfer/copy", test_copy);
     qtest_add_func("/nikon/transfer/cancel", test_cancel);
     qtest_add_func("/nikon/transfer/geometry", test_geometry);
+    qtest_add_func("/nikon/transfer/planes", test_planes);
 }

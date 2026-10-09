@@ -46,6 +46,7 @@ struct NikonTransferState {
     uint32_t setup[ARRAY_SIZE(setup_offsets)];
     uint32_t configured;
     uint64_t source, destination, remaining;
+    uint64_t plane_remaining, secondary_source, secondary_destination;
     bool running, completed, reported_error;
 };
 
@@ -96,14 +97,14 @@ static bool nikon_transfer_range(hwaddr address, uint64_t length, bool write)
 static void nikon_transfer_schedule(NikonTransferState *s)
 {
     timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              clock_ticks_to_ns(s->clock, MIN(s->remaining, 4096)) + 1);
+              clock_ticks_to_ns(s->clock, MIN(s->plane_remaining, 4096)) + 1);
 }
 
 static void nikon_transfer_step(void *opaque)
 {
     NikonTransferState *s = opaque;
     uint8_t buffer[4096];
-    unsigned length = MIN(s->remaining, sizeof(buffer));
+    unsigned length = MIN(s->plane_remaining, sizeof(buffer));
     MemTxResult result;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
 
@@ -125,6 +126,12 @@ static void nikon_transfer_step(void *opaque)
     s->source += length;
     s->destination += length;
     s->remaining -= length;
+    s->plane_remaining -= length;
+    if (!s->plane_remaining && s->remaining) {
+        s->source = s->secondary_source;
+        s->destination = s->secondary_destination;
+        s->plane_remaining = s->remaining;
+    }
     if (s->remaining) {
         nikon_transfer_schedule(s);
     } else {
@@ -186,6 +193,7 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
                         (1U << TRANSFER_CONTROL);
     uint64_t extent;
     unsigned selector;
+    bool secondary = false;
     int setup = nikon_transfer_setup(offset);
 
     if (size != 4) {
@@ -240,10 +248,16 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
             selector >= ARRAY_SIZE(byte_factors) ||
             selector != ((s->reg[TRANSFER_CONTROL] >> 12) & 7) ||
             s->reg[TRANSFER_SOURCE_GEOMETRY] !=
-            s->reg[TRANSFER_DESTINATION_GEOMETRY] ||
-            s->reg[TRANSFER_SECONDARY_SOURCE] ||
-            s->reg[TRANSFER_SECONDARY_DESTINATION]) {
+            s->reg[TRANSFER_DESTINATION_GEOMETRY]) {
             goto unsupported;
+        }
+        if (s->reg[TRANSFER_SECONDARY_SOURCE] ||
+            s->reg[TRANSFER_SECONDARY_DESTINATION]) {
+            if (selector != 5 || !s->reg[TRANSFER_SECONDARY_SOURCE] ||
+                !s->reg[TRANSFER_SECONDARY_DESTINATION]) {
+                goto unsupported;
+            }
+            secondary = true;
         }
         extent = (uint64_t)(s->reg[TRANSFER_SOURCE_GEOMETRY] & 0xffff) *
                  (s->reg[TRANSFER_SOURCE_GEOMETRY] >> 16) *
@@ -254,6 +268,16 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         s->reg[TRANSFER_DESTINATION] > UINT32_MAX - extent) {
         goto unsupported;
     }
+    if (secondary &&
+        (s->reg[TRANSFER_SECONDARY_SOURCE] > UINT32_MAX - extent ||
+         s->reg[TRANSFER_SECONDARY_DESTINATION] > UINT32_MAX - extent ||
+         !nikon_transfer_range(s->reg[TRANSFER_SECONDARY_SOURCE], extent,
+                               false) ||
+         !nikon_transfer_range(s->reg[TRANSFER_SECONDARY_DESTINATION], extent,
+                               true))) {
+        return nikon_transfer_error(s, offset, size, true, value,
+                                    "transfer-secondary-range-not-backed");
+    }
     s->source = s->reg[TRANSFER_SOURCE];
     s->destination = s->reg[TRANSFER_DESTINATION];
     s->remaining = extent;
@@ -261,6 +285,12 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         !nikon_transfer_range(s->destination, s->remaining, true)) {
         return nikon_transfer_error(s, offset, size, true, value,
                                     "transfer-memory-range-not-backed");
+    }
+    s->plane_remaining = extent;
+    s->secondary_source = s->reg[TRANSFER_SECONDARY_SOURCE];
+    s->secondary_destination = s->reg[TRANSFER_SECONDARY_DESTINATION];
+    if (secondary) {
+        s->remaining += extent;
     }
     s->reg[index] = value;
     s->running = true;
@@ -288,6 +318,7 @@ static void nikon_transfer_reset(DeviceState *dev)
     memset(s->setup, 0, sizeof(s->setup));
     s->configured = 0;
     s->source = s->destination = s->remaining = 0;
+    s->plane_remaining = s->secondary_source = s->secondary_destination = 0;
     s->running = s->completed = s->reported_error = false;
     clock_update_hz(s->clock, 48000000);
     nikon_transfer_irq(s);

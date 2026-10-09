@@ -27,6 +27,7 @@ struct NikonVRMachine {
     RXCPU cpu;
     MemoryRegion image, uncovered;
     MemoryRegion ram[25];
+    MemoryRegion storage[25];
     unsigned ram_count;
     NikonBundle *bundle;
     GBytes *body, *metadata;
@@ -132,6 +133,8 @@ static void vr_map_ram(NikonVRMachine *s, const uint8_t *body, size_t size)
     for (i = 0; i < ranges->len; ) {
         NikonVRRange range = g_array_index(ranges, NikonVRRange, i++);
         g_autofree char *name = NULL;
+        g_autofree char *storage_name = NULL;
+        uint32_t page_offset;
 
         while (i < ranges->len &&
                g_array_index(ranges, NikonVRRange, i).start <= range.end) {
@@ -140,8 +143,15 @@ static void vr_map_ram(NikonVRMachine *s, const uint8_t *body, size_t size)
             range.end = MAX(range.end, next.end);
         }
         name = g_strdup_printf("nikon.vr.ram%u", s->ram_count);
-        memory_region_init_ram(&s->ram[s->ram_count], NULL, name,
-                               (uint64_t)range.end - range.start, &error_fatal);
+        storage_name = g_strdup_printf("nikon.vr.storage%u", s->ram_count);
+        page_offset = range.start & 0xfff; /* RX TCG has 4 KiB pages. */
+        memory_region_init_ram(&s->storage[s->ram_count], NULL, storage_name,
+                               (uint64_t)range.end - range.start + page_offset,
+                               &error_fatal);
+        /* TLB RAM/physical page offsets must agree, without mapping padding. */
+        memory_region_init_alias(&s->ram[s->ram_count], NULL, name,
+                                 &s->storage[s->ram_count], page_offset,
+                                 (uint64_t)range.end - range.start);
         memory_region_add_subregion(get_system_memory(), range.start,
                                     &s->ram[s->ram_count++]);
     }
