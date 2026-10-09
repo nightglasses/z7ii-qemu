@@ -7,6 +7,7 @@
 #include "qobject/qlist.h"
 #include "hw/nikon/devices.h"
 #include "../libqtest.h"
+#include "fixture.h"
 
 #define ROM 0x10020000
 #define RAM 0xb1800000
@@ -174,43 +175,11 @@ static void test_clock(void)
     qtest_quit(q);
 }
 
-static char *device_path(QTestState *q, const char *type)
-{
-    QDict *response = qtest_qmp(q, "{'execute': 'qom-list',"
-                              " 'arguments': {'path': '/machine/unattached'}}");
-    const QListEntry *entry;
-    char *path = NULL;
-    g_autofree char *child_type = g_strdup_printf("child<%s>", type);
-
-    QLIST_FOREACH_ENTRY(qdict_get_qlist(response, "return"), entry) {
-        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
-
-        if (!strcmp(qdict_get_str(child, "type"), child_type)) {
-            g_assert_null(path);
-            path = g_strdup_printf("/machine/unattached/%s",
-                                   qdict_get_str(child, "name"));
-        }
-    }
-    qobject_unref(response);
-    g_assert_nonnull(path);
-    return path;
-}
-
-static void intercept_gic(QTestState *q)
-{
-    g_autofree char *path = device_path(q, "arm_gic");
-
-    /* qtest accesses are nonsecure. Observe the actual board SPI input,
-     * without pretending that they initialize the guest's secure GIC state.
-     */
-    qtest_irq_intercept_in(q, path);
-}
-
 static void test_completion(void)
 {
     QTestState *q = start(false, 1);
 
-    intercept_gic(q);
+    nikon_intercept_gic(q);
     nikon_test_completion(q);
     qtest_quit(q);
 }
@@ -226,7 +195,7 @@ static void test_bridge(void)
 static void test_gpio_input(void)
 {
     QTestState *q = start(false, 1);
-    g_autofree char *path = device_path(q, TYPE_NIKON_GPIO);
+    g_autofree char *path = nikon_device_path(q, TYPE_NIKON_GPIO);
     unsigned port;
 
     /* No producer: input follows the explicitly configured pull profile. */
@@ -264,7 +233,7 @@ static void test_gpio_irq(void)
 {
     QTestState *q = start(false, 1);
 
-    intercept_gic(q);
+    nikon_intercept_gic(q);
     qtest_writel(q, EXIU, 0xfffe);
     qtest_writel(q, GPIO + 0x114, 0x80);
     qtest_writel(q, GPIO + 0x14, 0x00800080);
@@ -361,7 +330,7 @@ static void test_copy(void)
         expected[i] = i;
     }
     qtest_memwrite(q, RAM + 0x100, expected, sizeof(expected));
-    intercept_gic(q);
+    nikon_intercept_gic(q);
     for (channel = 0; channel < 4; channel++) {
         unsigned irq = 45 + channel;
         uint64_t status = COPY + 0x30 + channel * 0x30;
@@ -397,7 +366,7 @@ static void test_hdmac(void)
 {
     QTestState *q = start(false, 1);
 
-    intercept_gic(q);
+    nikon_intercept_gic(q);
     qtest_writel(q, RAM + 0x100, 0x11223344);
     qtest_writel(q, RAM + 0x104, 0x55667788);
     qtest_writel(q, HDMAC, 0x90000000);

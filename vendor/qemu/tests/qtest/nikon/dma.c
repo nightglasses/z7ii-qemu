@@ -5,12 +5,11 @@
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
 #include "../libqtest.h"
+#include "fixture.h"
 
 #define RAM 0xb1800000
 #define HDMAC 0x2c020000
 #define AUDIO 0x2c080000
-#define GICD 0xf8101000
-#define GICC 0xf8102000
 #define EB (1U << 31)
 #define PB (1U << 30)
 #define DH (1U << 24)
@@ -23,16 +22,10 @@ static QTestState *start(void)
     g_autofree char *args = g_strdup_printf(
         "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none -S", quoted);
 
-    return qtest_init(args);
-}
+    QTestState *q = qtest_init(args);
 
-static void enable_irq(QTestState *q, unsigned irq)
-{
-    qtest_writel(q, GICD, 1);
-    qtest_writeb(q, GICD + 0x800 + irq, 1);
-    qtest_writel(q, GICD + 0x100 + irq / 32 * 4, 1U << (irq % 32));
-    qtest_writel(q, GICC + 4, 0xff);
-    qtest_writel(q, GICC, 1);
+    nikon_intercept_gic(q);
+    return q;
 }
 
 static void setup(QTestState *q, uint64_t channel, uint32_t source,
@@ -60,7 +53,6 @@ static void test_pause_geometry(void)
             uint32_t value = 0xaabb0000 | bank << 8 | index;
             unsigned irq = (bank ? 142 : 150) + index;
 
-            enable_irq(q, irq);
             qtest_writel(q, source, value);
             qtest_writel(q, source + 4, value + 1);
             setup(q, channel, source, destination, 0x08180000, 0xa0000001);
@@ -69,15 +61,15 @@ static void test_pause_geometry(void)
             g_assert_cmphex(qtest_readl(q, destination), ==, 0);
             g_assert_cmphex(qtest_readl(q, channel + 8), ==, source);
             g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08180000);
-            g_assert_cmphex(qtest_readl(q, GICC + 12), ==, 1023);
+            g_assert_false(qtest_get_irq(q, irq - 32));
             qtest_writel(q, channel, qtest_readl(q, channel) & ~PB);
             qtest_clock_step(q, 100000);
             g_assert_cmphex(qtest_readl(q, destination), ==, value);
             g_assert_cmphex(qtest_readl(q, destination + 4), ==, value + 1);
             g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x081d0000);
-            g_assert_cmphex(qtest_readl(q, GICC + 12), ==, irq);
+            g_assert_true(qtest_get_irq(q, irq - 32));
             qtest_writel(q, channel + 4, 0x08000000);
-            qtest_writel(q, GICC + 16, irq);
+            g_assert_false(qtest_get_irq(q, irq - 32));
         }
     }
     qtest_quit(q);

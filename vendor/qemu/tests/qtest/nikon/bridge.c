@@ -7,6 +7,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
 #include "../libqtest.h"
+#include "fixture.h"
 
 #define BRIDGE 0x20130000
 #define RAW (BRIDGE + 0xd020)
@@ -16,29 +17,6 @@
 #define READY (BRIDGE + 0xc908)
 
 void nikon_test_bridge(QTestState *q);
-
-static char *bridge_path(QTestState *q)
-{
-    QDict *response = qtest_qmp(q, "{'execute':'qom-list',"
-                              "'arguments':{'path':'/machine/unattached'}}");
-    QList *list = qdict_get_qlist(response, "return");
-    const QListEntry *entry;
-    char *path = NULL;
-
-    QLIST_FOREACH_ENTRY(list, entry) {
-        QDict *property = qobject_to(QDict, qlist_entry_obj(entry));
-
-        if (!strcmp(qdict_get_str(property, "type"),
-                    "child<" TYPE_NIKON_BRIDGE ">")) {
-            g_assert_null(path);
-            path = g_strdup_printf("/machine/unattached/%s",
-                                   qdict_get_str(property, "name"));
-        }
-    }
-    qobject_unref(response);
-    g_assert_nonnull(path);
-    return path;
-}
 
 static void event(QTestState *q, const char *path, unsigned input, int level)
 {
@@ -127,7 +105,7 @@ static void test_reset(QTestState *q, const char *path)
 
 void nikon_test_bridge(QTestState *q)
 {
-    g_autofree char *path = bridge_path(q);
+    g_autofree char *path = nikon_device_path(q, TYPE_NIKON_BRIDGE);
 
     qtest_irq_intercept_out_named(q, path, SYSBUS_DEVICE_GPIO_IRQ);
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
