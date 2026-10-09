@@ -48,3 +48,4 @@
 | [ex.md](docs/startup/ex.md) | EX 处理器和功能外设模型、外部数据输入边界 |
 | [protocol.md](docs/devices/sensor/protocol.md) | 原生帧输入、真实 DMA 和未连接固件控制器的边界 |
 | [protocol.md](docs/devices/storage/protocol.md) | 成熟 NVMe 控制器、真实块介质与原生 PCI fixture |
+| [capture.md](docs/devices/timing/capture.md) | 外部真实输入边沿、计数捕获、IRQ 生命周期与原版后继 RAM 范围 |
