@@ -1,6 +1,6 @@
 # Nightglass QEMU
 
-Nikon firmware emulation and debugging built on upstream QEMU. `vendor/qemu` is the pinned official QEMU Git submodule; Nikon machines, devices and native tests remain source files in this repository. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
+Nikon firmware emulation and debugging built on upstream QEMU. `qemu` is the pinned official QEMU Git submodule; Nikon machines, devices and native tests remain source files in this repository. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
 
 The initial target is Nikon Z7II C1.70. Existing camera emulation projects inform device models and tracing. A user-supplied post shows a claimed Nikon Z9 QEMU run reaching a camera error screen; implementation and launch details are unavailable, so that case is a useful lead rather than a reproducible baseline.
 
@@ -29,7 +29,7 @@ The root Makefile uses CMake to compose an ignored native source graph, then inv
 
 Use standard configure options for a different host or toolchain. Run `make configure CONFIGURE_FLAGS='--target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'`, then `make`. `BUILD_DIR=/absolute/path/to/build` selects an out-of-tree build. Dependencies fetched by QEMU's official Meson wraps retain their upstream pinned definitions; camera firmware is never fetched.
 
-Fixed integration `8fa256f` passed the existing configured QEMU native build: 12 Nikon device qtests and four timing lifecycle qtests (`make -j1 check-nikon`, 4.361 seconds), followed by the C DMA performance case (`make -j1 bench-nikon`, 1.590 seconds). The model binary contains timing fix `f938dba`; the timing fixture uses upstream Clock's exact rounded deadlines from `f78822d`. Earlier compile and fixture failures remain in their original local receipts. This increment reused the pinned upstream development checkout and configured build; it does not claim a fresh build of the vendored default directory, physical DMA speed or complete camera boot.
+Fixed integration `8fa256f` passed the existing configured QEMU native build: 12 Nikon device qtests and four timing lifecycle qtests (`make -j1 check-nikon`, 4.361 seconds), followed by the C DMA performance case (`make -j1 bench-nikon`, 1.590 seconds). The model binary contains timing fix `f938dba`; the timing fixture uses upstream Clock's exact rounded deadlines from `f78822d`. Earlier compile and fixture failures remain in their original local receipts. This increment reused the pinned upstream development checkout and configured build; it does not claim a fresh build of the default dependency directory, physical DMA speed or complete camera boot.
 
 Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
 
