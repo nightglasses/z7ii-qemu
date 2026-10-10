@@ -1451,7 +1451,7 @@ static void ex_reset_exit(Object *obj, ResetType type)
     /* Bus-less CPUs do not participate in the SysBus device reset walk. */
     cpu_reset(CPU(s->armv7m.cpu));
     timer_mod(s->exception_poll,
-              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
 }
 
 static void ex_sysresetreq(void *opaque, int n, int level)
@@ -1498,7 +1498,7 @@ static void ex_exception_poll(void *opaque)
     }
     if (!s->first_exception_valid) {
         timer_mod(s->exception_poll,
-                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
+                   qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
     }
 }
 

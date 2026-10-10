@@ -1,6 +1,77 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "qemu/osdep.h"
+#include "qemu/bswap.h"
 #include "libqtest.h"
+
+#define EX_FLASH_SIZE 0x80000
+#define EX_BUNDLE_HEADER 208
+
+static uint16_t bundle_crc(const uint8_t *data, size_t size)
+{
+    uint16_t crc = 0;
+
+    for (size_t i = 0; i < size; i++) {
+        crc ^= (uint16_t)data[i] << 8;
+        for (unsigned bit = 0; bit < 8; bit++) {
+            crc = (crc << 1) ^ ((crc & 0x8000) ? 0x1021 : 0);
+        }
+    }
+    return crc;
+}
+
+static char *write_exception_bundle(void)
+{
+    static const char *const names[] = {
+        "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
+        "vr1840_010100.bi", "eg1840_sla_01700",
+    };
+    const size_t size = EX_BUNDLE_HEADER + EX_FLASH_SIZE + 10 + 16;
+    g_autofree uint8_t *data = g_malloc0(size);
+    g_autofree char *path = NULL;
+    uint32_t offset = EX_BUNDLE_HEADER;
+    int fd;
+
+    memset(data, ' ', 32);
+    stl_be_p(data + 32, 5);
+    stl_be_p(data + 36, EX_BUNDLE_HEADER);
+    for (unsigned i = 0; i < ARRAY_SIZE(names); i++) {
+        uint8_t *entry = data + 48 + i * 32;
+        size_t name_len = strlen(names[i]);
+        uint32_t length = (i == 0 ? EX_FLASH_SIZE : 0) + 2;
+
+        memcpy(entry, names[i], name_len);
+        stl_be_p(entry + 16, offset);
+        stl_be_p(entry + 20, length);
+        if (i == 0) {
+            /* SP, Reset, HardFault and DebugMonitor vectors. */
+            stl_le_p(data + offset, 0x20001000);
+            stl_le_p(data + offset + 4, 0x08000081);
+            stl_le_p(data + offset + 12, 0x08000085);
+            stl_le_p(data + offset + 48, 0x08000085);
+            /* BKPT #0 at reset and a Thumb infinite loop as the handler. */
+            stw_le_p(data + offset + 0x80, 0xbe00);
+            stw_le_p(data + offset + 0x84, 0xe7fe);
+        }
+        stw_be_p(data + offset + length - 2,
+                 bundle_crc(data + offset, length - 2));
+        offset += length;
+    }
+    stw_be_p(data + size - 16, bundle_crc(data, size - 16));
+    fd = g_file_open_tmp("nikon-exception-bundle-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_true(g_file_set_contents(path, (const char *)data, size, NULL));
+    close(fd);
+    return g_steal_pointer(&path);
+}
+
+static QTestState *start_with_bios(const char *bios)
+{
+    g_autofree char *quoted = g_shell_quote(bios);
+    QTestState *qts = qtest_initf("-machine nikonex -display none -bios %s "
+                                  "-S -accel tcg,thread=single", quoted);
+    qtest_irq_intercept_in(qts, "/machine/ex/armv7m");
+    return qts;
+}
 
 static QTestState *start(void)
 {
@@ -843,6 +914,48 @@ static void exception_receipt_reset(void)
     qtest_quit(qts);
 }
 
+static uint64_t ex_property(QTestState *qts, const char *property)
+{
+    QDict *response = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/ex',"
+        "'property':%s}}", property);
+    uint64_t value = qdict_get_uint(response, "return");
+
+    qobject_unref(response);
+    return value;
+}
+
+static bool ex_exception_seen(QTestState *qts)
+{
+    QDict *response = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/ex',"
+        "'property':'first-exception'}}");
+    bool value = qdict_get_bool(response, "return");
+
+    qobject_unref(response);
+    return value;
+}
+
+static void exception_receipt_bkpt(void)
+{
+    g_autofree char *bios = write_exception_bundle();
+    QTestState *qts = start_with_bios(bios);
+    int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+
+    qtest_qmp_assert_success(qts, "{'execute':'cont'}");
+    while (!ex_exception_seen(qts)) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+    qtest_qmp_assert_success(qts, "{'execute':'stop'}");
+    g_assert_cmphex(ex_property(qts, "first-exception-number"), !=, 0);
+    g_assert_cmphex(ex_property(qts, "first-exception-pc"), >=, 0x08000084);
+    g_assert_cmphex(ex_property(qts, "first-exception-pc"), <, 0x08000088);
+    g_assert_cmphex(ex_property(qts, "first-exception-fault-address"), ==, 0);
+    qtest_quit(qts);
+    unlink(bios);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -860,5 +973,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/adc", adc_profile);
     qtest_add_func("/nikon/ex/exception-receipt-reset",
                    exception_receipt_reset);
+    qtest_add_func("/nikon/ex/exception-receipt-bkpt",
+                   exception_receipt_bkpt);
     return g_test_run();
 }
