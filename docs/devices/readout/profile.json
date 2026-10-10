@@ -1,0 +1,55 @@
+{
+  "schema": "nightglass.z7ii.readout-profile.v1",
+  "model": "z7ii-c1.70",
+  "source": {
+    "component": "02_eg1840_mas_01700.payload.bin",
+    "rom_base": "0x10020000",
+    "builder": "0x1023869e",
+    "consumer_wrapper": "0x1020c7c6",
+    "control_block": "0x2006b000",
+    "record_origin": "literal 0x10238b34 -> RAM VA 0xb26b4808"
+  },
+  "selector": {
+    "input_bytes": ["object+0x0c", "object+0x0d"],
+    "profile_stride": "0x39000",
+    "stride_derivation": "57 * 0x1000",
+    "selected_base": "table_base + selector * 0x39000",
+    "status": "source-bound arithmetic; table base and runtime selector contents are unobserved"
+  },
+  "derived_record": [
+    {"offset":"0x00","width":"u8","expression":"1","status":"proven"},
+    {"offset":"0x04","width":"u32","expression":"0xd00","status":"proven"},
+    {"offset":"0x08","width":"u32","expression":"width = byte(object+0x48) - byte(object+0x47) + 1; when byte(object+0x5a) != 0, effective_width = ubfx(width, 1, 7) + 1","status":"proven arithmetic; not an image width"},
+    {"offset":"0x0c","width":"u32","expression":"0xd00 * effective_width * height + 0xd00","status":"proven arithmetic; height = byte(object+0x4a) - byte(object+0x49) + 1"},
+    {"offset":"0x10","width":"u32","expression":"0xd00","status":"proven"},
+    {"offset":"0x14","width":"u16","expression":"existing record value consumed by the builder","status":"source read; semantic identity unknown"},
+    {"offset":"0x18","width":"u32","expression":"selector-dependent base: selected, selected+0x13000, or selected+0x26000; exact branch is source-bound","status":"pointer arithmetic proven; physical buffer role unknown"},
+    {"offset":"0x1c","width":"u32","expression":"0x1000","status":"proven"},
+    {"offset":"0x20","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; buffer direction and ownership unknown"},
+    {"offset":"0x24","width":"u32","expression":"align256(0xff + 2 * u16(object+0x14))","status":"proven arithmetic; not a byte stride until a consumer proves that role"},
+    {"offset":"0x28","width":"u32","expression":"record+0x24 * byte(global+0xc0) * 2","status":"proven arithmetic; allocation/span role remains unknown"},
+    {"offset":"0x2c","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; buffer direction and ownership unknown"},
+    {"offset":"0x30","width":"u32","expression":"align256(0xff + floor(3 * u16(object+0x14) / 2))","status":"proven arithmetic; not a byte stride until a consumer proves that role"},
+    {"offset":"0x34","width":"u8","expression":"0x40 for selector byte zero, otherwise 1","status":"proven branch value; semantic identity unknown"},
+    {"offset":"0x35","width":"u8","expression":"same branch value as record+0x34","status":"proven branch value; semantic identity unknown"}
+  ],
+  "not_proven": [
+    "CMOS sensor mode width or height",
+    "crop or scale coordinates",
+    "Bayer order, bit depth, or packing",
+    "DMA source/destination direction and descriptor length",
+    "buffer count or rotation rule",
+    "exposure, frame period, or line readout timing",
+    "frame-complete producer, IRQ, or CMOS-to-ISP/display/save edge"
+  ],
+  "qemu_boundary": {
+    "action": "retain readout-control as an explicit provider boundary",
+    "do_not": [
+      "interpret record+0x08 as image width",
+      "interpret record+0x24 or +0x30 as stride",
+      "preload the control block or result windows",
+      "connect this record directly to the CMOS byte-frame endpoint"
+    ],
+    "next_evidence": "observe runtime values at 0x1023869e and follow the consumer of 0x2006b3cc..0x2006b3fc to a proven DMA or completion transaction"
+  }
+}

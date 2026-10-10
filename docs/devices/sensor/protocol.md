@@ -94,6 +94,19 @@ Three new focused tests target `/machine/capture-control`: every accepted coeffi
 
 The independently restored SLA SOURCE11 `sla.S` also qualifies both shared device types. Its fixed TOOL producer is `ef6395d18386f58f8551fc663df309ee7f8475f5` (project10 `work/sla-source-project-10`) and canonical SOURCE is `9a9fd191f4cbe4ed0f0a38c2a3fc345ea2f0ad30`; project11/12 change ROM COPY resources while preserving these source rows. Its initializer `1009e27c` registers IRQ89–93, with literal callbacks `1009e267/24d/20b/1f3/1b5`; handlers `1009e1b4..1009e27a` read and acknowledge the same eleven SDES words. All stores in `1009e330`, `1009e470`, `1009e4c2`, `1009e724`, `1009e9ae` and `1009ea0a..1009eba4` fit the existing finite SDES fields and generated-value bounds. Initializer `1009cfd0` registers IRQ94–98, with callbacks `1009cf6b/cf19/ceb3/ce4f/cdef`; `1009cdee..1009cfd0` independently demonstrates the same eight status words, W1C sequence and masks. Literal `1009d25c` is `20068000`; `1009d134` performs all eight hardware-mask RMW operations and saves independent shadows at `c1005d3c+38..54`. Two additional source-known controls are accepted: `1009d056` writes `fff` to `+18`, and `1009d3c0` writes `c` to `+c`. They have explicit cold-zero configuration/readback and bounded12-bit/2-bit values respectively; no undocumented effect clears status or completes a frame. SLA must instantiate its own devices, address space and GIC wiring, without sharing MAS configuration, pending events or providers. This is a source-based match, not a conclusion from matching IRQ numbers.
 
+## Source-bound readout profile
+
+The unchanged MAS builder at `0x1023869e` creates the record later passed to
+`0x1020c7c6`. Its exact field and pointer arithmetic is recorded in
+[`../readout/profile.json`](../readout/profile.json). The record contains
+aligned spans and double-indirect pointers derived from firmware RAM tables.
+These are source facts only: current evidence does not identify them as image
+width, height, stride, Bayer format, DMA direction, or buffer rotation. The
+QEMU readout model therefore keeps the profile provider-independent and does
+not copy these values into the CMOS endpoint. A runtime observation must
+follow the record consumer to a proven transfer or completion producer before
+any field receives an imaging name.
+
 ## Buffer selectors and readout parameters
 
 `nikon-readout-control` is a separate SysBus object with two finite regions: `NIKON_READOUT_BUFFERS`, size `384` hex, proposed VA=PA `20069800`; and `NIKON_READOUT_PARAMETERS`, size `404` hex, proposed VA=PA `2006b000`. Its named request/ready/completion lines are observation boundaries, not GIC wires. Aligned little-endian32-bit accesses retain only source-known configuration with explicit functional cold-zero reset. Other offsets, invalid scalar widths and unpublished data observations return `MEMTX_ERROR`. Neither region extends the capture-control aperture or creates an image by accepting configuration.
