@@ -62,6 +62,12 @@ static char *fixture_container(void)
         stl_le_p(data + offset, 0x51a00000 | i);
         if (i == 4) {
             stl_le_p(data + offset + 0xbcd4, 0x12345678);
+            /* Keep the real vector-to-handler source window explicit.  The
+             * runtime abort at VA 0x10035074 must be distinguished from a
+             * missing loaded ROM byte: this is payload O=0x15074 under the
+             * established 0x10020000 image projection. */
+            stl_le_p(data + offset + 0x14100, 0xea0003da);
+            stl_le_p(data + offset + 0x15074, 0xe59fd004);
             stl_le_p(data + offset + 0x83c4d4, 0xabcdef01);
             stl_le_p(data + offset + 0x854240, 0x76543210);
             data[offset + length - 1] = 0x5a;
@@ -89,6 +95,11 @@ static void test_loaded_domain(void)
     /* Source content is loaded, but neither COPY target nor release is seeded. */
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x83c4d4),
                     ==, 0xabcdef01);
+    /* The handler source is a direct ROMD read at its physical image
+     * address.  No alias or clone RAM is involved in this contract. */
+    g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x14100),
+                    ==, 0xea0003da);
+    g_assert_cmphex(qtest_readl(qts, 0x10035074), ==, 0xe59fd004);
 
     /* The guest owns metadata at both ends of its source-declared arena. */
     g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 0);
