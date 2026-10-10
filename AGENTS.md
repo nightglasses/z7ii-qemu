@@ -75,3 +75,8 @@
 | [sla.md](docs/devices/status/sla.md) | SLA 有限 status 输入、配置与 IRQ 合同 |
 | [sla.md](docs/devices/sysconfig/sla.md) | SLA 原 sysconfig 字段与复用协议 |
 | [controllers.md](docs/validation/controllers.md) | Capture／Readout／Router／Gate 与 phase-two 的固定资格范围 |
+| [protocol.md](docs/devices/pairs/protocol.md) | 两个有限 paired event bank 的共享协议 |
+| [sla.md](docs/devices/pairs/sla.md) | SLA paired bank、sampler、table、shared 与 parameter 原合同 |
+| [protocol.md](docs/devices/readout/protocol.md) | 独立 results 请求、完整发布和 generation 生命周期 |
+| [protocol.md](docs/devices/lookup/protocol.md) | 有限 byte／word lookup 与真实外部数据所有权 |
+| [providers.md](docs/validation/providers.md) | 八个私有设备对象的固定源码、原生资格与原版证据 |

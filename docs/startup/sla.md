@@ -646,3 +646,36 @@ snapshot. The known package prefix at `0xc8220000` matched only partially;
 neither a complete clone nor a successful remap is established. One ordinary
 continue entered the NOR abort consequence, after which QMP quit released the
 binary. Ignored receipts stay in the observer's `work/gui/peripherals`.
+
+## Whole private provider layer
+
+The next private layer contains eight independent objects. Paired event banks
+map `20380000` and `203C0000`, each with finite size `5E00`, to IRQ99/100.
+Sampler, table, shared and parameter controls map `20201000`, `20204000`,
+`20205000` and `20203000` to IRQ116/121/122/124. These models own local state;
+they neither perform DMA nor borrow the global address space.
+
+The independent `results` object uses `TYPE_NIKON_READOUT` at `20200000/310`
+and IRQ115. Its typed `nikon_results_*` API is distinct from ReadoutControl at
+`2006B000`. Byte and word lookup profiles use control regions `24073400/F4`
+and `24072400/F4`, auxiliary regions `24073000/200` and `24072000/200`, and
+IRQ106/105. No typed result or lookup provider is connected. Unknown observed
+status and result fields retain MEMTX_ERROR. Lookup cold idle and ownership
+are explicit functional conventions; a request does not fabricate completion.
+
+The official incremental ARM build and both full-system unit links passed
+after the results API was given its independent namespace. The new readout
+protocol unit passed one case in0.65s; the lookup unit passed four cases in0.65s.
+The new private pairs case and concentrated provider-topology case each passed
+in1.34s. Receipts are `work/readoutprotocolnativereceipt.log`,
+`work/lookupprotocolnativereceipt.log`, `work/slapairsnativereceipt.log` and
+`work/slaprovidertopologynativereceipt.log`; the successful build is
+`work/providerlayerfixedbuild.log`. The first API-collision build failure is
+preserved separately in `work/providerlayerbuild.log`.
+
+The topology case checks all eight actual private children and configuration,
+plus six real event-input paths through the private GIC and their ACKs.
+IRQ105/106/115 are checked at shared unit outputs; this case does not claim
+private GIC injection for the three typed-only provider devices. The other
+four unchanged event protocols were not rerun. These native results do not
+establish completion of the original firmware clone or a GUI console.
