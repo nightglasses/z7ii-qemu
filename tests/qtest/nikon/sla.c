@@ -68,6 +68,13 @@ static char *fixture_container(void)
              * established 0x10020000 image projection. */
             stl_le_p(data + offset + 0x14100, 0xea0003da);
             stl_le_p(data + offset + 0x15074, 0xe59fd004);
+            /* Startup copies this 16 KiB ROMD window to the guest-owned
+             * level-one table at 0xc18e4000.  Keep a nonzero pattern here so
+             * a qtest can prove the copy/read contract without a host alias. */
+            for (unsigned word = 0; word < 0x4000 / sizeof(uint32_t); word++) {
+                stl_le_p(data + offset + 0x10000 + word * sizeof(uint32_t),
+                         0xa1000000 | word);
+            }
             stl_le_p(data + offset + 0x83c4d4, 0xabcdef01);
             stl_le_p(data + offset + 0x854240, 0x76543210);
             data[offset + length - 1] = 0x5a;
@@ -100,6 +107,27 @@ static void test_loaded_domain(void)
     g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE + 0x14100),
                     ==, 0xea0003da);
     g_assert_cmphex(qtest_readl(qts, 0x10035074), ==, 0xe59fd004);
+
+    /* Model the firmware's memcpy(0x10030000, 0xc18e4000, 0x4000) with
+     * guest bus transactions.  The destination must be independent writable
+     * RAM; it must not be an alias of the ROMD source. */
+    {
+        g_autofree uint8_t *source = g_malloc(0x4000);
+        g_autofree uint8_t *table = g_malloc0(0x4000);
+
+        qtest_memread(qts, 0x10030000, source, 0x4000);
+        g_assert_cmphex((uint32_t)ldl_le_p(source), ==, 0xa1000000);
+        g_assert_cmphex((uint32_t)ldl_le_p(source + 0x3ffc), ==, 0xa1000fff);
+        qtest_memwrite(qts, 0xc18e4000, source, 0x4000);
+        qtest_memread(qts, 0xc18e4000, table, 0x4000);
+        g_assert_cmpmem(table, 0x4000, source, 0x4000);
+        /* A subsequent write proves the owner remains writable and is not
+         * backed by the immutable source bytes. */
+        stl_le_p(table, 0xfeedc18e);
+        qtest_memwrite(qts, 0xc18e4000, table, sizeof(uint32_t));
+        g_assert_cmphex(qtest_readl(qts, 0xc18e4000), ==, 0xfeedc18e);
+        g_assert_cmphex(qtest_readl(qts, 0x10030000), ==, 0xa1000000);
+    }
 
     /* The guest owns metadata at both ends of its source-declared arena. */
     g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 0);
