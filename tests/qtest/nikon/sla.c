@@ -110,7 +110,7 @@ static void test_loaded_domain(void)
     qtest_clock_step(qts, 1000000);
     g_assert_cmphex(qtest_readl(qts, 0x04266008), ==, 48000);
     g_assert_cmphex(qtest_readb(qts, 0x2c090003) & 2, ==, 2);
-    g_assert_cmphex(qtest_readl(qts, 0xf81020fc), ==, 0x0002043b);
+    g_assert_cmphex(qtest_readl(qts, 0xf81020fc), ==, 0x0001043b);
     /* The peer seam follows private GPIO direction and masked latch writes. */
     qtest_irq_intercept_out_named(qts, "/machine/sla", "peer-ready");
     qtest_writel(qts, 0x04282020, 0x04000400);
@@ -547,6 +547,62 @@ static void test_external_input(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_deferred_copy(void)
+{
+    const size_t payload_offset = 208 + 4 * 6;
+    const size_t length = NIKON_SLA_DEFERRED_SIZE;
+    const uint64_t end = NIKON_SLA_DEFERRED_BASE + length;
+    g_autofree char *path = fixture_container();
+    g_autofree char *data = NULL;
+    g_autofree uint8_t *actual = g_malloc(length);
+    g_autofree uint8_t *zero = g_malloc0(length);
+    gsize size;
+    uint8_t *payload, *source;
+    QTestState *qts;
+
+    g_assert_true(g_file_get_contents(path, &data, &size, NULL));
+    payload = (uint8_t *)data + payload_offset;
+    source = payload + (NIKON_SLA_DEFERRED_SOURCE - NIKON_SLA_ROM_BASE);
+    /* Synthetic data spanning the complete original runtime call extent. */
+    for (size_t i = 0; i < length; i++) {
+        source[i] = 0x39 ^ i ^ (i >> 8) ^ (i >> 16);
+    }
+    stw_be_p(payload + NIKON_SLA_ROM_SIZE,
+             fixture_crc(payload, NIKON_SLA_ROM_SIZE));
+    stw_be_p(payload + NIKON_SLA_ROM_SIZE + 2,
+             fixture_crc((uint8_t *)data,
+                         payload_offset + NIKON_SLA_ROM_SIZE + 2));
+    g_assert_true(g_file_set_contents(path, data, size, NULL));
+    qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+    qtest_irq_intercept_in(qts, "/machine/sla/gic");
+    qtest_memread(qts, NIKON_SLA_DEFERRED_BASE, actual, length);
+    g_assert_cmpmem(actual, length, zero, length);
+
+    /* The existing controller uses the actual private bus, not a host seed. */
+    prefix_copy(qts, NIKON_SLA_DEFERRED_SOURCE, NIKON_SLA_DEFERRED_BASE,
+                length);
+    g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 8);
+    g_assert_true(qtest_get_irq(qts, 45 - 32));
+    qtest_memread(qts, NIKON_SLA_DEFERRED_BASE, actual, length);
+    g_assert_cmpmem(actual, length, source, length);
+    qtest_system_reset(qts);
+    qtest_memread(qts, NIKON_SLA_DEFERRED_BASE, actual, length);
+    g_assert_cmpmem(actual, length, source, length);
+
+    /* Neither the COPY2 alignment gap nor an unknown trailing BSS is RAM. */
+    for (unsigned i = 0; i < 2; i++) {
+        prefix_copy(qts, NIKON_SLA_DEFERRED_SOURCE,
+                    i ? end : NIKON_SLA_DEFERRED_BASE - 4, 4);
+        g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+        g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, 3);
+        qtest_system_reset(qts);
+    }
+    qtest_memread(qts, NIKON_SLA_DEFERRED_BASE, actual, length);
+    g_assert_cmpmem(actual, length, source, length);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 static void test_signal(void)
 {
     g_autofree char *path = fixture_container();
@@ -749,6 +805,99 @@ static void test_config_links(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_secure_tick(void)
+{
+    /* Self-written ARM fixture, not Nikon instructions.  It configures the
+     * actual secure timer and GIC, including the original active-view RMW.
+     * The IRQ vector records IAR29, disables the timer, and performs EOI. */
+    static const uint32_t program[] = {
+        0xf10c00c0, /* cpsid if */
+        0xe59f0074, /* ldr r0, =GICD */
+        0xe3a01001, /* mov r1, #1 */
+        0xe5801000, /* str r1, [r0] */
+        0xe3a01202, /* mov r1, #1 << 29 */
+        0xe5801100, /* str r1, [r0, #0x100] */
+        0xe5902300, /* ldr r2, [r0, #0x300] */
+        0xe3822202, /* orr r2, r2, #1 << 29 */
+        0xe5802300, /* str r2, [r0, #0x300] */
+        0xe5902300, /* ldr r2, [r0, #0x300] */
+        0xe59f3058, /* ldr r3, =observations */
+        0xe5832004, /* str r2, [r3, #4] */
+        0xe5801280, /* str r1, [r0, #0x280] */
+        0xe59f0048, /* ldr r0, =GICC */
+        0xe3a010ff, /* mov r1, #0xff */
+        0xe5801004, /* str r1, [r0, #4] */
+        0xe3a01001, /* mov r1, #1 */
+        0xe5801000, /* str r1, [r0] */
+        0xe59f003c, /* ldr r0, =vectors */
+        0xee0c0f10, /* mcr p15, 0, r0, c12, c0, 0: VBAR */
+        0xe3a00000, /* mov r0, #0 */
+        0xee0e0f32, /* mcr p15, 0, r0, c14, c2, 1: secure CTL */
+        0xe30b0b80, /* movw r0, #48000 */
+        0xee0e0f12, /* mcr p15, 0, r0, c14, c2, 0: secure TVAL */
+        0xe3a00001, /* mov r0, #1 */
+        0xee0e0f32, /* enable secure timer */
+        0xf57ff06f, /* isb */
+        0xf1080080, /* cpsie i */
+        0xe320f003, /* wfi */
+        0xeafffffd, /* b preceding wfi */
+        0xe320f000, 0xe320f000,
+        0xf8101000, 0xf8102000, 0xc1940000, 0x10020000,
+    };
+    static const uint32_t handler[] = {
+        0xe59f0028, /* ldr r0, =GICC */
+        0xe590100c, /* ldr r1, [r0, #0xc]: IAR */
+        0xe59f2024, /* ldr r2, =observations */
+        0xe5821000, /* record actual acknowledged IRQ */
+        0xe3a03000,
+        0xee0e3f32, /* disable secure timer */
+        0xe5801010, /* str r1, [r0, #0x10]: EOI */
+        0xe3a03001,
+        0xe5823008, /* record completed handler */
+        0xeafffffe,
+        0xe320f000, 0xe320f000,
+        0xf8102000, 0xc1940000,
+    };
+    const size_t payload_offset = 208 + 4 * 6;
+    g_autofree char *path = fixture_container();
+    g_autofree char *data = NULL;
+    gsize size;
+    uint8_t *payload;
+    QTestState *qts;
+    int64_t deadline;
+    unsigned i;
+
+    g_assert_true(g_file_get_contents(path, &data, &size, NULL));
+    payload = (uint8_t *)data + payload_offset;
+    for (i = 0; i < ARRAY_SIZE(program); i++) {
+        stl_le_p(payload + 0xbcd4 + i * 4, program[i]);
+    }
+    for (i = 0; i < ARRAY_SIZE(handler); i++) {
+        stl_le_p(payload + 0xbe00 + i * 4, handler[i]);
+    }
+    /* IRQ vector branches from VA10020018 to our synthetic handler1002BE00. */
+    stl_le_p(payload + 0x18, 0xea002f78);
+    stw_be_p(payload + NIKON_SLA_ROM_SIZE,
+             fixture_crc(payload, NIKON_SLA_ROM_SIZE));
+    stw_be_p(payload + NIKON_SLA_ROM_SIZE + 2,
+             fixture_crc((uint8_t *)data,
+                         payload_offset + NIKON_SLA_ROM_SIZE + 2));
+    g_assert_true(g_file_set_contents(path, data, size, NULL));
+    qts = qtest_initf("-machine nikonsla -smp 1 -bios %s -accel tcg -S", path);
+    qtest_qmp_assert_success(qts, "{'execute':'cont'}");
+    deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (!qtest_readl(qts, 0xc1940008) &&
+           g_get_monotonic_time() < deadline) {
+        g_usleep(1000);
+    }
+    qtest_qmp_assert_success(qts, "{'execute':'stop'}");
+    g_assert_cmphex(qtest_readl(qts, 0xc1940004), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, 0xc1940000), ==, 29);
+    g_assert_cmphex(qtest_readl(qts, 0xc1940008), ==, 1);
+    qtest_quit(qts);
+    unlink(path);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -769,5 +918,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sla/config-links", test_config_links);
     qtest_add_func("/nikon/sla/provider-topology", test_provider_topology);
     qtest_add_func("/nikon/sla/pairs", test_pairs);
+    qtest_add_func("/nikon/sla/secure-tick", test_secure_tick);
+    qtest_add_func("/nikon/sla/deferred-copy", test_deferred_copy);
     return g_test_run();
 }

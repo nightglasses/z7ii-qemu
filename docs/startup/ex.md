@@ -115,6 +115,56 @@ for `nikon_ex_adc_input()` to supply an external 12-bit sample for the selected
 regular channel. Multichannel/injected/continuous conversion timing is not
 claimed by the current single regular conversion profile.
 
+### External ADC samples and processor reset
+
+The original `b3ebd9e` saved snapshot is in the ADC polling loop at
+`0804317e`, with ADC1 SR `10` (STRT without EOC) and timeout `ffffffff`.
+The saved caller stack selects configuration ID `128`, ADC1 channel 1.
+Original initialized records at `2000d40c` bind IDs `127..12a` to ADC1
+channels `0..3`; wrapper initialization selects map indices `0,1,3`.
+The channel-1 caller classifies raw counts using thresholds 3148, 2728,
+1381 and 1032. These software thresholds do not identify a physical
+quantity, voltage or neutral sample. The complete saved diagnosis is in
+`docs/runtime/reset.md` at source `a0581663`.
+
+`nikon_ex_adc_input(s, adc, channel, sample)` and the named `adc` input
+(`adc * 19 + channel`, zero-based ADC index) accept an explicit raw 12-bit
+count `0..4095`; `-1` disconnects that channel's provider. A supplied count
+is held until changed or disconnected. The API is safe after object creation,
+including before realization: it stores the source state without scheduling
+conversion work on unrealized hardware. A later guest ADON/SWSTART request
+uses that state through the normal conversion path. All channels start
+disconnected. The combined diagnostic machine accepts explicitly configured
+[raw counts](../runtime/analog.md); it supplies no default analog profile.
+There is no default
+count or fabricated EOC to release the observed original wait.
+
+The original polling family (`08043126`) and interrupt family
+(`0803cc90 -> 08043284`, then `08043388` and DR read `080430c8`) use the same
+conversion state. ADON and SWSTART request a regular conversion; only a
+connected sample can populate DR, set EOC, request configured DMA and
+assert shared IRQ18 through EOCIE/OVRIE. DR consumption clears EOC, while
+the SR W0C path acknowledges overrun. A source change without an active
+conversion cannot produce EOC; disabling ADON prevents pending work from
+completing. This is a functional sample boundary without a claimed analog
+conversion duration.
+
+Processor reset cancels the conversion BH and clears conversion registers,
+including DR/EOC/interrupt enables, while preserving the externally held
+counts and connection mask. It cannot disconnect an external source. This
+corrects the previous whole-ADC `memset`, independently of the original
+machine's missing sample provider. No ADC RCC reset behavior is added or
+claimed by this change.
+
+The new `/nikon/ex/adc` fixture supplies synthetic, explicit counts and
+checks missing/late inputs, polling and interrupt consumption, overrun,
+release, disabled conversion, all three ADCs' shared IRQ, resolution and
+alignment, AIRCR cancellation and local/global reset retention. The official
+incremental ARM/EX-fixture compile and link passed in `work/exadcbuild.log`.
+This sole new case passed in1.02s with exit0; its actual receipt is
+`work/exadcnativereceipt.log`. No old EX groups were rerun, and no original
+VM or machine-level analog input was supplied by this qualification.
+
 ## Component wiring
 
 `include/hw/nikon/ex.h` exposes the isolated processor as `TYPE_NIKON_EX`.

@@ -816,12 +816,24 @@ static void ex_adc_dispatch(void *opaque)
 }
 
 void nikon_ex_adc_input(NikonEXState *s, unsigned adc, unsigned channel,
-                        uint16_t sample)
+                        int sample)
 {
-    assert(adc < 3 && channel < 19 && sample < 4096);
-    s->adc[adc].sample[channel] = sample;
-    s->adc[adc].valid |= 1 << channel;
-    qemu_bh_schedule(s->adc_bh);
+    assert(adc < ARRAY_SIZE(s->adc) && channel < 19);
+    assert(sample >= -1 && sample < 4096);
+    if (sample < 0) {
+        s->adc[adc].valid &= ~(1U << channel);
+    } else {
+        s->adc[adc].sample[channel] = sample;
+        s->adc[adc].valid |= 1U << channel;
+        if (qdev_is_realized(DEVICE(s))) {
+            qemu_bh_schedule(s->adc_bh);
+        }
+    }
+}
+
+static void ex_adc_input(void *opaque, int index, int sample)
+{
+    nikon_ex_adc_input(opaque, index / 19, index % 19, sample);
 }
 
 uint32_t nikon_ex_spi_transfer(NikonEXState *s, unsigned channel, uint32_t value)
@@ -1340,7 +1352,6 @@ static void ex_reset(DeviceState *dev)
     memset(s->input, 0, sizeof(s->input));
     s->exti_level = 0;
     memset(s->dma, 0, sizeof(s->dma));
-    memset(s->adc, 0, sizeof(s->adc));
     s->adc_common = 0;
     if (!s->rtc_initialized) {
         ex_rtc_reset(s);
@@ -1350,6 +1361,8 @@ static void ex_reset(DeviceState *dev)
         s->rtc_key = 0;
     }
     for (unsigned i = 0; i < 3; i++) {
+        /* A processor reset cannot disconnect an external analog source. */
+        memset(s->adc[i].reg, 0, sizeof(s->adc[i].reg));
         s->adc[i].reg[9] = 0xfff;
     }
     ex_adc_update(s);
@@ -1371,12 +1384,14 @@ static void ex_reset(DeviceState *dev)
     ex_timer_clocks(s);
 }
 
-static void ex_reset_requested(void *opaque)
+static void ex_reset_on_cpu(CPUState *cpu, run_on_cpu_data data)
 {
-    NikonEXState *s = opaque;
+    NikonEXState *s = data.host_ptr;
     /* AIRCR resets the MCU, not an independently powered I2C peripheral. */
     ex_reset(DEVICE(s));
-    device_cold_reset(DEVICE(&s->armv7m));
+    /* ARMv7M is a QOM container, not a parent bus for these devices. */
+    device_cold_reset(DEVICE(&s->armv7m.nvic));
+    device_cold_reset(DEVICE(&s->armv7m.systick[M_REG_NS]));
     for (unsigned i = 0; i < ARRAY_SIZE(s->gpio); i++) {
         ex_reset_port(s, i);
     }
@@ -1389,6 +1404,15 @@ static void ex_reset_requested(void *opaque)
     for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
         device_cold_reset(DEVICE(&s->timer_or[i]));
     }
+    cpu_reset(cpu);
+}
+
+static void ex_reset_requested(void *opaque)
+{
+    NikonEXState *s = opaque;
+
+    /* Reset the running M-profile core on its own vCPU thread under MTTCG. */
+    run_on_cpu(CPU(s->armv7m.cpu), ex_reset_on_cpu, RUN_ON_CPU_HOST_PTR(s));
 }
 
 static void ex_reset_hold(Object *obj, ResetType type)
@@ -1406,6 +1430,8 @@ static void ex_reset_exit(Object *obj, ResetType type)
         ex_replay_port(s, i);
     }
     s->resetting_ports = 0;
+    /* Bus-less CPUs do not participate in the SysBus device reset walk. */
+    cpu_reset(CPU(s->armv7m.cpu));
 }
 
 static void ex_sysresetreq(void *opaque, int n, int level)
@@ -1590,6 +1616,7 @@ static void ex_init(Object *obj)
     s->adc_bh = qemu_bh_new(ex_adc_dispatch, s);
     qdev_init_gpio_out_named(DEVICE(s), s->pad_output, "pad", ARRAY_SIZE(s->pad_output));
     qdev_init_gpio_in_named(DEVICE(s), ex_external_input, "input", 9 * 16);
+    qdev_init_gpio_in_named(DEVICE(s), ex_adc_input, "adc", 3 * 19);
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
