@@ -39,7 +39,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSLADomain, NIKON_SLA_DOMAIN)
 #define SLA_CBAR 0xf8100000ULL
 #define SLA_TIMER_HZ 48000000ULL
 #define SLA_STACK_SIZE 0x4000
-#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 10)
+#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 11)
 
 typedef struct NikonSLANor {
     MemoryRegion region;
@@ -290,18 +290,22 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sla_ram(s, mxic, "nikon.sla.deferred", NIKON_SLA_DEFERRED_BASE,
             NIKON_SLA_DEFERRED_SIZE);
     /* Original fill rounds 0x8b71d4 bytes up to 0x4000-byte blocks. */
-    sla_ram(s, mxic, "nikon.sla.bss", 0xc1017d80, 0x8b8000);
+    sla_ram(s, NULL, "nikon.sla.bss", 0xc1017d80, 0x8b8000);
     /* Original secondary table COPY and startup caller range. */
     sla_ram(s, mxic, "nikon.sla.table", 0xc18e4000, 0x4000);
     /* Source config bounds consumed by the native kernel arena initializer. */
     sla_ram(s, mxic, "nikon.sla.kernel-arena", 0xc1940000, 0x36c0000);
     sla_ram(s, NULL, "nikon.sla.temporary-stack", 0x04008e00, 0x100);
     sla_ram(s, NULL, "nikon.sla.release", 0x04008ffc, 4);
+    /* Source-qualified peer class17 storage is guest-owned.  It starts cold
+     * and is populated only by guest COPY/fill traffic. */
+    sla_ram(s, NULL, "nikon.sla.peer-memory", NIKON_SLA_PEER_MEMORY_BASE,
+            NIKON_SLA_PEER_MEMORY_SIZE);
     /* Source header/sender extent: 0x18 + 0xc0 * 0x108, guest owns contents. */
     sla_ram(s, mxic, "nikon.sla.peer-ring", 0xc60f0000, 0xc618);
     /* 100658e4 record19 and 10065ad8's next-base classifier: normal7MiB RAM.
      * This is allocation backing only; guest/external clone bytes are absent. */
-    sla_ram(s, mxic, "nikon.sla.local-code", NIKON_SLA_LOCAL_CODE_BASE,
+    sla_ram(s, NULL, "nikon.sla.local-code", NIKON_SLA_LOCAL_CODE_BASE,
             NIKON_SLA_LOCAL_CODE_SIZE);
     for (i = 0; i < s->num_cpus; i++) {
         unsigned mode;
