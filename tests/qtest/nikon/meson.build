@@ -11,6 +11,7 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
     'nikon_usio': files('usio.c'),
     'nikon_cmos': files('cmos.c'),
     'nikon_save': files('save.c'),
+    'nikon_frame': files('frame.c'),
   }
 endif
 if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
