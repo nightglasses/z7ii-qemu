@@ -297,15 +297,12 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     sla_ram(s, mxic, "nikon.sla.kernel-arena", 0xc1940000, 0x36c0000);
     sla_ram(s, NULL, "nikon.sla.temporary-stack", 0x04008e00, 0x100);
     sla_ram(s, NULL, "nikon.sla.release", 0x04008ffc, 4);
-    /* Source-qualified peer class17 storage is guest-owned.  It starts cold
-     * and is populated only by guest COPY/fill traffic. */
+    /* Source-qualified peer class17 storage is guest-owned and starts cold. */
     sla_ram(s, NULL, "nikon.sla.peer-memory", NIKON_SLA_PEER_MEMORY_BASE,
             NIKON_SLA_PEER_MEMORY_SIZE);
-    /* Source header/sender extent: 0x18 + 0xc0 * 0x108, guest owns contents. */
-    sla_ram(s, mxic, "nikon.sla.peer-ring", 0xc60f0000, 0xc618);
     /* 100658e4 record19 and 10065ad8's next-base classifier: normal7MiB RAM.
      * This is allocation backing only; guest/external clone bytes are absent. */
-    sla_ram(s, NULL, "nikon.sla.local-code", NIKON_SLA_LOCAL_CODE_BASE,
+    sla_ram(s, mxic, "nikon.sla.local-code", NIKON_SLA_LOCAL_CODE_BASE,
             NIKON_SLA_LOCAL_CODE_SIZE);
     for (i = 0; i < s->num_cpus; i++) {
         unsigned mode;
