@@ -13,7 +13,7 @@
 #define TYPE_NIKON_SDES_CHANNELS "nikon-sdes-channels"
 
 #define NIKON_SDES_CHANNEL_COUNT 11
-#define NIKON_SDES_CHANNEL_SIZE 0x2b8
+#define NIKON_SDES_CHANNEL_SIZE 0x2fc
 
 /* Independent configuration/control family, original VA20063000.
  * Channel indices follow the original selector table (1,2,4,...,400 hex).
@@ -22,6 +22,9 @@
  */
 bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
                                        unsigned offset, uint32_t *value);
+/* Global configuration offset is relative to the MMIO base, not a channel. */
+bool nikon_sdes_channels_global_configuration(DeviceState *dev, unsigned offset,
+                                              uint32_t *value);
 
 enum NikonReadoutRegion {
     NIKON_READOUT_BUFFERS,       /* VA20069800, size0x384 */

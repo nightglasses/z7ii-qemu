@@ -1339,7 +1339,9 @@ struct NikonSdesChannels {
     MemoryRegion memory;
     uint32_t values[NIKON_SDES_CHANNEL_SIZE / 4];
     qemu_irq command[NIKON_SDES_CHANNEL_COUNT];
+    qemu_irq global_command[2];
     uint64_t requests;
+    uint64_t global_requests;
     bool reported_error;
 };
 
@@ -1374,7 +1376,28 @@ static bool nikon_sdes_channel_field(hwaddr offset, unsigned *channel,
         *channel = i;
         return true;
     }
-    return false;
+    /* The same literal base also has two global RMW/commit pairs and
+     * independent parameter stores. None is a result/status observation.
+     */
+    *channel = NIKON_SDES_CHANNEL_COUNT;
+    switch (offset) {
+    case 0x2d0:
+    case 0x2e0:
+    case 0x2f4:
+    case 0x2f8:
+        return true;
+    case 0x2ec:
+        *mask = 0xfff;
+        return true;
+    case 0x2d4:
+    case 0x2e4:
+        *channel += offset == 0x2e4;
+        *mask = 1;
+        *command = true;
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
@@ -1395,6 +1418,23 @@ bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
         return false;
     }
     *value = s->values[address / 4];
+    return true;
+}
+
+bool nikon_sdes_channels_global_configuration(DeviceState *dev, unsigned offset,
+                                              uint32_t *value)
+{
+    NikonSdesChannels *s = NIKON_SDES_CHANNELS(dev);
+    unsigned channel;
+    uint32_t mask;
+    bool command;
+
+    if (!value || (offset & 3) ||
+        !nikon_sdes_channel_field(offset, &channel, &mask, &command) ||
+        channel < NIKON_SDES_CHANNEL_COUNT) {
+        return false;
+    }
+    *value = s->values[offset / 4];
     return true;
 }
 
@@ -1441,8 +1481,14 @@ static MemTxResult nikon_sdes_channels_write(void *opaque, hwaddr offset,
     }
     s->values[offset / 4] = value;
     if (command) {
-        s->requests++;
-        qemu_irq_pulse(s->command[channel]);
+        if (channel < NIKON_SDES_CHANNEL_COUNT) {
+            s->requests++;
+            qemu_irq_pulse(s->command[channel]);
+        } else {
+            s->global_requests++;
+            qemu_irq_pulse(s->global_command[
+                           channel - NIKON_SDES_CHANNEL_COUNT]);
+        }
     }
     return MEMTX_OK;
 }
@@ -1463,9 +1509,13 @@ static void nikon_sdes_channels_reset(DeviceState *dev)
     /* Functional cold-zero applies only to fields admitted by the decoder. */
     memset(s->values, 0, sizeof(s->values));
     s->requests = 0;
+    s->global_requests = 0;
     s->reported_error = false;
     for (i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
         qemu_set_irq(s->command[i], 0);
+    }
+    for (i = 0; i < ARRAY_SIZE(s->global_command); i++) {
+        qemu_set_irq(s->global_command[i], 0);
     }
 }
 
@@ -1478,7 +1528,12 @@ static void nikon_sdes_channels_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
     qdev_init_gpio_out_named(DEVICE(s), s->command, "command-publish",
                              NIKON_SDES_CHANNEL_COUNT);
+    qdev_init_gpio_out_named(DEVICE(s), s->global_command,
+                            "global-command-publish",
+                            ARRAY_SIZE(s->global_command));
     object_property_add_uint64_ptr(obj, "requests", &s->requests,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "global-requests", &s->global_requests,
                                    OBJ_PROP_FLAG_READ);
 }
 
