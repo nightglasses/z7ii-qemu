@@ -98,7 +98,9 @@ static void eye_wait(QTestState *q, uint32_t mask, uint32_t value)
         if ((eye_i2c_read(q, 4) & mask) == value) {
             return;
         }
-        qtest_clock_step(q, 100000);
+        /* Synchronize with the controller's next finite bus-clock event;
+         * fixed nanosecond steps can stop before the TX FIFO is serviced. */
+        qtest_clock_step_next(q);
     }
     g_assert_cmphex(eye_i2c_read(q, 4) & mask, ==, value);
 }
