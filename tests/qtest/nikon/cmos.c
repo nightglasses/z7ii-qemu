@@ -3,6 +3,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qobject/qdict.h"
 #include "libqtest.h"
 #include "hw/nikon/cmos.h"
 
@@ -17,6 +18,12 @@ static QTestState *start(void)
 
     QTestState *q = qtest_initf("-M z7ii-mas-diagnostic -smp 1 -bios %s "
                                 "-nodefaults -display none", bios);
+
+    /* Explicit fixture source for these transport tests; production machines
+     * leave the CMOS provider unbound until firmware evidence supplies one. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':true}}");
 
     qtest_irq_intercept_out_named(q, "/machine/cmos", "sysbus-irq");
     return q;
@@ -156,6 +163,29 @@ static void test_invalid_and_cancel(void)
     qtest_quit(q);
 }
 
+static void test_provider_required(void)
+{
+    QTestState *q = start();
+    QDict *reply;
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':'/machine/cmos',"
+        "'property':'provider-bound'}}");
+    g_assert_false(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+
+    /* Geometry alone cannot make an unbound CMOS source produce a frame. */
+    configure(q, 8, 8, 4, 48);
+    qtest_writel(q, CMOS + 0x060, 1);
+    g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
+    g_assert_cmphex(qtest_readl(q, CMOS + 0x070), ==,
+                    NIKON_CMOS_EVENT_ERROR);
+    qtest_quit(q);
+}
+
 static void test_period(void)
 {
     QTestState *q = start();
@@ -190,6 +220,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/configured-frames", test_configured_frames);
     qtest_add_func("/nikon/cmos/crop-scale-unknown", test_crop_scale_and_unknown);
     qtest_add_func("/nikon/cmos/invalid-cancel", test_invalid_and_cancel);
+    qtest_add_func("/nikon/cmos/provider-required", test_provider_required);
     qtest_add_func("/nikon/cmos/period", test_period);
     result = g_test_run();
     unlink(image);

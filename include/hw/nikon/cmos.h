@@ -33,4 +33,12 @@ enum NikonCmosEvent {
  * consumer is recovered later. */
 void nikon_cmos_cancel(DeviceState *dev);
 
+/* The diagnostic CMOS transport is inert until a source provider is bound.
+ * A provider is deliberately represented as a single explicit capability for
+ * now: its geometry, Bayer order and timing remain guest-supplied evidence,
+ * not defaults inferred by the device.  The fixture qtests opt in to the
+ * deterministic byte source through the QOM property `fixture-provider`.
+ */
+bool nikon_cmos_provider_bound(DeviceState *dev);
+
 #endif

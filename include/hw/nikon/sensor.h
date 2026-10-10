@@ -117,4 +117,8 @@ bool nikon_sensor_begin_frame(DeviceState *dev, const NikonSensorFrame *frame,
                               Error **errp);
 void nikon_sensor_cancel_frame(DeviceState *dev);
 
+/* Runtime observations for the external source and timing state machine. */
+bool nikon_sensor_provider_bound(DeviceState *dev);
+bool nikon_sensor_configured(DeviceState *dev);
+
 #endif

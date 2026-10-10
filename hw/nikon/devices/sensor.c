@@ -32,6 +32,29 @@ struct NikonSensorState {
     int64_t deadline;
 };
 
+static bool nikon_sensor_get_provider_bound(Object *obj, Error **errp)
+{
+    return NIKON_SENSOR(obj)->input != NULL;
+}
+
+static bool nikon_sensor_get_configured(Object *obj, Error **errp)
+{
+    const NikonSensorFrame *f = &NIKON_SENSOR(obj)->configuration;
+
+    return f->row_bytes && f->rows && f->stride >= f->row_bytes &&
+           f->exposure_ns && f->readout_ns;
+}
+
+bool nikon_sensor_provider_bound(DeviceState *dev)
+{
+    return NIKON_SENSOR(dev)->input != NULL;
+}
+
+bool nikon_sensor_configured(DeviceState *dev)
+{
+    return nikon_sensor_get_configured(OBJECT(dev), NULL);
+}
+
 static void nikon_sensor_outputs(NikonSensorState *s)
 {
     qemu_set_irq(s->output[NIKON_SENSOR_EXPOSURE_ACTIVE],
@@ -338,6 +361,10 @@ static void nikon_sensor_init(Object *obj)
     object_property_add_uint32_ptr(obj, "phase", &s->phase, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "bytes-written", &s->written,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_bool(obj, "provider-bound",
+                             nikon_sensor_get_provider_bound, NULL);
+    object_property_add_bool(obj, "configured", nikon_sensor_get_configured,
+                             NULL);
 }
 
 static void nikon_sensor_finalize(Object *obj)

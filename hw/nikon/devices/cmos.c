@@ -12,6 +12,7 @@
 #include "qapi/error.h"
 #include "qemu/timer.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
@@ -90,7 +91,18 @@ struct NikonCmosState {
     uint32_t unknown[CMOS_UNKNOWN_WORDS];
     uint64_t frame_count, generation;
     bool reported_error;
+    bool fixture_provider;
 };
+
+static bool nikon_cmos_get_provider_bound(Object *obj, Error **errp)
+{
+    return NIKON_CMOS(obj)->fixture_provider;
+}
+
+bool nikon_cmos_provider_bound(DeviceState *dev)
+{
+    return NIKON_CMOS(dev)->fixture_provider;
+}
 
 static bool nikon_cmos_writable(hwaddr address, uint64_t length)
 {
@@ -295,6 +307,14 @@ static void nikon_cmos_start(NikonCmosState *s)
 {
     Error *err = NULL;
     int64_t now;
+
+    if (!s->fixture_provider) {
+        /* No camera source has been identified in the C1.70 evidence.  Keep
+         * the endpoint observable and incomplete instead of manufacturing a
+         * frame for the guest. */
+        nikon_cmos_fail(s);
+        return;
+    }
 
     if (s->phase == NIKON_CMOS_EXPOSING || s->phase == NIKON_CMOS_READING) {
         nikon_cmos_fail(s);
@@ -532,6 +552,8 @@ static void nikon_cmos_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "unknown-writes", &s->unknown_writes,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_bool(obj, "provider-bound",
+                             nikon_cmos_get_provider_bound, NULL);
 }
 
 static void nikon_cmos_finalize(Object *obj)
@@ -544,11 +566,19 @@ static const VMStateDescription nikon_cmos_vmstate = {
     .unmigratable = true,
 };
 
+static const Property nikon_cmos_properties[] = {
+    /* Explicit test source only. A real provider must be bound from the
+     * recovered camera protocol before this endpoint can produce a frame. */
+    DEFINE_PROP_BOOL("fixture-provider", NikonCmosState, fixture_provider,
+                     false),
+};
+
 static void nikon_cmos_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_cmos_vmstate;
+    device_class_set_props(dc, nikon_cmos_properties);
     device_class_set_legacy_reset(dc, nikon_cmos_reset);
 }
 
