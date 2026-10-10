@@ -610,6 +610,19 @@ static uint64_t copy_property(QTestState *q, const char *name)
     return value;
 }
 
+static char *copy_string_property(QTestState *q, const char *name)
+{
+    QDict *response = qtest_qmp(q, "{'execute':'qom-get',"
+                              " 'arguments':{'path':'/machine/copy',"
+                              " 'property':%s}}", name);
+    char *value;
+
+    g_assert_true(qdict_haskey(response, "return"));
+    value = g_strdup(qdict_get_str(response, "return"));
+    qobject_unref(response);
+    return value;
+}
+
 static void test_copy_telemetry(void)
 {
     const unsigned length = 3 * 1024 * 1024, progress = 65536;
@@ -678,6 +691,31 @@ static void test_copy_descriptor_observability(void)
     g_assert_cmpuint(copy_property(q, "first-fault-source-writes"), ==, 2);
     g_assert_cmpuint(copy_property(q, "first-fault-destination-writes"), ==,
                      2);
+    qtest_quit(q);
+}
+
+static void test_copy_descriptor_unbound(void)
+{
+    const unsigned length = 16;
+    const uint32_t source = RAM + 0x100;
+    QTestState *q = start(false, 1);
+    g_autofree char *owner = copy_string_property(q, "descriptor-owner");
+
+    /* No recovered producer is connected yet.  The model must expose that
+     * fact and retain the original zero destination fault semantics. */
+    g_assert_false(qtest_qom_get_bool(q, "/machine/copy", "descriptor-bound"));
+    g_assert_cmpstr(owner, ==, "unbound");
+    g_assert_cmpuint(copy_property(q, "descriptor-producer-pc"), ==, 0);
+    g_assert_cmpuint(copy_property(q, "descriptor-producer-lr"), ==, 0);
+    g_assert_cmpuint(copy_property(q, "descriptor-control-destination"), ==, 0);
+    g_assert_cmpuint(copy_property(q, "descriptor-record"), ==, 0);
+
+    qtest_memset(q, source, 0x5a, length);
+    copy_request(q, 0, source, 0, length);
+    copy_complete(q, length);
+    g_assert_true(qtest_qom_get_bool(q, "/machine/copy", "first-fault"));
+    g_assert_cmpuint(copy_property(q, "first-fault-destination"), ==, 0);
+    g_assert_false(qtest_qom_get_bool(q, "/machine/copy", "descriptor-bound"));
     qtest_quit(q);
 }
 
@@ -828,6 +866,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/copy/telemetry", test_copy_telemetry);
     qtest_add_func("/nikon/copy/descriptor-observability",
                    test_copy_descriptor_observability);
+    qtest_add_func("/nikon/copy/descriptor-unbound",
+                   test_copy_descriptor_unbound);
     qtest_add_func("/nikon/hdmac/transfer", test_hdmac);
     qtest_add_func("/nikon/hdmac/pending", test_hdmac_pending);
     qtest_add_func("/nikon/bench/dma", test_dma_bench);

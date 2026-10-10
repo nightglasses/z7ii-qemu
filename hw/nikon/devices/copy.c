@@ -68,7 +68,48 @@ struct NikonCopyState {
     uint64_t first_fault_remaining;
     uint64_t first_fault_source_writes;
     uint64_t first_fault_destination_writes;
+    bool descriptor_bound;
+    char descriptor_owner[64];
+    uint32_t descriptor_producer_pc;
+    uint32_t descriptor_producer_lr;
+    uint64_t descriptor_control_destination;
+    uint32_t descriptor_record;
 };
+
+static void nikon_copy_descriptor_clear(NikonCopyState *s)
+{
+    s->descriptor_bound = false;
+    g_strlcpy(s->descriptor_owner, "unbound", sizeof(s->descriptor_owner));
+    s->descriptor_producer_pc = 0;
+    s->descriptor_producer_lr = 0;
+    s->descriptor_control_destination = 0;
+    s->descriptor_record = 0;
+}
+
+void nikon_copy_set_descriptor_context(DeviceState *dev, const char *owner,
+                                       uint32_t producer_pc,
+                                       uint32_t producer_lr,
+                                       uint64_t control_destination,
+                                       uint32_t record)
+{
+    NikonCopyState *s = NIKON_COPY(dev);
+
+    if (!owner || !owner[0]) {
+        nikon_copy_descriptor_clear(s);
+        return;
+    }
+    s->descriptor_bound = true;
+    g_strlcpy(s->descriptor_owner, owner, sizeof(s->descriptor_owner));
+    s->descriptor_producer_pc = producer_pc;
+    s->descriptor_producer_lr = producer_lr;
+    s->descriptor_control_destination = control_destination;
+    s->descriptor_record = record;
+}
+
+void nikon_copy_clear_descriptor_context(DeviceState *dev)
+{
+    nikon_copy_descriptor_clear(NIKON_COPY(dev));
+}
 
 static void nikon_copy_irq(NikonCopyChannel *c)
 {
@@ -387,6 +428,7 @@ static void nikon_copy_reset(DeviceState *dev)
     s->first_fault_remaining = 0;
     s->first_fault_source_writes = 0;
     s->first_fault_destination_writes = 0;
+    nikon_copy_descriptor_clear(s);
     clock_update_hz(s->clock, 48000000);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
@@ -434,11 +476,22 @@ static bool nikon_copy_get_first_fault(Object *obj, Error **errp)
     return NIKON_COPY(obj)->first_fault;
 }
 
+static bool nikon_copy_get_descriptor_bound(Object *obj, Error **errp)
+{
+    return NIKON_COPY(obj)->descriptor_bound;
+}
+
+static char *nikon_copy_get_descriptor_owner(Object *obj, Error **errp)
+{
+    return g_strdup(NIKON_COPY(obj)->descriptor_owner);
+}
+
 static void nikon_copy_init(Object *obj)
 {
     NikonCopyState *s = NIKON_COPY(obj);
     unsigned i;
 
+    nikon_copy_descriptor_clear(s);
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-copy-clock");
     memory_region_init_io(&s->regs, obj, &nikon_copy_ops, s, "nikon.copy", 0xd0);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
@@ -446,6 +499,22 @@ static void nikon_copy_init(Object *obj)
                         nikon_copy_get_clock, NULL, NULL, NULL);
     object_property_add_bool(obj, "first-fault", nikon_copy_get_first_fault,
                              NULL);
+    object_property_add_bool(obj, "descriptor-bound",
+                             nikon_copy_get_descriptor_bound, NULL);
+    object_property_add_str(obj, "descriptor-owner",
+                            nikon_copy_get_descriptor_owner, NULL);
+    object_property_add_uint32_ptr(obj, "descriptor-producer-pc",
+                                   &s->descriptor_producer_pc,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "descriptor-producer-lr",
+                                   &s->descriptor_producer_lr,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "descriptor-control-destination",
+                                   &s->descriptor_control_destination,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "descriptor-record",
+                                   &s->descriptor_record,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "first-fault-channel",
                                    &s->first_fault_channel, OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "first-fault-status",

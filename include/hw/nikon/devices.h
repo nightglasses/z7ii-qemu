@@ -59,4 +59,12 @@ I2CBus *nikon_i2c_bus(DeviceState *dev);
 void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
                               AddressSpace *peer);
 
+/* Firmware-side descriptor context, kept separate from COPY MMIO state. */
+void nikon_copy_set_descriptor_context(DeviceState *dev, const char *owner,
+                                       uint32_t producer_pc,
+                                       uint32_t producer_lr,
+                                       uint64_t control_destination,
+                                       uint32_t record);
+void nikon_copy_clear_descriptor_context(DeviceState *dev);
+
 #endif
