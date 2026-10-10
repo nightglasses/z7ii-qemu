@@ -497,7 +497,9 @@ static MemTxResult nikon_i2c_write(void *opaque, hwaddr offset, uint64_t value,
         break;
     case 8:
         if (value > 0x7f || ((s->control & I2C_MASTER) &&
-            (!(s->control & 4) || (s->control & 0x20))) ||
+            (!(s->control & 4) ||
+             ((s->control & 0x20 && s->control != 0x3e &&
+               s->control != 0x3f)))) ||
             (s->active && (!s->addressed || !(s->control & I2C_HOLD) ||
                            value != s->address || s->request_pending ||
                            s->nack_pending || s->stop_pending))) {
