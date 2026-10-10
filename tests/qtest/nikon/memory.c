@@ -216,6 +216,33 @@ static void test_dynamic_load(void)
     memory_quit(&t);
 }
 
+static void test_download_scratch(void)
+{
+    const uint32_t source = 0x10020000;
+    const uint32_t destination = 0xb0d00000;
+    uint8_t expected[4];
+    uint8_t actual[4];
+    MemoryTest t = memory_init("");
+
+    /* The selector-zero loader's source is the four-byte diagnostic image in
+     * this fixture; the destination is the dedicated 4 MiB download buffer.
+     * This does not alias any declared DDR storage class. */
+    qtest_memread(t.qts, source, expected, sizeof(expected));
+    g_assert_cmphex(qtest_readl(t.qts, destination), ==, 0);
+    prefix_copy(t.qts, source, destination, sizeof(expected));
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    qtest_memread(t.qts, destination, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+
+    /* The explicit 4 MiB bound is part of the source contract. */
+    qtest_writel(t.qts, destination + 0x400000 - 4, 0xa5a55a5a);
+    g_assert_cmphex(qtest_readl(t.qts, destination + 0x400000 - 4), ==,
+                    0xa5a55a5a);
+    qtest_writel(t.qts, destination + 0x400000, 0x5aa5a55a);
+    g_assert_cmphex(qtest_readl(t.qts, destination + 0x400000), ==, 0);
+    memory_quit(&t);
+}
+
 static void test_external_input(void)
 {
     const size_t prefix_size = 0x20000, length = 0x100000;
@@ -364,6 +391,7 @@ int main(int argc, char **argv)
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
+    qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/external-input", test_external_input);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();

@@ -45,6 +45,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_MAX_CPUS 2
 #define Z7II_SLA_CPUS 2
 #define Z7II_EX_CPUS 1
+#define Z7II_DOWNLOAD_BASE 0xb0d00000ULL
+#define Z7II_DOWNLOAD_SIZE 0x400000ULL
 
 /* Source address-class records 21..26, with source-bound storage consumers. */
 static const struct {
@@ -82,6 +84,8 @@ struct Z7IIMachineState {
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
+    /* Selector-zero download buffer consumed by the RMU peer contract. */
+    MemoryRegion download;
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
     MemoryRegion peer_window;
@@ -403,6 +407,15 @@ static void z7ii_init(MachineState *machine)
         z7ii_ram(&s->storage[i], z7ii_storage[i].name,
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
+    /*
+     * The unchanged selector-zero loader initializes B0D00000 as a 4 MiB
+     * scratch buffer, copies MAS view0 (0x107a4f34, 0x3b1c0 bytes) into it,
+     * and passes the same range to the RMU/IPUD peer.  Keep this as a
+     * dedicated source-backed region rather than folding it into a DDR class:
+     * the static contract does not identify it as ordinary allocator storage.
+     */
+    z7ii_ram(&s->download, "z7ii.download", Z7II_DOWNLOAD_BASE,
+             Z7II_DOWNLOAD_SIZE);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
