@@ -1,22 +1,50 @@
-# Nightglass QEMU
+# Nikon firmware emulation on QEMU
 
-Nikon firmware emulation and debugging built on upstream QEMU. `qemu` is the pinned official QEMU Git submodule; Nikon machines, devices and native tests remain source files in this repository. Its machine and device layers can support multiple Nikon models; the first target is Z7II.
+This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
-The initial target is Nikon Z7II C1.70. Existing camera emulation projects inform device models and tracing. A user-supplied post shows a claimed Nikon Z9 QEMU run reaching a camera error screen; implementation and launch details are unavailable, so that case is a useful lead rather than a reproducible baseline.
+The project is a software model of selected firmware interfaces. It does not claim a complete camera boot, a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Physical-camera validation is a separate acceptance result.
 
-Upstream baseline: QEMU `v11.1.2`, commit `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The upstream licenses and nested submodules remain with the official dependency. Build outputs and original firmware remain in ignored `work/`. Firmware recovery tools remain in [Nightglass](https://github.com/mashiro01/nightglass), and maintained firmware source remains in [Nightglass Firmware](https://github.com/mashiro01/nightglass-firmware).
+## Scope and boundaries
 
-The current route implements the original firmware's device protocols with explicit virtual reset and timing assumptions, aiming to reach RTOS tasks and menus. CPU/reset/load assumptions remain visible. Unknown addresses, widths and commands still stop execution; physical-camera acceptance remains a separate result. Rebuilt firmware is then compared in the same model.
+- The supported ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package.
+- CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
+- CMOS input is an explicit opaque frame source. The ISP/process path accepts supplied buffers and preserves the guest-visible transaction and IRQ boundary; it does not identify a real sensor, Bayer layout, codec, or physical ISP.
+- The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
+- The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
+- Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
+- Unsupported transactions return `MEMTX_ERROR`, record the first offending CPU/PC/address/direction/width, and request a QEMU debug stop. An architectural exception or an instruction fetch outside mapped memory can stop through upstream ARM handling before the asynchronous request is processed.
 
-The update package contains five components, not a complete board flash/BootROM dump. Model coverage, successful original boot, rebuilt behavior and real-camera acceptance are separate results. Unknown device behavior is recorded as a stop point; original code and the `O0x178` self-loop are preserved.
+## Architecture and startup flow
 
-Issues are managed through [the Nightglass delivery map](https://github.com/mashiro01/nightglass/issues/67). No firmware bytes, generated binaries or private credentials are committed. CI will build the pinned QEMU integration and synthetic tests; it will not download camera firmware or call models.
+```mermaid
+flowchart LR
+  subgraph Boot[Reset and loader]
+    Payload[Original component payload] --> Loader[QEMU ROM loader]
+    Reset[Virtual reset] --> CPU[ARM CPU and TCG]
+    Loader --> CPU
+  end
 
-## MAS diagnostic machine
+  CPU --> Bus[System memory and MMIO bus]
+  Bus --> RAM[RAM, ROM and DMA regions]
+  Bus --> CMOS[CMOS input profile\nopaque supplied frames]
+  CMOS --> ISP[ISP / process boundary\nsource-backed buffer contract]
+  ISP --> Display[Display console\ncompleted composition only]
+  Bus --> Storage[Storage endpoint\nNVMe + BlockBackend]
+  Bus --> IRQ[GIC and timer IRQs]
+  IRQ --> RTOS[Guest RTOS handlers\nacknowledgement remains in firmware]
+  Bus --> Unknown[Unknown address, width or command]
+  Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
 
-The implementation for [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326) starts in `hw/nikon/machines/z7ii.c`, which owns the model's address map, CPU selection and IRQ wiring. `hw/nikon/devices/*.c` contains Nikon QOM/SysBus devices named for their known functional protocols; `include/hw/nikon/devices.h` defines their public boundary. The [Nikon model layout](docs/layout.md) describes these layers. It uses the pinned upstream ARM CPU, MemoryRegion, ROM loader, reset, TCG, exception handling and GDB stub. Bounded MEMC profiles, an 88-byte temporary stack, upstream GICv1/generic timer and a separate [virtual timestamp counter](docs/devices/timestamp/protocol.md) use explicit board hypotheses. The early SMP handshake remains guest code; broader IPC and display remain uncovered. Linux is not required: use the upstream native macOS build dependencies and ARM system TCG.
+  Fixture[8x8 transport fixture] -. transport checks only .-> Bus
+```
 
-Install CMake and QEMU's native build dependencies (a C compiler, Make, Meson/Ninja, pkg-config, GLib, pixman and Python for upstream build tooling), then build from this checkout:
+The diagram describes the model's boundaries, not a claim that every edge occurs during an original firmware run. The guest must perform its own copies, initialization, event acknowledgement, and task transitions. Host code does not prefill buffers, inject RTOS flags, or manufacture a menu result.
+
+## Dependencies and build
+
+The `qemu/` submodule is the official QEMU source pinned to `v11.1.2` (`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`). Keep that checkout clean; the project-owned source is under `hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, and `tests/unit/nikon`.
+
+Install CMake 3.24 or newer, a C compiler, Make, Meson/Ninja, `pkg-config`, GLib, pixman, and the Python packages required by the upstream QEMU build. Then run:
 
 ```sh
 git submodule update --init --recursive
@@ -25,67 +53,78 @@ make check
 make bench
 ```
 
-The root Makefile uses CMake to compose an ignored native source graph, then invokes QEMU's official configure and generated Makefile. Four generated Kconfig/Meson entries register Nikon source, qtests and bundle unit tests without modifying the upstream submodule. A single native RX configuration preserves the original VR component's required EXTB capability in four generated RX source units. There is no patch, source copy or project build script. [Build ownership and dependency details](docs/build.md) describe the source graph. `make check` runs the Nikon native test suite; `make bench` runs the C executable in GLib performance mode. Tests cover synthetic ARM execution and two-core WFE/SEV, device state, GPIO and DMA IRQ delivery to actual GIC inputs and real fill/copy/HDMAC RAM transfers; they use no original firmware. Default binaries are `work/build/qemu/qemu-system-arm` and `qemu-system-rx`.
-
-Use standard configure options for a different host or toolchain. Run `make configure CONFIGURE_FLAGS='--target-list=arm-softmmu --enable-tcg --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'`, then `make`. `BUILD_DIR=/absolute/path/to/build` selects an out-of-tree build. Dependencies fetched by QEMU's official Meson wraps retain their upstream pinned definitions; camera firmware is never fetched.
-
-Fixed integration `8fa256f` passed the existing configured QEMU native build: 12 Nikon device qtests and four timing lifecycle qtests (`make -j1 check-nikon`, 4.361 seconds), followed by the C DMA performance case (`make -j1 bench-nikon`, 1.590 seconds). The model binary contains timing fix `f938dba`; the timing fixture uses upstream Clock's exact rounded deadlines from `f78822d`. Earlier compile and fixture failures remain in their original local receipts. This increment reused the pinned upstream development checkout and configured build; it does not claim a fresh build of the default dependency directory, physical DMA speed or complete camera boot.
-
-Run the extracted **MAS component payload**, not the complete Nikon update file, with an unused output directory. The locally confirmed C1.70 input is `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes (`0x2477b78`); the machine also accepts smaller synthetic diagnostic images. The nested `mas-inner` at parent offsets `[0x208853c,0x228cf3c)` belongs to a separate candidate `0xb1000000` mapping and must not be substituted at this entry.
+The root Makefile asks CMake to compose an ignored source view and then invokes QEMU's normal configure and generated build. The default executables are `work/build/qemu/qemu-system-arm` and `work/build/qemu/qemu-system-rx`. Build directories and source views can be moved without changing the source tree:
 
 ```sh
-# Run from this repository; choose another short unused name for later runs.
-mkdir -p work
-mkdir work/r1
-work/build/qemu/qemu-system-arm \
-  -M z7ii-mas-diagnostic -accel tcg,thread=single \
-  -bios /absolute/path/to/02_eg1840_mas_01700.payload.bin \
-  -display none -serial none -monitor none -S \
-  -gdb unix:work/r1/gdb.sock,server=on,wait=off \
-  -qmp unix:work/r1/qmp.sock,server=on,wait=off \
-  -D work/r1/qemu.log -d guest_errors,int
+make configure \
+  CONFIGURE_FLAGS='--target-list=arm-softmmu,rx-softmmu --enable-tcg \
+    --disable-docs --disable-tools --disable-user --disable-guest-agent --disable-werror'
+make BUILD_DIR=/absolute/path/to/build -j8
 ```
 
-Use the upstream GDB stub and QMP to inspect reset registers, stopped accesses and CPU state. QMP `query-status` and `query-cpus-fast`, GDB registers and the upstream `-d int` log distinguish an architectural exception, a wait and a running loop. Temporary debugger commands, breakpoint scripts, address-check helpers and local operation notes belong in ignored `work/debug/`; logs and sockets remain local. Maintained device behavior and actual research findings belong in `docs/`, including the [software-wait observations](docs/runtime/wait/observation.md). Debugger observations do not change the original firmware bytes or establish whole-camera boot.
+No firmware is downloaded by the build. Keep extracted images, logs, sockets, and debugger scripts in the ignored `work/` directory.
 
-Run observations with the native QEMU binary, QMP and GDB. Keep commands, logs, registers and byte-preservation evidence in a new ignored per-run directory. A bounded observation or process exit is not boot completion. Keep UNIX socket names short: [macOS bounds `sockaddr_un.sun_path` at 104 bytes](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/un.h#L74-L78). Select `-accel tcg,thread=multi` for a separate MTTCG observation; single-thread scheduling may stop CPU0 before CPU1 runs.
+## Run the original MAS model
 
-Earlier [first MAS](docs/startup/first.md), [MEMC](docs/startup/memc.md), [two-core](docs/startup/smp.md) and [strict clock-bank](docs/devices/clock/protocol.md) reports preserve fixed-stage evidence. The functional sequence subsequently passed [PLL](docs/startup/protocol.md), [dual-bank SDI](docs/devices/sdi/protocol.md), [finite region decode](docs/devices/mxic/protocol.md) and [real bus fill](docs/devices/fill/protocol.md). Original GIC translation faults led to the [page-table-consistent CBAR](docs/startup/peripherals.md); the [original allocator arena](docs/runtime/allocator.md) and [counter configuration](docs/devices/timestamp/runtime.md) then passed. The fixed counter-stage trace actually shows the original scheduler entering the initial task at `10103bc8`, with guest-produced stack and parameters. No host task context or PC is supplied.
+Use an extracted MAS component payload. The machine also accepts synthetic diagnostic images used by qtests, but a synthetic image does not represent original firmware behavior.
 
-The [USIO run](docs/devices/usio/protocol.md) passes original UART initialization; the [GPIO run](docs/devices/gpio/protocol.md) and complete [system-configuration bootstrap](docs/devices/sysconfig/protocol.md) then pass. Original early completion polling, the complete [MXIC initialization](docs/devices/config/protocol.md), [kernel copy/per-core stacks](docs/runtime/stacks.md) and [runtime bit requests](docs/devices/clock/runtime.md) now pass. The [eleven-channel SPI profile](docs/devices/spi/protocol.md) has eleven focused FIFO/SSI/IRQ/reset tests. The [first guest bump allocation](docs/runtime/buffer.md) passes its RAM copy fault and the nine guest-enabled SPI reset/depth iterations. A [bounded erased NV slot](docs/inputs/nv/slot.md) supplies an explicitly blank external data input. The [sixteen-input EXIU model](docs/devices/exiu/protocol.md) then passes the original initializer and thirteen focused edge/level/pad/GIC/reset checks; the [paired HDMAC model](docs/devices/hdmac/protocol.md) then passes its bootstrap with seventeen focused DMA/IRQ/arbitration/reset checks. The [four-channel I²C model](docs/devices/i2c/protocol.md) then passes the original IDR initializer; fifteen focused bus/FIFO/GIC/reset and variant-rejection tests pass. A separate [finite record-aperture profile](docs/inputs/nv/records.md) then makes the primary256KiB external input explicitly erased, retaining the original empty/ENDM/recovery protocol and unsupported writes. Fourteen focused storage checks pass; that stage's first stop is CPU1 `PC1036d84a / READ32 PA2c080000`. That run's CPU0 IRQ snapshot precedes its first scanner call, so original blank-record consumption/return is not yet dynamically proved. Original PKGB2 phase1 slot1 constructor entry is observed, with no phase-completion or valid-NV claim. Each report distinguishes its exact C, focused fixtures, original receipt and model assumptions. Fixed `40f6b3b` passed 60 contracts; later stages have separately recorded focused results. Initial-task dispatch, two timer IRQ services and real CPU1 IRQ progress are recorded; a menu and whole-camera boot remain unverified.
+```sh
+mkdir -p work/runs/r1
+work/build/qemu/qemu-system-arm \
+  -M z7ii-mas-diagnostic \
+  -accel tcg,thread=single \
+  -bios /absolute/path/to/mas-component.payload.bin \
+  -display none -serial none -monitor none -S \
+  -gdb unix:work/runs/r1/gdb.sock,server=on,wait=off \
+  -qmp unix:work/runs/r1/qmp.sock,server=on,wait=off \
+  -D work/runs/r1/qemu.log -d guest_errors,int
+```
 
-The [dual Audio profile](docs/devices/audio/protocol.md) subsequently passes original initialization. Its output FIFOs drive real per-beat HDMAC requests; disconnected input remains pending. The original180d7e4 run now first stops CPU0 reading the alternate record bank at `131e0004`; CPU1 independently reaches the next twelve-channel timing block at `2c010000`. This does not prove Audio sample transfer, phase completion, valid NV data or a displayed menu. Record traces preserve the original blank-header/error branches.
+The `-S` option leaves the CPUs paused for reset inspection. Use the upstream GDB stub for registers and memory, and QMP for `query-status`, `query-cpus-fast`, resume/stop, and device inspection. Use a short per-run socket path on macOS. For a focused one-core fixture, pass `-smp 1`; use the machine default when observing the original two-core handshake.
 
-The subsequent [twelve-channel timing profile](docs/devices/timing/protocol.md) passes original initialization with13 focused Clock/IRQ/lifecycle checks. Its originala435cda run first stops CPU1 at `PC10294c34 /READ32 PA04251000`. These counters are a declared functional protocol model, with no DMA copying or inferred physical frequency. The [four-channel default byte-copy controller](docs/devices/copy/protocol.md) then passes original initialization and finite global selectors. Its17 focused fixtures use real bus reads/writes and GIC IRQ48; original runtime transfers remain unverified. The originala9a4b7c run first stops CPU0 at `PC103e0ad2 /READ32 PA12a3fffc`, another finite external-data dependency. The [whole finite external NOR profile](docs/inputs/nor/profile.md) subsequently passes21 focused geometry/read/reset/rejection checks and preserves the original empty-record validation. Its next RAM fault identifies the [complete original sending ring](docs/runtime/ring.md). Six focused extent/decode checks pass; original578f261 naturally completes its initializer and enters phase2 slot0 in both roles. The new first stop is `PC102de016 /WRITE32 PA2013c5e0`. Original guest startup defaults are observed separately from NV validity and the whole phase/menu goal; no host peer reply is supplied.
+Record the input hash, command line, QMP status, GDB registers, first stopped access, and exit status in the run directory. A bounded stop, a debugger breakpoint, or a process exit is an observation; it is not proof of complete boot.
 
-| Initial condition | Evidence or explicit diagnostic assumption |
-|---|---|
-| Two Cortex-A7 cores by default; CBAR `0xf8100000`, CNTFRQ 48 MHz | Original configuration producers set `TSysPrNum=2/TKerPrNum=2`; this supports the diagnostic software model, not a physical CPU identification. CPU type and CBAR remain hypotheses. The selected whole upstream GICv1/TZ and generic timer supply genuine per-core IRQ state, including secure PPI29. CPU EL2 remains unchanged; the [original active/EOI protocol and two actual timer services](docs/devices/gic/runtime.md) explain this version assumption. Small synthetic tests explicitly select `-smp 1`. |
-| Reset PC `0x10020000`, ARM state, raw ROMD image of exactly the input length | MAS entry relative branch, VBAR/absolute literals support the candidate program mapping. Placing it in QEMU physical space is an assumption; neither BootROM nor the real loader is present. PC is set in the reset callback. Guest writes enforce MEMC WEOFF and explicitly fail unsupported NOR operations. |
-| MEMC `0x04264000`, MODE0/TIM0 only; temporary stack `[0x04008ea8,0x04008f00)` | Same-IP binding hypothesis with source-defined x16/PAGE/WEOFF semantics; only the current MODE `0x21/0x29` and TIM `0x153b0902` profiles are supported. Register reads require guest initialization. Temporary RAM is exactly the 88-byte native PUSH lower bound, initialized to zero for this diagnostic run. |
-| Shared release RAM `[0x04008ffc,0x04009000)` | Original CPU0 produces magic with STR/DSB/SEV; secondary WFE/read/clear stays guest code. RAM starts cold at zero and the host never writes magic. The old exact72B CPU1 prefix is historical evidence; current per-core stack capacity is separately declared below. |
-| System-control configuration words `0x04281000..24`, PLL `28..30`, six clock-stop views `38..4c`, SET/CLEAR aliases +`0x100`/+`0x200` | Original indexed APIs and group tables support the software protocol. Virtual reset PLL words are `ffe/73/3`, gate banks start ungated, and upstream Clock outputs use nominal 48MHz after a modeled 10us virtual lock. Config words preserve guest values; their physical rate effects are not decoded. These are explicit functional assumptions, not Nikon reset/rate measurements. |
-| Timestamp counter `0x04266000`, control/count-low/high/config +`0x10` | Independent upstream Clock and elapsed virtual time supply a 64-bit counter. The explicit control3 reset profile enables counting from zero at nominal 48MHz; original stop/reset/program48M/start accesses use +0/+8/+c/+10; the model does not infer a shared physical source from CNTFRQ. Count writes require disable, and unsupported registers/widths/frequencies fail. |
-| Completion request/done/enable at `0x04287000`, command at +`0x10`, SPI250 | The [functional completion profile](docs/startup/protocol.md) resets request/done/enable/domain state to zero. Genuine deferred requests update applied-domain status and drive IRQ250 only when guest-enabled; guest W1C and GIC EOI remain required. This virtual reset is an assumption; no host RTOS flag or ISR call is supplied. The earlier [strict completion report](docs/devices/completion/protocol.md) retains its historical unknown-reset scope. Original early polling requests for domains0/1/3 now pass; task-mode IRQ250 use remains unverified. |
-| Zero-initialized RAM `0xb1800000 + 0xaedb8`, `0xb2bb0000 + 0x105c` | MAS literals at `O0xc018..0xc030` describe two copy destinations and lengths. The unchanged guest must perform both copies; host code does not prefill them. No third zero-length copy creates RAM. |
-| Zero-initialized RAM `0xb2b74000 + 0x4000` | Guest code at `O0x270..0x290` copies the translation table and then writes TTBR0. The machine does not enable the MMU or manufacture translations. |
-| Six banked mode stack slots per configured core, each `0x4000` bytes below its top | Tops from literals `[O0xbfd8,O0xbff0)`: `b2bb0000/b2ba8000/b2ba0000/b2b98000/b2b90000/b2b88000`, each minus `selector <<14`. Backing capacity16KiB per mode/core is an explicit virtual assumption, not proven by the stride. No slots are allocated for an absent second core. |
-| Kernel copy `[bab00000,bab21538)` | The original producer supplies this exact byte-copy destination/length; guest copy and later one-MiB section remapping remain original code. No one-MiB backing, PTE patch or host byte copy is supplied. |
-| Region decode `0x20016000` | Complete A/B word-pair transactions apply a declared byte/64KiB virtual decode only to finite DDR backings. Reset decode, joint coverage and overlap refusal are explicit model assumptions; unknown fields still fail. |
-| MXIC configuration `0x20010000`, slot-write window `0x24074000` | Active/draft nineteen-word configuration and512slots use a real request/busy/deferred apply state machine. Snapshot zero/reset idle and10us completion are explicit functional assumptions; separate finite live selectors/parameters retain guest values without claiming traffic arbitration or physical master identity. See [transaction scope](docs/devices/config/protocol.md). |
-| Fill `0x20070000`, virtual BSS `[0xb18aedc0,0xb2b5edc0)` | The declared direct byte-block profile uses real upstream DMA writes and latches bus done/error before guest W1C. RAM extent, reset upper bits and synchronous timing are explicit functional assumptions. The exact guest range uses an official RAM alias; padding remains inaccessible. |
-| Kernel low-memory `[0xb2c00000,0xb5f00000)` | The original descriptor and capped TRealMemEnd produce this 51MiB software allocator arena. The board supplies ordinary finite RAM, while guest code builds all metadata/free lists/task contexts. The allocation does not establish physical DDR capacity. |
-| Polling USIO UART `0x2c090000` | Original byte/halfword init and TX profiles use real upstream chardev output and time-based holding-empty TDRE. Nominal100MHz, one-word capacity, reset/self-clearing flush and8N1 timing are virtual assumptions; no fabricated RX or unsupported UART IRQ. See [USIO scope](docs/devices/usio/protocol.md). |
-| Second system-configuration object `0x04280000` | Finite full-word/bit-field setters, virtual strap inputs and the complete five-bank guest bootstrap preserve subsequent bounded field RMW state. Zero control requests/strap inputs are explicit virtual assumptions; unspecified indices and physical side effects remain uncovered. See [object scope](docs/devices/sysconfig/protocol.md). |
-| GPIO `0x04282000`, twelve ports/five banks | Masked data changes the output latch; direction/function/pull and declared unconnected input levels produce pad reads. Virtual reset zero/floating low is explicit; no key matrix or alternate peripheral signal is invented. [GPIO scope](docs/devices/gpio/protocol.md) records word widths, unsupported holes and separate boot selectors. |
-| Audio `0x2c080000`, two channels and bank1 HDMAC selectors3/5/7 | Zero reset, opaque32-bit FIFO/sink, disconnected input and independent48MHz divided virtual time are declared assumptions. FIFO capacity controls live DREQ; each external DMA beat rechecks it. Unsupported packing, separate DMA and extended status offsets fail. See [Audio scope](docs/devices/audio/protocol.md). |
-| Four-channel copy `0x04251000`, IRQ45..48 | Exact original default byte-count/src/dst profile, virtual zero reset, nominal48MHz byte pacing and real normal-memory bus copies. Success8 follows all bytes; error/cancel1, residual encoding and global selector roles are explicit functional assumptions. Other formats, fixed-pattern fill and MMIO transfers remain unsupported. See [copy scope](docs/devices/copy/protocol.md). |
-| Whole finite external NOR input | The original33 descriptors produce35 views over five covered physical windows/22,544,384 FF cells. Loader/missing-image tail/holes are excluded, contained/identical views share cells, alternatives remain independent and reset does not erase them. This is an explicit absent-data input, not valid NVM/ENDM or CFI writing. See [whole-profile source and actual next object stop](docs/inputs/nor/profile.md). |
-| Shared sending ring `[b7cf0000,b7cfc618)` | The original software geometry is header18 +192slots*108, with body maximum100 and one empty slot. Cold RAM is explicitly zero; the guest produces header/magic/indices/body. No host peer consumes or replies, and the complete [ring scope](docs/runtime/ring.md) preserves the unknown consumer/notification boundary. |
-| All other addresses fail | A low-priority trap returns `MEMTX_ERROR`; the first guest access records CPU, PC, address, direction, width and write value, then requests QEMU's debug stop. The invalid read output is not a successful zero response. Debugger probes do not count as guest accesses. |
+## QEMU workflow
 
-Unknown transactions can trigger an upstream architectural abort before the asynchronous VM stop is processed; inspect both the recorded offending PC and post-stop registers. Instruction fetches outside executable memory and CPU exceptions remain governed by upstream TCG/ARM and may appear in the exception log rather than the MMIO callback. The machine does not promise an automatic stop on every CPU exception. A GDB breakpoint on the vector entry is available when diagnosing one.
+1. **Define the input.** Keep the original component bytes unchanged and record their length and digest. Synthetic fixtures must identify their generated payload and purpose.
+2. **Start at reset.** Confirm the reset PC, CPU state, loader range, and initial RAM assumptions before adding a device response.
+3. **Follow the bus.** Let the guest perform MMIO, DMA, copies, cache-visible handshakes, IRQ acknowledgement, and task setup. Add only finite, source-backed register ranges and values.
+4. **Exercise the contract.** Add or update a native qtest/unit fixture for normal transactions, reset, cancellation, invalid widths, absent inputs, and boundary addresses. Keep transport, processing, display, and storage fixtures independent.
+5. **Run unchanged firmware.** Re-run the same payload and capture the next natural stop. A new stop location is progress only when the preceding guest work and all required acknowledgements are visible in the receipt.
+6. **Classify the result.** Report model coverage, fixture success, original-firmware progress, and physical-camera validation as separate outcomes.
 
-The static evidence is documented in [MAS mapping](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-mapping.md), [hardware configuration](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-hardware-configuration.md), [translation source](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-translation-source.md) and [nested images](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/subimages.md). Upstream API reference: [ARM PC semantics](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/target/arm/cpu.c#L59-L70), [loader](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/loader.h#L55-L72), [memory transaction API](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/memory.h#L292-L351), [VM stop request](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/runstate.h#L138-L141).
+Detailed contracts and observations live under [`docs/`](docs/), with the source layout in [`docs/layout.md`](docs/layout.md) and build ownership in [`docs/build.md`](docs/build.md). Device pages state the exact mapped range, accepted widths, reset assumptions, interrupt behavior, and unsupported cases.
 
-This is a diagnostic machine for unchanged instruction execution under stated assumptions. A build or a stop at `O0x178` does not establish whole-camera boot. Successful execution can only reduce software risks covered by this model; it does not prove flash, BootROM, calibration or physical hardware health, or measure EXPEED performance. Actual build/run commands, exit codes, stop registers and missing hardware contracts belong in ignored per-run receipts before any stronger claim.
+## Tests and acceptance
+
+`make check` runs the Nikon qtest suite and native unit fixtures in the configured QEMU build. `make bench` runs the native performance fixture. Focused runs can be selected through the upstream generated test target, for example:
+
+```sh
+make check MTESTARGS='nikon_usio nikon_vr'
+make check MTESTARGS='nikon --test-args="-p /arm/nikon/processing/complete"'
+```
+
+The suite covers synthetic ARM execution, reset and loader checks, RAM and bus boundaries, device state machines, real DMA copies, GIC IRQ delivery, peer transport, processing buffers, display composition, and storage against an attached block backend. Fixtures contain no private credentials and do not require original firmware bytes.
+
+Use these acceptance levels when reporting a result:
+
+| Level | Evidence | What it establishes |
+|---|---|---|
+| Build | Clean submodule and successful `make` | The configured source graph compiles and links. |
+| Fixture | Focused qtest/unit receipt with exit status | The declared synthetic contract works for the tested inputs and boundaries. |
+| Original firmware | Unchanged payload, command, stop PC/access, and registers | The guest reached the recorded point under the stated virtual assumptions. |
+| Display or storage result | Completed transaction plus QMP pixels or backend byte checks | The modeled endpoint produced the checked output. It does not identify the physical camera path. |
+| Physical camera | Independent hardware procedure and receipt | Hardware behavior beyond this QEMU model. |
+
+Do not turn an unknown-field stop into a successful default. Do not describe the 8x8 transport fixture, a synthetic frame, or a QEMU console image as complete camera startup.
+
+## Repository map
+
+- [`hw/nikon/machines`](hw/nikon/machines): machine composition, CPU domains, memory maps, and IRQ wiring.
+- [`hw/nikon/devices`](hw/nikon/devices): finite QOM/SysBus, PCI, DMA, input, processing, display, and storage models.
+- [`hw/nikon/components`](hw/nikon/components): validated component-container views and loaders.
+- [`include/hw/nikon`](include/hw/nikon): public device and machine interfaces.
+- [`tests/qtest/nikon`](tests/qtest/nikon) and [`tests/unit/nikon`](tests/unit/nikon): native functional and boundary fixtures.
+- [`docs/`](docs): source-backed protocols, startup observations, validation receipts, and model limits.
+
+Contributions should keep the upstream submodule untouched, add a focused contract and test for each new behavior, and state the evidence boundary in the corresponding documentation.
