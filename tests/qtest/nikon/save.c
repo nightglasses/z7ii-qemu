@@ -5,9 +5,9 @@
 
 static uint64_t property(QTestState *q, const char *name)
 {
-    QDict *reply = qtest_qmp(q, "{ 'execute': 'qom-get', 'arguments': {"
-                             "'path': '/machine/peripheral/save',"
-                             "'property': '%s' } }", name);
+    QDict *reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':'/machine/peripheral/save',"
+        "'property':%s}}", name);
     uint64_t value;
 
     g_assert(qdict_haskey(reply, "return"));
