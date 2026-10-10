@@ -26,6 +26,7 @@
 #include "hw/nikon/processing.h"
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/cmos.h"
+#include "hw/nikon/frame.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
@@ -78,6 +79,7 @@ struct Z7IIMachineState {
     char *ex_adc_counts;
     int ex_adc_sample[4];
     uint8_t ex_adc_mask;
+    bool frame_contract;
     NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
@@ -561,6 +563,15 @@ static void z7ii_init(MachineState *machine)
         /* Diagnostic transport aperture, with no C1.70 physical MMIO claim. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
     }
+    if (s->frame_contract) {
+        DeviceState *frame = qdev_new(TYPE_NIKON_FRAME_CONTRACT);
+
+        object_property_add_child(OBJECT(machine), "frame-contract",
+                                  OBJECT(frame));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(frame), &error_fatal);
+        /* Diagnostic-only descriptor handoff; no C1.70 MMIO claim. */
+        sysbus_mmio_map(SYS_BUS_DEVICE(frame), 0, 0x24081000);
+    }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
@@ -942,6 +953,22 @@ static void z7ii_set_ex_adc_counts(Object *obj, const char *value, Error **errp)
     s->ex_adc_counts = g_strdup(value);
 }
 
+static bool z7ii_get_frame_contract(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->frame_contract;
+}
+
+static void z7ii_set_frame_contract(Object *obj, bool value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "frame-contract must be configured before machine init");
+        return;
+    }
+    s->frame_contract = value;
+}
+
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -983,6 +1010,10 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "ex-adc-counts",
         "Explicit functional ADC1 channel:raw-count entries separated by ';' "
         "(channels 0,1,3; counts 0..4095); omitted channels remain disconnected");
+    object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
+                                   z7ii_set_frame_contract);
+    object_class_property_set_description(oc, "frame-contract",
+        "Diagnostic-only CMOS/processing/display descriptor aperture; disabled by default");
 }
 
 static const TypeInfo z7ii_machine_type = {
