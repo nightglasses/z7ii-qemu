@@ -62,6 +62,7 @@ static bool machine_has_child(QTestState *q, const char *type)
 static uint64_t readout_property(QTestState *q, const char *property)
 {
     QDict *reply;
+    uint64_t value;
 
     if (!strcmp(property, "requests")) {
         reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
@@ -75,7 +76,28 @@ static uint64_t readout_property(QTestState *q, const char *property)
         g_assert_not_reached();
     }
     g_assert_true(qdict_haskey(reply, "return"));
-    uint64_t value = qdict_get_uint(reply, "return");
+    value = qdict_get_uint(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
+static uint64_t save_property(QTestState *q, const char *property)
+{
+    QDict *reply;
+    uint64_t value;
+
+    if (!strcmp(property, "requests")) {
+        reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                           "{'path':'/machine/save','property':'requests'}}");
+    } else if (!strcmp(property, "commits")) {
+        reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                           "{'path':'/machine/save','property':'commits'}}");
+    } else {
+        g_assert_not_reached();
+    }
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_uint(reply, "return");
 
     qobject_unref(reply);
     return value;
@@ -167,8 +189,13 @@ static void test_observations(void)
         unmet &= ~GUI_COMPLETION;
     }
     if (machine_has_child(q, "nikon-save")) {
-        /* The save child is only an observable endpoint; no request is made. */
-        unmet &= ~GUI_SAVE;
+        uint64_t save_requests = save_property(q, "requests");
+        uint64_t save_commits = save_property(q, "commits");
+
+        /* Presence is not evidence: require an observed request and commit. */
+        if (save_requests && save_commits) {
+            unmet &= ~GUI_SAVE;
+        }
     }
 
     report_unmet(unmet);
