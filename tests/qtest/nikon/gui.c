@@ -182,9 +182,9 @@ static void test_observations(void)
     if (format) {
         unmet &= ~GUI_FORMAT;
     }
-    if (readout_requests) {
-        unmet &= ~GUI_CALLBACK;
-    }
+    g_test_message("Readout observations: requests=%" PRIu64
+                   " completion-generation=%" PRIu64,
+                   readout_requests, completion_generation);
     if (completion_generation) {
         unmet &= ~GUI_COMPLETION;
     }
