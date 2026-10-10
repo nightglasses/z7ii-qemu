@@ -201,12 +201,13 @@ static void test_loaded_domain(void)
     g_assert_cmphex(qtest_readl(qts, 0xc1017d80), ==, 0);
     qtest_writel(qts, 0x20070008, 1);
     g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0);
-    /* A destination beyond declared SLA RAM cannot yield successful DMA. */
+    /* The source-qualified peer-memory class begins at c5000000 and is a
+     * valid destination; the following word must be cleared by the transfer. */
     qtest_writel(qts, 0xc1017d80, 0xcccccccc);
     qtest_writel(qts, 0x20070030, 0xc5000000);
     qtest_writel(qts, 0x20070010, 1);
-    g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 0x10);
-    g_assert_cmphex(qtest_readl(qts, 0xc1017d80), ==, 0xcccccccc);
+    g_assert_cmphex(qtest_readl(qts, 0x20070008), ==, 1);
+    g_assert_cmphex(qtest_readl(qts, 0xc5000000), ==, 0);
     qtest_quit(qts);
     g_assert_cmpint(unlink(path), ==, 0);
 }
