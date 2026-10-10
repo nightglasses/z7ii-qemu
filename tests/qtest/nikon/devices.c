@@ -647,6 +647,40 @@ static void test_copy_telemetry(void)
     qtest_quit(q);
 }
 
+static void test_copy_descriptor_observability(void)
+{
+    const unsigned length = 16;
+    const uint32_t source = RAM + 0x100;
+    const uint32_t destination = 0xdead0000;
+    QTestState *q = start(false, 1);
+
+    /* The model reports accepted guest MMIO writes; it never invents a
+     * descriptor value or maps an invalid destination to host memory. */
+    g_assert_cmpuint(copy_property(q, "channel0-source-write-count"), ==, 0);
+    g_assert_cmpuint(copy_property(q, "channel0-destination-write-count"), ==,
+                     0);
+    g_assert_false(qtest_qom_get_bool(q, "/machine/copy", "first-fault"));
+
+    qtest_memset(q, source, 0x5a, length);
+    copy_request(q, 0, source, destination, length);
+    g_assert_cmpuint(copy_property(q, "channel0-source-write-count"), ==, 2);
+    g_assert_cmpuint(copy_property(q, "channel0-destination-write-count"), ==,
+                     2);
+    g_assert_cmphex(copy_property(q, "channel0-last-source-write"), ==,
+                    source);
+    g_assert_cmphex(copy_property(q, "channel0-last-destination-write"), ==,
+                    destination);
+
+    copy_complete(q, length);
+    g_assert_true(qtest_qom_get_bool(q, "/machine/copy", "first-fault"));
+    g_assert_cmphex(copy_property(q, "first-fault-destination"), ==,
+                    destination);
+    g_assert_cmpuint(copy_property(q, "first-fault-source-writes"), ==, 2);
+    g_assert_cmpuint(copy_property(q, "first-fault-destination-writes"), ==,
+                     2);
+    qtest_quit(q);
+}
+
 static void test_copy(void)
 {
     uint8_t expected[513], actual[513];
@@ -792,6 +826,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/copy/concurrent", test_copy_concurrent);
     qtest_add_func("/nikon/copy/romd", test_copy_romd);
     qtest_add_func("/nikon/copy/telemetry", test_copy_telemetry);
+    qtest_add_func("/nikon/copy/descriptor-observability",
+                   test_copy_descriptor_observability);
     qtest_add_func("/nikon/hdmac/transfer", test_hdmac);
     qtest_add_func("/nikon/hdmac/pending", test_hdmac_pending);
     qtest_add_func("/nikon/bench/dma", test_dma_bench);

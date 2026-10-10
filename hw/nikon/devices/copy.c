@@ -34,6 +34,10 @@ typedef struct NikonCopyChannel {
     uint64_t remaining;
     uint64_t length;
     uint64_t started_ns;
+    uint64_t source_writes;
+    uint64_t destination_writes;
+    uint32_t last_source_write;
+    uint32_t last_destination_write;
     unsigned configured;
     bool running;
 } NikonCopyChannel;
@@ -62,6 +66,8 @@ struct NikonCopyState {
     uint64_t first_fault_source;
     uint64_t first_fault_destination;
     uint64_t first_fault_remaining;
+    uint64_t first_fault_source_writes;
+    uint64_t first_fault_destination_writes;
 };
 
 static void nikon_copy_irq(NikonCopyChannel *c)
@@ -91,11 +97,16 @@ static void nikon_copy_record_fault(NikonCopyChannel *c)
     s->first_fault_source = c->reg[1];
     s->first_fault_destination = c->reg[2];
     s->first_fault_remaining = c->remaining;
+    s->first_fault_source_writes = c->source_writes;
+    s->first_fault_destination_writes = c->destination_writes;
     error_report("nikon: COPY first DMA fault channel=%u source=0x%08"
                  PRIx64 " destination=0x%08" PRIx64 " remaining=0x%08"
-                 PRIx64 " status=1",
+                 PRIx64 " source-writes=%" PRIu64 " destination-writes=%"
+                 PRIu64 " status=1",
                  s->first_fault_channel, s->first_fault_source,
-                 s->first_fault_destination, s->first_fault_remaining);
+                 s->first_fault_destination, s->first_fault_remaining,
+                 s->first_fault_source_writes,
+                 s->first_fault_destination_writes);
 }
 
 static void nikon_copy_schedule(NikonCopyChannel *c)
@@ -337,6 +348,13 @@ static MemTxResult nikon_copy_write(void *opaque, hwaddr offset,
         }
     }
     c->reg[index] = value;
+    if (index == 1) {
+        c->source_writes++;
+        c->last_source_write = value;
+    } else if (index == 2) {
+        c->destination_writes++;
+        c->last_destination_write = value;
+    }
     if (index < 6) {
         c->configured |= 1U << index;
     }
@@ -367,6 +385,8 @@ static void nikon_copy_reset(DeviceState *dev)
     s->first_fault_source = 0;
     s->first_fault_destination = 0;
     s->first_fault_remaining = 0;
+    s->first_fault_source_writes = 0;
+    s->first_fault_destination_writes = 0;
     clock_update_hz(s->clock, 48000000);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
@@ -375,6 +395,8 @@ static void nikon_copy_reset(DeviceState *dev)
         memset(c->reg, 0, sizeof(c->reg));
         c->remaining = c->configured = 0;
         c->length = c->started_ns = 0;
+        c->source_writes = c->destination_writes = 0;
+        c->last_source_write = c->last_destination_write = 0;
         c->running = false;
         nikon_copy_irq(c);
     }
@@ -436,6 +458,12 @@ static void nikon_copy_init(Object *obj)
     object_property_add_uint64_ptr(obj, "first-fault-remaining",
                                    &s->first_fault_remaining,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "first-fault-source-writes",
+                                   &s->first_fault_source_writes,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "first-fault-destination-writes",
+                                   &s->first_fault_destination_writes,
+                                   OBJ_PROP_FLAG_READ);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
         g_autofree char *start = g_strdup_printf("channel%u-start-ns", i);
@@ -445,6 +473,14 @@ static void nikon_copy_init(Object *obj)
         g_autofree char *deadline = g_strdup_printf("channel%u-next-deadline-ns",
                                                    i);
         g_autofree char *running = g_strdup_printf("channel%u-running", i);
+        g_autofree char *source_writes =
+            g_strdup_printf("channel%u-source-write-count", i);
+        g_autofree char *destination_writes =
+            g_strdup_printf("channel%u-destination-write-count", i);
+        g_autofree char *last_source_write =
+            g_strdup_printf("channel%u-last-source-write", i);
+        g_autofree char *last_destination_write =
+            g_strdup_printf("channel%u-last-destination-write", i);
 
         c->owner = s;
         c->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_copy_step, c);
@@ -459,6 +495,18 @@ static void nikon_copy_init(Object *obj)
                             NULL, NULL, c);
         object_property_add(obj, running, "bool", nikon_copy_get_running,
                             NULL, NULL, c);
+        object_property_add_uint64_ptr(obj, source_writes,
+                                       &c->source_writes,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add_uint64_ptr(obj, destination_writes,
+                                       &c->destination_writes,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add_uint32_ptr(obj, last_source_write,
+                                       &c->last_source_write,
+                                       OBJ_PROP_FLAG_READ);
+        object_property_add_uint32_ptr(obj, last_destination_write,
+                                       &c->last_destination_write,
+                                       OBJ_PROP_FLAG_READ);
     }
 }
 
