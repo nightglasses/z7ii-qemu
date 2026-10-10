@@ -29,6 +29,7 @@
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
 #include "hw/ssi/ssi.h"
+#include "hw/i2c/i2c.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
@@ -651,6 +652,13 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(i2c), 0, 0x2c018000 + i * 0x1000);
         sysbus_connect_irq(SYS_BUS_DEVICE(i2c), 0,
                            qdev_get_gpio_in(gic, 214 + i - 32));
+        /* The complete bundle's source-bound board map selects logical3 on
+         * I2C2 at address 0x38. Raw MAS diagnostics keep the bus empty so
+         * tests can attach their own endpoint and preserve real NACKs. */
+        if (i == 2 && s->bundle) {
+            i2c_slave_create_simple(nikon_i2c_bus(i2c),
+                                    TYPE_NIKON_EYE_SENSOR, 0x38);
+        }
     }
     for (i = 0; i < 2; i++) {
         DeviceState *hdmac = qdev_new(TYPE_NIKON_HDMAC);

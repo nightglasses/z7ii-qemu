@@ -197,6 +197,13 @@ void nikon_i2c_async_ready(DeviceState *dev)
     nikon_i2c_submit(NIKON_I2C(dev));
 }
 
+I2CBus *nikon_i2c_bus(DeviceState *dev)
+{
+    NikonI2CState *s = NIKON_I2C(dev);
+
+    return s->bus;
+}
+
 void nikon_i2c_async_complete(DeviceState *dev, uint64_t token, uint32_t result)
 {
     NikonI2CState *s = NIKON_I2C(dev);
