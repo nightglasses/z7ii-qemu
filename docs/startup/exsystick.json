@@ -1,0 +1,39 @@
+{
+  "schema": "nightglass.z7ii.exsystick.v1",
+  "sample": "00_ex1840_013000.bi.payload.bin",
+  "component": "EX",
+  "base_va": "0x08000000",
+  "systick": {
+    "handler_va": "0x080202c8",
+    "vector_va": "0x080202c9",
+    "vector_slot": 15,
+    "bytes": "2de93050204c256805f1010020602bf04ffa2560bde830507047",
+    "contains_bkpt": false,
+    "role": "increment nested tick counter; call 0x0804b778; restore counter; return",
+    "observed_runtime": "repeated exception entry and successful exception return"
+  },
+  "reset": {
+    "initial_sp": "0x20000c08",
+    "reset_pc": "0x080002b5",
+    "vtor": "0x20000000",
+    "vector_copy_bytes": "0x1c4",
+    "systick_ctrl": "0x7",
+    "systick_load": 49999
+  },
+  "input_dispatch": {
+    "state_object": "0x20018438",
+    "dispatcher_va": "0x0803e12c",
+    "callback_field": "+0x1c",
+    "record_va": "0x20018678",
+    "events": ["0x02030081", "0x02030083", "0x0203008c"],
+    "arguments": {"r0": "event code", "r1": "normalized record pointer"},
+    "callback_pointer_proven": false,
+    "mas_transport_proven": false
+  },
+  "qemu_boundary": {
+    "implemented": ["unchanged EX reset", "NVIC/SysTick exception delivery", "host input to EX GPIO"],
+    "forbidden_without_runtime_join": ["write state+0x1c", "invoke callback", "write normalized record", "write MAS event object"],
+    "host_sigtrap_at_handler": "debugger stop, not guest BKPT"
+  },
+  "status": "static_and_runtime_boundary_only"
+}
