@@ -8,7 +8,9 @@ The project is a software model of selected firmware interfaces. It does not cla
 
 - The supported ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
-- CMOS input is an explicit opaque frame source. The ISP/process path accepts supplied buffers and preserves the guest-visible transaction and IRQ boundary; it does not identify a real sensor, Bayer layout, codec, or physical ISP.
+- CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and generates a deterministic frame only after the guest supplies a complete request. This is a functional transport contract, not a recovered sensor specification.
+- Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
+- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. They do not create a frame until a source-backed provider joins the contracts.
 - The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
 - The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
 - Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
@@ -18,27 +20,54 @@ The project is a software model of selected firmware interfaces. It does not cla
 
 ```mermaid
 flowchart LR
-  subgraph Boot[Reset and loader]
-    Payload[Original component payload] --> Loader[QEMU ROM loader]
+  subgraph Boot[Reset, loader, and execution]
+    Payload[Original component payload] --> Loader[ROM loader]
     Reset[Virtual reset] --> CPU[ARM CPU and TCG]
     Loader --> CPU
   end
 
-  CPU --> Bus[System memory and MMIO bus]
-  Bus --> RAM[RAM, ROM and DMA regions]
-  Bus --> CMOS[CMOS input profile\nopaque supplied frames]
-  CMOS --> ISP[ISP / process boundary\nsource-backed buffer contract]
-  ISP --> Display[Display console\ncompleted composition only]
-  Bus --> Storage[Storage endpoint\nNVMe + BlockBackend]
+  CPU --> Bus[System bus]
+  Bus --> MMIO[MMIO register map]
+  Bus --> RAM[RAM, ROM, and DMA regions]
   Bus --> IRQ[GIC and timer IRQs]
-  IRQ --> RTOS[Guest RTOS handlers\nacknowledgement remains in firmware]
-  Bus --> Unknown[Unknown address, width or command]
-  Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
+  IRQ --> RTOS[Guest RTOS handlers\nacknowledgement stays in firmware]
 
+  subgraph Inputs[Independent external inputs]
+    CMOS[CMOS transport\nopaque configured frames]
+    Eye[Eye proximity I2C\nseparate peripheral]
+  end
+  MMIO --> CMOS
+  MMIO --> I2C[I2C controller]
+  I2C --> Eye
+
+  subgraph Control[Capture control layers]
+    SDES[SDES channel and global control]
+    Capture[capture-control\nstatus and command]
+    Readout[readout-control\nbuffers and parameters]
+  end
+  MMIO --> SDES
+  MMIO --> Capture
+  MMIO --> Readout
+
+  CMOS --> Geometry[Opaque frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
+  Geometry --> Process[Processing / ISP boundary\nsource-backed buffer transaction]
+  Process --> Compose[Display composition\nPixman and completed console frame]
+  Process --> GuestRAM[Guest image buffers]
+  GuestRAM --> Compose
+  GuestRAM --> Save[Storage endpoint\nNVMe and BlockBackend]
+
+  Readout -. provider join and real pixel source unverified .-> Geometry
+  Capture -. completion producer and IRQ meaning unverified .-> Process
+  SDES -. physical sensor/status join unverified .-> Geometry
+
+  MMIO --> Unknown[Unknown address, width, or command]
+  Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-The diagram describes the model's boundaries, not a claim that every edge occurs during an original firmware run. The guest must perform its own copies, initialization, event acknowledgement, and task transitions. Host code does not prefill buffers, inject RTOS flags, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+
+The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
 
 ## Dependencies and build
 
