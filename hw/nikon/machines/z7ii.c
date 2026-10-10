@@ -566,7 +566,7 @@ static void z7ii_init(MachineState *machine)
     if (s->frame_contract) {
         DeviceState *frame = qdev_new(TYPE_NIKON_FRAME_CONTRACT);
 
-        object_property_add_child(OBJECT(machine), "frame-contract",
+        object_property_add_child(OBJECT(machine), "frame",
                                   OBJECT(frame));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(frame), &error_fatal);
         /* Diagnostic-only descriptor handoff; no C1.70 MMIO claim. */
