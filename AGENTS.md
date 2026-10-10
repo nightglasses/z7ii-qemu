@@ -80,3 +80,6 @@
 | [protocol.md](docs/devices/readout/protocol.md) | 独立 results 请求、完整发布和 generation 生命周期 |
 | [protocol.md](docs/devices/lookup/protocol.md) | 有限 byte／word lookup 与真实外部数据所有权 |
 | [providers.md](docs/validation/providers.md) | 八个私有设备对象的固定源码、原生资格与原版证据 |
+| [reset.md](docs/runtime/reset.md) | EX 系统复位、私有 CPU／NVIC／SysTick 边界与原生资格 |
+| [analog.md](docs/runtime/analog.md) | 显式 EX 原始 ADC 输入、保持与断连，以及 machine 配置 |
+| [runtime.md](docs/validation/runtime.md) | EX 复位／ADC、SLA 真实 timer 与 deferred copy 的固定主线范围及既有收据 |

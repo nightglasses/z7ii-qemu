@@ -713,6 +713,109 @@ static void spi_word_profile(void)
     qtest_quit(qts);
 }
 
+static void adc_request(QTestState *qts, uint32_t base, unsigned channel,
+                        uint32_t cr1, uint32_t cr2)
+{
+    qtest_writel(qts, base + 0x34, channel);
+    qtest_writel(qts, base + 4, cr1);
+    qtest_writel(qts, base + 8, cr2 | (1U << 30) | 1);
+    qtest_clock_step(qts, 1);
+}
+
+static void adc_profile(void)
+{
+    QTestState *qts = start();
+    const uint32_t adc = 0x40012000;
+    const uint32_t eocie = 1U << 5, ovrie = 1U << 26;
+
+    /* Original poll family: a requested channel without a source waits. */
+    adc_request(qts, adc, 1, 0, 0);
+    g_assert_cmphex(qtest_readl(qts, adc), ==, 0x10);
+    g_assert_false(qtest_get_irq(qts, 18));
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 0, 0x135);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, adc), ==, 0x10);
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 1, 0xabc);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, adc) & 0x12, ==, 0x12);
+    g_assert_cmphex(qtest_readl(qts, adc + 8) & (1U << 30), ==, 0);
+    g_assert_false(qtest_get_irq(qts, 18));
+    g_assert_cmphex(qtest_readl(qts, adc + 0x4c), ==, 0xabc);
+    g_assert_cmphex(qtest_readl(qts, adc) & 2, ==, 0);
+
+    /* Source IRQ family: EOCIE/OVRIE, DR consumption and SR W0C. */
+    adc_request(qts, adc, 1, eocie | ovrie, 0);
+    g_assert_true(qtest_get_irq(qts, 18));
+    adc_request(qts, adc, 1, eocie | ovrie, 0);
+    g_assert_cmphex(qtest_readl(qts, adc) & 0x22, ==, 0x22);
+    g_assert_cmphex(qtest_readl(qts, adc + 0x4c), ==, 0xabc);
+    g_assert_true(qtest_get_irq(qts, 18));
+    qtest_writel(qts, adc, ~0x20U);
+    g_assert_false(qtest_get_irq(qts, 18));
+
+    /* Disconnecting an external source does not reuse its previous count. */
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 1, -1);
+    adc_request(qts, adc, 1, eocie, 0);
+    g_assert_cmphex(qtest_readl(qts, adc) & 2, ==, 0);
+    g_assert_false(qtest_get_irq(qts, 18));
+    qtest_writel(qts, adc + 8, 0);
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 1, 0x987);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, adc) & 2, ==, 0);
+    g_assert_false(qtest_get_irq(qts, 18));
+
+    /* All ADCs share IRQ18 while retaining independent conversion state. */
+    for (unsigned i = 0; i < 3; i++) {
+        qtest_set_irq_in(qts, "/machine/ex", "adc", i * 19 + 3,
+                        0x321 + i * 0x123);
+        adc_request(qts, adc + i * 0x100, 3, eocie, 0);
+    }
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_true(qtest_get_irq(qts, 18));
+        g_assert_cmphex(qtest_readl(qts, adc + i * 0x100 + 0x4c), ==,
+                        0x321 + i * 0x123);
+    }
+    g_assert_false(qtest_get_irq(qts, 18));
+    for (unsigned resolution = 0; resolution < 4; resolution++) {
+        for (unsigned left = 0; left < 2; left++) {
+            uint32_t expected = 0x987 >> (resolution * 2);
+            if (left) {
+                expected <<= 4 + resolution * 2;
+            }
+            adc_request(qts, adc, 1, resolution << 24, left << 11);
+            g_assert_cmphex(qtest_readl(qts, adc + 0x4c), ==, expected);
+        }
+    }
+
+    /* Reset cancels a pending conversion but preserves the external source. */
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 2, -1);
+    adc_request(qts, adc, 2, eocie, 0);
+    qtest_writel(qts, 0xe000ed0c, 0x05fa0004);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, adc), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, adc + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, adc + 0x24), ==, 0xfff);
+    g_assert_false(qtest_get_irq(qts, 18));
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 2, 0x246);
+    qtest_clock_step(qts, 1);
+    g_assert_cmphex(qtest_readl(qts, adc), ==, 0);
+    adc_request(qts, adc, 1, eocie, 0);
+    g_assert_cmphex(qtest_readl(qts, adc + 0x4c), ==, 0x987);
+    qtest_system_reset(qts);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_cmphex(qtest_readl(qts, adc + i * 0x100), ==, 0);
+        adc_request(qts, adc + i * 0x100, 3, eocie, 0);
+        g_assert_cmphex(qtest_readl(qts, adc + i * 0x100 + 0x4c), ==,
+                        0x321 + i * 0x123);
+    }
+    qtest_set_irq_in(qts, "/machine/ex", "adc", 1, -1);
+    qtest_system_reset(qts);
+    adc_request(qts, adc, 1, eocie, 0);
+    g_assert_cmphex(qtest_readl(qts, adc) & 2, ==, 0);
+    g_assert_false(qtest_get_irq(qts, 18));
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -727,5 +830,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);
     qtest_add_func("/nikon/ex/word", spi_word_profile);
+    qtest_add_func("/nikon/ex/adc", adc_profile);
     return g_test_run();
 }

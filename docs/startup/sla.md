@@ -49,7 +49,7 @@ two-core option. ARMv7-A, CP15, mixed ARM/Thumb, UQSUB8, UDIV, WFE, DMB and gene
 timer operations occur in actual source. No exact physical core or core count
 has been established. CBAR `0xf8100000` is a named profile input, compatible
 with the source's CBAR-relative GIC access and the image's identity descriptor
-at O `0x13e04`. Upstream GICv2 has 256 interrupt IDs, secure extensions and
+at O `0x13e04`. Upstream GICv1 has 256 interrupt IDs, secure extensions and
 the normal four CPU output connections. Architectural timers use upstream
 CPU timer GPIOs and PPIs 30/27/26/29 with the explicit functional 48 MHz input.
 These are reusable QEMU protocols, not measured board reset facts.
@@ -157,7 +157,7 @@ so starting a command does not create a peer frame or perform a firmware clone.
 | --- | --- | --- |
 | COPY1 O `[0x83c4d4,0x854234)` | `[0xc1000000,0xc1017d60)` | Guest performs COPY |
 | COPY2 O `[0x854240,0x854d14)` | `[0xc1920000,0xc1920ad4)` | Guest performs COPY |
-| Third tuple, zero length | No new backing | No bytes manufactured |
+| Third startup tuple, zero length | No startup copy | Later runtime capacity is qualified separately below |
 | ZERO start/length from `0x1002c05c/60` | `0xc1017d80`, `0x8b8000` bytes | Guest fill rounds length to 16 KiB blocks |
 | ROM table copy at `0x10020270` | `0xc18e4000`, `0x4000` bytes | Guest copy owns PTEs |
 | Kernel bounds at `0x1002038c/90` | `[0xc1940000,0xc5000000)` | Guest allocator owns all metadata and allocation |
@@ -329,15 +329,16 @@ stopped both CPUs for observation and quit the VM; no firmware branch was
 changed. The UART file remained empty at this frontier. Ignored receipts are
 `work/sla/original3*`.
 
-This run also exposed the original timer initialization's GIC operations:
-`0x10036cc0` writes GICD_ISACTIVER, which upstream QEMU implements for revision
-2; the initial revision-1 profile logged rejected distributor offsets
-`0x300..303`. The current functional profile therefore selects upstream GICv2
-and verifies its IIDR in the native fixture. The firmware's separate
-`0x10036d14` read of write-only GICC_EOIR remains visible as an upstream guest
-error; this profile does not manufacture a readback register or silence it.
-GICv2 is an execution capability supported by these source accesses, not a
-new claim about the physical chip.
+This run exposed the original timer initialization's GIC operations, but its
+initial interpretation was incomplete. `10036CAC..10036CC0` reads the active
+view, ORs the timer's bit29 and writes it back. A revision2 implementation
+turns that store into SET_ACTIVE29, suppressing timer delivery; implementing
+the write is therefore insufficient. The current functional profile uses the
+mature revision1 read-only active view, as does the MAS profile. Upstream logs
+the ignored writes at distributor offsets300..303. This is an explicit GIC
+profile convention, not a claim that the physical controller revision has been
+recovered. The firmware's separate `10036D14` read of write-only GICC_EOIR
+also remains visible as an upstream guest error; no readback register is added.
 
 The private-domain native fixture passed with the named peer output following
 GPIO direction and masked latch writes (builder `56a99b9`). Original two-core
@@ -679,3 +680,57 @@ IRQ105/106/115 are checked at shared unit outputs; this case does not claim
 private GIC injection for the three typed-only provider devices. The other
 four unchanged event protocols were not rerun. These native results do not
 establish completion of the original firmware clone or a GUI console.
+
+## Secure timer active-view profile
+
+The bounded `cda9` causes capture joined secure Thumb PC `1006CC50`, R0=1
+and LR=`1006C291` to task9, ID=`01000009`, exinf=`C167B7B8`, callback
+`10053639`. Its TCB at `C19776C8` was waiting with waitspec=`C1017D1C`; its
+timer node remained linked to the original expiry queue with deadline2.
+Tick increment was1 but software time was0 after31.233497 virtual seconds.
+This is an unretired initial delay, not evidence of a missed peer high pulse.
+Source `36C90..36D28` clears pending and configures the interrupt after the
+active-view RMW without clearing ACTIVE29 created by the old revision2 profile.
+
+The private GIC now uses the mature revision1 read-only active view. The new
+`/nikon/sla/secure-tick` test executes self-written synthetic ARM code under
+TCG on the actual private CPU. It performs that read/OR/write sequence and
+records active0, programs the actual48MHz secure physical timer for48000 ticks,
+then records guest IAR29 and the completed handler after timer disable/EOI.
+The host only controls the VM and reads observation RAM; it injects neither
+an IRQ nor a completion flag.
+
+Official incremental ARM/fixture compile and link passed in
+`work/slasecuretickbuild.log`. The new secure-tick case passed in1.42s exit0
+(`work/slasecureticknativereceipt.log`). The changed loaded-domain IIDR
+contract passed in0.41s exit0 (`work/slagicprofileloadednativereceipt.log`).
+No unrelated old device groups were rerun. These results qualify the
+functional controller profile; original software time progress and GUI startup
+remain separate runtime observations.
+
+## Deferred initialized capacity
+
+The bounded original `b3ebd9e` run reached the first destination store of
+the complete CPU memcpy routine at `101675CC`. At that instruction R1 and R2
+had already advanced/decremented inside the routine; they are not entry inputs.
+The independent input contract `16dda58d64dc9efa3537695bc32a1a2890eed597`
+joins SOURCE14's complete prologue to the first-fault registers and recovers
+the whole invocation: source `10874D40`, destination `C1920B00`, length
+`13FE8`. Its source ends at `10888D28`, entirely inside the existing SLA
+component. The ordinary caller/table/length publisher remains unqualified.
+
+One ordinary private RAM region now covers exactly `[C1920B00,C1934AE8)`.
+It is cold zero and retained across soft reset. The existing COPY2 interval
+ends at `C1920AD4`; its alignment gap and the space after `C1934AE8` remain
+unmapped. Startup's third tuple names the same bases with length0, so it does
+not populate this later region. No package bytes, PTEs or completion flags are
+supplied by the host.
+
+Official incremental ARM/fixture compile and link passed in
+`work/sladeferredbuild.log`. The sole new `/nikon/sla/deferred-copy` case
+passed in1.49s exit0 (`work/sladeferrednativereceipt.log`). Synthetic data
+spanning the complete source extent is copied through the actual private
+COPY controller and compared byte for byte, with IRQ45 and reset retention
+checked. Transfers into either adjacent gap report bus error and full residual.
+This qualifies bounded capacity and private copying; original CPU memcpy
+continuation remains a separate runtime result.

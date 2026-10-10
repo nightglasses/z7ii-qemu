@@ -39,7 +39,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSLADomain, NIKON_SLA_DOMAIN)
 #define SLA_CBAR 0xf8100000ULL
 #define SLA_TIMER_HZ 48000000ULL
 #define SLA_STACK_SIZE 0x4000
-#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 9)
+#define SLA_RAM_COUNT (6 * SLA_MAX_CPUS + 10)
 
 typedef struct NikonSLANor {
     MemoryRegion region;
@@ -248,6 +248,11 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
             NIKON_SLA_COPY1_SIZE);
     sla_ram(s, mxic, "nikon.sla.copy2", NIKON_SLA_COPY2_BASE,
             NIKON_SLA_COPY2_SIZE);
+    /* Whole deferred memcpy extent, derived from original 101675cc's first
+     * store and the complete prologue.  Guest supplies all package bytes;
+     * startup's third tuple has length0.  Adjacent gaps/BSS remain unknown. */
+    sla_ram(s, mxic, "nikon.sla.deferred", NIKON_SLA_DEFERRED_BASE,
+            NIKON_SLA_DEFERRED_SIZE);
     /* Original fill rounds 0x8b71d4 bytes up to 0x4000-byte blocks. */
     sla_ram(s, mxic, "nikon.sla.bss", 0xc1017d80, 0x8b8000);
     /* Original secondary table COPY and startup caller range. */
@@ -325,8 +330,9 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     qdev_prop_set_uint32(gic, "num-cpu", s->num_cpus);
     qdev_prop_set_uint32(gic, "first-cpu-index", CPU(&s->cpu[0])->cpu_index);
     qdev_prop_set_uint32(gic, "num-irq", 256);
-    /* 10036cc0 writes GICD_ISACTIVER; upstream implements it in GICv2. */
-    qdev_prop_set_uint32(gic, "revision", 2);
+    /* 10036cac..cc0 RMWs the pre-v2 read-only active view.  GICv2 would
+     * manufacture ACTIVE29 here and prevent the original secure tick IRQ. */
+    qdev_prop_set_uint32(gic, "revision", 1);
     qdev_prop_set_bit(gic, "has-security-extensions", true);
     qdev_prop_set_bit(gic, "has-virtualization-extensions", false);
     sysbus_realize_and_unref(gic_bus, &error_fatal);
@@ -711,7 +717,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     }
     qemu_register_reset(sla_reset, s);
     error_report("nikonsla: loaded C1.70 SLA ARM entry=1002bcd4; "
-                 "functional Cortex-A7 cpus=%u CBAR=f8100000 GICv2=256 "
+                 "functional Cortex-A7 cpus=%u CBAR=f8100000 GICv1=256 "
                  "cntfrq=48000000; virtual stack slots=16KiB "
                  "temporary caller stack=256B; guest MMU/COPY/ZERO/release; "
                  "loaded software entry; no calibration input or MAS peer ACK",

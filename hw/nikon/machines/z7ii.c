@@ -5,9 +5,11 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
+#include "qemu/cutils.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
@@ -69,6 +71,9 @@ struct Z7IIMachineState {
     char *bundle_path;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
+    char *ex_adc_counts;
+    int ex_adc_sample[4];
+    uint8_t ex_adc_mask;
     NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
@@ -229,6 +234,11 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
     nikon_ex_set_firmware(ex, payload, &error_fatal);
+    for (i = 0; i < ARRAY_SIZE(s->ex_adc_sample); i++) {
+        if (s->ex_adc_mask & (1u << i)) {
+            nikon_ex_adc_input(ex, 0, i, s->ex_adc_sample[i]);
+        }
+    }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
@@ -291,6 +301,10 @@ static void z7ii_init(MachineState *machine)
     }
     if (s->sla_boot_prefix && !s->bundle_path) {
         error_report("sla-boot-prefix requires a complete bundle and private SLA");
+        exit(EXIT_FAILURE);
+    }
+    if (s->ex_adc_mask && !s->bundle_path) {
+        error_report("ex-adc-counts requires a complete bundle and private EX");
         exit(EXIT_FAILURE);
     }
     if (machine->smp.cpus > Z7II_MAX_CPUS) {
@@ -849,6 +863,46 @@ static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **err
     s->mas_boot_prefix = g_strdup(value);
 }
 
+static char *z7ii_get_ex_adc_counts(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->ex_adc_counts;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_ex_adc_counts(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
+    int samples[4] = { 0 };
+    uint8_t mask = 0;
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "ex-adc-counts must be configured before machine init");
+        return;
+    }
+    for (unsigned i = 0; entries[i] && value[0]; i++) {
+        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
+        int channel, sample;
+
+        if (g_strv_length(pair) != 2 ||
+            qemu_strtoi(pair[0], NULL, 10, &channel) ||
+            qemu_strtoi(pair[1], NULL, 10, &sample) ||
+            (channel != 0 && channel != 1 && channel != 3) ||
+            sample < 0 || sample > 4095 || (mask & (1u << channel))) {
+            error_setg(errp, "ex-adc-counts expects unique channel:raw-count "
+                       "entries separated by ';'; channels 0,1,3; counts 0..4095");
+            return;
+        }
+        samples[channel] = sample;
+        mask |= 1u << channel;
+    }
+    memcpy(s->ex_adc_sample, samples, sizeof(samples));
+    s->ex_adc_mask = mask;
+    g_free(s->ex_adc_counts);
+    s->ex_adc_counts = g_strdup(value);
+}
+
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -857,6 +911,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->bundle_path);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
+    g_free(s->ex_adc_counts);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -884,6 +939,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "mas-boot-prefix",
         "Independent MAS external 128 KiB input: erased or an exact-size file; "
         "omission leaves the range unavailable");
+    object_class_property_add_str(oc, "ex-adc-counts", z7ii_get_ex_adc_counts,
+                                 z7ii_set_ex_adc_counts);
+    object_class_property_set_description(oc, "ex-adc-counts",
+        "Explicit functional ADC1 channel:raw-count entries separated by ';' "
+        "(channels 0,1,3; counts 0..4095); omitted channels remain disconnected");
 }
 
 static const TypeInfo z7ii_machine_type = {

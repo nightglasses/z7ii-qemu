@@ -35,8 +35,15 @@ DeviceState *nikon_ex_spi_slave(NikonEXState *s, unsigned channel, SSIBus *bus,
 qemu_irq nikon_ex_gpio_input(NikonEXState *s, unsigned port, unsigned pin);
 void nikon_ex_gpio_connect_output(NikonEXState *s, unsigned port, unsigned pin,
                                   qemu_irq sink);
-/* Real external analog sample. No samples are fabricated at reset. */
+/*
+ * Held raw 12-bit sample: 0..4095 supplies a count, -1 disconnects the source.
+ * Named "adc" input index is adc * 19 + channel, with the same semantics.
+ * MCU reset clears conversion state, preserving externally supplied samples.
+ * May be set after object creation, before realization; no conversion is
+ * scheduled until realized hardware receives a guest conversion request.
+ * No physical voltage, default sample or conversion clock is inferred.
+ */
 void nikon_ex_adc_input(NikonEXState *s, unsigned adc, unsigned channel,
-                        uint16_t sample);
+                        int sample);
 
 #endif
