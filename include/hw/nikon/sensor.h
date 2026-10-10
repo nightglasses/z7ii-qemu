@@ -32,10 +32,26 @@ enum NikonReadoutRegion {
     NIKON_READOUT_REGIONS,
 };
 
-/* Actual query102092fa selects0..3 and reads4/2/4/2 words.
- * No observed data, request completion or IRQ is produced by configuration.
- * Explicit command2006b400=1 pulses named readout-request; no default provider.
+/* One accepted guest completion-marker write.  The generation is a
+ * monotonically increasing producer token; it is never a hardware address or
+ * a completion result.  Providers use it to reject stale observations.
  */
+typedef struct NikonReadoutRequest {
+    uint64_t generation;
+    uint32_t ready;
+    uint32_t completion_marker;
+} NikonReadoutRequest;
+
+/* Actual query102092fa selects0..3 and reads4/2/4/2 words.  No default
+ * provider, completion, IRQ, DMA or pixel data is produced by configuration.
+ * An explicit command2006b400=1 creates a request generation and pulses
+ * readout-request.  External providers may inspect that request and publish
+ * ready/completion observations through the APIs below; those APIs are never
+ * called by the machine by default.
+ */
+bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request);
+bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation);
+bool nikon_readout_publish_completion(DeviceState *dev, uint64_t generation);
 bool nikon_readout_publish(DeviceState *dev, unsigned selector,
                            const uint32_t *words, size_t count, Error **errp);
 bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion region,

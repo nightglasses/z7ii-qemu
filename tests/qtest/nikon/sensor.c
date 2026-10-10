@@ -945,6 +945,49 @@ static void test_readout_request(void)
     qtest_quit(q);
 }
 
+static void test_readout_provider(void)
+{
+    QTestState *q = readout_start();
+
+    /* A request is only an observation boundary.  No provider means no
+     * ready or completion state, and no DMA/IRQ side effect is invented. */
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "request-generation"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
+                     0);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
+
+    /* An explicit provider can publish the source-backed ready observation;
+     * this updates only the proven control word and emits an observation
+     * pulse.  Completion remains a separate, explicit provider action. */
+    qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 1);
+    qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
+                     0);
+
+    qtest_set_irq_in(q, READOUT_PATH, "provider-completion", 0, 1);
+    qtest_set_irq_in(q, READOUT_PATH, "provider-completion", 0, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
+                     1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "provider-errors"), ==, 0);
+
+    /* A provider pulse before a request is rejected and does not create a
+     * generation or a completion. */
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    qtest_set_irq_in(q, READOUT_PATH, "provider-completion", 0, 1);
+    qtest_set_irq_in(q, READOUT_PATH, "provider-completion", 0, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "provider-errors"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "request-generation"), ==, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
+                     0);
+    qtest_quit(q);
+}
+
 #define CHANNEL_PATH "/machine/sdes-channels"
 #define CHANNEL_BASE 0x20063000
 
@@ -1194,6 +1237,7 @@ int main(int argc, char **argv)
                     test_readout_configuration);
     qtest_add_func("/nikon/sensor/readout/buffers", test_readout_buffers);
     qtest_add_func("/nikon/sensor/readout/request", test_readout_request);
+    qtest_add_func("/nikon/sensor/readout/provider", test_readout_provider);
     qtest_add_func("/nikon/sensor/channels/configuration",
                     test_channels_configuration);
     qtest_add_func("/nikon/sensor/channels/request", test_channels_request);
