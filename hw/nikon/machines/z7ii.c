@@ -25,6 +25,7 @@
 #include "hw/nikon/storage.h"
 #include "hw/nikon/processing.h"
 #include "hw/nikon/sensor.h"
+#include "hw/nikon/cmos.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
@@ -528,6 +529,14 @@ static void z7ii_init(MachineState *machine)
             sysbus_mmio_map(SYS_BUS_DEVICE(readout), i, addresses[i]);
         }
         /* Guest requests have no default provider, IRQ or pixel data source. */
+    }
+    {
+        DeviceState *cmos = qdev_new(TYPE_NIKON_CMOS);
+
+        object_property_add_child(OBJECT(machine), "cmos", OBJECT(cmos));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
+        /* Diagnostic transport aperture, with no C1.70 physical MMIO claim. */
+        sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));

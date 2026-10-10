@@ -9,6 +9,7 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
     'nikon_usio': files('usio.c'),
+    'nikon_cmos': files('cmos.c'),
   }
 endif
 if config_all_devices.has_key('CONFIG_NIKON_MEMORY')
