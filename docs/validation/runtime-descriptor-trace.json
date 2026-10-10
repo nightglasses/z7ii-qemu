@@ -1,0 +1,102 @@
+{
+  "sample": "Z7II C1.70 decoded-container",
+  "machine": "z7ii-mas-diagnostic",
+  "input": "complete decoded five-component bundle",
+  "purpose": "Read-only guest trace of the descriptor producer and MMU remap path before the first COPY fault.",
+  "assumptions": [
+    "Cortex-A7 MAS domain with two guest CPUs and private functional SLA/EX domains",
+    "unchanged bundle bytes",
+    "no guest register or memory writes from the observer"
+  ],
+  "remap": {
+    "executed": true,
+    "breakpoints": [
+      {"pc": "0x101674b0", "r0": "0x00000000", "r1": "0x00000001"},
+      {"pc": "0x10052f40", "r0": "0xc18e0000", "r1": "0xc18e4000", "r2": "0xc18e4000"},
+      {"pc": "0x10069d64", "r0": "0xc19b4fe0", "r1": "0x101ee2dc", "r2": "0xfffffff8"},
+      {"pc": "0x10065a38", "r0": "0x00000000", "r1": "0x00000000", "r2": "0x60000013"},
+      {"pc": "0x100658e4", "r0": "0xc6100000", "r1": "0xc1015b94", "r2": "0x60000013"},
+      {"pc": "0x100535e0", "r0": "0x00000000", "r1": "0x100535e1", "sp": "0xc3f06008"},
+      {"pc": "0x10065c22", "r0": "0x00000000", "r1": "0x00000000", "r2": "0x60000013", "sp": "0xc3f06000", "r12": "0x802f0200"}
+    ],
+    "cp15_at_0x10065c22": {
+      "TTBR0_S": "0xc18e4000",
+      "TTBR1_S": "0x00000000",
+      "TTBCR_S": "0x00000000",
+      "DACR_S": "0x55555555",
+      "DFAR_S": "0x00000000",
+      "note": "The table read itself is outside this CPU's mapped view at the breakpoint; no PTE bytes are inferred from an unreadable dump."
+    }
+  },
+  "descriptor": {
+    "builder": [
+      {
+        "pc": "0x103bf3c6",
+        "r0": "0xb185f2fc",
+        "r1": "0xb185e960",
+        "r2": "0xb185eb70",
+        "r3": "0x000001e3",
+        "r4": "0xb185f2fc",
+        "r5": "0x00000045",
+        "r6": "0xb185e960",
+        "r8": "0x00000000",
+        "r9": "0x00000004",
+        "r10": "0x00000002",
+        "r11": "0x00000001"
+      },
+      {
+        "pc": "0x103bf3c6",
+        "r0": "0xb185f2fc",
+        "r1": "0xb185e960",
+        "r2": "0xb185eb70",
+        "r3": "0x000001e3",
+        "r4": "0xb185f2fc",
+        "r5": "0x00000045",
+        "r6": "0xb185e960",
+        "r8": "0x00000002",
+        "r9": "0x00000001",
+        "r11": "0xb1818f60"
+      }
+    ],
+    "resource_writer": {
+      "entry_pc": "0x103bf92a",
+      "object_id": 15,
+      "record_pointer": "0xb51b9528",
+      "record_words": ["0xb25753e4", "0x00018d80", "0x80220100", "0x0000005e"],
+      "object_address": "0xb185ed14",
+      "object_words_after_write": ["0x0000000f", "0x00000000", "0xb25753e4", "0x00018d80"],
+      "write_sites": ["0x103bf95e", "0x103bf962"],
+      "meaning": "The firmware writes a nonzero destination and length into object 15."
+    },
+    "control_copy": {
+      "object_address": "0xb185f2fc",
+      "object_words_observed": ["0x00000045", "0x00000000", "0xb185e4f8", "0x00000008"],
+      "source_control_candidate": "0xb185e974",
+      "source_control_candidate_words": ["0x00000000", "0x00000000", "0x00000000", "0x00000000"],
+      "copy_field_move_sites": ["0x103bf404", "0x103bf406"]
+    }
+  },
+  "copy_fault": {
+    "channel": 0,
+    "source": "0x107a4f34",
+    "destination": "0x00000000",
+    "remaining": "0x0003b1c0",
+    "qom_first_fault": true,
+    "qom_first_fault_source": "0x107a4f34",
+    "qom_first_fault_destination": "0x00000000",
+    "qom_first_fault_remaining": "0x0003b1c0",
+    "note": "The observed nonzero object-15 write and the later channel-0 zero destination are different runtime records/contexts; the trace does not justify replacing the zero destination."
+  },
+  "unreached": {
+    "pc": ["0x102a84da", "0x1010261e"],
+    "reason": "The unchanged guest remained in a later loop after the finite writer hits; a bounded debugger continue was stopped rather than allowing an unbounded run.",
+    "next_observation": "Break 0x102a84da together with the control object pointer and inspect control+0x08/+0x10/+0x2c on the first hit."
+  },
+  "evidence_files": [
+    "work/runtime-descriptor/gdb.log",
+    "work/runtime-descriptor/writers.log",
+    "work/runtime-descriptor/remap.log",
+    "work/runtime-descriptor/qmp-after.log"
+  ],
+  "complete_gui": false
+}

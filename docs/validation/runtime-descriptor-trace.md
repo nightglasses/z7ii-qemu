@@ -1,0 +1,11 @@
+# C1.70 runtime descriptor trace
+
+This receipt records a read-only GDB/QMP observation of the unchanged Z7II C1.70 decoded bundle. It is the runtime follow-up for Issue #332 and the COPY descriptor contract. The observer did not write guest registers, guest memory, page tables, or firmware bytes.
+
+The MMU remap path executes in the guest. Breakpoints at `0x101674b0`, `0x10052f40`, `0x10069d64`, `0x10065a38`, `0x100658e4`, `0x100535e0`, and `0x10065c22` all fired. At `0x10065c22`, the secure bank had `TTBR0_S=0xc18e4000`, `TTBR1_S=0`, `TTBCR_S=0`, and `DACR_S=0x55555555`. The table dump is outside that CPU's mapped view at the breakpoint, so this receipt does not invent PTE bytes. The result rules out “remap never ran” as the explanation for the later descriptor value.
+
+The descriptor path also runs. The resource writer at `0x103bf92a` receives object ID `15` and record pointer `0xb51b9528`. The record starts with destination `0xb25753e4` and length `0x18d80`. At `0x103bf95e` and `0x103bf962`, the guest writes those values into object `0xb185ed14`; the resulting words are `[0x0000000f, 0, 0xb25753e4, 0x18d80]`. This is a real firmware-produced nonzero object destination, not a QEMU seed.
+
+The same run observes a separate control object at `0xb185f2fc`. Its words include `+0x08=0xb185e4f8` and `+0x0c=8`; the field move sites `0x103bf404..0x103bf406` execute twice. The candidate source/control object `0xb185e974` is still all zero at those snapshots. The later channel-0 COPY fault nevertheless reads `source=0x107a4f34`, `destination=0`, `remaining=0x3b1c0`. Therefore object ID 15's populated record cannot be substituted for that faulting request: the fault belongs to another control/record context or a later clear/selection operation.
+
+The public wrapper `0x102a84da` and logical loader `0x1010261e` were armed but did not fire before the unchanged guest remained in its later loop. The next bounded run must stop at `0x102a84da` and capture the control pointer plus `control+0x08`, `control+0x10`, and `control+0x2c` before the lower COPY call. The full machine-readable values are in [`runtime-descriptor-trace.json`](runtime-descriptor-trace.json); raw debugger/QMP receipts remain ignored under `work/runtime-descriptor/`.
