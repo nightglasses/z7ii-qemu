@@ -99,3 +99,28 @@ At that earlier original run, the independent dependency was the external record
 Review found two transaction-boundary defects in the initial implementation: releasing HOLD during a pending address phase could report COMP without executing upstream START; changing TIMEOUT while an acknowledged empty TX was waiting could leave the previous deadline armed. C `2d070f1f1919c0f2efb18d468b2c1624f57a19fc` fixes both generically. HOLD release retains pending-address work; only an addressed, completed TX may complete directly. Mutable waiting timeout deletes the old timer and reschedules from the current virtual instant, or stays waiting when disabled. Failed address selection must still produce the real NACK.
 
 That exact C built incrementally with exit0 and passed18 focused checks in `work/issue331/i2c-state-2d070f1/result.json`: the original15 plus pending-HOLD-release/empty-bus NACK, acknowledged timeout disable/re-enable, and replacement of an old deadline by a longer one. The latter two use an official EEPROM only in the fixture, observe real DATA after ACK, and wait past the old deadline without TIMEOUT/STOP before testing a newly armed deadline. No unchanged original run was repeated or relabeled. The binary includes the separately documented finite record aperture; these18 checks concern I²C and do not establish record parsing or original application transfer success.
+
+## MAS I2C2 eye sensor endpoint
+
+The saved MAS source selects logical channel 3, maps it to hardware I2C2 at
+`2c01a000`, and uses seven-bit address `0x38`. The complete-bundle machine now
+attaches one ordinary upstream I2C slave at that address. Raw MAS diagnostic
+runs intentionally leave the bus empty so existing NACK tests can attach
+their own fixtures.
+
+The endpoint implements the source-compatible RPR-0521RS register contract:
+system/mode/ALS/proximity/interrupt and offset controls are writable;
+proximity, ALS and offset data are readable little-endian registers; and the
+manufacturer ID register returns `0xe0`. Register pointers and sequential
+transfers use upstream I2C callbacks, and unqualified register pointers NACK.
+Reset restores the public ID and zero measurement state. No measurement
+provider, GPIO interrupt, ready flag, frame trigger, or image data is
+synthesized; cold-zero readings remain an explicit board input until a
+source-qualified producer is recovered.
+
+Implementation is `hw/nikon/devices/eyesensor.c`; the machine obtains the
+controller's real upstream bus through `nikon_i2c_bus()`. The native ARM build
+links this endpoint successfully. A complete C1.70 bundle machine initializes
+with the endpoint attached; a bounded 120-second original run still stops in
+the separate SLA/EX domain fault loop (CPU3 IFAR/DFAR zero), so this change
+does not claim GUI completion.
