@@ -184,7 +184,7 @@ int main(int argc, char **argv)
     fd = g_file_open_tmp("nikonguiXXXXXX", &image, NULL);
     g_assert_cmpint(fd, >=, 0);
     close(fd);
-    qtest_add_func("/arm/nikon/gui/observations", test_observations);
+    qtest_add_func("/nikon/gui/observations", test_observations);
     result = g_test_run();
     unlink(image);
     g_free(image);
