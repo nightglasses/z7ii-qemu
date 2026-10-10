@@ -61,6 +61,24 @@ static void memory_free(MemoryFixture *f)
     /* Retired flat views retain their real owner. Drain before releasing its
      * embedded regions, and again before releasing their fixture storage. */
     drain_call_rcu();
+
+    /* Every initialized MemoryRegion is a QOM child of owner.  Unparent the
+     * root first so its topology is detached, then release all embedded
+     * regions before finalizing their owner. */
+    object_unparent(OBJECT(&f->root));
+    if (f->ram.owner) {
+        object_unparent(OBJECT(&f->ram));
+    }
+    if (f->rom.owner) {
+        object_unparent(OBJECT(&f->rom));
+    }
+    if (f->protection.owner) {
+        object_unparent(OBJECT(&f->protection));
+    }
+    if (f->source.owner) {
+        object_unparent(OBJECT(&f->source));
+    }
+    drain_call_rcu();
     object_unparent(f->owner);
     object_unref(f->owner);
     drain_call_rcu();
