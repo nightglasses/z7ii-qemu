@@ -17,6 +17,7 @@ config NIKON_Z7II
     select NIKON_STORAGE
     select NIKON_EX
     select NIKON_SENSOR
+    select NIKON_CMOS
 
 config NIKON_SLA
     bool
@@ -44,6 +45,12 @@ config NIKON_EX
     select I2C
 
 config NIKON_SENSOR
+    bool
+    default y
+    depends on TCG && ARM
+    select NIKON_ARM
+
+config NIKON_CMOS
     bool
     default y
     depends on TCG && ARM
