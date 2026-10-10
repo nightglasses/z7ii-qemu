@@ -816,6 +816,33 @@ static void adc_profile(void)
     qtest_quit(qts);
 }
 
+static void exception_receipt_reset(void)
+{
+    QTestState *qts = start();
+    QDict *response;
+
+    response = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/ex',"
+        "'property':'first-exception'}}");
+    g_assert_false(qdict_get_bool(response, "return"));
+    qobject_unref(response);
+
+    qtest_system_reset(qts);
+
+    response = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/ex',"
+        "'property':'first-exception-pc'}}");
+    g_assert_cmphex(qdict_get_uint(response, "return"), ==, 0);
+    qobject_unref(response);
+    response = qtest_qmp(qts,
+        "{'execute':'qom-get','arguments':{'path':'/machine/ex',"
+        "'property':'first-exception-fault-address'}}");
+    g_assert_cmphex(qdict_get_uint(response, "return"), ==, 0);
+    qobject_unref(response);
+
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -831,5 +858,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/power", power_profile);
     qtest_add_func("/nikon/ex/word", spi_word_profile);
     qtest_add_func("/nikon/ex/adc", adc_profile);
+    qtest_add_func("/nikon/ex/exception-receipt-reset",
+                   exception_receipt_reset);
     return g_test_run();
 }

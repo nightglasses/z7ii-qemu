@@ -18,6 +18,22 @@ functional physical address choice; the board's actual aliases remain unknown.
 The profile aliases flash at address zero for Cortex-M reset vector fetch. It
 does not synthesize a BootROM or claim that an out-of-package ROM was recovered.
 
+## First-exception receipt
+
+The EX object publishes a read-only first-exception receipt for bounded startup
+runs. The `first-exception` flag and the `first-exception-*` properties on
+`/machine/ex` expose the vCPU's exception index, PC, CPSR, active M-profile
+exception number, CFSR, DFSR, MMFAR, BFAR, IRQ-line state, security state,
+fault-status word and fault address. The receipt is sampled on the EX vCPU
+thread and is cleared by a global machine reset; it does not change NVIC
+pending state, install a handler, inject an IRQ or turn an unhandled exception
+into successful execution. M-profile has no architectural IFAR/DFAR pair, so
+the receipt uses the corresponding MMFAR/BFAR and generic fault address fields.
+The focused `/arm/nikon/ex/exception-receipt-reset` qtest verifies the cold
+reset baseline and that reset clears the receipt. A real firmware run must
+still supply the original component and retain the first non-reset exception
+receipt as runtime evidence.
+
 The guest reset routine copies `0x1c4` bytes from flash into `0x20000000`, then
 writes VTOR. Its original dispatcher at `0x08003804` runs the seven descriptors:
 
