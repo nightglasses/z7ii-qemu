@@ -64,6 +64,14 @@ struct NikonSLADomain {
     GBytes *payload;
     GBytes *boot_prefix;
     bool reported_error;
+    bool first_fault;
+    bool first_fault_write;
+    uint32_t first_fault_cpu;
+    uint32_t first_fault_size;
+    uint64_t first_fault_pc;
+    uint64_t first_fault_address;
+    uint64_t first_fault_value;
+    uint64_t boot_prefix_size;
     bool initialized;
 };
 
@@ -112,6 +120,16 @@ static MemTxResult sla_uncovered_read(void *opaque, hwaddr addr,
 {
     NikonSLADomain *s = opaque;
 
+    if (!s->reported_error && current_cpu) {
+        s->first_fault = true;
+        s->first_fault_write = false;
+        s->first_fault_cpu = current_cpu->cpu_index;
+        s->first_fault_size = size;
+        s->first_fault_pc = CPU_GET_CLASS(current_cpu)->get_pc(current_cpu);
+        s->first_fault_address = addr;
+        s->first_fault_value = 0;
+    }
+
     nikon_access_error(&s->reported_error, addr, size, false, 0,
                        "SLA uncovered input");
     *value = 0; /* Invalid output: the transaction fails. */
@@ -123,6 +141,16 @@ static MemTxResult sla_uncovered_write(void *opaque, hwaddr addr,
                                       MemTxAttrs attrs)
 {
     NikonSLADomain *s = opaque;
+
+    if (!s->reported_error && current_cpu) {
+        s->first_fault = true;
+        s->first_fault_write = true;
+        s->first_fault_cpu = current_cpu->cpu_index;
+        s->first_fault_size = size;
+        s->first_fault_pc = CPU_GET_CLASS(current_cpu)->get_pc(current_cpu);
+        s->first_fault_address = addr;
+        s->first_fault_value = value;
+    }
 
     nikon_access_error(&s->reported_error, addr, size, true, value,
                        "SLA uncovered output");
@@ -184,6 +212,13 @@ static void sla_reset(void *opaque)
     unsigned i;
 
     s->reported_error = false;
+    s->first_fault = false;
+    s->first_fault_write = false;
+    s->first_fault_cpu = 0;
+    s->first_fault_size = 0;
+    s->first_fault_pc = 0;
+    s->first_fault_address = 0;
+    s->first_fault_value = 0;
     for (i = 0; i < s->num_cpus; i++) {
         cpu_reset(CPU(&s->cpu[i]));
         cpu_set_pc(CPU(&s->cpu[i]), NIKON_SLA_ENTRY);
@@ -226,6 +261,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         error_setg(errp, "SLA requires the complete C1.70 component");
         return;
     }
+    s->boot_prefix_size = s->boot_prefix ? g_bytes_get_size(s->boot_prefix) : 0;
 
     memory_region_init(&s->system, OBJECT(s), "nikon.sla.domain", 1ULL << 32);
     address_space_init(&s->as, &s->system, "nikon.sla.domain");
@@ -736,12 +772,49 @@ static void sla_finalize(Object *object)
     g_clear_pointer(&s->boot_prefix, g_bytes_unref);
 }
 
+static bool sla_get_boot_prefix_present(Object *obj, Error **errp);
+static bool sla_get_first_fault(Object *obj, Error **errp);
+static bool sla_get_first_fault_write(Object *obj, Error **errp);
+
 static void sla_domain_init(Object *object)
 {
     NikonSLADomain *s = NIKON_SLA_DOMAIN(object);
 
     qdev_init_gpio_out_named(DEVICE(s), &s->peer_ready, "peer-ready", 1);
     qdev_init_gpio_in_named(DEVICE(s), sla_peer_output, "peer-source", 1);
+    object_property_add_bool(object, "boot-prefix-present",
+                             sla_get_boot_prefix_present, NULL);
+    object_property_add_uint64_ptr(object, "boot-prefix-size",
+                                   &s->boot_prefix_size, OBJ_PROP_FLAG_READ);
+    object_property_add_bool(object, "first-fault", sla_get_first_fault,
+                             NULL);
+    object_property_add_bool(object, "first-fault-write",
+                             sla_get_first_fault_write, NULL);
+    object_property_add_uint32_ptr(object, "first-fault-cpu",
+                                   &s->first_fault_cpu, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(object, "first-fault-size",
+                                   &s->first_fault_size, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(object, "first-fault-pc",
+                                   &s->first_fault_pc, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(object, "first-fault-address",
+                                   &s->first_fault_address, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(object, "first-fault-value",
+                                   &s->first_fault_value, OBJ_PROP_FLAG_READ);
+}
+
+static bool sla_get_boot_prefix_present(Object *obj, Error **errp)
+{
+    return NIKON_SLA_DOMAIN(obj)->boot_prefix != NULL;
+}
+
+static bool sla_get_first_fault(Object *obj, Error **errp)
+{
+    return NIKON_SLA_DOMAIN(obj)->first_fault;
+}
+
+static bool sla_get_first_fault_write(Object *obj, Error **errp)
+{
+    return NIKON_SLA_DOMAIN(obj)->first_fault_write;
 }
 
 static void sla_domain_class_init(ObjectClass *oc, const void *data)

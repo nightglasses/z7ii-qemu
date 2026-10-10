@@ -212,6 +212,62 @@ static void test_loaded_domain(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static uint64_t sla_qom_uint(QTestState *qts, const char *path,
+                             const char *property)
+{
+    g_autofree char *quoted_path = g_strdup_printf("'%s'", path);
+    g_autofree char *quoted_property = g_strdup_printf("'%s'", property);
+    QDict *reply = qtest_qmp(qts, "{'execute':'qom-get','arguments':{"
+                              "'path':%s,'property':%s}}", quoted_path,
+                              quoted_property);
+    uint64_t value = qdict_get_uint(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
+static void test_startup_observation(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla,boot-prefix=erased "
+                                  "-smp 1 -bios %s -accel qtest", path);
+
+    /* The prefix is a declared external input; no bytes are copied into RAM. */
+    g_assert_true(qtest_qom_get_bool(qts, "/machine/sla",
+                                     "boot-prefix-present"));
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla",
+                                  "boot-prefix-size"), ==,
+                     NIKON_SLA_BOOT_PREFIX_SIZE);
+
+    /* An invalid COPY destination records the first failed transaction with
+     * source, destination and residual bytes, rather than hiding the fault. */
+    qtest_writel(qts, 0x04251000, 0x10000000);
+    qtest_writel(qts, 0x04251010, 3);
+    qtest_writel(qts, 0x04251014, NIKON_SLA_ROM_BASE);
+    qtest_writel(qts, 0x04251018, 0xc8100000);
+    qtest_writel(qts, 0x0425101c, 0x30f00);
+    qtest_writel(qts, 0x04251020, 0x30f00);
+    qtest_writel(qts, 0x04251024, 0);
+    qtest_writel(qts, 0x04251028, 0x11109003);
+    qtest_clock_step(qts, 1000);
+    g_assert_true(qtest_qom_get_bool(qts, "/machine/sla/copy",
+                                     "first-fault"));
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla/copy",
+                                  "first-fault-channel"), ==, 0);
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla/copy",
+                                  "first-fault-status"), ==, 1);
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla/copy",
+                                  "first-fault-source"), ==,
+                     NIKON_SLA_ROM_BASE);
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla/copy",
+                                  "first-fault-destination"), ==,
+                     0xc8100000);
+    g_assert_cmpuint(sla_qom_uint(qts, "/machine/sla/copy",
+                                  "first-fault-remaining"), ==, 4);
+    qtest_quit(qts);
+    unlink(path);
+}
+
 static void test_external_interrupts(void)
 {
     g_autofree char *path = fixture_container();
@@ -904,6 +960,7 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/sla/external-input", test_external_input);
     qtest_add_func("/nikon/sla/loaded-domain", test_loaded_domain);
+    qtest_add_func("/nikon/sla/startup-observation", test_startup_observation);
     qtest_add_func("/nikon/sla/copy-private", test_copy_private);
     qtest_add_func("/nikon/sla/external-interrupts", test_external_interrupts);
     qtest_add_func("/nikon/sla/events", test_events);
