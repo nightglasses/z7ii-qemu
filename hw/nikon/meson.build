@@ -63,6 +63,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/processing.c',
   'peers/spi.c',
   'devices/transfer.c',
+  'devices/save.c',
 ))
 
 rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
