@@ -130,7 +130,7 @@ static void test_decode_retention(void)
 static void test_outer_holes(void)
 {
     static const uint64_t addresses[] = { 0xb17ffffc, 0xbd200000 };
-    MemoryTest t = memory_init();
+    MemoryTest t = memory_init("");
     unsigned i;
 
     /* An address classifier catch-all is not an unlimited physical RAM grant. */
