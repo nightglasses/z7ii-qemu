@@ -612,9 +612,10 @@ static uint64_t copy_property(QTestState *q, const char *name)
 
 static char *copy_string_property(QTestState *q, const char *name)
 {
+    g_assert_cmpstr(name, ==, "descriptor-owner");
     QDict *response = qtest_qmp(q, "{'execute':'qom-get',"
                               " 'arguments':{'path':'/machine/copy',"
-                              " 'property':%s}}", name);
+                              " 'property':'descriptor-owner'}}");
     char *value;
 
     g_assert_true(qdict_haskey(response, "return"));
