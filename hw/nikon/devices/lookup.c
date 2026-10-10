@@ -372,7 +372,7 @@ void nikon_lookup_disconnect(DeviceState *dev)
 {
     NikonLookupState *s = NIKON_LOOKUP(dev);
 
-    memset(&s->sample, 0, sizeof(s->sample));
+    /* Withdraw observations, not causes awaiting an independent guest ACK. */
     s->connected = false;
     nikon_lookup_irq(s);
 }
@@ -414,6 +414,7 @@ static void nikon_lookup_reset(DeviceState *dev)
     memset(s->byte_config, 0, sizeof(s->byte_config));
     memset(s->written, 0, sizeof(s->written));
     memset(s->active, 0, sizeof(s->active));
+    memset(&s->sample, 0, sizeof(s->sample));
     s->external_active = false;
     s->reported_error = false;
     nikon_lookup_disconnect(dev);

@@ -295,6 +295,72 @@ static void test_provider(gconstpointer opaque)
     fixture_clear(&f);
 }
 
+static void test_disconnect(gconstpointer opaque)
+{
+    bool words = GPOINTER_TO_INT(opaque);
+    LookupFixture f = { 0 };
+    NikonLookupSample causes = {
+        .pending = 0x8001, .auxiliary_pending = 0x81, .result = 0x12345678,
+    };
+    NikonLookupSample empty = { 0 };
+    MemOp auxop = words ? MO_32 : MO_8;
+    unsigned ack = words ? 0x2c : 0xe;
+
+    fixture_init(&f, words);
+    write_port(&f, 0, 0x84, 0x8001, MO_32, MEMTX_OK);
+    g_assert_true(nikon_lookup_publish(f.dev, &causes));
+    g_assert_true(f.level);
+    nikon_lookup_disconnect(f.dev);
+    g_assert_false(f.level);
+    read_port(&f, 0, 0x80, MO_32, MEMTX_ERROR);
+    read_port(&f, 0, 0x74, MO_32, MEMTX_ERROR);
+    read_port(&f, 1, ack, auxop, MEMTX_ERROR);
+    write_port(&f, 0, 0x80, UINT32_MAX, MO_32, MEMTX_ERROR);
+    write_port(&f, 1, ack, 0, auxop, MEMTX_ERROR);
+
+    /* A complete zero-cause reconnect replaces data, not unacknowledged
+     * causes. A rejected ACK while disconnected cannot consume them either. */
+    g_assert_true(nikon_lookup_publish(f.dev, &empty));
+    g_assert_true(f.level);
+    g_assert_cmphex(read_port(&f, 0, 0x80, MO_32, MEMTX_OK), ==, 0x8001);
+    g_assert_cmphex(read_port(&f, 0, 0x74, MO_32, MEMTX_OK), ==, 0);
+    g_assert_cmphex(read_port(&f, 1, ack, auxop, MEMTX_OK), ==, 0x81);
+    write_port(&f, 0, 0x80, 1, MO_32, MEMTX_OK);
+    write_port(&f, 1, ack, words ? ~1U : 0xfe, auxop, MEMTX_OK);
+    g_assert_cmphex(read_port(&f, 0, 0x80, MO_32, MEMTX_OK), ==, 0x8000);
+    g_assert_cmphex(read_port(&f, 1, ack, auxop, MEMTX_OK), ==, 0x80);
+    g_assert_true(f.level);
+    nikon_lookup_disconnect(f.dev);
+    g_assert_false(f.level);
+    g_assert_true(nikon_lookup_publish(f.dev, &empty));
+    g_assert_cmphex(read_port(&f, 0, 0x80, MO_32, MEMTX_OK), ==, 0x8000);
+    g_assert_cmphex(read_port(&f, 1, ack, auxop, MEMTX_OK), ==, 0x80);
+    write_port(&f, 1, ack, 0, auxop, MEMTX_OK);
+    g_assert_true(f.level);
+    write_port(&f, 0, 0x80, 0x8000, MO_32, MEMTX_OK);
+    g_assert_false(f.level);
+    nikon_lookup_disconnect(f.dev);
+    g_assert_true(nikon_lookup_publish(f.dev, &empty));
+    g_assert_cmphex(read_port(&f, 0, 0x80, MO_32, MEMTX_OK), ==, 0);
+    g_assert_cmphex(read_port(&f, 1, ack, auxop, MEMTX_OK), ==, 0);
+
+    /* Reset, including reset while disconnected, really discards causes. */
+    causes.pending = 2;
+    causes.auxiliary_pending = 2;
+    write_port(&f, 0, 0x84, 2, MO_32, MEMTX_OK);
+    g_assert_true(nikon_lookup_publish(f.dev, &causes));
+    g_assert_true(f.level);
+    nikon_lookup_disconnect(f.dev);
+    device_cold_reset(f.dev);
+    read_port(&f, 0, 0x80, MO_32, MEMTX_ERROR);
+    g_assert_true(nikon_lookup_publish(f.dev, &empty));
+    write_port(&f, 0, 0x84, 2, MO_32, MEMTX_OK);
+    g_assert_cmphex(read_port(&f, 0, 0x80, MO_32, MEMTX_OK), ==, 0);
+    g_assert_cmphex(read_port(&f, 1, ack, auxop, MEMTX_OK), ==, 0);
+    g_assert_false(f.level);
+    fixture_clear(&f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -317,6 +383,10 @@ int main(int argc, char **argv)
                          test_provider);
     g_test_add_data_func("/nikon/lookup/words/provider", GINT_TO_POINTER(1),
                          test_provider);
+    g_test_add_data_func("/nikon/lookup/bytes/disconnect", GINT_TO_POINTER(0),
+                         test_disconnect);
+    g_test_add_data_func("/nikon/lookup/words/disconnect", GINT_TO_POINTER(1),
+                         test_disconnect);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
