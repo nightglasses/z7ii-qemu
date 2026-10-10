@@ -19,6 +19,36 @@ The new modular `hw/nikon/devices/ipud.c` uses official Fifo32, Clock, QEMUTimer
 | 80 | Read-only explicitly unavailable RMU state0. This is a named functional initial state, not a discovered physical constant. |
 | 84..94 | RMU bracket/data activation remains unsupported; no remote DMA, backing, event, value100 or success is supplied. |
 
+## C1.70 download boundary
+
+The current C1.70 receipt supplies a download-shaped call, but not a
+source-backed IPUD transfer contract.  The recovered MAS path provides these
+values at the observed selector-0 attempt:
+
+| Evidence | Value | Interpretation |
+| --- | --- | --- |
+| COPY source | `0x107a4f34` | MAS source descriptor used by the byte-copy engine |
+| COPY destination VA/PA | `0xb0d00000` | MAS section-mapped destination; it is outside the current storage profile |
+| RMU argument 0 | `0xb0d00000` | destination-like value |
+| RMU argument 1 | `0x00400000` | size-like value |
+| RMU argument 2 | `0xaf200000` | peer/source-like value; ownership is unresolved |
+| RMU argument 3 | `0x01b00000` | size-like value; ownership is unresolved |
+| IPUD command | `0x900e` | command word passed through the MAS command table |
+
+Static code also proves that `0x2402000c` is read as the IPUD status port and
+that `0x2402001c` is written with the observed acknowledge value `4`.  The
+`0x900e` command is stored through the MAS command-table helper; no recovered
+writer ties its four argument words to IPUD MMIO offsets `0x84..0x94`, and no
+provider supplies the bytes represented by `0xaf200000`.
+
+Consequently this receipt does **not** authorize a RAM alias at `0xb0d00000`,
+a synthetic peer reply, or a successful RMU completion.  The next required
+evidence is a runtime packet/descriptor trace containing the command's source
+and destination fields, the provider of the bytes, and the completion/IRQ
+state observed by the MAS worker.  Until then the existing rejection of
+RMU-specific offsets is intentional and preserves the uncovered-address fault
+that identifies the missing contract.
+
 FIFO depth32, packet staging/commit, read-pop/ACK-only, zero reset, pending meanings and mask/W1C polarity are virtual conventions constrained by original consumers. Configuration completion is not inferred from a readback value. This profile requires the observed fullword configuration before CMD2; it does not recover physical configuration fields. Pending bit0 (RX) and bit2 (TX space) are unrelated to guest software event flags, which only original ISR/worker code may change.
 
 The independent nominal clock is **48MHz**, consuming one committed32-bit word per32 ticks (**666 ns** under the official Clock integer conversion). Uncommitted words do not tick. Disconnected output consumes into a named sink and generates no reply. TXspace pendingbit2 latches only when real consumption crosses from occupancy>29 to≤29; empty reset/configuration and reads do not latch or continuously reassert it. Further consumption without another threshold crossing cannot generate another space event. Pending remains independently masked/acknowledged. Official board wiring connects the device's single output to mature **GIC101**, matching original registration/enable. The model never removes entries from software queues or invokes their callbacks/events; the original SMP worker must make progress itself.
