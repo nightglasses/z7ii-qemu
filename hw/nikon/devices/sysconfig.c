@@ -6,7 +6,9 @@
  */
 #include "qemu/osdep.h"
 #include "migration/vmstate.h"
+#include "qapi/error.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/nikon/devices.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSysconfigState, NIKON_SYSCONFIG)
@@ -17,6 +19,9 @@ struct NikonSysconfigState {
     uint32_t config[8];
     uint32_t initialized;
     uint32_t banks[5];
+    uint8_t identity, variant;
+    uint16_t strapwide;
+    uint8_t strapnarrow;
     bool reported_error;
 };
 
@@ -48,8 +53,15 @@ static MemTxResult nikon_sysconfig_read(void *opaque, hwaddr offset,
         *value = s->banks[(offset - 0x78) / 4];
         return MEMTX_OK;
     }
-    /* Named virtual strap inputs; their physical interpretation is unknown. */
+    /* Original getter returns low six bits and the top nibble separately.
+     * These stable board inputs survive guest configuration and reset. */
+    if (offset == 0) {
+        *value = s->identity | ((uint32_t)s->variant << 28);
+        return MEMTX_OK;
+    }
+    /* Original getters consume ten and five bits respectively. */
     if (offset == 0x20 || offset == 0x2c) {
+        *value = offset == 0x20 ? s->strapwide : s->strapnarrow;
         return MEMTX_OK;
     }
     for (i = 0; i < ARRAY_SIZE(config_offsets); i++) {
@@ -136,11 +148,30 @@ static const VMStateDescription nikon_sysconfig_vmstate = {
     .unmigratable = true,
 };
 
+static const Property nikon_sysconfig_properties[] = {
+    DEFINE_PROP_UINT8("identity", NikonSysconfigState, identity, 0),
+    DEFINE_PROP_UINT8("variant", NikonSysconfigState, variant, 0),
+    DEFINE_PROP_UINT16("strapwide", NikonSysconfigState, strapwide, 0),
+    DEFINE_PROP_UINT8("strapnarrow", NikonSysconfigState, strapnarrow, 0),
+};
+
+static void nikon_sysconfig_realize(DeviceState *dev, Error **errp)
+{
+    NikonSysconfigState *s = NIKON_SYSCONFIG(dev);
+
+    if (s->identity > 0x3f || s->variant > 0xf ||
+        s->strapwide > 0x3ff || s->strapnarrow > 0x1f) {
+        error_setg(errp, "sysconfig input exceeds recovered field width");
+    }
+}
+
 static void nikon_sysconfig_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_sysconfig_vmstate;
+    dc->realize = nikon_sysconfig_realize;
+    device_class_set_props(dc, nikon_sysconfig_properties);
     device_class_set_legacy_reset(dc, nikon_sysconfig_reset);
     dc->user_creatable = false;
 }
