@@ -215,11 +215,9 @@ static void test_loaded_domain(void)
 static uint64_t sla_qom_uint(QTestState *qts, const char *path,
                              const char *property)
 {
-    g_autofree char *quoted_path = g_strdup_printf("'%s'", path);
-    g_autofree char *quoted_property = g_strdup_printf("'%s'", property);
     QDict *reply = qtest_qmp(qts, "{'execute':'qom-get','arguments':{"
-                              "'path':%s,'property':%s}}", quoted_path,
-                              quoted_property);
+                              "'path':%s,'property':%s}}", path,
+                              property);
     uint64_t value = qdict_get_uint(reply, "return");
 
     qobject_unref(reply);
