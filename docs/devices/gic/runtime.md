@@ -6,6 +6,33 @@ The [fixed upstream active-register write path](https://github.com/qemu/qemu/blo
 
 The canonical board now selects the whole mature upstream `arm_gic` revision1 with security extensions, num-cpu matching the board and256 total IRQs. Revision1 retains its read-only active-register behavior; no host IRQ clear or guest instruction change is used. Distributor/CPU interfaces remain at the guest-produced CBAR+1000/+2000. CPU EL2 capability remains unchanged: configuring the device directly avoids A15MPCore's automatic coupling of CPU EL2 to the GIC virtualization option, which [requires revision2](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/intc/arm_gic_common.c#L216-L227). GIC virtualization interfaces are absent in this diagnostic profile, rather than aliasing unsupported addresses.
 
+## Revision contract
+
+The revision choice is a functional compatibility result, not a recovered Nikon
+part number. The original SLA initializer reads, ORs bit29, and writes the
+Distributor range `0x300..0x303` (`GICD_ISACTIVER0`, the active view for PPI29),
+then reads and writes the CPU interface EOI path at offset `0x10`. The original
+trace records the write value `0x20000000` and subsequently observes a real
+secure timer PPI29 acknowledgement and EOI. Therefore the write must not create
+an active PPI29 state that suppresses the first timer delivery.
+
+The ARM GIC architecture specification defines the same distinction: the
+`GICD_ISACTIVERn` range starts at `0x300 + 4*n`, is read-only active state in
+GICv1, and is read/write Set-active state in GICv2 ([IHI 0048B.b, sections
+4.3.9 and Table 4-13](https://documentation-service.arm.com/static/5f8ff196f86e16515cdbf969?token=)).
+The upstream QEMU implementation follows that distinction: revision1 reads
+the active state but the write path only mutates state for revision2
+([arm_gic.c](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/intc/arm_gic.c#L1048-L1071),
+[write path](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/intc/arm_gic.c#L1349-L1377)).
+
+The focused `/nikon/sla/secure-tick` fixture executes this exact read/OR/write
+sequence against the board's real upstream GIC, checks that the active view
+remains zero after the write, then observes IRQ29 through IAR and EOI. This
+locks the model contract without injecting an IRQ or adding a private active
+register implementation. It does not establish the physical controller's
+silicon revision; an on-device identification read or equivalent hardware
+evidence would be required for that claim.
+
 Normal IRQ/FIQ and official timer lines use the same [upstream A15MPCore PPI wiring](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/cpu/a15mpcore.c#L95-L115): physical30, virtual27, hypervisor26, secure29. CPU generic timers remain upstream devices, and guest registration, enable, acknowledgement and EOI remain necessary. This version choice does not by itself establish a second original tick.
 
 Incremental native build exited zero. Four focused tests in `work/issue331/gic-v1-first/result.json` passed: secure physical timer/PPI29 with real IAR/EOI, the original active-write/EOI-before-IAR shape followed by a real timer acknowledgement, completion SPI250/EOI and completion polling. Other historical fixtures are not retroactively relabeled as revision1 validation.
