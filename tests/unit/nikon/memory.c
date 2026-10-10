@@ -61,6 +61,7 @@ static void memory_free(MemoryFixture *f)
     /* Retired flat views retain their real owner. Drain before releasing its
      * embedded regions, and again before releasing their fixture storage. */
     drain_call_rcu();
+
     object_unparent(f->owner);
     object_unref(f->owner);
     drain_call_rcu();
@@ -89,6 +90,7 @@ static void device_free(DeviceState *dev)
     qdev_unrealize(dev);
     object_unparent(OBJECT(dev));
     object_unref(OBJECT(dev));
+    drain_call_rcu();
 }
 
 static void write_register(DeviceState *dev, hwaddr offset, uint32_t value)

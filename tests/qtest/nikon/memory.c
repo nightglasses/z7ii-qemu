@@ -4,6 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "hw/nikon/devices.h"
 #include "libqtest.h"
 
 typedef struct MemoryTest {
@@ -11,7 +12,7 @@ typedef struct MemoryTest {
     char *image;
 } MemoryTest;
 
-static MemoryTest memory_init(void)
+static MemoryTest memory_init(const char *options)
 {
     MemoryTest t = { 0 };
     uint32_t loop = cpu_to_le32(0xeafffffe);
@@ -21,7 +22,7 @@ static MemoryTest memory_init(void)
     g_assert_cmpint(write(fd, &loop, sizeof(loop)), ==, sizeof(loop));
     close(fd);
     t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
-                        "-display none -serial none", t.image);
+                        "-display none -serial none %s", t.image, options);
     return t;
 }
 
@@ -48,7 +49,7 @@ static void test_storage_profile(void)
         0xb2c00000, 0xb7cf0000, 0xb80dc3c0, 0xb8108580,
         0xbc121690, 0xbd1dfffc, 0xbd1e0000,
     };
-    MemoryTest t = memory_init();
+    MemoryTest t = memory_init("");
     unsigned i;
 
     /* Each class owns both its first and last words, with distinct values. */
@@ -84,7 +85,7 @@ static void test_no_bus_mirror(void)
         { 0x18b00000, 0xbc100000 },
         { 0x19bffffc, 0xbd1ffffc },
     };
-    MemoryTest t = memory_init();
+    MemoryTest t = memory_init("");
     unsigned i;
 
     for (i = 0; i < ARRAY_SIZE(views); i++) {
@@ -107,7 +108,7 @@ static void set_decode(MemoryTest *t, uint32_t high_length)
 
 static void test_decode_retention(void)
 {
-    MemoryTest t = memory_init();
+    MemoryTest t = memory_init("");
     unsigned i;
 
     for (i = 0; i < ARRAY_SIZE(class_bounds); i++) {
@@ -129,7 +130,7 @@ static void test_decode_retention(void)
 static void test_outer_holes(void)
 {
     static const uint64_t addresses[] = { 0xb17ffffc, 0xbd200000 };
-    MemoryTest t = memory_init();
+    MemoryTest t = memory_init("");
     unsigned i;
 
     /* An address classifier catch-all is not an unlimited physical RAM grant. */
@@ -153,6 +154,66 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_writel(qts, 0x04251028, 0x9000);
     qtest_writel(qts, 0x04251028, 0x11109003);
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_dynamic_load(void)
+{
+    const size_t length = 4099;
+    const uint32_t source = 0xb1804000;
+    const uint32_t destinations[] = {
+        0xb1000000, 0xb1400003, 0xb1800000 - length,
+    };
+    g_autofree uint8_t *expected = g_malloc(ARRAY_SIZE(destinations) * length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    MemoryTest t = memory_init("");
+
+    /* Distinct patterns detect aliases between the first, middle and last
+     * bytes of class20, including an unaligned transfer with a non-word-sized
+     * tail. */
+    for (unsigned i = 0; i < ARRAY_SIZE(destinations); i++) {
+        uint8_t *pattern = expected + i * length;
+
+        g_assert_cmphex(qtest_readl(t.qts, destinations[i]), ==, 0);
+        for (size_t j = 0; j < length; j++) {
+            pattern[j] = (j * 37 + (j >> 8) * 11 + i * 59 + 7) & 0xff;
+        }
+        qtest_memwrite(t.qts, source + i * 0x2000, pattern, length);
+        if (i) {
+            qtest_writel(t.qts, destinations[i] - 4, 0xabc40000 + i);
+        }
+        /* The last after-guard is the adjacent kernel class's first word. */
+        qtest_writel(t.qts, destinations[i] + length, 0xabc50000 + i);
+        prefix_copy(t.qts, source + i * 0x2000, destinations[i], length);
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    }
+
+    /* Reject a whole transaction crossing the lower hole into valid class20;
+     * neither its valid suffix nor any source byte may be committed. */
+    prefix_copy(t.qts, source, 0xb0fffffc, 8);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 1);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251010), ==, 7);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251014), ==, source);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251018), ==, 0xb0fffffc);
+
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        /* Later copies and reset preserve independent class20/kernel bytes. */
+        for (unsigned i = 0; i < ARRAY_SIZE(destinations); i++) {
+            qtest_memread(t.qts, destinations[i], actual, length);
+            g_assert_cmpmem(actual, length, expected + i * length, length);
+            qtest_memread(t.qts, source + i * 0x2000, actual, length);
+            g_assert_cmpmem(actual, length, expected + i * length, length);
+            if (i) {
+                g_assert_cmphex(qtest_readl(t.qts, destinations[i] - 4), ==,
+                                0xabc40000 + i);
+            }
+            g_assert_cmphex(qtest_readl(t.qts, destinations[i] + length), ==,
+                            0xabc50000 + i);
+        }
+    }
+    memory_quit(&t);
 }
 
 static void test_external_input(void)
@@ -230,6 +291,71 @@ static void test_external_input(void)
     unlink(prefix_path);
 }
 
+static void test_sysconfig_profile(void)
+{
+    const uint32_t base = 0x04280000;
+    const unsigned profiles[][4] = {
+        { 0x15, 0, 0x155, 0xa }, { 0x2a, 1, 0x2aa, 0x15 },
+        { 0x3f, 2, 0x3ff, 0x1f }, { 0, 0xf, 0, 0 },
+    };
+    const uint32_t offsets[] = { 4, 8, 0x24, 0x28, 0x30, 0x74, 0x34, 0x38 };
+    const uint32_t values[] = {
+        0x12345678, 0x87654321, 1, 0x13579bdf, 0x2468ace0, 0xab,
+        0xa0000000, 0x00550000,
+    };
+    MemoryTest cold = memory_init("");
+
+    /* The named default is a functional input, not measured silicon ID. */
+    g_assert_cmphex(qtest_readl(cold.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(cold.qts, base + 0x20), ==, 0);
+    g_assert_cmphex(qtest_readl(cold.qts, base + 0x2c), ==, 0);
+    memory_quit(&cold);
+    for (unsigned profile = 0; profile < ARRAY_SIZE(profiles); profile++) {
+        const unsigned *p = profiles[profile];
+        g_autofree char *options = g_strdup_printf(
+            "-global " TYPE_NIKON_SYSCONFIG ".identity=%u "
+            "-global " TYPE_NIKON_SYSCONFIG ".variant=%u "
+            "-global " TYPE_NIKON_SYSCONFIG ".strapwide=%u "
+            "-global " TYPE_NIKON_SYSCONFIG ".strapnarrow=%u",
+            p[0], p[1], p[2], p[3]);
+        MemoryTest t = memory_init(options);
+        uint32_t identity = p[0] | (p[1] << 28);
+
+        for (unsigned phase = 0; phase < 2; phase++) {
+            if (phase) {
+                qtest_system_reset(t.qts);
+            }
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, identity);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x20), ==, p[2]);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x2c), ==, p[3]);
+            /* Guest writes cannot select a different variant or strap. */
+            qtest_writel(t.qts, base, ~identity);
+            qtest_writel(t.qts, base + 0x20, 0x3ff ^ p[2]);
+            qtest_writel(t.qts, base + 0x2c, 0x1f ^ p[3]);
+            qtest_writew(t.qts, base, 0xffff);
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, identity);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x20), ==, p[2]);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x2c), ==, p[3]);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x34), ==, 0);
+            g_assert_cmphex(qtest_readl(t.qts, base + 0x38), ==, 0);
+            for (unsigned bank = 0; bank < 5; bank++) {
+                g_assert_cmphex(qtest_readl(t.qts, base + 0x78 + bank * 4),
+                                ==, 0);
+                qtest_writel(t.qts, base + 0x78 + bank * 4,
+                             0x13579bdf ^ bank);
+                g_assert_cmphex(qtest_readl(t.qts, base + 0x78 + bank * 4),
+                                ==, 0x13579bdf ^ bank);
+            }
+            for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+                qtest_writel(t.qts, base + offsets[i], values[i]);
+                g_assert_cmphex(qtest_readl(t.qts, base + offsets[i]), ==,
+                                values[i]);
+            }
+        }
+        memory_quit(&t);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -239,5 +365,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
     qtest_add_func("/nikon/memory/external-input", test_external_input);
+    qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();
 }

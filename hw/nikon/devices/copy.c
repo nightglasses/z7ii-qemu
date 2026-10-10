@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/error-report.h"
 #include "qemu/timer.h"
 #include "qemu/units.h"
 #include "hw/core/sysbus.h"
@@ -55,6 +56,12 @@ struct NikonCopyState {
     NikonCopyChannel channel[4];
     uint32_t control;
     bool reported_error;
+    bool first_fault;
+    uint32_t first_fault_channel;
+    uint32_t first_fault_status;
+    uint64_t first_fault_source;
+    uint64_t first_fault_destination;
+    uint64_t first_fault_remaining;
 };
 
 static void nikon_copy_irq(NikonCopyChannel *c)
@@ -69,6 +76,26 @@ static void nikon_copy_finish(NikonCopyChannel *c, uint32_t status)
     c->reg[6] &= ~3U;
     c->reg[8] = status;
     nikon_copy_irq(c);
+}
+
+static void nikon_copy_record_fault(NikonCopyChannel *c)
+{
+    NikonCopyState *s = c->owner;
+
+    if (s->first_fault) {
+        return;
+    }
+    s->first_fault = true;
+    s->first_fault_channel = c - s->channel;
+    s->first_fault_status = 1;
+    s->first_fault_source = c->reg[1];
+    s->first_fault_destination = c->reg[2];
+    s->first_fault_remaining = c->remaining;
+    error_report("nikon: COPY first DMA fault channel=%u source=0x%08"
+                 PRIx64 " destination=0x%08" PRIx64 " remaining=0x%08"
+                 PRIx64 " status=1",
+                 s->first_fault_channel, s->first_fault_source,
+                 s->first_fault_destination, s->first_fault_remaining);
 }
 
 static void nikon_copy_schedule(NikonCopyChannel *c)
@@ -132,6 +159,7 @@ static void nikon_copy_step(void *opaque)
     /* ROMD is a direct source, but QEMU's memory attribute only admits RAM. */
     if (!nikon_copy_memory_range(c->owner, c->reg[1], c->remaining, false) ||
         !nikon_copy_memory_range(c->owner, c->reg[2], c->remaining, true)) {
+        nikon_copy_record_fault(c);
         nikon_copy_finish(c, 1);
         return;
     }
@@ -149,6 +177,7 @@ static void nikon_copy_step(void *opaque)
         length = nikon_copy_memory_span(c->owner, c->reg[1], length, false);
         length = nikon_copy_memory_span(c->owner, c->reg[2], length, true);
         if (!length) {
+            nikon_copy_record_fault(c);
             nikon_copy_finish(c, 1);
             return;
         }
@@ -162,6 +191,7 @@ static void nikon_copy_step(void *opaque)
                                       length, attrs);
         }
         if (result != MEMTX_OK) {
+            nikon_copy_record_fault(c);
             nikon_copy_finish(c, 1);
             return;
         }
@@ -331,6 +361,12 @@ static void nikon_copy_reset(DeviceState *dev)
 
     s->control = 0;
     s->reported_error = false;
+    s->first_fault = false;
+    s->first_fault_channel = 0;
+    s->first_fault_status = 0;
+    s->first_fault_source = 0;
+    s->first_fault_destination = 0;
+    s->first_fault_remaining = 0;
     clock_update_hz(s->clock, 48000000);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
@@ -371,6 +407,11 @@ static void nikon_copy_get_running(Object *obj, Visitor *v, const char *name,
     visit_type_bool(v, name, &running, errp);
 }
 
+static bool nikon_copy_get_first_fault(Object *obj, Error **errp)
+{
+    return NIKON_COPY(obj)->first_fault;
+}
+
 static void nikon_copy_init(Object *obj)
 {
     NikonCopyState *s = NIKON_COPY(obj);
@@ -381,6 +422,20 @@ static void nikon_copy_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     object_property_add(obj, "virtual-clock-ns", "uint64",
                         nikon_copy_get_clock, NULL, NULL, NULL);
+    object_property_add_bool(obj, "first-fault", nikon_copy_get_first_fault,
+                             NULL);
+    object_property_add_uint32_ptr(obj, "first-fault-channel",
+                                   &s->first_fault_channel, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-fault-status",
+                                   &s->first_fault_status, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "first-fault-source",
+                                   &s->first_fault_source, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "first-fault-destination",
+                                   &s->first_fault_destination,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "first-fault-remaining",
+                                   &s->first_fault_remaining,
+                                   OBJ_PROP_FLAG_READ);
     for (i = 0; i < 4; i++) {
         NikonCopyChannel *c = &s->channel[i];
         g_autofree char *start = g_strdup_printf("channel%u-start-ns", i);

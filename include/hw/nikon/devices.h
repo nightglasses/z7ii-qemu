@@ -5,6 +5,7 @@
 
 #include "system/memory.h"
 #include "hw/core/qdev.h"
+#include "hw/i2c/i2c.h"
 
 #define TYPE_NIKON_FILL "nikon-fill-functional"
 #define TYPE_NIKON_USIO "nikon-usio-functional"
@@ -14,6 +15,7 @@
 #define TYPE_NIKON_EXIU "nikon-exiu-functional"
 #define TYPE_NIKON_HDMAC "nikon-hdmac-functional"
 #define TYPE_NIKON_I2C "nikon-i2c-functional"
+#define TYPE_NIKON_EYE_SENSOR "nikon-eye-sensor-functional"
 #define TYPE_NIKON_AUDIO "nikon-audio-functional"
 #define TYPE_NIKON_TIMING "nikon-timing-functional"
 #define TYPE_NIKON_COPY "nikon-copy-functional"
@@ -46,6 +48,8 @@ MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
                        bool write, uint64_t value, const char *reason);
 void nikon_mxic_attach_ram(DeviceState *dev, MemoryRegion *ram, hwaddr address);
+/* Return the controller's real upstream I2C bus after realization. */
+I2CBus *nikon_i2c_bus(DeviceState *dev);
 /*
  * Borrowed peer address space must outlive bridge accesses. NULL disconnects.
  * SysBus regions 1/2 expose bank0/1 local windows; they are not board mappings.

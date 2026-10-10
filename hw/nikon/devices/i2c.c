@@ -197,6 +197,13 @@ void nikon_i2c_async_ready(DeviceState *dev)
     nikon_i2c_submit(NIKON_I2C(dev));
 }
 
+I2CBus *nikon_i2c_bus(DeviceState *dev)
+{
+    NikonI2CState *s = NIKON_I2C(dev);
+
+    return s->bus;
+}
+
 void nikon_i2c_async_complete(DeviceState *dev, uint64_t token, uint32_t result)
 {
     NikonI2CState *s = NIKON_I2C(dev);
@@ -490,7 +497,9 @@ static MemTxResult nikon_i2c_write(void *opaque, hwaddr offset, uint64_t value,
         break;
     case 8:
         if (value > 0x7f || ((s->control & I2C_MASTER) &&
-            (!(s->control & 4) || (s->control & 0x20))) ||
+            (!(s->control & 4) ||
+             ((s->control & 0x20 && s->control != 0x3e &&
+               s->control != 0x3f)))) ||
             (s->active && (!s->addressed || !(s->control & I2C_HOLD) ||
                            value != s->address || s->request_pending ||
                            s->nack_pending || s->stop_pending))) {
