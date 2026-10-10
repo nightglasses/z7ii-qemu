@@ -10,6 +10,18 @@
 #define TYPE_NIKON_SDES "nikon-sdes"
 #define TYPE_NIKON_CAPTURE_CONTROL "nikon-capture-control"
 #define TYPE_NIKON_READOUT_CONTROL "nikon-readout-control"
+#define TYPE_NIKON_SDES_CHANNELS "nikon-sdes-channels"
+
+#define NIKON_SDES_CHANNEL_COUNT 11
+#define NIKON_SDES_CHANNEL_SIZE 0x2b8
+
+/* Independent configuration/control family, original VA20063000.
+ * Channel indices follow the original selector table (1,2,4,...,400 hex).
+ * offset is relative to that channel's configuration base. Each explicit
+ * command write pulses command-publish[index]; it produces no completion.
+ */
+bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
+                                       unsigned offset, uint32_t *value);
 
 enum NikonReadoutRegion {
     NIKON_READOUT_BUFFERS,       /* VA20069800, size0x384 */

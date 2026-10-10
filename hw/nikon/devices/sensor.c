@@ -1311,11 +1311,204 @@ static const TypeInfo nikon_readout_type = {
     .class_init = nikon_readout_class_init,
 };
 
+/* The original selector table at VA1078a92c is independent of the SDES
+ * parameter/status banks. These stores do not identify a pixel transfer.
+ */
+OBJECT_DECLARE_SIMPLE_TYPE(NikonSdesChannels, NIKON_SDES_CHANNELS)
+
+typedef struct NikonSdesChannel {
+    hwaddr configuration, control, command, auxiliary;
+} NikonSdesChannel;
+
+static const NikonSdesChannel nikon_sdes_channels[] = {
+    { 0x000, 0x01c, 0x020, 0x024 },
+    { 0x040, 0x05c, 0x060, 0x064 },
+    { 0x080, 0x0ac, 0x0b4, 0x0b8 },
+    { 0x0d0, 0x0ec, 0x0f0, 0x0f4 },
+    { 0x110, 0x12c, 0x130, 0x134 },
+    { 0x150, 0x16c, 0x170, 0x174 },
+    { 0x190, 0x1ac, 0x1b0, 0x1b4 },
+    { 0x1d0, 0x1ec, 0x1f0, 0x1f4 },
+    { 0x210, 0x22c, 0x230, 0x234 },
+    { 0x250, 0x26c, 0x270, 0x274 },
+    { 0x290, 0x2ac, 0x2b0, 0x2b4 },
+};
+
+struct NikonSdesChannels {
+    SysBusDevice parent_obj;
+    MemoryRegion memory;
+    uint32_t values[NIKON_SDES_CHANNEL_SIZE / 4];
+    qemu_irq command[NIKON_SDES_CHANNEL_COUNT];
+    uint64_t requests;
+    bool reported_error;
+};
+
+static bool nikon_sdes_channel_field(hwaddr offset, unsigned *channel,
+                                     uint32_t *mask, bool *command)
+{
+    unsigned i;
+
+    *mask = UINT32_MAX;
+    *command = false;
+    for (i = 0; i < ARRAY_SIZE(nikon_sdes_channels); i++) {
+        const NikonSdesChannel *c = &nikon_sdes_channels[i];
+        unsigned words = i == 2 ? 11 : 7;
+
+        if (offset >= c->configuration &&
+            offset < c->configuration + words * 4) {
+            if (offset - c->configuration == (i == 2 ? 0x18 : 8)) {
+                *mask = 0xffff;
+            }
+        } else if (offset == c->control) {
+            if (i == 2) {
+                *mask = 0xff;
+            }
+        } else if (i == 2 && offset == c->control + 4) {
+            /* Selector4 has a byte control followed by the packed word. */
+        } else if (offset == c->command) {
+            *mask = 1;
+            *command = true;
+        } else if (offset != c->auxiliary) {
+            continue;
+        }
+        *channel = i;
+        return true;
+    }
+    return false;
+}
+
+bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
+                                       unsigned offset, uint32_t *value)
+{
+    NikonSdesChannels *s = NIKON_SDES_CHANNELS(dev);
+    unsigned actual;
+    uint32_t mask;
+    bool command;
+    hwaddr address;
+
+    if (channel >= NIKON_SDES_CHANNEL_COUNT || !value || (offset & 3)) {
+        return false;
+    }
+    address = nikon_sdes_channels[channel].configuration + (hwaddr)offset;
+    if (!nikon_sdes_channel_field(address, &actual, &mask, &command) ||
+        actual != channel) {
+        return false;
+    }
+    *value = s->values[address / 4];
+    return true;
+}
+
+static MemTxResult nikon_sdes_channels_error(NikonSdesChannels *s,
+                                            hwaddr offset, unsigned size,
+                                            bool write, uint64_t value)
+{
+    nikon_access_error(&s->reported_error, s->memory.addr + offset,
+                      size, write, value, "sdes-channel-field-not-supported");
+    return MEMTX_ERROR;
+}
+
+static MemTxResult nikon_sdes_channels_read(void *opaque, hwaddr offset,
+                                           uint64_t *value, unsigned size,
+                                           MemTxAttrs attrs)
+{
+    NikonSdesChannels *s = opaque;
+    unsigned channel;
+    uint32_t mask;
+    bool command;
+
+    *value = 0;
+    if (size != 4 || (offset & 3) ||
+        !nikon_sdes_channel_field(offset, &channel, &mask, &command)) {
+        return nikon_sdes_channels_error(s, offset, size, false, 0);
+    }
+    *value = s->values[offset / 4];
+    return MEMTX_OK;
+}
+
+static MemTxResult nikon_sdes_channels_write(void *opaque, hwaddr offset,
+                                            uint64_t value, unsigned size,
+                                            MemTxAttrs attrs)
+{
+    NikonSdesChannels *s = opaque;
+    unsigned channel;
+    uint32_t mask;
+    bool command;
+
+    if (size != 4 || (offset & 3) ||
+        !nikon_sdes_channel_field(offset, &channel, &mask, &command) ||
+        (value & ~mask) || (command && value != 1)) {
+        return nikon_sdes_channels_error(s, offset, size, true, value);
+    }
+    s->values[offset / 4] = value;
+    if (command) {
+        s->requests++;
+        qemu_irq_pulse(s->command[channel]);
+    }
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps nikon_sdes_channels_ops = {
+    .read_with_attrs = nikon_sdes_channels_read,
+    .write_with_attrs = nikon_sdes_channels_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4,
+               .unaligned = false },
+};
+
+static void nikon_sdes_channels_reset(DeviceState *dev)
+{
+    NikonSdesChannels *s = NIKON_SDES_CHANNELS(dev);
+    unsigned i;
+
+    /* Functional cold-zero applies only to fields admitted by the decoder. */
+    memset(s->values, 0, sizeof(s->values));
+    s->requests = 0;
+    s->reported_error = false;
+    for (i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+        qemu_set_irq(s->command[i], 0);
+    }
+}
+
+static void nikon_sdes_channels_init(Object *obj)
+{
+    NikonSdesChannels *s = NIKON_SDES_CHANNELS(obj);
+
+    memory_region_init_io(&s->memory, obj, &nikon_sdes_channels_ops, s,
+                          "nikon-sdes-channels", NIKON_SDES_CHANNEL_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
+    qdev_init_gpio_out_named(DEVICE(s), s->command, "command-publish",
+                             NIKON_SDES_CHANNEL_COUNT);
+    object_property_add_uint64_ptr(obj, "requests", &s->requests,
+                                   OBJ_PROP_FLAG_READ);
+}
+
+static const VMStateDescription nikon_sdes_channels_vmstate = {
+    .name = TYPE_NIKON_SDES_CHANNELS,
+    .unmigratable = true,
+};
+
+static void nikon_sdes_channels_class_init(ObjectClass *oc, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    dc->vmsd = &nikon_sdes_channels_vmstate;
+    device_class_set_legacy_reset(dc, nikon_sdes_channels_reset);
+}
+
+static const TypeInfo nikon_sdes_channels_type = {
+    .name = TYPE_NIKON_SDES_CHANNELS,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(NikonSdesChannels),
+    .instance_init = nikon_sdes_channels_init,
+    .class_init = nikon_sdes_channels_class_init,
+};
+
 static void nikon_sensor_register_types(void)
 {
     type_register_static(&nikon_sensor_type);
     type_register_static(&nikon_sdes_type);
     type_register_static(&nikon_capture_type);
     type_register_static(&nikon_readout_type);
+    type_register_static(&nikon_sdes_channels_type);
 }
 type_init(nikon_sensor_register_types)

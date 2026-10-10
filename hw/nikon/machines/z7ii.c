@@ -503,6 +503,15 @@ static void z7ii_init(MachineState *machine)
         /* Original handler/status interface; no invented sensor-frame source. */
     }
     {
+        DeviceState *channels = qdev_new(TYPE_NIKON_SDES_CHANNELS);
+
+        object_property_add_child(OBJECT(machine), "sdes-channels",
+                                  OBJECT(channels));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(channels), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(channels), 0, 0x20063000);
+        /* Guest configuration/commands; no default completion provider. */
+    }
+    {
         DeviceState *capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
 
         object_property_add_child(OBJECT(machine), "capture-control",
