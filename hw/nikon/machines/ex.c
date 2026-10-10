@@ -137,6 +137,20 @@ struct NikonEXState {
     QEMUTimer *osc_timer;
     QEMUBH *reset_bh;
     QEMUBH *adc_bh;
+    QEMUTimer *exception_poll;
+    bool first_exception_valid;
+    uint32_t first_exception_index;
+    uint32_t first_exception_pc;
+    uint32_t first_exception_cpsr;
+    uint32_t first_exception_number;
+    uint32_t first_exception_cfsr;
+    uint32_t first_exception_dfsr;
+    uint32_t first_exception_mmfar;
+    uint32_t first_exception_bfar;
+    uint32_t first_exception_irq_state;
+    uint32_t first_exception_secure;
+    uint32_t first_exception_fsr;
+    uint32_t first_exception_fault_address;
     qemu_irq reset_irq;
     bool dma_running;
 };
@@ -1415,11 +1429,15 @@ static void ex_reset_requested(void *opaque)
     run_on_cpu(CPU(s->armv7m.cpu), ex_reset_on_cpu, RUN_ON_CPU_HOST_PTR(s));
 }
 
+static void ex_clear_first_exception(NikonEXState *s);
+
 static void ex_reset_hold(Object *obj, ResetType type)
 {
     NikonEXState *s = NIKON_EX(obj);
 
     s->resetting_ports = (1 << ARRAY_SIZE(s->gpio)) - 1;
+    timer_del(s->exception_poll);
+    ex_clear_first_exception(s);
     ex_reset(DEVICE(obj));
 }
 
@@ -1432,6 +1450,8 @@ static void ex_reset_exit(Object *obj, ResetType type)
     s->resetting_ports = 0;
     /* Bus-less CPUs do not participate in the SysBus device reset walk. */
     cpu_reset(CPU(s->armv7m.cpu));
+    timer_mod(s->exception_poll,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
 }
 
 static void ex_sysresetreq(void *opaque, int n, int level)
@@ -1440,6 +1460,68 @@ static void ex_sysresetreq(void *opaque, int n, int level)
     if (level) {
         qemu_bh_schedule(s->reset_bh);
     }
+}
+
+/* Capture the first M-profile exception without altering exception routing. */
+static void ex_exception_sample_on_cpu(CPUState *cpu, run_on_cpu_data data)
+{
+    NikonEXState *s = data.host_ptr;
+    ARMCPU *arm_cpu = ARM_CPU(cpu);
+    CPUARMState *env = &arm_cpu->env;
+
+    if (s->first_exception_valid ||
+        (cpu->exception_index < 0 && env->v7m.exception == 0)) {
+        return;
+    }
+    s->first_exception_valid = true;
+    s->first_exception_index = cpu->exception_index;
+    s->first_exception_pc = env->regs[15];
+    s->first_exception_cpsr = env->uncached_cpsr;
+    s->first_exception_number = env->v7m.exception;
+    s->first_exception_cfsr = env->v7m.cfsr[M_REG_NS];
+    s->first_exception_dfsr = env->v7m.dfsr;
+    s->first_exception_mmfar = env->v7m.mmfar[M_REG_NS];
+    s->first_exception_bfar = env->v7m.bfar;
+    s->first_exception_irq_state = env->irq_line_state;
+    s->first_exception_secure = env->v7m.secure;
+    s->first_exception_fsr = env->exception.fsr;
+    s->first_exception_fault_address = env->exception.vaddress;
+}
+
+static void ex_exception_poll(void *opaque)
+{
+    NikonEXState *s = opaque;
+
+    if (s->armv7m.cpu && !s->first_exception_valid) {
+        run_on_cpu(CPU(s->armv7m.cpu), ex_exception_sample_on_cpu,
+                   RUN_ON_CPU_HOST_PTR(s));
+    }
+    if (!s->first_exception_valid) {
+        timer_mod(s->exception_poll,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
+    }
+}
+
+static bool ex_get_first_exception(Object *obj, Error **errp)
+{
+    return NIKON_EX(obj)->first_exception_valid;
+}
+
+static void ex_clear_first_exception(NikonEXState *s)
+{
+    s->first_exception_valid = false;
+    s->first_exception_index = 0;
+    s->first_exception_pc = 0;
+    s->first_exception_cpsr = 0;
+    s->first_exception_number = 0;
+    s->first_exception_cfsr = 0;
+    s->first_exception_dfsr = 0;
+    s->first_exception_mmfar = 0;
+    s->first_exception_bfar = 0;
+    s->first_exception_irq_state = 0;
+    s->first_exception_secure = 0;
+    s->first_exception_fsr = 0;
+    s->first_exception_fault_address = 0;
 }
 
 static void ex_map_device(NikonEXState *s, DeviceState *dev, uint32_t base,
@@ -1609,6 +1691,8 @@ static void ex_init(Object *obj)
     clock_set_hz(s->cpuclk, EX_HSI_HZ);
     clock_set_hz(s->refclk, EX_HSI_HZ / 8);
     s->osc_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_clock_settle, s);
+    s->exception_poll = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                     ex_exception_poll, s);
     s->rtc_sync = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_sync, s);
     s->rtc_tick = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_tick, s);
     s->rtc_wakeup = timer_new_ns(QEMU_CLOCK_VIRTUAL, ex_rtc_wakeup, s);
@@ -1617,6 +1701,44 @@ static void ex_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(s), s->pad_output, "pad", ARRAY_SIZE(s->pad_output));
     qdev_init_gpio_in_named(DEVICE(s), ex_external_input, "input", 9 * 16);
     qdev_init_gpio_in_named(DEVICE(s), ex_adc_input, "adc", 3 * 19);
+    object_property_add_bool(obj, "first-exception", ex_get_first_exception,
+                             NULL);
+    object_property_add_uint32_ptr(obj, "first-exception-index",
+                                   &s->first_exception_index,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-pc",
+                                   &s->first_exception_pc,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-cpsr",
+                                   &s->first_exception_cpsr,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-number",
+                                   &s->first_exception_number,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-cfsr",
+                                   &s->first_exception_cfsr,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-dfsr",
+                                   &s->first_exception_dfsr,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-mmfar",
+                                   &s->first_exception_mmfar,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-bfar",
+                                   &s->first_exception_bfar,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-irq-state",
+                                   &s->first_exception_irq_state,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-secure",
+                                   &s->first_exception_secure,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-fsr",
+                                   &s->first_exception_fsr,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "first-exception-fault-address",
+                                   &s->first_exception_fault_address,
+                                   OBJ_PROP_FLAG_READ);
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
@@ -1635,6 +1757,7 @@ static void ex_finalize(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
     timer_free(s->osc_timer);
+    timer_free(s->exception_poll);
     timer_free(s->rtc_sync);
     timer_free(s->rtc_tick);
     timer_free(s->rtc_wakeup);
