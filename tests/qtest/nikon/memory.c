@@ -26,6 +26,24 @@ static MemoryTest memory_init(const char *options)
     return t;
 }
 
+static MemoryTest selector_one_memory_init(void)
+{
+    MemoryTest t = { 0 };
+    const size_t image_size = 0x8a0000;
+    g_autofree uint8_t *image = g_malloc(image_size);
+    int fd = g_file_open_tmp("nikon-selector-one-XXXXXX", &t.image, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    for (size_t i = 0; i < image_size; i++) {
+        image[i] = (i * 29 + (i >> 8) * 11 + 7) & 0xff;
+    }
+    g_assert_cmpint(write(fd, image, image_size), ==, image_size);
+    close(fd);
+    t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
+                        "-display none -serial none", t.image);
+    return t;
+}
+
 static void memory_quit(MemoryTest *t)
 {
     qtest_quit(t->qts);
@@ -243,6 +261,51 @@ static void test_download_scratch(void)
     memory_quit(&t);
 }
 
+static void test_selector_one_download(void)
+{
+    static const struct {
+        uint32_t source;
+        uint32_t destination;
+        uint32_t length;
+    } transfers[] = {
+        { 0x107e00f4, 0xb0905000, 0x34238 },
+        { 0x1081432c, 0xb093a000, 0x33300 },
+        { 0x1087a92c, 0xb096e000, 0x2cbc8 },
+    };
+    MemoryTest t = selector_one_memory_init();
+
+    /* The selector-one producer uses one fixed four-MiB arena and partitions
+     * it into these three page-aligned destinations. The source bytes remain
+     * the guest ROM image; QEMU does not seed or synthesize their contents. */
+    for (unsigned i = 0; i < ARRAY_SIZE(transfers); i++) {
+        const uint32_t source = transfers[i].source;
+        const uint32_t destination = transfers[i].destination;
+        const uint32_t length = transfers[i].length;
+        g_autofree uint8_t *expected = g_malloc(length);
+        g_autofree uint8_t *actual = g_malloc(length);
+
+        qtest_memread(t.qts, source, expected, length);
+        qtest_memread(t.qts, destination, actual, length);
+        for (uint32_t j = 0; j < length; j++) {
+            g_assert_cmpuint(actual[j], ==, 0);
+        }
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, destination, length);
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, destination, actual, length);
+        g_assert_cmpmem(actual, length, expected, length);
+    }
+
+    /* Exact arena bound; the adjacent selector-zero arena remains a separate
+     * owner at the immediately following address. */
+    qtest_writel(t.qts, 0xb0ffffff, 0x5a5aa5a5);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0ffffff), ==, 0x5a5aa5a5);
+    qtest_writel(t.qts, 0xb0d00000, 0x0a0b0c0d);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0d00000), ==, 0x0a0b0c0d);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0ffffff), ==, 0x5a5aa5a5);
+    memory_quit(&t);
+}
+
 static void test_external_input(void)
 {
     const size_t prefix_size = 0x20000, length = 0x100000;
@@ -392,6 +455,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
+    qtest_add_func("/nikon/memory/selector-one-download",
+                   test_selector_one_download);
     qtest_add_func("/nikon/memory/external-input", test_external_input);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();

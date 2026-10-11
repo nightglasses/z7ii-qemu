@@ -48,6 +48,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_EX_CPUS 1
 #define Z7II_DOWNLOAD_BASE 0xb0d00000ULL
 #define Z7II_DOWNLOAD_SIZE 0x400000ULL
+#define Z7II_SELECTOR_ONE_BASE 0xb0900000ULL
+#define Z7II_SELECTOR_ONE_SIZE 0x400000ULL
 
 /* Source address-class records 21..26, with source-bound storage consumers. */
 static const struct {
@@ -88,6 +90,8 @@ struct Z7IIMachineState {
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     MemoryRegion download;
+    /* Selector-one packed download arena; independent from selector zero. */
+    MemoryRegion selector_one_download;
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
     MemoryRegion peer_window;
@@ -418,6 +422,12 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->download, "z7ii.download", Z7II_DOWNLOAD_BASE,
              Z7II_DOWNLOAD_SIZE);
+    /* Selector one initializes a separate four-MiB arena at B0900000. The
+     * firmware partitions it into three page-aligned COPY destinations and
+     * validates the aggregate extent against this exact bound. Keep it as a
+     * named region rather than folding it into a DDR class or aliasing B0D. */
+    z7ii_ram(&s->selector_one_download, "z7ii.selector-one-download",
+             Z7II_SELECTOR_ONE_BASE, Z7II_SELECTOR_ONE_SIZE);
     /* O394 + O4c6c + O5bd0/O5f40 require 8 + 40 + 40 bytes. */
     z7ii_ram(&s->temporary_stack, "z7ii.temporary-stack", 0x04008ea8, 0x58);
     /* CPU0 O0xd848 produces the magic; secondary WFE/read/clear is guest code. */
