@@ -32,6 +32,20 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     g_assert_false(qtest_get_irq(q, 0));
     g_assert_cmphex(qtest_readl(q, base + 0x18), ==, 0);
 
+    /* Source 94836/948A6/94996 ends with 0x20102800=1.  It records an
+     * outstanding submit only; no completion, ready bit, IRQ, guest memory
+     * write or pixel producer is supplied by this gate. */
+    g_assert_cmphex(qtest_readl(q, base + 0x2800), ==, 0);
+    qtest_writel(q, base + 0x2800, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x2800), ==, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, base + 0x2800), ==, 1);
+    qtest_writel(q, base + 0x2800, 0);
+    qtest_writel(q, base + 0x2800, 2);
+    qtest_writew(q, base + 0x2800, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x2800), ==, 1);
+
     for (group = 0; group < 2; group++) {
         uint64_t input = base + 0x2000 + group * 0x100;
         uint64_t parameter = base + 0x2600 + group * 0x40;
@@ -162,6 +176,7 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     qtest_system_reset(q);
     g_assert_cmphex(qtest_readl(q, base + 0x2004), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 0x2924), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x2800), ==, 0);
     qtest_writel(q, base + 4, 1);
     qtest_set_irq_in(q, path, "pending-bit", 95, 1);
     g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0);
