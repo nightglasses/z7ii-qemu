@@ -35,14 +35,16 @@ The firmware builds an address interval table rooted at `0xb2b4145c`.
 | Builder entry | `0x103c585c` |
 | Builder region writer | `0x103c58fc` |
 | Query entry | `0x103c5ad8` |
-| Query loop threshold read | `0x103c5aea` |
-| Query return | `0x103c5af8` |
+| Query loop | `0x103c5ae0` |
+| Next-record threshold load | `0x103c5ae8` |
+| Query return address calculation | `0x103c5af0` |
 | Record size | `0x0c` bytes |
 
-The query computes `root + index * 0x0c`, reads the following record's fourth
-word as a threshold, and advances until that threshold is at least the target.
-This is an address-class lookup. It does not by itself identify a RAM bank,
-device, DMA AddressSpace, or completion provider.
+The query starts with `index = 0`, computes `root + index * 0x0c`, and loads
+the next record's first word at `record + 0x0c`. It subtracts one from that
+threshold and advances while the result is below the input. The return value is
+`root + index * 0x0c`. This is an address-class lookup. It does not by itself
+identify a RAM bank, device, DMA AddressSpace, or completion provider.
 
 The observed threshold sequence includes:
 
@@ -54,9 +56,14 @@ The observed threshold sequence includes:
 ```
 
 The twelve-byte records use three words, `[input_base, enabled, output_base]`.
-The conversion helper at `0x103c5a7a` returns the input unchanged unless
-`enabled == 1` and `output_base != 0`; an enabled record returns
-`output_base + (input - input_base)`. The relevant initialized records are:
+The conversion wrapper is `0x103c5a7a` (the frequently copied `0x103a5a7a`
+spelling is not a function entry in the MAS image). It saves the input, calls
+the query at `0x103c5ad8`, checks record `+4`, then checks record `+8`. If the
+record is disabled or has a zero output base it returns the original input;
+otherwise it returns `output_base + (input - input_base)`. The sibling helpers
+`0x103c5a96`, `0x103c5ab0`, and `0x103c5ac6` call the same query and consume
+the record `+4`/`+8` fields for predicates or status. The relevant initialized
+records are:
 
 | input base | enabled | output base | next input base |
 | --- | ---: | --- | --- |
@@ -72,10 +79,10 @@ class beginning at `0x50000000`. It does not identify a RAM bank, a display
 buffer, a DMA AddressSpace, or a completion provider.
 
 During the runtime query that was captured, the firmware searched for target
-`0xbaa00000` at index `0x0a`; the next threshold read at
-`0x103c5aea` was `0x50200000`, and the search continued. This shows that the
-table contains a boundary at `0x50200000`; it does not show that the boundary
-is backed by a guest RAM region.
+`0xbaa00000` at index `0x0a`; the next-record threshold load at `0x103c5ae8`
+returned `0x50200000`, and the search continued. This shows that the table
+contains a boundary at `0x50200000`; it does not show that the boundary is
+backed by a guest RAM region.
 
 ## QEMU ownership conclusion
 
