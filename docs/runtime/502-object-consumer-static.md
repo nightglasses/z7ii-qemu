@@ -44,9 +44,22 @@ object + 0x30
 The called routines operate on a software object graph. They read state and
 callback fields (`+0x0c`, `+0x10`, child `+0x418`, and related `+0x41c`
 fields), construct local command/request records, and call the internal
-builder `0x102a7764` followed by `0x10293362`. The recovered windows do not
-call `0x103a3b66`, the COPY submit wrapper, nor an identified DMA register
-block or IRQ completion routine.
+builder `0x102a7764` followed by `0x10293362`. The latter allocates a private
+`0xe0`-byte request object, copies 24 bytes from the value passed in `r5`
+(`object + 0x30`), stores the source object's `+0x28`, `+0x04`, and `+0x2c`
+fields into request offsets `+0xd4`, `+0xd8`, and `+0xdc`, then dispatches one
+of the callback pairs:
+
+```text
+0x102c426c / 0x103a6708   (object byte +0x0c != 0)
+0x102c429c / 0x103a67a2   (object byte +0x0c == 0)
+```
+
+The request finalizer at `0x10293312` clears and copies the request's status
+fields, invokes `0x102c64fe` when `+0xd4` is present, and frees the private
+request object. The recovered windows do not call `0x103a3b66`, the COPY
+submit wrapper, nor an identified DMA register block or IRQ completion
+routine.
 
 The direct reader therefore establishes this boundary:
 
@@ -81,14 +94,14 @@ The static result is a real consumer, but the provider is still unresolved:
 
 ```text
 object +0x30
- -> 0x102a80a8 / 0x102a8076
- -> 0x102a7ee2, 0x102a7d4c, 0x102a7c64
- -> 0x102a7764 / 0x10293362
- -> provider, DMA channel and completion semantics: not recovered
+  -> 0x102a80a8 / 0x102a8076
+  -> 0x102a7ee2, 0x102a7d4c, 0x102a7c64
+  -> 0x102a7764 / 0x10293362
+  -> 0xe0-byte request object + callback pairs
+  -> provider, DMA channel and completion semantics: not recovered
 ```
 
 No QEMU RAM, alias, framebuffer, DMA bypass or completion event should be
 added from this receipt alone. The next useful evidence is the runtime value
 and object identity at `0x102a84cc`, followed by the provider consumed by
 `0x10293362`.
-
