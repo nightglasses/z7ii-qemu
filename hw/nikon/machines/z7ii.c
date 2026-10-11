@@ -28,6 +28,7 @@
 #include "hw/nikon/cmos.h"
 #include "hw/nikon/frame.h"
 #include "hw/nikon/sla.h"
+#include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
 #include "hw/ssi/ssi.h"
@@ -76,6 +77,7 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     char *bundle_path;
+    char *boot_shim;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *ex_adc_counts;
@@ -94,6 +96,7 @@ struct Z7IIMachineState {
     MemoryRegion selector_one_download;
     MemoryRegion temporary_stack;
     MemoryRegion early_release;
+    MemoryRegion shim_mas[NIKON_BOOT_SHIM_MAS_VIEW_COUNT];
     MemoryRegion peer_window;
     DeviceState *memc;
     bool reported_unknown;
@@ -232,6 +235,35 @@ static void z7ii_map_boot_prefix(Z7IIMachineState *s, GBytes *bytes)
     memcpy(memory_region_get_ram_ptr(&slot->region),
            g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes));
     memory_region_add_subregion(get_system_memory(), slot->base, &slot->region);
+}
+
+static bool z7ii_functional_shim(Z7IIMachineState *s)
+{
+    return nikon_bootshim_is_functional(s->boot_shim);
+}
+
+static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
+{
+    /*
+     * functional-v1 is a replaceable loader contract.  It supplies only
+     * package-external FF NOR inputs and the finite early copy destinations
+     * observed in the unchanged bundle trace.  The guest still owns CP15,
+     * TTBR, SMP release, IRQ, DMA completion and every display operation.
+     */
+    if (!z7ii_functional_shim(s)) {
+        return;
+    }
+    if (!s->mas_boot_prefix) {
+        s->mas_boot_prefix = g_strdup("erased");
+    }
+    if (!s->sla_boot_prefix) {
+        s->sla_boot_prefix = g_strdup("erased");
+    }
+    nikon_bootshim_prepare_mas(s->boot_shim, get_system_memory(),
+                               s->shim_mas, &error_fatal);
+    error_report("z7ii-mas-diagnostic: boot-shim=functional-v1; erased prefixes "
+                 "and finite early-copy views are functional assumptions; "
+                 "CP15, SMP release, IRQ, DMA completion and pixels remain guest-owned");
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
@@ -413,6 +445,7 @@ static void z7ii_init(MachineState *machine)
         z7ii_ram(&s->storage[i], z7ii_storage[i].name,
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
+    z7ii_prepare_functional_shim(s);
     /*
      * The unchanged selector-zero loader initializes B0D00000 as a 4 MiB
      * scratch buffer, copies MAS view0 (0x107a4f34, 0x3b1c0 bytes) into it,
@@ -846,7 +879,8 @@ static void z7ii_init(MachineState *machine)
         g_autoptr(GBytes) boot_prefix =
             nikon_boot_prefix_load(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
-                                            boot_prefix, Z7II_SLA_CPUS, NULL,
+                                            boot_prefix, s->boot_shim,
+                                            Z7II_SLA_CPUS, NULL,
                                             &error_fatal);
         DeviceState *sla_bridge = nikon_sla_bridge(sla);
 
@@ -883,6 +917,26 @@ static void z7ii_init(MachineState *machine)
 static char *z7ii_get_bundle(Object *obj, Error **errp)
 {
     return g_strdup(Z7II_MACHINE(obj)->bundle_path);
+}
+
+static char *z7ii_get_boot_shim(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->boot_shim;
+
+    return g_strdup(value ? value : "none");
+}
+
+static void z7ii_set_boot_shim(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (!value || !*value || !strcmp(value, "none") ||
+        !strcmp(value, "functional-v1")) {
+        g_free(s->boot_shim);
+        s->boot_shim = g_strdup(value && *value ? value : "none");
+        return;
+    }
+    error_setg(errp, "boot-shim must be none or functional-v1");
 }
 
 static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
@@ -1005,6 +1059,10 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "boot-shim", z7ii_get_boot_shim,
+                                  z7ii_set_boot_shim);
+    object_class_property_set_description(oc, "boot-shim",
+        "Versioned functional loader profile: none or functional-v1");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);
     object_class_property_set_description(oc, "sla-boot-prefix",

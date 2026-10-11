@@ -1,5 +1,6 @@
 arm_common_ss.add(when: 'CONFIG_NIKON_ARM', if_true: files(
   'components/bundle.c',
+  'components/bootshim.c',
   'components/vrupload.c',
   'devices/access.c',
   'devices/timestamp.c',
