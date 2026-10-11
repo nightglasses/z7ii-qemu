@@ -53,6 +53,24 @@ The observed threshold sequence includes:
 0x50700000
 ```
 
+The twelve-byte records use three words, `[input_base, enabled, output_base]`.
+The conversion helper at `0x103c5a7a` returns the input unchanged unless
+`enabled == 1` and `output_base != 0`; an enabled record returns
+`output_base + (input - input_base)`. The relevant initialized records are:
+
+| input base | enabled | output base | next input base |
+| --- | ---: | --- | --- |
+| `0x50000000` | `1` | `0x50200000` | `0x54900000` |
+| `0x54900000` | `1` | `0x62700000` | `0xaf200000` |
+| `0xaf200000` | `1` | `0xafa00000` | `0xb0000000` |
+| `0xb0000000` | `1` | `0xb1000000` | `0xb1800000` |
+| `0xb1800000` | `0` | `0xbaa00000` | `0xbb300000` |
+| `0xbb300000` | `1` | `0xc3e00000` | `0xcc700000` |
+
+This makes `0x50200000` a software conversion output base for the logical
+class beginning at `0x50000000`. It does not identify a RAM bank, a display
+buffer, a DMA AddressSpace, or a completion provider.
+
 During the runtime query that was captured, the firmware searched for target
 `0xbaa00000` at index `0x0a`; the next threshold read at
 `0x103c5aea` was `0x50200000`, and the search continued. This shows that the
@@ -72,4 +90,3 @@ Therefore the first unmodeled operation remains the COPY DMA write to
 synthetic provider is justified by this evidence. The next required evidence
 is a runtime producer/consumer that assigns an owner and establishes its
 capacity and access semantics.
-
