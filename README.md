@@ -19,7 +19,7 @@ The project is a software model of selected firmware interfaces. It does not cla
 ## Architecture and startup flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   subgraph Boot[Reset, loader, and SMP startup]
     Payload[Original MAS component payload] --> Loader[ROM / payload loader]
     Reset[Virtual reset] --> CPU0[CPU0 primary core]
