@@ -38,9 +38,11 @@ replacement for the combined bundle path. `nikonsla`, `nikonex`, and `nikonvr`
 are standalone component or software-domain machines used for isolation and
 contract tests; they do not replace the composed Z7II machine.
 
-The Nikon update package is decoded and validated before QEMU loads it. The
-current bundle loader accepts the decoded container and refuses partial or
-ambiguous component input; package decoding remains a separate pipeline stage.
+This repository starts after Nikon package decoding. Its input contract is the
+complete decoded five-component container; outer-package decryption, signature
+verification, and component decoding belong to the upstream firmware intake
+pipeline and are outside this QEMU project. The bundle loader refuses partial
+or ambiguous component input before any component becomes visible to a machine.
 
 ## Scope and boundaries
 
