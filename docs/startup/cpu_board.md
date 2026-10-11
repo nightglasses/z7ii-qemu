@@ -43,3 +43,18 @@ A functional QEMU run cannot measure camera CPU throughput, cache latency, DDR b
 Current project sources: `hw/nikon/machines/z7ii.c`, `sla.c`, `ex.c`; [SLA startup](sla.md), [GIC runtime contract](../devices/gic/runtime.md), [bundle execution](../runtime/ex.md), and [component boundary](components.md).
 
 Before changing a physical parameter, obtain original firmware/loader receipts for MIDR/MPIDR/CBAR and CP15 reset state, clock/DDR initialization registers, and full bundle domain/event routing. Exact silicon identity, cold BootROM, physical core count, DDR channels/capacity and CPU/DDR clocks remain open. No model behavior is changed by this audit.
+
+## Open parameter questions
+
+These items stay open for the next original-firmware run; none should be filled with public marketing values or a default-ready device response.
+
+| Open item | Current blocker | Required receipt |
+|---|---|---|
+| A-profile `MIDR`, implementer, part and revision | C1.70 reads MPIDR selectors but no physical identity | Guest CP15 read and its consumer under the unchanged image |
+| MAS and SLA physical relation | Equal loaded ROM bases and similar A7 code do not prove one cluster, two clusters, or two EXPEED engines | Cross-domain boot/release, mailbox and ownership trace |
+| Cold reset PC/CPSR/security bank | Current entries are loaded-profile candidates | BootROM/loader trace before component entry |
+| CBAR and GIC silicon revision | `0xf8100000` and GIC revision 1 are compatibility profile choices | Original descriptor/register reads tied to physical board decode |
+| CPU, PLL and DDR clocks | `CNTFRQ=48 MHz` is timer reference only; public 650/660 MHz is unbound | Clock-controller writes/readback plus DDR timing/channel setup |
+| DDR capacity and channel topology | QEMU storage classes are source-derived allocations | Controller geometry, enabled channels and address decoder evidence |
+| TPJ processor and load address | Container parser has bytes but no execution target | Natural TPJ loader/entry and ISA evidence |
+| VR MCU identity and caller | RX profile uses an explicit loaded caller state | Original peer loader and reset/exception trace |
