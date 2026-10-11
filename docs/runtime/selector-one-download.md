@@ -30,7 +30,10 @@ boundary, starts at `base + 0x5000`, and rejects an aggregate span above
 
 The rounded aggregate extent is `0x9b000`, below the fixed 4 MiB bound. The
 firmware also performs the runtime range check
-`[0xb0900000, 0xb1000000)` at `0x103a369c`.
+`[0xb0900000, 0xb1000000)` at `0x103a369c`. This is a 7 MiB address-class
+check envelope, not the selector-one capacity: the model owns only
+`[0xb0900000, 0xb0d00000)`, exactly 4 MiB. The adjacent selector-zero owner
+starts at `0xb0d00000` inside that firmware envelope.
 
 ## QEMU model boundary
 
