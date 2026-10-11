@@ -298,11 +298,11 @@ static void test_selector_one_download(void)
 
     /* Exact arena bound; the adjacent selector-zero arena remains a separate
      * owner at the immediately following address. */
-    qtest_writel(t.qts, 0xb0ffffff, 0x5a5aa5a5);
-    g_assert_cmphex(qtest_readl(t.qts, 0xb0ffffff), ==, 0x5a5aa5a5);
+    qtest_writel(t.qts, 0xb0cffffc, 0x5a5aa5a5);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0cffffc), ==, 0x5a5aa5a5);
     qtest_writel(t.qts, 0xb0d00000, 0x0a0b0c0d);
     g_assert_cmphex(qtest_readl(t.qts, 0xb0d00000), ==, 0x0a0b0c0d);
-    g_assert_cmphex(qtest_readl(t.qts, 0xb0ffffff), ==, 0x5a5aa5a5);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0cffffc), ==, 0x5a5aa5a5);
     memory_quit(&t);
 }
 
