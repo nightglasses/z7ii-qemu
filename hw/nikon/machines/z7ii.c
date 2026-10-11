@@ -80,6 +80,8 @@ struct Z7IIMachineState {
     char *boot_shim;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
+    char *cmos_image;
+    bool cmos_provider;
     char *ex_adc_counts;
     int ex_adc_sample[4];
     uint8_t ex_adc_mask;
@@ -602,6 +604,11 @@ static void z7ii_init(MachineState *machine)
         DeviceState *cmos = qdev_new(TYPE_NIKON_CMOS);
 
         object_property_add_child(OBJECT(machine), "cmos", OBJECT(cmos));
+        if (s->cmos_image) {
+            qdev_prop_set_string(cmos, "image", s->cmos_image);
+        }
+        qdev_prop_set_bit(cmos, "fixture-provider",
+                          s->cmos_provider || !!s->cmos_image);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
         /* Diagnostic transport aperture, with no C1.70 physical MMIO claim. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
@@ -969,6 +976,31 @@ static char *z7ii_get_mas_boot_prefix(Object *obj, Error **errp)
     return g_strdup(value ? value : "");
 }
 
+static char *z7ii_get_cmos_image(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->cmos_image;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_cmos_image(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->cmos_image);
+    s->cmos_image = g_strdup(value && *value ? value : NULL);
+}
+
+static bool z7ii_get_cmos_provider(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->cmos_provider;
+}
+
+static void z7ii_set_cmos_provider(Object *obj, bool value, Error **errp)
+{
+    Z7II_MACHINE(obj)->cmos_provider = value;
+}
+
 static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1041,6 +1073,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->bundle_path);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
+    g_free(s->cmos_image);
     g_free(s->ex_adc_counts);
 }
 
@@ -1073,6 +1106,14 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "mas-boot-prefix",
         "Independent MAS external 128 KiB input: erased or an exact-size file; "
         "omission leaves the range unavailable");
+    object_class_property_add_str(oc, "cmos-image", z7ii_get_cmos_image,
+                                  z7ii_set_cmos_image);
+    object_class_property_set_description(oc, "cmos-image",
+        "Explicit binary PGM/PPM image for the functional CMOS provider");
+    object_class_property_add_bool(oc, "cmos-provider", z7ii_get_cmos_provider,
+                                   z7ii_set_cmos_provider);
+    object_class_property_set_description(oc, "cmos-provider",
+        "Enable the diagnostic CMOS provider; image input is preferred");
     object_class_property_add_str(oc, "ex-adc-counts", z7ii_get_ex_adc_counts,
                                  z7ii_set_ex_adc_counts);
     object_class_property_set_description(oc, "ex-adc-counts",
