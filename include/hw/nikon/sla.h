@@ -10,6 +10,7 @@
 /* The domain refs payload and optional prefix; interfaces remain borrowed. */
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,
+                             const char *boot_shim,
                              unsigned num_cpus,
                              Chardev *serial, Error **errp);
 AddressSpace *nikon_sla_address_space(DeviceState *domain);

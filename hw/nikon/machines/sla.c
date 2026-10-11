@@ -27,6 +27,7 @@
 #include "hw/nikon/lookup.h"
 #include "hw/nikon/flags.h"
 #include "hw/nikon/sla.h"
+#include "hw/nikon/bootshim.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/system.h"
@@ -63,6 +64,8 @@ struct NikonSLADomain {
     DeviceState *bridge;
     GBytes *payload;
     GBytes *boot_prefix;
+    char *boot_shim;
+    MemoryRegion shim_copy;
     bool reported_error;
     bool first_fault;
     bool first_fault_write;
@@ -277,6 +280,8 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         sla_nor(s, &s->boot_nor, "nikon.sla.external-boot-prefix",
                 NIKON_SLA_BOOT_PREFIX_BASE, s->boot_prefix);
     }
+    nikon_bootshim_prepare_sla(s->boot_shim, &s->system, &s->shim_copy,
+                               &error_fatal);
 
     mxic = sla_simple(s, "mxic", TYPE_NIKON_MXIC, 0x20016000);
     /* Original COPY targets only: no initialized resources are host copied. */
@@ -771,6 +776,7 @@ static void sla_finalize(Object *object)
     }
     g_clear_pointer(&s->payload, g_bytes_unref);
     g_clear_pointer(&s->boot_prefix, g_bytes_unref);
+    g_free(s->boot_shim);
 }
 
 static bool sla_get_boot_prefix_present(Object *obj, Error **errp);
@@ -829,6 +835,7 @@ static void sla_domain_class_init(ObjectClass *oc, const void *data)
 
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,
+                             const char *boot_shim,
                              unsigned num_cpus,
                              Chardev *serial, Error **errp)
 {
@@ -848,6 +855,7 @@ DeviceState *nikon_sla_create(Object *parent, const char *name,
     s = NIKON_SLA_DOMAIN(dev);
     s->payload = g_bytes_ref(payload);
     s->boot_prefix = boot_prefix ? g_bytes_ref(boot_prefix) : NULL;
+    s->boot_shim = g_strdup(boot_shim ? boot_shim : "none");
     s->num_cpus = num_cpus;
     s->serial = serial;
     object_property_add_child(parent, name, OBJECT(dev));
@@ -891,7 +899,8 @@ static void sla_init(MachineState *machine)
                      m->boot_prefix);
     }
     domain = nikon_sla_create(OBJECT(machine), "sla", payload, boot_prefix,
-                              machine->smp.cpus, serial_hd(0), &error_fatal);
+                              "none", machine->smp.cpus, serial_hd(0),
+                              &error_fatal);
     g_bytes_unref(payload);
     nikon_bundle_free(bundle);
     /* Standalone board view for QEMU tools; embedded domains expose no alias. */
