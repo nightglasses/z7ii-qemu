@@ -273,7 +273,8 @@ static void test_combined_domains(void)
 {
     g_autofree char *bundle = peer_bundle();
     g_autofree char *quoted = g_shell_quote(bundle);
-    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                              "boot-shim=functional-v1 "
                               "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
     QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
 
@@ -287,8 +288,17 @@ static void test_combined_domains(void)
                          "'path':'/machine/input','property':'type'}}");
     g_assert_cmpstr(qdict_get_str(reply, "return"), ==, TYPE_NIKON_INPUT);
     qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine','property':'boot-shim'}}");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-v1");
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/sla','property':'boot-prefix-present'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
     /* EX private ROM cannot overwrite MAS's original ROM address space. */
     g_assert_cmphex(qtest_readl(q, 0x10020000), ==, 0xeafffffe);
+    g_assert_cmphex(qtest_readl(q, 0x10000000), ==, 0xffffffff);
     g_assert_cmphex(qtest_readl(q, 0x08000000), ==, 0);
     qtest_quit(q);
     g_assert_cmpint(unlink(bundle), ==, 0);
