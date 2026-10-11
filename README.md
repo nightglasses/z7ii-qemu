@@ -20,9 +20,31 @@ component or software-domain profiles and do not claim a complete camera boot.
 New Nikon bodies or component domains should add a named machine under
 `hw/nikon/machines` and a focused qtest before they are described as supported.
 
+## Firmware input modes
+
+The combined Z7II run is the target for system-level startup. Use the
+`bundle=` machine property with a validated decoded container to load the five
+component records (`EX`, `TPJ`, `MAS`, `VR`, and `SLA`) into one composed machine:
+
+```sh
+work/build/qemu/qemu-system-arm \
+  -M z7ii-mas-diagnostic,bundle=/absolute/path/to/decoded-container.bin \
+  -smp cpus=2,maxcpus=5
+```
+
+The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
+input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
+replacement for the combined bundle path. `nikonsla`, `nikonex`, and `nikonvr`
+are standalone component or software-domain machines used for isolation and
+contract tests; they do not replace the composed Z7II machine.
+
+The Nikon update package is decoded and validated before QEMU loads it. The
+current bundle loader accepts the decoded container and refuses partial or
+ambiguous component input; package decoding remains a separate pipeline stage.
+
 ## Scope and boundaries
 
-- The primary ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
+- The primary ARM machine is `z7ii-mas-diagnostic`. It supports both the raw MAS diagnostic input and the validated five-component bundle. A raw MAS payload is not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
 - CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and generates a deterministic frame only after the guest supplies a complete request. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
@@ -37,7 +59,7 @@ New Nikon bodies or component domains should add a named machine under
 ```mermaid
 flowchart TD
   subgraph Boot[Reset, loader, and SMP startup]
-    Payload[Original MAS component payload] --> Loader[ROM / payload loader]
+    Payload[Raw MAS payload or decoded five-component bundle] --> Loader[ROM / payload loader]
     Reset[Virtual reset] --> CPU0[CPU0 primary core]
     Reset --> CPU1[CPU1 secondary core]
     Loader --> CPU0
