@@ -80,16 +80,18 @@ flowchart TD
   subgraph Memory[Source-backed memory domains]
     ROMD[MAS / SLA ROMD]
     Download0[Download arena\n0xb0d00000, 4 MiB]
-    Download1[Packed download arena\n0xb0900000..0xb1000000\nruntime-observed; model pending]
+    Download1[Packed download arena\n0xb0900000..0xb0d00000\n4 MiB selector-one model]
+    LaterCopy[Later COPY boundary\n0x50200000\nowner unresolved]
     GuestRAM[Guest RAM and DMA buffers]
   end
   Loader --> ROMD
   Bus --> ROMD
   Bus --> GuestRAM
   ROMD --> Download0
-  ROMD -. selector-1 packed copy .-> Download1
+  ROMD --> Download1
   Download0 --> GuestRAM
-  Download1 -. owner / permission contract pending .-> GuestRAM
+  Download1 --> GuestRAM
+  ROMD -. later COPY source .-> LaterCopy
 
   subgraph Inputs[Independent external inputs]
     CMOS[CMOS transport\nopaque configured frames]
@@ -129,7 +131,7 @@ flowchart TD
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` is a bounded source-backed download arena. The packed arena at `0xb0900000` is currently a runtime observation with a bounded range check; its QEMU owner and permissions remain a separate contract. The current GUI wait is EV3 (`0x01000003`), and its role0 callback-to-setter edge is runtime-observed; the peer-ready/bridge input before that callback and the first real framebuffer remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` and `0xb0900000` are separate bounded source-backed download arenas. The firmware checks the selector-one range through `0xb1000000`, while the current QEMU model owns the proven 4 MiB arena only. The later `0x50200000` COPY destination remains unresolved. The current GUI wait is EV3 (`0x01000003`), and its role0 callback-to-setter edge is runtime-observed; the peer-ready/bridge input before that callback and the first real framebuffer remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
 
 The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
 
