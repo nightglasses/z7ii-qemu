@@ -80,7 +80,7 @@ flowchart TD
     Capture[capture-control\nstatus and command]
     Readout[readout-control\nbuffers and parameters]
     EV3[EV3 event waiter\nID 0x01000003]
-    Peer[Peer / role0 producer\nsource path unverified]
+    Peer[Role0 peer callback\n0x10200d06 → 0x103610cc\nruntime observed]
   end
   MMIO --> SDES
   MMIO --> Capture
@@ -105,7 +105,7 @@ flowchart TD
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` is a bounded source-backed download arena. The packed arena at `0xb0900000` is currently a runtime observation with a bounded range check; its QEMU owner and permissions remain a separate contract. The current GUI wait is EV3 (`0x01000003`); its peer producer and the first real framebuffer are still unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` is a bounded source-backed download arena. The packed arena at `0xb0900000` is currently a runtime observation with a bounded range check; its QEMU owner and permissions remain a separate contract. The current GUI wait is EV3 (`0x01000003`), and its role0 callback-to-setter edge is runtime-observed; the peer-ready/bridge input before that callback and the first real framebuffer remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
 
 The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
 
