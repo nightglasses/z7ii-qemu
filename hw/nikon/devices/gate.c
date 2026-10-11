@@ -1,8 +1,8 @@
 /*
  * Finite original 2010 configuration, masks and external pending inputs.
  * Cold zero, retained configuration readback, rising input latches, mask1
- * enable, external gate, deferred stop ACK and W1C are virtual laws, not pipeline
- * semantics.
+ * enable, external gate, deferred stop ACK, submit-pending state and W1C are
+ * virtual laws, not pipeline semantics.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -22,7 +22,7 @@ struct NikonEventGateState {
     uint32_t config[CONTROL_SIZE / 4];
     uint32_t mask[3], pending[3], inputs[3];
     QEMUTimer *stop_timer;
-    bool stopping, stop_ack;
+    bool stopping, stop_ack, submit_pending;
     bool reported_error;
 };
 
@@ -165,7 +165,11 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
         *value = s->config[offset / 4];
         return MEMTX_OK;
     }
-    if (offset >= 0xc && offset <= 0x14) {
+    if (offset == 0x2800) {
+        /* Source 94996 has no completion/readback producer; expose only the
+         * recorded outstanding request for focused contract tests. */
+        *value = s->submit_pending;
+    } else if (offset >= 0xc && offset <= 0x14) {
         *value = s->mask[(offset - 0xc) / 4];
     } else if (offset >= 0x18 && offset <= 0x20) {
         *value = s->pending[(offset - 0x18) / 4];
@@ -186,6 +190,15 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
 
     if (size != 4 || (offset & 3)) {
         return nikon_event_gate_error(s, offset, size, true, value);
+    }
+    if (offset == 0x2800) {
+        /* 94996 submits one; no ready bit, completion, IRQ, guest write or
+         * pixel producer is established at this boundary. */
+        if (value != 1) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        s->submit_pending = true;
+        return MEMTX_OK;
     }
     if (nikon_event_gate_config(offset, &mask)) {
         if ((value & ~mask) ||
@@ -253,6 +266,7 @@ static void nikon_event_gate_reset(DeviceState *dev)
     timer_del(s->stop_timer);
     s->stopping = false;
     s->stop_ack = false;
+    s->submit_pending = false;
     memset(s->config, 0, sizeof(s->config));
     memset(s->mask, 0, sizeof(s->mask));
     memset(s->pending, 0, sizeof(s->pending));
