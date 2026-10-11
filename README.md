@@ -4,9 +4,49 @@ This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.7
 
 The project is a software model of selected firmware interfaces. It does not claim a complete camera boot, a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Physical-camera validation is a separate acceptance result.
 
+## Supported machine types
+
+This repository is organized as a Nikon firmware family emulator. The first
+complete camera target is the Z7II; the other machine types are reusable
+component or software-domain profiles and do not claim a complete camera boot.
+
+| Machine type | Domain and CPU | Current role | Status |
+|---|---|---|---|
+| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Primary development target; original firmware has not reached a verified GUI first frame |
+| `nikonsla` | SLA software domain, Cortex-A7 | Standalone decoded SLA loading and private peripheral contracts | Supported standalone profile; not a complete camera board |
+| `nikonex` | EX component, Cortex-M4 | Independent EX firmware and device contract tests | Supported component profile |
+| `nikonvr` | VR software profile, RX62N | Independent RX software and peripheral tests | Supported software profile |
+
+New Nikon bodies or component domains should add a named machine under
+`hw/nikon/machines` and a focused qtest before they are described as supported.
+
+## Firmware input modes
+
+The combined Z7II run is the target for system-level startup. Use the
+`bundle=` machine property with a validated decoded container to load the five
+component records (`EX`, `TPJ`, `MAS`, `VR`, and `SLA`) into one composed machine:
+
+```sh
+work/build/qemu/qemu-system-arm \
+  -M z7ii-mas-diagnostic,bundle=/absolute/path/to/decoded-container.bin \
+  -smp cpus=2,maxcpus=5
+```
+
+The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
+input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
+replacement for the combined bundle path. `nikonsla`, `nikonex`, and `nikonvr`
+are standalone component or software-domain machines used for isolation and
+contract tests; they do not replace the composed Z7II machine.
+
+This repository starts after Nikon package decoding. Its input contract is the
+complete decoded five-component container; outer-package decryption, signature
+verification, and component decoding belong to the upstream firmware intake
+pipeline and are outside this QEMU project. The bundle loader refuses partial
+or ambiguous component input before any component becomes visible to a machine.
+
 ## Scope and boundaries
 
-- The supported ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package.
+- The primary ARM machine is `z7ii-mas-diagnostic`. It supports both the raw MAS diagnostic input and the validated five-component bundle. A raw MAS payload is not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
 - CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and generates a deterministic frame only after the guest supplies a complete request. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
@@ -18,19 +58,45 @@ The project is a software model of selected firmware interfaces. It does not cla
 
 ## Architecture and startup flow
 
+The detailed CPU, memory, device, and runtime pipeline diagrams are in
+[`docs/architecture.md`](docs/architecture.md). The parameter matrix and
+evidence classification are maintained in
+[`docs/startup/cpu_board.md`](docs/startup/cpu_board.md).
+
 ```mermaid
-flowchart LR
-  subgraph Boot[Reset, loader, and execution]
-    Payload[Original component payload] --> Loader[ROM loader]
-    Reset[Virtual reset] --> CPU[ARM CPU and TCG]
-    Loader --> CPU
+flowchart TD
+  subgraph Boot[Reset, loader, and SMP startup]
+    Payload[Raw MAS payload or decoded five-component bundle] --> Loader[ROM / payload loader]
+    Reset[Virtual reset] --> CPU0[CPU0 primary core]
+    Reset --> CPU1[CPU1 secondary core]
+    Loader --> CPU0
+    Loader --> CPU1
+    CPU0 --> Primary[Initial task\n0x10103bc8 and kernel prelude]
+    CPU1 --> Secondary[Per-core init\nsecondary scheduler / idle]
+    Primary --> RTOS[Guest RTOS scheduler\nSVC, IRQ, task handoff]
+    Secondary --> RTOS
   end
 
-  CPU --> Bus[System bus]
+  RTOS --> Bus[System bus]
   Bus --> MMIO[MMIO register map]
-  Bus --> RAM[RAM, ROM, and DMA regions]
   Bus --> IRQ[GIC and timer IRQs]
-  IRQ --> RTOS[Guest RTOS handlers\nacknowledgement stays in firmware]
+  IRQ --> RTOS
+
+  subgraph Memory[Source-backed memory domains]
+    ROMD[MAS / SLA ROMD]
+    Download0[Download arena\n0xb0d00000, 4 MiB]
+    Download1[Packed download arena\n0xb0900000..0xb0d00000\n4 MiB selector-one model]
+    LaterCopy[Later COPY boundary\n0x50200000\nowner unresolved]
+    GuestRAM[Guest RAM and DMA buffers]
+  end
+  Loader --> ROMD
+  Bus --> ROMD
+  Bus --> GuestRAM
+  ROMD --> Download0
+  ROMD --> Download1
+  Download0 --> GuestRAM
+  Download1 --> GuestRAM
+  ROMD -. later COPY source .-> LaterCopy
 
   subgraph Inputs[Independent external inputs]
     CMOS[CMOS transport\nopaque configured frames]
@@ -40,32 +106,37 @@ flowchart LR
   MMIO --> I2C[I2C controller]
   I2C --> Eye
 
-  subgraph Control[Capture control layers]
-    SDES[SDES channel and global control]
+  subgraph Control[Capture and event control]
+    SDES[SDES channel / global control]
     Capture[capture-control\nstatus and command]
     Readout[readout-control\nbuffers and parameters]
+    EV3[EV3 event waiter\nID 0x01000003]
+    Peer[Role0 peer callback\n0x10200d06 → 0x103610cc\nruntime observed]
   end
   MMIO --> SDES
   MMIO --> Capture
   MMIO --> Readout
+  RTOS --> EV3
+  Peer -. event set / wake .-> EV3
 
-  CMOS --> Geometry[Opaque frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
+  CMOS --> Geometry[Frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
   Geometry --> Process[Processing / ISP boundary\nsource-backed buffer transaction]
-  Process --> Compose[Display composition\nPixman and completed console frame]
-  Process --> GuestRAM[Guest image buffers]
+  Process --> Compose[Display composition\nPixman / scanout]
+  GuestRAM --> Process
   GuestRAM --> Compose
   GuestRAM --> Save[Storage endpoint\nNVMe and BlockBackend]
 
-  Readout -. provider join and real pixel source unverified .-> Geometry
-  Capture -. completion producer and IRQ meaning unverified .-> Process
+  Readout -. real pixel producer unverified .-> Geometry
+  Capture -. completion producer / IRQ semantics unverified .-> Process
   SDES -. physical sensor/status join unverified .-> Geometry
+  Compose -. GUI callback / framebuffer / first frame unverified .-> Display[QEMU display output]
 
   MMIO --> Unknown[Unknown address, width, or command]
   Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` and `0xb0900000` are separate bounded source-backed download arenas. The firmware checks the selector-one range through `0xb1000000`, while the current QEMU model owns the proven 4 MiB arena only. The later `0x50200000` COPY destination remains unresolved. The current GUI wait is EV3 (`0x01000003`), and its role0 callback-to-setter edge is runtime-observed; the peer-ready/bridge input before that callback and the first real framebuffer remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
 
 The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
 
