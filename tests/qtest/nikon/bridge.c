@@ -299,6 +299,10 @@ static void test_combined_domains(void)
     /* EX private ROM cannot overwrite MAS's original ROM address space. */
     g_assert_cmphex(qtest_readl(q, 0x10020000), ==, 0xeafffffe);
     g_assert_cmphex(qtest_readl(q, 0x10000000), ==, 0xffffffff);
+    qtest_writel(q, 0xb1000000, 0x11223344);
+    g_assert_cmphex(qtest_readl(q, 0xb1000000), ==, 0x11223344);
+    qtest_writel(q, 0x04008000, 0x55667788);
+    g_assert_cmphex(qtest_readl(q, 0x04008000), ==, 0x55667788);
     g_assert_cmphex(qtest_readl(q, 0x08000000), ==, 0);
     qtest_quit(q);
     g_assert_cmpint(unlink(bundle), ==, 0);

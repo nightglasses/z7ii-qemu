@@ -21,6 +21,14 @@ static const NikonBootShimRange mas_ranges[] = {
     [NIKON_BOOT_SHIM_MAS_CODE] = {
         "nikon.bootshim.mas-code", 0xc8200000, 0x300000,
     },
+    [NIKON_BOOT_SHIM_MAS_INNER] = {
+        /* MAS inner image: O[0x208853c,0x228cf3c), loaded by guest COPY. */
+        "nikon.bootshim.mas-inner", 0xb1000000, 0x204a00,
+    },
+    [NIKON_BOOT_SHIM_MAS_INNER_PREFIX] = {
+        /* Same source supplies the separate 64-byte early handoff. */
+        "nikon.bootshim.mas-inner-prefix", 0x04008000, 0x40,
+    },
 };
 
 bool nikon_bootshim_is_functional(const char *profile)
