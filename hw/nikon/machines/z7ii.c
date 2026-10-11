@@ -244,6 +244,19 @@ static bool z7ii_functional_shim(Z7IIMachineState *s)
     return nikon_bootshim_is_functional(s->boot_shim);
 }
 
+static void z7ii_select_functional_shim(Z7IIMachineState *s)
+{
+    if (!z7ii_functional_shim(s)) {
+        return;
+    }
+    if (!s->mas_boot_prefix) {
+        s->mas_boot_prefix = g_strdup("erased");
+    }
+    if (!s->sla_boot_prefix) {
+        s->sla_boot_prefix = g_strdup("erased");
+    }
+}
+
 static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
 {
     /*
@@ -255,12 +268,7 @@ static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
     if (!z7ii_functional_shim(s)) {
         return;
     }
-    if (!s->mas_boot_prefix) {
-        s->mas_boot_prefix = g_strdup("erased");
-    }
-    if (!s->sla_boot_prefix) {
-        s->sla_boot_prefix = g_strdup("erased");
-    }
+    z7ii_select_functional_shim(s);
     nikon_bootshim_prepare_mas(s->boot_shim, get_system_memory(),
                                s->shim_mas, &error_fatal);
     error_report("z7ii-mas-diagnostic: boot-shim=functional-v1; erased prefixes "
@@ -380,6 +388,8 @@ static void z7ii_init(MachineState *machine)
                      (unsigned long long)MAS_MAX_SIZE);
         exit(EXIT_FAILURE);
     }
+    /* Select the functional profile before loading its external inputs. */
+    z7ii_select_functional_shim(s);
     mas_boot_prefix = nikon_boot_prefix_load(s->mas_boot_prefix, &error_fatal);
 
     /* Reject all uncovered addresses, including missing RAM and devices. */
