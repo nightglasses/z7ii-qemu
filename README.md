@@ -20,17 +20,36 @@ The project is a software model of selected firmware interfaces. It does not cla
 
 ```mermaid
 flowchart LR
-  subgraph Boot[Reset, loader, and execution]
-    Payload[Original component payload] --> Loader[ROM loader]
-    Reset[Virtual reset] --> CPU[ARM CPU and TCG]
-    Loader --> CPU
+  subgraph Boot[Reset, loader, and SMP startup]
+    Payload[Original MAS component payload] --> Loader[ROM / payload loader]
+    Reset[Virtual reset] --> CPU0[CPU0 primary core]
+    Reset --> CPU1[CPU1 secondary core]
+    Loader --> CPU0
+    Loader --> CPU1
+    CPU0 --> Primary[Initial task\n0x10103bc8 and kernel prelude]
+    CPU1 --> Secondary[Per-core init\nsecondary scheduler / idle]
+    Primary --> RTOS[Guest RTOS scheduler\nSVC, IRQ, task handoff]
+    Secondary --> RTOS
   end
 
-  CPU --> Bus[System bus]
+  RTOS --> Bus[System bus]
   Bus --> MMIO[MMIO register map]
-  Bus --> RAM[RAM, ROM, and DMA regions]
   Bus --> IRQ[GIC and timer IRQs]
-  IRQ --> RTOS[Guest RTOS handlers\nacknowledgement stays in firmware]
+  IRQ --> RTOS
+
+  subgraph Memory[Source-backed memory domains]
+    ROMD[MAS / SLA ROMD]
+    Download0[Download arena\n0xb0d00000, 4 MiB]
+    Download1[Packed download arena\n0xb0900000..0xb1000000\nruntime-observed; model pending]
+    GuestRAM[Guest RAM and DMA buffers]
+  end
+  Loader --> ROMD
+  Bus --> ROMD
+  Bus --> GuestRAM
+  ROMD --> Download0
+  ROMD -. selector-1 packed copy .-> Download1
+  Download0 --> GuestRAM
+  Download1 -. owner / permission contract pending .-> GuestRAM
 
   subgraph Inputs[Independent external inputs]
     CMOS[CMOS transport\nopaque configured frames]
@@ -40,32 +59,37 @@ flowchart LR
   MMIO --> I2C[I2C controller]
   I2C --> Eye
 
-  subgraph Control[Capture control layers]
-    SDES[SDES channel and global control]
+  subgraph Control[Capture and event control]
+    SDES[SDES channel / global control]
     Capture[capture-control\nstatus and command]
     Readout[readout-control\nbuffers and parameters]
+    EV3[EV3 event waiter\nID 0x01000003]
+    Peer[Peer / role0 producer\nsource path unverified]
   end
   MMIO --> SDES
   MMIO --> Capture
   MMIO --> Readout
+  RTOS --> EV3
+  Peer -. event set / wake .-> EV3
 
-  CMOS --> Geometry[Opaque frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
+  CMOS --> Geometry[Frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
   Geometry --> Process[Processing / ISP boundary\nsource-backed buffer transaction]
-  Process --> Compose[Display composition\nPixman and completed console frame]
-  Process --> GuestRAM[Guest image buffers]
+  Process --> Compose[Display composition\nPixman / scanout]
+  GuestRAM --> Process
   GuestRAM --> Compose
   GuestRAM --> Save[Storage endpoint\nNVMe and BlockBackend]
 
-  Readout -. provider join and real pixel source unverified .-> Geometry
-  Capture -. completion producer and IRQ meaning unverified .-> Process
+  Readout -. real pixel producer unverified .-> Geometry
+  Capture -. completion producer / IRQ semantics unverified .-> Process
   SDES -. physical sensor/status join unverified .-> Geometry
+  Compose -. GUI callback / framebuffer / first frame unverified .-> Display[QEMU display output]
 
   MMIO --> Unknown[Unknown address, width, or command]
   Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` is a bounded source-backed download arena. The packed arena at `0xb0900000` is currently a runtime observation with a bounded range check; its QEMU owner and permissions remain a separate contract. The current GUI wait is EV3 (`0x01000003`); its peer producer and the first real framebuffer are still unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
 
 The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
 
