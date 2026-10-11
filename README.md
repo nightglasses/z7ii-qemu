@@ -58,6 +58,11 @@ or ambiguous component input before any component becomes visible to a machine.
 
 ## Architecture and startup flow
 
+The detailed CPU, memory, device, and runtime pipeline diagrams are in
+[`docs/architecture.md`](docs/architecture.md). The parameter matrix and
+evidence classification are maintained in
+[`docs/startup/cpu_board.md`](docs/startup/cpu_board.md).
+
 ```mermaid
 flowchart TD
   subgraph Boot[Reset, loader, and SMP startup]
