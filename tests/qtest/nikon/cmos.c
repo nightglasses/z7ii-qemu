@@ -11,6 +11,7 @@
 #define RAM 0xb1810000
 
 static char *image;
+static char *source;
 
 static QTestState *start(void)
 {
@@ -186,6 +187,26 @@ static void test_provider_required(void)
     qtest_quit(q);
 }
 
+static void test_image_provider(void)
+{
+    QTestState *q = start();
+    uint8_t output[4];
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", source);
+    configure(q, 2, 2, 1, 2);
+    qtest_memset(q, RAM, 0xa5, 4);
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    qtest_memread(q, RAM, output, sizeof(output));
+    g_assert_cmphex(output[0], ==, 0);
+    g_assert_cmphex(output[1], ==, 64);
+    g_assert_cmphex(output[2], ==, 128);
+    g_assert_cmphex(output[3], ==, 255);
+    g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+    qtest_quit(q);
+}
+
 static void test_period(void)
 {
     QTestState *q = start();
@@ -209,6 +230,10 @@ static void test_period(void)
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
+    static const uint8_t pnm[] = {
+        'P', '5', '\n', '2', ' ', '2', '\n', '2', '5', '5', '\n',
+        0, 64, 128, 255,
+    };
     int fd, result;
 
     g_test_init(&argc, &argv, NULL);
@@ -217,13 +242,21 @@ int main(int argc, char **argv)
     close(fd);
     g_assert_true(g_file_set_contents(image, (char *)&idle,
                                       sizeof(idle), NULL));
+    fd = g_file_open_tmp("nikoncmosimageXXXXXX", &source, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(source, (const char *)pnm,
+                                      sizeof(pnm), NULL));
     qtest_add_func("/nikon/cmos/configured-frames", test_configured_frames);
     qtest_add_func("/nikon/cmos/crop-scale-unknown", test_crop_scale_and_unknown);
     qtest_add_func("/nikon/cmos/invalid-cancel", test_invalid_and_cancel);
     qtest_add_func("/nikon/cmos/provider-required", test_provider_required);
+    qtest_add_func("/nikon/cmos/image-provider", test_image_provider);
     qtest_add_func("/nikon/cmos/period", test_period);
     result = g_test_run();
     unlink(image);
     g_free(image);
+    unlink(source);
+    g_free(source);
     return result;
 }
