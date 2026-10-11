@@ -48,6 +48,24 @@ builder `0x102a7764` followed by `0x10293362`. The recovered windows do not
 call `0x103a3b66`, the COPY submit wrapper, nor an identified DMA register
 block or IRQ completion routine.
 
+The `0x10293362` body gives the request shape: it allocates a private
+`0xe0`-byte object, copies 24 bytes from the value passed in `r5` (the value
+loaded from `object + 0x30`) into request offset `+0xa0`, and stores the source
+object's `+0x28`, `+0x04`, and `+0x2c` at request offsets `+0xd4`, `+0xd8`, and
+`+0xdc`. The source object's byte `+0x0c` selects callback pairs
+`0x102c426c → 0x10365466` or `0x102c429c → 0x103a67a2`. The finalizer at
+`0x10293312` clears/copies status fields, optionally calls `0x102c64fe`, and
+frees the private request object.
+
+The callback wrappers classify this as a software request/event lifecycle:
+`0x10365466` operates on the callback object's `+0x28` synchronization field
+through `0x10348c06` and `0x103b3dc0`; `0x103654cc`, `0x103654dc`,
+`0x103654e4`, `0x103654ec`, and `0x103654f4` operate on its `+0x14c`
+event/synchronization block through the `0x103410cc/d2/da/116/156/192`
+primitives. The `0x102c429c` branch builds a 28-byte event record and uses
+`0x103654dc` with a `0x1388` timeout. None of these wrappers access a physical
+address window, a DMA channel, or a frame completion register.
+
 The direct reader therefore establishes this boundary:
 
 ```text
@@ -84,11 +102,12 @@ object +0x30
  -> 0x102a80a8 / 0x102a8076
  -> 0x102a7ee2, 0x102a7d4c, 0x102a7c64
  -> 0x102a7764 / 0x10293362
- -> provider, DMA channel and completion semantics: not recovered
+ -> 0xe0-byte request object + callback pairs
+ -> software event/synchronization lifecycle
+ -> provider, DMA channel and completion semantics: not part of this chain
 ```
 
 No QEMU RAM, alias, framebuffer, DMA bypass or completion event should be
 added from this receipt alone. The next useful evidence is the runtime value
 and object identity at `0x102a84cc`, followed by the provider consumed by
 `0x10293362`.
-
