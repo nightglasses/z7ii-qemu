@@ -4,9 +4,25 @@ This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.7
 
 The project is a software model of selected firmware interfaces. It does not claim a complete camera boot, a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Physical-camera validation is a separate acceptance result.
 
+## Supported machine types
+
+This repository is organized as a Nikon firmware family emulator. The first
+complete camera target is the Z7II; the other machine types are reusable
+component or software-domain profiles and do not claim a complete camera boot.
+
+| Machine type | Domain and CPU | Current role | Status |
+|---|---|---|---|
+| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Primary development target; original firmware has not reached a verified GUI first frame |
+| `nikonsla` | SLA software domain, Cortex-A7 | Standalone decoded SLA loading and private peripheral contracts | Supported standalone profile; not a complete camera board |
+| `nikonex` | EX component, Cortex-M4 | Independent EX firmware and device contract tests | Supported component profile |
+| `nikonvr` | VR software profile, RX62N | Independent RX software and peripheral tests | Supported software profile |
+
+New Nikon bodies or component domains should add a named machine under
+`hw/nikon/machines` and a focused qtest before they are described as supported.
+
 ## Scope and boundaries
 
-- The supported ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package.
+- The primary ARM machine is `z7ii-mas-diagnostic`. Its default image is an extracted MAS component payload, not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
 - CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and generates a deterministic frame only after the guest supplies a complete request. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
