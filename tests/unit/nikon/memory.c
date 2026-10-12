@@ -58,8 +58,19 @@ static MemoryFixture *memory_new(unsigned boundary, unsigned protection)
 
 static void memory_free(MemoryFixture *f)
 {
-    /* Retired flat views retain their real owner. Drain before releasing its
-     * embedded regions, and again before releasing their fixture storage. */
+    MemoryRegion *regions[] = {
+        &f->source, &f->rom, &f->protection, &f->ram,
+    };
+
+    /* Remove topology while its owner and embedded regions are still alive.
+     * Owner property destruction must not rebuild maps of partially destroyed
+     * siblings. Retired views are drained before releasing fixture storage.
+     */
+    for (unsigned i = 0; i < ARRAY_SIZE(regions); i++) {
+        if (regions[i]->container) {
+            memory_region_del_subregion(regions[i]->container, regions[i]);
+        }
+    }
     drain_call_rcu();
 
     object_unparent(f->owner);

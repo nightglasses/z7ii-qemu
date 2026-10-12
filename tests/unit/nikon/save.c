@@ -2,6 +2,9 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/nikon/save.h"
+#include "system/system.h"
+
+int (*qemu_main)(void);
 
 static DeviceState *save_device(void)
 {
@@ -97,9 +100,29 @@ static void test_save_rejects_invalid(void)
 
 int main(int argc, char **argv)
 {
+    g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
+    g_autofree char *socket = g_build_filename(directory, "qtest", NULL);
+    g_autofree char *chardev = g_strdup_printf("unix:%s,server=on,wait=off",
+                                             socket);
+    const char *const arguments[] = {
+        argv[0], "-machine", "none", "-accel", "qtest", "-display", "none",
+        "-nodefaults", "-qtest", chardev, NULL
+    };
+    g_auto(GStrv) qemu_argv = g_new0(char *, G_N_ELEMENTS(arguments));
+    int result;
+
+    g_assert_nonnull(directory);
     g_test_init(&argc, &argv, NULL);
+    for (unsigned i = 0; i < G_N_ELEMENTS(arguments) - 1; i++) {
+        qemu_argv[i] = g_strdup(arguments[i]);
+    }
+    qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
     g_test_add_func("/nikon/save/lifecycle", test_save_lifecycle);
     g_test_add_func("/nikon/save/failure-cancel", test_save_failure_and_cancel);
     g_test_add_func("/nikon/save/reject-invalid", test_save_rejects_invalid);
-    return g_test_run();
+    result = g_test_run();
+    qemu_cleanup(result);
+    unlink(socket);
+    rmdir(directory);
+    return result;
 }
