@@ -8,7 +8,7 @@ The complete recovered late methods are supported: `DE378` sets both banks' four
 
 The reset pulse at`2013c5e0` cancels lane, control and configuration timers and clears pending state. Routing words and board reset have separate explicit lifetimes. Control requests4/6 require the recovered routing pair and completed bank1 lane request; deferred completion sets IRQ status bit1. Request6 additionally publishes bit0 at **PA`20134908`**, the original bank0 poll address. Pending, enable and W1C acknowledgement at`2013d020/d024/d028` drive the real GIC input; the guest ISR owns event flags. Command-to-IRQ association and latency are virtual conventions, not hardware measurements.
 
-`C13C=2` is a separate configuration handshake: it requires completed lane configuration, schedules a10us callback, and produces IRQ bit6. It does **not** require or commit the five mapping arrays. The original peer caller performs `E3B2 → E69E`, waits for GPIO to be low, then `E666 → E69E → 8816A`; both `E69E` handshakes precede `DDC76` array publication. `DDC76` writes40 independent configuration words and returns without requesting a commit. The recovered producer fills the first three arrays and zeroes the final two. Array writes/readback do not generate IRQs or peer contents. The obsolete draft/active-array transaction and its invented prerequisite were removed. The source-qualified forwarding layer below now consumes those words without introducing another commit.
+`C13C=2` is a separate configuration handshake: it requires completed lane configuration, schedules a10us callback, and produces IRQ bit5. It does **not** require or commit the five mapping arrays. The original peer caller performs `E3B2 → E69E`, waits for GPIO to be low, then `E666 → E69E → 8816A`; both `E69E` handshakes precede `DDC76` array publication. `DDC76` writes40 independent configuration words and returns without requesting a commit. The recovered producer fills the first three arrays and zeroes the final two. Array writes/readback do not generate IRQs or peer contents. The obsolete draft/active-array transaction and its invented prerequisite were removed. The source-qualified forwarding layer below now consumes those words without introducing another commit.
 
 Unsupported offsets, widths, values, missing configuration and commands return `MEMTX_ERROR`; migration and snapshots are unavailable. The [fixed GPIO producer](https://github.com/mashiro01/nightglass/blob/57546e1cbed483ac82dff7246c5d8dccbad02279/research/z7ii/qemu-rtos-startup-contract.md) binds service60 to GPIO port6 bit3, input with no pull, IRQ77. The original wrapper waits for that external input before its later control request. Disconnected low supplies no peer handshake; bridge status/IRQ do not change this input. No host peer signature, ready event, consumer or backing is supplied.
 
@@ -30,9 +30,9 @@ The prior first store at`2013c5e0` no longer rejected that run. Initializer retu
 
 ## External event lifecycle
 
-The 2026-10-09 serial-group inventory uses the same fixed original contract, including its IRQ127 section. The original ISR consumes raw bits0/2/5 in addition to internal bits1/6: bit0 sets guest flag1; bit2 writes1 through bankmask2 to **PA`2013829c`**; bit5 tests mode1 and **PA`2013c908.bit2`** before setting flag8. These are source consumers, not recovered physical producers.
+The 2026-10-09 serial-group inventory uses the same fixed original contract, including its IRQ127 section. The original ISR consumes raw bits0/2/4 in addition to internal bits1/5: bit0 sets guest flag1; bit2 writes1 through bankmask2 to **PA`2013829c`**; bit4 tests mode1 and **PA`2013c908.bit2`** before setting flag8. These are source consumers, not recovered physical producers.
 
-The new finite functional layer exposes three named `peer-event` qdev input lines, in raw-bit order0/2/5, and one independent `peer-ready` level input. A rising event edge outside reset latches that raw bit; masking suppresses the IRQ output without discarding pending, and guest W1C clears only selected pending. A held input does not retrigger after ACK. Reset cancels pending and the retained acknowledgement but preserves externally driven input levels; releasing reset does not create an edge. Cold inputs are disconnected low. `peer-ready` supplies only the read-only bank1 C908 bit2, independently of bank0 4908 completion, and does not generate an event. The ISR's aligned word write1 at3829c is a retained acknowledgement; reads, other values and writes during held reset remain unsupported. This write does not manufacture readiness or relatch pending.
+The new finite functional layer exposes three named `peer-event` qdev input lines, in raw-bit order0/2/4, and one independent `peer-ready` level input. A rising event edge outside reset latches that raw bit; masking suppresses the IRQ output without discarding pending, and guest W1C clears only selected pending. A held input does not retrigger after ACK. Reset cancels pending and the retained acknowledgement but preserves externally driven input levels; releasing reset does not create an edge. Cold inputs are disconnected low. `peer-ready` supplies only the read-only bank1 C908 bit2, independently of bank0 4908 completion, and does not generate an event. The ISR's aligned word write1 at3829c is a retained acknowledgement; reads, other values and writes during held reset remain unsupported. This write does not manufacture readiness or relatch pending.
 
 Input meaning, edge choice and reset lifetime are explicit virtual interface laws. The standalone device supplies no producer for these external `peer-event` or `peer-ready` inputs. Mapping publication and acknowledgement do not drive them. This input layer creates no peer memory, frame, signature or reply; the forwarding layer below separately accesses real peer storage. Physical link behavior remains unbound. The earlier d48ac22 verification above remains historical proof of that exact binary, not validation of the later input or forwarding layers.
 
@@ -56,9 +56,9 @@ The single builder subsequently compiled and linked implementation `f9096c43d15d
 
 The recovered MAS `102de336` mode0 writes command6 and waits for local flag2, while mode1 first waits for flag1, writes command4 and then waits for local flag2. The recovered `102de69e` mode0 writes configuration2 and waits for flag4; mode1 waits for flag4 and clears it. The named functional paired-link law connects these complementary waits. Physical transport, SLA MMIO/IRQ bindings and its corresponding functions must be established independently; this interface does not copy MAS board addresses into the SLA domain.
 
-Only an accepted command6 reaching its real deferred completion emits one `peer-start[0]` pulse; command4 emits no start. Only configuration2 reaching deferred completion emits one `peer-configuration[0]` pulse. Local IRQ bits1/6 and command6's bank0 completion remain unchanged. A machine may connect those outputs to the other live bridge's `peer-control[0]`/`[1]` inputs, respectively. A rising input outside reset latches raw bit0/6 and updates the real IRQ output; masking and W1C preserve the normal pending protocol. No event flag, GPIO, peer byte or signature is written by the host interface. Disconnected outputs produce no peer effects. Reset cancels the pending timers, hence their future pulses; externally held input levels survive reset without creating a new edge.
+Only an accepted command6 reaching its real deferred completion emits one `peer-start[0]` pulse; command4 emits no start. Only configuration2 reaching deferred completion emits one `peer-configuration[0]` pulse. Local IRQ bits1/5 and command6's bank0 completion remain unchanged. A machine may connect those outputs to the other live bridge's `peer-control[0]`/`[1]` inputs, respectively. A rising input outside reset latches raw bit0/5 and updates the real IRQ output; masking and W1C preserve the normal pending protocol. No event flag, GPIO, peer byte or signature is written by the host interface. Disconnected outputs produce no peer effects. Reset cancels the pending timers, hence their future pulses; externally held input levels survive reset without creating a new edge.
 
-Native C cases cover input masking/W1C/held levels and reset cancellation. A synthetic QOM loopback routes each real output to input0 to distinguish emitted pulses from local IRQ completion: command6 yields local bit1 plus input bit0, configuration2 yields local bit6 plus input bit0, and command4 remains local only. This explicit test circuit is neither an original peer nor a hardware-wire claim. The single builder must execute these cases together with the new forwarding/provider fixture before reporting them as verified.
+Native C cases cover input masking/W1C/held levels and reset cancellation. A synthetic QOM loopback routes each real output to input0 to distinguish emitted pulses from local IRQ completion: command6 yields local bit1 plus input bit0, configuration2 yields local bit5 plus input bit0, and command4 remains local only. This explicit test circuit is neither an original peer nor a hardware-wire claim. The single builder must execute these cases together with the new forwarding/provider fixture before reporting them as verified.
 
 ## SLA page-register qualification
 
@@ -71,3 +71,79 @@ The original SLA region inputs are `[class,span,local,remote,chunks,index]`: `[4
 Class0's converter `10060f9c` and wrappers `10064728/1006474a` consume the resulting local address through real CPU LDRD/STRD leaves. Thus a source-qualified SLA IO aperture at40000000..50000000 can expose bank1 region2 with alias offset40000000. Its original47C andB7C section descriptors are both identity mappings: the aperture is device forwarding, not an MMU/RAM alias. An address such as47cf0000 routes to real MAS b7cf0000 only when the current guest table supplies a valid matching row and an attached MAS AddressSpace. Empty, malformed or unmatched rows retain transaction errors.
 
 The additional native C case `/arm/nikon/bridge/sla-page-table` uses both real borrowed address spaces. It programs the private SLA bridge through the MAS window, rejects a cold index8-only negative packet without changing the MAS ring, stores/reads all40 words of the eight-chunk fixture, forwards class0 reads/writes into real MAS storage, changes/restores the remote page, and verifies reset leaves the peer bytes intact while removing the mapping. Compilation/execution of this additional case is pending the single builder with the source-qualified SLA IO aperture; the earlier two native PASS are retained without relabeling.
+
+## Original ISR bit-number correction
+
+The preceding current bit names correct an off-by-one interpretation in the
+older contract; historical receipts retain their original identities. Direct
+C1.70 byte disassembly at the actual MAS load base `0x10020000` shows MAS
+VA `0x102dcce8` and SLA VA `0x1006adbc` testing `LSLS raw,#26` followed by
+`BPL` to skip the flag4 setter. The sign test selects raw bit5 (`0x20`), not
+bit6 (`0x40`). Their conditional flag8 paths at MAS `0x102dccca` and SLA
+`0x1006ad9e` similarly use `LSLS #27`, selecting raw bit4, not bit5.
+These are original-byte consumers, not accepted reconstruction source or a
+physical interrupt-producer binding.
+
+The read-only `producer3` observation catches both executing ISRs with
+raw `0x40` and neither flag4 branch. Regression tests fail on the old
+configuration cause (`0x40 != 0x20`) and old third peer-event mapping
+(`0x20 != 0x10`). The implementation corrects these causes and their named
+inputs; it does not add a producer, completion timer, guest flag write or
+ready edge. Masking, W1C, deferred completion and reset cancellation remain
+covered. All 27 native fixtures, 239 subtests pass in
+`work/research/ev3producer/nativecheck_final2.log`.
+
+Two final unchanged complete-bundle runs (`work/research/guiresume/final1/`
+and `final2/`) now catch raw `0x20`, both flag4 branches, the natural MAS
+setter for handle `0xb1806f44`, and return from the configuration wait.
+Their next first rejected read is PA `0x2013e000`: MAS PC `0x102de73a`,
+SLA PC `0x1006c80e`. Getter base `0x20136000` with bankmask2 adds `0x8000`.
+The associated original getter/publisher ranges are bounded, but their bank
+relationship, reset semantics and real data producer are not yet closed.
+Unknown accesses remain errors. Subsequent NOR writes follow the abort and
+are not evidence that a NOR writer would fix this startup dependency.
+
+An experimental paired-word reflection advanced EV3 mask `0x10`, then failed
+on the bank0 getter. It was withdrawn from maintained source because the
+cross-bank law remains unqualified. Its ignored patch and receipts are
+research only, not accepted startup evidence. No final run reaches the
+transfer producer or a natural GUI frame; final COPY/loader checks fail
+before their submissions rather than inheriting the older 14-COPY PASS.
+
+## Opt-in notification hypothesis
+
+Original MAS/SLA bytes support notification-mask intent rather than two
+ordinary stored mailbox words: the set wrapper publishes `[0,0,mask,0]`, the
+clear wrapper `[0,0,0,mask]`, and the getter wrapper returns the second of two
+words. The sender selects bank0; the receiver callback selects bank1, clears
+its selected notification bit and handles the queued packet. These establish
+software roles, not the physical bank connection, first getter word, IRQ
+producer or hardware reset law.
+
+The maintained local bank0 flag cell at `+0x6004` therefore supports word-only
+OR-set at `+0x6008` and clear-mask at `+0x600c`, with functional empty reset
+state. Readback from the first word `+0x6000` remains rejected by default;
+receive-bank accesses also remain rejected without an experimental connection.
+Other directions, widths and neighbors are not generic storage.
+
+`notification-v1` is a default-off research property. With explicit
+`-global nikon-bridge-functional.notification-v1=on`, the complete-bundle
+machine connects the two opted-in devices using
+`nikon_bridge_connect_notifications()`. This profile hypothesizes local
+bank0 to peer bank1 reflection, a flags mirror in the unused first getter
+word, empty reset state, and sticky IRQ cause bit15 on newly set bits. It is
+not the withdrawn stored-word experiment and is not qualified physical
+hardware behavior. It does not write guest event/task/ready objects or pixels;
+its hardware-facing assumptions still require independent evidence.
+
+After the independent [I2C divisor correction](../i2c/protocol.md), two bounded
+original observations under this profile reach GUI phase3 entry, with
+byte-exact loader extents. The next rejected operation is MAS PC `0x1020b4da`,
+WORD write `0` to PA `0x2c04000c`. Default-profile revalidation still rejects
+`0x2013e000`, with no inherited COPY pass. Neither profile observes a graphics
+transfer producer or first frame; [native validation](../../validation/native.md)
+keeps these outcomes separate. The later
+[coprocessor startup study](../../runtime/coprocessor.md) joins the rejected
+configuration write to an original TL4-labelled frontend, distinguishes
+program COPY from execution, and observes GUI component phase3 return without
+a graphics transfer or frame. It qualifies no additional notification law.

@@ -12,6 +12,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-clock.h"
+#include "hw/core/qdev-properties.h"
 #include "qemu/timer.h"
 #include "qemu/host-utils.h"
 #include "qemu/bswap.h"
@@ -52,6 +53,9 @@ struct NikonBridgeState {
     uint32_t irq_status;
     uint32_t irq_enable;
     uint32_t peer_ack;
+    uint32_t notification_flags;
+    NikonBridgeState *notification_peer;
+    bool notification_v1;
     bool peer_event_level[3];
     bool peer_control_level[2];
     bool peer_ready;
@@ -76,7 +80,8 @@ static void nikon_bridge_irq(NikonBridgeState *s)
 
 static void nikon_bridge_peer_event(void *opaque, int n, int level)
 {
-    static const unsigned bits[] = { 0, 2, 5 };
+    /* MAS 102dccca and SLA 1006ad9e test bit4 (LSLS #27) for flag8. */
+    static const unsigned bits[] = { 0, 2, 4 };
     NikonBridgeState *s = opaque;
     bool high = !!level;
 
@@ -98,7 +103,7 @@ static void nikon_bridge_peer_ready(void *opaque, int n, int level)
 
 static void nikon_bridge_peer_control(void *opaque, int n, int level)
 {
-    static const unsigned bits[] = { 0, 6 };
+    static const unsigned bits[] = { 0, 5 };
     NikonBridgeState *s = opaque;
     bool high = !!level;
 
@@ -151,7 +156,8 @@ static void nikon_bridge_configuration_done(void *opaque)
 
     /* Command2 precedes array publication in the original caller. */
     s->configuration_pending = false;
-    s->irq_status |= 0x40;
+    /* MAS 102dcce8 and SLA 1006adbc test bit5 (LSLS #26) for flag4. */
+    s->irq_status |= 0x20;
     nikon_bridge_irq(s);
     qemu_irq_pulse(s->peer_configuration);
 }
@@ -164,6 +170,7 @@ static void nikon_bridge_cancel(NikonBridgeState *s)
     timer_del(s->configuration_timer);
     s->command = s->ready = s->irq_status = 0;
     s->peer_ack = 0;
+    s->notification_flags = 0;
     s->configuration_pending = false;
     for (bank = 0; bank < 2; bank++) {
         NikonBridgeBank *b = &s->bank[bank];
@@ -400,6 +407,42 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
         }
         return MEMTX_OK;
     }
+    if (local >= 0x6000 && local <= 0x600c) {
+        NikonBridgeState *owner = offset >= 0x8000 ?
+            s->notification_peer : s;
+        uint32_t old, next;
+
+        /* Only 6004 and the complementary set/clear masks are source-bound.
+         * 6000's raw mirror, cross-bank ACK and edge IRQ15 belong exclusively
+         * to the explicit experimental notification-v1 profile.
+         */
+        if (s->reset || (local == 0x6000 && !s->notification_v1) ||
+            !owner || owner->reset) {
+            goto error;
+        }
+        if (!write) {
+            if (local >= 0x6008) {
+                goto error;
+            }
+            *value = owner->notification_flags;
+            return MEMTX_OK;
+        }
+        if (local < 0x6008 || (owner->notification_peer &&
+                               owner->notification_peer->reset)) {
+            goto error;
+        }
+        old = owner->notification_flags;
+        next = local == 0x6008 ? old | (uint32_t)*value :
+                                old & ~(uint32_t)*value;
+        owner->notification_flags = next;
+        if ((next & ~old) && owner->notification_peer) {
+            NikonBridgeState *receiver = owner->notification_peer;
+
+            receiver->irq_status |= 0x8000;
+            nikon_bridge_irq(receiver);
+        }
+        return MEMTX_OK;
+    }
     if (local == 0x413c) {
         if (!write || *value != 2 || s->reset || s->configuration_pending ||
             !s->bank[1].request || s->bank[1].pending) {
@@ -553,6 +596,29 @@ void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
     s->bank[bank].peer = peer;
 }
 
+void nikon_bridge_connect_notifications(DeviceState *dev, DeviceState *peer)
+{
+    NikonBridgeState *s = NIKON_BRIDGE(dev);
+    NikonBridgeState *other = peer ? NIKON_BRIDGE(peer) : NULL;
+
+    if (!other) {
+        if (s->notification_peer) {
+            s->notification_peer->notification_peer = NULL;
+        }
+        s->notification_peer = NULL;
+        return;
+    }
+    /* Default devices never acquire an unqualified receive/IRQ producer. */
+    if (!s->notification_v1 || !other->notification_v1) {
+        return;
+    }
+    assert(s != other);
+    assert(!s->notification_peer || s->notification_peer == other);
+    assert(!other->notification_peer || other->notification_peer == s);
+    s->notification_peer = other;
+    other->notification_peer = s;
+}
+
 static void nikon_bridge_reset(DeviceState *dev)
 {
     NikonBridgeState *s = NIKON_BRIDGE(dev);
@@ -618,12 +684,18 @@ static const VMStateDescription nikon_bridge_vmstate = {
     .name = "nikon-bridge", .unmigratable = true,
 };
 
+static const Property nikon_bridge_properties[] = {
+    DEFINE_PROP_BOOL("notification-v1", NikonBridgeState, notification_v1,
+                     false),
+};
+
 static void nikon_bridge_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_bridge_vmstate;
     dc->user_creatable = false;
+    device_class_set_props(dc, nikon_bridge_properties);
     device_class_set_legacy_reset(dc, nikon_bridge_reset);
 }
 

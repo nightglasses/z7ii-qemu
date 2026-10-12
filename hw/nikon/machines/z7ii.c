@@ -907,6 +907,8 @@ static void z7ii_init(MachineState *machine)
                                                           6 * 16 + 3));
         nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
         nikon_bridge_attach_peer(sla_bridge, 1, &address_space_memory);
+        /* Inert unless both devices explicitly opt into notification-v1. */
+        nikon_bridge_connect_notifications(bridge, sla_bridge);
         /* Paired request routing is a functional board assumption. */
         qdev_connect_gpio_out_named(bridge, "peer-start", 0,
             qdev_get_gpio_in_named(sla_bridge, "peer-control", 0));

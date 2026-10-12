@@ -54,10 +54,15 @@ I2CBus *nikon_i2c_bus(DeviceState *dev);
  * Borrowed peer address space must outlive bridge accesses. NULL disconnects.
  * SysBus regions 1/2 expose bank0/1 local windows; they are not board mappings.
  * Named peer-start/peer-configuration outputs pulse at actual completion.
- * A connected peer's peer-control inputs 0/1 latch raw IRQ bits 0/6.
+ * A connected peer's peer-control inputs 0/1 latch raw IRQ bits 0/5.
  */
 void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
                               AddressSpace *peer);
+/* Borrowed symmetric pair; lifetime exceeds all notification accesses.
+ * Only notification-v1 devices connect. NULL disconnects without an edge.
+ * Cross-bank reflection and IRQ15 are experimental, not hardware bindings.
+ */
+void nikon_bridge_connect_notifications(DeviceState *dev, DeviceState *peer);
 
 /* Firmware-side descriptor context, kept separate from COPY MMIO state. */
 void nikon_copy_set_descriptor_context(DeviceState *dev, const char *owner,
