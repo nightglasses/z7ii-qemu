@@ -458,6 +458,18 @@ static void z7ii_init(MachineState *machine)
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
     z7ii_prepare_functional_shim(s);
+    if (s->boot_shim && !strcmp(s->boot_shim, "functional-v1")) {
+        DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
+
+        /* Original MAS boot control and its 16-KiB CPU-written program view.
+         * Request-only: no processor execution, status, reply or IRQ source.
+         * No SLA route is inferred from shared numerical addresses.
+         */
+        object_property_add_child(OBJECT(machine), "processor", OBJECT(processor));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(processor), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(processor), 0, 0x2c040000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(processor), 1, 0x04294000);
+    }
     /*
      * The unchanged selector-zero loader initializes B0D00000 as a 4 MiB
      * scratch buffer, copies MAS view0 (0x107a4f34, 0x3b1c0 bytes) into it,
