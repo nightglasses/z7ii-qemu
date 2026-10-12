@@ -86,7 +86,7 @@ flowchart TD
     ROMD[MAS / SLA ROMD]
     Download0[Download arena\n0xb0d00000, 4 MiB]
     Download1[Packed download arena\n0xb0900000..0xb0d00000\n4 MiB selector-one model]
-    LaterCopy[Later COPY boundary\n0x50200000\nowner unresolved]
+    LoaderViews[functional-v1 loader RAM\nPA50200000 / 50000000 / 50080000\nphysical ownership unresolved]
     GuestRAM[Guest RAM and DMA buffers]
   end
   Loader --> ROMD
@@ -96,7 +96,7 @@ flowchart TD
   ROMD --> Download1
   Download0 --> GuestRAM
   Download1 --> GuestRAM
-  ROMD -. later COPY source .-> LaterCopy
+  ROMD -->|functional-v1 loader copies| LoaderViews
 
   subgraph Inputs[Independent external inputs]
     CMOS[CMOS transport\nopaque configured frames]
@@ -110,18 +110,31 @@ flowchart TD
     SDES[SDES channel / global control]
     Capture[capture-control\nstatus and command]
     Readout[readout-control\nbuffers and parameters]
-    EV3[EV3 event waiter\nID 0x01000003]
-    Peer[Role0 peer callback\n0x10200d06 → 0x103610cc\nruntime observed]
+    EV3[GUI EV3 waiter\nID 0x01000003, mask0x10]
+    Peer[Historical peer EV3 setters\nmasks0x1/0x2\nwrapper LRs10200d0b/10200ceb]
+    Bridge[MAS/SLA bridge\nstrict: refuses PA2013e000]
+    Producer[GUI EV3 mask0x10 producer\nMAS VA10200c34]
   end
   MMIO --> SDES
   MMIO --> Capture
   MMIO --> Readout
   RTOS --> EV3
-  Peer -. event set / wake .-> EV3
+  MMIO --> Bridge
+  Peer -. historical setters .-> HistoricalEV3[EV3 masks0x1/0x2\nnot the GUI mask0x10 producer]
+  Bridge -. notification-v1 default-off hypotheses .-> Producer
+  Producer -. experimental setter / wait return .-> EV3
+
+  MMIO --> Processor[MAS processor request-only\nfunctional-v1: PA2c040000 + 04294000]
+  Processor -. no execution provider .-> Execution[Execution / ready / replies unproved]
+  MMIO --> Streams[Owned opaque graphics frontend\nPA20180000; full224/1688B capture]
+  Streams -. no processing / fence / status58 / IRQ129 provider .-> GraphicsProvider[Original graphics processing unresolved]
+  MMIO -. independent rejected lifecycle .-> D200[PA2014d200\neffect / legal values unresolved]
+  GuestRAM --> ByteCopy[Ordinary graphics byte copy\ncompleted DMA → IRQ130]
 
   CMOS --> Geometry[Frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
-  Geometry --> Process[Processing / ISP boundary\nsource-backed buffer transaction]
-  Process --> Compose[Display composition\nPixman / scanout]
+  Geometry -. original buffer producer unverified .-> Process[Processing endpoint PA24070000\nexternally produced complete buffers]
+  External[Explicit supplied buffers] --> Process
+  Process -. original producer join unverified .-> Compose[Supplied-buffer composition\nPixman / functional scanout]
   GuestRAM --> Process
   GuestRAM --> Compose
   GuestRAM --> Save[Storage endpoint\nNVMe and BlockBackend]
@@ -129,16 +142,19 @@ flowchart TD
   Readout -. real pixel producer unverified .-> Geometry
   Capture -. completion producer / IRQ semantics unverified .-> Process
   SDES -. physical sensor/status join unverified .-> Geometry
-  Compose -. GUI callback / framebuffer / first frame unverified .-> Display[QEMU display output]
+  Compose --> Console[Functional QEMU console publication]
+  GraphicsProvider -. original rendering / commit unproved .-> Display[Original first frame absent]
 
   MMIO --> Unknown[Unknown address, width, or command]
   Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
   Fixture[8x8 transport fixture] -. transport checks only .-> Bus
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` and `0xb0900000` are separate bounded source-backed download arenas. The firmware checks the selector-one range through `0xb1000000`, while the current QEMU model owns the proven 4 MiB arena only. The later `0x50200000` COPY destination remains unresolved. The current GUI wait is EV3 (`0x01000003`), and its role0 callback-to-setter edge is runtime-observed; the peer-ready/bridge input before that callback and the first real framebuffer remain unverified. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
+Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` and `0xb0900000` are separate bounded source-backed download arenas. The firmware checks the selector-one range through `0xb1000000`, while the current QEMU model owns the proven 4 MiB arena only. `functional-v1` also provides bounded loader RAM at PA `0x50200000`, `0x50000000` and `0x50080000`; physical backing/provider ownership and framebuffer identity remain unresolved. Historical peer EV3 setters publish masks `0x1`/`0x2` (wrapper LRs `0x10200d0b`/`0x10200ceb`); neither satisfies the current GUI wait's mask `0x10` produced by MAS VA `0x10200c34`. Strict bridge notifications still reject PA `0x2013e000`. Default-off `notification-v1` hypotheses permit recorded experimental progression, not physical bank/reset/IRQ qualification. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. Host code does not prefill buffers, inject RTOS flags, connect eye proximity to image capture, or manufacture a menu result.
 
-The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Display composition and storage endpoints remain independently testable and are not evidence of a natural original capture or save path.
+The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Ordinary byte-copy IRQ130, supplied-buffer composition with functional console publication, and storage endpoints remain independently testable; they are not the original graphics-stream provider or evidence of a natural capture/save path. The MAS request-only processor at PA `0x2c040000` plus bootstrap view `0x04294000` has no execution provider; experimental original runs naturally time out and continue, rather than succeed.
+
+The owned opaque graphics frontend still lacks processing/fence/status58/IRQ129 production. Descriptor extents56/422 are 32-bit words; register counts28/211 are 64-bit units, giving full lengths224/1688 bytes. The corrected frontend captures `8*units64` bytes within a functional 128-KiB bound per stream. Parent native receipts pass 29 fixtures / 247 subtests; two experimental original-bundle observations match full producer-bounded inputs but leave both streams pending, with no graphics wait return, IRQ129 or frame. The old56/422-byte snapshots remain historical prefixes, not full-bound proof. The independent PA `0x2014d200` display-parameter rejection remains unresolved. See [runtime evidence](docs/runtime/coprocessor.md) and [native receipts](docs/validation/native.md) for the separate historical and corrected identities.
 
 ## Dependencies and build
 

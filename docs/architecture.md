@@ -94,7 +94,7 @@ flowchart TD
   end
   Loader --> DDR
 
-  ROMD -. later source .-> Unknown[Destination 0x50200000\nowner unresolved]
+  ROMD -->|functional-v1 loader copies| LoaderViews[Bounded loader RAM\nPA50200000 / 50000000 / 50080000\nphysical ownership unresolved]
   Zero --> Copy[COPY / IPUD / RMU]
   One --> Copy
   DDR --> Copy
@@ -102,9 +102,12 @@ flowchart TD
 
 The two 4 MiB download arenas are separate QEMU `MemoryRegion` owners. The
 selector-one firmware range check extends to `0xb1000000`, but the proven model
-owns the exact four-MiB arena `[0xb0900000, 0xb0d00000)`. The later
-`0x50200000` COPY destination is kept as an error boundary until its MMU,
-board decode, and provider contract are recovered.
+owns the exact four-MiB arena `[0xb0900000, 0xb0d00000)`. Under
+`functional-v1`, loader RAM already covers PA `0x50200000` (`0x27800` bytes),
+`0x50000000` (`0x57e30`) and `0x50080000` (`0x69e70`). Experimental receipts
+compare these loader extents byte-exactly; physical board decode/provider
+ownership and framebuffer identity remain unresolved. This storage is
+profile-qualified, not a general unknown-address RAM fallback.
 
 ## Runtime pipelines
 
@@ -116,20 +119,30 @@ sequenceDiagram
   participant C0 as MAS CPU0
   participant C1 as MAS CPU1
   participant K as RTOS scheduler
-  participant P as Peer / event producer
-  participant G as GUI waiter EV3
+  participant P as Historical peer EV3 setters
+  participant B as Bridge notifications
+  participant N as GUI producer VA10200c34
+  participant G as GUI waiter EV3 mask0x10
 
   R->>C0: load MAS and reset
   R->>C1: release secondary core
   C0->>K: create and start initial task
   C1->>K: per-core init and scheduler wait
   C0->>K: select service / PKGB tasks
-  P-->>G: role0 callback sets EV3
-  G->>K: wake condition becomes eligible
+  P-->>K: masks0x1/0x2, wrapper LRs10200d0b/10200ceb; not GUI mask0x10
+  B-->>N: notification-v1 default-off hypotheses only
+  N-->>G: experimental EV3 mask0x10 setter
+  G->>K: experimental wait returns naturally
 ```
 
-The EV3 setter edge is runtime-observed. The peer-ready, bridge, GPIO, and
-USIO path before that callback remains a separate evidence boundary.
+Historical peer EV3 setters publish masks `0x1`/`0x2` through wrapper
+`0x103610cc` with LRs `0x10200d0b`/`0x10200ceb`; neither satisfies the GUI
+mask `0x10` wait produced by MAS VA `0x10200c34`. Mask `0x2` is not attributed
+to `0x10200d06`: that observed call supplies mask `0x1`. Strict/default bridge
+notifications still reject PA `0x2013e000`. Default-off `notification-v1`
+experiments observe the mask `0x10` setter and natural wait return, but do not
+qualify first-word reflection, cross-bank binding, reset or IRQ hypotheses.
+The peer-ready/bridge/GPIO/USIO hardware join remains unverified.
 
 ### Image pipeline
 
@@ -158,13 +171,52 @@ The complete original-firmware image path is not accepted until the runtime
 producer, descriptor geometry, completion event, scanout, and save edge are all
 observed.
 
+### Processor and graphics provider boundaries
+
+```mermaid
+flowchart TD
+  MMIO[MAS MMIO] --> Processor[Request-only processor\nfunctional-v1: PA2c040000 + 04294000]
+  Processor -. no connected execution provider .-> Execution[Execution / ready / replies unproved]
+  MMIO --> Streams[Owned opaque graphics frontend PA20180000\nfull224/1688B capture; pending]
+  Streams -. no processing / fence / status58 / IRQ129 provider .-> Graphics[Original graphics processing unresolved]
+  RAM[Guest RAM] --> Copy[Ordinary byte copy\ncompleted DMA → IRQ130]
+  External[Explicit externally produced complete buffers] --> Process[Processing endpoint PA24070000\nnot a stream decoder]
+  RAM --> Compose[Supplied-buffer composition\nPixman / functional scanout]
+  Process -. original producer join unverified .-> Compose
+  Compose --> Console[Functional QEMU console publication]
+  Graphics -. original rendering / commit unproved .-> Frame[Original first frame absent]
+  MMIO -. independent rejected parameter lifecycle .-> D200[PA2014d200\neffect / legal values unresolved]
+```
+
+The MAS-only request device retains configuration and the actual 16 KiB
+bootstrap bytes, with no execution provider or automatic completion. Original
+experimental runs take the ten-poll timeout/stop path and continue to graphics
+configuration; this is not processor success or a proven SLA route.
+The graphics frontend owns immutable opaque snapshots, not decoded results.
+Descriptor extents56/422 are 32-bit words and register counts28/211 are
+64-bit units: full lengths224/1688 bytes. The corrected frontend captures
+`8*units64` within a functional 128-KiB bound per stream. Parent native receipts
+pass 29 fixtures / 247 subtests; two experimental original-bundle runs match the
+producer-bounded full inputs while retaining pending tokens1/2 and the
+ordinal10 wait, without a wait return, IRQ129 or frame. The old56/422-byte
+captures remain historical prefixes; shared-length hash matches were not
+independent full-bound proof. Historical and corrected identities remain in
+[the runtime study](runtime/coprocessor.md) and [native receipts](validation/native.md).
+Ordinary copy IRQ130 and supplied-buffer composition are implemented endpoints,
+not the absent original graphics provider. D200 is an independent unresolved
+lifecycle, not downstream of IRQ129 and not an admitted discard write.
+
 ## Current frontier
 
 | Pipeline | Current evidence | Next boundary |
 |---|---|---|
 | CPU startup | CPU0 initial task and PKGB roles observed | CPU/board parameter matrix |
-| Selector-zero/one COPY | Both 4 MiB arenas modeled and tested | `0x50200000` owner and provider |
-| EV3 | Role0 callback to setter observed | Peer-ready/bridge precondition |
+| Loader COPY | Both 4 MiB arenas; bounded500*/502* RAM under functional-v1 | Physical ownership/provider, not missing storage in this profile |
+| EV3 | Historical peer setters masks0x1/0x2 (wrapper LRs10200d0b/10200ceb); GUI mask0x10 producer VA10200c34; experimental progression | Strict PA2013e000; notification hypotheses unqualified |
+| Processor | MAS-only request/bootstrap storage; natural experimental timeout | No execution/ready/reply provider |
+| Graphics streams | Corrected owned full224/1688B capture; native receipts and experimental producer-bound matches; requests remain pending | Processing/fence/status58/IRQ129 provider |
+| Ordinary copy/composition | Implemented DMA IRQ130 and supplied-buffer console publication | Original stream/guest producer join unverified |
+| Display parameter | Independent PA2014d200 write rejection | D100/D200 ordering, effect and legal values |
 | CMOS/readout | Device contracts and fixtures exist | Original firmware producer and DMA completion |
 | Display | GUI acceptance test reports explicit `UNMET` | Real framebuffer and scanout callback |
 
