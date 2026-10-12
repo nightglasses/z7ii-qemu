@@ -1,0 +1,27 @@
+/* Owned graphics stream submission, separate from byte-copy completion.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+#ifndef HW_NIKON_TRANSFER_H
+#define HW_NIKON_TRANSFER_H
+
+#include "hw/nikon/devices.h"
+
+/* Functional allocation bound, not a recovered hardware capacity. */
+#define NIKON_TRANSFER_STREAM_BYTES 0x20000U
+
+typedef struct NikonTransferStreamRequest {
+    uint64_t token;
+    uint32_t source;
+    /* Count-port units: each unit captures eight source bytes. */
+    uint32_t units64;
+    GBytes *bytes;
+} NikonTransferStreamRequest;
+
+/* Returns a new GBytes reference to an immutable pending submission.
+ * Caller must unref bytes; reset/unrealize invalidates the token, not a held
+ * byte snapshot. There is no processing/completion API or guest IRQ here.
+ */
+bool nikon_transfer_stream_request(DeviceState *dev, unsigned bank,
+                                   NikonTransferStreamRequest *request);
+
+#endif

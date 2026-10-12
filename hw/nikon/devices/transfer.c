@@ -13,7 +13,7 @@
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
-#include "hw/nikon/devices.h"
+#include "hw/nikon/transfer.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTransferState, NIKON_TRANSFER)
 
@@ -30,11 +30,21 @@ static const hwaddr register_offsets[TRANSFER_REGISTER_COUNT] = {
     0xc20, 0xc24, 0xc28, 0xc34, 0xc38,
 };
 
-/* Whole 106edfd6 initialization, not a permissive register aperture. */
+/* Whole 106edfd6 initialization and empty-table 106ee04a configuration,
+ * not a permissive aperture or an implementation of the optional table jobs.
+ */
 static const hwaddr setup_offsets[] = {
-    0x1c, 0x34, 0xc1c, 0x1020, 0x1248, 0x151c, 0x155c,
+    0x1c, 0x34, 0xc1c, 0x1020, 0x1248, 0x151c, 0x155c, 0x1214, 0x1298,
 };
-static const uint32_t setup_values[] = { 0, 0, 0x8000, 0, 1, 1, 1 };
+static const uint32_t setup_values[] = {
+    0, 0, 0x8000, 0, 1, 1, 1, 0x0100ffff, 0,
+};
+
+typedef struct NikonTransferStream {
+    uint32_t source, units64, written;
+    uint64_t token;
+    GBytes *bytes;
+} NikonTransferStream;
 
 struct NikonTransferState {
     SysBusDevice parent_obj;
@@ -48,6 +58,10 @@ struct NikonTransferState {
     uint64_t source, destination, remaining;
     uint64_t plane_remaining, secondary_source, secondary_destination;
     bool running, completed, reported_error;
+    NikonTransferStream stream[2];
+    qemu_irq stream_request[2];
+    uint32_t stream_setup;
+    uint64_t stream_serial;
 };
 
 static void nikon_transfer_irq(NikonTransferState *s)
@@ -68,24 +82,34 @@ static MemTxResult nikon_transfer_error(NikonTransferState *s, hwaddr offset,
     return MEMTX_ERROR;
 }
 
+static uint64_t nikon_transfer_span(hwaddr address, uint64_t length, bool write)
+{
+    MemoryRegionSection section;
+    uint64_t span;
+    bool direct;
+
+    if (!length) {
+        return 0;
+    }
+    section = memory_region_find(get_system_memory(), address, length);
+    if (!section.mr) {
+        return 0;
+    }
+    span = int128_get64(section.size);
+    direct = span && section.offset_within_address_space == address &&
+             memory_access_is_direct(section.mr, write,
+                                     MEMTXATTRS_UNSPECIFIED) &&
+             (!write || !section.readonly);
+    memory_region_unref(section.mr);
+    return direct ? span : 0;
+}
+
 static bool nikon_transfer_range(hwaddr address, uint64_t length, bool write)
 {
     while (length) {
-        MemoryRegionSection section = memory_region_find(get_system_memory(),
-                                                        address, length);
-        uint64_t span;
-        bool direct;
+        uint64_t span = nikon_transfer_span(address, length, write);
 
-        if (!section.mr) {
-            return false;
-        }
-        span = int128_get64(section.size);
-        direct = span && section.offset_within_address_space == address &&
-                 memory_access_is_direct(section.mr, write,
-                                         MEMTXATTRS_UNSPECIFIED) &&
-                 (!write || !section.readonly);
-        memory_region_unref(section.mr);
-        if (!direct) {
+        if (!span) {
             return false;
         }
         address += span;
@@ -109,6 +133,18 @@ static void nikon_transfer_step(void *opaque)
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
 
     if (!s->running) {
+        return;
+    }
+    /* Direct ROMD reads are not capped by QEMU at a short alias boundary.
+     * Select each effective backing separately, including adjacent ROMD/RAM.
+     * Recheck the current destination too: topology may change after START.
+     */
+    length = nikon_transfer_span(s->source, length, false);
+    length = nikon_transfer_span(s->destination, length, true);
+    if (!length) {
+        s->running = false;
+        nikon_transfer_error(s, 0xc18, 4, true, 1,
+                             "transfer-memory-range-not-backed");
         return;
     }
     result = dma_memory_read(&address_space_memory, s->source, buffer,
@@ -181,6 +217,69 @@ static MemTxResult nikon_transfer_read(void *opaque, hwaddr offset,
     return MEMTX_OK;
 }
 
+static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
+                                               hwaddr offset, uint64_t value)
+{
+    unsigned bank = offset >= 0x10e0;
+    unsigned field = offset - (bank ? 0x10e0 : 0x10d0);
+    NikonTransferStream *stream = &s->stream[bank];
+    uint8_t *bytes;
+    uint64_t address, remaining, length;
+
+    if (stream->bytes) {
+        goto unsupported;
+    }
+    if (field == 4 && !(value & 1)) {
+        stream->source = value;
+        stream->written |= 1;
+        return MEMTX_OK;
+    }
+    if (field == 12 && value <= NIKON_TRANSFER_STREAM_BYTES / 8) {
+        stream->units64 = value;
+        stream->written |= 2;
+        return MEMTX_OK;
+    }
+    if (field != 0 || value != 1 || s->stream_setup != 3 ||
+        stream->written != 3 || !stream->units64) {
+        goto unsupported;
+    }
+    /* 106ee04a halves the descriptor's 32-bit word extent for this port. */
+    length = 8ULL * stream->units64;
+    address = stream->source;
+    if (address > UINT32_MAX - length ||
+        !nikon_transfer_range(address, length, false)) {
+        return nikon_transfer_error(s, offset, 4, true, value,
+                                    "transfer-stream-memory-not-backed");
+    }
+    bytes = g_malloc(length);
+    remaining = length;
+    while (remaining) {
+        uint64_t span = nikon_transfer_span(address, remaining, false);
+
+        if (!span || dma_memory_read(&address_space_memory, address,
+                bytes + length - remaining, span,
+                MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            g_free(bytes);
+            return nikon_transfer_error(s, offset, 4, true, value,
+                                        "transfer-stream-read-failed");
+        }
+        address += span;
+        remaining -= span;
+    }
+    stream->bytes = g_bytes_new_take(bytes, length);
+    if (++s->stream_serial == 0) {
+        ++s->stream_serial;
+    }
+    stream->token = s->stream_serial;
+    /* Actual submitted bytes, not processing, a fence or an IRQ129 cause. */
+    qemu_set_irq(s->stream_request[bank], 1);
+    return MEMTX_OK;
+
+unsupported:
+    return nikon_transfer_error(s, offset, 4, true, value,
+                                "transfer-stream-not-supported");
+}
+
 static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
                                        uint64_t value, unsigned size,
                                        MemTxAttrs attrs)
@@ -199,11 +298,25 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
     if (size != 4) {
         goto unsupported;
     }
+    if ((offset >= 0x10d0 && offset <= 0x10dc) ||
+        (offset >= 0x10e0 && offset <= 0x10ec)) {
+        return nikon_transfer_stream_write(s, offset, value);
+    }
     if (setup >= 0) {
-        if (value != setup_values[setup] && !(setup == 2 && !value)) {
+        if ((offset == 0x1214 || offset == 0x1298) &&
+            (s->stream[0].bytes || s->stream[1].bytes)) {
+            goto unsupported;
+        }
+        if (value != setup_values[setup] && !(setup == 2 && !value) &&
+            !(offset == 0x1214 && value == 0xffff)) {
             goto unsupported;
         }
         s->setup[setup] = value;
+        if (offset == 0x1214) {
+            s->stream_setup |= 1;
+        } else if (offset == 0x1298) {
+            s->stream_setup |= 2;
+        }
         nikon_transfer_irq(s);
         return MEMTX_OK;
     }
@@ -301,6 +414,26 @@ unsupported:
                                 "transfer-packet-not-supported");
 }
 
+bool nikon_transfer_stream_request(DeviceState *dev, unsigned bank,
+                                   NikonTransferStreamRequest *request)
+{
+    NikonTransferState *s = NIKON_TRANSFER(dev);
+    NikonTransferStream *stream;
+
+    if (bank >= ARRAY_SIZE(s->stream) || !request) {
+        return false;
+    }
+    stream = &s->stream[bank];
+    if (!stream->bytes) {
+        return false;
+    }
+    request->token = stream->token;
+    request->source = stream->source;
+    request->units64 = stream->units64;
+    request->bytes = g_bytes_ref(stream->bytes);
+    return true;
+}
+
 static const MemoryRegionOps nikon_transfer_ops = {
     .read_with_attrs = nikon_transfer_read,
     .write_with_attrs = nikon_transfer_write,
@@ -309,11 +442,43 @@ static const MemoryRegionOps nikon_transfer_ops = {
     .impl = { .min_access_size = 4, .max_access_size = 4 },
 };
 
+static bool nikon_transfer_stream0_pending(Object *obj, Error **errp)
+{
+    return NIKON_TRANSFER(obj)->stream[0].bytes != NULL;
+}
+
+static bool nikon_transfer_stream1_pending(Object *obj, Error **errp)
+{
+    return NIKON_TRANSFER(obj)->stream[1].bytes != NULL;
+}
+
+static char *nikon_transfer_stream0_hash(Object *obj, Error **errp)
+{
+    GBytes *bytes = NIKON_TRANSFER(obj)->stream[0].bytes;
+
+    return bytes ? g_compute_checksum_for_bytes(G_CHECKSUM_SHA256, bytes) :
+                   g_strdup("");
+}
+
+static char *nikon_transfer_stream1_hash(Object *obj, Error **errp)
+{
+    GBytes *bytes = NIKON_TRANSFER(obj)->stream[1].bytes;
+
+    return bytes ? g_compute_checksum_for_bytes(G_CHECKSUM_SHA256, bytes) :
+                   g_strdup("");
+}
+
 static void nikon_transfer_reset(DeviceState *dev)
 {
     NikonTransferState *s = NIKON_TRANSFER(dev);
 
     timer_del(s->timer);
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
+        g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
+        memset(&s->stream[i], 0, sizeof(s->stream[i]));
+        qemu_set_irq(s->stream_request[i], 0);
+    }
+    s->stream_setup = 0;
     memset(s->reg, 0, sizeof(s->reg));
     memset(s->setup, 0, sizeof(s->setup));
     s->configured = 0;
@@ -329,6 +494,20 @@ static void nikon_transfer_init(Object *obj)
     NikonTransferState *s = NIKON_TRANSFER(obj);
     unsigned i;
 
+    qdev_init_gpio_out_named(DEVICE(obj), s->stream_request,
+                            "stream-request", ARRAY_SIZE(s->stream));
+    object_property_add_bool(obj, "stream0-pending",
+                             nikon_transfer_stream0_pending, NULL);
+    object_property_add_bool(obj, "stream1-pending",
+                             nikon_transfer_stream1_pending, NULL);
+    object_property_add_str(obj, "stream0-sha256", nikon_transfer_stream0_hash,
+                            NULL);
+    object_property_add_str(obj, "stream1-sha256", nikon_transfer_stream1_hash,
+                            NULL);
+    object_property_add_uint64_ptr(obj, "stream0-token", &s->stream[0].token,
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "stream1-token", &s->stream[1].token,
+                                  OBJ_PROP_FLAG_READ);
     s->clock = qdev_init_clock_out(DEVICE(obj), "transfer-clock");
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_transfer_step, s);
     memory_region_init_io(&s->regs, obj, &nikon_transfer_ops, s,
@@ -341,7 +520,12 @@ static void nikon_transfer_init(Object *obj)
 
 static void nikon_transfer_finalize(Object *obj)
 {
-    timer_free(NIKON_TRANSFER(obj)->timer);
+    NikonTransferState *s = NIKON_TRANSFER(obj);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
+        g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
+    }
+    timer_free(s->timer);
 }
 
 static const VMStateDescription nikon_transfer_vmstate = {
@@ -354,6 +538,7 @@ static void nikon_transfer_class_init(ObjectClass *oc, const void *data)
 
     dc->vmsd = &nikon_transfer_vmstate;
     dc->user_creatable = false;
+    dc->unrealize = nikon_transfer_reset;
     device_class_set_legacy_reset(dc, nikon_transfer_reset);
 }
 
