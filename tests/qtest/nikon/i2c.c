@@ -443,6 +443,41 @@ static void test_ports(void)
     wire_quit(&t);
 }
 
+static void test_clock_divisors(void)
+{
+    QTestState *q = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 "
+                              "-bios %s -serial none -display none", bios);
+
+    qtest_qmp_assert_success(q, "{'execute':'cont'}");
+    for (unsigned port = 0; port < 4; port++) {
+        uint32_t divisors = 0xb00 | (port << 14);
+
+        for (unsigned receive = 0; receive < 2; receive++) {
+            uint32_t control = divisors | 0x3e | receive;
+
+            write_reg(q, port, 0, control | 0x40);
+            write_reg(q, port, 0x10, IRQ_MASK);
+            if (receive) {
+                write_reg(q, port, 0x14, 1);
+            }
+            write_reg(q, port, 8, 0x55);
+            qtest_clock_step(q, STEP_NS * 100);
+            /* Accept the clocked mode, but do not invent an endpoint ACK. */
+            g_assert_cmphex(read_reg(q, port, 0x10) & 5, ==, 4);
+            g_assert_cmphex(read_reg(q, port, 4) & 0x100, ==, 0);
+            g_assert_cmphex(read_reg(q, port, 0), ==, control);
+        }
+        write_reg(q, port, 0, divisors | 0x26 | 0x40);
+        write_reg(q, port, 0x10, IRQ_MASK);
+        write_reg(q, port, 8, 0x55);
+        qtest_clock_step(q, STEP_NS * 100);
+        /* Divisors must not turn another unsupported monitor mode into TX. */
+        g_assert_cmphex(read_reg(q, port, 0x10), ==, 0);
+        g_assert_cmphex(read_reg(q, port, 4) & 0x100, ==, 0);
+    }
+    qtest_quit(q);
+}
+
 static void test_local(void)
 {
     QTestState *q = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 "
@@ -830,6 +865,7 @@ void nikon_i2c_add_tests(const char *image)
 {
     bios = image;
     qtest_add_func("/nikon/i2c/local", test_local);
+    qtest_add_func("/nikon/i2c/clock-divisors", test_clock_divisors);
     qtest_add_func("/nikon/i2c/source", test_source);
     qtest_add_func("/nikon/i2c/nak", test_nak);
     qtest_add_func("/nikon/i2c/cancel", test_cancel);

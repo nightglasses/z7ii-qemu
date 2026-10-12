@@ -88,7 +88,7 @@ Each controller owns an official [I2CBus](https://github.com/qemu/qemu/blob/4fc4
 
 Normal7-bit master TX/RX is supported. TX TRANS_SIZE returns unsent-byte-count minus one (empty0); RX TRANS_SIZE is remaining expected bytes, and slave counts describe queued FIFO state. These are the standard candidate conventions, not proof of Nikon's variant encoding. RX full waits for guest pop/rearm rather than dropping data. Empty DATA read reports RXUNF and returns a named underflow value0; full DATA write reports TXOVF and preserves existing bytes. FIFO clear cancels work and clears counts/FIFOs; W1C remains separate. HOLD retains a selected endpoint, permits same-address repeated START and stops when released after completion. Configured TX starvation timeout is `(TIMEOUT+1)` virtual SCL cycles; zero disables that assumption. No external slave master is invented.
 
-Unbound operations fail: original CR bit7 extension, monitor-mode ADDR requests,10-bit master addressing, changed endpoint during a held transaction, unsupported widths/offsets and illegal active configuration changes. CR SLVMON can be stored as configuration, but the original master+monitor combination cannot silently become an ordinary transfer. Idle slave configuration does not implement an external slave-controller endpoint. State migration/snapshots are explicitly blocked with upstream unmigratable VMState.
+Unbound operations fail: original CR bit7 extension, other monitor-mode ADDR requests,10-bit master addressing, changed endpoint during a held transaction, unsupported widths/offsets and illegal active configuration changes. The finite model permits low-byte control modes `0x3e/0x3f` as ordinary master transactions; this exception does not recover physical monitor behavior or the Nikon variant encoding. Other CR SLVMON combinations remain rejected at ADDR. Idle slave configuration does not implement an external slave-controller endpoint. State migration/snapshots are explicitly blocked with upstream unmigratable VMState.
 
 Native C `9f453e8c91b88fe4d389663266789f4691f709dc` built successfully and14 focused synthetic checks passed in `work/issue331/i2c-9f453e8/result.json`. Its immutable original receipt is `work/issue331/original-i2c-9f453e8/receipt.json`: QEMUexit0,0.240677s host interval, debug stop, complete payload direct-content unchanged. Log6111 first records CPU0 PC`102a7d94`, READ32 PA`12e00004`;6113/6116 record DataAbort/DFSR1008. CPU1 had passed the four IDR initializer writes; its final PC`103b05d2` does not establish phase completion. The original run did not attach the synthetic EEPROM, modify original code, supply a valid external record, or reach a menu.
 
@@ -124,3 +124,20 @@ links this endpoint successfully. A complete C1.70 bundle machine initializes
 with the endpoint attached; a bounded 120-second original run still stops in
 the separate SLA/EX domain fault loop (CPU3 IFAR/DFAR zero), so this change
 does not claim GUI completion.
+
+## Mode qualification with nonzero divisors
+
+A read-only original observation in the opt-in bridge notification experiment
+catches MAS PC `0x1036d492` writing ADDR `0x38` at `0x2c01a008`, with control
+readback `0x0b3e`. The old ADDR guard compared the entire control word against
+`0x3e/0x3f`, mistakenly treating the existing divisor bits8..15 as mode bits.
+The guard now compares only the low byte. It preserves the same two finite
+mode exceptions; no new monitor operation, endpoint, ACK or reply is added.
+
+The native `/arm/nikon/i2c/clock-divisors` regression first fails on the old
+guard (`0 != 4` for NACK status), then passes. All four empty raw-MAS buses
+accept TX/RX modes with both divisor fields varied and report actual upstream
+address NACK, never successful completion. An unsupported `0x26` mode with
+those divisors still produces no transaction. Full native and original-run
+scope is recorded in [validation](../../validation/native.md); progress under
+the bridge experiment is not default-profile or physical-hardware acceptance.
