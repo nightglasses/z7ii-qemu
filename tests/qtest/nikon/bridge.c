@@ -278,7 +278,7 @@ static void test_combined_domains(void)
     g_autofree char *bundle = peer_bundle();
     g_autofree char *quoted = g_shell_quote(bundle);
     QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
-                              "boot-shim=functional-v1 "
+                              "functional-profile=functional-gui-v1 "
                               "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
     QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
 
@@ -293,8 +293,20 @@ static void test_combined_domains(void)
     g_assert_cmpstr(qdict_get_str(reply, "return"), ==, TYPE_NIKON_INPUT);
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine','property':'functional-profile'}}");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-gui-v1");
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
                          "'path':'/machine','property':'boot-shim'}}");
     g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-v1");
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/bridge','property':'notification-v1'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
                          "'path':'/machine/sla','property':'boot-prefix-present'}}");
@@ -332,10 +344,23 @@ static void test_peer_window(void)
     g_autofree char *quoted = g_shell_quote(bundle);
     QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s -smp 2 "
                                "-serial none", quoted);
+    QDict *reply;
     const char *path = "/machine/bridge";
     const uint64_t first = 0x460f0000;
     const uint64_t second = 0x464f0000;
 
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine','property':'functional-profile'}}");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "none");
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/bridge','property':'notification-v1'}}");
+    g_assert_false(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
+    g_assert_false(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
     qtest_irq_intercept_out_named(q, path, SYSBUS_DEVICE_GPIO_IRQ);
     mapping(q, 1, 0xc60f0000, first, 0xffff0);
     g_assert_cmphex(qtest_readq(q, first), ==, 0);

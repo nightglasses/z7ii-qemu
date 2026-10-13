@@ -240,8 +240,12 @@ an SLA CPU-local boot contract and must not be mistaken for this peer protocol.
 External BootROM, calibration, lens/sensor inputs and
 other uncovered transactions fail and report the original access context.
 
-The public factory `nikon_sla_create(parent, name, payload, num_cpus, serial,
-errp)` refs the complete immutable SLA `GBytes` from the validated container.
+The public factory `nikon_sla_create(parent, name, payload, boot_prefix,
+boot_shim, bridge_notifications, num_cpus, serial, errp)` refs the complete
+immutable SLA `GBytes` from the validated container. The composed
+`functional-gui-v1` profile supplies the bridge-notification choice before the
+private SLA bridge is realized; standalone SLA and the strict composed profile
+leave it false.
 The caller may unref its own payload after creation. The standalone wrapper
 validates its container once and passes that same component boundary.
 `nikon_sla_address_space(domain)` returns a borrowed stable peer AddressSpace;

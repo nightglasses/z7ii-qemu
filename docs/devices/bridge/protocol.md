@@ -126,10 +126,12 @@ state. Readback from the first word `+0x6000` remains rejected by default;
 receive-bank accesses also remain rejected without an experimental connection.
 Other directions, widths and neighbors are not generic storage.
 
-`notification-v1` is a default-off research property. With explicit
-`-global nikon-bridge-functional.notification-v1=on`, the complete-bundle
-machine connects the two opted-in devices using
-`nikon_bridge_connect_notifications()`. This profile hypothesizes local
+`notification-v1` is a default-off research property. The composed machine's
+explicit `functional-profile=functional-gui-v1` sets the property on both MAS
+and SLA bridges before realize and then connects the opted-in pair using
+`nikon_bridge_connect_notifications()`. A direct QOM global remains a focused
+device-test mechanism rather than the documented machine profile. The profile
+hypothesizes local
 bank0 to peer bank1 reflection, a flags mirror in the unused first getter
 word, empty reset state, and sticky IRQ cause bit15 on newly set bits. It is
 not the withdrawn stored-word experiment and is not qualified physical

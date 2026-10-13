@@ -32,6 +32,21 @@ work/build/qemu/qemu-system-arm \
   -smp cpus=2,maxcpus=5
 ```
 
+Normal-LCD development uses one explicit functional hardware composition root:
+
+```sh
+work/build/qemu/qemu-system-arm \
+  -M z7ii-mas-diagnostic,bundle=/absolute/path/to/decoded-container.bin,functional-profile=functional-gui-v1 \
+  -smp cpus=2,maxcpus=5
+```
+
+`functional-gui-v1` currently selects the accepted `functional-v1` loader and
+connects the MAS/SLA opt-in notification endpoints before either bridge is
+realized. It does not write guest event objects, task state or pixels. Further
+CMOS/readout, graphics and peer-service providers join this same explicit
+profile as their finite contracts are implemented. Omitting the property keeps
+the strict default profile and disconnected notification endpoints.
+
 The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
 input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
 replacement for the combined bundle path. `nikonsla`, `nikonex`, and `nikonvr`

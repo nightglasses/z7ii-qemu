@@ -107,6 +107,7 @@ struct Z7IIMachineState {
     unsigned num_cpus;
     char *bundle_path;
     char *boot_shim;
+    char *functional_profile;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *cmos_image;
@@ -517,6 +518,29 @@ static bool z7ii_functional_shim(Z7IIMachineState *s)
     return nikon_bootshim_is_functional(s->boot_shim);
 }
 
+static bool z7ii_functional_gui(const Z7IIMachineState *s)
+{
+    return s->functional_profile &&
+           !strcmp(s->functional_profile, "functional-gui-v1");
+}
+
+static void z7ii_apply_functional_profile(Z7IIMachineState *s)
+{
+    if (!z7ii_functional_gui(s)) {
+        return;
+    }
+    if (!s->bundle_path) {
+        error_report("functional-gui-v1 requires a complete bundle");
+        exit(EXIT_FAILURE);
+    }
+    if (s->boot_shim && strcmp(s->boot_shim, "functional-v1")) {
+        error_report("functional-gui-v1 requires boot-shim=functional-v1");
+        exit(EXIT_FAILURE);
+    }
+    g_free(s->boot_shim);
+    s->boot_shim = g_strdup("functional-v1");
+}
+
 static void z7ii_select_functional_shim(Z7IIMachineState *s)
 {
     if (!z7ii_functional_shim(s)) {
@@ -621,6 +645,7 @@ static void z7ii_init(MachineState *machine)
         error_report("z7ii-mas-diagnostic currently requires Cortex-A7");
         exit(EXIT_FAILURE);
     }
+    z7ii_apply_functional_profile(s);
     if (!!machine->firmware == !!s->bundle_path) {
         error_report("select exactly one input: -bios <raw MAS payload> "
                      "or -machine bundle=<decoded container>");
@@ -929,6 +954,7 @@ static void z7ii_init(MachineState *machine)
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
+    qdev_prop_set_bit(bridge, "notification-v1", z7ii_functional_gui(s));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(bridge), 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(bridge), 0,
@@ -1195,6 +1221,7 @@ static void z7ii_init(MachineState *machine)
             nikon_boot_prefix_load(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
                                             boot_prefix, s->boot_shim,
+                                            z7ii_functional_gui(s),
                                             Z7II_SLA_CPUS, NULL,
                                             &error_fatal);
         DeviceState *sla_bridge = nikon_sla_bridge(sla);
@@ -1263,6 +1290,32 @@ static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
 
     g_free(s->bundle_path);
     s->bundle_path = g_strdup(value);
+}
+
+static char *z7ii_get_functional_profile(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->functional_profile;
+
+    return g_strdup(value ? value : "none");
+}
+
+static void z7ii_set_functional_profile(Object *obj, const char *value,
+                                        Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "functional-profile must be configured before machine init");
+        return;
+    }
+    if (!value || !*value || !strcmp(value, "none") ||
+        !strcmp(value, "functional-gui-v1")) {
+        g_free(s->functional_profile);
+        s->functional_profile = g_strdup(value && *value ? value : "none");
+        return;
+    }
+    error_setg(errp, "functional-profile must be none or functional-gui-v1");
 }
 
 static char *z7ii_get_nor_profile(Object *obj, Error **errp)
@@ -1406,6 +1459,7 @@ static void z7ii_finalize(Object *obj)
 
     nikon_bundle_free(s->bundle);
     g_free(s->bundle_path);
+    g_free(s->functional_profile);
     g_free(s->nor_profile);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
@@ -1428,6 +1482,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "functional-profile",
+                                  z7ii_get_functional_profile,
+                                  z7ii_set_functional_profile);
+    object_class_property_set_description(oc, "functional-profile",
+        "Explicit unchanged-firmware hardware profile: none or functional-gui-v1");
     object_class_property_add_str(oc, "boot-shim", z7ii_get_boot_shim,
                                   z7ii_set_boot_shim);
     object_class_property_set_description(oc, "boot-shim",
