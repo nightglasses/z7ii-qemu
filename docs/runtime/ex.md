@@ -61,6 +61,33 @@ This does not assign a camera menu meaning to a host key or synthesize a touch
 contact. Real original menu, peripheral and SPI-arm execution still requires a
 combined-runtime witness after this composition has been compiled and tested.
 
+The separate 24-pad EX I2C expander at address `0x22`, QOM path
+`/machine/ex/io`, accepts an explicit machine input property `ex-io-levels`.
+For example, `ex-io-levels=0:0;9:1;23:0` drives pad indices 0 and 23 low and
+pad 9 high. Entries are decimal `pin:level` pairs separated by semicolons;
+pins must be unique in `0..23`, and levels must be `0` or `1`. An empty or
+omitted property drives no expander pads. Every omitted pin remains physically
+disconnected and follows the expander's existing pull/floating contract.
+Quote the machine argument in a shell when it contains semicolons.
+
+Nonempty input requires a complete bundle and must be configured before machine
+initialization. After EX realization, the machine applies only the specified
+levels through the expander's existing named `pad` GPIO inputs. Its existing
+external-drive state retains them through reset; the machine does not replay
+configuration on reset or override later external input changes. This option
+does not name camera buttons, infer polarity or measured board wiring, connect
+the seventeen-key frontend to the expander, or supply guest events or replies.
+Any selected pad values are explicit external-input assumptions and must be
+recorded independently from original-firmware execution progress.
+
+Focused synthetic coverage lives in qtests
+`/arm/nikon/combined/ex-io-levels` and
+`/arm/nikon/combined/ex-io-levels-reject`, plus the native
+`nikon_exlevels_unit` fixture. The unit reads the private expander over its real
+I2C bus, checks driven low/high versus disconnected pads under programmed
+pull-downs, global and physical reset, and subsequent input release. These
+fixtures require no proprietary firmware and do not establish original startup.
+
 The independent SLA clone requires an external 128 KiB input before the package
 ROM. The default keeps that range unavailable. An explicit machine option
 `sla-boot-prefix=erased` supplies a counterfactual erased-FF input; an explicit

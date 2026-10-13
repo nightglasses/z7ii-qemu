@@ -116,6 +116,9 @@ struct Z7IIMachineState {
     char *ex_adc_counts;
     int ex_adc_sample[4];
     uint8_t ex_adc_mask;
+    char *ex_io_levels;
+    uint32_t ex_io_mask;
+    uint32_t ex_io_high;
     bool frame_contract;
     char *nor_profile;
     Z7IINorReadMode nor_read_mode;
@@ -592,6 +595,12 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    for (i = 0; i < 24; i++) {
+        if (s->ex_io_mask & (1u << i)) {
+            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
+                         !!(s->ex_io_high & (1u << i)));
+        }
+    }
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
      * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
@@ -660,6 +669,10 @@ static void z7ii_init(MachineState *machine)
     }
     if (s->ex_adc_mask && !s->bundle_path) {
         error_report("ex-adc-counts requires a complete bundle and private EX");
+        exit(EXIT_FAILURE);
+    }
+    if (s->ex_io_mask && !s->bundle_path) {
+        error_report("ex-io-levels requires a complete bundle and private EX");
         exit(EXIT_FAILURE);
     }
     if (machine->smp.cpus > Z7II_MAX_CPUS) {
@@ -1459,6 +1472,45 @@ static void z7ii_set_ex_adc_counts(Object *obj, const char *value, Error **errp)
     s->ex_adc_counts = g_strdup(value);
 }
 
+static char *z7ii_get_ex_io_levels(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->ex_io_levels;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_ex_io_levels(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
+    uint32_t mask = 0, high = 0;
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "ex-io-levels must be configured before machine init");
+        return;
+    }
+    for (unsigned i = 0; entries[i] && value[0]; i++) {
+        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
+        int pin, level;
+
+        if (g_strv_length(pair) != 2 ||
+            qemu_strtoi(pair[0], NULL, 10, &pin) ||
+            qemu_strtoi(pair[1], NULL, 10, &level) ||
+            pin < 0 || pin >= 24 || level < 0 || level > 1 ||
+            (mask & (1u << pin))) {
+            error_setg(errp, "ex-io-levels expects unique pin:level entries "
+                       "separated by ';'; pins 0..23; levels 0/1");
+            return;
+        }
+        mask |= 1u << pin;
+        high |= (uint32_t)level << pin;
+    }
+    s->ex_io_mask = mask;
+    s->ex_io_high = high;
+    g_free(s->ex_io_levels);
+    s->ex_io_levels = g_strdup(value);
+}
+
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
@@ -1487,6 +1539,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
     g_free(s->ex_adc_counts);
+    g_free(s->ex_io_levels);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1540,6 +1593,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "ex-adc-counts",
         "Explicit functional ADC1 channel:raw-count entries separated by ';' "
         "(channels 0,1,3; counts 0..4095); omitted channels remain disconnected");
+    object_class_property_add_str(oc, "ex-io-levels", z7ii_get_ex_io_levels,
+                                 z7ii_set_ex_io_levels);
+    object_class_property_set_description(oc, "ex-io-levels",
+        "Explicit EX I2C-expander pin:level entries separated by ';' "
+        "(pins 0..23; levels 0/1); omitted pins remain disconnected");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
     object_class_property_set_description(oc, "frame-contract",
