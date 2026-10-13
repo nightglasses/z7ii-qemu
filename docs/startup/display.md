@@ -2,9 +2,13 @@
 
 The display lane now implements guest-buffer image processing and console
 publication in the existing `banks.c`, in addition to the independently
-implemented `transfer.c` graphics DMA. A console exists only after a complete
-successful data transaction. A synthetic image fixture is not a receipt of
-the original GUI or a physical LCD identification.
+implemented `transfer.c` graphics DMA. These paths, the CMOS transport,
+graphics completion and scanout are implementation bases for a complete finite
+deterministic pipeline, not reasons to wait for exact Bayer, GPU or camera
+evidence. A console exists only after a complete successful data transaction.
+A synthetic image fixture is not a receipt of the original GUI or a physical
+LCD identification; functional behavior and physical fidelity are separate
+claims.
 
 The saved ec048f native source batch and the finite RTOS source graphs supply
 complete instruction/P-code bodies and original packet/callback bindings.
@@ -40,12 +44,13 @@ flowchart LR
 | signal2b000000 | five external input routes/debounce/shared IRQ237 | sampled pins, not a RAW-pixel ingress |
 
 The sensor provider writes explicit opaque frame rows to normal RAM using a
-BlockBackend and DMA, with causal exposure/readout/error outputs. It remains
-disconnected until an original controller descriptor joins that input to the
-guest pipeline. No pixel-statistics sample or protocol reply is manufactured
-by connecting IPUD/sampler/table according to their names. The remaining
-image-adjacent parameter/staging/shared/pairs/config families retain their own
-explicit provider contracts; physical identity is not assigned by address.
+BlockBackend and DMA, with causal exposure/readout/error outputs. A finite
+controller model may join that input to the guest pipeline while the original
+controller descriptor and physical pixel fidelity remain unverified. No
+pixel-statistics sample or protocol reply is manufactured merely by connecting
+IPUD/sampler/table according to their names. The remaining image-adjacent
+parameter/staging/shared/pairs/config families retain their own explicit
+provider contracts; physical identity is not assigned by address.
 
 Detailed current contracts: [bank image](../devices/banks/image.md),
 [graphics transfer](../devices/transfer/protocol.md),
@@ -57,24 +62,29 @@ activation rejection and unresolved software-wrapper description were removed.
 
 ## Original execution and next acceptance
 
-The model owner has observed original GUI core1020d41a and message task102942f8
-executing, with cfgB1818bd0. This is task progress, not a screen. The latest
-whole-chain investigation is role1 phase3 slot0e waiting for mask10; its
-actual asynchronous producer is being recovered by the RTOS/native owners.
-The display lane continues independently and does not patch that guest wait.
+Original GUI core1020d41a and message task102942f8 have been observed executing
+with cfgB1818bd0. This is task progress, not a screen. The whole-chain trace
+reaches role1 phase3 slot0e waiting for mask10. The display lane proceeds as a
+finite hardware model and does not patch that guest wait.
 
-The machine owner observes naturally reached1044a98e/104dd20e/1046d0d2/
-1046d48a packets, source addresses, dimensions, layouts, TTBR state and
-translated RAM. No RAM scanning guesses a screen. The sole builder receives
-one full image/sampling native batch; another owner alone runs the unchanged
-original firmware. Current image fixtures verify exact output RAM and QMP PPM
-pixels, all numeric layout footprints, cancellation, failed later layers,
-two-port composition and two-bank IRQ aggregation. Their actual execution
-result must come from the builder before they are called passed.
+The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480)
+dependency is closed: `0x42062002` is firmware-local and type-5 traffic is
+service negotiation. [#482](https://github.com/mashiro01/nightglass/issues/482)
+and [#485](https://github.com/mashiro01/nightglass/issues/485) are parallel and
+unblocked.
+
+Original execution naturally reaches1044a98e/104dd20e/1046d0d2/1046d48a
+packets, source addresses, dimensions, layouts, TTBR state and translated RAM.
+No RAM scanning guesses a screen. Current image fixtures check exact output RAM
+and QMP PPM pixels, all numeric layout footprints, cancellation, failed later
+layers, two-port composition and two-bank IRQ aggregation.
 
 Original first-frame acceptance requires a naturally produced source packet
 and pixels, completed device transaction, supplied output address/format and
 an actual console image. Interactive menus additionally require host input
-through the original external event/IRQ/handler path and an observable image
-change. Full boot, original GUI and physical behavior remain unverified until
-those receipts exist.
+through the modeled external event/IRQ/handler path and an observable image
+change. The model may causally produce status, IRQ and scanout through finite
+hardware state machines. It must not write guest event/status state to force
+success, invoke guest callbacks or ISRs, manipulate the guest PC or task state,
+or present a prefilled, fixed or host-drawn UI. Normal GUI, full boot and
+physical behavior remain unverified.

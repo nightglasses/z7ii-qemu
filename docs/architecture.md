@@ -4,6 +4,10 @@ This document describes the current composed Z7II machine, its standalone
 component profiles, and the evidence boundary for each hardware pipeline. A
 solid edge means the QEMU model has a bounded contract and a focused test. A
 dashed edge means the firmware or hardware join is observed only partially.
+It limits the physical-fidelity claim, not implementation: QEMU must provide
+complete finite deterministic CMOS/readout/service/graphics/IRQ/scanout
+behavior for unchanged firmware without waiting for exact Bayer, GPU or camera
+evidence.
 
 ## Machine composition
 
@@ -142,7 +146,12 @@ to `0x10200d06`: that observed call supplies mask `0x1`. Strict/default bridge
 notifications still reject PA `0x2013e000`. Default-off `notification-v1`
 experiments observe the mask `0x10` setter and natural wait return, but do not
 qualify first-word reflection, cross-bank binding, reset or IRQ hypotheses.
-The peer-ready/bridge/GPIO/USIO hardware join remains unverified.
+The peer-ready/bridge/GPIO/USIO hardware join remains unverified. The former
+[tracker #480](https://github.com/mashiro01/nightglass/issues/480) dependency is
+closed: `0x42062002` is firmware-local and type-5 traffic is service negotiation.
+[#482](https://github.com/mashiro01/nightglass/issues/482) and
+[#485](https://github.com/mashiro01/nightglass/issues/485) are parallel and
+unblocked.
 
 ### Image pipeline
 
@@ -167,9 +176,11 @@ flowchart TD
 ```
 
 The CMOS, processing, display, and storage devices each have isolated tests.
-The complete original-firmware image path is not accepted until the runtime
-producer, descriptor geometry, completion event, scanout, and save edge are all
-observed.
+The existing CMOS transport, graphics capture/completion, image-bank compositor
+and scanout are implementation bases for joining this pipeline. A finite
+functional producer, geometry, completion, IRQ and scanout path does not require
+exact physical-camera evidence. The stronger claim that this is the original
+physical image path remains unaccepted until its runtime joins are observed.
 
 ### Processor and graphics provider boundaries
 
@@ -177,8 +188,9 @@ observed.
 flowchart TD
   MMIO[MAS MMIO] --> Processor[Request-only processor\nfunctional-v1: PA2c040000 + 04294000]
   Processor -. no connected execution provider .-> Execution[Execution / ready / replies unproved]
-  MMIO --> Streams[Owned opaque graphics frontend PA20180000\nfull224/1688B capture; pending]
-  Streams -. no processing / fence / status58 / IRQ129 provider .-> Graphics[Original graphics processing unresolved]
+  MMIO --> Streams[Owned opaque graphics frontend PA20180000\nfull224/1688B capture and pair completion]
+  Streams --> PairCompletion[Bounded owned-pair completion / IRQ129]
+  PairCompletion -. no command execution / fence / status58 provider .-> Graphics[Original graphics processing unresolved]
   RAM[Guest RAM] --> Copy[Ordinary byte copy\ncompleted DMA → IRQ130]
   External[Explicit externally produced complete buffers] --> Process[Processing endpoint PA24070000\nnot a stream decoder]
   RAM --> Compose[Supplied-buffer composition\nPixman / functional scanout]
@@ -195,7 +207,7 @@ configuration; this is not processor success or a proven SLA route.
 The graphics frontend owns immutable opaque snapshots, not decoded results.
 Descriptor extents56/422 are 32-bit words and register counts28/211 are
 64-bit units: full lengths224/1688 bytes. The corrected frontend captures
-`8*units64` within a functional 128-KiB bound per stream. Parent native receipts
+`8*units64` within a functional 128-KiB bound per stream. Recorded native receipts
 pass 29 fixtures / 247 subtests; two experimental original-bundle runs match the
 producer-bounded full inputs while retaining pending tokens1/2 and the
 ordinal10 wait, without a wait return, IRQ129 or frame. The old56/422-byte
@@ -203,26 +215,32 @@ captures remain historical prefixes; shared-length hash matches were not
 independent full-bound proof. Historical and corrected identities remain in
 [the runtime study](runtime/coprocessor.md) and [native receipts](validation/native.md).
 Ordinary copy IRQ130 and supplied-buffer composition are implemented endpoints,
-not the absent original graphics provider. D200 zero and the C0A0 bit gate are
-finite retained scalar contracts with no event side effect; their physical
-meaning remains unknown. C010 and PA `0x2c012000` remain strict errors. Static
-Thumb recovery places the previously ranked `1046bfxx` image-start route under
-the registered `tftdbg` command handler, not the natural startup path.
+not proof of the original graphics provider. Together with stream capture,
+completion, the image-bank compositor and scanout, they are bases for a complete
+finite deterministic provider rather than reasons to stop. D200 zero and the
+C0A0 bit gate are finite retained scalar contracts with no event side effect;
+their physical meaning remains unknown. C010 and PA `0x2c012000` remain strict
+errors. Static Thumb recovery places the previously ranked `1046bfxx` image-start
+route under the registered `tftdbg` command handler, not the natural startup
+path.
 
-## Current frontier
+## Current implementation boundaries
 
-| Pipeline | Current evidence | Next boundary |
+| Pipeline | Current evidence | Remaining functional or fidelity boundary |
 |---|---|---|
 | CPU startup | CPU0 initial task and PKGB roles observed | CPU/board parameter matrix |
 | Loader COPY | Both 4 MiB arenas; bounded500*/502* RAM under functional-v1 | Physical ownership/provider, not missing storage in this profile |
 | EV3 | Historical peer setters masks0x1/0x2 (wrapper LRs10200d0b/10200ceb); GUI mask0x10 producer VA10200c34; experimental progression | Strict PA2013e000; notification hypotheses unqualified |
-| Processor | MAS-only request/bootstrap storage; natural experimental timeout | No execution/ready/reply provider |
-| Graphics streams | Corrected owned full224/1688B capture; native receipts and experimental producer-bound matches; requests remain pending | Processing/fence/status58/IRQ129 provider |
-| Ordinary copy/composition | Implemented DMA IRQ130 and supplied-buffer console publication | Original stream/guest producer join unverified |
+| Processor | MAS-only request/bootstrap storage; natural experimental timeout | Finite execution/ready/reply provider remains to implement |
+| Graphics streams | Corrected owned full224/1688B capture plus bounded pair completion/IRQ129; native receipts and experimental producer-bound matches | Finite command execution/fence/status58 provider remains to implement |
+| Ordinary copy/composition | Implemented DMA IRQ130 and supplied-buffer console publication | Original stream/guest producer join unverified as a fidelity claim |
 | Display/control scalar lifecycle | D100/D200/C0A0 finite source-bounded contracts | C010 and PA2c012000 remain strict; physical meanings unresolved |
-| CMOS/readout | Device contracts and fixtures exist | Original firmware producer and DMA completion |
-| Display | GUI acceptance test reports explicit `UNMET` | Real framebuffer and scanout callback |
+| CMOS/readout | Device contracts and fixtures exist | Finite original-firmware-facing producer and DMA completion remain to implement |
+| Display | GUI acceptance test reports explicit `UNMET` | Functional framebuffer and scanout callback remain to implement; physical LCD fidelity is separate |
 
-Every unknown remains an explicit fault or receipt. The emulator does not
-advance a guest PC, synthesize an event, prefill a framebuffer, or convert a
-transport fixture into a camera specification.
+Every unknown remains an explicit fault or receipt. Hardware models may produce
+causal status, IRQ and scanout results through their finite state machines. They
+must not force a guest-software outcome by writing guest event/status state,
+invoking a guest callback or ISR, manipulating the guest PC or task state, or
+presenting a prefilled, fixed or host-drawn UI. A transport fixture remains
+separate from a camera specification.
