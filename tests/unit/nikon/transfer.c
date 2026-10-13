@@ -664,7 +664,7 @@ static void build_clear_program(uint8_t *setup, uint8_t *draw,
 #define EMIT(header, ...) \
     clear_emit(bytes, &at, header, (uint32_t[]) { __VA_ARGS__ }, \
                sizeof((uint32_t[]) { __VA_ARGS__ }) / sizeof(uint32_t))
-#define REG(reg, mask, value) EMIT((reg << 16) | (mask << 12) | 4, value)
+#define REG(reg, mask, value) EMIT(((reg) << 16) | ((mask) << 12) | 4, value)
 
     memset(setup, 0, NIKON_TRANSFER_CLEAR_SETUP_BYTES);
     memset(draw, 0, NIKON_TRANSFER_CLEAR_DRAW_BYTES);
