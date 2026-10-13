@@ -6,6 +6,7 @@
 #include "qapi/error.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/core/sysbus.h"
 #include "hw/nikon/cmos.h"
 #include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/sensor.h"
@@ -14,7 +15,7 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonReadoutPipeline, NIKON_READOUT_PIPELINE)
 
 struct NikonReadoutPipeline {
-    DeviceState parent_obj;
+    SysBusDevice parent_obj;
     DeviceState *readout;
     DeviceState *cmos;
     uint64_t active_generation;
@@ -168,7 +169,7 @@ static void nikon_readout_pipeline_class_init(ObjectClass *oc, const void *data)
 
 static const TypeInfo nikon_readout_pipeline_type = {
     .name = TYPE_NIKON_READOUT_PIPELINE,
-    .parent = TYPE_DEVICE,
+    .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonReadoutPipeline),
     .instance_init = nikon_readout_pipeline_init,
     .class_init = nikon_readout_pipeline_class_init,

@@ -956,7 +956,7 @@ static void z7ii_init(MachineState *machine)
                                  &error_fatal);
         object_property_set_link(OBJECT(pipeline), "cmos", OBJECT(cmos),
                                  &error_fatal);
-        qdev_realize_and_unref(pipeline, NULL, &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
         qdev_connect_gpio_out_named(readout, "readout-request", 0,
             qdev_get_gpio_in_named(pipeline, "request", 0));
         for (i = 0; i < NIKON_CMOS_PIPELINE_EVENTS; i++) {

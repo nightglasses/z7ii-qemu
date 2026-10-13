@@ -23,7 +23,7 @@ static uint64_t property_at(QTestState *q, const char *path,
                             const char *property)
 {
     QDict *reply = qtest_qmp(q,
-        "{'execute':'qom-get','arguments':{'path':'%s','property':'%s'}}",
+        "{'execute':'qom-get','arguments':{'path':%s,'property':%s}}",
         path, property);
     uint64_t value = qdict_get_int(reply, "return");
 

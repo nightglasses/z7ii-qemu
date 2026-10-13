@@ -507,6 +507,7 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
                        Error **errp)
 {
     NikonCmosState *s = NIKON_CMOS(dev);
+    NikonCmosConfig previous = s->configuration;
     NikonCmosConfig config = { 0 };
 
     if (!submission || submission->format != NIKON_CMOS_FORMAT_FUNCTIONAL_C170) {
@@ -528,7 +529,11 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
     config.exposure_ns = submission->exposure_ns;
     config.readout_ns = submission->readout_ns;
     s->configuration = config;
-    return nikon_cmos_begin(s, errp);
+    if (!nikon_cmos_begin(s, errp)) {
+        s->configuration = previous;
+        return false;
+    }
+    return true;
 }
 
 static void nikon_cmos_start(NikonCmosState *s)
