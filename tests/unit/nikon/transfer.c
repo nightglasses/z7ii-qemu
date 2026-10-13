@@ -642,6 +642,267 @@ static void test_stream_extent_boundaries(void)
     }
 }
 
+static void clear_emit(uint8_t *bytes, unsigned *at, uint32_t header,
+                       const uint32_t *values, unsigned count)
+{
+    g_assert_cmpuint(((header >> 3) & 255) + 1, ==, count);
+    stl_le_p(bytes + 4 * (*at)++, header);
+    for (unsigned i = 0; i < count; i++) {
+        stl_le_p(bytes + 4 * (*at)++, values[i]);
+    }
+}
+
+/*
+ * Assemble synthetic register packets from the finite protocol. No original
+ * firmware command bytes are included in the fixture.
+ */
+static void build_clear_program(uint8_t *setup, uint8_t *draw,
+                                uint32_t first, uint32_t second)
+{
+    unsigned at = 0;
+    uint8_t *bytes = setup;
+#define EMIT(header, ...) \
+    clear_emit(bytes, &at, header, (uint32_t[]) { __VA_ARGS__ }, \
+               sizeof((uint32_t[]) { __VA_ARGS__ }) / sizeof(uint32_t))
+#define REG(reg, mask, value) EMIT(((reg) << 16) | ((mask) << 12) | 4, value)
+
+    memset(setup, 0, NIKON_TRANSFER_CLEAR_SETUP_BYTES);
+    memset(draw, 0, NIKON_TRANSFER_CLEAR_DRAW_BYTES);
+    REG(0x69, 1, 0x80);
+    for (unsigned i = 0; i < 2; i++) {
+        EMIT(0x0041f046, 0x3f800000, 0, 0, 0, 0x3f800000, 0,
+             0, 0, 0x3f800000);
+    }
+    REG(0x65, 3, 0x100);
+    REG(0x40, 15, 0x02b00400);
+    REG(3, 15, 5);
+    REG(5, 15, 0x80000005);
+    REG(0x63, 15, 5);
+    REG(0x5e, 15, 0x3f800000);
+    REG(0x5f, 15, 0);
+    EMIT(0x0080f026, 0x12345678, 0, 16, 0x02b00400, 0);
+    REG(6, 15, 1);
+    EMIT(0xa, 0x07090702, 0);
+    EMIT(0x00010022, 0, 6, 1024, 682, 0xfffffc00);
+    REG(0x85, 15, 0x10001);
+    g_assert_cmpuint(at, ==, 55); /* final zero alignment word */
+
+    bytes = draw;
+    at = 0;
+    REG(0x140, 8, 0);
+    REG(0x190, 1, 0);
+    REG(0x14e, 14, 0x1b0000);
+    REG(0x156, 14, 0x1b0000);
+    REG(0x1a2, 15, 0x105);
+    REG(0x1a3, 15, 0x02b00400);
+    REG(0x184, 4, 0);
+    REG(0x1a7, 15, 0x101);
+    REG(0x11c, 15, 0x02b00000);
+    REG(0x1a0, 8, 0);
+    EMIT(0x00c0f00e, 0x03ff0000, 0x02af0000);
+    REG(0x100, 1, 1);
+    REG(0x115, 1, 1);
+    REG(0x1b0, 1, 13);
+    REG(0x1b3, 1, 1);
+    EMIT(0x01c1f046, 0x7a8000, 0x1671c6, 0x749, 0x100, 0x6ad259,
+         0x75653, 0x7ad200, 0x753132, 0x200);
+    REG(0x184, 8, 0);
+    REG(0x1a1, 1, 0);
+    REG(0x115, 12, 0);
+    for (unsigned i = 0; i < 3; i++) {
+        REG(0x140, i == 2 ? 2 : 1, 0);
+        REG(0x14d, 15, 0);
+        REG(0x14d, 15, 0);
+    }
+    REG(0x184, 1, 8);
+    REG(0x186, 8, 0x07000000);
+    REG(0x187, 15, 0);
+    stl_le_p(draw + 4 * at++, 0x0188f7fc);
+    for (unsigned i = 0; i < 256; i++) {
+        stl_le_p(draw + 4 * at++, (255 - i) << 4);
+    }
+    EMIT(0x0192f02e, 0x400, 0, 0x400, 0, 0x400, 0);
+    REG(0x186, 8, 0x38000000);
+    REG(0x187, 15, 0);
+    stl_le_p(draw + 4 * at++, 0x0188f0fc);
+    for (unsigned i = 0; i < 32; i++) {
+        stl_le_p(draw + 4 * at++, i * 17);
+    }
+    REG(0x186, 3, 0x10f);
+    REG(0x184, 2, 0);
+    REG(0x1a0, 2, 0);
+    REG(0x1a2, 9, 0x105);
+    REG(0x1a4, 15, first);
+    REG(0x1b5, 15, second);
+    REG(0x1a7, 4, 0);
+    REG(0x185, 15, 0);
+    REG(0x184, 1, 8);
+    REG(0x184, 8, 0);
+    REG(0x1a0, 4, 0);
+    REG(0x1a5, 1, 0);
+    REG(0x1aa, 1, 0);
+    EMIT(0x00a0f02e, 0x12345678, 0, 16, 0x02b00400, 0, 0);
+    REG(0xa6, 15, 0x10001);
+    REG(0x1a6, 1, 1);
+    REG(8, 1, 1);
+    g_assert_cmpuint(at, ==, 411);
+#undef REG
+#undef EMIT
+}
+
+static MemTxResult submit_clear(TransferFixture *f, unsigned draw_bytes)
+{
+    const uint32_t packet[][2] = {
+        { 0x1214, 0x100ffff }, { 0x1298, 0 },
+        { 0x10d4, 0x400000 }, { 0x10dc, 28 }, { 0x10d0, 1 },
+        { 0x10e4, 0x401000 }, { 0x10ec, draw_bytes / 8 },
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmpint(write_register(f, packet[i][0], packet[i][1]), ==,
+                        MEMTX_OK);
+    }
+    return write_register(f, 0x10e0, 1);
+}
+
+static void test_yuv_clear(void)
+{
+    enum { PLANE = 1024 * 682, OFFSET = 0x100000, SIZE = 0x300000 };
+    enum { VALID, HEADER, TRUNCATED, FORMAT, GEOMETRY, COLOR, MODE, KEY,
+           LUT, OVERFLOW, OVERLAP, DELTA, MMIO, STREAM_OVERLAP, BLEND,
+           TRIGGER, UNBACKED, RESET, MAP_LOSS, BACKING_ALIAS, UNREALIZE,
+           CASES };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion ram, mmio, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data;
+
+    object_property_add_child(object_get_objects_root(), "transfer-clear[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&ram, OBJECT(f.dev),
+                                          "test.clear-ram", SIZE, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x400000, &ram);
+    memory_region_init_io(&mmio, OBJECT(f.dev), &side_effect_ops, &f,
+                          "test.clear-mmio", 2 * PLANE);
+    memory_region_add_subregion(root, 0x800000, &mmio);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.clear-alias",
+                             &ram, OFFSET, PLANE);
+    data = memory_region_get_ram_ptr(&ram);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+
+    for (unsigned test = 0; test < CASES; test++) {
+        unsigned length = NIKON_TRANSFER_CLEAR_DRAW_BYTES;
+        bool accepted = test == VALID || test >= RESET;
+        uint8_t setup[NIKON_TRANSFER_CLEAR_SETUP_BYTES];
+        uint8_t draw[NIKON_TRANSFER_CLEAR_DRAW_BYTES];
+
+        device_cold_reset(f.dev);
+        memset(data, 0xa5, SIZE);
+        build_clear_program(data, data + 0x1000, 0x500000, 0x500000 + PLANE);
+        switch (test) {
+        case HEADER:
+            stl_le_p(data + 0x1000 + 71 * 4, 0x0188f7f4);
+            break;
+        case TRUNCATED:
+            length -= 8;
+            break;
+        case FORMAT:
+            stl_le_p(data + 0x1000 + 9 * 4, 0x107);
+            break;
+        case GEOMETRY:
+            stl_le_p(data + 50 * 4, 1023);
+            break;
+        case COLOR:
+            stl_le_p(data + 0x1000 + 387 * 4, 1);
+            break;
+        case MODE:
+            stl_le_p(data + 0x1000 + 389 * 4, 2);
+            break;
+        case KEY:
+            stl_le_p(data + 37 * 4, 0x76543210);
+            break;
+        case LUT:
+            stl_le_p(data + 0x1000 + 72 * 4, 0x1000);
+            break;
+        case OVERFLOW:
+            stl_le_p(data + 0x1000 + 383 * 4, 0xfffff000);
+            break;
+        case OVERLAP:
+            stl_le_p(data + 0x1000 + 383 * 4, 0x500001);
+            break;
+        case DELTA:
+            stl_le_p(data + 0x1000 + 383 * 4, 0x500001 + PLANE);
+            break;
+        case MMIO:
+            stl_le_p(data + 0x1000 + 381 * 4, 0x800000);
+            stl_le_p(data + 0x1000 + 383 * 4, 0x800000 + PLANE);
+            break;
+        case STREAM_OVERLAP:
+            stl_le_p(data + 0x1000 + 381 * 4, 0x400000);
+            stl_le_p(data + 0x1000 + 383 * 4, 0x400000 + PLANE);
+            break;
+        case BLEND:
+            stl_le_p(data + 0x1000 + 377 * 4, 0x10000);
+            break;
+        case TRIGGER:
+            stl_le_p(data + 0x1000 + 408 * 4, 2);
+            break;
+        case UNBACKED:
+            stl_le_p(data + 0x1000 + 381 * 4, 0x700000);
+            stl_le_p(data + 0x1000 + 383 * 4, 0x700000 + PLANE);
+            break;
+        default:
+            break;
+        }
+        memcpy(setup, data, sizeof(setup));
+        memcpy(draw, data + 0x1000, sizeof(draw));
+        g_assert_cmpint(submit_clear(&f, length), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        for (unsigned i = 0; i < 2 * PLANE; i++) {
+            g_assert_cmphex(data[OFFSET + i], ==, 0xa5);
+        }
+        if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == UNREALIZE) {
+            qdev_unrealize(f.dev);
+        } else if (test == MAP_LOSS || test == BACKING_ALIAS) {
+            memory_region_set_readonly(&alias, test == MAP_LOSS);
+            memory_region_add_subregion_overlap(root, 0x500000 + PLANE,
+                                                &alias, 1);
+        }
+        advance();
+        g_assert_cmpmem(data, sizeof(setup), setup, sizeof(setup));
+        g_assert_cmpmem(data + 0x1000, sizeof(draw), draw, sizeof(draw));
+        g_assert_cmpint(f.level, ==, test == VALID);
+        for (unsigned i = 0; i < SIZE; i++) {
+            if (i >= OFFSET && i < OFFSET + 2 * PLANE) {
+                g_assert_cmphex(data[i], ==, test == VALID ?
+                                (i < OFFSET + PLANE ? 16 : 128) : 0xa5);
+            } else if (i >= 0x2000) {
+                g_assert_cmphex(data[i], ==, 0xa5);
+            }
+        }
+        g_assert_cmpuint(f.reads, ==, 0);
+        if (test == VALID) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            g_assert_false(f.level);
+        } else if (test == MAP_LOSS || test == BACKING_ALIAS) {
+            memory_region_del_subregion(root, &alias);
+        }
+    }
+    memory_region_del_subregion(root, &mmio);
+    memory_region_del_subregion(root, &ram);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -667,6 +928,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/stream-submission", test_stream_submission);
     g_test_add_func("/nikon/transfer/stream-extent-boundaries",
                     test_stream_extent_boundaries);
+    g_test_add_func("/nikon/transfer/yuv-clear", test_yuv_clear);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

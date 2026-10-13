@@ -66,7 +66,7 @@ branch) and `1298=0`. This admits its empty-table setup, not an upload job or
 an arbitrary configuration aperture. Nonzero optional table lengths instead
 supply source/count/start fields at `10d4/10dc/10d0` and
 `10e4/10ec/10e0`. Their owned request frontend is described below;
-the finite paired LUT executor below owns processing and IRQ129 completion.
+the finite paired executors below own processing and IRQ129 completion.
 A single accepted setup field still raises no IRQ. The `c1c` bit15 enable
 interpretation is a functional convention grounded in the installed value;
 clearing that field suppresses the modeled completion IRQ. It is not an
@@ -88,7 +88,7 @@ The frontend requires explicit `1214/1298` configuration, validates each
 complete direct-memory source, and snapshots it immutably across effective
 MemoryRegion boundaries.
 
-Only one finite C1.70 program family executes. Three unchanged-firmware jobs
+The LUT C1.70 program family executes. Three unchanged-firmware jobs
 were observed with the same command-header fingerprint and different operand
 addresses/table values. The accepted profile is:
 
@@ -126,6 +126,63 @@ After successful completion, a word read of offset `58` returns zero for
 the observed bit26-clear path; reads before completion remain errors. IRQ131,
 fences, replies and other graphics programs remain unsupported. The
 ordinary byte-copy engine and IRQ130 remain separate.
+
+## Finite black YUV422 rectangle clear
+
+An additional original C1.70 job was captured after an explicit EX ADC/pad
+input experiment in `work/runs/lcdnext-type2-transfer2`. Its stream extents
+are224/1648 bytes (port counts28/206), rather than the LUT pair's224/1688.
+The firmware and its command buffers were only read by the debugger. This
+observation establishes the submitted commands, not a completed LCD boot or
+the electrical input values of a physical camera.
+
+The command header interpretation is corroborated by
+[WonderLantern's Z7 decoder at97abf0b](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L482):
+the low three bits select the operation, bits3..10 encode count minus one,
+bits12..15 select writable register bytes, and the high16 bits select the
+register. That project's mode8 clear, YUV422 two-plane layout and six-row
+alignment treatment corroborate the functional interpretation across models;
+they do not establish Z7II silicon fidelity. This implementation validates a
+single finite command fingerprint rather than importing that renderer.
+
+The accepted setup is an identity-transformed filled rectangle with path
+register65=`100`, extent1024x688, signed integer coordinates `(0,6)`, width1024
+and height682. The draw must retain the captured command order, masks,
+matrix/color-conversion state, clip `(0..1023,0..687)`, source-blend state,
+mode8, zero clear color, output format`105`, extent1024x688 and draw trigger.
+The setup/draw path key must agree. Both table upload headers and locations
+are fixed, and all256/32 table entries must be unsigned12-bit values. Those
+values are otherwise ignored because this accepted mode never samples the
+source. The source-looking path key is not read as texture memory.
+
+Register1a4 selects the Y plane and1b5 the interleaved UV plane. Their address
+delta must equal1024*682 (`aa800`), as in the original capture. The functional
+model maps the rectangle's six-row aligned coordinate origin onto the exact
+682-row physical plane; it writes only698368 bytes per plane. Limited-range
+BT.601 black encoding (Y16 and U/V128) is an explicit functional assumption,
+not a measured physical-camera color result. Both entire target planes must
+be directly backed writable memory, with no address overflow, overlap with
+one another or with either submitted command stream. Backing aliases that
+map both planes onto overlapping host storage are also rejected.
+
+Both targets are validated and mapped before either is changed. The existing
+deferred stream timer then fills both planes and raises IRQ129; the original
+`1020=0` ACK deasserts it. Reset or unrealize before that timer executes
+cancels the job without writes or completion. Unsupported lengths, headers,
+fields, colors, formats, geometry, plane deltas, ranges and overlap fail
+explicitly with no target changes or successful IRQ. Execution-time loss of
+writability is revalidated before modification. The LUT profile remains
+separate and unchanged. The selected targets are graphics surfaces; scanout
+still requires the guest's actual display commit.
+
+The synthetic `/nikon/transfer/yuv-clear` unit case assembles register packets,
+uses changed LUT contents, checks every written Y/UV byte and surrounding
+guards, IRQ129 delay/ACK, unchanged command streams, reset/unrealize
+cancellation and execution-time map loss. Near-miss header/count, truncation,
+format, rectangle geometry, mode, color, key, oversized LUT, address overflow,
+plane overlap/delta, MMIO targets and command-stream overlap preserve both
+destinations and never read MMIO. This is fixture coverage, not natural-boot
+acceptance.
 
 The functional allocation bound is128 KiB per stream, not recovered silicon
 capacity. Odd command-stream sources, oversized counts, zero/missing-count
@@ -183,7 +240,8 @@ return, IRQ129 or frame; see
 [runtime evidence](../../runtime/coprocessor.md).
 
 Remaining work is active, not accepted as a completed GUI: physical color
-fidelity, every non-LUT program/format/geometry, IRQ131, other status58 states, fences,
+fidelity, programs/formats/geometry outside the finite LUT and clear profiles,
+IRQ131, other status58 states, fences,
 processing replies and final scanout remain unsupported. The selected graphics
 destination is not presented as a screen. Console output must consume the
 guest's actual scanout commit and layout.
