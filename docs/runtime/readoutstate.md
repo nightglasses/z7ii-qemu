@@ -61,7 +61,7 @@ closure:
 | Call site | Containing path | Condition before reset | Following writer |
 |---|---|---|---|
 | `0x1022fccc` | `0x1022fca6` | unconditional after its optional callback | lane 1 mask `1` unless owner state is `2` or `6`; lane 2 mask `1` when state is `2` |
-| `0x10234dee` | `0x10234cd0` | synchronization wrapper `0x10360f2e(..., 0x11)` succeeds, input is non-null and `0x103aeafe` succeeds | lane 0 with mask returned by `0x1023177c(..., 1)` |
+| `0x10234dee` | `0x10234cd0` | after optional synchronization acquire/release; input is non-null and `0x103aeafe` succeeds | lane 0 with mask returned by `0x1023177c(..., 1)` |
 | `0x102351d6` | `0x10235188` | first argument nonzero, `0x103aeb22` succeeds and second argument nonzero | lane 2 mask `0x0b` |
 | `0x10235296` | local entry `0x10235236` | first argument nonzero, `0x103aeb22` succeeds, second object and both of its words are nonzero | lane 2 mask `1` |
 
