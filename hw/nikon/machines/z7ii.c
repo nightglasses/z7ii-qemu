@@ -1013,6 +1013,7 @@ static void z7ii_init(MachineState *machine)
         };
 
         control->id = g_strdup("display");
+        object_property_add_child(OBJECT(machine), "display", OBJECT(control));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(control), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(control), 0, 0x20140000);
         sysbus_connect_irq(SYS_BUS_DEVICE(control), 0,
