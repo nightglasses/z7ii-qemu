@@ -4,7 +4,7 @@
 #ifndef HW_NIKON_TRANSFER_H
 #define HW_NIKON_TRANSFER_H
 
-#include "devices.h"
+#include "hw/nikon/devices.h" /* IWYU pragma: keep */
 
 /* Functional allocation bound, not a recovered hardware capacity. */
 #define NIKON_TRANSFER_STREAM_BYTES 0x20000U
