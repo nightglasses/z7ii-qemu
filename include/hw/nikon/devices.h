@@ -3,7 +3,10 @@
 #ifndef HW_NIKON_DEVICES_H
 #define HW_NIKON_DEVICES_H
 
-#include "system/memory.h"
+#include "qemu/osdep.h" /* IWYU pragma: keep */
+#include "exec/hwaddr.h"
+#include "exec/memattrs.h"
+#include "qemu/typedefs.h"
 #include "hw/core/qdev.h"
 #include "hw/i2c/i2c.h"
 
@@ -46,6 +49,9 @@
 
 MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
                                  unsigned size, bool write, uint64_t value);
+MemTxResult nikon_memc_nor_backend_access(DeviceState *dev, hwaddr address,
+                                         unsigned size, bool write,
+                                         uint64_t value);
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
                        bool write, uint64_t value, const char *reason);
 void nikon_mxic_attach_ram(DeviceState *dev, MemoryRegion *ram, hwaddr address);
@@ -60,8 +66,8 @@ I2CBus *nikon_i2c_bus(DeviceState *dev);
 void nikon_bridge_attach_peer(DeviceState *dev, unsigned bank,
                               AddressSpace *peer);
 /* Borrowed symmetric pair; lifetime exceeds all notification accesses.
- * Only notification-v1 devices connect. NULL disconnects without an edge.
- * Cross-bank reflection and IRQ15 are experimental, not hardware bindings.
+ * NULL disconnects without an edge. The pair reflects each endpoint's
+ * write-one notification word and drives the peer's enabled IRQ15 cause.
  */
 void nikon_bridge_connect_notifications(DeviceState *dev, DeviceState *peer);
 

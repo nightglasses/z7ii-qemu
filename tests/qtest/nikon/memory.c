@@ -12,7 +12,8 @@ typedef struct MemoryTest {
     char *image;
 } MemoryTest;
 
-static MemoryTest memory_init(const char *options)
+static MemoryTest memory_init_machine(const char *machine_options,
+                                      const char *options)
 {
     MemoryTest t = { 0 };
     uint32_t loop = cpu_to_le32(0xeafffffe);
@@ -21,9 +22,15 @@ static MemoryTest memory_init(const char *options)
     g_assert_cmpint(fd, >=, 0);
     g_assert_cmpint(write(fd, &loop, sizeof(loop)), ==, sizeof(loop));
     close(fd);
-    t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
-                        "-display none -serial none %s", t.image, options);
+    t.qts = qtest_initf("-machine z7ii-mas-diagnostic%s -smp 1 -bios %s "
+                        "-display none -serial none %s", machine_options,
+                        t.image, options);
     return t;
+}
+
+static MemoryTest memory_init(const char *options)
+{
+    return memory_init_machine("", options);
 }
 
 static MemoryTest selector_one_memory_init(void)
@@ -159,6 +166,42 @@ static void test_outer_holes(void)
     memory_quit(&t);
 }
 
+static void test_display_buffers(void)
+{
+    static const uint64_t bases[] = {
+        0xcb4a7000, 0xcb82b000, 0xcbbaf000,
+        0xcbf33000, 0xcc18b000, 0xcc3e3000,
+    };
+    const uint64_t end = 0xcc63b000;
+    MemoryTest t = memory_init("");
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(bases); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, bases[i]), ==, 0);
+        qtest_writel(t.qts, bases[i], 0xd1500000 + i);
+    }
+    qtest_writel(t.qts, end - 4, 0xd15fffff);
+
+    /* Adjacent addresses remain uncovered; the arena does not grant a broad
+     * C0000000-class RAM aperture. */
+    qtest_writel(t.qts, bases[0] - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x87654321);
+    g_assert_cmphex(qtest_readl(t.qts, bases[0] - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (i = 0; i < ARRAY_SIZE(bases); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, bases[i]), ==,
+                            0xd1500000 + i);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0xd15fffff);
+    }
+    memory_quit(&t);
+}
+
 static void prefix_copy(QTestState *qts, uint32_t source,
                         uint32_t destination, uint32_t length)
 {
@@ -174,7 +217,7 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
 }
 
-static void test_dynamic_load(void)
+static void G_GNUC_UNUSED test_dynamic_load(void)
 {
     const size_t length = 4099;
     const uint32_t source = 0xb1804000;
@@ -381,6 +424,69 @@ static void test_external_input(void)
     unlink(prefix_path);
 }
 
+static void nor_unlock(QTestState *qts, uint16_t command)
+{
+    qtest_writew(qts, 0x10000aaa, 0xaa);
+    qtest_writew(qts, 0x10000554, 0x55);
+    qtest_writew(qts, 0x10000aaa, command);
+}
+
+static void test_nor_experimental_profile(void)
+{
+    MemoryTest t = memory_init_machine(
+        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental-v1", "");
+    QTestState *qts = t.qts;
+
+    qtest_writel(qts, 0x04264000, 0x21);
+    qtest_writel(qts, 0x04264020, 0x153b0902);
+
+    nor_unlock(qts, 0x90);
+    g_assert_cmphex(qtest_readw(qts, 0x10000000), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(qts, 0x10000002), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(qts, 0x1000001c), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(qts, 0x1000001e), ==, 0xffff);
+    qtest_writew(qts, 0x10000aaa, 0xf0);
+
+    qtest_writew(qts, 0x100000aa, 0x98);
+    g_assert_cmphex(qtest_readw(qts, 0x1000004e), ==, 26);
+    g_assert_cmphex(qtest_readw(qts, 0x10000054), ==, 7);
+    g_assert_cmphex(qtest_readw(qts, 0x1000005e), ==, 0);
+    g_assert_cmphex(qtest_readw(qts, 0x10000060), ==, 2);
+    qtest_writew(qts, 0x10000aaa, 0xf0);
+
+    nor_unlock(qts, 0xa0);
+    qtest_writew(qts, 0x12960000, 0x55aa);
+    g_assert_cmphex(qtest_readw(qts, 0x12960000), ==, 0x55aa);
+    nor_unlock(qts, 0xa0);
+    qtest_writew(qts, 0x12960000, 0xf0f0);
+    g_assert_cmphex(qtest_readw(qts, 0x12960000), ==, 0x50a0);
+
+    nor_unlock(qts, 0x80);
+    qtest_writew(qts, 0x10000aaa, 0xaa);
+    qtest_writew(qts, 0x10000554, 0x55);
+    qtest_writew(qts, 0x12960000, 0x30);
+    g_assert_cmphex(qtest_readw(qts, 0x12960000), ==, 0xffff);
+
+    qtest_writew(qts, 0x10000aaa, 0xaa);
+    qtest_writew(qts, 0x10000554, 0x55);
+    qtest_writew(qts, 0x12960000, 0x25);
+    qtest_writew(qts, 0x12960000, 3);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_writew(qts, 0x12960020 + i * 2, 0xa500 + i);
+    }
+    qtest_writew(qts, 0x12960000, 0x29);
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmphex(qtest_readw(qts, 0x12960020 + i * 2), ==,
+                        0xa500 + i);
+    }
+
+    nor_unlock(qts, 0xa0);
+    qtest_writew(qts, 0x12960000, 0x1234);
+    qtest_system_reset(qts);
+    g_assert_cmphex(qtest_readw(qts, 0x12960000), ==, 0x1234);
+    memory_quit(&t);
+}
+
 static void test_sysconfig_profile(void)
 {
     const uint32_t base = 0x04280000;
@@ -454,10 +560,13 @@ int main(int argc, char **argv)
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
+    qtest_add_func("/nikon/memory/display-buffers", test_display_buffers);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);
     qtest_add_func("/nikon/memory/external-input", test_external_input);
+    qtest_add_func("/nikon/memory/nor-experimental-profile",
+                   test_nor_experimental_profile);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();
 }

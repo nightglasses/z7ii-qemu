@@ -127,8 +127,8 @@ flowchart TD
   MMIO --> Processor[MAS processor request-only\nfunctional-v1: PA2c040000 + 04294000]
   Processor -. no execution provider .-> Execution[Execution / ready / replies unproved]
   MMIO --> Streams[Owned opaque graphics frontend\nPA20180000; full224/1688B capture]
-  Streams -. no processing / fence / status58 / IRQ129 provider .-> GraphicsProvider[Original graphics processing unresolved]
-  MMIO -. independent rejected lifecycle .-> D200[PA2014d200\neffect / legal values unresolved]
+  Streams -. default has no processing / fence / status58 / IRQ129 provider .-> GraphicsProvider[Original graphics processing unresolved]
+  MMIO --> DisplayScalars[Finite D100/D200/C0A0 scalar lifecycle\nno event or completion side effect]
   GuestRAM --> ByteCopy[Ordinary graphics byte copy\ncompleted DMA → IRQ130]
 
   CMOS --> Geometry[Frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
@@ -154,7 +154,7 @@ Solid edges are implemented functional contracts exercised by the model. Dashed 
 
 The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. It intentionally leaves Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route opaque until C1.70 evidence closes them. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Ordinary byte-copy IRQ130, supplied-buffer composition with functional console publication, and storage endpoints remain independently testable; they are not the original graphics-stream provider or evidence of a natural capture/save path. The MAS request-only processor at PA `0x2c040000` plus bootstrap view `0x04294000` has no execution provider; experimental original runs naturally time out and continue, rather than succeed.
 
-The owned opaque graphics frontend still lacks processing/fence/status58/IRQ129 production. Descriptor extents56/422 are 32-bit words; register counts28/211 are 64-bit units, giving full lengths224/1688 bytes. The corrected frontend captures `8*units64` bytes within a functional 128-KiB bound per stream. Parent native receipts pass 29 fixtures / 247 subtests; two experimental original-bundle observations match full producer-bounded inputs but leave both streams pending, with no graphics wait return, IRQ129 or frame. The old56/422-byte snapshots remain historical prefixes, not full-bound proof. The independent PA `0x2014d200` display-parameter rejection remains unresolved. See [runtime evidence](docs/runtime/coprocessor.md) and [native receipts](docs/validation/native.md) for the separate historical and corrected identities.
+The owned opaque graphics frontend still lacks processing/fence/status58/IRQ129 production. Descriptor extents56/422 are 32-bit words; register counts28/211 are 64-bit units, giving full lengths224/1688 bytes. The corrected frontend captures `8*units64` bytes within a functional 128-KiB bound per stream. D200 is limited to the sole caller's observed zero and C0A0 to its paired bit0 writes; neither creates an event or completion. C010 and PA `0x2c012000` remain strict unresolved boundaries. Static Thumb recovery also shows that the previously ranked `1046bfxx` image-start chain is reached through the registered `tftdbg` command handler, so it is not natural-startup evidence. The current task is to close the real `20180000` graphics processing/status/IRQ path statically before another unchanged-firmware run. The old56/422-byte snapshots remain historical prefixes, not full-bound proof. See [runtime evidence](docs/runtime/coprocessor.md) and [native receipts](docs/validation/native.md) for the separate historical and corrected identities.
 
 ## Dependencies and build
 

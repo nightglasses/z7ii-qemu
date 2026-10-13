@@ -1,9 +1,9 @@
 /* Nikon finite functional device.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#include "qemu/osdep.h"
+#include "qemu/osdep.h" /* IWYU pragma: keep */
 #include "qemu/log.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
 
@@ -121,13 +121,18 @@ static void nikon_memc_class_init(ObjectClass *oc, const void *data)
     dc->user_creatable = false;
 }
 
-MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
-                                 unsigned size, bool write, uint64_t value)
+static MemTxResult nikon_memc_nor_transaction(DeviceState *dev,
+                                               hwaddr address,
+                                               unsigned size, bool write,
+                                               uint64_t value,
+                                               bool backend)
 {
     NikonMemcState *s = NIKON_MEMC(dev);
     const char *reason;
 
-    if (!write) {
+    if (!write && backend) {
+        return MEMTX_OK;
+    } else if (!write) {
         reason = "nor-indirect-read-not-supported";
     } else if (!s->mode_initialized || !s->timing_initialized) {
         reason = "nor-memc-not-initialized";
@@ -135,10 +140,25 @@ MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
         reason = "nor-write-protected";
     } else if (size != 2 || (address & 1)) {
         reason = "nor-x16-access-not-supported";
+    } else if (backend) {
+        return MEMTX_OK;
     } else {
         reason = "nor-backend-not-supported";
     }
     return nikon_memc_error(s, address, size, write, value, reason);
+}
+
+MemTxResult nikon_memc_nor_access(DeviceState *dev, hwaddr address,
+                                 unsigned size, bool write, uint64_t value)
+{
+    return nikon_memc_nor_transaction(dev, address, size, write, value, false);
+}
+
+MemTxResult nikon_memc_nor_backend_access(DeviceState *dev, hwaddr address,
+                                         unsigned size, bool write,
+                                         uint64_t value)
+{
+    return nikon_memc_nor_transaction(dev, address, size, write, value, true);
 }
 
 static const TypeInfo nikon_memc_type = {

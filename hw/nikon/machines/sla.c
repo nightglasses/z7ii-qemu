@@ -12,7 +12,7 @@
 #include "hw/core/split-irq.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
-#include "hw/core/qdev-properties-system.h"
+#include "hw/core/qdev-properties-system.h" /* IWYU pragma: keep */
 #include "hw/intc/arm_gic.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
@@ -31,7 +31,7 @@
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/system.h"
-#include "target/arm/cpu.h"
+#include "target/arm/cpu.h" /* IWYU pragma: keep */
 
 #define TYPE_NIKON_SLA_MACHINE MACHINE_TYPE_NAME("nikonsla")
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSLADomain, NIKON_SLA_DOMAIN)
