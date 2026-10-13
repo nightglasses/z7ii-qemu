@@ -95,15 +95,16 @@ Exhaustive direct-call enumeration gives these setter sites:
 | `0x1022fd18` | lane 2, `1` | after the same reset, owner state byte is `2`; selector comes from `0x10210ae2` |
 | `0x102320f8` | lane 1, dynamic delta | `0x10232040` computes new bits with BIC, applies its event-code filter, delta is nonzero and nested state is not `3` |
 | `0x1023213c` | lane 2, dynamic delta | same updater when nested state is `3`; lane-2 participation is recorded even if the delta is zero |
-| `0x10234948` | lane 1, `0x80` | the natural readout producer conditions described below |
+| `0x10234948` | lane 1, current `B+0x5c` OR `0x80` | the natural readout producer conditions described below; bit 7 is fixed but other retained mask bits may also be present |
 | `0x10234e06` | lane 0, dynamic mask | after the `0x10234cd0` reset and its input/service validation; mask is from `0x1023177c(..., 1)` |
 | `0x10235202` | lane 2, `0x0b` | after the `0x10235188` reset and successful input/service validation |
 | `0x102352c2` | lane 2, `1` | after the local `0x10235236` reset and successful two-word input validation |
 | `0x102352f2` | lane 2, `0x0a` | tail call from `[0x102352e2, 0x102352f6)` after publishing its local state word |
 
-The fixed `0x80` lane-1 call at `0x10234948` is the only enumerated fixed-mask
-site that satisfies both predicate terms in one call.  A dynamic lane-1 call
-can do the same when its delta contains bit 7.  Because aggregate and
+The lane-1 call at `0x10234948` is the only enumerated site that unconditionally
+adds bit 7 while satisfying both predicate terms in one call.  Its complete
+mask is the current `B+0x5c` OR `0x80`, not necessarily exactly `0x80`.
+A dynamic lane-1 call can do the same when its delta contains bit 7.  Because aggregate and
 participation are separate, lane-1 participation can also be established by
 an earlier lane-1 call while a later lane-0 or lane-2 bit-7 mask supplies the
 aggregate term, provided no whole-state reset intervenes.
@@ -138,7 +139,8 @@ update path; they must not be collapsed into one linear call chain:
 
 ```text
 entry with B[3] == 1
-    -> 0x10234948 lane-1 setter(mask=0x80, vector=0xb25f2510)
+    -> 0x10234948 lane-1 setter(mask=*(B+0x5c)|0x80,
+                                vector=0xb25f2510)
     -> 0x1023ad8e -> 0x1023abaa
     -> bit-7/vector gate at 0x1023acfa
     -> 0x1023ad04 -> 0x10238876 -> 0x10238910
