@@ -19,37 +19,57 @@
   "derived_record": [
     {"offset":"0x00","width":"u8","expression":"1","status":"proven"},
     {"offset":"0x04","width":"u32","expression":"0xd00","status":"proven"},
-    {"offset":"0x08","width":"u32","expression":"width = byte(object+0x48) - byte(object+0x47) + 1; when byte(object+0x5a) != 0, effective_width = ubfx(width, 1, 7) + 1","status":"proven arithmetic; not an image width"},
+    {"offset":"0x08","width":"u32","expression":"width = byte(object+0x48) - byte(object+0x47) + 1; when byte(object+0x5a) != 0, effective_width = ubfx(width, 1, 7) + 1","status":"proven arithmetic; not a physical image width"},
     {"offset":"0x0c","width":"u32","expression":"0xd00 * effective_width * height + 0xd00","status":"proven arithmetic; height = byte(object+0x4a) - byte(object+0x49) + 1"},
     {"offset":"0x10","width":"u32","expression":"0xd00","status":"proven"},
     {"offset":"0x14","width":"u16","expression":"existing record value consumed by the builder","status":"source read; semantic identity unknown"},
     {"offset":"0x18","width":"u32","expression":"selector-dependent base: selected, selected+0x13000, or selected+0x26000; exact branch is source-bound","status":"pointer arithmetic proven; physical buffer role unknown"},
     {"offset":"0x1c","width":"u32","expression":"0x1000","status":"proven"},
-    {"offset":"0x20","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; buffer direction and ownership unknown"},
-    {"offset":"0x24","width":"u32","expression":"align256(0xff + 2 * u16(object+0x14))","status":"proven arithmetic; not a byte stride until a consumer proves that role"},
-    {"offset":"0x28","width":"u32","expression":"record+0x24 * byte(global+0xc0) * 2","status":"proven arithmetic; allocation/span role remains unknown"},
-    {"offset":"0x2c","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; buffer direction and ownership unknown"},
-    {"offset":"0x30","width":"u32","expression":"align256(0xff + floor(3 * u16(object+0x14) / 2))","status":"proven arithmetic; not a byte stride until a consumer proves that role"},
-    {"offset":"0x34","width":"u8","expression":"0x40 for selector byte zero, otherwise 1","status":"proven branch value; semantic identity unknown"},
-    {"offset":"0x35","width":"u8","expression":"same branch value as record+0x34","status":"proven branch value; semantic identity unknown"}
+    {"offset":"0x20","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; functional primary destination at control+0x3e8"},
+    {"offset":"0x24","width":"u32","expression":"align256(0xff + 2 * u16(object+0x14))","status":"proven arithmetic; functional primary stride at control+0x3ec"},
+    {"offset":"0x28","width":"u32","expression":"record+0x24 * byte(global+0xc0) * 2","status":"proven arithmetic; functional primary span at control+0x3f0"},
+    {"offset":"0x2c","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; functional secondary destination at control+0x3f4"},
+    {"offset":"0x30","width":"u32","expression":"align256(0xff + floor(3 * u16(object+0x14) / 2))","status":"proven arithmetic; functional secondary stride at control+0x3f8"},
+    {"offset":"0x34","width":"u8","expression":"0x40 for selector byte zero, otherwise 1","status":"proven branch value; functional format pair at control+0x3fc"},
+    {"offset":"0x35","width":"u8","expression":"same branch value as record+0x34","status":"proven branch value; functional format pair at control+0x3fc"}
   ],
+  "functional_gui_v1_mapping": {
+    "scope": "explicit finite C1.70 functional mapping; not a physical-camera identity claim",
+    "request": "a write of 1 to 0x2006b400 owns the current readout generation",
+    "primary_destination": "u32 at 0x2006b3e8",
+    "primary_stride": "u32 at 0x2006b3ec; nonzero, 256-byte aligned, and even",
+    "primary_span": "u32 at 0x2006b3f0; nonzero, at most 64 MiB, and exactly divisible by primary_stride",
+    "secondary_destination": "u32 at 0x2006b3f4; range-validated but not written by functional-gui-v1",
+    "secondary_stride": "u32 at 0x2006b3f8; nonzero and 256-byte aligned",
+    "accepted_formats": ["0x00400040", "0x00010001"],
+    "functional_geometry": "two-byte samples; width = primary_stride / 2; height = primary_span / primary_stride",
+    "producer": "the existing CMOS timing/DMA engine writes exactly primary_span bytes to submitted writable guest RAM",
+    "completion": "readout ready is published for the owned generation at start; the existing readout completion pulse is published only after CMOS completion",
+    "lifecycle": "busy requests are rejected; reset and CMOS cancel invalidate ownership and stop the timer; stale generations cannot publish completion",
+    "source": "an explicit PGM/PPM image when configured, otherwise the deterministic functional CMOS provider"
+  },
   "not_proven": [
-    "CMOS sensor mode width or height",
-    "crop or scale coordinates",
-    "Bayer order, bit depth, or packing",
-    "DMA source/destination direction and descriptor length",
-    "buffer count or rotation rule",
-    "exposure, frame period, or line readout timing",
-    "frame-complete producer, IRQ, or CMOS-to-ISP/display/save edge"
+    "physical CMOS sensor mode width or height",
+    "physical crop or scale coordinates",
+    "physical Bayer order, bit depth, or packing",
+    "physical meaning of the primary and secondary planes",
+    "physical exposure, frame period, or line readout timing",
+    "a Nikon GIC line, guest callback, ISR invocation, display prefill, or physical CMOS-to-ISP edge"
   ],
   "qemu_boundary": {
-    "action": "retain readout-control as an explicit provider boundary",
-    "do_not": [
-      "interpret record+0x08 as image width",
-      "interpret record+0x24 or +0x30 as stride",
-      "preload the control block or result windows",
-      "connect this record directly to the CMOS byte-frame endpoint"
+    "action": "strict/default profiles retain readout-control as a disconnected provider boundary; functional-gui-v1 must connect the bounded mapping to the CMOS engine",
+    "must": [
+      "accept only the two observed C1.70 format pairs",
+      "validate all consumed geometry and ranges before starting DMA",
+      "write only the submitted primary guest buffer",
+      "publish completion only for the current owned generation"
     ],
-    "next_evidence": "observe runtime values at 0x1023869e and follow the consumer of 0x2006b3cc..0x2006b3fc to a proven DMA or completion transaction"
+    "do_not": [
+      "claim the functional width or two-byte sample encoding as physical-camera semantics",
+      "preload the control block or result windows",
+      "write the secondary plane, event objects, callback addresses, ISR state, PC, task state, or an LCD",
+      "fabricate a GIC source or software success flag"
+    ],
+    "next_evidence": "physical-camera traces may refine plane identity, pixel encoding, timing, and IRQ routing without changing the bounded functional profile label"
   }
 }

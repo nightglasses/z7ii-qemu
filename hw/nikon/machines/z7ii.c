@@ -26,6 +26,7 @@
 #include "hw/nikon/processing.h"
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/cmos.h"
+#include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/frame.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
@@ -634,6 +635,8 @@ static void z7ii_init(MachineState *machine)
     DeviceState *gpio;
     DeviceState *exiu;
     DeviceState *bridge;
+    DeviceState *readout;
+    DeviceState *cmos;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
@@ -916,12 +919,12 @@ static void z7ii_init(MachineState *machine)
         /* Original status/command interface; external publication is unbound. */
     }
     {
-        DeviceState *readout = qdev_new(TYPE_NIKON_READOUT_CONTROL);
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
             [NIKON_READOUT_BUFFERS] = 0x20069800,
             [NIKON_READOUT_PARAMETERS] = 0x2006b000,
         };
 
+        readout = qdev_new(TYPE_NIKON_READOUT_CONTROL);
         object_property_add_child(OBJECT(machine), "readout-control",
                                   OBJECT(readout));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(readout), &error_fatal);
@@ -931,17 +934,35 @@ static void z7ii_init(MachineState *machine)
         /* Guest requests have no default provider, IRQ or pixel data source. */
     }
     {
-        DeviceState *cmos = qdev_new(TYPE_NIKON_CMOS);
+        cmos = qdev_new(TYPE_NIKON_CMOS);
 
         object_property_add_child(OBJECT(machine), "cmos", OBJECT(cmos));
         if (s->cmos_image) {
             qdev_prop_set_string(cmos, "image", s->cmos_image);
         }
         qdev_prop_set_bit(cmos, "fixture-provider",
-                          s->cmos_provider || !!s->cmos_image);
+                          z7ii_functional_gui(s) || s->cmos_provider ||
+                          !!s->cmos_image);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
-        /* Diagnostic transport aperture, with no C1.70 physical MMIO claim. */
+        /* Diagnostic transport aperture; no C1.70 physical MMIO is claimed. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
+    }
+    if (z7ii_functional_gui(s)) {
+        DeviceState *pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
+
+        object_property_add_child(OBJECT(machine), "readout-pipeline",
+                                  OBJECT(pipeline));
+        object_property_set_link(OBJECT(pipeline), "readout", OBJECT(readout),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(pipeline), "cmos", OBJECT(cmos),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
+        qdev_connect_gpio_out_named(readout, "readout-request", 0,
+            qdev_get_gpio_in_named(pipeline, "request", 0));
+        for (i = 0; i < NIKON_CMOS_PIPELINE_EVENTS; i++) {
+            qdev_connect_gpio_out_named(cmos, "pipeline-event", i,
+                qdev_get_gpio_in_named(pipeline, "cmos-event", i));
+        }
     }
     if (s->frame_contract) {
         DeviceState *frame = qdev_new(TYPE_NIKON_FRAME_CONTRACT);

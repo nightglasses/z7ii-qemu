@@ -42,12 +42,33 @@ typedef struct NikonReadoutRequest {
     uint32_t completion_marker;
 } NikonReadoutRequest;
 
+/* Explicit functional interpretation of the C1.70 record at 2006b3c8.
+ * This profile contract does not claim a physical pixel encoding. */
+#define NIKON_READOUT_C170_FORMAT_PRIMARY 0x00400040u
+#define NIKON_READOUT_C170_FORMAT_ALTERNATE 0x00010001u
+
+typedef struct NikonReadoutC170Mapping {
+    uint64_t generation;
+    uint32_t destination;
+    uint32_t stride;
+    uint32_t span;
+    uint32_t secondary_destination;
+    uint32_t secondary_stride;
+    uint32_t format;
+    uint32_t width;
+    uint32_t height;
+} NikonReadoutC170Mapping;
+
+bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
+                                NikonReadoutC170Mapping *mapping,
+                                Error **errp);
+
 /* Actual query102092fa selects0..3 and reads4/2/4/2 words.  No default
  * provider, completion, IRQ, DMA or pixel data is produced by configuration.
  * An explicit command2006b400=1 creates a request generation and pulses
  * readout-request.  External providers may inspect that request and publish
- * ready/completion observations through the APIs below; those APIs are never
- * called by the machine by default.
+ * ready/completion observations through the APIs below. The machine only
+ * supplies a provider in the explicit functional-gui-v1 profile.
  */
 bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request);
 bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation);

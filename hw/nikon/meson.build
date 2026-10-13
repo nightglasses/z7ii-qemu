@@ -64,6 +64,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/processing.c',
   'devices/processor.c',
   'devices/frame.c',
+  'devices/readoutpipeline.c',
   'peers/spi.c',
   'devices/transfer.c',
   'devices/save.c',
