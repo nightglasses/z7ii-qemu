@@ -198,17 +198,26 @@ static void test_receive_reuse(void)
         g_assert_cmphex(read_port(&f, 0, 0x140 + i * 4), ==, 0);
     }
 
-    /* Neither an empty claim nor one new word can reuse the old RX frame. */
+    /* An empty claim cannot reuse RX, but a counted two-word TX can start. */
     write_port(&f, 0, 0x100, 1, MEMTX_OK);
     write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
     g_assert_false(f.requests[0]);
     g_assert_false(nikon_command_request(f.dev, 0, 0, &request));
     write_port(&f, 0, 0x140, transmitted[0], MEMTX_OK);
-    write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
-    g_assert_false(f.requests[0]);
-    g_assert_false(nikon_command_request(f.dev, 0, 0, &request));
+    write_port(&f, 0, 0x144, transmitted[1], MEMTX_OK);
+    write_port(&f, 0, 0x108, 1, MEMTX_OK);
+    g_assert_true(f.requests[0]);
+    g_assert_true(nikon_command_request(f.dev, 0, 0, &request));
+    g_assert_cmphex(request.written, ==, 3);
+    g_assert_cmphex(request.words[0], ==, transmitted[0]);
+    g_assert_cmphex(request.words[1], ==, transmitted[1]);
+    for (i = 2; i < NIKON_COMMAND_WORDS; i++) {
+        g_assert_cmphex(request.words[i], ==, 0);
+    }
+    g_assert_true(nikon_command_complete(f.dev, 0, 0, request.token, 1));
+    write_port(&f, 0, 0x134, 1, MEMTX_OK);
 
-    /* Releasing a partial TX frame requires all nine words on the new claim. */
+    /* A new claim clears stale words and still rejects a non-prefix frame. */
     write_port(&f, 0, 0x100, 0, MEMTX_OK);
     write_port(&f, 0, 0x140, received[0], MEMTX_OK);
     write_port(&f, 0, 0x100, 1, MEMTX_OK);
@@ -217,6 +226,7 @@ static void test_receive_reuse(void)
     }
     write_port(&f, 0, 0x108, 1, MEMTX_ERROR);
     g_assert_false(f.requests[0]);
+    g_assert_false(nikon_command_request(f.dev, 0, 0, &request));
     write_port(&f, 0, 0x140, transmitted[0], MEMTX_OK);
     write_port(&f, 0, 0x108, 1, MEMTX_OK);
     g_assert_true(f.requests[0]);
