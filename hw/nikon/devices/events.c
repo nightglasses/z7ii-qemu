@@ -7,7 +7,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "hw/core/irq.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"

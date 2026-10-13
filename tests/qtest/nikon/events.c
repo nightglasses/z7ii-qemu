@@ -1,7 +1,7 @@
 /* Native explicit event publication and original ISR acknowledgement.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#include "qemu/osdep.h"
+#include "qemu/osdep.h" /* IWYU pragma: keep */
 #include "libqtest.h"
 
 void nikon_events_test(QTestState *q, const char *path, uint64_t base);

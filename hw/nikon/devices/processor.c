@@ -6,7 +6,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/processor.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "qemu/timer.h"
 #include "system/dma.h"
 
