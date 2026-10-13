@@ -1457,10 +1457,10 @@ static void z7ii_set_ex_adc_counts(Object *obj, const char *value, Error **errp)
         if (g_strv_length(pair) != 2 ||
             qemu_strtoi(pair[0], NULL, 10, &channel) ||
             qemu_strtoi(pair[1], NULL, 10, &sample) ||
-            (channel != 0 && channel != 1 && channel != 3) ||
+            channel < 0 || channel > 3 ||
             sample < 0 || sample > 4095 || (mask & (1u << channel))) {
             error_setg(errp, "ex-adc-counts expects unique channel:raw-count "
-                       "entries separated by ';'; channels 0,1,3; counts 0..4095");
+                       "entries separated by ';'; channels 0..3; counts 0..4095");
             return;
         }
         samples[channel] = sample;
@@ -1592,7 +1592,7 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                  z7ii_set_ex_adc_counts);
     object_class_property_set_description(oc, "ex-adc-counts",
         "Explicit functional ADC1 channel:raw-count entries separated by ';' "
-        "(channels 0,1,3; counts 0..4095); omitted channels remain disconnected");
+        "(channels 0..3; counts 0..4095); omitted channels remain disconnected");
     object_class_property_add_str(oc, "ex-io-levels", z7ii_get_ex_io_levels,
                                  z7ii_set_ex_io_levels);
     object_class_property_set_description(oc, "ex-io-levels",

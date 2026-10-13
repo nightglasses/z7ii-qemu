@@ -324,6 +324,39 @@ static void test_combined_domains(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+static void test_ex_adc_channels(void)
+{
+    g_autofree char *bundle = peer_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                              "ex-adc-counts=2:1234 "
+                              "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                              "'path':'/machine',"
+                              "'property':'ex-adc-counts'}}");
+    g_autofree char *error_output = NULL;
+    char *argv[] = {
+        (char *)qtest_qemu_binary(NULL), "-machine",
+        "z7ii-mas-diagnostic,ex-adc-counts=4:1234",
+        "-bios", "unused-ex-adc-channels-fixture", "-display", "none",
+        "-monitor", "none", "-serial", "none", "-S", NULL
+    };
+    int status;
+
+    /* Synthetic raw count, with no physical or consumer-state meaning. */
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "2:1234");
+    qobject_unref(reply);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+
+    /* Reject the next channel at parsing, before any raw image is loaded. */
+    g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_DEFAULT,
+                               NULL, NULL, NULL, &error_output, &status, NULL));
+    g_assert_false(g_spawn_check_wait_status(status, NULL));
+    g_assert_nonnull(strstr(error_output,
+        "ex-adc-counts expects unique channel:raw-count"));
+}
+
 static void test_ex_io_levels(void)
 {
     g_autofree char *bundle = peer_bundle();
@@ -571,6 +604,7 @@ static void test_sla_page_table(void)
 void nikon_bridge_add_tests(void)
 {
     qtest_add_func("/nikon/combined/domains", test_combined_domains);
+    qtest_add_func("/nikon/combined/ex-adc-channels", test_ex_adc_channels);
     qtest_add_func("/nikon/combined/ex-io-levels", test_ex_io_levels);
     qtest_add_func("/nikon/combined/ex-io-levels-reject",
                    test_ex_io_levels_reject);
