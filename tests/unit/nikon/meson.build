@@ -11,7 +11,7 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
                    config_all_devices.has_key('CONFIG_NIKON_Z7II'))
   foreach name : ['memory', 'copy', 'transfer', 'bridge', 'dispatcher',
                   'command', 'input', 'readout',
-                  'lookup', 'exreset', 'save', 'processor']
+                  'lookup', 'exreset', 'exlevels', 'save', 'processor']
   fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],
