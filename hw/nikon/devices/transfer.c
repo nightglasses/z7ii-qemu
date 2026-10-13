@@ -1,7 +1,7 @@
 /*
  * Nikon packet transfer. C1.70 106ee148/106ee3d6 provide byte-copy register
  * production and IRQ130 ACK; 106ee04a submits the paired graphics streams.
- * The finite LUT profile below executes those streams before raising IRQ129.
+ * The finite LUT and rectangle-clear profiles execute before raising IRQ129.
  * Zero reset and a 48MHz transfer clock are functional-board assumptions.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -24,6 +24,10 @@
     (TRANSFER_LUT_OUTPUT_WIDTH * TRANSFER_LUT_OUTPUT_HEIGHT)
 #define TRANSFER_LUT_PRIMARY_ENTRIES 256U
 #define TRANSFER_LUT_SECONDARY_ENTRIES 32U
+#define TRANSFER_CLEAR_WIDTH 1024U
+#define TRANSFER_CLEAR_HEIGHT 682U
+#define TRANSFER_CLEAR_PLANE_BYTES \
+    (TRANSFER_CLEAR_WIDTH * TRANSFER_CLEAR_HEIGHT)
 
 typedef struct NikonTransferLutProgram {
     uint32_t source;
@@ -31,6 +35,12 @@ typedef struct NikonTransferLutProgram {
     uint16_t primary[TRANSFER_LUT_PRIMARY_ENTRIES];
     uint16_t secondary[TRANSFER_LUT_SECONDARY_ENTRIES];
 } NikonTransferLutProgram;
+
+typedef struct NikonTransferProgram {
+    bool clear;
+    NikonTransferLutProgram lut;
+    uint32_t plane[2];
+} NikonTransferProgram;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTransferState, NIKON_TRANSFER)
 
@@ -216,7 +226,7 @@ static bool nikon_transfer_stream_word(const uint32_t *words, size_t count,
     return index < count && le32_to_cpu(words[index]) == value;
 }
 
-static bool nikon_transfer_stream_parse(NikonTransferState *s,
+static bool nikon_transfer_lut_parse(NikonTransferState *s,
                                         NikonTransferLutProgram *program,
                                         const char **reason)
 {
@@ -314,18 +324,252 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     return true;
 }
 
+typedef struct NikonTransferField {
+    unsigned word;
+    uint32_t value;
+} NikonTransferField;
+
+/*
+ * Protocol fields, not a firmware-byte fixture. All unspecified words must
+ * be zero; only the path key, target addresses and LUT entries are operands.
+ * Headers encode op/count/register/byte mask as corroborated by the Z7
+ * implementation. This is a finite fingerprint, not a generic command VM.
+ */
+static const NikonTransferField clear_setup_fields[] = {
+    { 0, 0x00691004 }, { 1, 0x80 },
+    { 2, 0x0041f046 }, { 3, 0x3f800000 }, { 7, 0x3f800000 },
+    { 11, 0x3f800000 }, { 12, 0x0041f046 }, { 13, 0x3f800000 },
+    { 17, 0x3f800000 }, { 21, 0x3f800000 },
+    { 22, 0x00653004 }, { 23, 0x100 }, /* fill */
+    { 24, 0x0040f004 }, { 25, 0x02b00400 },
+    { 26, 0x0003f004 }, { 27, 5 },
+    { 28, 0x0005f004 }, { 29, 0x80000005 },
+    { 30, 0x0063f004 }, { 31, 5 },
+    { 32, 0x005ef004 }, { 33, 0x3f800000 }, { 34, 0x005ff004 },
+    { 36, 0x0080f026 }, { 39, 16 }, { 40, 0x02b00400 },
+    { 42, 0x0006f004 }, { 43, 1 },
+    { 44, 0xa }, { 45, 0x07090702 }, /* five path segments */
+    { 47, 0x00010022 }, /* five signed 32-bit coordinates */
+    { 49, 6 }, { 50, 1024 }, { 51, 682 }, { 52, 0xfffffc00 },
+    { 53, 0x0085f004 }, { 54, 0x00010001 },
+};
+
+static const NikonTransferField clear_draw_fields[] = {
+    { 0, 0x01408004 }, { 2, 0x01901004 },
+    { 4, 0x014ee004 }, { 5, 0x001b0000 },
+    { 6, 0x0156e004 }, { 7, 0x001b0000 },
+    { 8, 0x01a2f004 }, { 9, 0x105 },
+    { 10, 0x01a3f004 }, { 11, 0x02b00400 },
+    { 12, 0x01844004 }, { 14, 0x01a7f004 }, { 15, 0x101 },
+    { 16, 0x011cf004 }, { 17, 0x02b00000 }, { 18, 0x01a08004 },
+    { 20, 0x00c0f00e }, { 21, 0x03ff0000 }, { 22, 0x02af0000 },
+    { 23, 0x01001004 }, { 24, 1 }, { 25, 0x01151004 }, { 26, 1 },
+    { 27, 0x01b01004 }, { 28, 0xd }, { 29, 0x01b31004 }, { 30, 1 },
+    /* The observed conversion register block is fixed for this profile. */
+    { 31, 0x01c1f046 }, { 32, 0x007a8000 }, { 33, 0x001671c6 },
+    { 34, 0x749 }, { 35, 0x100 }, { 36, 0x006ad259 },
+    { 37, 0x00075653 }, { 38, 0x007ad200 }, { 39, 0x00753132 },
+    { 40, 0x200 },
+    { 41, 0x01848004 }, { 43, 0x01a11004 }, { 45, 0x0115c004 },
+    { 47, 0x01401004 }, { 49, 0x014df004 }, { 51, 0x014df004 },
+    { 53, 0x01401004 }, { 55, 0x014df004 }, { 57, 0x014df004 },
+    { 59, 0x01402004 }, { 61, 0x014df004 }, { 63, 0x014df004 },
+    { 65, 0x01841004 }, { 66, 8 }, /* clear */
+    { 67, 0x01868004 }, { 68, 0x07000000 }, { 69, 0x0187f004 },
+    { 71, 0x0188f7fc }, /* 256 entries, repeated register188 */
+    { 328, 0x0192f02e }, { 329, 0x400 }, { 331, 0x400 }, { 333, 0x400 },
+    { 335, 0x01868004 }, { 336, 0x38000000 }, { 337, 0x0187f004 },
+    { 339, 0x0188f0fc }, /* 32 entries */
+    { 372, 0x01863004 }, { 373, 0x10f }, { 374, 0x01842004 },
+    { 376, 0x01a02004 }, { 378, 0x01a29004 }, { 379, 0x105 },
+    { 380, 0x01a4f004 }, { 382, 0x01b5f004 },
+    { 384, 0x01a74004 }, { 386, 0x0185f004 }, /* color zero */
+    { 388, 0x01841004 }, { 389, 8 }, { 390, 0x01848004 },
+    { 392, 0x01a04004 }, { 394, 0x01a51004 }, { 396, 0x01aa1004 },
+    { 398, 0x00a0f02e }, { 401, 16 }, { 402, 0x02b00400 },
+    { 405, 0x00a6f004 }, { 406, 0x00010001 },
+    { 407, 0x01a61004 }, { 408, 1 }, /* draw trigger */
+    { 409, 0x00081004 }, { 410, 1 },
+};
+
+static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
+                                            unsigned count,
+                                            const NikonTransferField *fields,
+                                            unsigned field_count, bool draw)
+{
+    unsigned field = 0;
+
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t expected = 0, value = le32_to_cpu(words[i]);
+
+        if (field < field_count && fields[field].word == i) {
+            expected = fields[field++].value;
+        }
+        if ((!draw && i == 37) ||
+            (draw && (i == 381 || i == 383 || i == 399))) {
+            continue;
+        }
+        if (draw && ((i >= 72 && i < 328) || (i >= 340 && i < 372))) {
+            if (value > 0xfff) {
+                return false;
+            }
+        } else if (value != expected) {
+            return false;
+        }
+    }
+    return field == field_count;
+}
+
+static bool nikon_transfer_clear_parse(NikonTransferState *s,
+                                       NikonTransferProgram *program,
+                                       const char **reason)
+{
+    const uint32_t *setup, *draw;
+    size_t setup_bytes, draw_bytes;
+    uint64_t first, second, extent = TRANSFER_CLEAR_PLANE_BYTES;
+
+    setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
+    draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    if (setup_bytes != NIKON_TRANSFER_CLEAR_SETUP_BYTES ||
+        draw_bytes != NIKON_TRANSFER_CLEAR_DRAW_BYTES) {
+        *reason = "transfer-stream-truncated";
+        return false;
+    }
+    if (le32_to_cpu(setup[25]) != 0x02b00400 ||
+        le32_to_cpu(setup[39]) != 16 ||
+        le32_to_cpu(setup[40]) != 0x02b00400 ||
+        le32_to_cpu(setup[48]) != 0 || le32_to_cpu(setup[49]) != 6 ||
+        le32_to_cpu(setup[50]) != 1024 || le32_to_cpu(setup[51]) != 682 ||
+        le32_to_cpu(setup[52]) != 0xfffffc00 ||
+        le32_to_cpu(draw[11]) != 0x02b00400 ||
+        le32_to_cpu(draw[21]) != 0x03ff0000 ||
+        le32_to_cpu(draw[22]) != 0x02af0000 ||
+        le32_to_cpu(draw[401]) != 16 ||
+        le32_to_cpu(draw[402]) != 0x02b00400) {
+        *reason = "transfer-stream-geometry-not-supported";
+        return false;
+    }
+    if (le32_to_cpu(draw[9]) != 0x105 ||
+        le32_to_cpu(draw[379]) != 0x105) {
+        *reason = "transfer-stream-format-not-supported";
+        return false;
+    }
+    if (le32_to_cpu(setup[37]) != le32_to_cpu(draw[399]) ||
+        !nikon_transfer_clear_fingerprint(setup, setup_bytes / 4,
+            clear_setup_fields, ARRAY_SIZE(clear_setup_fields), false) ||
+        !nikon_transfer_clear_fingerprint(draw, draw_bytes / 4,
+            clear_draw_fields, ARRAY_SIZE(clear_draw_fields), true)) {
+        *reason = "transfer-stream-program-not-supported";
+        return false;
+    }
+    first = le32_to_cpu(draw[381]);
+    second = le32_to_cpu(draw[383]);
+    if (first + extent > UINT32_MAX + 1ULL ||
+        second + extent > UINT32_MAX + 1ULL) {
+        *reason = "transfer-stream-range-overflow";
+        return false;
+    }
+    if (first < second + extent && second < first + extent) {
+        *reason = "transfer-stream-operands-overlap";
+        return false;
+    }
+    if (second != first + extent) {
+        *reason = "transfer-stream-geometry-not-supported";
+        return false;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        uint64_t destination = i ? second : first;
+
+        for (unsigned j = 0; j < 2; j++) {
+            uint64_t source = s->stream[j].source;
+            uint64_t bytes = 8ULL * s->stream[j].units64;
+
+            if (destination < source + bytes && source < destination + extent) {
+                *reason = "transfer-stream-operands-overlap";
+                return false;
+            }
+        }
+        if (nikon_transfer_span(destination, extent, true) < extent) {
+            *reason = "transfer-stream-memory-range-not-backed";
+            return false;
+        }
+        program->plane[i] = destination;
+    }
+    program->clear = true;
+    return true;
+}
+
+static bool nikon_transfer_stream_parse(NikonTransferState *s,
+                                        NikonTransferProgram *program,
+                                        const char **reason)
+{
+    program->clear = false;
+    if (g_bytes_get_size(s->stream[1].bytes) ==
+        NIKON_TRANSFER_CLEAR_DRAW_BYTES) {
+        return nikon_transfer_clear_parse(s, program, reason);
+    }
+    return nikon_transfer_lut_parse(s, &program->lut, reason);
+}
+
+static bool nikon_transfer_clear_execute(NikonTransferProgram *program,
+                                         const char **reason)
+{
+    void *plane[2] = { NULL, NULL };
+    hwaddr mapped[2] = {
+        TRANSFER_CLEAR_PLANE_BYTES, TRANSFER_CLEAR_PLANE_BYTES,
+    };
+    uintptr_t first, second;
+    bool success = false;
+    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+
+    attrs.memory = true;
+    /* Map both complete writable planes before modifying either one. */
+    for (unsigned i = 0; i < 2; i++) {
+        plane[i] = address_space_map(&address_space_memory, program->plane[i],
+                                     &mapped[i], true, attrs);
+        if (!plane[i] || mapped[i] != TRANSFER_CLEAR_PLANE_BYTES) {
+            *reason = "transfer-stream-output-map-failed";
+            goto out;
+        }
+    }
+    first = (uintptr_t)plane[0];
+    second = (uintptr_t)plane[1];
+    if (first < second + TRANSFER_CLEAR_PLANE_BYTES &&
+        second < first + TRANSFER_CLEAR_PLANE_BYTES) {
+        *reason = "transfer-stream-operands-overlap";
+        goto out;
+    }
+    /* Functional limited-range BT.601 black: Y16, interleaved U/V128. */
+    memset(plane[0], 16, TRANSFER_CLEAR_PLANE_BYTES);
+    memset(plane[1], 128, TRANSFER_CLEAR_PLANE_BYTES);
+    success = true;
+out:
+    for (unsigned i = 0; i < 2; i++) {
+        if (plane[i]) {
+            address_space_unmap(&address_space_memory, plane[i], mapped[i],
+                                true, success ? mapped[i] : 0);
+        }
+    }
+    return success;
+}
+
 static bool nikon_transfer_stream_execute(NikonTransferState *s,
                                           const char **reason)
 {
+    NikonTransferProgram parsed;
     NikonTransferLutProgram program;
     g_autofree uint8_t *input = NULL;
     uint8_t output[TRANSFER_LUT_OUTPUT_BYTES];
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     MemTxResult result;
 
-    if (!nikon_transfer_stream_parse(s, &program, reason)) {
+    if (!nikon_transfer_stream_parse(s, &parsed, reason)) {
         return false;
     }
+    if (parsed.clear) {
+        return nikon_transfer_clear_execute(&parsed, reason);
+    }
+    program = parsed.lut;
     input = g_malloc(TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT);
     result = dma_memory_read(&address_space_memory, program.source, input,
                              TRANSFER_LUT_INPUT_STRIDE *
@@ -489,7 +733,7 @@ static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
     s->stream_ready = false;
     qemu_set_irq(s->stream_request[bank], 1);
     if (s->stream[0].bytes && s->stream[1].bytes) {
-        NikonTransferLutProgram program;
+        NikonTransferProgram program;
         const char *reason = NULL;
 
         if (!nikon_transfer_stream_parse(s, &program, &reason)) {
