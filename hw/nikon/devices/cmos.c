@@ -81,6 +81,7 @@ struct NikonCmosState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     qemu_irq irq;
+    qemu_irq pipeline_event[NIKON_CMOS_PIPELINE_EVENTS];
     QEMUTimer *timer;
     NikonCmosConfig configuration, active;
     uint32_t phase, status, irq_mask, irq_status;
@@ -278,8 +279,21 @@ static void nikon_cmos_phase(NikonCmosState *s, enum NikonCmosPhase phase)
 
 static void nikon_cmos_event(NikonCmosState *s, uint32_t event)
 {
+    int output = -1;
+
     s->irq_status |= event;
     nikon_cmos_irq(s);
+    if (event == NIKON_CMOS_EVENT_DONE) {
+        output = NIKON_CMOS_PIPELINE_DONE;
+    } else if (event == NIKON_CMOS_EVENT_ERROR) {
+        output = NIKON_CMOS_PIPELINE_ERROR;
+    } else if (event == NIKON_CMOS_EVENT_CANCEL) {
+        output = NIKON_CMOS_PIPELINE_CANCEL;
+    }
+    if (output >= 0) {
+        qemu_set_irq(s->pipeline_event[output], 1);
+        qemu_set_irq(s->pipeline_event[output], 0);
+    }
 }
 
 static void nikon_cmos_fail(NikonCmosState *s)
@@ -455,33 +469,29 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     return true;
 }
 
-static void nikon_cmos_start(NikonCmosState *s)
+static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
 {
-    Error *err = NULL;
     int64_t now;
 
     if (!s->fixture_provider) {
-        /* No camera source has been identified in the C1.70 evidence.  Keep
-         * the endpoint observable and incomplete instead of manufacturing a
-         * frame for the guest. */
-        nikon_cmos_fail(s);
-        return;
+        error_setg(errp, "CMOS frame provider is not bound");
+        return false;
     }
-
     if (s->phase == NIKON_CMOS_EXPOSING || s->phase == NIKON_CMOS_READING) {
-        nikon_cmos_fail(s);
-        return;
+        error_setg(errp, "CMOS frame transport is busy");
+        return false;
     }
-    if (!nikon_cmos_prepare(s, &err)) {
-        error_free(err);
-        nikon_cmos_fail(s);
-        return;
+    if (!nikon_cmos_prepare(s, errp)) {
+        return false;
     }
     now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    if (now < 0 || s->configuration.exposure_ns > INT64_MAX - now ||
-        (s->next_frame_time && now < s->next_frame_time)) {
-        nikon_cmos_fail(s);
-        return;
+    if (now < 0 || s->configuration.exposure_ns > INT64_MAX - now) {
+        error_setg(errp, "CMOS exposure time overflows the virtual clock");
+        return false;
+    }
+    if (s->next_frame_time && now < s->next_frame_time) {
+        error_setg(errp, "CMOS frame period backpressure is active");
+        return false;
     }
     timer_del(s->timer);
     s->active = s->configuration;
@@ -490,6 +500,45 @@ static void nikon_cmos_start(NikonCmosState *s)
     s->status = 0;
     nikon_cmos_phase(s, NIKON_CMOS_EXPOSING);
     nikon_cmos_schedule(s, s->active.exposure_ns);
+    return true;
+}
+
+bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
+                       Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+    NikonCmosConfig config = { 0 };
+
+    if (!submission || submission->format != NIKON_CMOS_FORMAT_FUNCTIONAL_C170) {
+        error_setg(errp, "CMOS submission format is unsupported");
+        return false;
+    }
+    config.width = submission->width;
+    config.height = submission->height;
+    config.crop_width = submission->width;
+    config.crop_height = submission->height;
+    config.scale_x = 1U << 16;
+    config.scale_y = 1U << 16;
+    config.format = submission->format;
+    config.transport_seed = submission->transport_seed;
+    config.bytes_per_pixel = submission->bytes_per_pixel;
+    config.stride = submission->stride;
+    config.buffer_count = 1;
+    config.destination[0] = submission->destination;
+    config.exposure_ns = submission->exposure_ns;
+    config.readout_ns = submission->readout_ns;
+    s->configuration = config;
+    return nikon_cmos_begin(s, errp);
+}
+
+static void nikon_cmos_start(NikonCmosState *s)
+{
+    Error *err = NULL;
+
+    if (!nikon_cmos_begin(s, &err)) {
+        error_free(err);
+        nikon_cmos_fail(s);
+    }
 }
 
 static MemTxResult nikon_cmos_error(NikonCmosState *s, hwaddr offset,
@@ -696,6 +745,8 @@ static void nikon_cmos_init(Object *obj)
                           "nikon-cmos", NIKON_CMOS_REGS);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
+    qdev_init_gpio_out_named(DEVICE(obj), s->pipeline_event,
+                             "pipeline-event", NIKON_CMOS_PIPELINE_EVENTS);
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_cmos_step, s);
     object_property_add_uint32_ptr(obj, "phase", &s->phase, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "frame-count", &s->frame_count,

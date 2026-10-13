@@ -1208,6 +1208,54 @@ bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request)
     return true;
 }
 
+bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
+                                NikonReadoutC170Mapping *mapping,
+                                Error **errp)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+    uint32_t destination, stride, span, secondary, secondary_stride, format;
+
+    if (!mapping || !generation || generation != s->generation ||
+        s->configuration[NIKON_READOUT_PARAMETERS][0x400 / 4] != 1) {
+        error_setg(errp, "C1.70 readout request generation is stale");
+        return false;
+    }
+    destination = s->configuration[NIKON_READOUT_PARAMETERS][0x3e8 / 4];
+    stride = s->configuration[NIKON_READOUT_PARAMETERS][0x3ec / 4];
+    span = s->configuration[NIKON_READOUT_PARAMETERS][0x3f0 / 4];
+    secondary = s->configuration[NIKON_READOUT_PARAMETERS][0x3f4 / 4];
+    secondary_stride =
+        s->configuration[NIKON_READOUT_PARAMETERS][0x3f8 / 4];
+    format = s->configuration[NIKON_READOUT_PARAMETERS][0x3fc / 4];
+
+    if (format != NIKON_READOUT_C170_FORMAT_PRIMARY &&
+        format != NIKON_READOUT_C170_FORMAT_ALTERNATE) {
+        error_setg(errp, "C1.70 functional readout format 0x%08x is unsupported",
+                   format);
+        return false;
+    }
+    if (!destination || !secondary || stride < 256 || (stride & 0xff) ||
+        (stride & 1) || !span || span > 64U * 1024 * 1024 || span % stride ||
+        secondary_stride < 256 || (secondary_stride & 0xff) ||
+        destination > UINT32_MAX - (span - 1) ||
+        (uint64_t)secondary_stride * (span / stride) > UINT32_MAX ||
+        secondary > UINT32_MAX -
+                    ((uint64_t)secondary_stride * (span / stride) - 1)) {
+        error_setg(errp, "C1.70 functional readout geometry is invalid");
+        return false;
+    }
+    mapping->generation = generation;
+    mapping->destination = destination;
+    mapping->stride = stride;
+    mapping->span = span;
+    mapping->secondary_destination = secondary;
+    mapping->secondary_stride = secondary_stride;
+    mapping->format = format;
+    mapping->width = stride / 2;
+    mapping->height = span / stride;
+    return true;
+}
+
 bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);

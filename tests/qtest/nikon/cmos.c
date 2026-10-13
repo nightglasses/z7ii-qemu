@@ -3,15 +3,101 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/crc-ccitt.h"
 #include "qobject/qdict.h"
 #include "libqtest.h"
 #include "hw/nikon/cmos.h"
+#include "hw/nikon/sensor.h"
+#include "hw/nikon/sla.h"
 
 #define CMOS 0x24080000
 #define RAM 0xb1810000
+#define READOUT_PARAMETERS 0x2006b000
+#define PIPELINE_PATH "/machine/readout-pipeline"
+#define READOUT_PATH "/machine/readout-control"
 
 static char *image;
 static char *source;
+
+static uint64_t property_at(QTestState *q, const char *path,
+                            const char *property)
+{
+    QDict *reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':'%s','property':'%s'}}",
+        path, property);
+    uint64_t value = qdict_get_int(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
+static char *functional_bundle(void)
+{
+    static const char *const names[] = {
+        "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
+        "vr1840_010100.bi", "eg1840_sla_01700",
+    };
+    const size_t header = 208;
+    const size_t total = header + 3 * 6 + 0x80000 + 2 +
+                         NIKON_SLA_ROM_SIZE + 2 + 16;
+    g_autofree uint8_t *data = g_malloc0(total);
+    char *path = NULL;
+    size_t offset = header;
+    unsigned i;
+    int fd;
+
+    memset(data, ' ', 32);
+    stl_be_p(data + 32, ARRAY_SIZE(names));
+    stl_be_p(data + 36, header);
+    for (i = 0; i < ARRAY_SIZE(names); i++) {
+        size_t length = i == 0 ? 0x80000 :
+                        i == 4 ? NIKON_SLA_ROM_SIZE : 4;
+        uint8_t *entry = data + 48 + i * 32;
+
+        memcpy(entry, names[i], strlen(names[i]));
+        stl_be_p(entry + 16, offset);
+        stl_be_p(entry + 20, length + 2);
+        if (i == 0) {
+            stl_le_p(data + offset, 0x20040000);
+            stl_le_p(data + offset + 4, 0x08000009);
+        } else {
+            stl_le_p(data + offset, 0xeafffffe);
+        }
+        stw_be_p(data + offset + length,
+                 crc_ccitt_false(0, data + offset, length));
+        offset += length + 2;
+    }
+    stw_be_p(data + offset, crc_ccitt_false(0, data, offset));
+    fd = g_file_open_tmp("nikon-cmos-bundle-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)data, total, NULL));
+    return path;
+}
+
+static QTestState *pipeline_start(char **bundle)
+{
+    g_autofree char *quoted = NULL;
+
+    *bundle = functional_bundle();
+    quoted = g_shell_quote(*bundle);
+    return qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                       "functional-profile=functional-gui-v1 "
+                       "-smp cpus=2,maxcpus=5 -nodefaults -display none",
+                       quoted);
+}
+
+static void pipeline_configure(QTestState *q, uint32_t destination,
+                               uint32_t stride, uint32_t span,
+                               uint32_t format)
+{
+    qtest_writel(q, READOUT_PARAMETERS + 0x3e8, destination);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3ec, stride);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3f0, span);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3f4, destination + 0x10000);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3f8, 0x100);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3fc, format);
+}
 
 static QTestState *start(void)
 {
@@ -227,6 +313,119 @@ static void test_period(void)
     qtest_quit(q);
 }
 
+static void test_pipeline_valid_and_silent(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_memset(q, RAM, 0xa5, 0x200);
+    qtest_memset(q, RAM + 0x10000, 0x5a, 0x200);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 0);
+
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x10000), ==, 0x5a5a5a5a);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 1);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
+static void test_pipeline_rejections(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_memset(q, RAM, 0xa5, 0x400);
+    pipeline_configure(q, RAM, 0x100, 0x200, 0x00020002);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+
+    pipeline_configure(q, RAM, 0x80, 0x200,
+                       NIKON_READOUT_C170_FORMAT_ALTERNATE);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 2);
+
+    pipeline_configure(q, 0xfffffff0, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 3);
+
+    pipeline_configure(q, 0x10020000, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 4);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 0);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
+static void test_pipeline_backpressure_and_stale(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_memset(q, RAM, 0xa5, 0x200);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "stale"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 0);
+
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 3);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
+static void test_pipeline_cancel_and_reset(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_memset(q, RAM, 0xa5, 0x200);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_writel(q, CMOS + 0x064, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 0);
+
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "request-generation"), ==, 0);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 0);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
@@ -253,6 +452,14 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/provider-required", test_provider_required);
     qtest_add_func("/nikon/cmos/image-provider", test_image_provider);
     qtest_add_func("/nikon/cmos/period", test_period);
+    qtest_add_func("/nikon/cmos/pipeline/valid-silent",
+                   test_pipeline_valid_and_silent);
+    qtest_add_func("/nikon/cmos/pipeline/rejections",
+                   test_pipeline_rejections);
+    qtest_add_func("/nikon/cmos/pipeline/backpressure-stale",
+                   test_pipeline_backpressure_and_stale);
+    qtest_add_func("/nikon/cmos/pipeline/cancel-reset",
+                   test_pipeline_cancel_and_reset);
     result = g_test_run();
     unlink(image);
     g_free(image);
