@@ -168,6 +168,11 @@ a non-null handle at `0xb25f250c`, its field conversion through
 `0x10443e3e` (which returns one on all reconstructed paths), nonzero
 `0x10398206(sp)`,
 `0x10235c84(P, 0) != 0`, `B[3] == 1`, and `*(u32 *)(B + 0x60) != 0`.
+`0x10235c84` is local firmware preparation rather than an external-ready
+poll.  It first calls `0x10231c28`, which maintains cached state in
+`B + 0x74`, `B[1]` and `B + 0x6c`.  It compares `P[0x0d]` with `B[1]` and
+tests `*(u32 *)(P + 0x14) | arg1`.  Its nonzero path reaches
+`0x1023befe -> 0x1023bc02(P, B + 0x6c)` to prepare per-object resources.
 On success `0x1023493c..0x10234944` also ORs `0x80` into `B + 0x5c`, then
 `0x10234948` calls the lane-1 setter with vector `0xb25f2510`.  The setter
 writes the lane/aggregate/participation state, then tail-calls the common
@@ -205,6 +210,80 @@ final marker path.
 It does not establish a natural runtime traversal of those phases.  CMOS
 completion must not be translated directly to code `0x281` or bit 29.
 
+## Recovered caller and current upstream boundary
+
+Read-only disassembly of the unchanged complete C1.70 payload recovers a
+direct Thumb call at `0x10326396` to `0x102347b6`.  The reconstructed closure
+does not contain that instruction, so closure call enumeration alone was
+insufficient.  The surrounding firmware-owned dispatch is:
+
+```text
+backend notification 0x04200001 with non-null payload
+    -> 0x1022f318
+    -> 0x1022f46c / 0x1022f510 publish 0x041a0001
+    -> 0x10327976 dispatcher
+    -> 0x10327bd6 selects callback 0x103263e9
+    -> 0x10319d56 queues 16 payload bytes
+    -> 0x103263e8 callback
+    -> capture state C[7] == 3 or 4
+    -> 0x10326408 -> 0x10326414 -> 0x10326280
+    -> 0x10326396 -> 0x102347b6
+```
+
+Here `C = 0xb1868af0`.  The dispatch rejects `C[0x1e] == 1` or `3`, diverts
+when `C[0x25] == 2`, and selects another callback for `C[7] == 0` or `1`.
+State `2` can select `0x103263e8`, but the table bytes at `0x10326402` are
+`0b 0b 0b 03 03`, so only states `3` and `4` execute the producer calls.
+Every selected path then writes `C[7] = 4` at `0x1032641a` and invokes
+transition input `0x10`.
+
+The earlier cold service-start route establishes the capture prerequisite and
+can reach the readout transition through additional local gates:
+
+```text
+0x103f1244 -> 0x103299c6
+    -> queue callback 0x10323ac2 through 0x10319d56
+    -> cold C[1] == 0: write C[7] = 2 at 0x10323aee
+    -> 0x10323198(0): transition C[1] to 1
+    -> 0x1032326c -> gated 0x10322fda -> 0x103230bc
+    -> 0x10234642 -> write B[3] = 1 at 0x10234794
+```
+
+`0x103299c6` queues the caller's completion callback in wrapper word `+4` and
+has no payload.  Stop API `0x103299e2` similarly queues callback
+`0x10323b2a`, which writes `C[7] = 5`.  The later event `0x041a0017` queues
+callback `0x10321a08`, which unconditionally writes `C[7] = 3` and invokes
+transition input `3`; it does not bootstrap cold `C[1] == 0`.
+
+`0x10322fda` reaches `0x103230bc` only when `0x103197fc()` and
+`0x10320390(2)` are nonzero and its subsequent `0x1032aec2(...)` and
+`0x1032b14c()` checks succeed.  Service start alone does not prove readout
+state one.
+
+The resulting readout start path requires initial `B[3] == 0`, registry key
+`0x29f != 2`, a valid handle/conversion path, and successful local backend
+preparation.  A successful fixed-mask producer invocation later writes
+`B[3] = 2` at `0x1023495a`.
+
+Bounded unchanged-firmware observations reached phase 3 with `C[1] == 0`,
+`C[7] == 0`, `B[3] == 0` and `B + 0x5c == 0`; `B + 0x60` had already changed
+from zero to `0x2eb`.  A focused observation did not enter `0x103f1244`,
+`0x103299c6`, queued callback `0x10323ac2`, capture transition `0x10323198`
+or the readout-state-one call at `0x103230bc`.  It also did not observe
+`0x04200001`, `0x041a0001` or the producer call.  Thus the nonzero
+`B + 0x60` test and the aggregate predicate bits are not the first false
+edge.  The current boundary precedes the capture service-start caller.
+
+Backend flag bit 11 is a downstream software event flag, not a device pending
+bit.  One route is router raw44 bit 7 through IRQ87 and callbacks
+`0x102dc5c0 -> 0x102d6b6a -> 0x1026d402 -> 0x10397a18`; however, its capture
+state byte `D = 0xb1868510` accepts states `4..9` or `25`, while the observed
+cold value is `1`.  Separate guest capture-control methods can publish the same
+`0x04200141` event through software flags `0x20` and `0x40`.  Event callback
+`0x10397a18` sets backend flag bit 11; `0x10397c0a` consumes it and
+`0x103976fc` can publish `0x04200001`.  Neither route authorizes a raw44 pulse
+or backend flag injection before the capture service lifecycle starts.
+
 ## Enumeration boundary and next unknown
 
 The writer audit covered every reconstructed literal in
@@ -215,24 +294,15 @@ to all three setters, both mask clearers and the whole-state reset were then
 enumerated from the reconstructed assembly.  Static control flow was
 sufficient, so no runtime state write or active probe was used.
 
-The one precise unresolved upstream edge is the natural caller of entry
-`0x102347b6`.  Reconstructed code contains no direct BL/BLX caller and the
-recovered literal inventory contains no `0x102347b6/7` function pointer.
-This does not prove the complete payload lacks either form: local metadata
-marks only `4,227,868` of `38,239,096` payload bytes declared, leaving
-`34,011,228` bytes undeclared and `full_payload_ready=false`.  An indirect
-registration/table dispatch is one candidate, but an unrecovered direct
-caller is not excluded.  Until that edge is recovered, zero natural readout
-requests locate the blockage before the firmware producer, not after
-`NikonReadoutPipeline` submission.
-
-The minimal passive probe is a breakpoint at `0x102347b6` that records
-`r0-r3`, `lr`, `sp` and `cpsr`, plus read-only snapshots of the input wrapper,
-its first-word `P`, `P+0x144`, and `B+3/+0x5c/+0x60`.  Optional breakpoints at
-`0x10234948`, `0x10234990` and `0x1023869e` distinguish the start setter,
-state-2 update and builder caller.  These observations must not write guest
-registers, memory, callbacks or IRQ state; absence of a hit proves only that
-the bounded observation window did not enter the function.
+The precise unresolved upstream edge is now the natural caller or owner input
+that reaches `0x103f1244` and requests capture service start through
+`0x103299c6`.  A minimal passive probe should break at `0x103f1244`,
+`0x103299c6`, queued callback `0x10323ac2`, transition `0x10323198`,
+readout-state-one call `0x103230bc` and producer `0x102347b6`, recording
+`C[1]`, `C[7]`, the callback wrapper and `B+3/+0x5c/+0x60`.  These
+observations must not write guest registers, memory, callbacks or IRQ state;
+absence of a hit proves only that the bounded observation window did not enter
+the path.
 
 QEMU must continue to leave `R + 0x38`, `R + 0x44`, code `0x281`, event bit 29
 and guest callbacks under firmware ownership.  Completion still needs a
