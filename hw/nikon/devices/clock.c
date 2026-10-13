@@ -211,10 +211,6 @@ static MemTxResult nikon_clock_write(void *opaque, hwaddr offset,
         s->stopped[bank] &= ~mask;
     }
     s->known[bank] |= mask;
-    qemu_log_mask(LOG_GUEST_ERROR,
-                  "nikon-clock-gates: bank=%d operation=%s mask=0x%08x "
-                  "known=0x%08x\n", bank, set ? "set" : "clear", mask,
-                  s->known[bank]);
     return MEMTX_OK;
 }
 
