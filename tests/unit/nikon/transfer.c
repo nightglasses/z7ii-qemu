@@ -36,6 +36,43 @@ static const MemoryRegionOps side_effect_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4 },
 };
 
+static void build_lut_program(uint8_t *setup, uint8_t *draw,
+                              uint32_t source, uint32_t destination)
+{
+    uint32_t *setup_words = (uint32_t *)setup;
+    uint32_t *draw_words = (uint32_t *)draw;
+
+    memset(setup, 0, NIKON_TRANSFER_LUT_SETUP_BYTES);
+    memset(draw, 0, NIKON_TRANSFER_LUT_DRAW_BYTES);
+    stl_le_p(&setup_words[0], 0x00691004);
+    stl_le_p(&setup_words[22], 0x00653004);
+    stl_le_p(&setup_words[36], 0x0080f026);
+    stl_le_p(&setup_words[37], source);
+    stl_le_p(&setup_words[39], 16);
+    stl_le_p(&setup_words[40], 0x00800080);
+    stl_le_p(&setup_words[42], 0x0006f004);
+
+    stl_le_p(&draw_words[0], 0x01408004);
+    stl_le_p(&draw_words[10], 0x01a3f004);
+    stl_le_p(&draw_words[11], 0x00200020);
+    stl_le_p(&draw_words[87], 0x0188f7fc);
+    for (unsigned i = 0; i < 256; i++) {
+        stl_le_p(&draw_words[88 + i], i << 4);
+    }
+    stl_le_p(&draw_words[344], 0x0192f02e);
+    stl_le_p(&draw_words[355], 0x0188f0fc);
+    for (unsigned i = 0; i < 32; i++) {
+        stl_le_p(&draw_words[356 + i], i << 7);
+    }
+    stl_le_p(&draw_words[396], 0x01a4f004);
+    stl_le_p(&draw_words[397], destination);
+    stl_le_p(&draw_words[403], 0x01000000);
+    stl_le_p(&draw_words[408], 0x00a0f02e);
+    stl_le_p(&draw_words[409], source);
+    stl_le_p(&draw_words[414], 2);
+    stl_le_p(&draw_words[415], 0x00a6f004);
+}
+
 static void irq_level(void *opaque, int n, int level)
 {
     TransferFixture *f = opaque;
@@ -283,16 +320,18 @@ static void test_stream_submission(void)
     object_property_add_child(object_get_objects_root(), "transfer-stream[*]",
                               OBJECT(f.dev));
     memory_region_init_ram_flags_nomigrate(&ram, OBJECT(f.dev),
-                                          "test.stream-source", 4096, 0,
+                                          "test.stream-source", 0x10000, 0,
                                           &error_abort);
     memory_region_add_subregion(root, 0x3000, &ram);
     memory_region_init_io(&mmio, OBJECT(f.dev), &side_effect_ops, &f,
                           "test.stream-mmio", 1024);
-    memory_region_add_subregion(root, 0x4000, &mmio);
+    memory_region_add_subregion(root, 0x20000, &mmio);
     source = memory_region_get_ram_ptr(&ram);
-    for (unsigned i = 0; i < 4096; i++) {
+    for (unsigned i = 0; i < 0x10000; i++) {
         source[i] = i ^ (i >> 3) ^ 0xa5;
     }
+    build_lut_program(source, source + 0x100, 0x6000, 0xb000);
+    memset(source + 0x8000, 0x5a, 1024);
     for (unsigned i = 0; i < 3; i++) {
         lines[i] = qemu_allocate_irq(setup_irq, levels, i);
         sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), i, lines[i]);
@@ -322,7 +361,7 @@ static void test_stream_submission(void)
     g_assert_cmpuint(first.token, >, 0);
     source[0] ^= 0xff;
     g_assert_cmphex(snapshot[0], ==, (source[0] ^ 0xff));
-    g_assert_cmpint(write_register(&f, 0x10d4, 0x3080), ==, MEMTX_ERROR);
+    g_assert_cmpint(write_register(&f, 0x10d4, 0x3100), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10dc, 1), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x1214, 0xffff), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x1298, 0), ==, MEMTX_ERROR);
@@ -338,14 +377,14 @@ static void test_stream_submission(void)
     g_assert_cmpint(memory_region_dispatch_read(
         sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
         MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
-    g_assert_cmpint(write_register(&f, 0x10e4, 0x3080), ==, MEMTX_OK);
+    g_assert_cmpint(write_register(&f, 0x10e4, 0x3100), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10ec, 211), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10e0, 1), ==, MEMTX_OK);
     g_assert_true(nikon_transfer_stream_request(f.dev, 1, &second));
     g_assert_cmpuint(second.units64, ==, 211);
     g_assert_cmpuint(second.token, !=, first.token);
     snapshot = g_bytes_get_data(second.bytes, &length);
-    g_assert_cmpmem(snapshot, length, source + 128, 1688);
+    g_assert_cmpmem(snapshot, length, source + 0x100, 1688);
     g_assert_cmpint(write_register(&f, 0x10e4, 0x3000), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10ec, 1), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10e0, 1), ==, MEMTX_ERROR);
@@ -355,7 +394,7 @@ static void test_stream_submission(void)
     g_assert_true(g_bytes_equal(next.bytes, second.bytes));
     g_bytes_unref(next.bytes);
     g_assert_false(nikon_transfer_stream_request(f.dev, 2, &next));
-    /* The owned pair is consumed together and produces the inferred IRQ129. */
+    /* The owned pair is executed before it produces IRQ129. */
     advance();
     g_assert_false(requests[0]);
     g_assert_false(requests[1]);
@@ -363,6 +402,14 @@ static void test_stream_submission(void)
     g_assert_true(levels[0]);
     g_assert_false(levels[1]);
     g_assert_false(levels[2]);
+    for (unsigned y = 0; y < 32; y++) {
+        for (unsigned x = 0; x < 32; x++) {
+            uint8_t sample = source[0x3000 + y * 4 * 128 + x * 4];
+
+            g_assert_cmphex(source[0x8000 + y * 32 + x], ==,
+                            sample & 0xf8);
+        }
+    }
     g_assert_cmpint(memory_region_dispatch_read(
         sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
         MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
@@ -392,7 +439,7 @@ static void test_stream_submission(void)
     g_assert_cmpuint(g_bytes_get_size(first.bytes), ==, 224);
     g_assert_cmpint(write_register(&f, 0x1214, 0xffff), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x1298, 0), ==, MEMTX_OK);
-    g_assert_cmpint(write_register(&f, 0x10d4, 0x4000), ==, MEMTX_OK);
+    g_assert_cmpint(write_register(&f, 0x10d4, 0x20000), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10dc, 28), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10d0, 1), ==, MEMTX_ERROR);
     g_assert_cmpuint(f.reads, ==, 0);

@@ -4,10 +4,14 @@
 #ifndef HW_NIKON_TRANSFER_H
 #define HW_NIKON_TRANSFER_H
 
-#include "hw/nikon/devices.h"
+#include "hw/nikon/devices.h" /* IWYU pragma: keep */
 
 /* Functional allocation bound, not a recovered hardware capacity. */
 #define NIKON_TRANSFER_STREAM_BYTES 0x20000U
+
+/* Complete C1.70 LUT/color-conversion profile stream extents. */
+#define NIKON_TRANSFER_LUT_SETUP_BYTES 224U
+#define NIKON_TRANSFER_LUT_DRAW_BYTES 1688U
 
 typedef struct NikonTransferStreamRequest {
     uint64_t token;
@@ -18,8 +22,10 @@ typedef struct NikonTransferStreamRequest {
 } NikonTransferStreamRequest;
 
 /* Returns a new GBytes reference to an immutable pending submission.
- * Caller must unref bytes; reset/unrealize invalidates the token, not a held
- * byte snapshot. There is no processing/completion API or guest IRQ here.
+ * Caller must unref bytes; reset, rejection, execution, or unrealize
+ * invalidates the token, not a held byte snapshot. The device executes only
+ * its finite paired LUT profile and owns completion/IRQ129; this observer API
+ * does not complete or acknowledge a request.
  */
 bool nikon_transfer_stream_request(DeviceState *dev, unsigned bank,
                                    NikonTransferStreamRequest *request);

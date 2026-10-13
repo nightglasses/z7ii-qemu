@@ -1,7 +1,7 @@
 /*
- * Nikon graphics packet transfer.  Register production and the IRQ130 ACK
- * are joined to C1.70 106ee148 and 106ee3d6 respectively.  The byte-stream
- * command is produced by 106eeb5c with control.bit3 and a byte extent.
+ * Nikon packet transfer. C1.70 106ee148/106ee3d6 provide byte-copy register
+ * production and IRQ130 ACK; 106ee04a submits the paired graphics streams.
+ * The finite LUT profile below executes those streams before raising IRQ129.
  * Zero reset and a 48MHz transfer clock are functional-board assumptions.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -14,6 +14,23 @@
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "hw/nikon/transfer.h"
+
+#define TRANSFER_LUT_INPUT_WIDTH 128U
+#define TRANSFER_LUT_INPUT_HEIGHT 128U
+#define TRANSFER_LUT_INPUT_STRIDE 128U
+#define TRANSFER_LUT_OUTPUT_WIDTH 32U
+#define TRANSFER_LUT_OUTPUT_HEIGHT 32U
+#define TRANSFER_LUT_OUTPUT_BYTES \
+    (TRANSFER_LUT_OUTPUT_WIDTH * TRANSFER_LUT_OUTPUT_HEIGHT)
+#define TRANSFER_LUT_PRIMARY_ENTRIES 256U
+#define TRANSFER_LUT_SECONDARY_ENTRIES 32U
+
+typedef struct NikonTransferLutProgram {
+    uint32_t source;
+    uint32_t destination;
+    uint16_t primary[TRANSFER_LUT_PRIMARY_ENTRIES];
+    uint16_t secondary[TRANSFER_LUT_SECONDARY_ENTRIES];
+} NikonTransferLutProgram;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTransferState, NIKON_TRANSFER)
 
@@ -109,6 +126,9 @@ static uint64_t nikon_transfer_span(hwaddr address, uint64_t length, bool write)
 
 static bool nikon_transfer_range(hwaddr address, uint64_t length, bool write)
 {
+    if (address > UINT32_MAX || length > UINT32_MAX - address + 1ULL) {
+        return false;
+    }
     while (length) {
         uint64_t span = nikon_transfer_span(address, length, write);
 
@@ -180,25 +200,188 @@ static void nikon_transfer_step(void *opaque)
     }
 }
 
-static void nikon_transfer_stream_complete(void *opaque)
+static void nikon_transfer_stream_clear(NikonTransferState *s)
 {
-    NikonTransferState *s = opaque;
-
-    if (!s->stream_running) {
-        return;
-    }
     s->stream_running = false;
     for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
         g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
         memset(&s->stream[i], 0, sizeof(s->stream[i]));
         qemu_set_irq(s->stream_request[i], 0);
     }
+}
+
+static bool nikon_transfer_stream_word(const uint32_t *words, size_t count,
+                                       unsigned index, uint32_t value)
+{
+    return index < count && le32_to_cpu(words[index]) == value;
+}
+
+static bool nikon_transfer_stream_parse(NikonTransferState *s,
+                                        NikonTransferLutProgram *program,
+                                        const char **reason)
+{
+    const uint32_t *setup, *draw;
+    size_t setup_bytes, draw_bytes, setup_words, draw_words;
+    uint32_t source, destination;
+
+    setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
+    draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    if (setup_bytes != NIKON_TRANSFER_LUT_SETUP_BYTES ||
+        draw_bytes != NIKON_TRANSFER_LUT_DRAW_BYTES) {
+        *reason = "transfer-stream-truncated";
+        return false;
+    }
+    setup_words = setup_bytes / sizeof(*setup);
+    draw_words = draw_bytes / sizeof(*draw);
+
     /*
-     * C1.70 ordinals 1/8/10 submit both streams, wait for event bit 0, and
-     * install IRQ129's handler as the producer of that bit.  The silicon
-     * trigger is not recovered; completing the owned pair is the smallest
-     * finite inference.  It does not interpret commands or render pixels.
+     * These command headers are the finite C1.70 LUT draw fingerprint.  The
+     * tables and descriptor operands remain data; accepting a different
+     * packet family would require another explicit profile.
      */
+    if (!nikon_transfer_stream_word(setup, setup_words, 0, 0x00691004) ||
+        !nikon_transfer_stream_word(setup, setup_words, 22, 0x00653004) ||
+        !nikon_transfer_stream_word(setup, setup_words, 36, 0x0080f026) ||
+        !nikon_transfer_stream_word(setup, setup_words, 42, 0x0006f004) ||
+        !nikon_transfer_stream_word(draw, draw_words, 0, 0x01408004) ||
+        !nikon_transfer_stream_word(draw, draw_words, 10, 0x01a3f004) ||
+        !nikon_transfer_stream_word(draw, draw_words, 87, 0x0188f7fc) ||
+        !nikon_transfer_stream_word(draw, draw_words, 344, 0x0192f02e) ||
+        !nikon_transfer_stream_word(draw, draw_words, 355, 0x0188f0fc) ||
+        !nikon_transfer_stream_word(draw, draw_words, 396, 0x01a4f004) ||
+        !nikon_transfer_stream_word(draw, draw_words, 408, 0x00a0f02e) ||
+        !nikon_transfer_stream_word(draw, draw_words, 415, 0x00a6f004)) {
+        *reason = "transfer-stream-program-not-supported";
+        return false;
+    }
+
+    source = le32_to_cpu(setup[37]);
+    destination = le32_to_cpu(draw[397]);
+    if (source != le32_to_cpu(draw[409]) ||
+        le32_to_cpu(setup[39]) != TRANSFER_LUT_INPUT_STRIDE / 8 ||
+        le32_to_cpu(setup[40]) !=
+            (TRANSFER_LUT_INPUT_HEIGHT << 16 | TRANSFER_LUT_INPUT_WIDTH) ||
+        le32_to_cpu(draw[11]) !=
+            (TRANSFER_LUT_OUTPUT_HEIGHT << 16 | TRANSFER_LUT_OUTPUT_WIDTH)) {
+        *reason = "transfer-stream-geometry-not-supported";
+        return false;
+    }
+    if (le32_to_cpu(draw[403]) != 0x01000000 ||
+        le32_to_cpu(draw[414]) != 2) {
+        *reason = "transfer-stream-format-not-supported";
+        return false;
+    }
+    for (unsigned i = 0; i < TRANSFER_LUT_PRIMARY_ENTRIES; i++) {
+        uint32_t entry = le32_to_cpu(draw[88 + i]);
+
+        if (entry > 0xfff) {
+            *reason = "transfer-stream-lut-not-supported";
+            return false;
+        }
+        program->primary[i] = entry;
+    }
+    for (unsigned i = 0; i < TRANSFER_LUT_SECONDARY_ENTRIES; i++) {
+        uint32_t entry = le32_to_cpu(draw[356 + i]);
+
+        if (entry > 0xfff) {
+            *reason = "transfer-stream-lut-not-supported";
+            return false;
+        }
+        program->secondary[i] = entry;
+    }
+    if (source > UINT32_MAX -
+                 TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT ||
+        destination > UINT32_MAX - TRANSFER_LUT_OUTPUT_BYTES) {
+        *reason = "transfer-stream-range-overflow";
+        return false;
+    }
+    if (source < destination + TRANSFER_LUT_OUTPUT_BYTES &&
+        destination < source +
+                      TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT) {
+        *reason = "transfer-stream-operands-overlap";
+        return false;
+    }
+    if (nikon_transfer_span(source,
+            TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT, false) <
+            TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT ||
+        nikon_transfer_span(destination, TRANSFER_LUT_OUTPUT_BYTES, true) <
+            TRANSFER_LUT_OUTPUT_BYTES) {
+        *reason = "transfer-stream-memory-range-not-backed";
+        return false;
+    }
+    program->source = source;
+    program->destination = destination;
+    return true;
+}
+
+static bool nikon_transfer_stream_execute(NikonTransferState *s,
+                                          const char **reason)
+{
+    NikonTransferLutProgram program;
+    g_autofree uint8_t *input = NULL;
+    uint8_t output[TRANSFER_LUT_OUTPUT_BYTES];
+    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+    MemTxResult result;
+
+    if (!nikon_transfer_stream_parse(s, &program, reason)) {
+        return false;
+    }
+    input = g_malloc(TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT);
+    result = dma_memory_read(&address_space_memory, program.source, input,
+                             TRANSFER_LUT_INPUT_STRIDE *
+                             TRANSFER_LUT_INPUT_HEIGHT, attrs);
+    if (result != MEMTX_OK) {
+        *reason = "transfer-stream-input-read-failed";
+        return false;
+    }
+    for (unsigned y = 0; y < TRANSFER_LUT_OUTPUT_HEIGHT; y++) {
+        for (unsigned x = 0; x < TRANSFER_LUT_OUTPUT_WIDTH; x++) {
+            uint8_t sample = input[(y * 4) * TRANSFER_LUT_INPUT_STRIDE + x * 4];
+            unsigned primary = program.primary[sample];
+            unsigned secondary = program.secondary[primary >> 7];
+
+            output[y * TRANSFER_LUT_OUTPUT_WIDTH + x] =
+                MIN((secondary + 8) >> 4, UINT8_MAX);
+        }
+    }
+    {
+        hwaddr mapped = sizeof(output);
+        void *destination;
+
+        attrs.memory = true;
+        destination = address_space_map(&address_space_memory,
+                                        program.destination, &mapped, true,
+                                        attrs);
+        if (!destination || mapped != sizeof(output)) {
+            if (destination) {
+                address_space_unmap(&address_space_memory, destination,
+                                    mapped, true, 0);
+            }
+            *reason = "transfer-stream-output-map-failed";
+            return false;
+        }
+        memcpy(destination, output, sizeof(output));
+        address_space_unmap(&address_space_memory, destination, mapped, true,
+                            mapped);
+    }
+    return true;
+}
+
+static void nikon_transfer_stream_complete(void *opaque)
+{
+    NikonTransferState *s = opaque;
+    const char *reason = NULL;
+    bool success;
+
+    if (!s->stream_running) {
+        return;
+    }
+    success = nikon_transfer_stream_execute(s, &reason);
+    nikon_transfer_stream_clear(s);
+    if (!success) {
+        nikon_transfer_error(s, 0x10e0, 4, true, 1, reason);
+        return;
+    }
     s->stream_ready = true;
     s->stream_irq_pending = true;
     nikon_transfer_irq(s);
@@ -306,8 +489,15 @@ static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
     s->stream_ready = false;
     qemu_set_irq(s->stream_request[bank], 1);
     if (s->stream[0].bytes && s->stream[1].bytes) {
+        NikonTransferLutProgram program;
+        const char *reason = NULL;
+
+        if (!nikon_transfer_stream_parse(s, &program, &reason)) {
+            nikon_transfer_stream_clear(s);
+            return nikon_transfer_error(s, offset, 4, true, value, reason);
+        }
         s->stream_running = true;
-        /* Defer completion beyond the second START; no latency is claimed. */
+        /* Defer memory execution beyond the second START. */
         timer_mod(s->stream_timer,
                   qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1);
     }
@@ -515,11 +705,7 @@ static void nikon_transfer_reset(DeviceState *dev)
 
     timer_del(s->timer);
     timer_del(s->stream_timer);
-    for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
-        g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
-        memset(&s->stream[i], 0, sizeof(s->stream[i]));
-        qemu_set_irq(s->stream_request[i], 0);
-    }
+    nikon_transfer_stream_clear(s);
     s->stream_setup = 0;
     memset(s->reg, 0, sizeof(s->reg));
     memset(s->setup, 0, sizeof(s->setup));
