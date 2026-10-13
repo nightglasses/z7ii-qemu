@@ -95,7 +95,14 @@ foreach(path IN LISTS upstream)
      path STREQUAL "target/rx/helper.c" OR path STREQUAL "target/rx/translate.c")
     continue()
   endif()
-  if(IS_DIRECTORY "${QEMU_UPSTREAM}/${path}")
+  # Preserve directory symlinks before IS_DIRECTORY follows them.  QEMU's
+  # libvhost-user and libvduse subprojects use these links for their private
+  # standard and Linux header views.
+  if(IS_SYMLINK "${QEMU_UPSTREAM}/${path}")
+    get_filename_component(parent "${QEMU_VIEW}/${path}" DIRECTORY)
+    file(MAKE_DIRECTORY "${parent}")
+    native_link("${QEMU_UPSTREAM}/${path}" "${QEMU_VIEW}/${path}")
+  elseif(IS_DIRECTORY "${QEMU_UPSTREAM}/${path}")
     file(MAKE_DIRECTORY "${QEMU_VIEW}/${path}")
   else()
     get_filename_component(parent "${QEMU_VIEW}/${path}" DIRECTORY)
