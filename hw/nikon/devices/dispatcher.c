@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
-#include "migration/vmstate.h"
+#include "qapi/error.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "hw/core/sysbus.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
 
@@ -34,6 +36,7 @@ struct NikonByteEventRouterState {
     qemu_irq irq[2];
     uint8_t config[ARRAY_SIZE(config_words)];
     uint8_t pending[9], masks[9], inputs[4];
+    uint8_t external_status;
     bool reported_error;
 };
 
@@ -86,6 +89,17 @@ static void nikon_byte_event_router_input(void *opaque, int index, int level)
     }
 }
 
+static void nikon_byte_event_router_status_input(void *opaque, int index,
+                                                 int level)
+{
+    static const unsigned bits[] = { 1, 4, 5, 6, 7 };
+    NikonByteEventRouterState *s = opaque;
+    uint8_t bit = 1U << bits[index];
+
+    s->external_status = (s->external_status & ~bit) |
+                         (level ? bit : 0);
+}
+
 static MemTxResult nikon_byte_event_router_error(NikonByteEventRouterState *s, hwaddr offset,
                                  unsigned size, bool write, uint64_t value)
 {
@@ -110,6 +124,9 @@ static MemTxResult nikon_byte_event_router_read(void *opaque, hwaddr offset,
     }
     if (offset == 0x5c0) {
         *value = nikon_byte_event_router_top(s);
+    } else if (offset == 0xc010) {
+        /* External bits consumed by 1047f37e/1047f3be; unwired pins are low. */
+        *value = s->external_status;
     } else if (offset == 0xc0a8 || offset == 0x1f824) {
         /* Disconnected disabled configuration never receives completion. */
         *value = 0;
@@ -188,7 +205,19 @@ static void nikon_byte_event_router_init(Object *obj)
     for (i = 0; i < 2; i++) {
         sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[i]);
     }
-    qdev_init_gpio_in_named(DEVICE(obj), nikon_byte_event_router_input, "pending-bit", 32);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_byte_event_router_input,
+                            "pending-bit", 32);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_byte_event_router_status_input,
+                            "external-status", 5);
+}
+
+static void nikon_byte_event_router_realize(DeviceState *dev, Error **errp)
+{
+    NikonByteEventRouterState *s = NIKON_BYTE_EVENT_ROUTER(dev);
+
+    if (s->external_status & ~0xf2U) {
+        error_setg(errp, "initial-status supports external bits 1 and 4..7");
+    }
 }
 
 static const VMStateDescription nikon_byte_event_router_vmstate = {
@@ -196,12 +225,19 @@ static const VMStateDescription nikon_byte_event_router_vmstate = {
     .unmigratable = true,
 };
 
+static const Property nikon_byte_event_router_properties[] = {
+    DEFINE_PROP_UINT8("initial-status", NikonByteEventRouterState,
+                      external_status, 0),
+};
+
 static void nikon_byte_event_router_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->realize = nikon_byte_event_router_realize;
     dc->vmsd = &nikon_byte_event_router_vmstate;
     dc->user_creatable = false;
+    device_class_set_props(dc, nikon_byte_event_router_properties);
     device_class_set_legacy_reset(dc, nikon_byte_event_router_reset);
 }
 

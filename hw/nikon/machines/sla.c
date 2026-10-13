@@ -12,7 +12,7 @@
 #include "hw/core/split-irq.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
-#include "hw/core/qdev-properties-system.h"
+#include "hw/core/qdev-properties-system.h" /* IWYU pragma: keep */
 #include "hw/intc/arm_gic.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/devices.h"
@@ -31,7 +31,7 @@
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/system.h"
-#include "target/arm/cpu.h"
+#include "target/arm/cpu.h" /* IWYU pragma: keep */
 
 #define TYPE_NIKON_SLA_MACHINE MACHINE_TYPE_NAME("nikonsla")
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSLADomain, NIKON_SLA_DOMAIN)
@@ -65,6 +65,7 @@ struct NikonSLADomain {
     GBytes *payload;
     GBytes *boot_prefix;
     char *boot_shim;
+    bool bridge_notifications;
     MemoryRegion shim_copy;
     bool reported_error;
     bool first_fault;
@@ -611,7 +612,10 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         /* Requests carry opaque guest words; no message provider is attached. */
     }
     /* Official 1006ade8/1006ad78: IRQ127, pending/ACK at 2013d020/d028. */
-    s->bridge = sla_simple(s, "bridge", TYPE_NIKON_BRIDGE, 0x20130000);
+    s->bridge = sla_device(s, "bridge", TYPE_NIKON_BRIDGE);
+    qdev_prop_set_bit(s->bridge, "notification-v1", s->bridge_notifications);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(s->bridge), &error_fatal);
+    sla_map(s, s->bridge, 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(s->bridge), 0,
                        qdev_get_gpio_in(gic, 127 - 32));
     /* Class0 source converter 10060f9c and CPU accessors 10064728/1006474a.
@@ -836,6 +840,7 @@ static void sla_domain_class_init(ObjectClass *oc, const void *data)
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,
                              const char *boot_shim,
+                             bool bridge_notifications,
                              unsigned num_cpus,
                              Chardev *serial, Error **errp)
 {
@@ -856,6 +861,7 @@ DeviceState *nikon_sla_create(Object *parent, const char *name,
     s->payload = g_bytes_ref(payload);
     s->boot_prefix = boot_prefix ? g_bytes_ref(boot_prefix) : NULL;
     s->boot_shim = g_strdup(boot_shim ? boot_shim : "none");
+    s->bridge_notifications = bridge_notifications;
     s->num_cpus = num_cpus;
     s->serial = serial;
     object_property_add_child(parent, name, OBJECT(dev));
@@ -899,7 +905,7 @@ static void sla_init(MachineState *machine)
                      m->boot_prefix);
     }
     domain = nikon_sla_create(OBJECT(machine), "sla", payload, boot_prefix,
-                              "none", machine->smp.cpus, serial_hd(0),
+                              "none", false, machine->smp.cpus, serial_hd(0),
                               &error_fatal);
     g_bytes_unref(payload);
     nikon_bundle_free(bundle);

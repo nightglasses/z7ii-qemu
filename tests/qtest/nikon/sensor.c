@@ -17,6 +17,7 @@
 #define I2C_IRQ_MASK 0x2ff
 #define DISPLAY_BANK 0x20140000
 #define DISPLAY_RAM 0xb1810000
+#define DISPLAY_FRAME_PENDING ((1U << 1) | (1U << 16))
 
 static char *image, *frame;
 
@@ -346,7 +347,7 @@ static void test_sensor_display_buffer(void)
                         0x34);
     }
     unlink(path);
-    qtest_writel(q, DISPLAY_BANK + 0x1214, 1U << 16);
+    qtest_writel(q, DISPLAY_BANK + 0x1214, DISPLAY_FRAME_PENDING);
     qtest_quit(q);
 }
 

@@ -56,3 +56,285 @@ page-offset requirement for unaligned RAM extents. Private backing with an
 offset alias preserves each exact mapped extent without adding padding or
 changing guest bytes. These results do not establish complete original RX
 firmware execution, device peers or visible camera output.
+
+## Native source graph before bridge ISR correction
+
+The `f02f0c43cd4da62b3a469717accd86e03d540f0c` worktree with the local
+section-bounded transfer and test changes builds from the maintained root
+`qemu/` dependency through `work/config/source` into `work/build/qemu`.
+`make check MTESTARGS='--print-errorlogs'` passes all 27 Nikon fixtures,
+239 subtests, with no failures. Raw output and the structured Meson record
+are retained as `work/research/guiresume/nativecheck3.log` and
+`nativecheck3.json`. The official upstream submodule remains unchanged.
+
+The new transfer unit boundary test fails its byte assertion on the old
+implementation (`transfer-red.log`) and passes after the fix
+(`transfer-green2.log`). It verifies switching from a short ROMD alias to
+adjacent RAM/ROMD, not copying hidden backing bytes, and rejecting inaccessible
+sources, read-only destinations and MMIO without successful completion or
+read side effects. The existing transfer qtests also pass in the full run.
+
+The first full build exposed the pre-existing save unit fixture's missing
+`qemu_main` symbol on Darwin; its first runnable attempt then failed with
+unknown QOM type `nikon-save`. The fixture now uses the same machine-none,
+qtest QEMU initialization and cleanup as the other device unit fixtures.
+All three original assertions pass without changing the save device contract.
+Those failed attempts remain in `nativecheck.log` and `nativecheck2.log`.
+
+The rebuilt ARM binary SHA256 is
+`13158f95a0c3313ee9d177f50ed1d55ce9a5a317a67e3bab106736fab71fc764`.
+Two separate bounded complete-bundle runs pass the observed COPY and loader
+byte checks but fail the transfer-producer/GUI-first-frame gate. The current
+[EV3 wait boundary](../runtime/wait/ev3.md) records the actual unsatisfied
+mask and scope. Native synthetic tests do not establish camera boot or GUI
+acceptance.
+
+## Bridge ISR correction revalidation
+
+The same base `f02f0c43cd4da62b3a469717accd86e03d540f0c` with uncommitted
+transfer, fixture and bridge changes again passes all 27 Nikon fixtures,
+239 subtests with `make check MTESTARGS='--print-errorlogs'`. The final raw
+and structured receipts are `work/research/ev3producer/nativecheck_final2.log`
+and `nativecheck_final2.json`; the upstream submodule remains clean.
+
+The bridge tests first fail on the old configuration IRQ cause
+(`0x40 != 0x20`, `bridge-red.log`) and third peer-event mapping
+(`0x20 != 0x10`, `event-red.log`). They pass after correcting both original
+ISR sign-test bit numbers, without changing timing, reset, masking or W1C
+expectations. The maintained bridge change contains no additional RX-word
+backing or peer-bank assumption.
+
+The final ARM binary SHA256 is
+`f2512544ef07e70b703574fbb52e2a491bc5d43386ec17de55cf84ca030f2dbc`.
+Two independent eight-second original complete-bundle runs confirm natural
+bridge flag4 production and configuration-wait return, then reject the word
+read at PA `0x2013e000` in MAS and SLA. Both final COPY/loader-byte and
+transfer/first-frame gates fail; there are no observed COPY submissions.
+The previous 14-COPY PASS belongs to its older binary and is not carried
+forward. A withdrawn paired-word experiment remains ignored research only.
+The [current EV3 frontier](../runtime/wait/ev3.md) separates these identities
+and the still-unclosed getter/publisher contract. GUI acceptance remains
+undelivered.
+
+## Notification experiment and I2C divisor revalidation
+
+The uncommitted native source graph now passes 28 Nikon fixtures and 242
+subtests with `make check MTESTARGS='--print-errorlogs'`.
+`work/research/bridgeports/nativecheck_final2.log/json` hold the final raw and
+structured records; the official QEMU submodule remains unchanged.
+
+The added bridge unit fixture first rejects the old unsupported flag read,
+then verifies local set/clear masks and the default-off experimental connected
+profile. It covers masking/W1C, duplicate and zero sets, both directions,
+invalid accesses, reset and disconnect. These synthetic tests validate a
+declared model, not the hypothesized notification wiring/reset/firstword.
+
+The I2C divisor qtest fails on the old full-control-word guard (`0 != 4`),
+then passes for the same finite TX/RX modes with clock bits across all four
+empty buses. It expects address NACK, not fabricated application success;
+a different unsupported monitor mode remains rejected. The native build and
+active LSP probes confirm that initial missing-QEMU-header/GLib diagnostics
+were parser-environment false positives, not code fixes to bypass failures.
+
+The current ARM binary SHA256 is
+`3848f3146a462f0649e586d548d1a264f1424949c17a67be24979eb8d06fdae9`.
+Two separate original complete-bundle, functional-v1, MTTCG eight-second
+observations explicitly enable `notification-v1`. Both enter GUI phase3 and
+pass all three loader-byte comparisons; they capture 11/13 COPY requests and
+no COPY first fault. They then reject WORD write `0` at PA `0x2c04000c`, MAS PC
+`0x1020b4da`. Neither captures a child constructor or graphics transfer, and
+both fail the first-frame gate. This is conditional software-path progress,
+not default-profile boot or qualification of the experimental hardware laws.
+
+The same binary's default run confirms both notification properties false,
+rejects `0x2013e000`, captures zero COPY requests and fails the loader checks.
+Ignored receipts `work/research/guiresume/{flagsi2c1,flagsi2c2,flagsdefault2}`
+record each profile, hashes, dirty source identity and bounded exit. No GUI
+first-frame acceptance is claimed; the experimental results do not replace
+strict-profile failures or the historical identities above.
+
+## Read-only coprocessor startup qualification
+
+Six later eight-second observations `coprocessor1..6` use this same binary,
+complete bundle and explicit experimental profile. Both actual notification
+properties are true in each receipt. Each captures 13 COPY submissions,
+three byte-exact loader extents and the same rejected `2c04000c` write.
+None observes a child constructor, graphics transfer or frame. No emulation
+C, hardware reset/status behavior, backend, ISA decoder or ready producer was
+added; the native suite above was not rerun merely for these research hooks.
+
+The last two observe GUI component phase3 return1 before the controller
+fault. The last also observes indexed callback bind returns0 and both actual
+guest pointers in the callback array. Following the facade veneers rules out
+the provisional interpretation of those calls as task destruction. This
+qualifies a particular callback-configuration routine, not all global phase3
+participants or framebuffer production.
+
+Original byte checks corroborate the bootstrap entry arithmetic and matching
+program/data footers; the ARM loader's mask200 signal/wait/return is observed.
+This is program transport/validation, not coprocessor execution or a boot
+marker produced by hardware. The [startup boundary](../runtime/coprocessor.md)
+retains that pre-model unseen ready poll, original timeout path and
+still-unqualified physical controller/provider law. Fresh strict `coprocessordefault1` records both
+propertiesfalse, zero COPY, three failed loader comparisons and the unchanged
+`2013e000` rejection. All raw receipts and scripts remain under `work/`.
+
+## Bootstrap request boundary and timeout continuation
+
+The subsequent request-only processor device and finite TRANSFER setup
+extension are separate from the earlier study and binary. Native bootstrap
+and empty-configuration tests fail on the old rejection behavior, then pass
+without ready words, automatic acknowledgements, processing replies or guest
+completion IRQs. Negative halfword access is correctly checked as dispatch
+`MEMTX_DECODE_ERROR`, not a device callback error.
+
+A complete native check initially exposed `nikon_memory_unit` owner/region
+teardown: QOM assertion in deferred flat-view destruction. The fixture now
+explicitly removes mapped siblings while their embedded storage and owner
+are alive, drains retired views, then releases ownership. Production DMA
+behavior and all boundary/permission assertions are unchanged. Five isolated
+repetitions and the complete rerun pass. This is fixture lifecycle repair,
+not original-firmware red→green. Native host GDB bus-error and LLDB launch
+incompleteness are inspection failures, not guest failures.
+
+`make check MTESTARGS='--print-errorlogs'` passes29 fixtures /245 subtests,
+zero failures, receipt `work/research/z9reference/nativecheck-green.{log,json}`.
+The ARM binary is
+`ecb020af61b554c65d075640b6403095833e17b1b255eea812783a6d1d57a85f`.
+Two independent complete-bundle twelve-second experiments,
+`processorfinal1/2`, verify14 COPY calls, three loader extents and the actual
+16 KiB bootstrap bytes; both observe ten original marker polls, natural stop
+and shared cleanup, then graphics configuration. Pending processor ownership
+isfalse at the bounded snapshot. Actual notification properties aretrue in
+both domains; this is not default/physical notification qualification.
+
+Both experiments first reject a nonempty graphics source write at
+`201810d4`, value`bd0dff90`, PC`106ee3c6`. The live descriptor extents56/422
+were then interpreted as bytes; the later read-only qualification below
+establishes words and full224/1688-byte inputs. Upload/processing/completion
+is not implemented. COPY-only `first-fault=null` does not mean global fault-free boot. The observer now
+records uncovered transactions separately. No child, ordinary graphics
+packet, scanout or natural first frame is accepted.
+
+The same binary's strict eight-second `processordefault1` retains notification
+propertiesfalse, zero COPY, failed loader comparisons and first rejection
+`2013e000`. Its zero-filled bootstrap/source equality does not prove a copy.
+The [processor contract](../devices/processor/protocol.md) and
+[runtime evidence](../runtime/coprocessor.md) distinguish ownership/storage,
+real timeout continuation, missing execution and the new graphics boundary.
+The fixed Z9 reference supplied design context only; its AArch64 addresses
+and synthetic service/peer fixtures were not ported. Final active LSP checks
+are clean for six changed C/header paths; machine and transfer-fixture probes
+lack `qemu/osdep.h` in their standalone include context and produce cascading
+unknown-type diagnostics. Those are environment limitations, not an all-path
+LSP-clean receipt; no fake includes were added. Native compilation, the full
+suite and `git diff --check` pass; the official submodule remains clean.
+
+## Owned graphics streams without processing completion
+
+A later finite frontend admits the original two source/count/start triples
+and captures real bytes, but leaves them unprocessed. These are historical
+receipts under the superseded halfword-count assumption, not validation of
+full original extents. Native red `stream-red.log` rejects10d4; green tests
+verify real56/422-byte immutable snapshots, independent pending
+ownership/tokens, negative transactions,
+side-effect-free MMIO rejection, reset/unrealize cancellation and absence of
+all three GIC IRQs. ROMD-boundary tests also verify section-exact stream
+capture. The first build attempt lacked the newly added header in the ignored
+source graph; `make prepare` resolved this infrastructure failure before the
+behavioral red run. It is not firmware red→green.
+
+`stream-nativecheck.{log,json}` records29 fixtures /246 subtests, allOK.
+Active LSP probes confirm the three changed implementation/header/fixture
+paths clean. The unchanged machine path retains its earlier standalone
+include-context limitations; no machine code or official QEMU source was
+modified for this stream extension.
+
+Two independent twelve-second `graphicsstream1/2` observations use ARM
+`df46dc78f70c5de5b503a71d39e4614e37cffb9b53e36841285ed147af0dfd96`
+and actual notification propertiestrue. Both retain14 COPY calls, exact
+loader/bootstrap bytes and the natural processor timeout. Both submitted
+stream hashes match guest-memory prefixes using the same assumed56/422-byte
+lengths; this is not independent full-bound proof. Both are pending at the
+snapshot. The original graphics wait is entered with ordinal10, with no
+observed return or IRQ129 handler. The distinct first rejection is another
+MAS task's WORD write2014d200=0 at1046e19a. Thus there is both missing graphics
+processing/completion and an independent display-parameter aperture gap;
+these receipts do not isolate a single sole wait dependency or prove a frame.
+
+The same binary's strict `graphicsstreamdefault1` retains notificationsfalse,
+zero COPY, failed loader comparisons, no pending streams and2013e000
+rejections. The [runtime evidence](../runtime/coprocessor.md) records the
+actual stream identities, corrected command ordinal and separate display
+boundary. All raw byte dumps, watchpoint receipts and original listings
+remain ignored under `work/`; no command arrays or CPU/ISA decoder were added.
+
+## Historical read-only stream extent qualification
+
+The later parent probe `work/research/guiresume/graphicsextent1/gdb.log`
+establishes descriptor extents56/422 as32-bit words and register counts28/211
+as64-bit units, hence full224/1688-byte sources. The old56/422-byte captures
+are prefixes, not independently validated full inputs. The
+[runtime qualification](../runtime/coprocessor.md#superseding-read-only-stream-extent-qualification)
+records the actual descriptor/port observations and full-word input hashes;
+at this stage those hashes were observed only by the read-only probe, not a
+fixed frontend. The historical29-fixture/246-subtest PASS above remains a
+receipt for that binary and its synthetic old-length contract, not full-extent
+acceptance. The separate corrected implementation and receipts follow.
+
+## Corrected stream count-unit revalidation
+
+The parent accepted `8e113e58` changes capture to `8*units64`, preserving the
+functional 128-KiB limit and unprocessed pending ownership. The actual native
+red `work/research/z9reference/extent-red.log` fails the updated submission
+comparison on the old implementation (`56 != 224`). `extent-green.log` then
+passes all four transfer unit cases, including full 224/1688-byte snapshots
+and `stream-extent-boundaries`. The latter checks both stream banks, finite
+count/access/setup guards, the exact allocation limit and over-limit counts,
+and whole-extent MMIO preflight without read side effects or guest IRQs.
+Existing reset/unrealize and ownership-isolation checks remain intact.
+
+The focused memory fixture now also checks the finite source-bounded display
+scalars. D200 accepts only the sole direct caller's observed zero while D100
+remains independently retained; C0A0 accepts only the paired zero/one bit0
+writes. Reset returns the virtual retained fields to zero, nonzero D200 and
+other C0A0 bits fail, and table offset zero remains independent of the C0A0
+slot. These checks establish neither a physical reset value nor any event,
+completion or IRQ effect.
+
+Persistent Ghidra Thumb marking and raw-byte verification further show that
+the previously ranked `1046bfxx` image-start route is downstream of the
+registered `tftdbg` handler. It is excluded from natural-startup acceptance.
+No modeled graphics completion or external C010/control initial-value profile
+is included in this validation scope.
+
+The parent incremental build and
+`make check MTESTARGS='--print-errorlogs'` receipt
+`work/research/z9reference/extent-nativecheck.log` passes 29 fixtures / 247
+subtests, zero failures. Parent active root LSP probes are clean 3/3 for the
+transfer implementation, header and unit fixture. These are scoped native
+contract/build checks, not firmware or physical-camera red→green. No
+additional native run accompanies this documentation-only correction.
+
+Two separate twelve-second original complete-bundle experiments,
+`extentfixed1/2`, use ARM SHA256
+`0398c59a4da249213e15e475ef8ccc9e8b763ccbc758d315162be823b1f688ad`
+with functional-v1, MTTCG and both notification propertiestrue. Each retains 14
+COPY calls, three exact loader extents, actual 16-KiB bootstrap equality and
+ten marker polls followed by natural timeout/stop. Device stream hashes match
+producer-bounded full 224/1688-byte inputs; the
+[corrected runtime receipt](../runtime/coprocessor.md#corrected-full-stream-capture-without-processing-completion)
+records source/count units and actual hashes. Tokens1/2 remain pending at the
+ordinal10 graphics wait with no observed wait return, IRQ129 or frame.
+
+The first uncovered access is still WORD write0 to PA`2014d200` at
+MAS PC`1046e19a`. The new hooks observe caller VA`1044a4c4`, r1=0, and the
+already-loaded D100 value at VA`1046e190`, r0=0, without debugger MMIO reads or
+bypass. This is parameter/caller evidence, not a D200 implementation or
+permission to admit zero as a discard. The same binary's eight-second strict
+`extentdefault1` keeps both notification propertiesfalse, zero COPY, failed
+loader comparisons, no pending streams and PA`2013e000` rejection; its
+all-zero bootstrap equality is vacuous. These corrected capture receipts do
+not provide graphics processing/fence/status58/IRQ129, processor execution or
+independentD200, and do not promote notification hypotheses or accept GUI
+startup. No self-designed hash gates or fabricated success were added.

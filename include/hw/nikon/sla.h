@@ -2,6 +2,7 @@
 #ifndef HW_NIKON_SLA_H
 #define HW_NIKON_SLA_H
 
+#include <stdbool.h>
 #include "qemu/typedefs.h"
 #include <glib.h>
 
@@ -11,6 +12,7 @@
 DeviceState *nikon_sla_create(Object *parent, const char *name,
                              GBytes *payload, GBytes *boot_prefix,
                              const char *boot_shim,
+                             bool bridge_notifications,
                              unsigned num_cpus,
                              Chardev *serial, Error **errp);
 AddressSpace *nikon_sla_address_space(DeviceState *domain);

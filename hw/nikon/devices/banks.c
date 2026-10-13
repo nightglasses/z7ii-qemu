@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
@@ -14,10 +14,11 @@
 #include "qemu/bswap.h"
 #include "qemu/timer.h"
 #include "ui/console.h"
-#include "ui/qemu-pixman.h"
+#include "ui/qemu-pixman.h" /* IWYU pragma: keep */
 
 #define BANK_SIZE 0x4000
 #define FRAME_PIXELS (16 * 1024 * 1024)
+#define FRAME_PENDING ((1U << 1) | (1U << 16))
 OBJECT_DECLARE_SIMPLE_TYPE(NikonDualEventBanksState, NIKON_DUAL_EVENT_BANKS)
 
 typedef struct NikonDualEventBanksRegion {
@@ -33,12 +34,14 @@ typedef struct NikonDualEventBanksRegion {
 
 struct NikonDualEventBanksState {
     SysBusDevice parent_obj;
-    NikonDualEventBanksRegion region[13];
+    NikonDualEventBanksRegion region[14];
     qemu_irq irq[3];
     uint32_t config[2][BANK_SIZE / 4];
     uint32_t mask[2], pending[2], inputs[2];
-    uint32_t global[4];
+    uint32_t global[5];
+    uint32_t c0[0xcc / 4];
     uint32_t tables[8][0x400 / 4];
+    uint64_t irq_levels;
     bool reported_error;
 };
 
@@ -145,6 +148,7 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
         *mask = 1;
         break;
     case 0x110: case 0x2110: case 0x3110: case 0x1220:
+    case 0x1420: case 0x1424:
     case 0x210: case 0x214: case 0x218: case 0x21c:
     case 0x220: case 0x224: case 0x228: case 0x22c:
     case 0x260:
@@ -175,6 +179,7 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
 
 static void nikon_dual_event_banks_irq(NikonDualEventBanksState *s)
 {
+    uint64_t levels = 0;
     unsigned route, bank;
 
     for (route = 0; route < 3; route++) {
@@ -184,8 +189,10 @@ static void nikon_dual_event_banks_irq(NikonDualEventBanksState *s)
             asserted |= s->config[bank][0x1100 / 4] == route + 1 &&
                         !!(s->pending[bank] & ~s->mask[bank]);
         }
+        levels |= (uint64_t)asserted << route;
         qemu_set_irq(s->irq[route], asserted);
     }
+    s->irq_levels = levels;
 }
 
 static bool nikon_banks_ram(hwaddr base, uint64_t bytes)
@@ -509,22 +516,24 @@ static void nikon_banks_frame(void *opaque)
         }
     }
     supplied |= nikon_banks_overlays(r, output, width, height);
-    if (!supplied) {
-        pixman_image_unref(output);
-        goto error;
-    }
-    if (!r->console) {
-        r->console = qemu_graphic_console_create(DEVICE(s), r->index,
-                                                  &nikon_banks_graphics, r);
-    }
-    qemu_console_resize(r->console, width, height);
-    {
-        DisplaySurface *surface = qemu_console_surface(r->console);
-        pixman_image_composite32(PIXMAN_OP_SRC, output, NULL, surface->image,
-                                 0, 0, 0, 0, 0, 0, width, height);
+    /* A start with no enabled layer is a valid empty transaction. It advances
+     * completion without creating a console or publishing host pixels. */
+    if (supplied) {
+        if (!r->console) {
+            r->console = qemu_graphic_console_create(DEVICE(s), r->index,
+                                                      &nikon_banks_graphics,
+                                                      r);
+        }
+        qemu_console_resize(r->console, width, height);
+        {
+            DisplaySurface *surface = qemu_console_surface(r->console);
+            pixman_image_composite32(PIXMAN_OP_SRC, output, NULL,
+                                     surface->image, 0, 0, 0, 0, 0, 0,
+                                     width, height);
+        }
+        qemu_console_update_full(r->console);
     }
     pixman_image_unref(output);
-    qemu_console_update_full(r->console);
     s->config[r->index][0x1200 / 4] =
         (s->config[r->index][0x1200 / 4] & ~3U) | 3;
     {
@@ -559,8 +568,9 @@ static void nikon_banks_frame(void *opaque)
             }
         }
     }
-    /* Virtual frame-complete bit16; original ISR translates this into bit1. */
-    s->pending[r->index] |= 1U << 16;
+    /* Low bit1 is the unmasked IRQ cause; retained bit16 is the semantic
+     * frame event consumed by the original callback packet. */
+    s->pending[r->index] |= FRAME_PENDING;
     nikon_dual_event_banks_irq(s);
     nikon_banks_schedule(r);
     return;
@@ -607,7 +617,7 @@ static MemTxResult nikon_dual_event_banks_error(NikonDualEventBanksRegion *r, hw
 static bool nikon_dual_event_banks_global(unsigned index, hwaddr offset, uint32_t *mask,
                               unsigned *slot)
 {
-    if (offset == 0) {
+    if (offset == 0 && index >= 2 && index <= 4) {
         *slot = index == 4 ? 3 : index - 2;
         *mask = index == 2 ? 0x111 : index == 3 ? 0x11 : 1;
         return true;
@@ -617,7 +627,31 @@ static bool nikon_dual_event_banks_global(unsigned index, hwaddr offset, uint32_
         *mask = 1;
         return true;
     }
+    if (index == 3 && offset == 0x200) {
+        /* The sole direct C1.70 caller supplies zero. Unknown values fail. */
+        *slot = 4;
+        *mask = 0;
+        return true;
+    }
     return false;
+}
+
+static bool nikon_banks_c0(hwaddr offset, uint32_t *mask)
+{
+    switch (offset) {
+    case 4:   *mask = 1; return true;
+    case 8:   *mask = 0xffff; return true;
+    case 0xc: *mask = 0xff; return true;
+    case 0x10: *mask = 0x10f; return true;
+    case 0x14: *mask = 0x1f; return true;
+    case 0x18: *mask = 0x00ff00ff; return true;
+    case 0x2c: case 0x34: *mask = 1; return true;
+    case 0x90: *mask = 0x0001003f; return true;
+    case 0xa0: *mask = 1; return true;
+    case 0xa4: *mask = 0xff; return true;
+    case 0xc8: *mask = UINT32_MAX; return true;
+    default: return false;
+    }
 }
 
 static bool nikon_banks_table(unsigned index, hwaddr offset, uint32_t *mask)
@@ -673,11 +707,13 @@ static MemTxResult nikon_dual_event_banks_read(void *opaque, hwaddr offset,
         } else {
             return nikon_dual_event_banks_error(r, offset, size, false, 0);
         }
-    } else if (r->index >= 5 && nikon_banks_table(r->index, offset, &mask)) {
-        *value = s->tables[r->index - 5][offset / 4];
-    } else if (r->index < 5 &&
-               nikon_dual_event_banks_global(r->index, offset, &mask, &slot)) {
+    } else if (r->index == 13 && nikon_banks_c0(offset, &mask)) {
+        *value = s->c0[offset / 4];
+    } else if (nikon_dual_event_banks_global(r->index, offset, &mask, &slot)) {
         *value = s->global[slot];
+    } else if (r->index >= 5 && r->index < 13 &&
+               nikon_banks_table(r->index, offset, &mask)) {
+        *value = s->tables[r->index - 5][offset / 4];
     } else {
         return nikon_dual_event_banks_error(r, offset, size, false, 0);
     }
@@ -741,13 +777,16 @@ static MemTxResult nikon_dual_event_banks_write(void *opaque, hwaddr offset,
         } else {
             return nikon_dual_event_banks_error(r, offset, size, true, value);
         }
-    } else if (r->index >= 5 && nikon_banks_table(r->index, offset, &mask) &&
+    } else if (r->index == 13 && nikon_banks_c0(offset, &mask) &&
                !(value & ~mask)) {
-        s->tables[r->index - 5][offset / 4] = value;
-    } else if (r->index < 5 &&
-               nikon_dual_event_banks_global(r->index, offset, &mask, &slot) &&
+        s->c0[offset / 4] = value;
+    } else if (nikon_dual_event_banks_global(r->index, offset, &mask, &slot) &&
                !(value & ~mask)) {
         s->global[slot] = value;
+    } else if (r->index >= 5 && r->index < 13 &&
+               nikon_banks_table(r->index, offset, &mask) &&
+               !(value & ~mask)) {
+        s->tables[r->index - 5][offset / 4] = value;
     } else {
         return nikon_dual_event_banks_error(r, offset, size, true, value);
     }
@@ -772,6 +811,7 @@ static void nikon_dual_event_banks_reset(DeviceState *dev)
     memset(s->mask, 0, sizeof(s->mask));
     memset(s->pending, 0, sizeof(s->pending));
     memset(s->global, 0, sizeof(s->global));
+    memset(s->c0, 0, sizeof(s->c0));
     memset(s->tables, 0, sizeof(s->tables));
     for (i = 0; i < 2; i++) {
         timer_del(s->region[i].timer);
@@ -792,7 +832,8 @@ static void nikon_dual_event_banks_init(Object *obj)
     for (i = 0; i < ARRAY_SIZE(s->region); i++) {
         NikonDualEventBanksRegion *r = &s->region[i];
         uint64_t size = i < 2 ? BANK_SIZE :
-                        i < 5 ? (i == 3 ? 0x104 : 4) :
+                        i < 5 ? (i == 3 ? 0x204 : 4) :
+                        i == 13 ? 0xcc :
                         (i - 5) % 4 == 2 ? 0x400 : 0x200;
 
         r->parent = s;
@@ -807,7 +848,10 @@ static void nikon_dual_event_banks_init(Object *obj)
     for (i = 0; i < 3; i++) {
         sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[i]);
     }
-    qdev_init_gpio_in_named(DEVICE(obj), nikon_dual_event_banks_input, "pending-bit", 64);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_dual_event_banks_input,
+                            "pending-bit", 64);
+    object_property_add_uint64_ptr(obj, "irq-levels", &s->irq_levels,
+                                   OBJ_PROP_FLAG_READ);
 }
 
 static void nikon_dual_event_banks_finalize(Object *obj)

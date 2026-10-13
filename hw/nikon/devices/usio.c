@@ -5,11 +5,12 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "qemu/fifo32.h"
 #include "qemu/timer.h"
 #include "chardev/char-fe.h"
 #include "chardev/char-serial.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-clock.h"
@@ -53,12 +54,13 @@ struct NikonUSIOState {
     CharFrontend chr;
     Clock *clock;
     QEMUTimer *tx_timer, *rx_timer;
+    uint64_t clock_hz;
     Fifo32 tx, rx;
     qemu_irq irq[2]; /* RX, TX; machine supplies source-qualified routing. */
     uint8_t smr, scr, escr, errors, threshold[2];
     uint16_t dr, bgr, fcr, shift;
     uint16_t history[UART_DEPTH];
-    uint64_t written, saved;
+    uint64_t written, saved, transmitted, retries;
     bool shifting, rx_idle, rx_ready, saved_valid, history_lost, reported_error;
 };
 
@@ -173,10 +175,12 @@ static void nikon_usio_tx(void *opaque)
     if ((s->smr & 1) && (!nikon_usio_cts(s) ||
         (qemu_chr_fe_backend_connected(&s->chr) &&
          qemu_chr_fe_write(&s->chr, &byte, 1) != 1))) {
+        s->retries++;
         timer_mod(s->tx_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                   nikon_usio_frame_ns(s));
         return;
     }
+    s->transmitted++;
     s->shifting = false;
     nikon_usio_schedule(s);
     nikon_usio_irq(s);
@@ -190,7 +194,7 @@ static void nikon_usio_clear_tx(NikonUSIOState *s)
     s->fcr |= FCR_FDRQ;
     s->fcr &= ~FCR_FLST;
     s->saved_valid = s->history_lost = false;
-    s->written = s->saved = 0;
+    s->written = s->saved = s->transmitted = s->retries = 0;
 }
 
 static void nikon_usio_rx_idle(void *opaque)
@@ -501,7 +505,7 @@ static void nikon_usio_reset(DeviceState *dev)
     s->fcr = FCR_FDRQ;
     s->threshold[0] = s->threshold[1] = 0;
     s->reported_error = false;
-    clock_update_hz(s->clock, UART_NOMINAL_HZ);
+    clock_update_hz(s->clock, s->clock_hz);
     nikon_usio_irq(s);
 }
 
@@ -509,6 +513,10 @@ static void nikon_usio_realize(DeviceState *dev, Error **errp)
 {
     NikonUSIOState *s = NIKON_USIO(dev);
 
+    if (!s->clock_hz) {
+        error_setg(errp, "nikon-usio clock-hz must be nonzero");
+        return;
+    }
     qemu_chr_fe_set_handlers(&s->chr, nikon_usio_can_receive,
                              nikon_usio_receive, nikon_usio_event, NULL,
                              s, NULL, true);
@@ -527,6 +535,12 @@ static void nikon_usio_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[0]);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq[1]);
+    object_property_add_uint64_ptr(obj, "tx-written", &s->written,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "tx-transmitted", &s->transmitted,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "tx-retries", &s->retries,
+                                   OBJ_PROP_FLAG_READ);
 }
 
 static void nikon_usio_finalize(Object *obj)
@@ -541,6 +555,8 @@ static void nikon_usio_finalize(Object *obj)
 
 static const Property nikon_usio_properties[] = {
     DEFINE_PROP_CHR("chardev", NikonUSIOState, chr),
+    DEFINE_PROP_UINT64("clock-hz", NikonUSIOState, clock_hz,
+                       UART_NOMINAL_HZ),
 };
 
 static const VMStateDescription nikon_usio_vmstate = {

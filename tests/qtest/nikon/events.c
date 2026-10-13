@@ -1,7 +1,7 @@
 /* Native explicit event publication and original ISR acknowledgement.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#include "qemu/osdep.h"
+#include "qemu/osdep.h" /* IWYU pragma: keep */
 #include "libqtest.h"
 
 void nikon_events_test(QTestState *q, const char *path, uint64_t base);
@@ -11,8 +11,22 @@ void nikon_events_test(QTestState *q, const char *path, uint64_t base)
     unsigned i;
 
     qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    g_assert_cmphex(qtest_readl(q, base), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 4), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 8), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x40), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_writel(q, base, 0x5701);
+    qtest_writel(q, base + 4, 0x7000);
+    qtest_writel(q, base + 8, 0x03ff);
+    qtest_writel(q, base + 0x40, 0x155);
+    qtest_writel(q, base + 0x44, 0x2aa);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0x5701);
+    g_assert_cmphex(qtest_readl(q, base + 4), ==, 0x7000);
+    g_assert_cmphex(qtest_readl(q, base + 8), ==, 0x03ff);
+    g_assert_cmphex(qtest_readl(q, base + 0x40), ==, 0x155);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x2aa);
     qtest_writel(q, base + 8, 0x1c00);
     qtest_clock_step(q, 1000000);
     g_assert_false(qtest_get_irq(q, 0));
@@ -50,8 +64,12 @@ void nikon_events_test(QTestState *q, const char *path, uint64_t base)
     g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0xc);
     g_assert_true(qtest_get_irq(q, 0));
     qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 4), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 8), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x40), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
     qtest_writel(q, base + 8, 0x1c00);
     qtest_clock_step(q, 1000000);
     g_assert_false(qtest_get_irq(q, 0));

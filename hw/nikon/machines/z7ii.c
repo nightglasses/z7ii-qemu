@@ -8,18 +8,18 @@
 #include "qemu/cutils.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
-#include "hw/core/irq.h"
+#include "hw/core/irq.h" /* IWYU pragma: keep */
 #include "hw/core/qdev.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
-#include "hw/core/qdev-properties-system.h"
+#include "hw/core/qdev-properties-system.h" /* IWYU pragma: keep */
 #include "hw/core/or-irq.h"
 #include "hw/intc/arm_gic.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "system/system.h"
 #include "system/tcg.h"
-#include "target/arm/cpu.h"
+#include "target/arm/cpu.h" /* IWYU pragma: keep */
 #include "hw/nikon/devices.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/storage.h"
@@ -31,7 +31,8 @@
 #include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/input.h"
-#include "hw/ssi/ssi.h"
+#include "hw/nikon/events.h"
+#include "hw/ssi/ssi.h" /* IWYU pragma: keep */
 #include "hw/i2c/i2c.h"
 
 #define TYPE_Z7II_MACHINE MACHINE_TYPE_NAME("z7ii-mas-diagnostic")
@@ -51,6 +52,34 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_DOWNLOAD_SIZE 0x400000ULL
 #define Z7II_SELECTOR_ONE_BASE 0xb0900000ULL
 #define Z7II_SELECTOR_ONE_SIZE 0x400000ULL
+#define Z7II_DISPLAY_BUFFER_BASE 0xcb4a7000ULL
+#define Z7II_DISPLAY_BUFFER_SIZE 0x1194000ULL
+#define Z7II_NOR_BASE 0x10000000ULL
+#define Z7II_NOR_SIZE 0x04000000ULL
+#define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
+#define Z7II_NOR_UNLOCK_ONE 0x10000aaaULL
+#define Z7II_NOR_UNLOCK_TWO 0x10000554ULL
+#define Z7II_NOR_CFI_QUERY 0x100000aaULL
+
+/* Experimental protocol state; disabled unless its named profile is selected. */
+typedef enum Z7IINorReadMode {
+    Z7II_NOR_ARRAY,
+    Z7II_NOR_AUTOSELECT,
+    Z7II_NOR_CFI,
+} Z7IINorReadMode;
+
+typedef enum Z7IINorCommandStage {
+    Z7II_NOR_COMMAND_IDLE,
+    Z7II_NOR_UNLOCK_ONE_SEEN,
+    Z7II_NOR_UNLOCK_TWO_SEEN,
+    Z7II_NOR_WORD_PROGRAM,
+    Z7II_NOR_ERASE_UNLOCK_ONE,
+    Z7II_NOR_ERASE_UNLOCK_TWO,
+    Z7II_NOR_ERASE_SELECT,
+    Z7II_NOR_BUFFER_COUNT,
+    Z7II_NOR_BUFFER_DATA,
+    Z7II_NOR_BUFFER_CONFIRM,
+} Z7IINorCommandStage;
 
 /* Source address-class records 21..26, with source-bound storage consumers. */
 static const struct {
@@ -78,6 +107,7 @@ struct Z7IIMachineState {
     unsigned num_cpus;
     char *bundle_path;
     char *boot_shim;
+    char *functional_profile;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *cmos_image;
@@ -86,12 +116,24 @@ struct Z7IIMachineState {
     int ex_adc_sample[4];
     uint8_t ex_adc_mask;
     bool frame_contract;
+    char *nor_profile;
+    Z7IINorReadMode nor_read_mode;
+    Z7IINorCommandStage nor_command_stage;
+    hwaddr nor_buffer_sector;
+    hwaddr nor_buffer_start;
+    uint16_t nor_buffer_data[64];
+    uint16_t nor_buffer_words;
+    uint16_t nor_buffer_index;
+    bool nor_regions_ready;
+    bool boot_prefix_present;
+    bool reported_nor;
     NikonBundle *bundle;
     MemoryRegion image;
     Z7IINorSlot nv_slot[5];
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
+    MemoryRegion display_buffers;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     MemoryRegion download;
     /* Selector-one packed download arena; independent from selector zero. */
@@ -133,26 +175,257 @@ static const MemoryRegionOps z7ii_unknown_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
+static bool z7ii_nor_experimental(const Z7IIMachineState *s)
+{
+    return s->nor_profile &&
+           !strcmp(s->nor_profile, "c1.70-experimental-v1");
+}
+
+static void z7ii_nor_set_romd(Z7IIMachineState *s, bool enabled)
+{
+    if (!s->nor_regions_ready) {
+        return;
+    }
+    memory_region_rom_device_set_romd(&s->image, enabled);
+    if (s->boot_prefix_present) {
+        memory_region_rom_device_set_romd(&s->boot_prefix.region, enabled);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->nv_slot); i++) {
+        memory_region_rom_device_set_romd(&s->nv_slot[i].region, enabled);
+    }
+}
+
+static void z7ii_nor_protocol_reset(Z7IIMachineState *s)
+{
+    s->nor_read_mode = Z7II_NOR_ARRAY;
+    s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+    s->nor_buffer_words = 0;
+    s->nor_buffer_index = 0;
+    z7ii_nor_set_romd(s, true);
+}
+
+static MemTxResult z7ii_nor_reject(Z7IIMachineState *s, hwaddr address,
+                                   unsigned size, bool write, uint64_t value,
+                                   const char *reason)
+{
+    nikon_access_error(&s->reported_nor, address, size, write, value, reason);
+    return MEMTX_ERROR;
+}
+
+static uint8_t *z7ii_nor_external_pointer(Z7IIMachineState *s,
+                                          hwaddr address, uint64_t size)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(s->nv_slot); i++) {
+        Z7IINorSlot *slot = &s->nv_slot[i];
+        uint64_t region_size = memory_region_size(&slot->region);
+
+        if (address >= slot->base && size <= region_size &&
+            address - slot->base <= region_size - size) {
+            return memory_region_get_ram_ptr(&slot->region) +
+                   (address - slot->base);
+        }
+    }
+    return NULL;
+}
+
+static MemTxResult z7ii_nor_protocol_read(Z7IIMachineState *s,
+                                          hwaddr address, uint64_t *value,
+                                          unsigned size)
+{
+    hwaddr offset = address - Z7II_NOR_BASE;
+
+    *value = 0;
+    if (!z7ii_nor_experimental(s)) {
+        return nikon_memc_nor_access(s->memc, address, size, false, 0);
+    }
+    if (nikon_memc_nor_backend_access(s->memc, address, size, false, 0) !=
+        MEMTX_OK) {
+        return MEMTX_ERROR;
+    }
+    if (size != 2 || (address & 1)) {
+        return z7ii_nor_reject(s, address, size, false, 0,
+                               "nor-x16-read-not-supported");
+    }
+    if (s->nor_read_mode == Z7II_NOR_AUTOSELECT &&
+        (offset == 0 || offset == 2 || offset == 0x1c || offset == 0x1e)) {
+        /* Explicit unresolved identity input, not a claimed physical ID. */
+        *value = UINT16_MAX;
+        return MEMTX_OK;
+    }
+    if (s->nor_read_mode == Z7II_NOR_CFI) {
+        switch (offset) {
+        case 0x4e:
+            *value = 26; /* Original service exposes exactly 64 MiB. */
+            return MEMTX_OK;
+        case 0x54:
+            *value = 7; /* 64 x16 words, the recovered 25/29 path's bound. */
+            return MEMTX_OK;
+        case 0x5e:
+            *value = 0;
+            return MEMTX_OK;
+        case 0x60:
+            *value = 2; /* (0x0200 << 8) = 128 KiB erase sector. */
+            return MEMTX_OK;
+        default:
+            break;
+        }
+    }
+    return z7ii_nor_reject(s, address, size, false, 0,
+                           "nor-query-read-not-supported");
+}
+
+static MemTxResult z7ii_nor_protocol_write(Z7IIMachineState *s,
+                                           hwaddr address, uint64_t value,
+                                           unsigned size)
+{
+    uint8_t *cell;
+    hwaddr sector;
+
+    if (!z7ii_nor_experimental(s)) {
+        return nikon_memc_nor_access(s->memc, address, size, true, value);
+    }
+    if (nikon_memc_nor_backend_access(s->memc, address, size, true, value) !=
+        MEMTX_OK) {
+        return MEMTX_ERROR;
+    }
+    if (value == 0xf0 &&
+        (address == Z7II_NOR_BASE || address == Z7II_NOR_UNLOCK_ONE)) {
+        z7ii_nor_protocol_reset(s);
+        return MEMTX_OK;
+    }
+    if (s->nor_read_mode != Z7II_NOR_ARRAY) {
+        return z7ii_nor_reject(s, address, size, true, value,
+                               "nor-query-exit-command-not-supported");
+    }
+
+    switch (s->nor_command_stage) {
+    case Z7II_NOR_COMMAND_IDLE:
+        if (address == Z7II_NOR_UNLOCK_ONE && value == 0xaa) {
+            s->nor_command_stage = Z7II_NOR_UNLOCK_ONE_SEEN;
+            return MEMTX_OK;
+        }
+        if (address == Z7II_NOR_CFI_QUERY && value == 0x98) {
+            s->nor_read_mode = Z7II_NOR_CFI;
+            z7ii_nor_set_romd(s, false);
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_UNLOCK_ONE_SEEN:
+        if (address == Z7II_NOR_UNLOCK_TWO && value == 0x55) {
+            s->nor_command_stage = Z7II_NOR_UNLOCK_TWO_SEEN;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_UNLOCK_TWO_SEEN:
+        if (address == Z7II_NOR_UNLOCK_ONE && value == 0x90) {
+            s->nor_read_mode = Z7II_NOR_AUTOSELECT;
+            s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+            z7ii_nor_set_romd(s, false);
+            return MEMTX_OK;
+        }
+        if (address == Z7II_NOR_UNLOCK_ONE && value == 0xa0) {
+            s->nor_command_stage = Z7II_NOR_WORD_PROGRAM;
+            return MEMTX_OK;
+        }
+        if (address == Z7II_NOR_UNLOCK_ONE && value == 0x80) {
+            s->nor_command_stage = Z7II_NOR_ERASE_UNLOCK_ONE;
+            return MEMTX_OK;
+        }
+        sector = address & ~(Z7II_NOR_SECTOR_SIZE - 1);
+        if (address == sector && value == 0x25 &&
+            z7ii_nor_external_pointer(s, sector, Z7II_NOR_SECTOR_SIZE)) {
+            s->nor_buffer_sector = sector;
+            s->nor_command_stage = Z7II_NOR_BUFFER_COUNT;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_WORD_PROGRAM:
+        cell = z7ii_nor_external_pointer(s, address, 2);
+        if (cell) {
+            stw_le_p(cell, lduw_le_p(cell) & value);
+            s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_ERASE_UNLOCK_ONE:
+        if (address == Z7II_NOR_UNLOCK_ONE && value == 0xaa) {
+            s->nor_command_stage = Z7II_NOR_ERASE_UNLOCK_TWO;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_ERASE_UNLOCK_TWO:
+        if (address == Z7II_NOR_UNLOCK_TWO && value == 0x55) {
+            s->nor_command_stage = Z7II_NOR_ERASE_SELECT;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_ERASE_SELECT:
+        sector = address & ~(Z7II_NOR_SECTOR_SIZE - 1);
+        cell = z7ii_nor_external_pointer(s, sector, Z7II_NOR_SECTOR_SIZE);
+        if (address == sector && value == 0x30 && cell) {
+            memset(cell, 0xff, Z7II_NOR_SECTOR_SIZE);
+            s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_BUFFER_COUNT:
+        if (address == s->nor_buffer_sector && value < 64) {
+            s->nor_buffer_words = value + 1;
+            s->nor_buffer_index = 0;
+            s->nor_command_stage = Z7II_NOR_BUFFER_DATA;
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_BUFFER_DATA:
+        if (s->nor_buffer_index == 0) {
+            s->nor_buffer_start = address;
+        }
+        if (address == s->nor_buffer_start + s->nor_buffer_index * 2 &&
+            address >= s->nor_buffer_sector &&
+            address + 2 <= s->nor_buffer_sector + Z7II_NOR_SECTOR_SIZE &&
+            z7ii_nor_external_pointer(s, address, 2)) {
+            s->nor_buffer_data[s->nor_buffer_index++] = value;
+            if (s->nor_buffer_index == s->nor_buffer_words) {
+                s->nor_command_stage = Z7II_NOR_BUFFER_CONFIRM;
+            }
+            return MEMTX_OK;
+        }
+        break;
+    case Z7II_NOR_BUFFER_CONFIRM:
+        if (address == s->nor_buffer_sector && value == 0x29) {
+            for (unsigned i = 0; i < s->nor_buffer_words; i++) {
+                cell = z7ii_nor_external_pointer(s,
+                    s->nor_buffer_start + i * 2, 2);
+                g_assert(cell);
+                stw_le_p(cell, lduw_le_p(cell) & s->nor_buffer_data[i]);
+            }
+            s->nor_buffer_words = 0;
+            s->nor_buffer_index = 0;
+            s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+            return MEMTX_OK;
+        }
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    s->nor_command_stage = Z7II_NOR_COMMAND_IDLE;
+    return z7ii_nor_reject(s, address, size, true, value,
+                           "nor-command-sequence-not-supported");
+}
+
 static MemTxResult z7ii_nor_write(void *opaque, hwaddr offset,
                                  uint64_t value, unsigned size,
                                  MemTxAttrs attrs)
 {
-    Z7IIMachineState *s = opaque;
-
-    return nikon_memc_nor_access(s->memc, MAS_BASE + offset,
-                                 size, true, value);
+    return z7ii_nor_protocol_write(opaque, MAS_BASE + offset, value, size);
 }
 
 static MemTxResult z7ii_nor_read(void *opaque, hwaddr offset,
                                 uint64_t *value, unsigned size,
                                 MemTxAttrs attrs)
 {
-    Z7IIMachineState *s = opaque;
-
-    /* Normal ROMD reads bypass this callback and read the original bytes. */
-    *value = 0;
-    return nikon_memc_nor_access(s->memc, MAS_BASE + offset,
-                                 size, false, 0);
+    return z7ii_nor_protocol_read(opaque, MAS_BASE + offset, value, size);
 }
 
 static const MemoryRegionOps z7ii_nor_ops = {
@@ -168,9 +441,8 @@ static MemTxResult z7ii_nv_write(void *opaque, hwaddr offset, uint64_t value,
 {
     Z7IINorSlot *slot = opaque;
 
-    /* Same MEMC protection and unsupported-command contract, correct PA. */
-    return nikon_memc_nor_access(slot->machine->memc, slot->base + offset,
-                                 size, true, value);
+    return z7ii_nor_protocol_write(slot->machine, slot->base + offset,
+                                    value, size);
 }
 
 static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
@@ -178,9 +450,8 @@ static MemTxResult z7ii_nv_read(void *opaque, hwaddr offset, uint64_t *value,
 {
     Z7IINorSlot *slot = opaque;
 
-    *value = 0; /* ROMD serves valid reads; this path preserves MEMC errors. */
-    return nikon_memc_nor_access(slot->machine->memc, slot->base + offset,
-                                 size, false, 0);
+    return z7ii_nor_protocol_read(slot->machine, slot->base + offset,
+                                  value, size);
 }
 
 static const MemoryRegionOps z7ii_nv_ops = {
@@ -197,6 +468,8 @@ static void z7ii_reset(void *opaque)
     unsigned i;
 
     s->reported_unknown = false;
+    s->reported_nor = false;
+    z7ii_nor_protocol_reset(s);
     /* Even entry means ARM state. No firmware instruction is changed. */
     for (i = 0; i < s->num_cpus; i++) {
         cpu_reset(CPU(&s->cpu[i]));
@@ -237,11 +510,35 @@ static void z7ii_map_boot_prefix(Z7IIMachineState *s, GBytes *bytes)
     memcpy(memory_region_get_ram_ptr(&slot->region),
            g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes));
     memory_region_add_subregion(get_system_memory(), slot->base, &slot->region);
+    s->boot_prefix_present = true;
 }
 
 static bool z7ii_functional_shim(Z7IIMachineState *s)
 {
     return nikon_bootshim_is_functional(s->boot_shim);
+}
+
+static bool z7ii_functional_gui(const Z7IIMachineState *s)
+{
+    return s->functional_profile &&
+           !strcmp(s->functional_profile, "functional-gui-v1");
+}
+
+static void z7ii_apply_functional_profile(Z7IIMachineState *s)
+{
+    if (!z7ii_functional_gui(s)) {
+        return;
+    }
+    if (!s->bundle_path) {
+        error_report("functional-gui-v1 requires a complete bundle");
+        exit(EXIT_FAILURE);
+    }
+    if (s->boot_shim && strcmp(s->boot_shim, "functional-v1")) {
+        error_report("functional-gui-v1 requires boot-shim=functional-v1");
+        exit(EXIT_FAILURE);
+    }
+    g_free(s->boot_shim);
+    s->boot_shim = g_strdup("functional-v1");
 }
 
 static void z7ii_select_functional_shim(Z7IIMachineState *s)
@@ -348,6 +645,7 @@ static void z7ii_init(MachineState *machine)
         error_report("z7ii-mas-diagnostic currently requires Cortex-A7");
         exit(EXIT_FAILURE);
     }
+    z7ii_apply_functional_profile(s);
     if (!!machine->firmware == !!s->bundle_path) {
         error_report("select exactly one input: -bios <raw MAS payload> "
                      "or -machine bundle=<decoded container>");
@@ -440,6 +738,7 @@ static void z7ii_init(MachineState *machine)
 
             z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
         }
+        s->nor_regions_ready = true;
     }
 
     /*
@@ -457,7 +756,28 @@ static void z7ii_init(MachineState *machine)
         z7ii_ram(&s->storage[i], z7ii_storage[i].name,
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
+    /*
+     * Original image-memory acquire requests publish six contiguous physical
+     * buffers. The first triplet starts at CB4A7000 with 384000-byte spacing;
+     * the second starts at CBF33000 with 258000-byte spacing. Their exact union
+     * ends at CC63B000. This RAM supplies storage only: guest code owns every
+     * pointer, descriptor and pixel, and the image devices own completion.
+     */
+    z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
+             Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
     z7ii_prepare_functional_shim(s);
+    if (s->boot_shim && !strcmp(s->boot_shim, "functional-v1")) {
+        DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
+
+        /* Original MAS boot control and its 16-KiB CPU-written program view.
+         * Request-only: no processor execution, status, reply or IRQ source.
+         * No SLA route is inferred from shared numerical addresses.
+         */
+        object_property_add_child(OBJECT(machine), "processor", OBJECT(processor));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(processor), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(processor), 0, 0x2c040000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(processor), 1, 0x04294000);
+    }
     /*
      * The unchanged selector-zero loader initializes B0D00000 as a 4 MiB
      * scratch buffer, copies MAS view0 (0x107a4f34, 0x3b1c0 bytes) into it,
@@ -634,6 +954,7 @@ static void z7ii_init(MachineState *machine)
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
+    qdev_prop_set_bit(bridge, "notification-v1", z7ii_functional_gui(s));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(bridge), 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(bridge), 0,
@@ -662,6 +983,8 @@ static void z7ii_init(MachineState *machine)
                          qdev_get_gpio_in(gic, 123 - 32));
     sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
                          qdev_get_gpio_in(gic, 102 - 32));
+    sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
+                         qdev_get_gpio_in(gic, 158 - 32));
     /* IRQ229 belongs to a software callback registration, not a proven wire. */
     sysbus_create_simple(TYPE_NIKON_REQUEST_STATUS, 0x24060000, NULL);
     sysbus_create_simple(TYPE_NIKON_DATA_SAMPLER, 0x20201000,
@@ -686,9 +1009,11 @@ static void z7ii_init(MachineState *machine)
             /* Two source table objects select offsets 0 and 0x10000. */
             0x24040000, 0x24042000, 0x24045000, 0x24046000,
             0x24050000, 0x24052000, 0x24055000, 0x24056000,
+            0x2014c000,
         };
 
         control->id = g_strdup("display");
+        object_property_add_child(OBJECT(machine), "display", OBJECT(control));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(control), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(control), 0, 0x20140000);
         sysbus_connect_irq(SYS_BUS_DEVICE(control), 0,
@@ -897,6 +1222,7 @@ static void z7ii_init(MachineState *machine)
             nikon_boot_prefix_load(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
                                             boot_prefix, s->boot_shim,
+                                            z7ii_functional_gui(s),
                                             Z7II_SLA_CPUS, NULL,
                                             &error_fatal);
         DeviceState *sla_bridge = nikon_sla_bridge(sla);
@@ -907,6 +1233,8 @@ static void z7ii_init(MachineState *machine)
                                                           6 * 16 + 3));
         nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
         nikon_bridge_attach_peer(sla_bridge, 1, &address_space_memory);
+        /* Inert unless both devices explicitly opt into notification-v1. */
+        nikon_bridge_connect_notifications(bridge, sla_bridge);
         /* Paired request routing is a functional board assumption. */
         qdev_connect_gpio_out_named(bridge, "peer-start", 0,
             qdev_get_gpio_in_named(sla_bridge, "peer-control", 0));
@@ -926,6 +1254,7 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
+                 "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
                  machine->cpu_type, s->num_cpus, image_size,
                  s->bundle ? "complete-decoded-container" : "raw-MAS");
@@ -962,6 +1291,56 @@ static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
 
     g_free(s->bundle_path);
     s->bundle_path = g_strdup(value);
+}
+
+static char *z7ii_get_functional_profile(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->functional_profile;
+
+    return g_strdup(value ? value : "none");
+}
+
+static void z7ii_set_functional_profile(Object *obj, const char *value,
+                                        Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "functional-profile must be configured before machine init");
+        return;
+    }
+    if (!value || !*value || !strcmp(value, "none") ||
+        !strcmp(value, "functional-gui-v1")) {
+        g_free(s->functional_profile);
+        s->functional_profile = g_strdup(value && *value ? value : "none");
+        return;
+    }
+    error_setg(errp, "functional-profile must be none or functional-gui-v1");
+}
+
+static char *z7ii_get_nor_profile(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->nor_profile;
+
+    return g_strdup(value ? value : "none");
+}
+
+static void z7ii_set_nor_profile(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "nor-profile must be configured before machine init");
+        return;
+    }
+    if (!value || !*value || !strcmp(value, "none") ||
+        !strcmp(value, "c1.70-experimental-v1")) {
+        g_free(s->nor_profile);
+        s->nor_profile = g_strdup(value && *value ? value : "none");
+        return;
+    }
+    error_setg(errp, "nor-profile must be none or c1.70-experimental-v1");
 }
 
 static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
@@ -1081,6 +1460,8 @@ static void z7ii_finalize(Object *obj)
 
     nikon_bundle_free(s->bundle);
     g_free(s->bundle_path);
+    g_free(s->functional_profile);
+    g_free(s->nor_profile);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
@@ -1102,10 +1483,19 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "functional-profile",
+                                  z7ii_get_functional_profile,
+                                  z7ii_set_functional_profile);
+    object_class_property_set_description(oc, "functional-profile",
+        "Explicit unchanged-firmware hardware profile: none or functional-gui-v1");
     object_class_property_add_str(oc, "boot-shim", z7ii_get_boot_shim,
                                   z7ii_set_boot_shim);
     object_class_property_set_description(oc, "boot-shim",
         "Versioned functional loader profile: none or functional-v1");
+    object_class_property_add_str(oc, "nor-profile", z7ii_get_nor_profile,
+                                  z7ii_set_nor_profile);
+    object_class_property_set_description(oc, "nor-profile",
+        "Explicit experimental NOR command profile; disabled by default");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);
     object_class_property_set_description(oc, "sla-boot-prefix",

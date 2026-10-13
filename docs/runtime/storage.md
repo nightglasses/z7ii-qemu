@@ -39,11 +39,36 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
-`tests/qtest/nikon/memory.c` covers every class's first and last word, separate
-retention across adjacent classes, original copy/stack/heap destinations,
-logical bus mirror exclusion, MXIC decode withdrawal/restoration without losing
-RAM contents, and both outer holes. Build and execution results are separately
-scoped below.
+### Display buffer arena
+
+An unchanged-firmware read-only run independently publishes two three-buffer
+image-memory groups through `1068fbf0 -> 104d77b8 -> 104489d8`. The first group
+has bases `cb4a7000`, `cb82b000`, and `cbbaf000`, each separated by `384000`;
+the second has bases `cbf33000`, `cc18b000`, and `cc3e3000`, each separated by
+`258000`. The last buffer therefore ends at `cc63b000`; the two groups form the
+single exact physical interval `[cb4a7000,cc63b000)`, length `1194000`.
+
+The firmware copies these addresses from its acquire request into the display
+resource table at `b1d0d9d8`. In the explicit experimental TFT mode `46`, it
+then creates its own `1024 x 682` image object at `b1d0f008`, selects
+`cb4a7000` and `cb5fc000` as its two plane pointers, and writes the first pixel
+at `1044603c`. The second pointer is exactly `155000` bytes after the first and
+the touched two-plane extent is `1ff800`. These observations establish RAM
+ownership and bounds; they do not establish a physical DDR part, pixel-format
+name, natural display-state event, image completion, or a visible frame.
+
+The board backs only the exact published union with cold-zero RAM. It does not
+write the acquire records, image object, pointers, descriptors, or pixels, and
+it does not grant the rest of the `c0000000` class. RAM contents persist across
+a machine reset like the other software storage regions; guest initialization
+owns reuse and clearing.
+
+`tests/qtest/nikon/memory.c` covers every storage class's first and last word,
+separate retention across adjacent classes, original copy/stack/heap
+destinations, logical bus mirror exclusion, MXIC decode withdrawal/restoration
+without losing RAM contents, both outer holes, all six display-buffer bases,
+the display arena's exact neighbors, and reset retention. Build and execution
+results are separately scoped below.
 
 ## Integrated execution
 

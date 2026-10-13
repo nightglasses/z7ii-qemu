@@ -58,8 +58,19 @@ static MemoryFixture *memory_new(unsigned boundary, unsigned protection)
 
 static void memory_free(MemoryFixture *f)
 {
-    /* Retired flat views retain their real owner. Drain before releasing its
-     * embedded regions, and again before releasing their fixture storage. */
+    MemoryRegion *regions[] = {
+        &f->source, &f->rom, &f->protection, &f->ram,
+    };
+
+    /* Remove topology while its owner and embedded regions are still alive.
+     * Owner property destruction must not rebuild maps of partially destroyed
+     * siblings. Retired views are drained before releasing fixture storage.
+     */
+    for (unsigned i = 0; i < ARRAY_SIZE(regions); i++) {
+        if (regions[i]->container) {
+            memory_region_del_subregion(regions[i]->container, regions[i]);
+        }
+    }
     drain_call_rcu();
 
     object_unparent(f->owner);
@@ -230,6 +241,140 @@ static void assert_bytes(const uint8_t *data, unsigned length, uint8_t value)
     }
 }
 
+static void test_display_parameter(void)
+{
+    DeviceState *dev = qdev_new(TYPE_NIKON_DUAL_EVENT_BANKS);
+    MemoryRegion *display, *parameter, *gate, *table;
+    uint64_t value;
+
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(dev), &error_abort));
+    device_cold_reset(dev);
+    /* Original 1046d3c6/1046d3ee pack three halfwords into the +0x4000
+     * object's words at physical 20145420/20145424. The bank1 subregion at
+     * 20144000 owns those addresses over the larger bank0 aperture. */
+    display = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 1);
+    g_assert_cmpint(memory_region_dispatch_write(display, 0x1420,
+                    0x89abcdef, MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(display, 0x1424,
+                    0x76543210, MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(display, 0x1420, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0x89abcdef);
+    g_assert_cmpint(memory_region_dispatch_read(display, 0x1424, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0x76543210);
+    g_assert_cmpint(memory_region_dispatch_write(display, 0x1428, 0,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+
+    /* Region3 is the D000 aperture: D100 is the observed gate and D200 is
+     * the sole direct caller's zero-valued parameter. */
+    parameter = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 3);
+    g_assert_cmpint(memory_region_dispatch_read(parameter, 0x100, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_write(parameter, 0x100, 1,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(parameter, 0x200, 0,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(parameter, 0x200, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_write(parameter, 0x200, 1,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_write(parameter, 0x100, 0,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+
+    /* Table offset zero must remain a table entry rather than aliasing the
+     * sparse global/gate slots. */
+    table = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 5);
+    g_assert_cmpint(memory_region_dispatch_write(table, 0, 0x0abc0def,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(table, 0, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0x0abc0def);
+
+    /* Original 1046e3c2 uses sparse C000 words: C004/C0A0 bracket the
+     * transaction, C008/C0A4 carry packed fields and C0C8 carries a word.
+     * The older paired wrappers use the same C0A0 gate. */
+    gate = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 13);
+    {
+        static const struct {
+            hwaddr offset;
+            uint32_t mask;
+        } fields[] = {
+            { 0xc, 0xff }, { 0x10, 0x10f }, { 0x14, 0x1f },
+            { 0x18, 0x00ff00ff }, { 0x2c, 1 }, { 0x34, 1 },
+            { 0x90, 0x0001003f },
+        };
+
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            g_assert_cmpint(memory_region_dispatch_write(
+                            gate, fields[i].offset, fields[i].mask,
+                            MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+            g_assert_cmpint(memory_region_dispatch_read(
+                            gate, fields[i].offset, &value,
+                            MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+            g_assert_cmphex(value, ==, fields[i].mask);
+            g_assert_cmpint(memory_region_dispatch_write(
+                            gate, fields[i].offset, fields[i].mask + 1,
+                            MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        }
+    }
+    g_assert_cmpint(memory_region_dispatch_write(gate, 8, 0xabcd, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0xa4, 0x5a, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0xc8, 0x12345678,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 0xa0, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0xa0, 1, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 4, 1, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 0xa0, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 1);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0xa0, 2, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0, 0, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 4, 0, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_write(gate, 0xa0, 0, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(memory_region_dispatch_read(table, 0, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0x0abc0def);
+    device_cold_reset(dev);
+    g_assert_cmpint(memory_region_dispatch_read(display, 0x1420, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(display, 0x1424, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(parameter, 0x100, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(parameter, 0x200, &value,
+                    MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 4, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 8, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 0xa0, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(gate, 0xc8, &value, MO_32,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    device_free(dev);
+}
+
 static void test_lifecycle(void)
 {
     MemoryFixture *f[2] = { memory_new(0, 0), memory_new(0, 0) };
@@ -306,6 +451,7 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     g_test_add_func("/nikon/memory/boundary", test_boundary);
+    g_test_add_func("/nikon/memory/display-parameter", test_display_parameter);
     g_test_add_func("/nikon/memory/lifecycle", test_lifecycle);
     result = g_test_run();
     qemu_cleanup(result);
