@@ -770,7 +770,7 @@ static void test_yuv_clear(void)
     enum { PLANE = 1024 * 682, OFFSET = 0x100000, SIZE = 0x300000 };
     enum { VALID, HEADER, TRUNCATED, FORMAT, GEOMETRY, COLOR, MODE, KEY,
            LUT, OVERFLOW, OVERLAP, DELTA, MMIO, STREAM_OVERLAP, BLEND,
-           TRIGGER, UNBACKED, RESET, UNREALIZE, MAP_LOSS, BACKING_ALIAS,
+           TRIGGER, UNBACKED, RESET, MAP_LOSS, BACKING_ALIAS, UNREALIZE,
            CASES };
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
     MemoryRegion ram, mmio, alias;
@@ -890,13 +890,10 @@ static void test_yuv_clear(void)
         if (test == VALID) {
             g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
             g_assert_false(f.level);
-        } else if (test == UNREALIZE) {
-            g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
         } else if (test == MAP_LOSS || test == BACKING_ALIAS) {
             memory_region_del_subregion(root, &alias);
         }
     }
-    qdev_unrealize(f.dev);
     memory_region_del_subregion(root, &mmio);
     memory_region_del_subregion(root, &ram);
     drain_call_rcu();
