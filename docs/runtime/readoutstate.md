@@ -132,11 +132,16 @@ the startup fill initializes it on cold start.
 
 ## Natural producer and event join
 
-The exact readout-producing path inside Thumb function body
-`[0x102347b6, 0x102349a8)` is:
+The readout producer inside Thumb function body
+`[0x102347b6, 0x102349a8)` is a two-entry state transition, not one linear
+call chain:
 
 ```text
-0x10234948 lane-1 setter(mask=0x80, vector=0xb25f2510)
+entry with B[3] == 1
+    -> 0x10234948 lane-1 setter(mask=0x80, vector=0xb25f2510)
+    -> on nonzero return set B[3] = 2 and return
+
+later entry with B[3] == 2
     -> 0x10234990
     -> 0x1023b00e
     -> 0x1023aed8
@@ -153,14 +158,20 @@ bounded keyed-data copy wrapper and unconditionally returns zero.  The
 call is not a request or response dispatcher.
 
 The necessary success chain from the entry to the fixed setter is `P != 0`,
-successful handle operation `0x10443e3e`, nonzero `0x10398206(sp)`,
+a non-null handle at `0xb25f250c`, its field conversion through
+`0x10443e3e` (which returns one on all reconstructed paths), nonzero
+`0x10398206(sp)`,
 `0x10235c84(P, 0) != 0`, `B[3] == 1`, and `*(u32 *)(B + 0x60) != 0`.
-State byte `2` instead takes `0x10234978` and does not call the fixed
-`0x80` setter.  On success `0x1023493c..0x10234944` also ORs `0x80` into
-`B + 0x5c`, then `0x10234948` calls the lane-1 setter with vector
-`0xb25f2510`.  This fixed lifecycle object is distinct from aggregate-state
-root `R`.  At `0x1023aed8`, the descriptor builder is selected only when the
-changed mask includes `0x80` and vector slot `+0x14` is non-null.
+On success `0x1023493c..0x10234944` also ORs `0x80` into `B + 0x5c`, then
+`0x10234948` calls the lane-1 setter with vector `0xb25f2510`.  A nonzero
+setter return advances `B[3]` to `2` and returns from this invocation.
+State byte `2` takes `0x10234978` on a later invocation and reaches
+`0x10234990` without calling the fixed setter again.  This fixed lifecycle
+object is distinct from aggregate-state root `R`.  At `0x1023aed8`, the
+descriptor builder is selected only when the changed mask includes `0x80`
+and vector slot `+0x14` is non-null.  Static control flow establishes the
+two phases but does not prove that unchanged firmware has naturally executed
+both entries.
 
 Separately, the firmware-local code-`0x281` path publishes owner event bit 29:
 
@@ -176,9 +187,11 @@ it calls the predicate at `0x1023c62e`; a true result reaches `0x1023c648`,
 which calls `0x102cd1ce`, loads the returned object at `+0x0c`, then calls
 `0x1020c7ba` and `0x1020c7b2` for the recovered parameter/marker join.
 
-This establishes a firmware-owned sequence: session reset, lane/service
-participation, lane-1 readout mask and descriptor build, then a separate
-firmware-local bit-29 callback that admits the final marker path.  CMOS
+This establishes a firmware-owned state machine: session reset, lane/service
+participation, a first entry that sets the lane-1 readout mask and advances
+the owner state, a later state-2 entry that can build the descriptor, then a
+separate firmware-local bit-29 callback that admits the final marker path.
+It does not establish a natural runtime traversal of those phases.  CMOS
 completion must not be translated directly to code `0x281` or bit 29.
 
 ## Enumeration boundary and next unknown
