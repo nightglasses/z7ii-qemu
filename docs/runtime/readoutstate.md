@@ -144,12 +144,23 @@ The exact readout-producing path inside Thumb function body
     -> 0x1023869e descriptor builder
 ```
 
-The setter is reached only after request `0x101004ce(0x2015, payload, 8)`,
-`0x10235c84(input, 0) != 0`, service lookup `0x10360f2e(..., 0x11)`,
-`svc[3] == 1`, and `*(u32 *)(svc + 0x60) != 0`.  At `0x1023aed8`, the
-descriptor builder is selected only when the changed mask includes `0x80`
-and vector slot `+0x14` is non-null.  Request ID `0x2015` is shared and is not
-by itself evidence that an observed request is this readout path.
+Let `P` be the entry argument's first word and let `B = 0xb1887d70`.
+`0x10360f2e(..., 0x11)` operates on the mutex word at `0xb1887da0`; its
+Boolean return is used only by the matching conditional release, so `0x11`
+is not established as a service ID.  `0x101004ce(0x2015, sp + 0x10, 8)` is a
+bounded keyed-data copy wrapper and unconditionally returns zero.  The
+`CBNZ` at `0x10234814` therefore does not branch in this reconstruction; this
+call is not a request or response dispatcher.
+
+The necessary success chain from the entry to the fixed setter is `P != 0`,
+successful handle operation `0x10443e3e`, nonzero `0x10398206(sp)`,
+`0x10235c84(P, 0) != 0`, `B[3] == 1`, and `*(u32 *)(B + 0x60) != 0`.
+State byte `2` instead takes `0x10234978` and does not call the fixed
+`0x80` setter.  On success `0x1023493c..0x10234944` also ORs `0x80` into
+`B + 0x5c`, then `0x10234948` calls the lane-1 setter with vector
+`0xb25f2510`.  This fixed lifecycle object is distinct from aggregate-state
+root `R`.  At `0x1023aed8`, the descriptor builder is selected only when the
+changed mask includes `0x80` and vector slot `+0x14` is non-null.
 
 Separately, the firmware-local code-`0x281` path publishes owner event bit 29:
 
