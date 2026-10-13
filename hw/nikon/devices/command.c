@@ -231,7 +231,8 @@ static MemTxResult command_write(void *opaque, hwaddr offset, uint64_t value,
         break;
     case 8:
         if (value != 1 || !e->request.slots || e->active || e->received ||
-            e->causes || (e->request.written & 0x1ff) != 0x1ff) {
+            e->causes || !e->request.written ||
+            (e->request.written & (e->request.written + 1))) {
             return command_error(b, offset, size, true, value);
         }
         e->active = true;
