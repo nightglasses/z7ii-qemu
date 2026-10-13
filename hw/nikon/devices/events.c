@@ -14,7 +14,10 @@
 #include "hw/nikon/events.h"
 
 #define EVENTS_CAUSES 0x0eU
-#define EVENTS_ENABLES 0x1c00U
+#define EVENTS_CONTROL0 0x57ffU
+#define EVENTS_CONTROL4 0x7000U
+#define EVENTS_ENABLES 0x1fffU
+#define EVENTS_DATA 0x03ffU
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEventsState, NIKON_EVENTS)
 
@@ -22,7 +25,9 @@ struct NikonEventsState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     qemu_irq irq;
+    uint32_t control[2];
     uint32_t enables;
+    uint32_t data[2];
     uint8_t pending;
     bool reported_error;
 };
@@ -75,11 +80,19 @@ static MemTxResult nikon_events_read(void *opaque, hwaddr offset,
         return nikon_events_error(s, offset, size, false, 0);
     }
     switch (offset) {
+    case 0:
+    case 4:
+        *value = s->control[offset / 4];
+        break;
     case 8:
         *value = s->enables;
         break;
     case 0xc:
         *value = s->pending;
+        break;
+    case 0x40:
+    case 0x44:
+        *value = s->data[(offset - 0x40) / 4];
         break;
     default:
         return nikon_events_error(s, offset, size, false, 0);
@@ -97,6 +110,18 @@ static MemTxResult nikon_events_write(void *opaque, hwaddr offset,
         return nikon_events_error(s, offset, size, true, value);
     }
     switch (offset) {
+    case 0:
+        if (value & ~EVENTS_CONTROL0) {
+            return nikon_events_error(s, offset, size, true, value);
+        }
+        s->control[0] = value;
+        break;
+    case 4:
+        if (value & ~EVENTS_CONTROL4) {
+            return nikon_events_error(s, offset, size, true, value);
+        }
+        s->control[1] = value;
+        break;
     case 8:
         if (value & ~EVENTS_ENABLES) {
             return nikon_events_error(s, offset, size, true, value);
@@ -109,6 +134,13 @@ static MemTxResult nikon_events_write(void *opaque, hwaddr offset,
         }
         /* Ones preserve existing causes; they cannot produce new causes. */
         s->pending &= value;
+        break;
+    case 0x40:
+    case 0x44:
+        if (value & ~EVENTS_DATA) {
+            return nikon_events_error(s, offset, size, true, value);
+        }
+        s->data[(offset - 0x40) / 4] = value;
         break;
     default:
         return nikon_events_error(s, offset, size, true, value);
@@ -129,7 +161,9 @@ static void nikon_events_reset(DeviceState *dev)
 {
     NikonEventsState *s = NIKON_EVENTS(dev);
 
+    memset(s->control, 0, sizeof(s->control));
     s->enables = 0;
+    memset(s->data, 0, sizeof(s->data));
     s->pending = 0;
     s->reported_error = false;
     nikon_events_update(s);
@@ -140,7 +174,7 @@ static void nikon_events_init(Object *obj)
     NikonEventsState *s = NIKON_EVENTS(obj);
 
     memory_region_init_io(&s->regs, obj, &nikon_events_ops, s,
-                          "nikon.events", 0x10);
+                          "nikon.events", 0x48);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_events_publication, "publish", 1);
