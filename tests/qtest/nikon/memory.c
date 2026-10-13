@@ -487,6 +487,82 @@ static void test_nor_experimental_profile(void)
     memory_quit(&t);
 }
 
+static void test_descriptor17_input(void)
+{
+    const size_t size = 0x20000;
+    g_autofree uint8_t *input = g_malloc(size);
+    g_autofree char *path = NULL;
+    g_autofree char *machine = NULL;
+    MemoryTest t;
+    int fd;
+
+    for (size_t i = 0; i < size; i++) {
+        input[i] = (i * 23 + (i >> 8) * 7 + 5) & 0xff;
+    }
+    memcpy(input + size - 4, "ENDM", 4);
+    fd = g_file_open_tmp("nikon-descriptor17-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (char *)input, size, NULL));
+    machine = g_strdup_printf(
+        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental-v1,"
+        "descriptor17-input=%s", path);
+    t = memory_init_machine(machine, "");
+
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==,
+                    lduw_le_p(input));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132caa00), ==,
+                    lduw_le_p(input + 0xaa00));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132dfffc), ==,
+                    lduw_le_p(input + size - 4));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132dfffe), ==,
+                    lduw_le_p(input + size - 2));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0000), ==, 0xffff);
+
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, 0x132c0000, 0x0000);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132caa00), ==,
+                    lduw_le_p(input + 0xaa00));
+
+    memory_quit(&t);
+    unlink(path);
+}
+
+static void test_descriptor17_rejection(void)
+{
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(
+            ",descriptor17-input=%s",
+            g_getenv("NIKON_DESCRIPTOR17_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    {
+        const uint32_t short_input = 0x4d444e45;
+        g_autofree char *path = NULL;
+        int fd = g_file_open_tmp("nikon-descriptor17-short-XXXXXX", &path,
+                                 NULL);
+
+        g_assert_cmpint(fd, >=, 0);
+        g_assert_cmpint(write(fd, &short_input, sizeof(short_input)), ==,
+                        sizeof(short_input));
+        close(fd);
+        g_setenv("NIKON_DESCRIPTOR17_FIXTURE", path, true);
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(
+            "*descriptor17 input must contain exactly 128 KiB*");
+        g_unsetenv("NIKON_DESCRIPTOR17_FIXTURE");
+        unlink(path);
+    }
+}
+
 static void test_sysconfig_profile(void)
 {
     const uint32_t base = 0x04280000;
@@ -567,6 +643,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/external-input", test_external_input);
     qtest_add_func("/nikon/memory/nor-experimental-profile",
                    test_nor_experimental_profile);
+    qtest_add_func("/nikon/memory/descriptor17-input",
+                   test_descriptor17_input);
+    qtest_add_func("/nikon/memory/descriptor17-rejection",
+                   test_descriptor17_rejection);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();
 }

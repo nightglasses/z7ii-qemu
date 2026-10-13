@@ -61,6 +61,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_NOR_UNLOCK_ONE 0x10000aaaULL
 #define Z7II_NOR_UNLOCK_TWO 0x10000554ULL
 #define Z7II_NOR_CFI_QUERY 0x100000aaULL
+#define Z7II_DESCRIPTOR17_BASE 0x132c0000ULL
+#define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
 
 /* Experimental protocol state; disabled unless its named profile is selected. */
 typedef enum Z7IINorReadMode {
@@ -121,6 +123,7 @@ struct Z7IIMachineState {
     uint32_t ex_io_high;
     bool frame_contract;
     char *nor_profile;
+    char *descriptor17_input;
     Z7IINorReadMode nor_read_mode;
     Z7IINorCommandStage nor_command_stage;
     hwaddr nor_buffer_sector;
@@ -502,6 +505,30 @@ static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
     memory_region_add_subregion(get_system_memory(), base, &slot->region);
 }
 
+static void z7ii_load_descriptor17_input(Z7IIMachineState *s)
+{
+    g_autoptr(GError) error = NULL;
+    g_autofree char *data = NULL;
+    gsize size;
+    uint8_t *destination;
+
+    if (!s->descriptor17_input || !*s->descriptor17_input) {
+        return;
+    }
+    if (!g_file_get_contents(s->descriptor17_input, &data, &size, &error)) {
+        error_report("cannot load descriptor17 input '%s': %s",
+                     s->descriptor17_input, error->message);
+        exit(EXIT_FAILURE);
+    }
+    if (size != Z7II_DESCRIPTOR17_SIZE) {
+        error_report("descriptor17 input must contain exactly 128 KiB");
+        exit(EXIT_FAILURE);
+    }
+    destination = z7ii_nor_external_pointer(s, Z7II_DESCRIPTOR17_BASE, size);
+    g_assert(destination);
+    memcpy(destination, data, size);
+}
+
 static void z7ii_map_boot_prefix(Z7IIMachineState *s, GBytes *bytes)
 {
     Z7IINorSlot *slot = &s->boot_prefix;
@@ -754,6 +781,7 @@ static void z7ii_init(MachineState *machine)
 
             z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
         }
+        z7ii_load_descriptor17_input(s);
         s->nor_regions_ready = true;
     }
 
@@ -1377,6 +1405,27 @@ static void z7ii_set_nor_profile(Object *obj, const char *value, Error **errp)
     error_setg(errp, "nor-profile must be none or c1.70-experimental-v1");
 }
 
+static char *z7ii_get_descriptor17_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor17_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor17_input(Object *obj, const char *value,
+                                        Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor17-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor17_input);
+    s->descriptor17_input = g_strdup(value && *value ? value : NULL);
+}
+
 static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
 {
     const char *value = Z7II_MACHINE(obj)->sla_boot_prefix;
@@ -1535,6 +1584,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->bundle_path);
     g_free(s->functional_profile);
     g_free(s->nor_profile);
+    g_free(s->descriptor17_input);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
@@ -1570,6 +1620,12 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_nor_profile);
     object_class_property_set_description(oc, "nor-profile",
         "Explicit experimental NOR command profile; disabled by default");
+    object_class_property_add_str(oc, "descriptor17-input",
+                                  z7ii_get_descriptor17_input,
+                                  z7ii_set_descriptor17_input);
+    object_class_property_set_description(oc, "descriptor17-input",
+        "Optional exact 128 KiB external NOR input at 0x132c0000; "
+        "omitted bytes remain erased");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);
     object_class_property_set_description(oc, "sla-boot-prefix",
