@@ -42,12 +42,14 @@ work/build/qemu/qemu-system-arm \
 
 `functional-gui-v1` currently selects the accepted `functional-v1` loader and
 connects the MAS/SLA opt-in notification endpoints before either bridge is
-realized. It does not write guest event objects, task state or pixels. Complete
-finite deterministic CMOS/readout, peer-service, graphics, IRQ and scanout
-providers must join this same explicit profile as their contracts are
-implemented. Missing physical-camera evidence, exact Bayer fidelity or full GPU
-precision does not block that functional work. Omitting the property keeps the
-strict default profile and disconnected notification endpoints.
+realized, and joins readout-control requests to the existing CMOS timing/DMA
+engine. That join validates the finite C1.70 mapping, writes only the submitted
+primary buffer and publishes generation-checked completion. An explicit
+PGM/PPM source is used when configured; otherwise this opt-in profile selects
+the deterministic CMOS provider. It does not inject guest event objects, task
+state or a prefilled UI. Missing physical-camera evidence, exact Bayer fidelity
+or full GPU precision does not block functional implementation. Omitting the
+property keeps strict notification and readout-provider boundaries.
 
 The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
 input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
@@ -66,9 +68,9 @@ or ambiguous component input before any component becomes visible to a machine.
 - QEMU can and must implement complete finite deterministic hardware behavior for unchanged firmware. A functional model may implement CMOS/readout/service/graphics state machines, DMA, IRQs and scanout without claiming exact physical behavior. Only direct guest-software outcome injection is forbidden: writing guest event or status state to force success, invoking guest callbacks or ISRs, manipulating the guest PC or task state, or presenting a prefilled, fixed or host-drawn UI.
 - The primary ARM machine is `z7ii-mas-diagnostic`. It supports both the raw MAS diagnostic input and the validated five-component bundle. A raw MAS payload is not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
-- CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source remains available only for focused fixture tests. This is a functional transport contract, not a recovered sensor specification.
+- CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source requires explicit opt-in through fixtures or `functional-gui-v1`. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
-- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. Together with the existing CMOS transport they are implementation bases for a finite frame producer, not reasons to defer one until exact sensor behavior is known.
+- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The explicit `functional-gui-v1` profile now joins a bounded readout mapping to CMOS primary-buffer DMA and generation-checked completion; capture/SDES and downstream ISP/display joins remain independent boundaries.
 - The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
 - The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
 - Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
@@ -83,99 +85,72 @@ evidence classification are maintained in
 
 ```mermaid
 flowchart TD
-  subgraph Boot[Reset, loader, and SMP startup]
-    Payload[Raw MAS payload or decoded five-component bundle] --> Loader[ROM / payload loader]
-    Reset[Virtual reset] --> CPU0[CPU0 primary core]
-    Reset --> CPU1[CPU1 secondary core]
-    Loader --> CPU0
-    Loader --> CPU1
-    CPU0 --> Primary[Initial task\n0x10103bc8 and kernel prelude]
-    CPU1 --> Secondary[Per-core init\nsecondary scheduler / idle]
-    Primary --> RTOS[Guest RTOS scheduler\nSVC, IRQ, task handoff]
-    Secondary --> RTOS
-  end
+  Input["Raw MAS payload or decoded bundle"] --> Loader["Selected loader / virtual reset"]
+  Loader --> MAS["MAS Cortex-A7 x 2<br/>guest RTOS / MMIO / DMA"]
+  Loader -->|"bundle only"| SLA["Private SLA Cortex-A7 x 2"]
+  Loader -->|"bundle only"| EX["Private EX Cortex-M4"]
+  MAS <--> Bridge["MAS / SLA bridge<br/>notifications opt in"]
+  SLA <--> Bridge
+  EX <--> SPI["EX SPI connection"]
+  SPI <--> MAS
 
-  RTOS --> Bus[System bus]
-  Bus --> MMIO[MMIO register map]
-  Bus --> IRQ[GIC and timer IRQs]
-  IRQ --> RTOS
-
-  subgraph Memory[Source-backed memory domains]
-    ROMD[MAS / SLA ROMD]
-    Download0[Download arena\n0xb0d00000, 4 MiB]
-    Download1[Packed download arena\n0xb0900000..0xb0d00000\n4 MiB selector-one model]
-    LoaderViews[functional-v1 loader RAM\nPA50200000 / 50000000 / 50080000\nphysical ownership unresolved]
-    GuestRAM[Guest RAM and DMA buffers]
-  end
-  Loader --> ROMD
-  Bus --> ROMD
-  Bus --> GuestRAM
-  ROMD --> Download0
-  ROMD --> Download1
-  Download0 --> GuestRAM
-  Download1 --> GuestRAM
-  ROMD -->|functional-v1 loader copies| LoaderViews
-
-  subgraph Inputs[Independent external inputs]
-    CMOS[CMOS transport\nopaque configured frames]
-    Eye[Eye proximity I2C\nseparate peripheral]
-  end
-  MMIO --> CMOS
-  MMIO --> I2C[I2C controller]
-  I2C --> Eye
-
-  subgraph Control[Capture and event control]
-    SDES[SDES channel / global control]
-    Capture[capture-control\nstatus and command]
-    Readout[readout-control\nbuffers and parameters]
-    EV3[GUI EV3 waiter\nID 0x01000003, mask0x10]
-    Peer[Historical peer EV3 setters\nmasks0x1/0x2\nwrapper LRs10200d0b/10200ceb]
-    Bridge[MAS/SLA bridge\nstrict: refuses PA2013e000]
-    Producer[GUI EV3 mask0x10 producer\nMAS VA10200c34]
-  end
-  MMIO --> SDES
-  MMIO --> Capture
-  MMIO --> Readout
-  RTOS --> EV3
-  MMIO --> Bridge
-  Peer -. historical setters .-> HistoricalEV3[EV3 masks0x1/0x2\nnot the GUI mask0x10 producer]
-  Bridge -. notification-v1 default-off hypotheses .-> Producer
-  Producer -. experimental setter / wait return .-> EV3
-
-  MMIO --> Processor[MAS processor request-only\nfunctional-v1: PA2c040000 + 04294000]
-  Processor -. no execution provider .-> Execution[Execution / ready / replies unproved]
-  MMIO --> Streams[Owned opaque graphics frontend\nPA20180000; full224/1688B capture]
-  Streams --> PairCompletion[Bounded owned-pair completion / IRQ129]
-  PairCompletion -. no command execution / fence / status58 provider .-> GraphicsProvider[Original graphics processing unresolved]
-  MMIO --> DisplayScalars[Finite D100/D200/C0A0 scalar lifecycle\nno event or completion side effect]
-  GuestRAM --> ByteCopy[Ordinary graphics byte copy\ncompleted DMA → IRQ130]
-
-  CMOS --> Geometry[Frame geometry\nwidth/crop/scale/format/stride/timing/DMA]
-  Geometry -. original buffer producer unverified .-> Process[Processing endpoint PA24070000\nexternally produced complete buffers]
-  External[Explicit supplied buffers] --> Process
-  Process -. original producer join unverified .-> Compose[Supplied-buffer composition\nPixman / functional scanout]
-  GuestRAM --> Process
-  GuestRAM --> Compose
-  GuestRAM --> Save[Storage endpoint\nNVMe and BlockBackend]
-
-  Readout -. real pixel producer unverified .-> Geometry
-  Capture -. completion producer / IRQ semantics unverified .-> Process
-  SDES -. physical sensor/status join unverified .-> Geometry
-  Compose --> Console[Functional QEMU console publication]
-  GraphicsProvider -. original rendering / commit unproved .-> Display[Original first frame absent]
-
-  MMIO --> Unknown[Unknown address, width, or command]
-  Unknown --> Stop[MEMTX_ERROR\nrecord and QEMU debug stop]
-  Fixture[8x8 transport fixture] -. transport checks only .-> Bus
+  MAS --> Readout["readout-control"]
+  Readout -->|"functional-gui-v1 only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
+  Source["Explicit image or<br/>opt-in deterministic input"] --> CMOS
+  CMOS --> RAM["Submitted primary guest buffer"]
+  MAS --> Graphics["Finite paired graphics LUT executor<br/>actual output, IRQ129, completed status58 read"]
+  GraphicsRAM["Guest-selected graphics input RAM"] --> Graphics
+  Graphics --> Output["Descriptor-selected output RAM"]
+  MAS --> Copy["Ordinary byte-copy DMA / IRQ130"]
+  Copy --> CopyRAM["Guest-selected copy destination RAM"]
+  MAS --> Banks["Image-bank compositor<br/>guest packet / supported RAM layers"]
+  DisplayRAM["Supplied guest RAM layers"] --> Banks
+  Output -. "natural scanout join unverified" .-> Banks
+  RAM -. "natural display producer join unverified" .-> Banks
+  Banks --> Console["Completed transaction<br/>functional QEMU console"]
+  RAM -. "original capture/save join unverified" .-> Storage["NVMe / BlockBackend<br/>explicit attached medium"]
+  MAS --> Processor["Request-only processor / bootstrap store"]
+  Processor -. "no execution provider" .-> Pending["Execution / ready / replies unresolved"]
+  MAS --> Unknown["Unsupported transaction"]
+  Unknown --> Stop["MEMTX_ERROR / diagnostic debug stop"]
 ```
 
-Solid edges are implemented functional contracts exercised by the model. Dashed edges identify source or hardware joins that remain unverified; they limit fidelity claims but do not prohibit finite deterministic implementations. CPU0 owns the observed initial-task path; CPU1's idle successor state is a secondary-core scheduling boundary, not a synthetic ready source. `0xb0d00000` and `0xb0900000` are separate bounded source-backed download arenas. The firmware checks the selector-one range through `0xb1000000`, while the current QEMU model owns the proven 4 MiB arena only. `functional-v1` also provides bounded loader RAM at PA `0x50200000`, `0x50000000` and `0x50080000`; physical backing/provider ownership and framebuffer identity remain unresolved. Historical peer EV3 setters publish masks `0x1`/`0x2` (wrapper LRs `0x10200d0b`/`0x10200ceb`); neither satisfies the current GUI wait's mask `0x10` produced by MAS VA `0x10200c34`. Strict bridge notifications still reject PA `0x2013e000`. Default-off `notification-v1` hypotheses permit recorded experimental progression, not physical bank/reset/IRQ qualification. The guest still performs initialization, DMA copies, event acknowledgement, task transitions, and save decisions. The model must not force those outcomes by directly writing guest events/status, invoking guest callbacks/ISRs, manipulating PC/task state, or supplying a prefilled, fixed or host-drawn UI.
+Solid arrows show implemented functional contracts, including opt-in model
+assumptions; dashed arrows identify unverified runtime joins or absent
+providers. The bundle instantiates MAS, SLA and EX CPUs in one ARM process.
+VR uses a separate RX QEMU profile, and TPJ has a separate GNU NDS32 runner
+under `sim/nds32`; neither is automatically started by the bundle loader.
+External peers require explicit transport attachment.
 
-The CMOS contract closes configuration validation, dynamic frame generation, row-stride DMA, buffer rotation, exposure/readout timing, cancellation, error reporting, and completion IRQ state. Bayer order, bit depth, packing, physical sensor registers, true dimensions, and the original CMOS-to-ISP route remain opaque; that limits physical-fidelity claims, not further deterministic functional implementation. The processing model accepts complete externally produced buffers and preserves the guest-visible request/IRQ boundary; it does not implement a Nikon codec or claim a physical ISP. Ordinary byte-copy IRQ130, supplied-buffer composition with functional console publication, and storage endpoints remain independently testable. Along with CMOS transport, graphics capture/completion, the image-bank compositor and scanout, they are implementation bases for the complete functional pipeline; they are not evidence of a natural original capture/save path. The MAS request-only processor at PA `0x2c040000` plus bootstrap view `0x04294000` has no execution provider; experimental original runs naturally time out and continue, rather than succeed.
+The readout join validates the primary destination, stride, span and the two
+accepted C1.70 format pairs before timed CMOS DMA. Secondary ranges are
+validated but not written. Busy requests, stale generations, cancellation and
+reset preserve ownership boundaries. This is a functional mapping, not a
+recovered sensor format, timing law, GIC route or CMOS-to-ISP/display path.
 
-The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480) dependency is closed: `0x42062002` is firmware-local and type-5 traffic is service negotiation. [#482](https://github.com/mashiro01/nightglass/issues/482) and [#485](https://github.com/mashiro01/nightglass/issues/485) are parallel and unblocked; neither waits for more #480 work.
+Graphics stream counts 28/211 are 64-bit units, yielding full 224/1688-byte
+snapshots. The finite LUT executor validates the supported program family,
+reads a 128x128 input and writes a 32x32 result before raising IRQ129. Its
+post-completion offset `0x58` read reports bit26 clear; other status semantics,
+fences, IRQ131 and other program families remain unsupported. Ordinary
+byte-copy IRQ130 and image-bank composition/console publication are separate
+implemented paths. No graphics output buffer is presumed to be a screen.
 
-The owned opaque graphics frontend captures each complete stream and implements the bounded owned-pair completion/IRQ129 lifecycle, but still lacks command execution, fence and status58 production. Descriptor extents56/422 are 32-bit words; register counts28/211 are 64-bit units, giving full lengths224/1688 bytes. The corrected frontend captures `8*units64` bytes within a functional 128-KiB bound per stream. D200 is limited to the sole caller's observed zero and C0A0 to its paired bit0 writes; neither creates an event or completion. C010 and PA `0x2c012000` remain strict unresolved boundaries. Static Thumb recovery also shows that the previously ranked `1046bfxx` image-start chain is reached through the registered `tftdbg` command handler, so it is not natural-startup evidence. These strict boundaries coexist with, rather than postpone, a finite graphics command/status implementation. The old56/422-byte snapshots remain historical prefixes, not full-bound proof. See [runtime evidence](docs/runtime/coprocessor.md) and [native receipts](docs/validation/native.md) for the separate historical and corrected identities.
+The MAS request-only processor at PA `0x2c040000` plus bootstrap view
+`0x04294000` still has no execution provider. Historical original experiments
+naturally timed out there; earlier full-stream receipts also predate the LUT
+executor and retain pending graphics work. See [runtime evidence](docs/runtime/coprocessor.md)
+and [native receipts](docs/validation/native.md) for those historical results.
+No new original-firmware GUI result is implied by the current source graph.
+D100/D200/C0A0 retain bounded scalar state with no event/completion side effect;
+C010 and PA `0x2c012000` remain strict boundaries. The `1046bfxx` image-start
+chain belongs to the registered `tftdbg` command, not natural startup.
+
+The [detailed architecture](docs/architecture.md) records memory ownership,
+CPU/IRQ wiring, notification hypotheses and the remaining producer/consumer
+joins. Complete boot and a naturally produced original GUI first frame remain
+unverified. The guest owns callbacks, event objects, task state, display
+packets and save decisions.
 
 ## Dependencies and build
 

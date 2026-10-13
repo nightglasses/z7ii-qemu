@@ -1,89 +1,49 @@
 # Z7II CPU and board compute architecture
 
-This diagram separates the generic Arm Cortex-A7 MPCore structure from the
-Z7II-specific values observed in C1.70 runtime traces or selected as explicit
-QEMU functional assumptions. It does not identify the Nikon SoC die or claim
-that every optional Cortex-A7 block is present in the camera.
+This diagram shows the QEMU Cortex-A7 execution model and board IRQ wiring.
+Z7II-specific values are separately identified as C1.70 runtime observations
+or explicit functional assumptions. It does not identify the Nikon SoC die
+or claim a recovered physical microarchitecture.
 
-## CPU cluster and internal units
+## CPU execution and interrupt wiring
 
 ```mermaid
 flowchart TD
-  subgraph Cluster[Arm Cortex-A7 MPCore cluster]
-    subgraph Core0[Core 0 / CPU0]
-      IF0[Instruction fetch]
-      BP0[Branch prediction]
-      DEC0[ARM / Thumb decode]
-      INT0[Integer register file\nALU / shifter / multiply]
-      LSU0[Load-store unit\nalignment / ordering]
-      NEON0[NEON / VFP\nSIMD and floating point]
-      L1I0[L1 instruction cache]
-      L1D0[L1 data cache]
-      TLB0[Instruction/data TLBs]
-      MMU0[MMU and stage-1 translation]
-      CP150[CP15 system control\nTTBR / TTBCR / SCTLR / DACR]
-      Debug0[Debug / PMU interface]
-      IF0 --> BP0 --> DEC0
-      DEC0 --> INT0
-      DEC0 --> LSU0
-      DEC0 --> NEON0
-      IF0 --> L1I0
-      LSU0 --> L1D0
-      L1I0 --> TLB0
-      L1D0 --> TLB0
-      TLB0 --> MMU0
+  subgraph Cluster["MAS Cortex-A7 cluster: upstream QEMU ARM / TCG"]
+    subgraph Core0["Core 0 / CPU0"]
+      Exec0["ARM / Thumb execution<br/>integer and NEON / VFP semantics"]
+      CP150["CP15 state<br/>TTBR / TTBCR / SCTLR / DACR"]
+      MMU0["Stage-1 translation / software TLB"]
+      Exec0 --> MMU0
       CP150 --> MMU0
-      Debug0 -. observability .-> DEC0
     end
-
-    subgraph Core1[Core 1 / CPU1]
-      IF1[Instruction fetch]
-      BP1[Branch prediction]
-      DEC1[ARM / Thumb decode]
-      INT1[Integer execute]
-      LSU1[Load-store]
-      NEON1[NEON / VFP]
-      L1I1[L1 instruction cache]
-      L1D1[L1 data cache]
-      TLB1[Instruction/data TLBs]
-      MMU1[MMU and stage-1 translation]
-      CP151[CP15 system control]
-      Debug1[Debug / PMU interface]
-      IF1 --> BP1 --> DEC1
-      DEC1 --> INT1
-      DEC1 --> LSU1
-      DEC1 --> NEON1
-      IF1 --> L1I1
-      LSU1 --> L1D1
-      L1I1 --> TLB1
-      L1D1 --> TLB1
-      TLB1 --> MMU1
+    subgraph Core1["Core 1 / CPU1"]
+      Exec1["ARM / Thumb execution<br/>integer and NEON / VFP semantics"]
+      CP151["CP15 state<br/>TTBR / TTBCR / SCTLR / DACR"]
+      MMU1["Stage-1 translation / software TLB"]
+      Exec1 --> MMU1
       CP151 --> MMU1
-      Debug1 -. observability .-> DEC1
     end
-
-    SCU[Snoop control unit\ncoherency and interrupts]
-    L2[L2 cache / controller\nimplementation-dependent]
-    GICCPU[GIC CPU interface]
-    Timer[Generic timer and counter]
-    ACP[Coherency / external interconnect\nboard-dependent]
-
-    L1D0 --> SCU
-    L1D1 --> SCU
-    SCU --> L2
-    L2 --> ACP
-    SCU --> GICCPU
-    Timer --> GICCPU
+    Dist["GIC distributor"] --> GICCPU["Per-core GIC CPU interfaces"]
+    GICCPU -->|IRQ| Exec0
+    GICCPU -->|IRQ| Exec1
+    Timer["Generic timers / counter"] -->|PPIs| GICCPU
   end
-
-  ACP --> Memory[DDR / SRAM / ROM / MMIO]
-  GICCPU --> IRQ[GIC distributor and board IRQ fabric]
-  CP150 --> MMU[Guest page tables\nTTBR0 / TTBCR / section descriptors]
-  MMU --> Memory
+  Devices["Board device IRQ outputs"] -->|SPIs| Dist
+  MMU0 --> Memory["QEMU address space<br/>declared RAM / ROMD / MMIO"]
+  MMU1 --> Memory
+  PageTables["Guest-created page tables in RAM"] --> MMU0
+  PageTables --> MMU1
+  Debug["Upstream GDB stub"] -. observation .-> Exec0
+  Debug -. observation .-> Exec1
 ```
 
-The generic blocks above come from the Cortex-A7 MPCore programming model. The
-firmware-facing Z7II values currently used by the project are:
+This is an execution and wiring diagram, not a physical microarchitecture.
+TCG implements instruction and architectural state semantics; the project does
+not model branch-predictor pipelines, cache latency or SCU timing. IRQ flow is
+from device outputs through the GIC to a CPU, independently of memory traffic.
+
+The firmware-facing Z7II values currently used by the project are:
 
 | Area | Current value | Evidence class |
 |---|---|---|
@@ -123,8 +83,9 @@ sequenceDiagram
 
 An empty CPU1 successor is a valid startup/affinity boundary. It must not be
 repaired by returning a synthetic task, writing a ready bit, or manufacturing
-an interrupt. The current next CPU investigation is the board owner behind the
-`0x50200000` descriptor-driven COPY, not the CPU1 scheduler itself.
+an interrupt. The `functional-v1` profile already provides bounded RAM for the
+`0x50200000` descriptor-driven COPY. Its physical backing/provider identity
+remains unresolved; this does not imply missing model storage or a CPU1 fault.
 
 ## References
 

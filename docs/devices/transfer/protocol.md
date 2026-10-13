@@ -122,7 +122,9 @@ owned requests and raise no success IRQ. Validation completes before any
 output write; an execution-time input/map failure preserves the destination.
 A successful timer execution writes the full1024-byte result, consumes the
 pair and raises IRQ129. `1020=0` retains the observed ACK/deassert behavior.
-IRQ131, fences, replies and other graphics programs remain unsupported. The
+After successful completion, a word read of offset `58` returns zero for
+the observed bit26-clear path; reads before completion remain errors. IRQ131,
+fences, replies and other graphics programs remain unsupported. The
 ordinary byte-copy engine and IRQ130 remain separate.
 
 The functional allocation bound is128 KiB per stream, not recovered silicon
@@ -181,7 +183,7 @@ return, IRQ129 or frame; see
 [runtime evidence](../../runtime/coprocessor.md).
 
 Remaining work is active, not accepted as a completed GUI: physical color
-fidelity, every non-LUT program/format/geometry, IRQ131, status58 bit26, fences,
+fidelity, every non-LUT program/format/geometry, IRQ131, other status58 states, fences,
 processing replies and final scanout remain unsupported. The selected graphics
 destination is not presented as a screen. Console output must consume the
 guest's actual scanout commit and layout.
