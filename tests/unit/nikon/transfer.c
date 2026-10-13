@@ -328,6 +328,16 @@ static void test_stream_submission(void)
     g_assert_cmpint(write_register(&f, 0x1298, 0), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10d0, 1), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10d8, 0), ==, MEMTX_ERROR);
+    /* One stream and an early ACK cannot manufacture or suppress completion. */
+    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+    advance();
+    g_assert_true(requests[0]);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_false(levels[i]);
+    }
+    g_assert_cmpint(memory_region_dispatch_read(
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
+        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
     g_assert_cmpint(write_register(&f, 0x10e4, 0x3080), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10ec, 211), ==, MEMTX_OK);
     g_assert_cmpint(write_register(&f, 0x10e0, 1), ==, MEMTX_OK);
@@ -345,18 +355,36 @@ static void test_stream_submission(void)
     g_assert_true(g_bytes_equal(next.bytes, second.bytes));
     g_bytes_unref(next.bytes);
     g_assert_false(nikon_transfer_stream_request(f.dev, 2, &next));
-    /* No status producer, parser or completion is connected. */
+    /* The owned pair is consumed together and produces the inferred IRQ129. */
     advance();
+    g_assert_false(requests[0]);
+    g_assert_false(requests[1]);
+    g_assert_false(nikon_transfer_stream_request(f.dev, 0, &next));
+    g_assert_true(levels[0]);
+    g_assert_false(levels[1]);
+    g_assert_false(levels[2]);
+    g_assert_cmpint(memory_region_dispatch_read(
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
+        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmpint(write_register(&f, 0x10d4, 0x3000), ==, MEMTX_ERROR);
+    g_assert_cmpint(write_register(&f, 0x1020, 1), ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_write(
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x1020, 0,
+        MO_16, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_DECODE_ERROR);
+    g_assert_true(levels[0]);
     g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
-    g_assert_true(requests[0]);
-    g_assert_true(requests[1]);
     for (unsigned i = 0; i < 3; i++) {
         g_assert_false(levels[i]);
     }
     g_assert_cmpint(memory_region_dispatch_read(
         sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
-        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
     device_cold_reset(f.dev);
+    g_assert_cmpint(memory_region_dispatch_read(
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(f.dev), 0), 0x58, &value,
+        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
     g_assert_false(requests[0]);
     g_assert_false(requests[1]);
     g_assert_false(nikon_transfer_stream_request(f.dev, 0, &next));
@@ -375,6 +403,13 @@ static void test_stream_submission(void)
     g_assert_cmpint(write_register(&f, 0x10d0, 1), ==, MEMTX_OK);
     g_assert_true(nikon_transfer_stream_request(f.dev, 0, &next));
     g_assert_cmpuint(next.token, >, second.token);
+    /* A source-backed single-stream form remains pending and has no IRQ law. */
+    advance();
+    g_assert_true(requests[0]);
+    g_assert_false(requests[1]);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_false(levels[i]);
+    }
     g_bytes_unref(first.bytes);
     g_bytes_unref(second.bytes);
     g_bytes_unref(next.bytes);

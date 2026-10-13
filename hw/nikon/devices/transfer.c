@@ -10,7 +10,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-clock.h"
-#include "migration/vmstate.h"
+#include "migration/vmstate.h" /* IWYU pragma: keep */
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "hw/nikon/transfer.h"
@@ -51,6 +51,7 @@ struct NikonTransferState {
     MemoryRegion regs;
     Clock *clock;
     QEMUTimer *timer;
+    QEMUTimer *stream_timer;
     qemu_irq irq[3];
     uint32_t reg[TRANSFER_REGISTER_COUNT];
     uint32_t setup[ARRAY_SIZE(setup_offsets)];
@@ -62,14 +63,16 @@ struct NikonTransferState {
     qemu_irq stream_request[2];
     uint32_t stream_setup;
     uint64_t stream_serial;
+    bool stream_running, stream_ready, stream_irq_pending;
 };
 
 static void nikon_transfer_irq(NikonTransferState *s)
 {
-    /* IRQ129/131 belong to other producers; they are never invented here. */
-    qemu_set_irq(s->irq[0], 0);
+    /* IRQ129 is the bounded dual-stream completion inference below. */
+    qemu_set_irq(s->irq[0], s->stream_irq_pending);
     /* Bit15 is the source-installed transfer completion enable convention. */
     qemu_set_irq(s->irq[1], s->completed && (s->setup[2] & 0x8000));
+    /* The IRQ131 producer remains unknown. */
     qemu_set_irq(s->irq[2], 0);
 }
 
@@ -177,6 +180,30 @@ static void nikon_transfer_step(void *opaque)
     }
 }
 
+static void nikon_transfer_stream_complete(void *opaque)
+{
+    NikonTransferState *s = opaque;
+
+    if (!s->stream_running) {
+        return;
+    }
+    s->stream_running = false;
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
+        g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
+        memset(&s->stream[i], 0, sizeof(s->stream[i]));
+        qemu_set_irq(s->stream_request[i], 0);
+    }
+    /*
+     * C1.70 ordinals 1/8/10 submit both streams, wait for event bit 0, and
+     * install IRQ129's handler as the producer of that bit.  The silicon
+     * trigger is not recovered; completing the owned pair is the smallest
+     * finite inference.  It does not interpret commands or render pixels.
+     */
+    s->stream_ready = true;
+    s->stream_irq_pending = true;
+    nikon_transfer_irq(s);
+}
+
 static int nikon_transfer_register(hwaddr offset)
 {
     unsigned i;
@@ -209,6 +236,11 @@ static MemTxResult nikon_transfer_read(void *opaque, hwaddr offset,
     int index = nikon_transfer_register(offset);
     int setup = nikon_transfer_setup(offset);
 
+    if (size == 4 && offset == 0x58 && s->stream_ready) {
+        /* Only the observed post-completion bit26-clear path is modeled. */
+        *value = 0;
+        return MEMTX_OK;
+    }
     if (size != 4 || (index < 0 && setup < 0)) {
         return nikon_transfer_error(s, offset, size, false, 0,
                                     "transfer-read-not-supported");
@@ -226,7 +258,7 @@ static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
     uint8_t *bytes;
     uint64_t address, remaining, length;
 
-    if (stream->bytes) {
+    if (stream->bytes || s->stream_running || s->stream_irq_pending) {
         goto unsupported;
     }
     if (field == 4 && !(value & 1)) {
@@ -271,8 +303,14 @@ static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
         ++s->stream_serial;
     }
     stream->token = s->stream_serial;
-    /* Actual submitted bytes, not processing, a fence or an IRQ129 cause. */
+    s->stream_ready = false;
     qemu_set_irq(s->stream_request[bank], 1);
+    if (s->stream[0].bytes && s->stream[1].bytes) {
+        s->stream_running = true;
+        /* Defer completion beyond the second START; no latency is claimed. */
+        timer_mod(s->stream_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1);
+    }
     return MEMTX_OK;
 
 unsupported:
@@ -316,6 +354,9 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
             s->stream_setup |= 1;
         } else if (offset == 0x1298) {
             s->stream_setup |= 2;
+        } else if (offset == 0x1020) {
+            /* Inferred from IRQ129 handler ordering; not a silicon W0C claim. */
+            s->stream_irq_pending = false;
         }
         nikon_transfer_irq(s);
         return MEMTX_OK;
@@ -473,6 +514,7 @@ static void nikon_transfer_reset(DeviceState *dev)
     NikonTransferState *s = NIKON_TRANSFER(dev);
 
     timer_del(s->timer);
+    timer_del(s->stream_timer);
     for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
         g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
         memset(&s->stream[i], 0, sizeof(s->stream[i]));
@@ -485,6 +527,7 @@ static void nikon_transfer_reset(DeviceState *dev)
     s->source = s->destination = s->remaining = 0;
     s->plane_remaining = s->secondary_source = s->secondary_destination = 0;
     s->running = s->completed = s->reported_error = false;
+    s->stream_running = s->stream_ready = s->stream_irq_pending = false;
     clock_update_hz(s->clock, 48000000);
     nikon_transfer_irq(s);
 }
@@ -510,6 +553,8 @@ static void nikon_transfer_init(Object *obj)
                                   OBJ_PROP_FLAG_READ);
     s->clock = qdev_init_clock_out(DEVICE(obj), "transfer-clock");
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_transfer_step, s);
+    s->stream_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                   nikon_transfer_stream_complete, s);
     memory_region_init_io(&s->regs, obj, &nikon_transfer_ops, s,
                           "nikon.transfer", 0x2000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
@@ -526,6 +571,7 @@ static void nikon_transfer_finalize(Object *obj)
         g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
     }
     timer_free(s->timer);
+    timer_free(s->stream_timer);
 }
 
 static const VMStateDescription nikon_transfer_vmstate = {
