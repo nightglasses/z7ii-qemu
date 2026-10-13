@@ -8,12 +8,14 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/processor.h"
+#include "system/address-spaces.h"
 #include "system/system.h"
 
 int (*qemu_main)(void);
 
 typedef struct ProcessorFixture {
     DeviceState *dev;
+    MemoryRegion ready;
     qemu_irq request;
     bool active;
 } ProcessorFixture;
@@ -30,6 +32,10 @@ static ProcessorFixture *fixture(void)
     f->dev = qdev_new(TYPE_NIKON_PROCESSOR);
     object_property_add_child(object_get_objects_root(), "processor[*]",
                               OBJECT(f->dev));
+    memory_region_init_ram_flags_nomigrate(&f->ready, OBJECT(f->dev),
+                                           "processor-ready", 4, 0,
+                                           &error_abort);
+    memory_region_add_subregion(get_system_memory(), 0x50080000, &f->ready);
     f->request = qemu_allocate_irq(request_line, &f->active, 0);
     qdev_connect_gpio_out_named(f->dev, "request", 0, f->request);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
@@ -41,6 +47,7 @@ static void cleanup(ProcessorFixture *f)
 {
     qdev_unrealize(f->dev);
     g_assert_false(f->active);
+    memory_region_del_subregion(get_system_memory(), &f->ready);
     object_unparent(OBJECT(f->dev));
     object_unref(OBJECT(f->dev));
     drain_call_rcu();
@@ -110,21 +117,23 @@ static void test_bootstrap(void)
         uint32_t word = ldl_le_p(r.bootstrap + i);
         g_assert_cmphex(word, ==, 0xa5120000 ^ i);
     }
+    write_word(f, 0x10, 0x10000); /* Duplicate owns no second attempt. */
+    g_assert_true(nikon_processor_request(f->dev, &second));
+    g_assert_cmpuint(r.token, ==, second.token);
     qemu_clock_advance_virtual_time(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                                     1000000000);
+    g_assert_false(f->active);
+    g_assert_false(nikon_processor_request(f->dev, &second));
+    g_assert_cmpint(read_port(f, 0, 0x10, &value, MO_32), ==, MEMTX_OK);
+    g_assert_cmphex(value, ==, 0);
+    g_assert_cmphex(ldl_le_p(memory_region_get_ram_ptr(&f->ready)), ==,
+                    0x53535353);
+    write_word(f, 0x10, 0x10000);
     g_assert_true(f->active);
     g_assert_true(nikon_processor_request(f->dev, &second));
-    g_assert_cmpuint(r.token, ==, second.token);
-    g_assert_cmpmem(r.bootstrap, sizeof(r.bootstrap), second.bootstrap,
-                    sizeof(second.bootstrap));
-    g_assert_cmpint(read_port(f, 0, 0x10, &value, MO_32), ==, MEMTX_OK);
-    g_assert_cmphex(value, ==, 0x10000); /* No timed busy-bit clearing. */
-    write_word(f, 0x10, 0x10000); /* Duplicate does not own a second attempt. */
-    g_assert_true(nikon_processor_request(f->dev, &second));
-    g_assert_cmpuint(r.token, ==, second.token);
+    g_assert_cmpuint(r.token, !=, second.token);
     g_assert_cmpint(write_port(f, 1, 0, 0, MO_32), ==, MEMTX_ERROR);
     g_assert_cmpint(write_port(f, 0, 0x0c, 7, MO_32), ==, MEMTX_ERROR);
-    /* Original timeout1020b47c->41a stops; no ready word or reply needed. */
     write_word(f, 0, 1);
     g_assert_false(f->active);
     g_assert_false(nikon_processor_request(f->dev, &second));

@@ -290,14 +290,24 @@ tokens1/2. The original graphics wait is entered with ordinal10, but no wait
 return, IRQ129 handler or natural first frame is observed. Full transport
 ownership is not graphics processing, fence or completion.
 
-The first uncovered transaction remains another MAS task's WORD write0 to
-PA`2014d200`, PC`1046e19a`. Both runs observe caller MAS VA`1044a4c4` with
-r1=0 and the already-loaded D100 value at VA`1046e190` in r0=0. The debugger
-reads registers, not D100 MMIO, and performs no bypass/write. This qualifies
-that caller argument and gate observation, not the parameter's physical
-effect, legal values or completion law; D200 remains independently rejected.
-COPY's `first_fault=null` and the failed transfer gate do not override this
-separate access fault or establish a sole graphics-wait dependency.
+Another MAS task writes WORD zero to PA`2014d200` at PC`1046e19a` while D100
+is asserted. Persistent Ghidra analysis plus a raw Thumb direct-call scan finds
+`1044a4c4` as the sole direct caller of `1046e188`; it supplies r1=0, and the
+callee clears D100 after the existing delay wrapper. The finite virtual
+contract therefore admits only zero at D200 and gives it no event, IRQ or
+completion effect; nonzero values remain errors. The paired raw wrappers
+`1044a4ca -> 1046e3b8` and `1044a520 -> 1046e3ac` similarly bound C0A0 to its
+observed zero/one bit0 writes. Their physical meanings and reset values remain
+unknown.
+
+Static Thumb recovery also corrects the previously ranked image-start
+hypothesis. `1075b7ce -> 10446878` registers callback `10445d1b` with literal
+descriptor string `tftdbg`. The sole exact producers of event types
+`42060002` and `42060004` are in that handler; its dispatch-state transitions
+lead through `10448f92`, `104498a8`, `1044a134` and `10449fc6` to the
+`1046bfxx` image-start wrappers. This is a debug-command path, not evidence of
+a natural boot-frame producer. The real startup frontier remains the
+`20180000` graphics processing/status/IRQ chain.
 
 The same binary's strict eight-second `extentdefault1` records both
 notification propertiesfalse, zero COPY calls, three failed loader comparisons
@@ -316,9 +326,10 @@ configuration/reset lifecycle and actual processing/completion, but no
 qualified replacement for this controller. No Z9 addresses, status values,
 synthetic inputs or service-core patches were transplanted.
 
-Next qualify nonempty graphics processing and its actual completion producer,
-and the independent displayD200 parameter lifecycle, then continue to real
-rendering/scanout. The opaque byte frontend is not a processing implementation. Processor execution,
+Next statically close nonempty graphics processing and its actual completion
+producer, then continue to real rendering/scanout. C010 and PA`2c012000`
+remain strict unresolved boundaries; no external initial-value profile is part
+of the product model. The opaque byte frontend is not a processing implementation. Processor execution,
 bit17 acknowledgement, other control/status paths, the real `53535353`
 writer and command provider still remain unqualified. Natural timeout
 continuation removes the earlier argument that full processor ISA execution

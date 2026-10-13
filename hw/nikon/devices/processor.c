@@ -7,18 +7,24 @@
 #include "hw/core/irq.h"
 #include "hw/nikon/processor.h"
 #include "migration/vmstate.h"
+#include "qemu/timer.h"
+#include "system/dma.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonProcessorState, NIKON_PROCESSOR)
 
 #define PROCESSOR_CONTROL_MASK 0x01030001U
 #define PROCESSOR_RUN 0x10000U
 #define PROCESSOR_SETUP 0x2fU
+#define PROCESSOR_READY_ADDRESS 0x50080000U
+#define PROCESSOR_READY_MARKER 0x53535353U
+#define PROCESSOR_START_NS 1000000U
 
 struct NikonProcessorState {
     SysBusDevice parent_obj;
     MemoryRegion registers;
     MemoryRegion program;
     qemu_irq request;
+    QEMUTimer *timer;
     uint32_t configuration[6];
     uint32_t written;
     uint8_t bootstrap[NIKON_PROCESSOR_BOOTSTRAP_SIZE];
@@ -39,6 +45,28 @@ static MemTxResult processor_error(NikonProcessorState *s, MemoryRegion *mr,
 
 static void processor_cancel(NikonProcessorState *s)
 {
+    timer_del(s->timer);
+    s->pending = false;
+    s->token = 0;
+    qemu_set_irq(s->request, 0);
+}
+
+static void processor_complete(void *opaque)
+{
+    NikonProcessorState *s = opaque;
+    uint32_t marker = cpu_to_le32(PROCESSOR_READY_MARKER);
+
+    if (!s->pending) {
+        return;
+    }
+    if (dma_memory_write(&address_space_memory, PROCESSOR_READY_ADDRESS,
+                         &marker, sizeof(marker), MEMTXATTRS_UNSPECIFIED) !=
+        MEMTX_OK) {
+        processor_error(s, &s->program, 0, sizeof(marker), true, marker);
+        processor_cancel(s);
+        return;
+    }
+    s->configuration[4] &= ~PROCESSOR_RUN;
     s->pending = false;
     s->token = 0;
     qemu_set_irq(s->request, 0);
@@ -108,6 +136,8 @@ static MemTxResult processor_write(void *opaque, hwaddr offset, uint64_t value,
         s->token = s->serial;
         s->pending = true;
         qemu_set_irq(s->request, 1);
+        timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                  PROCESSOR_START_NS);
     }
     return MEMTX_OK;
 
@@ -205,7 +235,15 @@ static void processor_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->registers);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->program);
     qdev_init_gpio_out_named(DEVICE(obj), &s->request, "request", 1);
+    s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, processor_complete, s);
     object_property_add_bool(obj, "request-pending", processor_pending, NULL);
+}
+
+static void processor_finalize(Object *obj)
+{
+    NikonProcessorState *s = NIKON_PROCESSOR(obj);
+
+    timer_free(s->timer);
 }
 
 static const VMStateDescription processor_vmstate = {
@@ -228,6 +266,7 @@ static const TypeInfo processor_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonProcessorState),
     .instance_init = processor_init,
+    .instance_finalize = processor_finalize,
     .class_init = processor_class_init,
 };
 
