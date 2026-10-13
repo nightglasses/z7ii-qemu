@@ -294,6 +294,20 @@ count/access/setup guards, the exact allocation limit and over-limit counts,
 and whole-extent MMIO preflight without read side effects or guest IRQs.
 Existing reset/unrealize and ownership-isolation checks remain intact.
 
+The focused memory fixture now also checks the finite source-bounded display
+scalars. D200 accepts only the sole direct caller's observed zero while D100
+remains independently retained; C0A0 accepts only the paired zero/one bit0
+writes. Reset returns the virtual retained fields to zero, nonzero D200 and
+other C0A0 bits fail, and table offset zero remains independent of the C0A0
+slot. These checks establish neither a physical reset value nor any event,
+completion or IRQ effect.
+
+Persistent Ghidra Thumb marking and raw-byte verification further show that
+the previously ranked `1046bfxx` image-start route is downstream of the
+registered `tftdbg` handler. It is excluded from natural-startup acceptance.
+No modeled graphics completion or external C010/control initial-value profile
+is included in this validation scope.
+
 The parent incremental build and
 `make check MTESTARGS='--print-errorlogs'` receipt
 `work/research/z9reference/extent-nativecheck.log` passes 29 fixtures / 247

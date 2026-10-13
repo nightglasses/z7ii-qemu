@@ -77,7 +77,14 @@ completed; initialization alone cannot report a running frame producer.
 ## Functional image laws
 
 Main start requires nonzero1308 geometry and arms status1. Each virtual frame
-boundary snapshots the live supported packet, reads actual providers and
+boundary snapshots the live supported packet and validates every enabled
+provider. A transaction with no enabled layer completes status and IRQ but
+creates neither a console nor host pixels. This is the bounded command100
+sequence: original setters write enable25c0=0 and main start1200=11, while the
+command cannot return to issue its later object-enable command until the main
+completion path runs. Invalid enabled input still fails without completion.
+
+A transaction with at least one enabled source reads actual providers and
 publishes only a complete image. Successful publication reports active3;
 scanout continues until pause/stop. This follows the original live setter
 chains DD988A→DD354→D6E8→95EC→DD2A8→D48A/C354 and D942A→DD20E→D0D2,
@@ -130,12 +137,15 @@ neutral retained values, not guessed alpha, rotation or format. These named
 conventions support functional output and need later source/hardware refinement.
 
 After actual composition the bank lazily creates a QEMU graphic console and
-publishes the exact Pixman image. Initialization, disconnected sensor, RAM
+publishes the exact Pixman image. An empty transaction supplies completion but
+does not create or refresh a console. Initialization, disconnected sensor, RAM
 allocation or elapsed time alone creates no frame. Refresh shows the last
-completed transaction. Successful publication supplies named virtual bit16
-through the original route/mask/W1C protocol. Original1046bc6c reads/ACKs
-pending;1046bcb0 calls object+10;1046efee installs literal callback1046efa9;
-1046efa8 translates rawbits16/20 and calls real guest event APIs. Host code
+completed image transaction. Successful main completion supplies paired raw
+cause bit1 and semantic bit16 through the original route/mask/W1C protocol.
+The observed `0011f1f1` mask inhibits bit16 but not bit1, so the cause reaches
+IRQ111; original1046bc6c reads/ACKs the complete pending word,1046bcb0 calls
+object+10,1046efee installs literal callback1046efa9, and1046efa8 translates
+rawbits16/20 and calls real guest event APIs. Host code
 never writes guest flags, object metadata or runtime handler tables.
 
 The board names this QEMU device `display`. Consumers use QMP `screendump`

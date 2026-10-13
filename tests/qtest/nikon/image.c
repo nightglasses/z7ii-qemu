@@ -8,6 +8,7 @@
 #define BANK 0x20140000
 #define RAM 0xb1810000
 #define TARGET (RAM + 0x10000)
+#define FRAME_PENDING ((1U << 1) | (1U << 16))
 
 static const char *bios_image;
 
@@ -127,10 +128,62 @@ static void test_frame(void)
     g_assert_cmpmem(target, sizeof(target), (uint8_t[256]) { 0 }, 256);
     image = pixels(q);
     assert_color(image, 0x12, 0xe5, 0x34);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 1U << 16);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, FRAME_PENDING);
     g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 3);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     g_assert_false(qtest_get_irq(q, 111 - 32));
+    qtest_quit(q);
+}
+
+static void test_empty(void)
+{
+    QTestState *q = start();
+    g_autofree char *path = NULL;
+    QDict *reply;
+    int fd = g_file_open_tmp("nikon-empty-XXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    qtest_writel(q, BANK + 0x1100, 1);
+    qtest_writel(q, BANK + 0x1210, 0x0011f1f1);
+    qtest_writel(q, BANK + 0x1308, (682U << 16) | 1024);
+    qtest_writel(q, BANK + 0x2100, 0x11);
+    qtest_writel(q, BANK + 0x2200, 0x00030006);
+    qtest_writel(q, BANK + 0x2204, (682U << 16) | 1024);
+    qtest_writel(q, BANK + 0x2210, 0x02000301);
+    qtest_writel(q, BANK + 0x2400, (682U << 16) | 1024);
+    qtest_writel(q, BANK + 0x2440, 0xcb4a7000);
+    qtest_writel(q, BANK + 0x24c0, 0xcb5fc000);
+    qtest_writel(q, BANK + 0x2500, 0x800);
+    qtest_writel(q, BANK + 0x2540, 0x400);
+    /* The firmware-created object is initially disabled. */
+    g_assert_cmphex(qtest_readl(q, BANK + 0x25c0), ==, 0);
+    qtest_writel(q, BANK + 0x1200, 0x11);
+    qtest_clock_step(q, 20000000);
+    g_assert_true(qtest_get_irq(q, 111 - 32));
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1200), ==, 0x13);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, FRAME_PENDING);
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/display','property':'irq-levels'}}");
+    g_assert_cmpuint(qdict_get_uint(reply, "return"), ==, 1);
+    qobject_unref(reply);
+
+    /* The live mask inhibits semantic bit16 but leaves IRQ cause bit1. */
+    g_assert_cmphex(FRAME_PENDING & ~qtest_readl(q, BANK + 0x1210), ==,
+                    1U << 1);
+    /* Empty completion does not fabricate or publish a visible frame. */
+    reply = qtest_qmp(q, "{'execute':'screendump','arguments':"
+                        "{'filename':%s,'format':'ppm',"
+                        "'device':'display','head':0}}", path);
+    g_assert_true(qdict_haskey(reply, "error"));
+    qobject_unref(reply);
+    unlink(path);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                         "'path':'/machine/display','property':'irq-levels'}}");
+    g_assert_cmpuint(qdict_get_uint(reply, "return"), ==, 0);
+    qobject_unref(reply);
     qtest_quit(q);
 }
 
@@ -148,7 +201,7 @@ static void test_layouts(void)
         wait_completion(q);
         image = pixels(q);
         assert_color(image, 255, 255, 255);
-        qtest_writel(q, BANK + 0x1214, 1U << 16);
+        qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     }
     qtest_quit(q);
 }
@@ -163,7 +216,7 @@ static void test_cancel(void)
     packet(q, 0, 0);
     qtest_writel(q, BANK + 0x1200, 1);
     wait_completion(q);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     qtest_memset(q, TARGET, 0, sizeof(target));
     packet(q, 0, 0);
     qtest_writel(q, BANK + 0x4c0, 0x606);
@@ -191,7 +244,7 @@ static void test_fault(void)
     packet(q, 0, 0);
     qtest_writel(q, BANK + 0x1200, 1);
     wait_completion(q);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     qtest_memset(q, TARGET, 0x5a, sizeof(target));
     packet(q, 0, 0);
     /* The last layer is invalid: an earlier valid layer cannot publish. */
@@ -241,13 +294,14 @@ static void test_ports(void)
     packet(q, 1, 0);
     qtest_writel(q, BANK + 0x4000 + 0x1200, 1);
     qtest_clock_step(q, 1000000);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x4000 + 0x1214), ==, 1U << 16);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x4000 + 0x1214), ==,
+                    FRAME_PENDING);
     g_clear_pointer(&image, g_free);
     image = pixels_head(q, 1);
     assert_color(image, 0, 0, 0);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     g_assert_true(qtest_get_irq(q, 111 - 32));
-    qtest_writel(q, BANK + 0x4000 + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x4000 + 0x1214, FRAME_PENDING);
     g_assert_false(qtest_get_irq(q, 111 - 32));
     qtest_quit(q);
 }
@@ -389,7 +443,7 @@ static void test_refresh(void)
             g_assert_cmpuint((uint8_t)image[pixel + 2], ==, (x & 1) ? 255 : 0);
         }
     }
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     /* A live buffer update requires no second main start. */
     for (y = 0; y < 16; y++) {
         for (x = 0; x < 16; x++) {
@@ -403,7 +457,7 @@ static void test_refresh(void)
     image = pixels(q);
     assert_color(image, 0, 255, 0);
     g_assert_cmphex(qtest_readl(q, BANK + 0x1200) & 3, ==, 3);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     /* Invalid live ratios retain the last complete surface and no IRQ. */
     qtest_writel(q, BANK + 0x2818, 0x200);
     qtest_clock_step(q, 1000000);
@@ -413,7 +467,7 @@ static void test_refresh(void)
     assert_color(image, 0, 255, 0);
     qtest_writel(q, BANK + 0x2818, 0x201);
     wait_completion(q);
-    qtest_writel(q, BANK + 0x1214, 1U << 16);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
     qtest_writel(q, BANK + 0x1200, 2);
     qtest_memset(q, RAM + 0x8000, 0xff, sizeof(source));
     qtest_clock_step(q, 1000000);
@@ -454,7 +508,7 @@ static void test_crop(void)
     wait_completion(q);
     image = pixels_head(q, 1);
     assert_color(image, 0, 255, 0);
-    qtest_writel(q, base + 0x1214, 1U << 16);
+    qtest_writel(q, base + 0x1214, FRAME_PENDING);
     /* Moving the live viewport also clips its trailing edge at the output. */
     qtest_writel(q, base + 0x2208, 2);
     wait_completion(q);
@@ -475,6 +529,7 @@ void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
     qtest_add_func("/nikon/image/frame", test_frame);
+    qtest_add_func("/nikon/image/empty", test_empty);
     qtest_add_func("/nikon/image/layouts", test_layouts);
     qtest_add_func("/nikon/image/cancel", test_cancel);
     qtest_add_func("/nikon/image/fault", test_fault);

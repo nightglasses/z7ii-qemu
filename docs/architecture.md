@@ -185,7 +185,7 @@ flowchart TD
   Process -. original producer join unverified .-> Compose
   Compose --> Console[Functional QEMU console publication]
   Graphics -. original rendering / commit unproved .-> Frame[Original first frame absent]
-  MMIO -. independent rejected parameter lifecycle .-> D200[PA2014d200\neffect / legal values unresolved]
+  MMIO --> DisplayScalars[Finite D100/D200/C0A0 scalar lifecycle\nno event or completion side effect]
 ```
 
 The MAS-only request device retains configuration and the actual 16 KiB
@@ -203,8 +203,11 @@ captures remain historical prefixes; shared-length hash matches were not
 independent full-bound proof. Historical and corrected identities remain in
 [the runtime study](runtime/coprocessor.md) and [native receipts](validation/native.md).
 Ordinary copy IRQ130 and supplied-buffer composition are implemented endpoints,
-not the absent original graphics provider. D200 is an independent unresolved
-lifecycle, not downstream of IRQ129 and not an admitted discard write.
+not the absent original graphics provider. D200 zero and the C0A0 bit gate are
+finite retained scalar contracts with no event side effect; their physical
+meaning remains unknown. C010 and PA `0x2c012000` remain strict errors. Static
+Thumb recovery places the previously ranked `1046bfxx` image-start route under
+the registered `tftdbg` command handler, not the natural startup path.
 
 ## Current frontier
 
@@ -216,7 +219,7 @@ lifecycle, not downstream of IRQ129 and not an admitted discard write.
 | Processor | MAS-only request/bootstrap storage; natural experimental timeout | No execution/ready/reply provider |
 | Graphics streams | Corrected owned full224/1688B capture; native receipts and experimental producer-bound matches; requests remain pending | Processing/fence/status58/IRQ129 provider |
 | Ordinary copy/composition | Implemented DMA IRQ130 and supplied-buffer console publication | Original stream/guest producer join unverified |
-| Display parameter | Independent PA2014d200 write rejection | D100/D200 ordering, effect and legal values |
+| Display/control scalar lifecycle | D100/D200/C0A0 finite source-bounded contracts | C010 and PA2c012000 remain strict; physical meanings unresolved |
 | CMOS/readout | Device contracts and fixtures exist | Original firmware producer and DMA completion |
 | Display | GUI acceptance test reports explicit `UNMET` | Real framebuffer and scanout callback |
 
