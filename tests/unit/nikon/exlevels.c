@@ -8,6 +8,7 @@
 #include "hw/nikon/ex.h"
 #include "hw/nikon/sla.h"
 #include "system/reset.h"
+#include "system/runstate.h"
 #include "system/system.h"
 
 int (*qemu_main)(void);
