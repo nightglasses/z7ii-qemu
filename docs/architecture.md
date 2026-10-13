@@ -188,8 +188,9 @@ physical image path remains unaccepted until its runtime joins are observed.
 flowchart TD
   MMIO[MAS MMIO] --> Processor[Request-only processor\nfunctional-v1: PA2c040000 + 04294000]
   Processor -. no connected execution provider .-> Execution[Execution / ready / replies unproved]
-  MMIO --> Streams[Owned opaque graphics frontend PA20180000\nfull224/1688B capture; pending]
-  Streams -. no processing / fence / status58 / IRQ129 provider .-> Graphics[Original graphics processing unresolved]
+  MMIO --> Streams[Owned opaque graphics frontend PA20180000\nfull224/1688B capture and pair completion]
+  Streams --> PairCompletion[Bounded owned-pair completion / IRQ129]
+  PairCompletion -. no command execution / fence / status58 provider .-> Graphics[Original graphics processing unresolved]
   RAM[Guest RAM] --> Copy[Ordinary byte copy\ncompleted DMA → IRQ130]
   External[Explicit externally produced complete buffers] --> Process[Processing endpoint PA24070000\nnot a stream decoder]
   RAM --> Compose[Supplied-buffer composition\nPixman / functional scanout]
@@ -231,7 +232,7 @@ path.
 | Loader COPY | Both 4 MiB arenas; bounded500*/502* RAM under functional-v1 | Physical ownership/provider, not missing storage in this profile |
 | EV3 | Historical peer setters masks0x1/0x2 (wrapper LRs10200d0b/10200ceb); GUI mask0x10 producer VA10200c34; experimental progression | Strict PA2013e000; notification hypotheses unqualified |
 | Processor | MAS-only request/bootstrap storage; natural experimental timeout | Finite execution/ready/reply provider remains to implement |
-| Graphics streams | Corrected owned full224/1688B capture; native receipts and experimental producer-bound matches; requests remain pending | Finite processing/fence/status58/IRQ129 provider remains to implement |
+| Graphics streams | Corrected owned full224/1688B capture plus bounded pair completion/IRQ129; native receipts and experimental producer-bound matches | Finite command execution/fence/status58 provider remains to implement |
 | Ordinary copy/composition | Implemented DMA IRQ130 and supplied-buffer console publication | Original stream/guest producer join unverified as a fidelity claim |
 | Display/control scalar lifecycle | D100/D200/C0A0 finite source-bounded contracts | C010 and PA2c012000 remain strict; physical meanings unresolved |
 | CMOS/readout | Device contracts and fixtures exist | Finite original-firmware-facing producer and DMA completion remain to implement |
