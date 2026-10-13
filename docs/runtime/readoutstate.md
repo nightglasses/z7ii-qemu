@@ -176,8 +176,10 @@ be non-null before reaching the descriptor builder through `0x10238876`.
 A nonzero setter return advances `B[3]` to `2` and returns from this
 invocation.  State byte `2` takes `0x10234978` on a later invocation and
 reaches `0x10234990` without calling the fixed setter again; at `0x1023aed8`
-that update path likewise requires changed mask bit `0x80` and a non-null
-vector slot `+0x14`.  This fixed lifecycle object is distinct from
+that update path preserves the input mask and requires its bit `0x80` plus a
+non-null vector slot `+0x14`; it does not compute a delta.  The vector slot is
+written with parameter pointer `0xb25eefd0` at `0x1023490a`.  This fixed
+lifecycle object is distinct from
 aggregate-state root `R`.  Static control flow establishes both paths but
 does not prove that unchanged firmware has naturally executed either entry.
 
@@ -195,7 +197,7 @@ it calls the predicate at `0x1023c62e`; a true result reaches `0x1023c648`,
 which calls `0x102cd1ce`, loads the returned object at `+0x0c`, then calls
 `0x1020c7ba` and `0x1020c7b2` for the recovered parameter/marker join.
 
-This establishes a firmware-owned state machine: session reset, lane/service
+This establishes a firmware-owned state machine: session reset, lane/owner
 participation, a first entry that sets the lane-1 readout mask, can build the
 initial descriptor and advances the owner state, a later state-2 descriptor
 update path, then a separate firmware-local bit-29 callback that admits the
@@ -213,13 +215,24 @@ to all three setters, both mask clearers and the whole-state reset were then
 enumerated from the reconstructed assembly.  Static control flow was
 sufficient, so no runtime state write or active probe was used.
 
-The one precise unresolved upstream edge is the natural indirect dispatcher
-or registration slot that invokes entry `0x102347b6`.  The closure contains
-no direct BL/BLX call and no literal function pointer `0x102347b7`; therefore
-the next evidence should identify the table/registration write that owns this
-entry and the external service/event condition selecting it.  Until that edge
-is recovered, zero natural readout requests locate the blockage before the
-firmware producer, not after `NikonReadoutPipeline` submission.
+The one precise unresolved upstream edge is the natural caller of entry
+`0x102347b6`.  Reconstructed code contains no direct BL/BLX caller and the
+recovered literal inventory contains no `0x102347b6/7` function pointer.
+This does not prove the complete payload lacks either form: local metadata
+marks only `4,227,868` of `38,239,096` payload bytes declared, leaving
+`34,011,228` bytes undeclared and `full_payload_ready=false`.  An indirect
+registration/table dispatch is one candidate, but an unrecovered direct
+caller is not excluded.  Until that edge is recovered, zero natural readout
+requests locate the blockage before the firmware producer, not after
+`NikonReadoutPipeline` submission.
+
+The minimal passive probe is a breakpoint at `0x102347b6` that records
+`r0-r3`, `lr`, `sp` and `cpsr`, plus read-only snapshots of the input wrapper,
+its first-word `P`, `P+0x144`, and `B+3/+0x5c/+0x60`.  Optional breakpoints at
+`0x10234948`, `0x10234990` and `0x1023869e` distinguish the start setter,
+state-2 update and builder caller.  These observations must not write guest
+registers, memory, callbacks or IRQ state; absence of a hit proves only that
+the bounded observation window did not enter the function.
 
 QEMU must continue to leave `R + 0x38`, `R + 0x44`, code `0x281`, event bit 29
 and guest callbacks under firmware ownership.  Completion still needs a
