@@ -17,6 +17,10 @@
 #define NIKON_TRANSFER_CLEAR_SETUP_BYTES 224U
 #define NIKON_TRANSFER_CLEAR_DRAW_BYTES 1648U
 
+/* Finite C1.70 black RGBA8888 composition-surface profile. */
+#define NIKON_TRANSFER_RGBA_SETUP_BYTES 232U
+#define NIKON_TRANSFER_RGBA_DRAW_BYTES 416U
+
 typedef struct NikonTransferStreamRequest {
     uint64_t token;
     uint32_t source;

@@ -751,6 +751,222 @@ static void build_clear_program(uint8_t *setup, uint8_t *draw,
 #undef EMIT
 }
 
+static void build_rgba_program(uint8_t *setup, uint8_t *draw,
+                               uint32_t coordinates, uint32_t segments)
+{
+    unsigned at = 0;
+    uint8_t *bytes = setup;
+#define EMIT(header, ...) \
+    clear_emit(bytes, &at, header, (uint32_t[]) { __VA_ARGS__ }, \
+               sizeof((uint32_t[]) { __VA_ARGS__ }) / sizeof(uint32_t))
+#define REG(reg, mask, value) EMIT(((reg) << 16) | ((mask) << 12) | 4, value)
+
+    memset(setup, 0, NIKON_TRANSFER_RGBA_SETUP_BYTES);
+    memset(draw, 0, NIKON_TRANSFER_RGBA_DRAW_BYTES);
+    REG(0x69, 1, 0x80);
+    EMIT(0x005ef00e, 0x3f800000, 0);
+    REG(0x63, 15, 5);
+    REG(0x40, 15, 0x0ac01000);
+    REG(0x40, 15, 0x0ac01000);
+    EMIT(0x0041f046, 0x3f800000, 0, 0, 0, 0x3f800000, 0,
+         0, 0, 0x3f800000);
+    REG(4, 15, coordinates);
+    REG(5, 15, 0xd0000005);
+    REG(2, 15, segments);
+    REG(3, 15, 0x10000005);
+    REG(0x65, 3, 0x2100);
+    REG(0x66, 15, 0x6004);
+    EMIT(0x0080f026, 0x12345000, 0, 0x200, 0x08701000, 0);
+    REG(6, 15, 1);
+    REG(0x85, 15, 0x10001);
+    REG(5, 15, 0xd0000005);
+    REG(3, 15, 0x10000005);
+    EMIT(0x0080f026, 0x12346000, 0, 0x200, 0x02501000, 0x1f790);
+    REG(6, 15, 1);
+    REG(0x85, 15, 0x10002);
+    g_assert_cmpuint(at, ==, 57); /* final zero alignment word */
+
+    bytes = draw;
+    at = 0;
+    REG(0x140, 8, 0);
+    REG(0x190, 1, 0);
+    REG(0x14e, 14, 0x1b0000);
+    REG(0x156, 14, 0x1b0000);
+    REG(0x1a2, 15, 0);
+    REG(0x1a3, 15, 0x02b00400);
+    REG(0x184, 4, 0);
+    REG(0x1a7, 15, 0x01000101);
+    REG(0x11c, 15, 0x02b00000);
+    REG(0x1a0, 8, 0);
+    REG(0x1aa, 1, 0);
+    REG(0x1a0, 4, 0x10000);
+    REG(0x184, 1, 0);
+    REG(0x184, 2, 0);
+    REG(0x1a0, 2, 0);
+    REG(0x1a2, 9, 0);
+    REG(0x1a4, 15, 0xbf309600);
+    REG(0x1a5, 1, 1);
+    REG(0x1a7, 4, 0);
+    REG(0x140, 1, 0);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    EMIT(0x00c0f00e, 0x03ff0000, 0x02af0000);
+    REG(0x100, 1, 1);
+    REG(0x115, 1, 1);
+    REG(0x1b0, 1, 0xd);
+    REG(0x1b3, 1, 1);
+    REG(0x184, 8, 0);
+    REG(0x1a1, 1, 0);
+    REG(0x184, 1, 8);
+    REG(0x140, 1, 0);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x140, 2, 0);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x115, 12, 0);
+    REG(0x185, 15, 0xff000000);
+    REG(0x186, 3, 0x108);
+    EMIT(0x00a0f02e, 0x12345000, 0, 0x200, 0x08701000, 0,
+         0x00040002);
+    REG(0xa6, 15, 0x10001);
+    REG(0x1a6, 1, 1);
+    EMIT(0x00a0f02e, 0x12346000, 0, 0x200, 0x02501000, 0x21c,
+         0x00040002);
+    REG(0xa6, 15, 0x10002);
+    REG(0x1a6, 1, 1);
+    REG(8, 1, 1);
+    g_assert_cmpuint(at, ==, 103); /* final zero alignment word */
+#undef REG
+#undef EMIT
+}
+
+static MemTxResult submit_rgba(TransferFixture *f, unsigned draw_bytes)
+{
+    const uint32_t packet[][2] = {
+        { 0x1214, 0x100ffff }, { 0x1298, 0 },
+        { 0x10d4, 0x400000 },
+        { 0x10dc, NIKON_TRANSFER_RGBA_SETUP_BYTES / 8 }, { 0x10d0, 1 },
+        { 0x10e4, 0x401000 }, { 0x10ec, draw_bytes / 8 },
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmpint(write_register(f, packet[i][0], packet[i][1]), ==,
+                        MEMTX_OK);
+    }
+    return write_register(f, 0x10e0, 1);
+}
+
+static void test_rgba_clear(void)
+{
+    enum { OUTPUT = 0x2b0000, SLOT = 0x4b0000 };
+    enum {
+        UNKNOWN, TRUNCATED, PATH, FORMAT, RANGE, OVERLAP, TARGET_FIELD,
+        SUCCESS, RESET, CANCEL, CASES,
+    };
+    const hwaddr target = 0xbf309600;
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *command_data, *surface_data;
+
+    object_property_add_child(object_get_objects_root(), "transfer-rgba[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+                                          "test.rgba-command", 0x3000, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+                                          "test.rgba-surface", SLOT + 8, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, target - 4, &surface);
+    command_data = memory_region_get_ram_ptr(&commands);
+    surface_data = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+
+    for (unsigned test = UNKNOWN; test < CASES; test++) {
+        uint32_t segments = 0x402000;
+        unsigned draw_bytes = NIKON_TRANSFER_RGBA_DRAW_BYTES;
+        bool accepted = test == SUCCESS || test == RESET || test == CANCEL;
+        g_autofree uint8_t *before = NULL;
+
+        device_cold_reset(f.dev);
+        memset(command_data, 0, 0x3000);
+        memset(surface_data, 0xa5, SLOT + 8);
+        build_rgba_program(command_data, command_data + 0x1000,
+                           0x402100, segments);
+        memcpy(command_data + 0x2000,
+               (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+        for (unsigned i = 0; i < 5; i++) {
+            static const uint32_t coordinate[] = {
+                0, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000,
+            };
+            stl_le_p(command_data + 0x2100 + 4 * i, coordinate[i]);
+        }
+        switch (test) {
+        case UNKNOWN:
+            stl_le_p(command_data + 0x1000 + 4, 1);
+            break;
+        case TRUNCATED:
+            draw_bytes -= 8;
+            break;
+        case PATH:
+            command_data[0x2002] ^= 1;
+            break;
+        case FORMAT:
+            stl_le_p(command_data + 0x1000 + 9 * 4, 1);
+            break;
+        case RANGE:
+            memory_region_set_readonly(&surface, true);
+            break;
+        case OVERLAP:
+            stl_le_p(command_data + 26 * 4, target);
+            memcpy(surface_data + 4, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+            break;
+        case TARGET_FIELD:
+            stl_le_p(command_data + 0x1000 + 33 * 4, target + 4);
+            break;
+        default:
+            break;
+        }
+        before = g_memdup2(surface_data, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == RANGE) {
+            memory_region_set_readonly(&surface, false);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        g_assert_cmpint(f.level, ==, test == SUCCESS);
+        if (test == SUCCESS) {
+            g_assert_cmpmem(surface_data, 4, before, 4);
+            for (unsigned i = 0; i < OUTPUT; i++) {
+                g_assert_cmphex(surface_data[4 + i], ==,
+                                i % 4 == 3 ? 0xff : 0);
+            }
+            g_assert_cmpmem(surface_data + 4 + OUTPUT, SLOT - OUTPUT + 4,
+                            before + 4 + OUTPUT, SLOT - OUTPUT + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            g_assert_false(f.level);
+        } else {
+            g_assert_cmpmem(surface_data, SLOT + 8, before, SLOT + 8);
+        }
+    }
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 static MemTxResult submit_clear(TransferFixture *f, unsigned draw_bytes)
 {
     const uint32_t packet[][2] = {
@@ -968,6 +1184,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/stream-extent-boundaries",
                     test_stream_extent_boundaries);
     g_test_add_func("/nikon/transfer/yuv-clear", test_yuv_clear);
+    g_test_add_func("/nikon/transfer/rgba-clear", test_rgba_clear);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
