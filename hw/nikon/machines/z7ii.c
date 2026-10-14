@@ -129,6 +129,10 @@ struct Z7IIMachineState {
     char *ex_io_levels;
     uint32_t ex_io_mask;
     uint32_t ex_io_high;
+    char *ex_config_bytes;
+    uint32_t ex_config_off[32];
+    uint8_t ex_config_val[32];
+    uint8_t ex_config_count;
     bool frame_contract;
     char *nor_profile;
     char *descriptor17_input;
@@ -627,6 +631,18 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     unsigned i;
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
+    if (s->ex_config_count) {
+        gsize size;
+        const guint8 *data = g_bytes_get_data(payload, &size);
+        guint8 *copy = g_memdup2(data, size);
+
+        for (unsigned k = 0; k < s->ex_config_count; k++) {
+            if (s->ex_config_off[k] < size) {
+                copy[s->ex_config_off[k]] = s->ex_config_val[k];
+            }
+        }
+        payload = g_bytes_new_take(copy, size);
+    }
     nikon_ex_set_firmware(ex, payload, &error_fatal);
     for (i = 0; i < ARRAY_SIZE(s->ex_adc_sample); i++) {
         if (s->ex_adc_mask & (1u << i)) {
@@ -1606,6 +1622,44 @@ static void z7ii_set_ex_io_levels(Object *obj, const char *value, Error **errp)
     s->ex_io_levels = g_strdup(value);
 }
 
+static char *z7ii_get_ex_config_bytes(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->ex_config_bytes;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_ex_config_bytes(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
+    uint8_t count = 0;
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "ex-config-bytes must be configured before machine init");
+        return;
+    }
+    for (unsigned i = 0; entries[i] && value[0]; i++) {
+        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
+        unsigned long long off, val;
+
+        if (g_strv_length(pair) != 2 || count >= 32 ||
+            qemu_strtou64(pair[0], NULL, 16, &off) ||
+            qemu_strtou64(pair[1], NULL, 16, &val) || off > 0xffffffffULL ||
+            val > 0xff) {
+            error_setg(errp, "ex-config-bytes expects hex offset:value entries "
+                       "separated by ';' (offset < 4GiB, value <= 0xff)");
+            return;
+        }
+        s->ex_config_off[count] = off;
+        s->ex_config_val[count] = val;
+        count++;
+    }
+    s->ex_config_count = count;
+    g_free(s->ex_config_bytes);
+    s->ex_config_bytes = g_strdup(value);
+}
+
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
@@ -1636,6 +1690,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->cmos_image);
     g_free(s->ex_adc_counts);
     g_free(s->ex_io_levels);
+    g_free(s->ex_config_bytes);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1697,6 +1752,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
         "(channels 0..3; counts 0..4095); omitted channels remain disconnected");
     object_class_property_add_str(oc, "ex-io-levels", z7ii_get_ex_io_levels,
                                  z7ii_set_ex_io_levels);
+    object_class_property_add_str(oc, "ex-config-bytes", z7ii_get_ex_config_bytes,
+                                 z7ii_set_ex_config_bytes);
+    object_class_property_set_description(oc, "ex-config-bytes",
+        "Finite external EX config-window bytes as hex offset:value entries; "
+        "supplies erased-state configuration, does not edit the payload");
     object_class_property_set_description(oc, "ex-io-levels",
         "Explicit EX I2C-expander pin:level entries separated by ';' "
         "(pins 0..23; levels 0/1); omitted pins remain disconnected");
