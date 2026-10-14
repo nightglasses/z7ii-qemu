@@ -33,8 +33,14 @@
     (2 * TRANSFER_CLEAR_PLANE_BYTES)
 #define TRANSFER_RGBA_WIDTH 1024U
 #define TRANSFER_RGBA_HEIGHT 688U
-#define TRANSFER_RGBA_OUTPUT_BYTES \
+#define TRANSFER_RGBA_TARGET_BYTES \
     (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_HEIGHT)
+#define TRANSFER_RGBA_ACTIVE_Y 6U
+#define TRANSFER_RGBA_ACTIVE_HEIGHT 682U
+#define TRANSFER_RGBA_ACTIVE_OFFSET \
+    (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_Y)
+#define TRANSFER_RGBA_ACTIVE_BYTES \
+    (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_HEIGHT)
 #define TRANSFER_RGBA_TARGET 0xbf309600U
 #define TRANSFER_RGBA_PATH_SEGMENT_BYTES 5U
 #define TRANSFER_RGBA_PATH_COORDINATE_BYTES 20U
@@ -593,7 +599,7 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
             return false;
         }
         if (nikon_transfer_overlap(TRANSFER_RGBA_TARGET,
-                TRANSFER_RGBA_OUTPUT_BYTES, input[i], input_bytes[i])) {
+                TRANSFER_RGBA_TARGET_BYTES, input[i], input_bytes[i])) {
             *reason = "transfer-stream-operands-overlap";
             return false;
         }
@@ -606,7 +612,7 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
         }
     }
     if (nikon_transfer_span(TRANSFER_RGBA_TARGET,
-            TRANSFER_RGBA_OUTPUT_BYTES, true) < TRANSFER_RGBA_OUTPUT_BYTES ||
+            TRANSFER_RGBA_TARGET_BYTES, true) < TRANSFER_RGBA_TARGET_BYTES ||
         !nikon_transfer_range(input[2], input_bytes[2], false) ||
         !nikon_transfer_range(input[3], input_bytes[3], false)) {
         *reason = "transfer-stream-memory-range-not-backed";
@@ -630,8 +636,9 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
         }
     }
     program->kind = TRANSFER_PROGRAM_RGBA_CLEAR;
-    program->plane[0] = TRANSFER_RGBA_TARGET;
-    program->plane_bytes[0] = TRANSFER_RGBA_OUTPUT_BYTES;
+    /* Format0 has no YUV y-bias: this path covers target rows6..687. */
+    program->plane[0] = TRANSFER_RGBA_TARGET + TRANSFER_RGBA_ACTIVE_OFFSET;
+    program->plane_bytes[0] = TRANSFER_RGBA_ACTIVE_BYTES;
     program->format = 0;
     return true;
 }

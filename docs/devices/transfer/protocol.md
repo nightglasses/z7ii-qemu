@@ -261,9 +261,12 @@ or overlap among command streams, path inputs and output reject before a
 successful IRQ.
 
 Resource57 table record5 establishes the exact backing slot
-`[bf309600,bf7b9600)`. Successful execution maps the complete output before
-modification and writes RGBA bytes `00 00 00 ff` to every pixel in only
-`[bf309600,bf5b9600)`, exactly `2b0000` bytes. It leaves the slot tail
+`[bf309600,bf7b9600)`. The draw declares the complete1024x688 target extent
+`[bf309600,bf5b9600)`, length `2b0000`, and preflights that whole range. Unlike
+the two-plane YUV profile, format0 has no six-row `y_bias`: path y=6..688 writes
+only rows6 through687. Successful execution maps and writes RGBA bytes
+`00 00 00 ff` to `[bf30f600,bf5b9600)`, exactly `2aa000` bytes. It leaves the
+top alignment rows `[bf309600,bf30f600)`, slot tail
 `[bf5b9600,bf7b9600)` and both neighbors unchanged. Reset or unrealize before
 the deferred timer cancels without output or IRQ; execution-time mapping loss
 also preserves the surface. Completion uses the existing IRQ129 and original
@@ -273,11 +276,12 @@ The target is an upstream primary/HAIMENMONI rear-LCD composition surface, not
 the final scanout and not EVF output. The model does not present these bytes or
 copy them into the `cb4a7000` display arena. That next consumer/commit remains
 firmware-produced and is the next natural execution boundary after this
-profile. Synthetic unit coverage verifies exact output, the untouched tail and
-guards, strict field/path/format/range/overlap rejection, destination
-preservation and reset/unrealize cancellation. The memory qtest independently
-checks the exact resource57 slot boundaries and reset retention. These fixtures
-do not claim unchanged-firmware GUI or LCD completion.
+profile. Synthetic unit coverage verifies every active output byte, untouched
+top rows, tail and guards, strict field/path/format/range/overlap rejection,
+opaque-operand echo/nonzero/distinct rules, destination preservation,
+execution-time map loss and reset/unrealize cancellation. The memory qtest
+independently checks the exact resource57 slot boundaries and reset retention.
+These fixtures do not claim unchanged-firmware GUI or LCD completion.
 
 The functional allocation bound is128 KiB per stream, not recovered silicon
 capacity. Odd command-stream sources, oversized counts, zero/missing-count

@@ -859,10 +859,14 @@ static MemTxResult submit_rgba(TransferFixture *f, unsigned draw_bytes)
 
 static void test_rgba_clear(void)
 {
-    enum { OUTPUT = 0x2b0000, SLOT = 0x4b0000 };
     enum {
-        UNKNOWN, TRUNCATED, PATH, FORMAT, RANGE, OVERLAP, TARGET_FIELD,
-        SUCCESS, RESET, CANCEL, CASES,
+        EXTENT = 0x2b0000, ACTIVE_OFFSET = 0x6000,
+        ACTIVE = 0x2aa000, SLOT = 0x4b0000,
+    };
+    enum {
+        UNKNOWN, TRUNCATED, PATH, FORMAT, OPAQUE_ZERO, OPAQUE_EQUAL,
+        OPAQUE_ECHO, RANGE, OVERLAP, TARGET_FIELD, SUCCESS, MAP_LOSS,
+        RESET, CANCEL, CASES,
     };
     const hwaddr target = 0xbf309600;
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
@@ -889,7 +893,8 @@ static void test_rgba_clear(void)
     for (unsigned test = UNKNOWN; test < CASES; test++) {
         uint32_t segments = 0x402000;
         unsigned draw_bytes = NIKON_TRANSFER_RGBA_DRAW_BYTES;
-        bool accepted = test == SUCCESS || test == RESET || test == CANCEL;
+        bool accepted = test == SUCCESS || test == MAP_LOSS ||
+                        test == RESET || test == CANCEL;
         g_autofree uint8_t *before = NULL;
 
         device_cold_reset(f.dev);
@@ -918,6 +923,17 @@ static void test_rgba_clear(void)
         case FORMAT:
             stl_le_p(command_data + 0x1000 + 9 * 4, 1);
             break;
+        case OPAQUE_ZERO:
+            stl_le_p(command_data + 34 * 4, 0);
+            stl_le_p(command_data + 0x1000 + 80 * 4, 0);
+            break;
+        case OPAQUE_EQUAL:
+            stl_le_p(command_data + 48 * 4, 0x12345000);
+            stl_le_p(command_data + 0x1000 + 91 * 4, 0x12345000);
+            break;
+        case OPAQUE_ECHO:
+            stl_le_p(command_data + 0x1000 + 80 * 4, 0x12345004);
+            break;
         case RANGE:
             memory_region_set_readonly(&surface, true);
             break;
@@ -937,21 +953,28 @@ static void test_rgba_clear(void)
         g_assert_false(f.level);
         if (test == RANGE) {
             memory_region_set_readonly(&surface, false);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
         } else if (test == RESET) {
             device_cold_reset(f.dev);
         } else if (test == CANCEL) {
             qdev_unrealize(f.dev);
         }
         advance();
+        if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, false);
+        }
         g_assert_cmpint(f.level, ==, test == SUCCESS);
         if (test == SUCCESS) {
-            g_assert_cmpmem(surface_data, 4, before, 4);
-            for (unsigned i = 0; i < OUTPUT; i++) {
-                g_assert_cmphex(surface_data[4 + i], ==,
+            g_assert_cmpmem(surface_data, 4 + ACTIVE_OFFSET,
+                            before, 4 + ACTIVE_OFFSET);
+            for (unsigned i = 0; i < ACTIVE; i++) {
+                g_assert_cmphex(surface_data[4 + ACTIVE_OFFSET + i], ==,
                                 i % 4 == 3 ? 0xff : 0);
             }
-            g_assert_cmpmem(surface_data + 4 + OUTPUT, SLOT - OUTPUT + 4,
-                            before + 4 + OUTPUT, SLOT - OUTPUT + 4);
+            g_assert_cmpuint(ACTIVE_OFFSET + ACTIVE, ==, EXTENT);
+            g_assert_cmpmem(surface_data + 4 + EXTENT, SLOT - EXTENT + 4,
+                            before + 4 + EXTENT, SLOT - EXTENT + 4);
             g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
             g_assert_false(f.level);
         } else {

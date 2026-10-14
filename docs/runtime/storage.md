@@ -55,8 +55,11 @@ The board therefore backs only resource57 record5
 `lcd-composition` describes its observed software use, not a claimed DDR part.
 Guest code owns the allocation metadata, contents and reuse. In the observed
 graphics job the first `2b0000` bytes, `[bf309600,bf5b9600)`, are a
-1024x688 RGBA8888 target. The remaining `[bf5b9600,bf7b9600)` tail is storage
-but that job does not modify it. Neither neighboring address is granted RAM.
+1024x688 RGBA8888 target extent. Its path covers rows6 through687, so the
+active write is `[bf30f600,bf5b9600)`, length `2aa000`. The top six-row
+alignment area `[bf309600,bf30f600)` and remaining slot tail
+`[bf5b9600,bf7b9600)` are storage but this job does not modify them. Neither
+neighboring address is granted RAM.
 
 This is the primary/HAIMENMONI (rear LCD) upstream composition surface selected
 by output-table bit1. It is not the final scanout arena below, does not itself
