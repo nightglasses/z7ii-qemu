@@ -39,6 +39,54 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
+### Resource57 record0, record1 and record7 GUI slots
+
+The same correct-base table and allocation path publish record0 through the
+firmware cell at `b181d384`. In the unchanged runtime its value is
+`bec5f200`; the record size is `4b0000`, yielding the exact physical slot
+`[bec5f200,bf10f200)`. The engine0 fill producer at Thumb `VA102dbadc` then
+configures width and stride `0b40`, row count `01e0`, and destination
+`bec5f200` before `VA102dbba2` submits the request. Its zeroed prefix is
+`[bec5f200,bedb0a00)`, length `151800`, corresponding to a 720x480 four-byte
+canvas. The remainder `[bedb0a00,bf10f200)` is record-owned storage but is not
+touched by this request.
+
+The board backs only this exact record0 slot as cold-zero RAM. Its left neighbor
+remains uncovered, while record1 below starts at the exact record0 end; contents
+persist across machine reset. The guest still owns publication, initialization,
+reuse and every later pixel. This canvas-sized request is upstream GUI storage;
+it does not itself establish rear-LCD scanout, EVF selection or a visible host
+frame.
+
+After that request completes, the unchanged firmware calls the same executor
+`VA10389e3a` with the same engine0 tuple and destination `c175d600`. Correct-base
+ROM table `VA123b73ec` record7 is `{1,004b0000,b181d38c}`, and that runtime
+pointer cell contains `c175d600`. The exact record7 slot is therefore
+`[c175d600,c1c0d600)`. Its clear covers `[c175d600,c18aee00)`, again length
+`151800`; `[c18aee00,c1c0d600)` remains untouched.
+
+The board backs this exact record7 slot independently and preserves its
+contents across reset. Record8's runtime base `c1c0d600` is exactly the record7
+end and remains uncovered; neither record8 nor the whole resource57 arena is
+inferred from record7. The guest continues to own both records' publication,
+content and lifecycle.
+
+After the record0 and record7 clears complete, the unchanged firmware reaches
+the same engine0 configuration writer `VA102dbadc` and submit store
+`VA102dbba2` a third time. The recovered tuple retains mask `11`, flags `1`,
+zero pattern/dimension/parameter, but sets width and stride `0f00`, rows `021c`
+and destination `bf10f200`. Correct-base ROM table `VA123b73ec` record1 is
+`{1,001fa400,b181d390}`, and runtime pointer cell `b181d390` contains
+`bf10f200`. The exact multiplication `0f00 * 021c = 1fa400` therefore clears
+the whole record1 slot `[bf10f200,bf309600)`, a 960x540 four-byte surface.
+
+The board backs precisely that cold-zero slot. Record0 ends at its left edge
+and record5 begins at its right edge, so both adjacent bytes belong to separate
+published records rather than holes or padding. Native bounds checks preserve
+sentinels in both neighbors, and machine reset preserves record1 contents. The
+guest remains responsible for publication, later drawing and any relation
+between this upstream GUI surface and a selected physical output.
+
 ### Rear-LCD composition slot
 
 The correct-base C1.70 ROM table at `VA123b73ec` contains nine 12-byte records
@@ -59,7 +107,8 @@ graphics job the first `2b0000` bytes, `[bf309600,bf5b9600)`, are a
 active write is `[bf30f600,bf5b9600)`, length `2aa000`. The top six-row
 alignment area `[bf309600,bf30f600)` and remaining slot tail
 `[bf5b9600,bf7b9600)` are storage but this job does not modify them. Neither
-neighboring address is granted RAM.
+the record1 contents immediately before its base nor the uncovered address at
+its right edge belongs to record5.
 
 This is the primary/HAIMENMONI (rear LCD) upstream composition surface selected
 by output-table bit1. It is not the final scanout arena below, does not itself
@@ -93,10 +142,10 @@ owns reuse and clearing.
 `tests/qtest/nikon/memory.c` covers every storage class's first and last word,
 separate retention across adjacent classes, original copy/stack/heap
 destinations, logical bus mirror exclusion, MXIC decode withdrawal/restoration
-without losing RAM contents, both outer holes, the exact composition slot and
-its neighbors, all six display-buffer bases, the display arena's exact
-neighbors, and reset retention. Build and execution results are separately
-scoped below.
+without losing RAM contents, both outer holes, exact resource57 records0,5 and7
+and their neighbors (including the unmapped record8 base), all six
+display-buffer bases, the display arena's exact neighbors, and reset retention.
+Build and execution results are separately scoped below.
 
 ## Integrated execution
 

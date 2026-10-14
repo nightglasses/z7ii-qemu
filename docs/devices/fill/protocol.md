@@ -2,7 +2,7 @@
 
 This layer continues [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330). The [fixed original-byte producer/poll contract](https://github.com/mashiro01/nightglass/blob/7bd3a3ed298b2fd0f24d1cc1bf0698aee148f28d/research/z7ii/qemu-dma-fill-contract.md) establishes candidate PA `0x20070000`, the complete startup configuration and result acknowledgement. The later original boolean writer also establishes that `+0=0` is not proof of an all-register reset. Public Socionext XDMAC/HDMAC layouts conflict; this is a software-protocol functional model, not a claimed physical IP identification.
 
-The virtual profile explicitly assumes zero reset upper bits for the three RMW words, status idle, direct byte-block count, `+0x20=+0x24=0x4000` as equal byte width/stride, and zero fill when `+0x14=1`, `+0x18=0`, `+4=0`, `+0=0`. The control boolean is stored and never resets other fields. Nonzero patterns, other dimensions/flags, count-zero encoding, unaligned destinations, unsupported offsets/widths/commands and incomplete configuration fail. These constraints bound this implemented profile; they do not declare other real IP modes invalid. Reads expose only the actual RMW words and result status.
+The virtual profile explicitly assumes zero reset upper bits for the three RMW words, status idle, direct byte-block count, and zero fill when `+0x14=1`, `+0x18=0`, `+4=0`, `+0=0`. The startup form retains `+0x20=+0x24=0x4000` as equal byte width/stride and its existing finite nonzero count range. The later GUI form below is one additional exact request, not a general width or row-count facility. The control boolean is stored and never resets other fields. Nonzero patterns, other dimensions/flags, count-zero encoding, unaligned destinations, unsupported offsets/widths/commands and incomplete configuration fail. These constraints bound the implemented profiles; they do not declare other real IP modes invalid. Reads expose only the actual RMW words and result status.
 
 The board explicitly allocates one finite virtual DDR backing `[0xb18aedc0,0xb2b5edc0)`, length `0x012b0000`, and attaches it to the existing region decode plan. This allocation is an additional virtual-board RAM assumption, not physical DDR-capacity evidence. It matches the declared direct-count interpretation of the original `0x4ac` blocks and includes the subsequently proved original CRT/kernel globals. The DMA device never allocates RAM or clips a request to this backing. The original length argument is absent from the register interface: the implemented profile really fills the extra `0x8b0` tail beyond `0xb2b5e510`. The eight-byte gap after COPY0 remains uncovered. Guest code still produces COPY0, CRT context, kernel ready, SMP release and task state.
 
@@ -19,6 +19,57 @@ Original MAS at C revision `59711d4c31645768a84207ece774acd6c0d5d20c` configured
 The earlier paragraphs and receipts describe the initial startup layer. The current two-engine interface additionally retains the saved runtime register setters/getters, engine stride40hex, stop command0 with virtual stopped readback2, result mask and acknowledgement. Its ISR acknowledgement can clear the combined done/error mask11hex, and real pending status intersected with the guest mask drives the board's GIC103/104. This is the runtime extension already present at the task base; the historical statement about no IRQ applies only to the initial startup layer. No new fill C behavior or native run is added by [QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397).
 
 The saved runtime consumers cover configuration, submit/stop, mask/status and ISR paths; they do not establish a complete nonzero-pattern or general dimension/stride transfer law. Those modes and count-zero encoding remain future protocol work, explicitly rejected before a transfer rather than approximated as zero fill. A RAM decode/bus failure is a real backing dependency and cannot become done. The current zero profile remains synchronous and does not establish physical concurrency. No saved source joins fill completion to event/EXIU or a completed frame.
+
+## Exact GUI canvas clear
+
+An unchanged C1.70 run reaches the engine0 configuration writer at Thumb
+`VA102dbadc` and the submit store at `VA102dbba2` (caller LR `10389e29`). Its
+register tuple is mask `11`, flags `1`, pattern `0`, dimension `0`, width and
+stride `0b40`, row count `01e0`, parameter `0`, and destination `bec5f200`.
+The direct byte-count interpretation is exactly `0b40 * 01e0 = 151800`
+bytes: 720 four-byte pixels per row for 480 rows. The destination is the start
+of resource57 record0's independently recovered slot
+`[bec5f200,bf10f200)`. This identifies a firmware-owned RGBA-sized GUI canvas
+clear, not final LCD scanout or a host-rendered frame.
+
+After record0 completes, the unchanged firmware reaches the same executor
+`VA10389e3a`, configuration writer and engine0 tuple with only destination
+changed to `c175d600`. Correct-base ROM table `VA123b73ec` record7 is
+`{enabled=1,size=004b0000,pointer-cell=b181d38c}`; the runtime cell contains
+`c175d600`. Its exact slot is `[c175d600,c1c0d600)`, the active clear is
+`[c175d600,c18aee00)`, and the remaining tail is untouched.
+
+After those two clears, the unchanged firmware makes a third call through the
+same `VA102dbadc` configuration writer and `VA102dbba2` submit store. Engine0
+again has mask `11`, flags `1`, pattern and dimension `0`, and parameter `0`,
+but width and stride are `0f00`, row count is `021c`, and destination is
+`bf10f200`. Correct-base ROM table `VA123b73ec` record1 is
+`{enabled=1,size=001fa400,pointer-cell=b181d390}` and the runtime cell contains
+that destination. Thus `0f00 * 021c = 1fa400` clears the entire exact
+`[bf10f200,bf309600)` record1 slot: 960 four-byte pixels per row for 540 rows.
+Its left neighbor is record0 and its right neighbor is record5; neither is
+part of this request.
+
+The functional model accepts only those complete engine0 tuples at their
+firmware-published destinations, in addition to the older startup form. For
+the record0/record7 tuple, widths `0b3f`/`0b41`, a different stride, row counts
+`01df`/`01e1`, a nearby or other destination and engine1 all fail before DMA.
+For record1, the corresponding `0eff`/`0f01` widths, changed stride,
+`021b`/`021d` row count, changed destination and engine1 fail likewise.
+Record8's published base `c1c0d600`, equal to the record7 slot end, remains
+unmapped. A valid request still uses the same normal-memory-only DMA traversal,
+synchronous done/error result, IRQ103 mask, acknowledgement, stop and reset
+laws. Missing, read-only or partially mapped storage therefore produces the
+real bus-error result; no profile match can turn an absent backing into
+completion.
+
+Native fixtures separately check each exact clear extent, preserved slot tails
+and record1's mapped-neighbor sentinels, IRQ103/ACK, reset retention, rejected
+neighboring dimensions and destinations, record0/record7 external holes
+including the record8 base, writable/readonly selected address spaces, a
+partial boundary failure and a wholly unmapped GUI destination.
+These are synthetic device/board checks, not an unchanged-firmware display
+result.
 
 ## Private execution domains
 

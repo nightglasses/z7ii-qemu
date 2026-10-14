@@ -216,16 +216,97 @@ static void test_lcd_composition(void)
     qtest_writel(t.qts, draw_end, 0x1cd00001);
     qtest_writel(t.qts, end - 4, 0x1cd00002);
 
-    /* Only resource57 table index5 is backed, including its untouched tail. */
+    /* Record1 ends at index5's exact base; the index5 right edge is a hole. */
     qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x87654321);
-    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
     g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
 
     qtest_system_reset(t.qts);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x1cd00000);
     g_assert_cmphex(qtest_readl(t.qts, draw_end), ==, 0x1cd00001);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x1cd00002);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    memory_quit(&t);
+}
+
+static void test_resource57_record0(void)
+{
+    const uint64_t base = 0xbec5f200;
+    const uint64_t fill_end = 0xbedb0a00;
+    const uint64_t end = 0xbf10f200;
+    MemoryTest t = memory_init("");
+
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0);
+    qtest_writel(t.qts, base, 0x57000000);
+    qtest_writel(t.qts, fill_end, 0x57000001);
+    qtest_writel(t.qts, end - 4, 0x57000002);
+
+    /* The left edge is exact; record1 begins at the record0 right edge. */
+    qtest_writel(t.qts, base - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x87654321);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
+
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57000000);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0x57000001);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57000002);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
+    memory_quit(&t);
+}
+
+static void test_resource57_record1(void)
+{
+    const uint64_t base = 0xbf10f200;
+    const uint64_t end = 0xbf309600;
+    MemoryTest t = memory_init("");
+
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0);
+    qtest_writel(t.qts, base - 4, 0x5700ffff);
+    qtest_writel(t.qts, base, 0x57010000);
+    qtest_writel(t.qts, end - 4, 0x5701ffff);
+    qtest_writel(t.qts, end, 0x57050000);
+
+    /* Record0 and record5 are mapped neighbors, not record1 padding. */
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x57050000);
+
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57010000);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x5701ffff);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x57050000);
+    memory_quit(&t);
+}
+
+static void test_resource57_record7(void)
+{
+    const uint64_t base = 0xc175d600;
+    const uint64_t fill_end = 0xc18aee00;
+    const uint64_t end = 0xc1c0d600;
+    MemoryTest t = memory_init("");
+
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0);
+    qtest_writel(t.qts, base, 0x57070000);
+    qtest_writel(t.qts, fill_end, 0x57070001);
+    qtest_writel(t.qts, end - 4, 0x57070002);
+
+    /* Record7 is exact; record8 begins at its end and remains a hole. */
+    qtest_writel(t.qts, base - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x87654321);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57070000);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0x57070001);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57070002);
     memory_quit(&t);
 }
 
@@ -665,6 +746,12 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
     qtest_add_func("/nikon/memory/display-buffers", test_display_buffers);
     qtest_add_func("/nikon/memory/lcd-composition", test_lcd_composition);
+    qtest_add_func("/nikon/memory/resource57-record0",
+                   test_resource57_record0);
+    qtest_add_func("/nikon/memory/resource57-record1",
+                   test_resource57_record1);
+    qtest_add_func("/nikon/memory/resource57-record7",
+                   test_resource57_record7);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);
