@@ -1,0 +1,32 @@
+flowchart LR
+  n0["0x10020000<br/>MAS ROM base"]:::mas
+  n1["0x4264000<br/>MEMC base (MODE0 at +0)"]:::mas
+  n2["0x8033958<br/>EX generic sender submit (descriptor 20013c20, len 28, LR 08033ee7)"]:::ex
+  n3["0x8033a00<br/>EX completion dispatcher (0 hits observed)"]:::ex
+  n4["0x103f8ec6<br/>MAS battery classifier"]:::mas
+  n5["0x10204e30<br/>system-report producer"]:::mas
+  n6["0x1020e374<br/>system-report handler/constructor (class 2)"]:::mas
+  n7["0x102017a0<br/>MISSING: unknown"]:::gap
+  n8["0x1038b7b2<br/>MISSING: unknown"]:::gap
+  n9["0x1020d41a<br/>MISSING: unknown"]:::gap
+  n10["0x1020d384<br/>MISSING: unknown"]:::gap
+  n11["0x1020d5fa<br/>MISSING: app-service message entry"]:::gap
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 -.-> n8
+  n8 -.-> n9
+  n9 -.-> n10
+  n10 -.-> n11
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px

@@ -1,0 +1,42 @@
+flowchart LR
+  n0["0x1020d5fa<br/>MISSING: app-service message entry"]:::gap
+  n1["0x10773ed4<br/>MISSING: F165 bootstrap handler"]:::gap
+  n2["0x10502db8<br/>MISSING: F092 manager setter handler"]:::gap
+  n3["0x10502d0a<br/>MISSING: F091 admission handler"]:::gap
+  n4["0x104d7e78<br/>MISSING: provider admission wrapper"]:::gap
+  n5["0x104d7d7e<br/>MISSING: provider domain dispatcher"]:::gap
+  n6["0x104d7c60<br/>MISSING: provider list/event producer"]:::gap
+  n7["0x1051d506<br/>MISSING: provider object builder"]:::gap
+  n8["0x104d731c<br/>MISSING: service event/list publisher"]:::gap
+  n9["0x104dc14e<br/>MISSING: owner mailbox method"]:::gap
+  n10["0xb1d020a0<br/>MISSING: pending provider mailbox"]:::gap
+  n11["0x104dc804<br/>MISSING: owner lifecycle callback"]:::gap
+  n12["0x104dc690<br/>MISSING: owner state 25"]:::gap
+  n13["0x104dc6c0<br/>MISSING: owner state 26"]:::gap
+  n14["0x104dbb40<br/>MISSING: provider type-1 import"]:::gap
+  n15["0x104db90e<br/>MISSING: normal main restart callsite"]:::gap
+  n16["0x1046bf0c<br/>main/sub-unit command writer"]:::mas
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 --> n8
+  n8 --> n9
+  n9 --> n10
+  n10 --> n11
+  n11 --> n12
+  n12 --> n13
+  n13 --> n14
+  n14 --> n15
+  n15 --> n16
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px

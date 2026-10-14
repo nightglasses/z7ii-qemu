@@ -1,0 +1,120 @@
+flowchart LR
+  n0["0x410001b<br/>MISSING: unknown"]:::gap
+  n1["0x41000ac<br/>MISSING: unknown"]:::gap
+  n2["0x4264000<br/>MEMC base (MODE0 at +0)"]:::mas
+  n3["0x8031dbc<br/>unknown"]:::ex
+  n4["0x8033958<br/>EX generic sender submit (descriptor 20013c20, len 28, LR 08033ee7)"]:::ex
+  n5["0x8033a00<br/>EX completion dispatcher (0 hits observed)"]:::ex
+  n6["0x8034a18<br/>EX TX worker (handshake window 08034a18..08034b5e)"]:::ex
+  n7["0x803d290<br/>EX local event dispatcher (event id in r0)"]:::ex
+  n8["0x803d5fc<br/>EX input frame builder (120B shadow -> 124B body, type2)"]:::ex
+  n9["0x10020000<br/>MAS ROM base"]:::mas
+  n10["0x102017a0<br/>MISSING: unknown"]:::gap
+  n11["0x10204e30<br/>system-report producer"]:::mas
+  n12["0x102055e6<br/>MAS SSI1 ingress callback (client, class, len)"]:::mas
+  n13["0x1020b686<br/>MAS SSI1 RX arm (128 words)"]:::mas
+  n14["0x1020c7c6<br/>MISSING: readout service submit"]:::gap
+  n15["0x1020d384<br/>MISSING: unknown"]:::gap
+  n16["0x1020d41a<br/>MISSING: unknown"]:::gap
+  n17["0x1020d5fa<br/>MISSING: app-service message entry"]:::gap
+  n18["0x1020e374<br/>system-report handler/constructor (class 2)"]:::mas
+  n19["0x102347b6<br/>MISSING: MAS unknown (EX-input issue context)"]:::gap
+  n20["0x1023869e<br/>MISSING: readout descriptor builder"]:::gap
+  n21["0x103263e8<br/>MISSING: capture state callback"]:::gap
+  n22["0x1038b7b2<br/>MISSING: unknown"]:::gap
+  n23["0x1038b804<br/>MAS input consume entry (52B copy)"]:::mas
+  n24["0x103ba164<br/>MISSING: InitiateCapture"]:::gap
+  n25["0x103f1244<br/>MISSING: capture-service start"]:::gap
+  n26["0x103f8ec6<br/>MAS battery classifier"]:::mas
+  n27["0x10433ebc<br/>cmd7 input snapshot producer"]:::mas
+  n28["0x104343c6<br/>cmd8 shutter frame handler"]:::mas
+  n29["0x10448fcc<br/>endpoints 0-to-1 transition"]:::mas
+  n30["0x1044ae54<br/>layer-record builder"]:::mas
+  n31["0x1046bf0c<br/>main/sub-unit command writer"]:::mas
+  n32["0x1046d48a<br/>layer descriptor writer"]:::mas
+  n33["0x1046d6d0<br/>port dirty/update commit"]:::mas
+  n34["0x104d731c<br/>MISSING: service event/list publisher"]:::gap
+  n35["0x104d7c60<br/>MISSING: provider list/event producer"]:::gap
+  n36["0x104d7d7e<br/>MISSING: provider domain dispatcher"]:::gap
+  n37["0x104d7e78<br/>MISSING: provider admission wrapper"]:::gap
+  n38["0x104db90e<br/>MISSING: normal main restart callsite"]:::gap
+  n39["0x104dbb40<br/>MISSING: provider type-1 import"]:::gap
+  n40["0x104dc14e<br/>MISSING: owner mailbox method"]:::gap
+  n41["0x104dc690<br/>MISSING: owner state 25"]:::gap
+  n42["0x104dc6c0<br/>MISSING: owner state 26"]:::gap
+  n43["0x104dc804<br/>MISSING: owner lifecycle callback"]:::gap
+  n44["0x10502d0a<br/>MISSING: F091 admission handler"]:::gap
+  n45["0x10502db8<br/>MISSING: F092 manager setter handler"]:::gap
+  n46["0x1051d506<br/>MISSING: provider object builder"]:::gap
+  n47["0x1062e474<br/>class-1 command-4 constructor router"]:::mas
+  n48["0x106ee04a<br/>paired graphics stream submit"]:::mas
+  n49["0x106ee148<br/>transfer consumer and register writer"]:::mas
+  n50["0x106ee202<br/>ordinal-10 wait success return"]:::mas
+  n51["0x106ee3ca<br/>IRQ129 handler"]:::mas
+  n52["0x10764958<br/>MISSING: shutter request executor"]:::gap
+  n53["0x10773ed4<br/>MISSING: F165 bootstrap handler"]:::gap
+  n54["0x2006b400<br/>MISSING: readout generation marker"]:::gap
+  n55["0xb1d020a0<br/>MISSING: pending provider mailbox"]:::gap
+  n56["0xcb4a7000<br/>MISSING: YUVA107 primary plane"]:::gap
+  n9 --> n2
+  n2 --> n4
+  n4 --> n5
+  n5 --> n26
+  n26 --> n11
+  n11 --> n18
+  n18 --> n10
+  n10 -.-> n22
+  n22 -.-> n16
+  n16 -.-> n15
+  n15 -.-> n17
+  n47 --> n29
+  n29 --> n30
+  n30 --> n32
+  n32 --> n33
+  n33 --> n35
+  n35 --> n38
+  n38 --> n31
+  n31 --> n56
+  n48 --> n49
+  n49 --> n51
+  n51 --> n50
+  n7 --> n8
+  n8 --> n3
+  n3 -.-> n6
+  n6 --> n13
+  n13 --> n12
+  n12 --> n27
+  n27 --> n28
+  n28 -.-> n23
+  n23 --> n52
+  n52 -.-> n24
+  n17 --> n53
+  n53 --> n45
+  n45 --> n44
+  n44 --> n37
+  n37 --> n36
+  n36 --> n35
+  n35 --> n46
+  n46 --> n34
+  n34 --> n40
+  n40 --> n55
+  n55 --> n43
+  n43 --> n41
+  n41 --> n42
+  n42 --> n39
+  n39 --> n38
+  n0 -.-> n1
+  n1 -.-> n25
+  n25 --> n21
+  n21 --> n19
+  n19 -.-> n20
+  n20 -.-> n14
+  n14 --> n54
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px

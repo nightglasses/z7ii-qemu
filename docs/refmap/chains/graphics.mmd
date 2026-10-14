@@ -1,0 +1,16 @@
+flowchart LR
+  n0["0x106ee04a<br/>paired graphics stream submit"]:::mas
+  n1["0x106ee148<br/>transfer consumer and register writer"]:::mas
+  n2["0x106ee3ca<br/>IRQ129 handler"]:::mas
+  n3["0x106ee202<br/>ordinal-10 wait success return"]:::mas
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px

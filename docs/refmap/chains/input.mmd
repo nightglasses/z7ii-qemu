@@ -1,0 +1,30 @@
+flowchart LR
+  n0["0x803d290<br/>EX local event dispatcher (event id in r0)"]:::ex
+  n1["0x803d5fc<br/>EX input frame builder (120B shadow -> 124B body, type2)"]:::ex
+  n2["0x8031dbc<br/>unknown"]:::ex
+  n3["0x8034a18<br/>EX TX worker (handshake window 08034a18..08034b5e)"]:::ex
+  n4["0x1020b686<br/>MAS SSI1 RX arm (128 words)"]:::mas
+  n5["0x102055e6<br/>MAS SSI1 ingress callback (client, class, len)"]:::mas
+  n6["0x10433ebc<br/>cmd7 input snapshot producer"]:::mas
+  n7["0x104343c6<br/>cmd8 shutter frame handler"]:::mas
+  n8["0x1038b804<br/>MAS input consume entry (52B copy)"]:::mas
+  n9["0x10764958<br/>MISSING: shutter request executor"]:::gap
+  n10["0x103ba164<br/>MISSING: InitiateCapture"]:::gap
+  n0 --> n1
+  n1 --> n2
+  n2 -.-> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 -.-> n8
+  n8 --> n9
+  n9 -.-> n10
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px

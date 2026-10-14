@@ -1,0 +1,26 @@
+flowchart LR
+  n0["0x1062e474<br/>class-1 command-4 constructor router"]:::mas
+  n1["0x10448fcc<br/>endpoints 0-to-1 transition"]:::mas
+  n2["0x1044ae54<br/>layer-record builder"]:::mas
+  n3["0x1046d48a<br/>layer descriptor writer"]:::mas
+  n4["0x1046d6d0<br/>port dirty/update commit"]:::mas
+  n5["0x104d7c60<br/>MISSING: provider list/event producer"]:::gap
+  n6["0x104db90e<br/>MISSING: normal main restart callsite"]:::gap
+  n7["0x1046bf0c<br/>main/sub-unit command writer"]:::mas
+  n8["0xcb4a7000<br/>MISSING: YUVA107 primary plane"]:::gap
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 --> n8
+  classDef mas fill:#cfe2ff,stroke:#333
+  classDef ex fill:#d7f5d7,stroke:#333
+  classDef sla fill:#e8d7ff,stroke:#333
+  classDef vr fill:#d7f2f5,stroke:#333
+  classDef tpj fill:#f2e2cf,stroke:#333
+  classDef qemu fill:#e4e4e4,stroke:#333
+  classDef shared fill:#ffffff,stroke:#333
+  classDef gap fill:#ffd7d7,stroke:#cf222e,stroke-width:2px
