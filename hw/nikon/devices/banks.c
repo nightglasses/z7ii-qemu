@@ -79,6 +79,10 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
         case 0x214: *mask = UINT32_MAX; return true;
         case 0x218: *mask = 1; return true;
         case 0x5c0: case 0x5c4: case 0x600: *mask = 0x3ff; return true;
+        /* 1046d6d0 requests an overlay update with bit0 after committing
+         * dirty layers. A complete value of three is only observed as a
+         * hardware-state comparison, not as a guest-produced value. */
+        case 0x604: *mask = 1; return true;
         case 0x5e0: case 0x5e4: case 0x5e8: case 0x5ec: case 0x5f0:
             *mask = 0x3f3f3f3f; return true;
         case 0x840: case 0x844: case 0x848:
