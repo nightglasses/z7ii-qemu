@@ -39,21 +39,35 @@ changed to `c175d600`. Correct-base ROM table `VA123b73ec` record7 is
 `c175d600`. Its exact slot is `[c175d600,c1c0d600)`, the active clear is
 `[c175d600,c18aee00)`, and the remaining tail is untouched.
 
-The functional model accepts only that complete tuple on engine0 with the
-firmware-published record0 or record7 base, in addition to the older startup
-form. Widths `0b3f`/`0b41`, a different stride, row counts `01df`/`01e1`, a
-nearby or other destination and engine1 all fail before DMA. Record8's
-published base `c1c0d600`, equal to the record7 slot end, remains unmapped. A
-valid request still uses the same normal-memory-only DMA traversal, synchronous
-done/error result, IRQ103 mask, acknowledgement, stop and reset laws. Missing,
-read-only or partially mapped storage therefore produces the real bus-error
-result; no profile match can turn an absent backing into completion.
+After those two clears, the unchanged firmware makes a third call through the
+same `VA102dbadc` configuration writer and `VA102dbba2` submit store. Engine0
+again has mask `11`, flags `1`, pattern and dimension `0`, and parameter `0`,
+but width and stride are `0f00`, row count is `021c`, and destination is
+`bf10f200`. Correct-base ROM table `VA123b73ec` record1 is
+`{enabled=1,size=001fa400,pointer-cell=b181d390}` and the runtime cell contains
+that destination. Thus `0f00 * 021c = 1fa400` clears the entire exact
+`[bf10f200,bf309600)` record1 slot: 960 four-byte pixels per row for 540 rows.
+Its left neighbor is record0 and its right neighbor is record5; neither is
+part of this request.
 
-Native fixtures separately check the exact clear extent and preserved slot
-tails, IRQ103/ACK, reset retention, the rejected neighboring dimensions and
-destinations, record0/record7 external holes including the record8 base,
-writable/readonly selected address spaces, a partial boundary failure and a
-wholly unmapped GUI destination.
+The functional model accepts only those complete engine0 tuples at their
+firmware-published destinations, in addition to the older startup form. For
+the record0/record7 tuple, widths `0b3f`/`0b41`, a different stride, row counts
+`01df`/`01e1`, a nearby or other destination and engine1 all fail before DMA.
+For record1, the corresponding `0eff`/`0f01` widths, changed stride,
+`021b`/`021d` row count, changed destination and engine1 fail likewise.
+Record8's published base `c1c0d600`, equal to the record7 slot end, remains
+unmapped. A valid request still uses the same normal-memory-only DMA traversal,
+synchronous done/error result, IRQ103 mask, acknowledgement, stop and reset
+laws. Missing, read-only or partially mapped storage therefore produces the
+real bus-error result; no profile match can turn an absent backing into
+completion.
+
+Native fixtures separately check each exact clear extent, preserved slot tails
+and record1's mapped-neighbor sentinels, IRQ103/ACK, reset retention, rejected
+neighboring dimensions and destinations, record0/record7 external holes
+including the record8 base, writable/readonly selected address spaces, a
+partial boundary failure and a wholly unmapped GUI destination.
 These are synthetic device/board checks, not an unchanged-firmware display
 result.
 

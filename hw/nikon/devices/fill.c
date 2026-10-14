@@ -20,6 +20,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 #define NIKON_FILL_GUI_ROWS 0x01e0U
 #define NIKON_FILL_GUI_RECORD0 0xbec5f200U
 #define NIKON_FILL_GUI_RECORD7 0xc175d600U
+#define NIKON_FILL_GUI_RECORD1_WIDTH 0x0f00U
+#define NIKON_FILL_GUI_RECORD1_ROWS 0x021cU
+#define NIKON_FILL_GUI_RECORD1 0xbf10f200U
 
 typedef struct NikonFillEngine {
     uint32_t control, mask, flags, pattern, parameter, destination;
@@ -120,18 +123,25 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
     bool startup_profile = e->width == NIKON_FILL_STARTUP_WIDTH &&
                            e->stride == e->width && e->count &&
                            e->count < NIKON_FILL_STARTUP_WIDTH;
-    bool gui_profile = e == &s->engine[0] &&
-                       e->mask == 0x11 &&
-                       e->width == NIKON_FILL_GUI_WIDTH &&
-                       e->stride == NIKON_FILL_GUI_WIDTH &&
-                       e->count == NIKON_FILL_GUI_ROWS &&
-                       (e->destination == NIKON_FILL_GUI_RECORD0 ||
-                        e->destination == NIKON_FILL_GUI_RECORD7);
+    bool gui_canvas_profile = e == &s->engine[0] &&
+                              e->mask == 0x11 &&
+                              e->width == NIKON_FILL_GUI_WIDTH &&
+                              e->stride == NIKON_FILL_GUI_WIDTH &&
+                              e->count == NIKON_FILL_GUI_ROWS &&
+                              (e->destination == NIKON_FILL_GUI_RECORD0 ||
+                               e->destination == NIKON_FILL_GUI_RECORD7);
+    bool gui_record1_profile = e == &s->engine[0] &&
+                               e->mask == 0x11 &&
+                               e->width == NIKON_FILL_GUI_RECORD1_WIDTH &&
+                               e->stride == NIKON_FILL_GUI_RECORD1_WIDTH &&
+                               e->count == NIKON_FILL_GUI_RECORD1_ROWS &&
+                               e->destination == NIKON_FILL_GUI_RECORD1;
     MemTxResult result;
 
     if (e->control || e->configured != 127 || e->flags != 1 ||
         e->pattern || e->dimension || e->parameter ||
-        (!startup_profile && !gui_profile) || (e->destination & 3) ||
+        (!startup_profile && !gui_canvas_profile && !gui_record1_profile) ||
+        (e->destination & 3) ||
         (uint64_t)e->destination + length > (1ULL << 32)) {
         return nikon_fill_error(s, offset, 4, true, 1,
                               "fill-request-profile-not-supported");

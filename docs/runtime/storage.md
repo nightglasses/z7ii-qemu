@@ -39,7 +39,7 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
-### Resource57 record0 and record7 GUI canvas slots
+### Resource57 record0, record1 and record7 GUI slots
 
 The same correct-base table and allocation path publish record0 through the
 firmware cell at `b181d384`. In the unchanged runtime its value is
@@ -51,8 +51,8 @@ configures width and stride `0b40`, row count `01e0`, and destination
 canvas. The remainder `[bedb0a00,bf10f200)` is record-owned storage but is not
 touched by this request.
 
-The board backs only this exact record0 slot as cold-zero RAM, independently
-from record5 below. Both adjacent addresses remain uncovered and contents
+The board backs only this exact record0 slot as cold-zero RAM. Its left neighbor
+remains uncovered, while record1 below starts at the exact record0 end; contents
 persist across machine reset. The guest still owns publication, initialization,
 reuse and every later pixel. This canvas-sized request is upstream GUI storage;
 it does not itself establish rear-LCD scanout, EVF selection or a visible host
@@ -70,6 +70,22 @@ contents across reset. Record8's runtime base `c1c0d600` is exactly the record7
 end and remains uncovered; neither record8 nor the whole resource57 arena is
 inferred from record7. The guest continues to own both records' publication,
 content and lifecycle.
+
+After the record0 and record7 clears complete, the unchanged firmware reaches
+the same engine0 configuration writer `VA102dbadc` and submit store
+`VA102dbba2` a third time. The recovered tuple retains mask `11`, flags `1`,
+zero pattern/dimension/parameter, but sets width and stride `0f00`, rows `021c`
+and destination `bf10f200`. Correct-base ROM table `VA123b73ec` record1 is
+`{1,001fa400,b181d390}`, and runtime pointer cell `b181d390` contains
+`bf10f200`. The exact multiplication `0f00 * 021c = 1fa400` therefore clears
+the whole record1 slot `[bf10f200,bf309600)`, a 960x540 four-byte surface.
+
+The board backs precisely that cold-zero slot. Record0 ends at its left edge
+and record5 begins at its right edge, so both adjacent bytes belong to separate
+published records rather than holes or padding. Native bounds checks preserve
+sentinels in both neighbors, and machine reset preserves record1 contents. The
+guest remains responsible for publication, later drawing and any relation
+between this upstream GUI surface and a selected physical output.
 
 ### Rear-LCD composition slot
 
@@ -91,7 +107,8 @@ graphics job the first `2b0000` bytes, `[bf309600,bf5b9600)`, are a
 active write is `[bf30f600,bf5b9600)`, length `2aa000`. The top six-row
 alignment area `[bf309600,bf30f600)` and remaining slot tail
 `[bf5b9600,bf7b9600)` are storage but this job does not modify them. Neither
-neighboring address is granted RAM.
+the record1 contents immediately before its base nor the uncovered address at
+its right edge belongs to record5.
 
 This is the primary/HAIMENMONI (rear LCD) upstream composition surface selected
 by output-table bit1. It is not the final scanout arena below, does not itself

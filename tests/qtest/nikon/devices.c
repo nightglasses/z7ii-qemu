@@ -22,7 +22,13 @@
 #define GUI_FILL_WIDTH 0x0b40
 #define GUI_FILL_ROWS 0x01e0
 #define GUI_FILL_LENGTH (GUI_FILL_WIDTH * GUI_FILL_ROWS)
+#define GUI_FILL_RECORD1 0xbf10f200
+#define GUI_FILL_RECORD1_WIDTH 0x0f00
+#define GUI_FILL_RECORD1_ROWS 0x021c
+#define GUI_FILL_RECORD1_LENGTH \
+    (GUI_FILL_RECORD1_WIDTH * GUI_FILL_RECORD1_ROWS)
 #define RESOURCE57_RECORD0_END 0xbf10f200
+#define RESOURCE57_RECORD1_END 0xbf309600
 #define RESOURCE57_RECORD7_END 0xc1c0d600
 #define COPY 0x04251000
 #define HDMAC 0x2c020000
@@ -528,6 +534,75 @@ static void test_fill_gui_record7(void)
     qtest_quit(q);
 }
 
+static void test_fill_gui_record1(void)
+{
+    static const struct {
+        uint32_t width;
+        uint32_t stride;
+        uint32_t rows;
+        uint32_t destination;
+    } rejected[] = {
+        { 0x0eff, 0x0eff, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { 0x0f01, 0x0f01, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, 0x0eff, GUI_FILL_RECORD1_ROWS,
+          GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021b,
+          GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021d,
+          GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 + 4 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_DESTINATION },
+    };
+    g_autofree uint8_t *bytes = g_malloc(GUI_FILL_RECORD1_LENGTH);
+    g_autofree uint8_t *zero = g_malloc0(GUI_FILL_RECORD1_LENGTH);
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    memset(bytes, 0x1a, GUI_FILL_RECORD1_LENGTH);
+    qtest_memwrite(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
+    qtest_writel(q, GUI_FILL_RECORD1 - 4, 0x57010000);
+    qtest_writel(q, RESOURCE57_RECORD1_END, 0x57010001);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
+        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+                     rejected[i].rows, rejected[i].destination);
+        g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+        g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+        g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
+    }
+
+    /* The recovered request selects engine0, not the identical engine1 bank. */
+    fill_request(q, FILL + 0x40, GUI_FILL_RECORD1_WIDTH,
+                 GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_ROWS,
+                 GUI_FILL_RECORD1);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
+
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+    fill_request(q, FILL, GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
+                 GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    g_assert_true(qtest_get_irq(q, 103 - 32));
+    qtest_memread(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_RECORD1_LENGTH,
+                    zero, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1 - 4), ==, 0x57010000);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD1_END), ==, 0x57010001);
+
+    qtest_writel(q, FILL + 8, 1);
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+    qtest_writel(q, GUI_FILL_RECORD1, 0x5701aa55);
+    qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x5701aa55);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1 - 4), ==, 0x57010000);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD1_END), ==, 0x57010001);
+    qtest_quit(q);
+}
+
 static void copy_setup(QTestState *q, unsigned channel, unsigned length)
 {
     uint64_t base = COPY + 0x10 + channel * 0x30;
@@ -993,6 +1068,7 @@ int main(int argc, char **argv)
     nikon_bridge_add_tests();
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/gui-fill", test_fill_gui);
+    qtest_add_func("/nikon/gui-fill-record1", test_fill_gui_record1);
     qtest_add_func("/nikon/gui-fill-record7", test_fill_gui_record7);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);
