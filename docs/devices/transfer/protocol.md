@@ -184,6 +184,51 @@ plane overlap/delta, MMIO targets and command-stream overlap preserve both
 destinations and never read MMIO. This is fixture coverage, not natural-boot
 acceptance.
 
+The corrected SPI cadence lets unchanged C1.70 progress farther through this
+same producer. Its first three submissions are the existing224/1688-byte LUT
+profile. The fourth is the existing224/1648-byte format105 clear. The fifth is
+another224/1648-byte clear whose setup stream is byte-identical to the fourth;
+only draw words9/379 and the two destination addresses differ. Both format
+words are107. Its primary destination is `cb4a7000`, its secondary destination
+is `cb5fc000`, and their exact delta `155000` is
+`2 * 1024 * 682` bytes. These are passive original-firmware observations at
+the correct `10020000` MAS VMA, not guest state injection.
+
+The format-emission sites at `106454e2/106454ea` and
+`106460fa/106460fc` independently produce the two operands from the current
+surface. The second path emits the secondary destination at `1064610e/1064611c`
+for low format bits5 or7; `1067c620/1067c624` selects format107 and a16-bit
+primary element width. WonderLantern's fixed Z7 implementation
+corroborates the remaining finite layout: format107 stores two pixels as
+`Y0,Y1,U,V` in the primary plane and uses a separately addressed one-byte
+alpha sample per pixel. [Z7 pixel access and extent
+model](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L259-L326).
+The shared command encoding and the Z7II's observed address delta make this a
+bounded cross-model functional profile; they do not claim identical physical
+graphics silicon.
+
+For the observed mode8/color-zero job, format107 writes repeating limited-range
+BT.601 black bytes `10,10,80,80` in hexadecimal and zero to the full8-bit alpha
+plane. Primary and secondary extents are respectively1396736 and698368 bytes,
+must be adjacent in that order, and are both validated and mapped before either
+is changed. Format `01000107`, which the Z7 reference treats as packed4-bit
+alpha, remains unsupported because the Z7II did not submit it. Mismatched
+format operands, wrong plane delta, overlap, range loss and every prior command
+fingerprint boundary still fail without completion. This clear advances the
+firmware through its own IRQ129/wait path; it is not itself a scanout or a host
+rendered frame.
+
+The extended yuv-clear fixture fails at the valid107 START against the prior
+device and passes after this finite executor is present. It covers both exact
+formats, full output bytes and guards, the expanded-primary overflow and
+command-stream overlap boundaries, reset, unrealize, backing alias and map
+loss. All five transfer unit cases and all seven focused `/arm/nikon/transfer`
+qtests pass in the incremental native build. In the corresponding unchanged-
+firmware run the old `201810e0` format error is absent; after the fifth graphics
+completion the next explicit boundary is CPU0 `PC1046d6da`, READ32
+`PA20146604`. That is the display bank1 port0 scalar at bank-relative offset
+`2604`, directly downstream of graphics-buffer initialization.
+
 The functional allocation bound is128 KiB per stream, not recovered silicon
 capacity. Odd command-stream sources, oversized counts, zero/missing-count
 starts, MMIO/unbacked command sources, duplicate starts and pending operand
