@@ -18,10 +18,12 @@
 #define EXIU 0x0426f000
 #define FILL 0x20070000
 #define GUI_FILL_DESTINATION 0xbec5f200
+#define GUI_FILL_RECORD7 0xc175d600
 #define GUI_FILL_WIDTH 0x0b40
 #define GUI_FILL_ROWS 0x01e0
 #define GUI_FILL_LENGTH (GUI_FILL_WIDTH * GUI_FILL_ROWS)
 #define RESOURCE57_RECORD0_END 0xbf10f200
+#define RESOURCE57_RECORD7_END 0xc1c0d600
 #define COPY 0x04251000
 #define HDMAC 0x2c020000
 
@@ -472,6 +474,57 @@ static void test_fill_gui(void)
     g_assert_cmphex(qtest_readl(q, draw_end), ==, 0xdec0ad01);
     g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD0_END - 4), ==,
                     0xdec0ad02);
+    qtest_quit(q);
+}
+
+static void test_fill_gui_record7(void)
+{
+    const uint32_t draw_end = GUI_FILL_RECORD7 + GUI_FILL_LENGTH;
+    g_autofree uint8_t *bytes = g_malloc(GUI_FILL_LENGTH);
+    g_autofree uint8_t *zero = g_malloc0(GUI_FILL_LENGTH);
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    memset(bytes, 0x7a, GUI_FILL_LENGTH);
+    qtest_memwrite(q, GUI_FILL_RECORD7, bytes, GUI_FILL_LENGTH);
+    qtest_writel(q, draw_end, 0x57070001);
+    qtest_writel(q, RESOURCE57_RECORD7_END - 4, 0x57070002);
+
+    /* Only the exact firmware-published base is this second GUI profile. */
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+                 GUI_FILL_RECORD7 + 4);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+                 RESOURCE57_RECORD7_END);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+                 GUI_FILL_RECORD7);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    qtest_memread(q, GUI_FILL_RECORD7, bytes, GUI_FILL_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_LENGTH, zero, GUI_FILL_LENGTH);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0x57070001);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END - 4), ==,
+                    0x57070002);
+
+    qtest_writel(q, FILL + 8, 1);
+    qtest_writel(q, GUI_FILL_RECORD7, 0x57070000);
+    qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x57070000);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0x57070001);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END - 4), ==,
+                    0x57070002);
+
+    /* Record8 starts at this exact boundary and remains an unmapped hole. */
+    qtest_writel(q, GUI_FILL_RECORD7 - 4, 0x12345678);
+    qtest_writel(q, RESOURCE57_RECORD7_END, 0x87654321);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END), ==, 0);
     qtest_quit(q);
 }
 
@@ -940,6 +993,7 @@ int main(int argc, char **argv)
     nikon_bridge_add_tests();
     qtest_add_func("/nikon/fill", test_fill);
     qtest_add_func("/nikon/gui-fill", test_fill_gui);
+    qtest_add_func("/nikon/gui-fill-record7", test_fill_gui_record7);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);
     qtest_add_func("/nikon/copy/large-jump", test_copy_large_jump);

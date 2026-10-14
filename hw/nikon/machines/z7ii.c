@@ -59,6 +59,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_LCD_COMPOSITION_SIZE 0x4b0000ULL
 #define Z7II_RESOURCE57_RECORD0_BASE 0xbec5f200ULL
 #define Z7II_RESOURCE57_RECORD0_SIZE 0x4b0000ULL
+#define Z7II_RESOURCE57_RECORD7_BASE 0xc175d600ULL
+#define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
@@ -145,6 +147,7 @@ struct Z7IIMachineState {
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
     MemoryRegion resource57_record0;
+    MemoryRegion resource57_record7;
     MemoryRegion lcd_composition;
     MemoryRegion display_buffers;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
@@ -814,6 +817,13 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->resource57_record0, "z7ii.resource57-record0",
              Z7II_RESOURCE57_RECORD0_BASE, Z7II_RESOURCE57_RECORD0_SIZE);
     /*
+     * The same table's record7 publishes a second 4b0000-byte slot through
+     * b181d38c. The next natural request clears the same 720x480x4 prefix at
+     * C175D600. Keep record8 at the exact record7 end uncovered.
+     */
+    z7ii_ram(&s->resource57_record7, "z7ii.resource57-record7",
+             Z7II_RESOURCE57_RECORD7_BASE, Z7II_RESOURCE57_RECORD7_SIZE);
+    /*
      * ROM table123b73ec record5 requests 4b0000 bytes and publishes its
      * resource57 allocation through b181d388. Original writer10634b04/06
      * stores BF309600 and advances the exact slot end to BF7B9600. Backing
@@ -1339,6 +1349,7 @@ static void z7ii_init(MachineState *machine)
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
                  "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
+                 "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",

@@ -32,18 +32,28 @@ of resource57 record0's independently recovered slot
 `[bec5f200,bf10f200)`. This identifies a firmware-owned RGBA-sized GUI canvas
 clear, not final LCD scanout or a host-rendered frame.
 
-The functional model accepts only that complete tuple on engine0 in addition
-to the older startup form. Widths `0b3f`/`0b41`, a different stride, row counts
-`01df`/`01e1`, another destination and engine1 all fail before DMA. A valid
-request still uses the same normal-memory-only DMA traversal, synchronous
+After record0 completes, the unchanged firmware reaches the same executor
+`VA10389e3a`, configuration writer and engine0 tuple with only destination
+changed to `c175d600`. Correct-base ROM table `VA123b73ec` record7 is
+`{enabled=1,size=004b0000,pointer-cell=b181d38c}`; the runtime cell contains
+`c175d600`. Its exact slot is `[c175d600,c1c0d600)`, the active clear is
+`[c175d600,c18aee00)`, and the remaining tail is untouched.
+
+The functional model accepts only that complete tuple on engine0 with the
+firmware-published record0 or record7 base, in addition to the older startup
+form. Widths `0b3f`/`0b41`, a different stride, row counts `01df`/`01e1`, a
+nearby or other destination and engine1 all fail before DMA. Record8's
+published base `c1c0d600`, equal to the record7 slot end, remains unmapped. A
+valid request still uses the same normal-memory-only DMA traversal, synchronous
 done/error result, IRQ103 mask, acknowledgement, stop and reset laws. Missing,
 read-only or partially mapped storage therefore produces the real bus-error
 result; no profile match can turn an absent backing into completion.
 
 Native fixtures separately check the exact clear extent and preserved slot
-tail, IRQ103/ACK, reset retention, the rejected neighboring dimensions and
-destination, record0's two external holes, writable/readonly selected address
-spaces, a partial boundary failure and a wholly unmapped GUI destination.
+tails, IRQ103/ACK, reset retention, the rejected neighboring dimensions and
+destinations, record0/record7 external holes including the record8 base,
+writable/readonly selected address spaces, a partial boundary failure and a
+wholly unmapped GUI destination.
 These are synthetic device/board checks, not an unchanged-firmware display
 result.
 

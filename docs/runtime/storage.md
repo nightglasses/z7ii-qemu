@@ -39,7 +39,7 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
-### Resource57 record0 GUI canvas slot
+### Resource57 record0 and record7 GUI canvas slots
 
 The same correct-base table and allocation path publish record0 through the
 firmware cell at `b181d384`. In the unchanged runtime its value is
@@ -57,6 +57,19 @@ persist across machine reset. The guest still owns publication, initialization,
 reuse and every later pixel. This canvas-sized request is upstream GUI storage;
 it does not itself establish rear-LCD scanout, EVF selection or a visible host
 frame.
+
+After that request completes, the unchanged firmware calls the same executor
+`VA10389e3a` with the same engine0 tuple and destination `c175d600`. Correct-base
+ROM table `VA123b73ec` record7 is `{1,004b0000,b181d38c}`, and that runtime
+pointer cell contains `c175d600`. The exact record7 slot is therefore
+`[c175d600,c1c0d600)`. Its clear covers `[c175d600,c18aee00)`, again length
+`151800`; `[c18aee00,c1c0d600)` remains untouched.
+
+The board backs this exact record7 slot independently and preserves its
+contents across reset. Record8's runtime base `c1c0d600` is exactly the record7
+end and remains uncovered; neither record8 nor the whole resource57 arena is
+inferred from record7. The guest continues to own both records' publication,
+content and lifecycle.
 
 ### Rear-LCD composition slot
 
@@ -112,10 +125,10 @@ owns reuse and clearing.
 `tests/qtest/nikon/memory.c` covers every storage class's first and last word,
 separate retention across adjacent classes, original copy/stack/heap
 destinations, logical bus mirror exclusion, MXIC decode withdrawal/restoration
-without losing RAM contents, both outer holes, exact resource57 records0 and5
-and their neighbors, all six display-buffer bases, the display arena's exact
-neighbors, and reset retention. Build and execution results are separately
-scoped below.
+without losing RAM contents, both outer holes, exact resource57 records0,5 and7
+and their neighbors (including the unmapped record8 base), all six
+display-buffer bases, the display arena's exact neighbors, and reset retention.
+Build and execution results are separately scoped below.
 
 ## Integrated execution
 

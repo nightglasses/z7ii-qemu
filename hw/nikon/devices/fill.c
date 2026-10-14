@@ -18,7 +18,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 #define NIKON_FILL_STARTUP_WIDTH 0x4000U
 #define NIKON_FILL_GUI_WIDTH 0x0b40U
 #define NIKON_FILL_GUI_ROWS 0x01e0U
-#define NIKON_FILL_GUI_DESTINATION 0xbec5f200U
+#define NIKON_FILL_GUI_RECORD0 0xbec5f200U
+#define NIKON_FILL_GUI_RECORD7 0xc175d600U
 
 typedef struct NikonFillEngine {
     uint32_t control, mask, flags, pattern, parameter, destination;
@@ -124,7 +125,8 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                        e->width == NIKON_FILL_GUI_WIDTH &&
                        e->stride == NIKON_FILL_GUI_WIDTH &&
                        e->count == NIKON_FILL_GUI_ROWS &&
-                       e->destination == NIKON_FILL_GUI_DESTINATION;
+                       (e->destination == NIKON_FILL_GUI_RECORD0 ||
+                        e->destination == NIKON_FILL_GUI_RECORD7);
     MemTxResult result;
 
     if (e->control || e->configured != 127 || e->flags != 1 ||
