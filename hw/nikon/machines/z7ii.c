@@ -1338,6 +1338,7 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
+                 "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
