@@ -1,8 +1,6 @@
 # Refmap frontier — research gaps (curated)
 
-Generated from `REFS.tsv` + `chains/*.gaps`. The full hypothesis/unknown
-list is derivable from `REFS.tsv` (evidence column). Meaningful unknowns
-and end-to-end chain gaps are below.
+Generated from `REFS.tsv` + `chains/*.gaps`. Full hypothesis list is in `REFS.tsv`.
 
 ## Chain gaps (code recovered, not naturally executed)
 ### boot-to-app-start
@@ -15,7 +13,7 @@ and end-to-end chain gaps are below.
 ### display-first-frame
 - `0x104d7c60` provider list/event producer
 - `0x104db90e` normal main restart callsite
-- `0x20145200` ?
+- `0x20145200` display bank word (observed 0x12 = paused)
 - `0xcb4a7000` YUVA107 primary plane
 
 ### input-to-shutter
@@ -50,14 +48,22 @@ and end-to-end chain gaps are below.
 - `0x1020c7c6` readout service submit
 - `0x2006b400` readout generation marker
 
-## Meaningful hypothesis/unknown nodes (10)
+## Meaningful hypothesis/unknown nodes (18)
 - `0x8020188` (EX) unknown (EX thread5 PC at narrow stop) — observed terminal PC, role unknown  [work/runs/ex-battery-runtime/receipt.md]
+- `0x8032c39` (EX) EX system-kind3 builder r0 argument (code pointer) — r0 value at EX_SYSK3_BUILDER; role unstated  [work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log]
+- `0x80425a2` (EX) unknown (EX W4 to 0x4002642c SPI4 TX NDTR) — EX cpu=4 pc=0x080425a2 unknown W4 @0x4002642c; role unstated  [work/runs/lcd-normal-parent/resume-frontier-head-120/qemu.log]
 - `0x102347b6` (MAS) MAS unknown (EX-input issue context) —   [work/runs/ex-battery-runtime/issue488-current.txt; work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt; work/runs/analysis-readout-gate/receipt.md]
 - `0x103299c6` (MAS) MAS unknown (EX-input issue context) —   [work/runs/ex-battery-runtime/issue488-current.txt; work/runs/analysis-readout-gate/receipt.md]
 - `0x1032a3ba` (MAS) Goodix GT9 panel-ID dispatch — accepts touch model bytes  [work/runs/analysis-readout-gate/receipt.md]
+- `0x103f9577` (MAS) battery classifier r1 argument — r1=0x103f9577 at BATTERY_CLASSIFIER; role unstated  [work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log]
 - `0x104343c6` (MAS) cmd8 shutter frame handler — EX kind-8/top-key candidate  [work/runs/analysis-readout-gate/receipt.md]
+- `0x104486f8` (MAS) pause-path probe site (no hit recorded) — breakpoint site in pause-owner.gdb; role unstated  [work/runs/lcd-normal-parent/pause-owner.gdb]
+- `0x10449f8a` (MAS) pause-path probe site (no hit recorded) — breakpoint site in pause-owner.gdb; role unstated  [work/runs/lcd-normal-parent/pause-owner.gdb]
+- `0x1044a08a` (MAS) pause-path probe site (no hit recorded) — breakpoint site in pause-owner.gdb; role unstated  [work/runs/lcd-normal-parent/pause-owner.gdb]
+- `0x10620721` (MAS) Thumb reference-scan target (helper script constant) — TARGETS={0x10620720,0x10620721} in scan script; role unstated  [work/runs/lcd-normal-parent/find_thumb_address_refs.py]
 - `0x106ee3e2` (MAS) IRQ131 handler — Handler/producer is not established by unchanged execution.  [docs/devices/transfer/protocol.md]
 - `0x10764958` (MAS) shutter request executor — builds shutter request  [work/runs/analysis-readout-gate/receipt.md]
 - `0x1d000000` (MAS) historical CBAR candidate (superseded by 0xf8100000) — caused DFAR 0x1d001000/0x1d002004 faults  [docs/startup/peripherals.md]
+- `0x131` (QEMU) GIC IRQ131 unknown graphics producer — Transfer IRQ output 2 is held low; producer remains unknown.  [hw/nikon/devices/transfer.c,docs/devices/transfer/protocol.md]
 - `0x1e800000` (QEMU) Socionext m10v SPI reference base (3 channels) — candidate IP header only; Nikon 11 channels and 60/64 extensions are a version hypothesis  [docs/devices/spi/protocol.md]
 - `0x2018001c` (QEMU) IRQ131 ACK — Address is transfer setup offset 0x1c and the named IRQ131 ACK; unsupported IRQ131 path.  [docs/devices/transfer/protocol.md]

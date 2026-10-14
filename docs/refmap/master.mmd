@@ -54,8 +54,9 @@ flowchart LR
   n52["0x10764958<br/>MISSING: shutter request executor"]:::gap
   n53["0x10773ed4<br/>MISSING: F165 bootstrap handler"]:::gap
   n54["0x2006b400<br/>MISSING: readout generation marker"]:::gap
-  n55["0xb1d020a0<br/>MISSING: pending provider mailbox"]:::gap
-  n56["0xcb4a7000<br/>MISSING: YUVA107 primary plane"]:::gap
+  n55["0x20145200<br/>MISSING: display bank word (observed 0x12 = paused)"]:::gap
+  n56["0xb1d020a0<br/>MISSING: pending provider mailbox"]:::gap
+  n57["0xcb4a7000<br/>MISSING: YUVA107 primary plane"]:::gap
   n9 --> n2
   n2 --> n4
   n4 --> n5
@@ -74,7 +75,8 @@ flowchart LR
   n33 --> n35
   n35 --> n38
   n38 --> n31
-  n31 --> n56
+  n31 --> n55
+  n55 --> n57
   n48 --> n49
   n49 --> n51
   n51 --> n50
@@ -97,8 +99,8 @@ flowchart LR
   n35 --> n46
   n46 --> n34
   n34 --> n40
-  n40 --> n55
-  n55 --> n43
+  n40 --> n56
+  n56 --> n43
   n43 --> n41
   n41 --> n42
   n42 --> n39

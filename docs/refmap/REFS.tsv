@@ -3,7 +3,10 @@ EX	0x10	record	EX power AUX slave (EX I2C1, 0x10)	ex-power	verified	hw/nikon/mac
 EX	0x22	record	PCAL6524-class 24-pad I2C expander (EX I2C1 slave)	ex-io	verified	hw/nikon/devices/exio.c	0x40005400 0x40020800	dir 0x0c, masks 0x4c/0x50, status 0x54/0x58, drain 0x5c, edges 0x60-65, commands 0x68-6a, debounce 0x74-76; INT -> EX GPIO C8
 EX	0x4f	record	EX power slave (EX I2C1, 0x4f)	ex-power	verified	hw/nikon/machines/ex.c	0x40005400	TYPE_NIKON_EX_POWER
 EX	0x2ee4	field	EX post-TX event id	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md	0x0802146c 0x08034b6c	arg0 of 0802146c after transfer
+EX	0x8043	region	EXTI/SCFG setup module range start (0x08043xxx)	ex-input	verified	work/runs/analysis-readout-gate/receipt.md	0x8045	shorthand 0x08043-0x08045; SCFG 0x40013808
+EX	0x8045	region	EXTI/SCFG setup module range end (0x08045xxx)	ex-input	verified	work/runs/analysis-readout-gate/receipt.md	0x8043	shorthand 0x08043-0x08045
 EX	0x0-0x7ffff	region	EX flash reset alias	ex-boot	verified	hw/nikon/machines/ex.c	0x08000000	alias of flash for vector fetch at reset
+EX	0x8024c	region	EX power-state machine module shorthand (0x08024cxx)	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08024c00	aggregate 0x20015da4
 EX	0x2020041	field	EX local event id (battery setup)	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08025184	
 EX	0x2020045	field	EX local event id (snapshot callback path)	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08027ce8	
 EX	0x202004a	field	EX local event id (battery setup)	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08025184	
@@ -32,6 +35,7 @@ EX	0x8020084	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address ci
 EX	0x8020188	code	unknown (EX thread5 PC at narrow stop)	ex-battery	hypothesis	work/runs/ex-battery-runtime/receipt.md	0x1010485c	observed terminal PC, role unknown
 EX	0x80202c8	code	unknown	startup-docs	hypothesis	docs/startup/exsystick.md; work/runs/lcdnext-exgpioe3-1/receipt.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80202c9	code	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
+EX	0x80204c8	code	EX memcpy/copy helper (code-106 target)	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08033498	
 EX	0x8021188	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80211d0	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x8021372	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -45,6 +49,9 @@ EX	0x80214fe	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address ci
 EX	0x8021556	code	EX signal helper	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md; docs/startup/ex.md	0x20017d90 0x080349ec	signals mailbox 20017d90 via alias 080349ec
 EX	0x802157c	code	EX scheduler-tick wait (at most N ticks for mask)	ex-transport	observed	work/runs/ex-mas-handshake-audit/receipt.md	0x08034b0a	wait <=10 ticks for mask 0x0c
 EX	0x08024bd0-0x08024e20	code	EX battery owner store setters window (writes 20015da4+80/88/92)	ex-battery	observed	work/runs/ex-battery-runtime/target-static.disasm	0x20015da4	disassembly window
+EX	0x8024c00	code	EX power state write site	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x20015da4	probe prints r0/r1 and power states
+EX	0x8024c28	code	EX power state write site	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08024c00	
+EX	0x8024c38	code	EX power state write site	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08024c00	
 EX	0x8024c48	code	EX battery enable path (20015da4+0x24=1, enqueue event 5)	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x20015da4 0x08024dd6	zero-hit in bounded run
 EX	0x8024dd6	code	EX battery event-4 gate on owner+0x24	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08024ddc 0x08024c48	true -> 08025854 -> 080278fc; false stores deferred at +0x28
 EX	0x8024ddc	code	EX battery event-4 true edge	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08024dd6	zero-hit
@@ -100,6 +107,7 @@ EX	0x8031e52	code	EX envelope payload memcpy	ex-transport	observed	work/runs/ana
 EX	0x8031e54	code	unknown	readout-input	hypothesis	work/runs/analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8031e6a	code	unknown	readout-input	hypothesis	work/runs/analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8031f28	code	EX provider callback (drains queues A/B/C, calls cb1/cb2)	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md; docs/startup/ex.md; work/runs/analysis-input-roundtrip/receipt.md	0x080348bc 0x20017d40	installed at [20017d40+28]; invoked with (0x42010002,out)
+EX	0x8031f3d	code	EX system-kind2 completion caller (lr at 0x08033a00)	ex-system-chain	observed	work/runs/lcd-normal-parent/parent-app-service-chain-a546016/gdb.log	0x08033a00	observed lr with r0=0x100/0x201 tags
 EX	0x08032000-0x080320c8	code	EX transport manager enqueue (queues A/B/C by type)	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md	0x20011754 0x200117a4	tag=seq|type<<8; errors 0xff00 (queue full, event 11001), 0xff01 (bad type, event 11002)
 EX	0x8032000	code	EX transport enqueue	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		queues type-2 descriptor
 EX	0x8032016	code	unknown	readout-input	hypothesis	work/runs/analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -116,6 +124,7 @@ EX	0x80322e9	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-ga
 EX	0x80322f8	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803230e	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803231e	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+EX	0x8032540	code	EX status-word probe site ([0x200138dc])	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x200138dc	
 EX	0x8032664	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x80326d8	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803273c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -131,11 +140,14 @@ EX	0x08032b40-0x08032c20	code	EX system-chain battery enable window	ex-system-ch
 EX	0x8032b80	code	EX battery enable path	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08032bb0 0x08024c48	zero-hit
 EX	0x8032bb0	code	EX battery enable path	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08032b80	zero-hit
 EX	0x8032c38	code	EX lifecycle mask 0x800 -> system-kind3 builder edge	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08034034	both prerequisite bytes 20013cfc/20013cfd set
+EX	0x8032c39	code	EX system-kind3 builder r0 argument (code pointer)	ex-system-chain	hypothesis	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x080332bf	r0 value at EX_SYSK3_BUILDER; role unstated
 EX	0x8032c3c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x08033240-0x08033320	code	EX lifecycle fanout window	ex-system-chain	observed	work/runs/ex-battery-runtime/lifecycle-static.disasm	0x080332a8	disassembly window
 EX	0x80332a8	code	EX lifecycle fanout (masks 0x1, 0x4000, 0x1000 observed)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x080329f4	observed mask fanout
+EX	0x80332bf	code	EX system-kind3 builder caller (lr)	ex-system-chain	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x08032c39	observed lr
 EX	0x80332f4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x80332f5	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+EX	0x8033498	code	EX power record input consumer	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x20013ade	-> code 106 -> 0x080204c8
 EX	0x8033841	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803386c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803387c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -159,8 +171,10 @@ EX	0x803393e	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-ga
 EX	0x8033940	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8033958	code	EX generic sender submit (descriptor 20013c20, len 28, LR 08033ee7)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x20013c20 0x08033ee7	observed; descriptor byte0 printed as type=1 is descriptor kind, not payload kind
 EX	0x8033970	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+EX	0x80339bf	code	EX system-kind2 submit caller (lr, descriptor 0x20013c68)	ex-system-chain	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x20013c68	observed lr
 EX	0x8033a00	code	EX completion dispatcher (0 hits observed)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08033a74	next-frame/completion fanout
 EX	0x8033a01	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+EX	0x8033a15	code	EX system-kind3 mask40 caller (lr)	ex-system-chain	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x08033b2c	observed lr at EX_SYSK3_MASK40
 EX	0x8033a2c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8033a58	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8033a74	code	EX kind2 completion (emits lifecycle mask 0x20)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x08032b20	not observed
@@ -180,10 +194,13 @@ EX	0x8033c58	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-ga
 EX	0x8033cec	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8033d80	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8033e3c	code	EX system kind2 builder	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x08033958	feed of generic sender
+EX	0x8033ec6	code	EX kind-2 frame variant selection	ex-report	verified	work/runs/analysis-app-start/receipt.md	0x08033ed2	mode byte [0x200138d4+1]
+EX	0x8033ed2	code	EX kind-2 frame variant selection (end)	ex-report	verified	work/runs/analysis-app-start/receipt.md	0x08033ec6	
 EX	0x8033ee7	code	EX system kind2 submit call site (LR of 08033958)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x20013c20	observed submit LR
 EX	0x8033fb0	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x08033fc0-0x08034100	code	EX system-kind-3 builder window	ex-system-chain	observed	work/runs/ex-battery-runtime/lifecycle-static.disasm	0x08034034	disassembly window
 EX	0x8034034	code	EX system-kind-3 builder (0 hits)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x08032c38	not observed
+EX	0x80340cb	code	EX system-kind2 submit caller (lr, descriptor 0x20013c38)	ex-system-chain	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x20013c38	observed lr
 EX	0x80341b4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x80341e9	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x8034203	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -342,6 +359,7 @@ EX	0x8041d28	code	EX notify helper (queue event object)	ex-transport	observed	wo
 EX	0x8041dcb	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x8041dd1	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x8041dd9	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
+EX	0x80425a2	code	unknown (EX W4 to 0x4002642c SPI4 TX NDTR)	ex-transport	hypothesis	work/runs/lcd-normal-parent/resume-frontier-head-120/qemu.log	0x4002642c	EX cpu=4 pc=0x080425a2 unknown W4 @0x4002642c; role unstated
 EX	0x80438f8	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x8043ade	code	EX drive E3 GPIO helper	ex-transport	observed	work/runs/ex-mas-handshake-audit/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x40021000 0x08034afe	r2=1 high, r2=0 low
 EX	0x80442c4	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -423,9 +441,12 @@ EX	0x200117a4	record	EX queue A slots (type 1 messages)	ex-transport	observed	wo
 EX	0x200117e4	record	EX queue B slots (type 2 messages)	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x200117a4	
 EX	0x20011824	record	EX queue C slots (type 3 messages)	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x200117a4	
 EX	0x20011864	record	EX 256-byte wire envelope buffer (completion record at [256..263])	ex-transport	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x08031dbc 0x20017d9a	[256..263]={queue slot,chunks}
+EX	0x200138dc	ram	EX status word (printed at 0x08032540)	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08032540	
 EX	0x200139fa	field	EX system-kind3 object type (observed 0)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x20013a64	not accepted downstream
 EX	0x20013a64	field	EX system-kind3 handle (observed 0)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x200139fa	
+EX	0x20013ade	ram	EX power record input (8 bytes)	ex-power	verified	work/runs/analysis-app-start/receipt.md	0x08033498	consumer reads 8 bytes
 EX	0x20013c20	record	EX system-kind-2 transport descriptor (len 28, observed)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08033958 0x08033ee7	
+EX	0x20013c24-0x20013c38	record	EX system-kind descriptor words (+4..+0x18 of 0x20013c20)	ex-system-chain	observed	work/runs/lcd-normal-parent/power-byte.gdb	0x20013c20 0x20013c28 0x20013c2c 0x20013c30 0x20013c34 0x200139da 0x1c0001 0x6a0001	power-byte.gdb dumps 7 words; 0x1c0001/0x6a0001 are observed word values (not addresses)
 EX	0x20013cfc	field	EX system-chain prerequisite byte (mask 0x4000 path)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x080329f4 0x20013cfd	
 EX	0x20013cfd	field	EX system-chain prerequisite byte (kind2 completion)	ex-system-chain	observed	work/runs/ex-battery-runtime/receipt.md	0x08032b20 0x20013cfc	
 EX	0x20015da4	record	EX battery owner (+0x24 enable, +0x28 deferred)	ex-battery	observed	work/runs/ex-battery-runtime/receipt.md	0x08024c48 0x08024dd6	observed +0x24=0 +0x28=0 +0x2c=0
@@ -495,6 +516,7 @@ MAS	0x1d	irq	secure generic timer PPI (CNTFRQ 48 MHz)	gic	verified	docs/startup/
 MAS	0xa0-0xb6	irq	MAS SPI channel IRQs (TX 160+2i, RX 161+2i)	spi	verified	hw/nikon/machines/z7ii.c	0x2c0a0000	
 MAS	0xfa	irq	GIC SPI250 (frame completion)	gic	verified	docs/startup/peripherals.md		
 MAS	0x1	irq	SGI1 (CPU1 wake)	gic	observed	docs/runtime/stacks.md		GICD SGI request +f00=00020001
+MAS	0x0	field	COPY first DMA fault destination (zero)	mas-startup	observed	work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md	0x107a4f34 0x3b1c0	pre-existing startup fault channel=0 source=0x107a4f34 destination=0x00000000 remaining=0x3b1c0
 MAS	0x10000	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md,work/runs/display-command4-producer/receipt.md,work/runs/display-menu-descriptor-differential/receipt.md,work/runs/gui-event-producer/receipt.md,work/runs/z7-gui-event-analog/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10001	data	unknown	legacy-runs	hypothesis	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-readout-gate/receipt.md,work/runs/lcdnext-type2-transfer2/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10002	data	unknown	legacy-runs	hypothesis	work/runs/analysis-gui-programs/receipt.md,work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -521,8 +543,11 @@ MAS	0x16080	data	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor
 MAS	0x183da	data	unknown	legacy-runs	hypothesis	work/runs/analysis-owner-bridge/receipt.md,work/runs/analysis-z7-trigger-map/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1fffc	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-z7cross1/receipt.md,work/runs/display-init-refs/receipt.md,work/runs/id34-functional1/receipt.md,work/runs/id34-producer-format/receipt.md,work/runs/id34-zero-hazards/receipt.md,work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x20000	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md,work/runs/descriptor17-z7cross1/receipt.md,work/runs/display-command4-producer/receipt.md,work/runs/display-completion-audit/receipt.md,work/runs/display-init-refs/receipt.md,work/runs/id34-functional1/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x20001	field	SDI channel request value (qemu.log value, not an address)	mas-sdi	observed	work/runs/lcd-normal-parent/completion-order-head-120/qemu.log	0x30001	nikon-sdi request=0x20001 modeled-complete training step value
 MAS	0x20234	data	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x26000	data	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x30001	field	SDI channel request value (qemu.log value, not an address)	mas-sdi	observed	work/runs/lcd-normal-parent/completion-order-head-120/qemu.log	0x20001	nikon-sdi request=0x30001 modeled-complete training step value
+MAS	0x3b1c0	field	COPY first DMA fault remaining byte count (value)	mas-startup	observed	work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md	0x107a4f34	log value, not an address
 MAS	0x3e6e8	data	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x40000	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x40001	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -544,6 +569,7 @@ MAS	0x1ef9c8	data	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/rec
 MAS	0x1f5000	data	unknown	legacy-runs	hypothesis	work/runs/wl-z9-persistent-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1fa400	data	unknown	legacy-runs	hypothesis	work/runs/analysis-gui-programs/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x200000	data	unknown	legacy-runs	hypothesis	work/runs/lcd-mailbox-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x200016	field	display object-transition event code (event=0x00200016)	display-bank	observed	work/runs/lcd-normal-parent/right-frontier-receipt.md	0xb181d8a4	OBJECT_TRANSITION event for object 0xb181d8a4
 MAS	0x21e960	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x21e970	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x220300	data	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md,work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -741,6 +767,9 @@ MAS	0x1010000c	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-
 MAS	0x10100010	code	data-abort vector gateway (final PC)	loader	observed	docs/startup/memc.md	0x10100008	
 MAS	0x10100490	code	configuration/feature bit getter	rtos-core	verified	docs/runtime/coprocessor.md; work/runs/analysis-readout-gate/receipt.md		ids observed: 4735,4744,4767,4817,12033
 MAS	0x101004ce	code	bounded keyed-data copy wrapper (returns zero)	readout-state	verified	docs/runtime/readoutstate.md; work/runs/lcdnext-ownerclosure/receipt.md	0x10234814	args (0x2015, sp+0x10, 8)
+MAS	0x101005dc	code	keyed-data generic store entry	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x10101b52	
+MAS	0x10101822	code	key descriptor resolver (clamp len, copy live data)	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x101004ce	
+MAS	0x10101b52	code	keyed-data generic store	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x101005dc	
 MAS	0x10101cc2	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10101d10	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10101d40	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -777,6 +806,7 @@ MAS	0x1020046a	code	EV3 mask-0x10 wait caller	rtos-core	observed	docs/runtime/wa
 MAS	0x1020046f	code	EV3 mask-0x10 wait LR	rtos-core	observed	docs/runtime/wait/ev3.md	0x1020046a	
 MAS	0x10200684	code	MAS SPI descriptor producer	mas-spi	observed	docs/devices/spi/protocol.md	0xb1802060 0x10200ccb 0x1020069b	
 MAS	0x1020081c	code	CPU1 phase2 callback entry (role1 slot0 phase2)	rtos-core	observed	docs/runtime/ring.md		
+MAS	0x1020089d	code	APP_BOOT_MODULE caller (lr of 0x102017a0)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/gdb.log	0x102017a0	observed lr with r0=1
 MAS	0x10200ab5	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md,work/runs/lcdnext-z7cross1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10200c34	code	EV3 GUI mask 0x10 producer	rtos-core	observed	docs/runtime/wait/ev3.md		
 MAS	0x10200c4f	code	MAS 10387e36 caller LR	mas-bridge	observed	docs/devices/bridge/protocol.md	0x10387e36	
@@ -796,6 +826,7 @@ MAS	0x102017a0	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start
 MAS	0x102017c4	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x102017d8	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x102018a3	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md,work/runs/lcdnext-z7cross1/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10201ad7	code	APP_BOOT_MODULE caller (lr, modules 2/3)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/gdb.log	0x102017a0	observed lr with r0=2/3
 MAS	0x10201b78	code	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10201fae	code	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10201fb3	code	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -816,6 +847,7 @@ MAS	0x10204b64	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start
 MAS	0x10204b88	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x10204b8c	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x10204b96	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
+MAS	0x10204ba1	code	PHASE_DRIVER caller (lr of 0x1020d41a)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/gdb.log	0x1020d41a	observed lr with r0=0xb1818bd0
 MAS	0x10204ba4	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x10204bb2	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x10204bb5	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -825,6 +857,7 @@ MAS	0x10204d7e	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-po
 MAS	0x10204da8	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md,work/runs/display-command4-power-callback/receipt.md,work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10204da9	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10204e30	code	system-report producer	app-service	observed	work/runs/lcd-normal-parent/parent-app-service-chain-a546016/receipt.md	0x1020e374	r0=0x03040001 then 0x03040002; x2 hits
+MAS	0x10204e31	code	system report producer r2 argument (callback pointer)	app-service	inferred	work/runs/lcd-normal-parent/parent-app-service-chain-a546016/gdb.log	0x10204e30	r2=0x10204e31 at SYSTEM_REPORT_PRODUCER; role unstated
 MAS	0x1020509f	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102051b4	code	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102051b5	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-z7cross1/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -838,6 +871,7 @@ MAS	0x10205418	code	MAS framing chunk-order drop ([16]>[17])	mas-ssi	observed	wo
 MAS	0x10205420	code	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10205444	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10205450	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10205455	code	MAS client ingress caller (lr of 0x102055e6)	mas-ssi	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x102055e6	observed lr with r0=1 r1=0
 MAS	0x102054fe	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102054ff	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102055a2	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -852,6 +886,7 @@ MAS	0x102055e6	code	MAS SSI1 ingress callback (client, class, len)	mas-ssi	obser
 MAS	0x1020560a-0x1020562c	code	MAS client table dispatch (null handler -> silent drop)	mas-ssi	observed	work/runs/analysis-input-roundtrip/receipt.md	0x102055e6	
 MAS	0x1020560a	code	unknown	readout-input	hypothesis	work/runs/analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1020562c	code	unknown	readout-input	hypothesis	work/runs/analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1020562d	code	POWER_CLASSIFY caller (lr of 0x1038a6aa)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/gdb.log	0x1038a6aa	observed lr with r0=0x43090001
 MAS	0x10207462	code	MAS 88-byte SPI policy provider	mas-spi	verified	docs/devices/spi/protocol.md	0x103705a8	
 MAS	0x1020a450	code	readout parameter base helper	readout-input	verified	docs/devices/sensor/protocol.md		base 2006b3b8
 MAS	0x1020b262	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -935,6 +970,8 @@ MAS	0x1020e0b6	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-po
 MAS	0x1020e374	code	system-report handler/constructor (class 2)	app-service	observed	work/runs/lcd-normal-parent/parent-app-service-chain-a546016/receipt.md	0xb1818bd0	36B payload -> 68B msg, queue selector 0x02000002
 MAS	0x1020e3fe	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1020e568	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1020f8d8	code	app owner message dispatch (12-byte-stride table)	app-service	verified	work/runs/analysis-app-start/receipt.md	0x1020f8dd	blx table entry, then blx [result]; queues 02000003
+MAS	0x1020f8dd	code	app-service caller LR (0x1020d5fa)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md; work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md	0x1020d5fa; 0x1020d5fa	r0=0xb1818bd0
 MAS	0x1020f9d4	code	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md,work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1020f9da	code	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1020f9ea	code	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1050,11 +1087,18 @@ MAS	0x10229fc6	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1022a2a2	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022a430	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022a444	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1022a445	code	capture publisher entry (Thumb)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0xb23f7e64	G=b23f7e64; zero hits in capturestate15
+MAS	0x1022a4f6	code	publisher step (r0=0xac)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022a445	
+MAS	0x1022a4fa	code	publisher call (BL 0x1022cfbc)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022cfbc	
+MAS	0x1022a502	code	payload.byte4 gate (requires G.byte[0x13]==3)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022a503	
+MAS	0x1022a503	code	queued publisher callback	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022a502	8-byte payload
+MAS	0x1022a8be	code	0x0410004f handler	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x410004f	queues callback + 8-byte payload
 MAS	0x1022aa5c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022aa7c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022aa82	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022aaaf	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022b520	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1022b718	code	capture state calculator (T,S -> N)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022b7a4	N==3 -> 0x1022d32a; old S==4 skips publisher
 MAS	0x1022b7a4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022b884	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022b886	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -1071,7 +1115,10 @@ MAS	0x1022c212	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1022c28c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022c40e	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022c462	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1022c488	code	capture request path step	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022c4ba	
+MAS	0x1022c4ba	code	capture request path (T=1)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022b7a4	
 MAS	0x1022cfbc	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1022cfd6	code	callback thunk (0x102282ba ORs 0x04100000)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x102282ba	
 MAS	0x1022d32a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022d384	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1022d5d2	code	MAS chunk copy into class service buffer	mas-ssi	observed	work/runs/analysis-input-roundtrip/receipt.md	0x102053e4	copy(class, 240*(count-1), body, remainder)
@@ -1086,6 +1133,8 @@ MAS	0x1022f432	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1022f46c	code	backend-notification publisher (0x041a0001)	readout-state	verified	docs/runtime/readoutstate.md	0x1022f510	after 0x1022f318, payload non-null
 MAS	0x1022f510	code	backend-notification publisher (0x041a0001)	readout-state	verified	docs/runtime/readoutstate.md	0x1022f46c	
 MAS	0x1022f6ac	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1022fc26	code	bit-11 path selector (selects 0x2eb)	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0x1022fca2	
+MAS	0x1022fca2	code	bit-11 actual store	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0x1022fc26	
 MAS	0x1022fca6	code	reset path (unconditional after callback)	readout-state	verified	docs/runtime/readoutstate.md	0x1022fccc	
 MAS	0x1022fccc	code	state reset callsite 1	readout-state	verified	docs/runtime/readoutstate.md	0x1022fca6	
 MAS	0x1022fcec	code	lane-1 mask-1 setter site	readout-state	verified	docs/runtime/readoutstate.md	0x1022fca6	owner state neither 2 nor 6
@@ -1093,14 +1142,23 @@ MAS	0x1022fd18	code	lane-2 mask-1 setter site	readout-state	verified	docs/runtim
 MAS	0x102301b6	code	teardown path (nonzero-mode branch)	readout-state	verified	docs/runtime/readoutstate.md	0x10238680	
 MAS	0x102301d8	code	zero-mode branch callsite	readout-state	verified	docs/runtime/readoutstate.md	0x102389dc	
 MAS	0x102301fa	code	clear writer callsite (teardown)	readout-state	verified	docs/runtime/readoutstate.md	0x102301b6	
+MAS	0x10230278	code	B[3]=3 store	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb1887d70	
 MAS	0x1023162c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x10231636	code	bit-11 path entry (0x10235bfa -> 0x1022fc26(0))	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0x1022fc26	
 MAS	0x1023177c	code	lane-0 dynamic mask computer	readout-state	verified	docs/runtime/readoutstate.md	0x10234e06	
 MAS	0x10231c28	code	cached state maintenance (B+0x74, B[1], B+0x6c)	readout-state	verified	docs/runtime/readoutstate.md	0x10235c84	
 MAS	0x10232040	code	lane-1 delta updater (BIC + event-code filter)	readout-state	verified	docs/runtime/readoutstate.md	0x102320f8	
 MAS	0x102320f8	code	lane-1 dynamic-delta setter site	readout-state	verified	docs/runtime/readoutstate.md	0x10232040	nested state not 3
 MAS	0x1023213c	code	lane-2 dynamic-delta setter site	readout-state	verified	docs/runtime/readoutstate.md	0x10232040	nested state 3
+MAS	0x10232252	code	state-1 gate (nonzero result)	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb25f24f8	
+MAS	0x10232af6	code	owner initialization completed (B=0xb1887d70)	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb1887d70	B[3]=0, B+0x5c=0, B+0x60=0
 MAS	0x10232af8	code	owner constructor caller	readout-state	verified	docs/runtime/readoutstate.md	0x10238e40	
 MAS	0x10232b2c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x10232b37	code	BACKEND_NOTIFY caller LR	readout-state	observed	work/runs/analysis-readout-gate/parent-readout-probe-a546016/receipt.md	0x1022f318	event 0x4400044 payload 0x21
+MAS	0x10232e86	code	B[3]=0 store	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb1887d70	
+MAS	0x10233570	code	capture configuration worker (P gate, config generation)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233b98	zero hits in capturestate7
+MAS	0x10233b98	code	capture conditional step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233570	bypassed when *(u32*)(*(P+0x144)+0x10) nonzero
+MAS	0x10233db8	code	cleanup-mask-0x20 bypass entry	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1026de5c	zero hits
 MAS	0x10234642	code	capture owner state-1 entry	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		sets B[3]=1 after checks
 MAS	0x10234794	code	owner lane-state field	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		stores B[3]=1
 MAS	0x102347b6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	work/runs/ex-battery-runtime/issue488-current.txt; work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt; work/runs/analysis-readout-gate/receipt.md	0x103299c6; 0x10234948;0x10234990;0x1023869e; 0xb1887d70;0x1023869e	
@@ -1113,6 +1171,7 @@ MAS	0x1023495a	code	owner lane-state update	readout-input	verified	work/runs/ana
 MAS	0x10234978	code	state-2 later invocation path	readout-state	verified	docs/runtime/readoutstate.md	0x10234990	
 MAS	0x10234990	code	readout state-2 update	buffer-consumers	inferred	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt; work/runs/analysis-readout-gate/receipt.md	0x102347b6;0x1023869e	State update candidate; no saved runtime hit.
 MAS	0x102349a8	code	readout producer body end	readout-state	verified	docs/runtime/readoutstate.md	0x102347b6	body [0x102347b6,0x102349a8)
+MAS	0x10234a4e	code	B[3]=0 store	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb1887d70	
 MAS	0x10234cd0	code	reset path (lane 0, synchronized)	readout-state	verified	docs/runtime/readoutstate.md	0x10234dee	
 MAS	0x10234dee	code	state reset callsite 2	readout-state	verified	docs/runtime/readoutstate.md	0x10234cd0	requires 0x103aeafe success
 MAS	0x10234e06	code	lane-0 dynamic-mask setter site	readout-state	verified	docs/runtime/readoutstate.md	0x10234cd0	mask from 0x1023177c(...,1)
@@ -1125,6 +1184,7 @@ MAS	0x102352c2	code	lane-2 mask-1 setter site	readout-state	verified	docs/runtim
 MAS	0x102352e2	code	local state word publish block	readout-state	verified	docs/runtime/readoutstate.md	0x102352f6	
 MAS	0x102352f2	code	lane-2 mask-0x0a setter site (tail call)	readout-state	verified	docs/runtime/readoutstate.md	0x102352e2	
 MAS	0x102352f6	code	local publish block end	readout-state	verified	docs/runtime/readoutstate.md	0x102352e2	
+MAS	0x10235976	code	B[3]=4 store	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0xb1887d70	
 MAS	0x10235bfa	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x10235c84	code	local firmware preparation (P,0)	readout-state	verified	docs/runtime/readoutstate.md	0x10231c28	not an external-ready poll
 MAS	0x10238680	code	mask clear writer (BIC S+0..8 and aggregate)	readout-state	verified	docs/runtime/readoutstate.md	0x102301fa	
@@ -1159,14 +1219,17 @@ MAS	0x1023ad62	code	lane-0 setter entry	readout-state	verified	docs/runtime/read
 MAS	0x1023ad6c	code	lane-0 OR into S+0	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad62	
 MAS	0x1023ad74	code	lane-0 OR into aggregate	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad62	
 MAS	0x1023ad7c	code	lane-0 participation bit 0	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad62	
+MAS	0x1023ad8d	code	lane-0 setter range end (sub+0,sub+0x0c,sub+0x18)	readout-state	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1023ad62	
 MAS	0x1023ad8e	code	lane-1 setter	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		sets lane-1 request state
 MAS	0x1023ad98	code	lane-1 OR into S+4	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad8e	
 MAS	0x1023ada0	code	lane-1 OR into aggregate	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad8e	
 MAS	0x1023ada8	code	lane-1 participation bit 1	readout-state	verified	docs/runtime/readoutstate.md	0x1023ad8e	
+MAS	0x1023adb9	code	lane-1 setter range end (sub+4)	readout-state	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1023ad8e	
 MAS	0x1023adba	code	lane-2 setter entry	readout-state	verified	docs/runtime/readoutstate.md	0x1023adc6	body [0x1023adba,0x1023ade6)
 MAS	0x1023adc6	code	lane-2 OR into S+8	readout-state	verified	docs/runtime/readoutstate.md	0x1023adba	
 MAS	0x1023adce	code	lane-2 OR into aggregate	readout-state	verified	docs/runtime/readoutstate.md	0x1023adba	
 MAS	0x1023add6	code	lane-2 participation bit 2	readout-state	verified	docs/runtime/readoutstate.md	0x1023adba	
+MAS	0x1023ade5	code	lane-2 setter range end (sub+8)	readout-state	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1023adba	
 MAS	0x1023ade6	code	lane-2 setter end	readout-state	verified	docs/runtime/readoutstate.md	0x1023adba	
 MAS	0x1023aed6	code	mask publish on clear success	readout-state	verified	docs/runtime/readoutstate.md	0x102301b6	
 MAS	0x1023aed8	code	readout update helper	readout-input	inferred	work/runs/analysis-readout-gate/receipt.md		B[3]=2 route
@@ -1179,6 +1242,7 @@ MAS	0x1023c59a	code	clear writer callsite (participation bit 2)	readout-state	ve
 MAS	0x1023c5ee	code	readout final predicate	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		aggregate bit7 and participation bit1
 MAS	0x1023c5f4	code	predicate read [S+0x0c] (bit 7 test)	readout-state	verified	docs/runtime/readoutstate.md	0x1023c5ee	
 MAS	0x1023c5fa	code	predicate read [S+0x18] (bit 1 test)	readout-state	verified	docs/runtime/readoutstate.md	0x1023c5ee	
+MAS	0x1023c603	code	predicate range end (aggregate.bit7 && latch.bit1)	readout-state	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1023c5ee	
 MAS	0x1023c604	code	predicate function end	readout-state	verified	docs/runtime/readoutstate.md	0x1023c5ee	body [0x1023c5ee,0x1023c604)
 MAS	0x1023c610	code	owner phase-word consumer (callback body)	readout-state	verified	docs/runtime/readoutstate.md	0x1023c62e	
 MAS	0x1023c62e	code	phase predicate	readout-state	verified	docs/runtime/readoutstate.md	0x1023c610	
@@ -1249,7 +1313,12 @@ MAS	0x102566ea	code	unknown	legacy-runs	hypothesis	work/runs/id34-functional-mod
 MAS	0x1025674c	code	unknown	legacy-runs	hypothesis	work/runs/id34-zero-hazards/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10256bf0	code	unknown	legacy-runs	hypothesis	work/runs/id34-functional-model/receipt.md,work/runs/id34-zero-hazards/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10256cb8	code	unknown	legacy-runs	hypothesis	work/runs/id34-functional-model/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x1026b6d9	code	registry reader LR (key 0x2015)	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md		not a competing request/response path
+MAS	0x1026bb9e	code	keyed-data path step	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x101005dc	
+MAS	0x1026c66e	code	D[0]=1 initializer (flag 0x200000 from b23ed628)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb1868510	can move D to 5/6/8
+MAS	0x1026c84c	code	cleanup bypass tail	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1026e1fc	
 MAS	0x1026d402	code	backend flag route callback	readout-state	verified	docs/runtime/readoutstate.md	0x102d6b6a	
+MAS	0x1026d403	code	R+4 callback (b18a75fc)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb18a75fc	
 MAS	0x1026d5e6	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1026d60e	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1026d618	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
@@ -1258,6 +1327,9 @@ MAS	0x1026d62c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1026d636	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1026d640	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1026d64a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1026dc68	code	backend call target (BL from 0x1039822c)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1039822c	zero hits in capturestate6
+MAS	0x1026de5c	code	cleanup bypass step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233db8	
+MAS	0x1026e1fc	code	cleanup bypass step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1026de5c	
 MAS	0x10293312	code	request finalizer (clears/copies status)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102c64fe	frees private request object
 MAS	0x10293362	code	request builder (0xe0-byte object, +0xa0 copy)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a7764	copies 24 bytes from object+0x30 value
 MAS	0x102942f8	code	generic queue worker	app-service	verified	work/runs/display-command4-crossref/receipt.md	0x1020ca7a	
@@ -1356,12 +1428,15 @@ MAS	0x102c64fe	code	finalizer optional helper	502-object	verified	docs/runtime/5
 MAS	0x102cd1ce	code	object getter for marker join	readout-state	verified	docs/runtime/readoutstate.md	0x1023c648	
 MAS	0x102d6b6a	code	backend flag route callback	readout-state	verified	docs/runtime/readoutstate.md	0x1026d402	
 MAS	0x102d6b6b	code	MAS Q+0x34 callback	mas-unknown	inferred	work/runs/ex-battery-runtime/issue485-current.txt	0xb1806d98	
+MAS	0x102d6b6e	code	raw44 bit 7 test	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x20060044	
 MAS	0x102dba1c	code	fill initializer anchor	fill-engine	inferred	docs/devices/fill/runtime.md	0x102dbadc	Initializer address named without 0x in runtime receipt.
 MAS	0x102dbadc	code	fill configuration writer	fill-engine	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x102dbba2;0x10389e3a	Writes exact engine0 GUI clear tuple.
 MAS	0x102dbba2	code	fill submit store	fill-engine	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x102dbadc;0x10389e3a	Submits synchronous engine0 fill.
 MAS	0x102dc33e	code	MAS whole bank/channel initializer (resource records)	mas-spi	verified	docs/devices/spi/protocol.md	0x103705cc	
 MAS	0x102dc38a	code	MAS EXIU table reader (first stop READ32 2c020000)	mas-exiu	observed	docs/devices/exiu/protocol.md; docs/devices/exiu/protocol.md	0x2c020000; 0x2c020000	
 MAS	0x102dc5c0	code	MAS IRQ87 ISR	mas-unknown	inferred	work/runs/ex-battery-runtime/issue485-current.txt		
+MAS	0x102dc5c8	code	raw44 word read (0x20060044)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x20060044	
+MAS	0x102dc5cc	code	raw44 W1C write back	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x20060044	
 MAS	0x102dcc46	code	read of uncovered 0x20060034 (CPU1)	startup-frontier	observed	docs/runtime/wait/abi.md	0x20060034	DFSR1008/DFAR20060034; device family unresolved
 MAS	0x102dccca	code	MAS bridge ISR flag8 path (LSLS #27 -> raw bit4)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x102dcce8	
 MAS	0x102dcce8	code	MAS bridge ISR flag4 test (LSLS #26 -> raw bit5)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x102dccca	
@@ -1383,9 +1458,16 @@ MAS	0x102e9b54	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x103197fc	code	service-start gate predicate	readout-state	verified	docs/runtime/readoutstate.md; work/runs/lcdnext-capture-start1/receipt.md	0x10322fda	
 MAS	0x10319d56	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1031a54a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1031af12	code	P load path ([b1868c70])	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb1868c70	zero hits
+MAS	0x1031af2c	code	P load path step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1031af12	zero hits
+MAS	0x1031cb20	code	activation flag accumulator (ORs into [b1868cf0])	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb1868cf0	zero hits
+MAS	0x1031deb6	code	flag 0x40 producer	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1031deb7	gates: O=[b1868c6c], [b1868d2c], [H+0x2844] nonzero, [H+0x2848] zero
+MAS	0x1031deb7	code	flag 0x40 producer pointer (Thumb |1)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1031deb6	
 MAS	0x10320390	code	service-start gate predicate (arg 2)	readout-state	verified	docs/runtime/readoutstate.md; work/runs/lcdnext-capture-start1/receipt.md	0x10322fda	
 MAS	0x10321a08	code	capture state-3 producer	readout-input	verified	work/runs/analysis-readout-gate/receipt.md	0xb1868af7;0x10323198	writes C[7]=3 at b1868af7
 MAS	0x10322fda	code	capture gate	readout-input	inferred	work/runs/analysis-readout-gate/receipt.md		capture-service prerequisite
+MAS	0x1032308e	code	0x14-byte stack wrapper constructor	readout-state	verified	work/runs/lcdnext-readoutwatch1/correction.md	0x103230b6	word+0=r6, byte+4=1, byte+5=fp, words +8/+0xc/+0x10
+MAS	0x103230b6	code	wrapper constructor continuation	readout-state	verified	work/runs/lcdnext-readoutwatch1/correction.md	0x1032308e	
 MAS	0x103230bc	code	capture gate helper	readout-input	inferred	work/runs/analysis-readout-gate/receipt.md		capture-service prerequisite
 MAS	0x10323198	code	capture transition input	readout-input	inferred	work/runs/analysis-readout-gate/receipt.md		state transition input
 MAS	0x1032326c	code	capture gate helper	readout-input	inferred	work/runs/analysis-readout-gate/receipt.md		gated capture path
@@ -1393,7 +1475,14 @@ MAS	0x10323ac2	code	capture queued worker	readout-input	inferred	work/runs/analy
 MAS	0x10323ac3	code	unknown	legacy-runs	hypothesis	work/runs/capture-service-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10323aee	code	cold C[1]==0: write C[7]=2	readout-state	verified	docs/runtime/readoutstate.md	0xb1868af0	
 MAS	0x10323b2a	code	stop callback (writes C[7]=5)	readout-state	verified	docs/runtime/readoutstate.md	0x103299e2	
+MAS	0x10323b74	code	queued upstream callback (flag 0x40 path)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10323b75	
+MAS	0x10323b75	code	queued upstream callback pointer	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10323b74	
+MAS	0x103250f2	code	P creation path step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233570	zero hits
+MAS	0x10325714	code	P creation path step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x103250f2	zero hits
+MAS	0x10325ff6	code	P creation path entry	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10326174	dispatcher only from 0x041a0001; not cold bootstrap
+MAS	0x10326174	code	P creation path step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10325ff6	
 MAS	0x10326280	code	capture state transition wrapper	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		calls 10326396
+MAS	0x10326392	code	r0=sp before producer call	readout-state	verified	work/runs/lcdnext-readoutwatch1/correction.md	0x102347b6	inside [0x10326280,0x103263e8)
 MAS	0x10326396	code	capture callback wrapper	readout-input	verified	work/runs/analysis-readout-gate/receipt.md	0x102347b6	calls 102347b6
 MAS	0x103263e8	code	capture state callback	readout-input	verified	work/runs/analysis-readout-gate/receipt.md	0x10326280;0x10326396	C[7]=3/4 TBB selects readout path
 MAS	0x103263e9	code	dispatcher-selected callback	readout-state	verified	docs/runtime/readoutstate.md	0x10327bd6	
@@ -1401,8 +1490,13 @@ MAS	0x10326402	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x10326408	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x10326414	code	producer call path step	readout-state	verified	docs/runtime/readoutstate.md	0x10326408	
 MAS	0x1032641a	code	capture state-4 store	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		writes C[7]=4; transition input 0x10
+MAS	0x1032763e	code	flag 0x40 producer upstream step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10328e52	
 MAS	0x10327976	code	capture backend publication	readout-input	observed	work/runs/analysis-readout-gate/receipt.md		queues capture callback
 MAS	0x10327bd6	code	callback selector (0x103263e9)	readout-state	verified	docs/runtime/readoutstate.md	0x103263e9	
+MAS	0x10328e52	code	capture enqueue API	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10323b74	first unknown edge: natural caller of this API
+MAS	0x10328e5e	code	capture enqueue step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10328e52	
+MAS	0x10328ee8	code	capture enqueue step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10328e52	
+MAS	0x10328fcc	code	callback pointer site (0x10323b75)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10323b75	
 MAS	0x1032998a	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-owner-input1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103299a8	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-owner-input1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103299c6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	work/runs/ex-battery-runtime/issue488-current.txt; work/runs/analysis-readout-gate/receipt.md	0x102347b6	
@@ -1415,10 +1509,13 @@ MAS	0x1032b77c	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-
 MAS	0x1032c368	code	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1032c374	code	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103410cc	code	event/synchronization primitive	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103654cc	family d2/da/116/156/192
+MAS	0x103447e0	code	keyed-data callback	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1035783e	
 MAS	0x10347414	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10347418	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10348c06	code	callback sync field helper	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10365466	
 MAS	0x1034ffac	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x1035783e	code	keyed-data transaction commit	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x103447e0	
+MAS	0x1035791c	code	keyed-data transaction commit	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1035783e	
 MAS	0x1035d396	code	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1035df88	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103606b5	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -1510,7 +1607,9 @@ MAS	0x10388c29	code	event setter (flag-88 path)	rtos-core	observed	docs/runtime/
 MAS	0x10389e29	code	fill caller return site	fill-engine	observed	docs/devices/fill/protocol.md	0x10389e3a	Caller LR named by the fill protocol receipt.
 MAS	0x10389e3a	code	later GUI fill caller	fill-engine	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x102dbadc;0x102dbba2	Calls same engine0 executor for later canvas slots.
 MAS	0x1038a53a	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x1038a59b	code	POWER_REPORT caller (lr of 0x103f96da)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/gdb.log	0x103f96da	observed lr with r0=0x43090010
 MAS	0x1038a6aa	code	MAS power input	mas-battery	observed	work/runs/ex-battery-runtime/receipt.md		zero-hit
+MAS	0x1038a6b8	code	power payload memcpy site ([0xb181048c+52])	power-lane	verified	work/runs/analysis-app-start/receipt.md	0x1038a6aa	8-byte payload delivered with 0x43090002
 MAS	0x1038a754	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x1038a772	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x1038a798	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
@@ -1538,15 +1637,18 @@ MAS	0x10397260	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-capture-sta
 MAS	0x103976b0	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103976fc	code	backend flag consumer (can publish 0x04200001)	readout-state	verified	docs/runtime/readoutstate.md	0x10397c0a	
 MAS	0x10397a18	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x10397a19	code	backend handler pointer (Thumb |1 of 0x10397a18)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10397a18	D+0x28 callback b1868538
 MAS	0x10397a62	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-capture-start1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10397b5c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x10397c0a	code	backend flag bit-11 consumer	readout-state	verified	docs/runtime/readoutstate.md	0x103976fc	
 MAS	0x10397c76	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x10398206	code	entry gate helper	readout-state	verified	docs/runtime/readoutstate.md	0x10235c84	
+MAS	0x1039822c	code	backend call site (BL 0x1026dc68)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1026dc68	zero hits
 MAS	0x103986ca	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-capture-start1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1039fb07	code	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md,work/runs/display-command4-event-probe/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1039fb35	code	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md,work/runs/display-command4-event-probe/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1039fb7a	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x103a30ca	code	sentinel tuple initializer	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233570	no sync gate to compare call
 MAS	0x103a34c0	code	selector-one arena initializer	rtos-core	verified	docs/runtime/selector-one-download.md	0xb1808c98	base arg 0xaf200000
 MAS	0x103a34d2	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103a364e	code	selector-one payload rounding (4 KiB, base+0x5000 start, cap 0x400000)	rtos-core	verified	docs/runtime/selector-one-download.md		
@@ -1631,7 +1733,10 @@ MAS	0x103c5d86	code	system-config helper (selector 0x8a)	sysconfig	verified	docs
 MAS	0x103c6b2a	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md,work/runs/lcdnext-input-snapshot1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103c6b5c	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x103d1970	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x103d3d97	code	DISPLAY_QUEUE_CONSUMER caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md; work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x10445712; 0x10445712	x102
 MAS	0x103d3dc0	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x103d5905	code	PAUSE_OUTER_EVENT_CALL caller	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x103d5923	r0=0 r1=-1
+MAS	0x103d5923	code	DISPLAY_SYNC_START caller (mask 0x3 mode 0)	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x103d5905	
 MAS	0x103db28a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103db654	code	MAS logical I2C0 constructor	mas-i2c	verified	docs/devices/peer.md	0x2c018000	
 MAS	0x103dbcec	code	MAS touch transaction (cmd10 -> read 2B, cmd11 -> read 7B, addr 0x55)	mas-i2c	verified	docs/devices/peer.md	0x2c018000 0x103db654	unshifted 7-bit address
@@ -1647,6 +1752,9 @@ MAS	0x103e61d8	code	touch I2C driver helper	readout-input	inferred	work/runs/ana
 MAS	0x103e61f4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103e7e34	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103e9d25	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x103eae70	code	capture option producer	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x103eaee2	option = 0x103eae70() | 0x103f500a()
+MAS	0x103eaee2	code	capture request API callsite	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x103eaf06	zero hits
+MAS	0x103eaf06	code	capture request path step	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x103eaee2	
 MAS	0x103ec25a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103ec958	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103ed470	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -1691,6 +1799,7 @@ MAS	0x103f46d2	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x103f4866	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103f4c3a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103f4d90	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x103f500a	code	capture option producer	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x103eae70	
 MAS	0x103f542a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103f5772	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103f57ce	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -1709,15 +1818,20 @@ MAS	0x103f8f30	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/
 MAS	0x103f8f58	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f956c	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9576	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x103f9577	data	battery classifier r1 argument	mas-battery	hypothesis	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x103f9671	r1=0x103f9577 at BATTERY_CLASSIFIER; role unstated
 MAS	0x103f9668	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f966a	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f966c	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md,work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x103f9671	code	battery classifier caller (lr)	mas-battery	observed	work/runs/lcd-normal-parent/parent-combined-ex-mas-a546016/gdb.log	0x103f9577	observed lr with r0=0x80000000
 MAS	0x103f96da	code	MAS battery report event	mas-battery	observed	work/runs/ex-battery-runtime/receipt.md		zero-hit
 MAS	0x103f970a	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9850	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9864	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9a22	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md,work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9d94	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x103f9f80	code	power state machine entry gates	power-lane	verified	work/runs/analysis-app-start/receipt.md	0x103f9f92	[0xb18651d8+0x90] in {1,2}, [0xb18651d8+0x0e]==1
+MAS	0x103f9f92	code	power state machine gate bytes	power-lane	verified	work/runs/analysis-app-start/receipt.md	0x103f9fa8	
+MAS	0x103f9fa8	code	power state machine gate bytes (end)	power-lane	verified	work/runs/analysis-app-start/receipt.md	0x103f9f92	
 MAS	0x103f9fd6	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103f9fda	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103fa006	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1797,6 +1911,7 @@ MAS	0x10438684	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/
 MAS	0x104386a6	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md,work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104386a8	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104386b6	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x104386c1	code	display worker caller (lr)	display-bank	observed	work/runs/lcd-normal-parent/parent-power-snapshot-a546016/gdb.log	0x103f96da	observed lr at DISPLAY_WORKER
 MAS	0x104386c4	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md,work/runs/lcd-mailbox-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104386ca	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104386ce	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1804,6 +1919,7 @@ MAS	0x104386d4	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/
 MAS	0x10438768	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1043878e	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1043879a	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10438acd	code	OBJECT_TRANSITION caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1062e474; 0xb181d8a4 0x200016	
 MAS	0x10438aea	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md,work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10438b5e	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10438b63	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1824,23 +1940,40 @@ MAS	0x10445712	code	display queue consumer	display-endpoint	observed	work/runs/l
 MAS	0x1044574a	code	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1044579c	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10445aa8	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10445c54	code	8-byte-record walker (enable-one edge)	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md	0x10445cb4	
+MAS	0x10445cb4	code	enable-one caller instruction	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md	0x10445c54	
+MAS	0x10445cb9	code	enable-one caller return	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md; work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0x10445cb4; 0x1046d460	
 MAS	0x10445f48	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10446994	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10446c18	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10447094	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104474bc	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x1044764f	code	LAYER_SET caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1046d48a; 0x1046d48a	
+MAS	0x10447665	code	layer enable caller (lr, layers 0..9 disable loop)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0x1046d460	observed lr for layers 0..9 enable=0
+MAS	0x10447b35	code	PORT_COMMIT caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1046d6d0; 0x1046d6d0	
 MAS	0x10447dec	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x1044861e	code	outer pause function	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md; work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md	0x104486bc; 0x10448819	
 MAS	0x10448660	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x104486bc	code	immediate pause call	display-bank	observed	work/runs/ex-battery-runtime/image-callers1/receipt.md; work/runs/lcd-normal-parent/resume-frontier-receipt.md	0x1044861e; 0x10448819	r0=0xb180126c r1=0xb
+MAS	0x104486c1	code	MAIN_PAUSE caller	display-bank	observed	work/runs/lcd-normal-parent/completion-order-receipt.md; work/runs/lcd-normal-parent/completion-order-receipt.md	0x1046bf58	object 0xb180126c mask 0xb
+MAS	0x104486f8	code	pause-path probe site (no hit recorded)	display-bank	hypothesis	work/runs/lcd-normal-parent/pause-owner.gdb	0x1044861e	breakpoint site in pause-owner.gdb; role unstated
+MAS	0x1044870a	code	delay-based pause caller (0x37 ticks)	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x1044861e; 0x1044861e	
+MAS	0x10448813	code	PANEL_SERVICE caller (selector 3)	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x1044861e	
+MAS	0x10448814	code	pause caller after 0x104819ac(3,0)	display-bank	verified	work/runs/ex-battery-runtime/image-callers1/receipt.md; work/runs/lcd-normal-parent/pause-owner-head-60/gdb.log	0x1044861e; 0x1044861e 0x104819ac	
+MAS	0x10448819	code	PAUSE_OUTER caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md; work/runs/lcd-normal-parent/frontier-snapshot-head-45/gdb.log	0x1044861e	r0=0 r1=0xffffffff
 MAS	0x1044896a	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448b1c	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448c3a	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448cdc	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448cdd	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448e20	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10448f85	code	endpoints 0->1 caller (lr of 0x10448fcc)	display-bank	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/gdb.log	0x10448fcc	ENDPOINTS_0_TO_1 caller lr
 MAS	0x10448f92	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md,work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10448fcc	code	endpoints 0-to-1 transition	display-endpoint	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x10449166;0x1044ae54	Five endpoint records advanced to state 1.
 MAS	0x10449008	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449014	code	seed lane-1 provider pool	display-endpoint	verified	work/runs/analysis-owner-bridge/receipt.md	0x1044ae54;0xb1d0906c	Endpoint activation reaches pool seeding.
+MAS	0x10449073	code	LAYER_RECORD_BUILDER caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md; work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x1044ae54; 0x1044ae54	
+MAS	0x1044912b	code	EP0 store-2 caller (lr of 0x10449166)	display-bank	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/gdb.log	0x10449166	EP0_STORE_2 caller lr
 MAS	0x10449144	code	per-endpoint state advance	display-endpoint	verified	work/runs/analysis-owner-bridge/receipt.md	0x1044ae54	Part of endpoint 1-to-2/3 chain.
 MAS	0x10449164	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449166	code	endpoint-0 store-2	display-endpoint	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x10448fcc	Observed EP0 state 2 store.
@@ -1861,18 +1994,24 @@ MAS	0x104492ca	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-
 MAS	0x1044936c	code	early main arm callsite	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046bf0c	Calls main command with mask 8,state 1 (command 0x11).
 MAS	0x10449370	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449371	code	early main arm return site	display-start	observed	work/runs/lcd-normal-parent/right-frontier-receipt.md	0x1046bf0c	Observed LR for mask8/state1 call.
+MAS	0x10449374	code	pause retry entry	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x1044861e	not entered
 MAS	0x104493c8	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x104493f3	code	PANEL_SERVICE caller (selector 0)	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x10449407	
+MAS	0x10449407	code	PANEL_SERVICE caller (selector 5)	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x104493f3	
 MAS	0x10449430	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1044944e	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449460	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x104498a8	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449a54	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md,work/runs/display-endpoint2-writer/receipt.md,work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449adc	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10449b0f	code	DISPLAY_POST_PAUSE caller	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-receipt.md; work/runs/lcd-normal-parent/pause-owner-receipt.md	0x1044861e	
 MAS	0x10449c74	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449d0c	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10449d0d	code	unknown display endpoint routine	display-endpoint	hypothesis	work/runs/lcd-state-machine-audit/receipt.md		Address is in assigned display scope; role not resolved in receipts.
+MAS	0x10449f8a	code	pause-path probe site (no hit recorded)	display-bank	hypothesis	work/runs/lcd-normal-parent/pause-owner.gdb	0x1044861e	breakpoint site in pause-owner.gdb; role unstated
 MAS	0x10449fc6	code	synchronization mask loop	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1044a080	Can generate only sub-unit mask bits.
 MAS	0x1044a080	code	synchronization mask loop end	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x10449fc6	Loop bound for sub-unit mask.
+MAS	0x1044a08a	code	pause-path probe site (no hit recorded)	display-bank	hypothesis	work/runs/lcd-normal-parent/pause-owner.gdb	0x1044861e	breakpoint site in pause-owner.gdb; role unstated
 MAS	0x1044a090	code	unknown	legacy-runs	hypothesis	work/runs/display-endpoint2-writer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1044a0c6	code	sub-unit synchronization callsite	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046bf0c;0x10449fc6	Generated mask contains only bits 1,2,4.
 MAS	0x1044a0cb	code	sub-unit sync return site	display-start	observed	work/runs/lcd-normal-parent/right-frontier-receipt.md	0x1046bf0c	Observed LR for mask3/state0 call.
@@ -1910,6 +2049,7 @@ MAS	0x1044fa30	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-owner-input
 MAS	0x1044fabc	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md,work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1044fac2	code	unknown	legacy-runs	hypothesis	work/runs/capture-service-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1044fc88	code	unknown	legacy-runs	hypothesis	work/runs/capture-service-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x104501c3	code	OBJECT_TRANSITION caller LR	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1062e474; 0xb1828064	r0=0xb1828064 r1=0x10000 r2=0x830
 MAS	0x10452976	code	code-0x281 owner event bit29 chain entry	readout-state	verified	docs/runtime/readoutstate.md	0x10452ab0	
 MAS	0x10452ab0	code	code-0x281 chain step	readout-state	verified	docs/runtime/readoutstate.md	0x1047b944	
 MAS	0x10463000-0x10464000	region	AppC module range	app-service	verified	work/runs/PLAYBOOK.md	0xb2a4e0bc	driven by 0x000101da/0x000183da/0x00010fda callbacks
@@ -1941,7 +2081,10 @@ MAS	0x10463f88	code	AppC sub-path	app-service	verified	work/runs/analysis-sla-se
 MAS	0x10463fa2	code	AppC class-id handler	app-service	verified	work/runs/analysis-sla-sender/mas-appc.disasm		
 MAS	0x1046bc6c	code	bank completion ACK	display-completion	verified	docs/devices/banks/image.md	0x1046bcb0;0x1046efa9	Reads and acknowledges complete raw pending word.
 MAS	0x1046bcb0	code	completion callback invoke	display-completion	verified	docs/devices/banks/image.md	0x1046bc6c;0x1046efee	Calls registered object callback.
+MAS	0x1046bcb3	code	IRQ111 callback return (lr at callback)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0x1046efa8	observed lr of IRQ111_CALLBACK
 MAS	0x1046bf0c	code	main/sub-unit command writer	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md; work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x1044936c;0x1044a0c6;0x104db90e;0x104dc66c; 0x10445712	Mask/state command API; mask8,state0 writes normal main command 1.
+MAS	0x1046bf58	code	MAIN_PAUSE (0 hits)	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1046bf0c; 0x1046bf0c	
+MAS	0x1046bfaa	code	display stop setter	display-bank	observed	work/runs/ex-battery-runtime/image-callers1/receipt.md		no call occurred; MMIO watchpoints used
 MAS	0x1046c1da	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1046d3c6	code	bank1 packed tuple setter	display-registers	verified	docs/devices/banks/protocol.md	0x20145420;0x20145424	Binds bank1 words to packed three-halfword tuple.
 MAS	0x1046d3ee	code	bank1 packed tuple getter	display-registers	verified	docs/devices/banks/protocol.md	0x20145420;0x20145424	Paired bank1 register access.
@@ -1949,6 +2092,7 @@ MAS	0x1046d460	code	layer enable setter	display-layer	verified	work/runs/lcd-sta
 MAS	0x1046d48a	code	layer descriptor writer	display-layer	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d460;0x1046d554;0x104d94b6	Loads descriptor enable at +0x14 and forwards to enable setter.
 MAS	0x1046d554	field	layer descriptor enable load	display-layer	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d48a	Descriptor +0x14 is definitive enable source.
 MAS	0x1046d55c	code	layer enable callsite	display-layer	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d460	Passes descriptor enable to setter.
+MAS	0x1046d561	code	layer enable caller (lr)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0x1046d460	observed lr for layer0 enable=0
 MAS	0x1046d5e0	code	per-layer scaling writer	display-layer	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d6d0;0x104d99b0	Sends enabled layer scale/geometry.
 MAS	0x1046d6d0	code	port dirty/update commit	display-port	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d5e0;0x1046bf0c	Commits per-port configuration; final layer/port edge.
 MAS	0x1046d6e8	code	port setup writer	display-port	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046d6d0	Writes port setup.
@@ -1961,6 +2105,8 @@ MAS	0x1046efa9	data	completion callback literal	display-completion	verified	docs
 MAS	0x1046efee	code	completion callback registration/use	display-completion	verified	docs/devices/banks/image.md	0x1046efa8;0x1046bcb0	Consumes bit16/20 and invokes event callback.
 MAS	0x10470214	code	unknown	legacy-runs	hypothesis	work/runs/analysis-owner-transition/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10470ad6	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10470d17	code	call start init caller (lr of 0x1044936c)	display-bank	observed	work/runs/lcd-normal-parent/resume-frontier-head-120/gdb.log	0x1044936c	CALL_START_INIT lr
+MAS	0x10470d2d	code	mode1 wait caller (lr)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0x1044944e	MODE1_WAIT lr
 MAS	0x10478920	code	framework helper (AppC caller)	app-service	verified	work/runs/analysis-sla-sender/mas-appc.disasm		
 MAS	0x10478946	code	framework helper (AppC caller)	app-service	verified	work/runs/analysis-sla-sender/mas-appc.disasm		
 MAS	0x10478ac8	code	framework helper (AppC caller)	rtos-service	verified	work/runs/analysis-owner-service-sender/10463-dispatcher.disasm		
@@ -2074,7 +2220,9 @@ MAS	0x104dc186	code	owner type-1 list arm	display-owner	verified	work/runs/lcd-m
 MAS	0x104dc1aa	code	pending provider publish store	display-owner	verified	work/runs/lcd-mailbox-owner/receipt.md	0xb1d020a0	Stores provider pointer to mailbox slot.
 MAS	0x104dc1ae	code	provider layer-record import callsite	display-owner	verified	work/runs/lcd-mailbox-owner/receipt.md	0x104d9bec	Imports layer records after publish.
 MAS	0x104dc26a	code	sub-unit start callsite mask1	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046bf0c	Fixed mask1 call.
+MAS	0x104dc27c	code	state pause caller	display-bank	observed	work/runs/lcd-normal-parent/resume-frontier-receipt.md; work/runs/lcd-normal-parent/resume-frontier-receipt.md	0x104dc2b6	not hit in 120 s
 MAS	0x104dc294	code	sub-unit start callsite mask2	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046bf0c	Fixed mask2 call.
+MAS	0x104dc2b6	code	state pause caller	display-bank	observed	work/runs/lcd-normal-parent/resume-frontier-receipt.md; work/runs/lcd-normal-parent/resume-frontier-receipt.md	0x104dc27c	not hit in 120 s
 MAS	0x104dc2ce	code	sub-unit start callsite mask4	display-start	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1046bf0c	Fixed mask4 call.
 MAS	0x104dc522	code	owner state dispatcher	display-owner	verified	work/runs/lcd-state-machine-audit/receipt.md	0x104dc548;0x104dc690;0x104dc6c0	Dispatches owner counter states 0..26.
 MAS	0x104dc548	table	owner state TBB	display-owner	verified	work/runs/lcd-state-machine-audit/receipt.md	0x104dc522;0x104dc690;0x104dc6c0	Final entries map states 25 and 26.
@@ -2198,6 +2346,7 @@ MAS	0x10618b88	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-pr
 MAS	0x10618b92	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1061d628	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10620720	code	unknown	legacy-runs	hypothesis	work/runs/lcd-mailbox-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x10620721	code	Thumb reference-scan target (helper script constant)	display-bank	hypothesis	work/runs/lcd-normal-parent/find_thumb_address_refs.py	0x10620720	TARGETS={0x10620720,0x10620721} in scan script; role unstated
 MAS	0x10620734	code	unknown	legacy-runs	hypothesis	work/runs/lcd-mailbox-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1062e474	code	class-1 command-4 constructor router	app-service	verified	work/runs/display-command4-crossref/receipt.md	0x1044e7a4	
 MAS	0x1062e47a	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2303,6 +2452,7 @@ MAS	0x106ee436	code	transfer query/fence API	transfer-device	inferred	work/runs/
 MAS	0x106ee4c6	code	shared transfer notification continuation	transfer-device	inferred	docs/devices/transfer/protocol.md	0x106d4ffe;0x105a65a4	Maps notification values 2/4 and fallback 1.
 MAS	0x106ee4e4	code	IRQ129/130/131 registration	transfer-device	inferred	docs/devices/transfer/protocol.md	0x106ee3ca;0x106ee3d6;0x106ee3e2	Registers the three transfer interrupt handlers.
 MAS	0x106ee9ce	code	ordinal-10 job dequeue	transfer-device	inferred	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x106ee04a;0x106ee202	Suggested passive dequeue anchor.
+MAS	0x106eeab9	code	graphics submit caller (lr of 0x106ee04a)	graphics-transfer	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/gdb.log	0x106ee04a	GRAPHICS_SUBMIT caller lr
 MAS	0x106eeaf0	code	format selector	transfer-device	inferred	docs/devices/transfer/protocol.md	0x106eeb5c;0x106ee148	Maps selector 0x1c to selector 5; other mapping remains source-bound.
 MAS	0x106eeb5c	code	ordinary transfer packet producer	transfer-device	verified	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0x106ee148	Fills the contiguous byte-copy packet.
 MAS	0x106ef35a	code	unknown	legacy-runs	hypothesis	work/runs/display-menu-descriptor-differential/receipt.md,work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2398,7 +2548,9 @@ MAS	0x118fa14c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x118fa16c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x118fa184	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x118fa4b4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0x11904574	table	key 0x2015 descriptor	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x10101822	
 MAS	0x11906924	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x11908088	data	key default descriptor (eight zero bytes)	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x11904574	
 MAS	0x1197ffb0	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1197ffc0	table	MAS input/GUI service (id 2) API table	mas-input-snapshot	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x1038b935	set/consume/query entries
 MAS	0x1197fff0	code	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2506,6 +2658,7 @@ MAS	0x20016d50	mmio	MXIC region pair B0 word	mxic	verified	docs/runtime/502-prov
 MAS	0x20016d58	mmio	MXIC region pair B1 word	mxic	verified	docs/runtime/502-provider-boundary.md		writes (0x50000000,0xb0000000)
 MAS	0x20016d5f	mmio	MXIC region pair B end	mxic	verified	docs/devices/mxic/protocol.md	0x20016d50	two pairs at 0x20016d50..0x20016d5f
 MAS	0x20060034	mmio	uncovered device word (CPU1 read)	startup-frontier	observed	docs/runtime/wait/abi.md	0x102dcc46	device family unresolved
+MAS	0x20060044	mmio	router raw44 word (read/W1C)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x102dc5c8	bit 7 -> IRQ87 path
 MAS	0x2006b000	region	readout parameter region	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		VA=PA functional region
 MAS	0x2006b3b8	ram	unknown	readout-input	hypothesis	docs/devices/sensor/protocol.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x2006b3c0	field	readout ready marker	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		generation-ready publication
@@ -2538,6 +2691,7 @@ MAS	0x2013d020	field	MAS bridge IRQ status	mas-bridge	verified	docs/devices/brid
 MAS	0x2013d024	field	MAS bridge IRQ enable	mas-bridge	verified	docs/devices/bridge/protocol.md	0x2013d020	
 MAS	0x2013d028	field	MAS bridge IRQ W1C acknowledge	mas-bridge	verified	docs/devices/bridge/protocol.md	0x2013d020	
 MAS	0x2013e000	field	MAS bridge bank1 getter (first rejected read)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x20136000	MAS PC 102de73a, SLA PC 1006c80e
+MAS	0x20145200	mmio	display bank word (observed 0x12 = paused)	display-bank	observed	work/runs/ex-battery-runtime/issue476-update-20261014.md		after first empty main transaction
 MAS	0x20146604	field	display bank1 port0 scalar	buffer-consumers	observed	work/pr-transfer-yuv-clear.md	0x10445712	Next explicit boundary after fifth graphics completion, PA.
 MAS	0x2402000c	mmio	IPUD status port (read)	ipud	verified	docs/devices/ipud/protocol.md	0x2402001c	
 MAS	0x2402001c	mmio	IPUD acknowledge port (write 4)	ipud	verified	docs/devices/ipud/protocol.md	0x2402000c	observed acknowledge value 4
@@ -2612,6 +2766,7 @@ MAS	0x60000000	data	MXIC region pair word (start value)	mxic	verified	docs/devic
 MAS	0x62700000	data	region-table output base (record 11)	rtos-core	verified	docs/runtime/region-table.md	0x54900000	
 MAS	0x80000000	data	unknown	legacy-runs	hypothesis	work/runs/lcd-mailbox-owner/receipt.md,work/runs/wonderlantern-ex-input-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x80000002	data	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0x80000192	field	IRQ111 event mask value (r2 at IRQ111_ENTER)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb180126c 0x4b0000 0x1194000	register value, not an address; 0x4b0000/0x1194000 are qemu.stderr byte-size values (resource57 records / display buffer)
 MAS	0xa1815a74	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xa1819748	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xa1880b00	data	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2649,6 +2804,8 @@ MAS	0xb1807fa4	field	manager setter base field	display-provider	verified	work/ru
 MAS	0xb1807fa8	field	manager-ready word	display-provider	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x104d7e78;0x104d7f16	Observed zero; admission waits with bounded retry.
 MAS	0xb1807fd8	field	domain-one control triple 0	display-provider	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1051d506	Contains domain/subtype/kind controls.
 MAS	0xb1807fdb	field	domain-one control triple 1	display-provider	verified	work/runs/lcd-state-machine-audit/receipt.md	0x1051d506	Second control triple for dual object build.
+MAS	0xb1808060	record	display owner state word	display-bank	observed	work/runs/lcd-normal-parent/frontier-snapshot.gdb	0xb180807c	owner_state sampled by frontier probes; stayed 0
+MAS	0xb180807c	data	display owner base pointer (owner_state at +0x254)	display-bank	observed	work/runs/lcd-normal-parent/natural-mailbox.gdb	0xb1808060	owner base read by NORMAL_MAIN_START_CALL probe
 MAS	0xb18084f8	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb180854c	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb1808590	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2664,6 +2821,7 @@ MAS	0xb18089a8	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-g
 MAS	0xb1808c98	ram	selector-one runtime object	rtos-core	verified	docs/runtime/selector-one-download.md		+4=b0d00000 +8=af200000 +c=b0900000 +10=b0100000 +14=af8d4000
 MAS	0xb1808c9c	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb181048c	ram	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
+MAS	0xb18104c0	ram	power-classify stored byte (value 0)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md; work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md	0x1038a6aa; 0x1038a6aa	r0=0x43090001
 MAS	0xb18104d8	ram	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0xb18104f4	ram	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb1810504	ram	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
@@ -2755,7 +2913,10 @@ MAS	0xb1d020a0	ram	pending provider mailbox	display-owner	observed	work/runs/lcd
 MAS	0xb1d0906c	ram	lane-1 provider object pool	display-provider	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x10449014;0x1051d506	Observed zero; endpoint path seeds it.
 MAS	0xb1d0d0bc	ram	lifecycle byte table base	display-owner	verified	work/runs/analysis-owner-transition/receipt.md	0xb1d0d0bd;0x104dce06	Five lane bytes.
 MAS	0xb1d0d0bd	field	lane-1 lifecycle byte	display-owner	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0xb1d0d0bc;0x104dc804	Observed zero; strong predicate accepts 4,6,7.
+MAS	0xb1d0d310	record	display owner counter word	display-bank	observed	work/runs/lcd-normal-parent/frontier-snapshot.gdb	0xb1808060	counter sampled by frontier probes; stayed 0
 MAS	0xb1d178dc	ram	endpoint state map	display-endpoint	observed	work/runs/lcd-normal-parent/parent-endpoint-bridge-a546016/receipt.md	0x10448fcc;0x10449166	Five endpoints walk 0->1->2->3 then reset.
+MAS	0xb1d178dd-0xb1d178e0	field	display endpoint map bytes +1..+4 (EP walk 0->1->2->3)	display-bank	observed	work/runs/lcd-normal-parent/endpoint-bridge.gdb	0xb1d178dc 0xb1d178de 0xb1d178df 0xb1d178f5	EP map base 0xb1d178dc; bytes walk 01,01,01,01,01 then 02 then 03 then 00
+MAS	0xb1d178f5	field	display endpoint map byte +0x19 (PANEL_SERVICE selector=5 arg)	display-bank	observed	work/runs/lcd-normal-parent/pause-owner-head-60/gdb.log	0xb1d178dc	arg=0xb1d178f5 pointer to endpoint map region
 MAS	0xb1d1a878	ram	RX mask-4 event object	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		mask-4 event object
 MAS	0xb1d1aa30	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb1d1aadc	ram	RX event object	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		mask-2 event object
@@ -2796,6 +2957,7 @@ MAS	0xb23bd29c	ram	unknown	legacy-runs	hypothesis	work/runs/display-menu-descrip
 MAS	0xb23bd31c	ram	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0xb23ecc80	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb23f6848	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0xb23f6a20	ram	capture word tested by code 5 (*(u32*)0xb23f6a20 == 0)	capture-state	verified	work/runs/lcdnext-capturestate19/issue485.md		nonzero would not make code 5 publish 0x0410004f
 MAS	0xb23f6c30	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb23f6d2c	ram	unknown	legacy-runs	hypothesis	work/runs/lcdnext-enum34-1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb23f7e64	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -2804,6 +2966,7 @@ MAS	0xb23f7e70	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-g
 MAS	0xb23f7e74	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb23f7e76	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb23f7e81	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
+MAS	0xb2552560	ram	key 0x2015 live data pointer	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x11904574	
 MAS	0xb25dac8c	ram	unknown	legacy-runs	hypothesis	work/runs/gui-event-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb25eae30	record	MAS 124-byte input state block	mas-input-snapshot	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x10433ebc	
 MAS	0xb25eaeac	field	MAS input snapshot word (= block + 0x7c)	mas-input-snapshot	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-readout-gate/receipt.md	0xb25eae30 0x10433ebc	
@@ -2816,6 +2979,7 @@ MAS	0xb25eafe0	record	MAS ExCmdQu D state	mas-ssi	observed	work/runs/analysis-in
 MAS	0xb25eb0a0	record	MAS ExCmdQu H state	mas-ssi	observed	work/runs/analysis-input-roundtrip/receipt.md	0x12421b1c	
 MAS	0xb25eeb78	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb25eefd0	ram	parameter pointer written to vector slot	readout-state	verified	docs/runtime/readoutstate.md	0x1023490a	
+MAS	0xb25f24f8	ram	state-1 handle slot ([0xb25f24f8])	readout-state	verified	work/runs/lcdnext-readoutwatch1/issue485.md	0x10232252	
 MAS	0xb25f250c	ram	readout handle slot	readout-state	verified	docs/runtime/readoutstate.md	0x10443e3e	
 MAS	0xb25f2510	ram	readout lane-1 setter vector	readout-state	verified	docs/runtime/readoutstate.md	0x10234948	
 MAS	0xb26b3788	ram	writer-audit base below R	readout-state	verified	docs/runtime/readoutstate.md	0xb26b3988	audit covered every literal in [0xb26b3788,0xb26b3988]
@@ -2846,6 +3010,7 @@ MAS	0xb2b41604	ram	per-core scheduler cell (CPU0 current)	rtos-core	observed	doc
 MAS	0xb2b41608	ram	per-core scheduler cell (CPU1 candidate)	rtos-core	observed	docs/runtime/scheduler.md		watchpoint never fired in 200 samples
 MAS	0xb2b42258	ram	taskindp cell	rtos-core	observed	docs/runtime/scheduler.md		
 MAS	0xb2b42308	ram	scheduler cell	rtos-core	observed	docs/runtime/scheduler.md		
+MAS	0xb2b43320	data	IRQ111 callback record argument (r1)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb180126c	r1 at IRQ111_CALLBACK, rotating record instance
 MAS	0xb2b5e510	ram	startup fill logical end	fill	verified	docs/runtime/readoutstate.md; docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0xb18aedc0; 0xb18aedc0-0xb2b5edc0	profile fills extra 0x8b0 tail beyond this
 MAS	0xb2b5edc0	ram	virtual DDR backing end	fill-engine	verified	docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0xb18aedc0-0xb2b5e510	End of finite virtual DDR backing.
 MAS	0xb2b74000	ram	MAS L1 page-table destination (16 KiB, TTBR0_S)	loader	observed	docs/runtime/pte.md	0x10031400	
@@ -2855,6 +3020,7 @@ MAS	0xb2b83fb8-0xb2b84000	region	CPU1 SVC 72-byte stack prefix (historical stage
 MAS	0xb2b84000	ram	CPU1 SVC SP	rtos-core	observed	docs/startup/smp.md		
 MAS	0xb2b87f9c	ram	CPU0 SP at fill-stage stop	fill	observed	docs/devices/fill/protocol.md; docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0x101034fc; 0x101034fc	
 MAS	0xb2b93ff8	ram	CPU1 IRQ-save stack word (first uncovered stack write)	rtos-core	observed	docs/runtime/stacks.md	0x101036ac	value 0xb18ad8b0
+MAS	0xb2b97ff0	data	IRQ111 enter record argument (r1)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb180126c	r1 at IRQ111_ENTER
 MAS	0xb2ba8000	ram	CPU0 SVC SP	rtos-core	observed	docs/startup/memc.md		
 MAS	0xb2bb0000	ram	CPU0 mode-0 SP top (six tops b2bb0000/b2ba8000/b2ba0000/b2b98000/b2b90000/b2b88000)	rtos-core	verified	docs/runtime/stacks.md		per core minus selector*0x4000; 16 KiB slots
 MAS	0xb2bb0038	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2882,17 +3048,20 @@ MAS	0xb51b94f0	ram	runtime object instance 1 (reader r4)	502-object	observed	doc
 MAS	0xb51bb508	ram	EV3 waiter output stack slot	readout-input	observed	docs/runtime/wait/ev3.md	0xb2c33368	
 MAS	0xb51bb570	ram	MAS SVC stack (10201010 entry)	mas-spi	observed	docs/devices/spi/protocol.md	0x10201010	
 MAS	0xb51bb578	ram	MAS SVC stack (10200684)	mas-spi	observed	docs/devices/spi/protocol.md	0x10200684	
+MAS	0xb51bcf9c	data	IRQ111 callback rotating record pointers (r1 across 686 events)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb51bef70 0xb51c7b1c 0xb51c7b28 0xb51c7b4c 0xb51c7b58 0xb51c7ba4 0xb51c8af4 0xb51c8b20 0xb51c8b30 0xb51c8b38 0xb51c8b44 0xb51c8b5c 0xb51c8b7c 0xb51c8bac 0xb51c8bbc 0xb51cdfd4 0xb51cfee8 0xb51e5f20 0xb51e5f28 0xb51e5fb0 0xb51e5fcc 0xb51e5fe4 0xb52c4b90 0xb52d4f7c 0xb52d4f80 0xb52d4fa0 0xb52d4fbc 0xb52d6e54 0xb52d6e5c 0xb52d6e64 0xb52d6e8c 0xb52d6e98 0xb52d6e9c 0xb52d6eac 0xb52d6ec4 0xb52d6ecc 0xb52d6eec 0xb52d6f00 0xb52d6f04 0xb52d6f0c 0xb52d6f28 0xb52d6f30 0xb52d6f44 0xb52d6f4c 0xb52d6f54 0xb52d6f68 0xb52d6f74 0xb52d6f78 0xb52d6f7c 0xb52d6f84 0xb52d6f90 0xb52d6f94 0xb52d6f9c 0xb52d6fa4 0xb52d6fb0 0xb52d6fcc 0xb52d8724 0xb52d875c 0xb52d9f74 0xb52def94 0xb52defac 0xb53adf18 0xb53b8d34 0xb53b8f18 0xb53c2fd4 0xb5406558 0xb540656c 0xb5406574 0xb540657c 0xb54065a0 0xb5406600 0xb5406648 0xb5406660 0xb5412588 0xb5412620 0xb5412658 0xb5412664 0xb5412680 0xb5412684 0xb54126a4 0xb54126a8 0xb54126dc 0xb54126ec 0xb54126f4 0xb5412704 0xb5412784 0xb54175e4 0xb5417764 0xb5417794 0xb54177b0 0xb54177bc 0xb54177cc 0xb54177d4 0xb545e6e0 0xb545e768	transient per-event record instances; not fixed research state
 MAS	0xb51e5f50	ram	runtime object instance 2 (reader r4)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a84cc	+0x30=0x00020000, +0x0c=0xb2b40000
 MAS	0xb51f43f0	ram	MAS SVC stack (102ddfe6 entry)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x102ddfe6	
 MAS	0xb51f4400	ram	MAS SVC stack (10387e36 wrapper)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x10387e36	
 MAS	0xb52d6e78	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d6e94	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0xb52d6ed0	ram	LAYER_SET r3 argument value	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md; work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x1046d48a; 0x1046d48a	
 MAS	0xb52d6ef0	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d6f18	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d6f60	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d6fa8	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d7000	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb52d702c	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
+MAS	0xb545e79c	data	graphics submit record argument (r0)	graphics-transfer	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/gdb.log	0x106ee04a 0x1000068 0x60000013	r0 at GRAPHICS_SUBMIT; 0x1000068/0x60000013 are observed r3/r2 values (not addresses)
 MAS	0xb5f00000-0xb7d00000	region	declared private class (30 MiB)	rtos-core	verified	docs/runtime/address.md		logical record1 0x14000000; physical record22 b5f00000
 MAS	0xb758d840-0xb79480c0	region	declared parent object pair (physical; logical 1568d840..15a480c0)	rtos-core	verified	docs/runtime/address.md		
 MAS	0xb7cf0000	region	MAS sending ring (peer reader view)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x460f0000	not reused by peer reader
@@ -2945,6 +3114,11 @@ MAS	0xfafbffef	data	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger
 MAS	0xfcfdfff7	data	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xff000000	data	unknown	legacy-runs	hypothesis	work/runs/analysis-gui-programs/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xfffffff0	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
+QEMU	0x103	irq	GIC IRQ103 fill engine0	fill-engine	verified	hw/nikon/machines/z7ii.c,docs/devices/fill/protocol.md	0x20070000	Engine0 done/error output; mask bit0 enables done IRQ.
+QEMU	0x104	irq	GIC IRQ104 fill engine1	fill-engine	verified	hw/nikon/machines/z7ii.c,docs/devices/fill/protocol.md	0x20070040	Engine1 output; runtime docs name IRQ103/104 pair.
+QEMU	0x129	irq	GIC IRQ129 paired graphics completion	transfer-device	verified	hw/nikon/machines/z7ii.c,docs/devices/transfer/protocol.md	0x20181020;0x106ee3ca	Transfer stream IRQ output 0; raised after finite paired executor.
+QEMU	0x130	irq	GIC IRQ130 ordinary copy completion	transfer-device	verified	hw/nikon/machines/z7ii.c,docs/devices/transfer/protocol.md	0x20180c18;0x106ee3d6	Transfer IRQ output 1; raised after contiguous DMA copy.
+QEMU	0x131	irq	GIC IRQ131 unknown graphics producer	transfer-device	hypothesis	hw/nikon/devices/transfer.c,docs/devices/transfer/protocol.md	0x106ee3e2;0x2018001c	Transfer IRQ output 2 is held low; producer remains unknown.
 QEMU	gic:0	irq	gic-spi-0	machine	verified	hw/nikon/machines/sla.c:714; hw/nikon/machines/sla.c:716		qdev_get_gpio_in(gic, 0xc1 + i * 2 - 32));
 QEMU	gic:100	irq	gic-spi-100	machine	verified	hw/nikon/machines/z7ii.c:1139		qdev_get_gpio_in(gic, 100 - 32));
 QEMU	gic:101	irq	gic-spi-101	machine	verified	hw/nikon/machines/z7ii.c:1073		qdev_get_gpio_in(gic, 101 - 32));
@@ -3100,6 +3274,10 @@ SHARED	0x2	data	RAM word value 2 (semantic value)	docs-generic	observed	docs/run
 SHARED	0x8	data	RAM word value 8 (semantic value)	docs-generic	observed	docs/runtime/wait/ev3.md		EV3 control-block word; not a firmware address
 SHARED	0x93	data	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0xc34f	data	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0xea	data	SSI record resource/id word 0x000000ea	ssi-frame	observed	work/runs/mas-ssi-partial-frame/receipt.md		+0x00 field; semantic value
+SHARED	0x3232	data	SSI record percentages word 0x00003232 (50%,50%)	ssi-frame	observed	work/runs/mas-ssi-partial-frame/receipt.md		+0x24 field; semantic value
+SHARED	0xc00	data	ID34 resource record length 0xc00	id34	verified	work/runs/resource34-schema/receipt.md	0xd700	phase-3 fixed-length numeric tuning/config object
+SHARED	0xd700	data	ID34 external-NOR offset 0xd700 (0xc00 bytes)	id34	verified	work/runs/z6ii-id34-compare/receipt.md	0xc00	range [base+0xd700,base+0xe300)
 SHARED	0x10400	region	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x10740	data	unknown	startup-docs	hypothesis	docs/startup/peripherals.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x13040	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3115,6 +3293,8 @@ SHARED	0x30000	data	MXIC region pair word 0x00030000	docs-generic	verified	docs/
 SHARED	0x33300	data	selector-one COPY2 length 0x33300	docs-generic	observed	docs/runtime/selector-one-download.md	0xb093a000	semantic value
 SHARED	0x34238	data	selector-one COPY1 length 0x34238	docs-generic	observed	docs/runtime/selector-one-download.md	0xb0905000	semantic value
 SHARED	0x3a000	data	selector-one COPY2 arena offset 0x3a000	docs-generic	observed	docs/runtime/selector-one-download.md	0xb093a000	semantic value
+SHARED	0x3b1c0	data	COPY remaining length 0x3b1c0 (destination 0)	display-bank	observed	work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md		semantic value
+SHARED	0x40f00	data	0x040f00xx message-code family shorthand	rtos-service	verified	work/runs/PLAYBOOK.md	0x040f0020	prefix token, not a single address
 SHARED	0x51738	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x517d7	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x51ba8	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3128,12 +3308,15 @@ SHARED	0xdfff8	data	gate request-record value 0x000dfff8	docs-generic	observed	d
 SHARED	0xe0000	data	gate request-record value 0x000e0000	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
 SHARED	0xe8494	data	payload offset O0xe8494 (allocator closure)	docs-generic	verified	docs/runtime/allocator.md		file offset, not a VMA; VA = 0x10020000 + O
 SHARED	0xf0000	region	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x104798	data	0x104798xx framework init shorthand	rtos-service	verified	work/runs/PLAYBOOK.md	0x104c6bb2	prefix token
+SHARED	0x107722	data	0x107722xx vtable thunk module shorthand	rtos-service	verified	work/runs/PLAYBOOK.md	0x107722e4	prefix token
 SHARED	0x136b8f	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x14afbc	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x14b2d8	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x17267f	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x180000	data	gate request-record value 0x00180000	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
 SHARED	0x1e0034	data	unknown	startup-docs	hypothesis	docs/startup/smp.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x200016	data	OBJECT_TRANSITION r1 value 0x200016	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x10438acd	semantic value
 SHARED	0x24fff8	data	gate request-record value 0x0024fff8	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
 SHARED	0x2e0000	region	unknown	startup-docs	hypothesis	docs/validation/providers.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x3905ac	data	payload offset O0x3905ac (clock CLEAR mask helper)	docs-generic	verified	docs/devices/clock/protocol.md		file offset, not a VMA; VA = 0x10020000 + O
@@ -3194,6 +3377,7 @@ SHARED	0x1700000	data	selector-one object offset 0x1700000	docs-generic	verified
 SHARED	0x1b00000	data	selector-one object offset 0x1b00000	docs-generic	verified	docs/runtime/selector-one-download.md	0xb0d00000	base + 0x1b00000
 SHARED	0x1ff0001	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x1ff0002	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x2010001	data	capture backend event id 0x02010001	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb1868510	state 1 returns directly on it
 SHARED	0x2030081	data	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x2030083	data	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x203008c	data	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3205,6 +3389,7 @@ SHARED	0x2379f94	data	payload offset O0x2379f94 (COPY0 source of 0x04266000)	doc
 SHARED	0x2380e0c	data	payload copy-data offset O0x2380e0c (clock address pairs)	docs-generic	verified	docs/devices/clock/protocol.md	0xb1806e78	file offset, not a VMA
 SHARED	0x2380e3c	data	payload copy-data offset O0x2380e3c (clock address pairs end)	docs-generic	verified	docs/devices/clock/protocol.md	0xb1806e78	file offset, not a VMA
 SHARED	0x2429444	data	unknown	startup-docs	hypothesis	docs/startup/first.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x2aa0400	data	layer extent 0x02aa0400	display-bank	observed	work/runs/ex-battery-runtime/issue476-update-20261014.md		retained geometry; semantic value
 SHARED	0x4008000	mmio	unknown	startup-docs	hypothesis	docs/startup/bootshim.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4008e00	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4008f00	mmio	unknown	startup-docs	hypothesis	docs/startup/first.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3212,6 +3397,9 @@ SHARED	0x4008ffc	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md,docs/s
 SHARED	0x4009000	mmio	unknown	startup-docs	hypothesis	docs/startup/smp.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4060001	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4060002	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x410004f	data	capture event id 0x0410004f	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x1022a8be	semantic value
+SHARED	0x41000ad	data	capture event id 0x041000ad (G.byte[0x1d] nonzero variant)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md	0x41000ac	semantic value
+SHARED	0x41000b1	data	capture event id 0x041000b1 (payload 0x5a)	capture-state	verified	work/runs/lcdnext-capturestate15/issue485.md		semantic value
 SHARED	0x4250000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4251000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4264000	mmio	unknown	startup-docs	hypothesis	docs/startup/first.md,docs/startup/memc.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3293,12 +3481,14 @@ SHARED	0x2c0a0560	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		addr
 SHARED	0x2c0b0000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x3fffffff	data	event mask value 0x3fffffff	docs-generic	verified	docs/runtime/readoutstate.md	0x10238ee4	mask argument; semantic value
 SHARED	0x40000000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x40000130	data	software configuration property id 0x40000130	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md		source of property unresolved
 SHARED	0x400001d3	mmio	unknown	startup-docs	hypothesis	docs/startup/cpu_board.md,docs/startup/first.md,docs/startup/memc.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40012000	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4001300c	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40014808	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40020000	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40026000	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x41080c01	data	capture event id 0x41080c01 (payload = saved pending)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md		semantic value
 SHARED	0x42010001	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x42062002	data	unknown	startup-docs	hypothesis	docs/architecture.md,docs/startup/display.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x42091001	data	save-handoff command id 0x42091001	docs-generic	verified	docs/devices/save/protocol.md		local request worker command; semantic id
