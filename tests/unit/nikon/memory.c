@@ -266,6 +266,30 @@ static void test_display_parameter(void)
     g_assert_cmpint(memory_region_dispatch_write(display, 0x1428, 0,
                     MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
 
+    /* Original 1046d6d0 reads the overlay-update command after a layer
+     * configuration pass and writes one unless the hardware reports three.
+     * The same port-relative word exists independently in both apertures. */
+    for (unsigned bank = 0; bank < 2; bank++) {
+        MemoryRegion *overlay = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev),
+                                                       bank);
+
+        g_assert_cmpint(memory_region_dispatch_read(overlay, 0x2604, &value,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+        g_assert_cmphex(value, ==, 0);
+        g_assert_cmpint(memory_region_dispatch_write(overlay, 0x2604, 1,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+        g_assert_cmpint(memory_region_dispatch_read(overlay, 0x2604, &value,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+        g_assert_cmphex(value, ==, 1);
+        g_assert_cmpint(memory_region_dispatch_write(overlay, 0x2604, 2,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        g_assert_cmpint(memory_region_dispatch_write(overlay, 0x2604, 3,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        g_assert_cmpint(memory_region_dispatch_read(overlay, 0x2604, &value,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+        g_assert_cmphex(value, ==, 1);
+    }
+
     /* Region3 is the D000 aperture: D100 is the observed gate and D200 is
      * the sole direct caller's zero-valued parameter. */
     parameter = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 3);
@@ -348,6 +372,14 @@ static void test_display_parameter(void)
                     MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
     g_assert_cmphex(value, ==, 0x0abc0def);
     device_cold_reset(dev);
+    for (unsigned bank = 0; bank < 2; bank++) {
+        MemoryRegion *overlay = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev),
+                                                       bank);
+
+        g_assert_cmpint(memory_region_dispatch_read(overlay, 0x2604, &value,
+                        MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+        g_assert_cmphex(value, ==, 0);
+    }
     g_assert_cmpint(memory_region_dispatch_read(display, 0x1420, &value,
                     MO_32, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
     g_assert_cmphex(value, ==, 0);

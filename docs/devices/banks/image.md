@@ -31,6 +31,7 @@ this object receipt does not establish a submitted frame.
 | C1DA/C296 | Coefficients at selector addresses04a0/04d0/1490/14f0 or port2840/3840 |
 | D6E8 family | Port layout2200, dimensions2204, coordinate2208, four two-bit lane selectors2210 |
 | D48A/D568 | Ten dimensions2400..2424; first primary2440, further primary2480..24a0; secondary24c0..24e4; byte strides2500..2524/2540..2564; positions2580..25a4; enable25c0 |
+| D6D0 | Per-port overlay update2604/3604: read, write1 unless the complete value is3 |
 | Second port | The same complete arrays plus1000 |
 | 104d94b6/104dda26 | Layouts0..6 from formats11..17; layout0 uses four primary bytes, others two; layouts5/6 have a separate plane |
 | CFB6/D060 and104dd230 | Forty-two records: position1800, extent1900, two retained six-bit fields1a00, three color bytes1b00 |
@@ -42,6 +43,16 @@ cannot start a main transaction; main1204 is not two dimensions; main1400 is
 not an encoding enum. Layer0 uses the separately supplied2440 primary pointer,
 while other layers use the parallel pointer array. The model preserves this
 original asymmetry.
+
+The two direct D6D0 callers commit dirty configuration for at most ten layers,
+clear each layer dirty flag, request the per-port update and then clear the
+port dirty flag. The finite model retains only the observed guest command bit0
+with a cold-zero reset. It does not manufacture value3, an event, an interrupt
+or completion. No firmware producer of values2/3 was found; the physical
+meaning of bit1 remains outside this contract. The fixed WonderLantern Z7
+reference independently places a retained two-bit word at the same port
+offset, corroborating the register family but not expanding the Z7II guest
+write set.
 
 D060 proves bitmap semantics by testing1c00 for indices below32 and1c04 for
 the remaining entries. D0D2 alone merely writes two arbitrary packet words
