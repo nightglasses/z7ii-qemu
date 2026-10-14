@@ -81,6 +81,32 @@ The protocol candidate is the Socionext-authored [fixed SPI register header](htt
 
 `hw/nikon/devices/spi.c` implements one SysBus device per channel using upstream [SSI](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/ssi/ssi.c#L156-L168), [Fifo32](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/qemu/fifo32.h), Clock and QEMUTimer. Word accesses move FIFO entries; status reflects occupancy and a pending frame; completed master frames produce received words, watermark/done events, and genuine GIC input state. Interrupt W1C clears latched events. Reads alone do not shift data or create completion. A master frame on an empty upstream SSI bus receives zero, the explicit disconnected MISO-low endpoint, not a device ID or a command acknowledgement.
 
+Synchronous master frames retain the intended serial-clock cadence. The first
+word is scheduled from the current virtual time; each immediately following
+word is scheduled from the preceding intended deadline. A late main-loop timer
+callback can therefore process already elapsed word deadlines without adding
+host scheduling delay to every serial period. Empty FIFO, disable, close,
+reset and cancellation discard that cadence. Completion from an asynchronous
+peer also discards it because external backpressure, rather than the local
+clock, determines when the next word can begin.
+
+The unchanged-firmware EX transport exposed the prior scheduling error. With
+the same 48 MHz, 16-bit, divide-by-two guest configuration, its first 256-byte
+descriptor was split when an EX receive window ended with NDTR96: only 160
+bytes had arrived. Individual nominal two-microsecond words had accumulated
+roughly millisecond host callback delays because every next timer used
+`now + period`. With intended-deadline scheduling, all128 words complete in
+one EX DMA arm, NDTR reaches zero, the firmware receives its battery report,
+and startup naturally reaches the graphics transfer producer. This is an
+unchanged-firmware progression receipt, not an LCD-frame completion claim.
+
+The system-linked `/nikon/spi/late-callback-cadence` unit test advances the
+virtual clock across four frame deadlines before running timers once. The old
+implementation leaves three TX words queued; the corrected implementation
+drains all four into RX and raises the ordinary transfer-done cause. The same
+fixture checks idle restart, disable and reset boundaries. The focused native
+`/arm/nikon/spi` batch passes all nine subtests with the corrected device.
+
 | Virtual-board input | Modeled behavior and boundary |
 |---|---|
 | Eleven independent 32-word FIFOs | Depth is a positive declared parameter; count, empty/full and overflow are derived from actual queue state. Real physical capacity is unmeasured. |

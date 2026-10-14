@@ -35,6 +35,7 @@ struct NikonSPIState {
     const NikonSPIAsyncOps *async_ops;
     void *async_opaque;
     uint64_t token;
+    int64_t next_deadline_ns;
     bool dma_bound, async_bound, waiting, submitted;
     bool asserted, shifting, overflow, reported_error;
 };
@@ -84,9 +85,14 @@ static void nikon_spi_schedule(NikonSPIState *s)
 {
     unsigned bits = ((s->aux >> 8) & 31) + 1;
     uint64_t cycles = bits * ((s->ctrl & 2) ? 2 * (s->div + 1) : 1);
+    int64_t period_ns;
 
+    if (s->shifting) {
+        return;
+    }
     if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
-        fifo32_is_empty(&s->tx) || s->shifting) {
+        fifo32_is_empty(&s->tx)) {
+        s->next_deadline_ns = 0;
         return;
     }
     /*
@@ -94,8 +100,13 @@ static void nikon_spi_schedule(NikonSPIState *s)
      * slave mode. Master frames use the public divider formula.
      */
     s->shifting = true;
-    timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              MAX(1, clock_ticks_to_ns(s->clock, cycles + s->delay)));
+    period_ns = MAX(1, clock_ticks_to_ns(s->clock, cycles + s->delay));
+    if (!s->next_deadline_ns) {
+        s->next_deadline_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + period_ns;
+    } else {
+        s->next_deadline_ns += period_ns;
+    }
+    timer_mod(s->timer, s->next_deadline_ns);
 }
 
 static void nikon_spi_complete(NikonSPIState *s, uint32_t received)
@@ -149,6 +160,7 @@ static void nikon_spi_shift(void *opaque)
     if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
         fifo32_is_empty(&s->tx)) {
         s->shifting = false;
+        s->next_deadline_ns = 0;
         return;
     }
     if (s->async_bound) {
@@ -173,6 +185,8 @@ void nikon_spi_async_complete(DeviceState *dev, uint64_t token,
     NikonSPIState *s = NIKON_SPI(dev);
 
     if (s->waiting && s->submitted && s->token == token) {
+        /* External backpressure breaks the synchronous serial cadence. */
+        s->next_deadline_ns = 0;
         nikon_spi_complete(s, received);
     }
 }
@@ -197,6 +211,7 @@ static void nikon_spi_cancel(NikonSPIState *s)
 
     timer_del(s->timer);
     s->shifting = false;
+    s->next_deadline_ns = 0;
     s->waiting = s->submitted = false;
     s->token++;
     if (submitted) {
