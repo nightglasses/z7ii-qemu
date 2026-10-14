@@ -229,6 +229,60 @@ completion the next explicit boundary is CPU0 `PC1046d6da`, READ32
 `PA20146604`. That is the display bank1 port0 scalar at bank-relative offset
 `2604`, directly downstream of graphics-buffer initialization.
 
+## Finite rear-LCD RGBA composition clear
+
+After the source-backed bank `2604` value was retained, unchanged C1.70
+naturally submits a sixth complete graphics pair at `106ee3c6`. Stream0 is
+exactly232 bytes (29 port units) and stream1 is exactly416 bytes (52 units).
+The setup creates two indirect filled paths with keys `00010001` and
+`00010002`. Both use segment bytes `02 07 09 07 00` and five float32
+coordinates `(0,6,1024,682,-1024)`. The draw selects format0 RGBA8888,
+1024x688 extent, target `bf309600`, mode8, packed little-endian paint
+`ff000000`, state `108`, and triggers both keys once. This is passive
+original-firmware evidence at the correct `10020000` MAS VMA, not a synthetic
+boot input.
+
+Command decoding and the interpretation of indirect paths, format0 RGBA image
+storage, mode8 clears and packed little-endian RGBA paint are corroborated by
+[WonderLantern's fixed Z7 implementation at97abf0b](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L158-L179)
+and its [draw path](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L306-L451).
+The model imports none of that project's memory whitelist, generic renderer or
+console probe. Cross-model agreement supports this finite command meaning; it
+does not claim identical Z7/Z7II physical graphics silicon.
+
+The executor accepts only the observed232/416-byte command ordering and every
+fixed header, mask, register value, path key, format, extent, mode, color,
+state and pair of draw triggers. The two dynamic indirect-path operands must
+match between setup and draw. Their shared segment and coordinate addresses
+must be complete readable direct-memory ranges containing exactly the path
+above. Unknown opcodes or fields, near-match programs, other formats or
+geometry, truncated streams, bad path input, unbacked ranges, 32-bit overflow,
+or overlap among command streams, path inputs and output reject before a
+successful IRQ.
+
+Resource57 table record5 establishes the exact backing slot
+`[bf309600,bf7b9600)`. The draw declares the complete1024x688 target extent
+`[bf309600,bf5b9600)`, length `2b0000`, and preflights that whole range. Unlike
+the two-plane YUV profile, format0 has no six-row `y_bias`: path y=6..688 writes
+only rows6 through687. Successful execution maps and writes RGBA bytes
+`00 00 00 ff` to `[bf30f600,bf5b9600)`, exactly `2aa000` bytes. It leaves the
+top alignment rows `[bf309600,bf30f600)`, slot tail
+`[bf5b9600,bf7b9600)` and both neighbors unchanged. Reset or unrealize before
+the deferred timer cancels without output or IRQ; execution-time mapping loss
+also preserves the surface. Completion uses the existing IRQ129 and original
+`1020=0` ACK path.
+
+The target is an upstream primary/HAIMENMONI rear-LCD composition surface, not
+the final scanout and not EVF output. The model does not present these bytes or
+copy them into the `cb4a7000` display arena. That next consumer/commit remains
+firmware-produced and is the next natural execution boundary after this
+profile. Synthetic unit coverage verifies every active output byte, untouched
+top rows, tail and guards, strict field/path/format/range/overlap rejection,
+opaque-operand echo/nonzero/distinct rules, destination preservation,
+execution-time map loss and reset/unrealize cancellation. The memory qtest
+independently checks the exact resource57 slot boundaries and reset retention.
+These fixtures do not claim unchanged-firmware GUI or LCD completion.
+
 The functional allocation bound is128 KiB per stream, not recovered silicon
 capacity. Odd command-stream sources, oversized counts, zero/missing-count
 starts, MMIO/unbacked command sources, duplicate starts and pending operand

@@ -202,6 +202,33 @@ static void test_display_buffers(void)
     memory_quit(&t);
 }
 
+static void test_lcd_composition(void)
+{
+    const uint64_t base = 0xbf309600;
+    const uint64_t draw_end = 0xbf5b9600;
+    const uint64_t end = 0xbf7b9600;
+    MemoryTest t = memory_init("");
+
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, draw_end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0);
+    qtest_writel(t.qts, base, 0x1cd00000);
+    qtest_writel(t.qts, draw_end, 0x1cd00001);
+    qtest_writel(t.qts, end - 4, 0x1cd00002);
+
+    /* Only resource57 table index5 is backed, including its untouched tail. */
+    qtest_writel(t.qts, base - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x87654321);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x1cd00000);
+    g_assert_cmphex(qtest_readl(t.qts, draw_end), ==, 0x1cd00001);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x1cd00002);
+    memory_quit(&t);
+}
+
 static void prefix_copy(QTestState *qts, uint32_t source,
                         uint32_t destination, uint32_t length)
 {
@@ -637,6 +664,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
     qtest_add_func("/nikon/memory/display-buffers", test_display_buffers);
+    qtest_add_func("/nikon/memory/lcd-composition", test_lcd_composition);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);

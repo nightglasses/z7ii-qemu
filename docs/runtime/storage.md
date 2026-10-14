@@ -39,6 +39,33 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
+### Rear-LCD composition slot
+
+The correct-base C1.70 ROM table at `VA123b73ec` contains nine 12-byte records
+`{enabled,size,destination-pointer}`. Record5 at `123b7428` is
+`{1,004b0000,b181d388}`. The original resource57 allocation route
+`1063da70 -> 1030d96e -> 1030d85c` selects TBB index19 and returns the larger
+owner allocation; the partition writer at `10634b04/10634b06` stores the
+record5 current address `bf309600` through `b181d388`, then advances it by
+`004b0000` to `bf7b9600`. These are MAS virtual addresses analyzed with ROM
+base `10020000`; the published buffer addresses are physical operands.
+
+The board therefore backs only resource57 record5
+`[bf309600,bf7b9600)`, length `4b0000`, as cold-zero RAM. The name
+`lcd-composition` describes its observed software use, not a claimed DDR part.
+Guest code owns the allocation metadata, contents and reuse. In the observed
+graphics job the first `2b0000` bytes, `[bf309600,bf5b9600)`, are a
+1024x688 RGBA8888 target extent. Its path covers rows6 through687, so the
+active write is `[bf30f600,bf5b9600)`, length `2aa000`. The top six-row
+alignment area `[bf309600,bf30f600)` and remaining slot tail
+`[bf5b9600,bf7b9600)` are storage but this job does not modify them. Neither
+neighboring address is granted RAM.
+
+This is the primary/HAIMENMONI (rear LCD) upstream composition surface selected
+by output-table bit1. It is not the final scanout arena below, does not itself
+produce a console frame, and does not replace the firmware-owned consumer that
+must later move or commit composed pixels into display output.
+
 ### Display buffer arena
 
 An unchanged-firmware read-only run independently publishes two three-buffer
@@ -66,9 +93,10 @@ owns reuse and clearing.
 `tests/qtest/nikon/memory.c` covers every storage class's first and last word,
 separate retention across adjacent classes, original copy/stack/heap
 destinations, logical bus mirror exclusion, MXIC decode withdrawal/restoration
-without losing RAM contents, both outer holes, all six display-buffer bases,
-the display arena's exact neighbors, and reset retention. Build and execution
-results are separately scoped below.
+without losing RAM contents, both outer holes, the exact composition slot and
+its neighbors, all six display-buffer bases, the display arena's exact
+neighbors, and reset retention. Build and execution results are separately
+scoped below.
 
 ## Integrated execution
 

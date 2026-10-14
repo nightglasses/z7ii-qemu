@@ -55,6 +55,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_SELECTOR_ONE_SIZE 0x400000ULL
 #define Z7II_DISPLAY_BUFFER_BASE 0xcb4a7000ULL
 #define Z7II_DISPLAY_BUFFER_SIZE 0x1194000ULL
+#define Z7II_LCD_COMPOSITION_BASE 0xbf309600ULL
+#define Z7II_LCD_COMPOSITION_SIZE 0x4b0000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
@@ -140,6 +142,7 @@ struct Z7IIMachineState {
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
+    MemoryRegion lcd_composition;
     MemoryRegion display_buffers;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     MemoryRegion download;
@@ -801,6 +804,15 @@ static void z7ii_init(MachineState *machine)
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
     /*
+     * ROM table123b73ec record5 requests 4b0000 bytes and publishes its
+     * resource57 allocation through b181d388. Original writer10634b04/06
+     * stores BF309600 and advances the exact slot end to BF7B9600. Backing
+     * this one cold-zero slot is a functional-board storage assumption; the
+     * guest owns allocation metadata, contents, rendering and later reuse.
+     */
+    z7ii_ram(&s->lcd_composition, "z7ii.lcd-composition",
+             Z7II_LCD_COMPOSITION_BASE, Z7II_LCD_COMPOSITION_SIZE);
+    /*
      * Original image-memory acquire requests publish six contiguous physical
      * buffers. The first triplet starts at CB4A7000 with 384000-byte spacing;
      * the second starts at CBF33000 with 258000-byte spacing. Their exact union
@@ -1316,6 +1328,7 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
+                 "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
                  machine->cpu_type, s->num_cpus, image_size,

@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/bswap.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
@@ -30,6 +31,19 @@
     (TRANSFER_CLEAR_WIDTH * TRANSFER_CLEAR_HEIGHT)
 #define TRANSFER_CLEAR_YUVA_PRIMARY_BYTES \
     (2 * TRANSFER_CLEAR_PLANE_BYTES)
+#define TRANSFER_RGBA_WIDTH 1024U
+#define TRANSFER_RGBA_HEIGHT 688U
+#define TRANSFER_RGBA_TARGET_BYTES \
+    (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_HEIGHT)
+#define TRANSFER_RGBA_ACTIVE_Y 6U
+#define TRANSFER_RGBA_ACTIVE_HEIGHT 682U
+#define TRANSFER_RGBA_ACTIVE_OFFSET \
+    (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_Y)
+#define TRANSFER_RGBA_ACTIVE_BYTES \
+    (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_HEIGHT)
+#define TRANSFER_RGBA_TARGET 0xbf309600U
+#define TRANSFER_RGBA_PATH_SEGMENT_BYTES 5U
+#define TRANSFER_RGBA_PATH_COORDINATE_BYTES 20U
 
 typedef struct NikonTransferLutProgram {
     uint32_t source;
@@ -38,8 +52,14 @@ typedef struct NikonTransferLutProgram {
     uint16_t secondary[TRANSFER_LUT_SECONDARY_ENTRIES];
 } NikonTransferLutProgram;
 
+typedef enum NikonTransferProgramKind {
+    TRANSFER_PROGRAM_LUT,
+    TRANSFER_PROGRAM_YUV_CLEAR,
+    TRANSFER_PROGRAM_RGBA_CLEAR,
+} NikonTransferProgramKind;
+
 typedef struct NikonTransferProgram {
-    bool clear;
+    NikonTransferProgramKind kind;
     NikonTransferLutProgram lut;
     uint32_t plane[2];
     uint32_t plane_bytes[2];
@@ -396,6 +416,72 @@ static const NikonTransferField clear_draw_fields[] = {
     { 409, 0x00081004 }, { 410, 1 },
 };
 
+/*
+ * The original sixth pair contains two indirect filled paths. Dynamic words
+ * 22/26 select their shared coordinate/segment arrays; words34/48 are opaque
+ * per-path operands repeated at draw words80/91. Everything else is fixed.
+ */
+static const NikonTransferField rgba_setup_fields[] = {
+    { 0, 0x00691004 }, { 1, 0x80 },
+    { 2, 0x005ef00e }, { 3, 0x3f800000 },
+    { 5, 0x0063f004 }, { 6, 5 },
+    { 7, 0x0040f004 }, { 8, 0x0ac01000 },
+    { 9, 0x0040f004 }, { 10, 0x0ac01000 },
+    { 11, 0x0041f046 }, { 12, 0x3f800000 },
+    { 16, 0x3f800000 }, { 20, 0x3f800000 },
+    { 21, 0x0004f004 },
+    { 23, 0x0005f004 }, { 24, 0xd0000005 },
+    { 25, 0x0002f004 },
+    { 27, 0x0003f004 }, { 28, 0x10000005 },
+    { 29, 0x00653004 }, { 30, 0x00002100 },
+    { 31, 0x0066f004 }, { 32, 0x00006004 },
+    { 33, 0x0080f026 }, { 36, 0x200 }, { 37, 0x08701000 },
+    { 39, 0x0006f004 }, { 40, 1 },
+    { 41, 0x0085f004 }, { 42, 0x00010001 },
+    { 43, 0x0005f004 }, { 44, 0xd0000005 },
+    { 45, 0x0003f004 }, { 46, 0x10000005 },
+    { 47, 0x0080f026 }, { 50, 0x200 }, { 51, 0x02501000 },
+    { 52, 0x0001f790 }, { 53, 0x0006f004 }, { 54, 1 },
+    { 55, 0x0085f004 }, { 56, 0x00010002 },
+};
+
+static const NikonTransferField rgba_draw_fields[] = {
+    { 0, 0x01408004 }, { 2, 0x01901004 },
+    { 4, 0x014ee004 }, { 5, 0x001b0000 },
+    { 6, 0x0156e004 }, { 7, 0x001b0000 },
+    { 8, 0x01a2f004 }, /* format0 RGBA8888 */
+    { 10, 0x01a3f004 }, { 11, 0x02b00400 },
+    { 12, 0x01844004 }, { 14, 0x01a7f004 }, { 15, 0x01000101 },
+    { 16, 0x011cf004 }, { 17, 0x02b00000 },
+    { 18, 0x01a08004 }, { 20, 0x01aa1004 },
+    { 22, 0x01a04004 }, { 23, 0x00010000 },
+    { 24, 0x01841004 }, { 26, 0x01842004 },
+    { 28, 0x01a02004 }, { 30, 0x01a29004 },
+    { 32, 0x01a4f004 }, { 33, TRANSFER_RGBA_TARGET },
+    { 34, 0x01a51004 }, { 35, 1 }, { 36, 0x01a74004 },
+    { 38, 0x01401004 }, { 40, 0x014df004 }, { 42, 0x014df004 },
+    { 44, 0x00c0f00e }, { 45, 0x03ff0000 }, { 46, 0x02af0000 },
+    { 47, 0x01001004 }, { 48, 1 },
+    { 49, 0x01151004 }, { 50, 1 },
+    { 51, 0x01b01004 }, { 52, 0xd },
+    { 53, 0x01b31004 }, { 54, 1 },
+    { 55, 0x01848004 }, { 57, 0x01a11004 },
+    { 59, 0x01841004 }, { 60, 8 }, /* clear */
+    { 61, 0x01401004 }, { 63, 0x014df004 }, { 65, 0x014df004 },
+    { 67, 0x01402004 }, { 69, 0x014df004 }, { 71, 0x014df004 },
+    { 73, 0x0115c004 },
+    { 75, 0x0185f004 }, { 76, 0xff000000 },
+    { 77, 0x01863004 }, { 78, 0x108 },
+    { 79, 0x00a0f02e }, { 82, 0x200 }, { 83, 0x08701000 },
+    { 85, 0x00040002 }, { 86, 0x00a6f004 }, { 87, 0x00010001 },
+    { 88, 0x01a61004 }, { 89, 1 },
+    { 90, 0x00a0f02e }, { 93, 0x200 }, { 94, 0x02501000 },
+    { 95, 0x21c }, { 96, 0x00040002 },
+    { 97, 0x00a6f004 }, { 98, 0x00010002 },
+    { 99, 0x01a61004 }, { 100, 1 },
+    { 101, 0x00081004 }, { 102, 1 },
+};
+
 static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
                                             unsigned count,
                                             const NikonTransferField *fields,
@@ -423,6 +509,138 @@ static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
         }
     }
     return field == field_count;
+}
+
+static bool nikon_transfer_rgba_fingerprint(const uint32_t *words,
+                                            unsigned count,
+                                            const NikonTransferField *fields,
+                                            unsigned field_count, bool draw)
+{
+    unsigned field = 0;
+
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t expected = 0, value = le32_to_cpu(words[i]);
+
+        if (field < field_count && fields[field].word == i) {
+            expected = fields[field++].value;
+        }
+        if ((!draw && (i == 22 || i == 26 || i == 34 || i == 48)) ||
+            (draw && (i == 80 || i == 91))) {
+            continue;
+        }
+        if (value != expected) {
+            return false;
+        }
+    }
+    return field == field_count;
+}
+
+static bool nikon_transfer_overlap(uint64_t first, uint64_t first_bytes,
+                                   uint64_t second, uint64_t second_bytes)
+{
+    return first < second + second_bytes && second < first + first_bytes;
+}
+
+static bool nikon_transfer_rgba_parse(NikonTransferState *s,
+                                      NikonTransferProgram *program,
+                                      const char **reason)
+{
+    static const uint8_t expected_segments[TRANSFER_RGBA_PATH_SEGMENT_BYTES] = {
+        0x02, 0x07, 0x09, 0x07, 0x00,
+    };
+    static const uint32_t expected_coordinates[] = {
+        0x00000000, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000,
+    };
+    const uint32_t *setup, *draw;
+    uint8_t segments[TRANSFER_RGBA_PATH_SEGMENT_BYTES];
+    uint32_t coordinates[ARRAY_SIZE(expected_coordinates)];
+    size_t setup_bytes, draw_bytes;
+    uint64_t input[4], input_bytes[4];
+
+    setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
+    draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    if (setup_bytes != NIKON_TRANSFER_RGBA_SETUP_BYTES ||
+        draw_bytes != NIKON_TRANSFER_RGBA_DRAW_BYTES) {
+        *reason = "transfer-stream-truncated";
+        return false;
+    }
+    if (le32_to_cpu(draw[9]) != 0) {
+        *reason = "transfer-stream-format-not-supported";
+        return false;
+    }
+    if (le32_to_cpu(draw[11]) !=
+            (TRANSFER_RGBA_HEIGHT << 16 | TRANSFER_RGBA_WIDTH)) {
+        *reason = "transfer-stream-geometry-not-supported";
+        return false;
+    }
+    if (!nikon_transfer_rgba_fingerprint(setup, setup_bytes / 4,
+            rgba_setup_fields, ARRAY_SIZE(rgba_setup_fields), false) ||
+        !nikon_transfer_rgba_fingerprint(draw, draw_bytes / 4,
+            rgba_draw_fields, ARRAY_SIZE(rgba_draw_fields), true) ||
+        le32_to_cpu(draw[80]) != le32_to_cpu(setup[34]) ||
+        le32_to_cpu(draw[91]) != le32_to_cpu(setup[48]) ||
+        !le32_to_cpu(setup[34]) || !le32_to_cpu(setup[48]) ||
+        le32_to_cpu(setup[34]) == le32_to_cpu(setup[48])) {
+        *reason = "transfer-stream-program-not-supported";
+        return false;
+    }
+
+    input[0] = s->stream[0].source;
+    input_bytes[0] = setup_bytes;
+    input[1] = s->stream[1].source;
+    input_bytes[1] = draw_bytes;
+    input[2] = le32_to_cpu(setup[26]);
+    input_bytes[2] = sizeof(segments);
+    input[3] = le32_to_cpu(setup[22]);
+    input_bytes[3] = sizeof(coordinates);
+    for (unsigned i = 0; i < ARRAY_SIZE(input); i++) {
+        if (input[i] > UINT32_MAX - input_bytes[i] + 1ULL) {
+            *reason = "transfer-stream-range-overflow";
+            return false;
+        }
+        if (nikon_transfer_overlap(TRANSFER_RGBA_TARGET,
+                TRANSFER_RGBA_TARGET_BYTES, input[i], input_bytes[i])) {
+            *reason = "transfer-stream-operands-overlap";
+            return false;
+        }
+        for (unsigned j = 0; j < i; j++) {
+            if (nikon_transfer_overlap(input[i], input_bytes[i],
+                                       input[j], input_bytes[j])) {
+                *reason = "transfer-stream-operands-overlap";
+                return false;
+            }
+        }
+    }
+    if (nikon_transfer_span(TRANSFER_RGBA_TARGET,
+            TRANSFER_RGBA_TARGET_BYTES, true) < TRANSFER_RGBA_TARGET_BYTES ||
+        !nikon_transfer_range(input[2], input_bytes[2], false) ||
+        !nikon_transfer_range(input[3], input_bytes[3], false)) {
+        *reason = "transfer-stream-memory-range-not-backed";
+        return false;
+    }
+    if (dma_memory_read(&address_space_memory, input[2], segments,
+            sizeof(segments), MEMTXATTRS_UNSPECIFIED) != MEMTX_OK ||
+        dma_memory_read(&address_space_memory, input[3], coordinates,
+            sizeof(coordinates), MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        *reason = "transfer-stream-path-read-failed";
+        return false;
+    }
+    if (memcmp(segments, expected_segments, sizeof(segments))) {
+        *reason = "transfer-stream-path-not-supported";
+        return false;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(coordinates); i++) {
+        if (le32_to_cpu(coordinates[i]) != expected_coordinates[i]) {
+            *reason = "transfer-stream-path-not-supported";
+            return false;
+        }
+    }
+    program->kind = TRANSFER_PROGRAM_RGBA_CLEAR;
+    /* Format0 has no YUV y-bias: this path covers target rows6..687. */
+    program->plane[0] = TRANSFER_RGBA_TARGET + TRANSFER_RGBA_ACTIVE_OFFSET;
+    program->plane_bytes[0] = TRANSFER_RGBA_ACTIVE_BYTES;
+    program->format = 0;
+    return true;
 }
 
 static bool nikon_transfer_clear_parse(NikonTransferState *s,
@@ -509,7 +727,7 @@ static bool nikon_transfer_clear_parse(NikonTransferState *s,
         program->plane[i] = destination;
     }
     program->format = format;
-    program->clear = true;
+    program->kind = TRANSFER_PROGRAM_YUV_CLEAR;
     return true;
 }
 
@@ -517,12 +735,43 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
                                         NikonTransferProgram *program,
                                         const char **reason)
 {
-    program->clear = false;
+    program->kind = TRANSFER_PROGRAM_LUT;
+    if (g_bytes_get_size(s->stream[1].bytes) ==
+        NIKON_TRANSFER_RGBA_DRAW_BYTES) {
+        return nikon_transfer_rgba_parse(s, program, reason);
+    }
     if (g_bytes_get_size(s->stream[1].bytes) ==
         NIKON_TRANSFER_CLEAR_DRAW_BYTES) {
         return nikon_transfer_clear_parse(s, program, reason);
     }
     return nikon_transfer_lut_parse(s, &program->lut, reason);
+}
+
+static bool nikon_transfer_rgba_execute(NikonTransferProgram *program,
+                                        const char **reason)
+{
+    hwaddr mapped = program->plane_bytes[0];
+    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+    uint32_t *destination;
+
+    attrs.memory = true;
+    destination = address_space_map(&address_space_memory, program->plane[0],
+                                    &mapped, true, attrs);
+    if (!destination || mapped != program->plane_bytes[0]) {
+        if (destination) {
+            address_space_unmap(&address_space_memory, destination, mapped,
+                                true, 0);
+        }
+        *reason = "transfer-stream-output-map-failed";
+        return false;
+    }
+    for (unsigned i = 0; i < program->plane_bytes[0] / sizeof(*destination);
+         i++) {
+        stl_le_p(&destination[i], 0xff000000);
+    }
+    address_space_unmap(&address_space_memory, destination, mapped, true,
+                        mapped);
+    return true;
 }
 
 static bool nikon_transfer_clear_execute(NikonTransferProgram *program,
@@ -590,8 +839,11 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s,
     if (!nikon_transfer_stream_parse(s, &parsed, reason)) {
         return false;
     }
-    if (parsed.clear) {
+    if (parsed.kind == TRANSFER_PROGRAM_YUV_CLEAR) {
         return nikon_transfer_clear_execute(&parsed, reason);
+    }
+    if (parsed.kind == TRANSFER_PROGRAM_RGBA_CLEAR) {
+        return nikon_transfer_rgba_execute(&parsed, reason);
     }
     program = parsed.lut;
     input = g_malloc(TRANSFER_LUT_INPUT_STRIDE * TRANSFER_LUT_INPUT_HEIGHT);
