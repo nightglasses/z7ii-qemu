@@ -57,6 +57,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_DISPLAY_BUFFER_SIZE 0x1194000ULL
 #define Z7II_LCD_COMPOSITION_BASE 0xbf309600ULL
 #define Z7II_LCD_COMPOSITION_SIZE 0x4b0000ULL
+#define Z7II_RESOURCE57_RECORD0_BASE 0xbec5f200ULL
+#define Z7II_RESOURCE57_RECORD0_SIZE 0x4b0000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
@@ -142,6 +144,7 @@ struct Z7IIMachineState {
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
+    MemoryRegion resource57_record0;
     MemoryRegion lcd_composition;
     MemoryRegion display_buffers;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
@@ -803,6 +806,13 @@ static void z7ii_init(MachineState *machine)
         z7ii_ram(&s->storage[i], z7ii_storage[i].name,
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
+    /*
+     * ROM table123b73ec record0 publishes a 4b0000-byte resource57 slot.
+     * The natural runtime fill clears a 720x480x4 prefix at BEC5F200. Back
+     * only this cold-zero slot; the guest owns its metadata and contents.
+     */
+    z7ii_ram(&s->resource57_record0, "z7ii.resource57-record0",
+             Z7II_RESOURCE57_RECORD0_BASE, Z7II_RESOURCE57_RECORD0_SIZE);
     /*
      * ROM table123b73ec record5 requests 4b0000 bytes and publishes its
      * resource57 allocation through b181d388. Original writer10634b04/06

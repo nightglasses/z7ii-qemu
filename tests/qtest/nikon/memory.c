@@ -229,6 +229,33 @@ static void test_lcd_composition(void)
     memory_quit(&t);
 }
 
+static void test_resource57_record0(void)
+{
+    const uint64_t base = 0xbec5f200;
+    const uint64_t fill_end = 0xbedb0a00;
+    const uint64_t end = 0xbf10f200;
+    MemoryTest t = memory_init("");
+
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0);
+    qtest_writel(t.qts, base, 0x57000000);
+    qtest_writel(t.qts, fill_end, 0x57000001);
+    qtest_writel(t.qts, end - 4, 0x57000002);
+
+    /* Only the exact resource57 record0 slot is storage. */
+    qtest_writel(t.qts, base - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x87654321);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57000000);
+    g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0x57000001);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57000002);
+    memory_quit(&t);
+}
+
 static void prefix_copy(QTestState *qts, uint32_t source,
                         uint32_t destination, uint32_t length)
 {
@@ -665,6 +692,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/outer-holes", test_outer_holes);
     qtest_add_func("/nikon/memory/display-buffers", test_display_buffers);
     qtest_add_func("/nikon/memory/lcd-composition", test_lcd_composition);
+    qtest_add_func("/nikon/memory/resource57-record0",
+                   test_resource57_record0);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);

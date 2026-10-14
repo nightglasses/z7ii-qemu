@@ -61,19 +61,25 @@ static QTestState *start(const char *file, bool readonly)
     return q;
 }
 
-static void request(QTestState *q, uint32_t destination)
+static void request_profile(QTestState *q, uint32_t width, uint32_t stride,
+                            uint32_t count, uint32_t destination)
 {
     qtest_writel(q, FILL, 0);
     qtest_writel(q, FILL + 4, 0x11);
     qtest_writel(q, FILL + 0x14, 1);
     qtest_writel(q, FILL + 0x18, 0);
     qtest_writel(q, FILL + 0x1c, 0);
-    qtest_writel(q, FILL + 0x20, LENGTH);
-    qtest_writel(q, FILL + 0x24, LENGTH);
-    qtest_writel(q, FILL + 0x28, 1);
+    qtest_writel(q, FILL + 0x20, width);
+    qtest_writel(q, FILL + 0x24, stride);
+    qtest_writel(q, FILL + 0x28, count);
     qtest_writel(q, FILL + 0x2c, 0);
     qtest_writel(q, FILL + 0x30, destination);
     qtest_writel(q, FILL + 0x10, 1);
+}
+
+static void request(QTestState *q, uint32_t destination)
+{
+    request_profile(q, LENGTH, LENGTH, 1, destination);
 }
 
 static void domain(bool readonly)
@@ -103,6 +109,24 @@ static void domain(bool readonly)
         memset(expected, 0, sizeof(expected));
     }
     g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    qtest_writel(q, FILL + 8, 0x11);
+    memset(expected, 0xa5, sizeof(expected));
+    g_assert_cmpint(pwrite(fd, expected, LENGTH / 2,
+                          BACKEND_SIZE - LENGTH / 2), ==, LENGTH / 2);
+    request(q, BACKEND_SIZE - LENGTH / 2);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
+    g_assert_cmpint(pread(fd, actual, LENGTH / 2,
+                         BACKEND_SIZE - LENGTH / 2), ==, LENGTH / 2);
+    if (!readonly) {
+        memset(expected, 0, LENGTH / 2);
+    }
+    g_assert_cmpmem(actual, LENGTH / 2, expected, LENGTH / 2);
+    qtest_writel(q, FILL + 8, 0x11);
+
+    /* The exact GUI tuple reaches the selected address space and fails when
+     * its fixed record0 destination is not mapped in this private domain. */
+    request_profile(q, 0x0b40, 0x0b40, 0x01e0, 0xbec5f200);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
     qtest_writel(q, FILL + 8, 0x11);
     request(q, BACKEND_SIZE);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);

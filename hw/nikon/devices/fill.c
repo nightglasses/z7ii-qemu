@@ -15,6 +15,11 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 
+#define NIKON_FILL_STARTUP_WIDTH 0x4000U
+#define NIKON_FILL_GUI_WIDTH 0x0b40U
+#define NIKON_FILL_GUI_ROWS 0x01e0U
+#define NIKON_FILL_GUI_DESTINATION 0xbec5f200U
+
 typedef struct NikonFillEngine {
     uint32_t control, mask, flags, pattern, parameter, destination;
     uint32_t dimension, width, stride, count;
@@ -111,12 +116,20 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                                  hwaddr offset, MemTxAttrs attrs)
 {
     uint64_t length = (uint64_t)e->width * e->count;
+    bool startup_profile = e->width == NIKON_FILL_STARTUP_WIDTH &&
+                           e->stride == e->width && e->count &&
+                           e->count < NIKON_FILL_STARTUP_WIDTH;
+    bool gui_profile = e == &s->engine[0] &&
+                       e->mask == 0x11 &&
+                       e->width == NIKON_FILL_GUI_WIDTH &&
+                       e->stride == NIKON_FILL_GUI_WIDTH &&
+                       e->count == NIKON_FILL_GUI_ROWS &&
+                       e->destination == NIKON_FILL_GUI_DESTINATION;
     MemTxResult result;
 
     if (e->control || e->configured != 127 || e->flags != 1 ||
         e->pattern || e->dimension || e->parameter ||
-        e->width != 0x4000 || e->stride != e->width ||
-        !e->count || e->count >= 0x4000 || (e->destination & 3) ||
+        (!startup_profile && !gui_profile) || (e->destination & 3) ||
         (uint64_t)e->destination + length > (1ULL << 32)) {
         return nikon_fill_error(s, offset, 4, true, 1,
                               "fill-request-profile-not-supported");

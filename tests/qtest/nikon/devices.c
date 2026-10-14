@@ -17,6 +17,11 @@
 #define GPIO 0x04282000
 #define EXIU 0x0426f000
 #define FILL 0x20070000
+#define GUI_FILL_DESTINATION 0xbec5f200
+#define GUI_FILL_WIDTH 0x0b40
+#define GUI_FILL_ROWS 0x01e0
+#define GUI_FILL_LENGTH (GUI_FILL_WIDTH * GUI_FILL_ROWS)
+#define RESOURCE57_RECORD0_END 0xbf10f200
 #define COPY 0x04251000
 #define HDMAC 0x2c020000
 
@@ -360,6 +365,23 @@ static void test_gpio_level(void)
     qtest_quit(q);
 }
 
+static void fill_request(QTestState *q, uint64_t base, uint32_t width,
+                         uint32_t stride, uint32_t count,
+                         uint32_t destination)
+{
+    qtest_writel(q, base, 0);
+    qtest_writel(q, base + 4, 0x11);
+    qtest_writel(q, base + 0x14, 1);
+    qtest_writel(q, base + 0x18, 0);
+    qtest_writel(q, base + 0x1c, 0);
+    qtest_writel(q, base + 0x20, width);
+    qtest_writel(q, base + 0x24, stride);
+    qtest_writel(q, base + 0x28, count);
+    qtest_writel(q, base + 0x2c, 0);
+    qtest_writel(q, base + 0x30, destination);
+    qtest_writel(q, base + 0x10, 1);
+}
+
 static void test_fill(void)
 {
     uint8_t bytes[0x4000];
@@ -372,17 +394,7 @@ static void test_fill(void)
 
         memset(bytes, 0xa5, sizeof(bytes));
         qtest_memwrite(q, destination, bytes, sizeof(bytes));
-        qtest_writel(q, base, 0);
-        qtest_writel(q, base + 4, 0x11);
-        qtest_writel(q, base + 0x14, 1);
-        qtest_writel(q, base + 0x18, 0);
-        qtest_writel(q, base + 0x1c, 0);
-        qtest_writel(q, base + 0x20, 0x4000);
-        qtest_writel(q, base + 0x24, 0x4000);
-        qtest_writel(q, base + 0x28, 1);
-        qtest_writel(q, base + 0x2c, 0);
-        qtest_writel(q, base + 0x30, destination);
-        qtest_writel(q, base + 0x10, 1);
+        fill_request(q, base, 0x4000, 0x4000, 1, destination);
         g_assert_cmphex(qtest_readl(q, base + 8), ==, 1);
         qtest_memread(q, destination, bytes, sizeof(bytes));
         for (unsigned i = 0; i < sizeof(bytes); i++) {
@@ -391,6 +403,75 @@ static void test_fill(void)
         qtest_writel(q, base + 8, 1);
         g_assert_cmphex(qtest_readl(q, base + 8), ==, 0);
     }
+    qtest_quit(q);
+}
+
+static void test_fill_gui(void)
+{
+    static const struct {
+        uint32_t width;
+        uint32_t stride;
+        uint32_t rows;
+        uint32_t destination;
+    } rejected[] = {
+        { 0x0b3f, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
+        { 0x0b41, 0x0b41, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01df, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01e1, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+          GUI_FILL_DESTINATION + 4 },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+          RESOURCE57_RECORD0_END - GUI_FILL_LENGTH / 2 },
+    };
+    const uint32_t draw_end = GUI_FILL_DESTINATION + GUI_FILL_LENGTH;
+    g_autofree uint8_t *bytes = g_malloc(GUI_FILL_LENGTH);
+    g_autofree uint8_t *zero = g_malloc0(GUI_FILL_LENGTH);
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    memset(bytes, 0xa5, GUI_FILL_LENGTH);
+    qtest_memwrite(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
+    qtest_writel(q, draw_end, 0xdec0ad01);
+    qtest_writel(q, RESOURCE57_RECORD0_END - 4, 0xdec0ad02);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
+        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+                     rejected[i].rows, rejected[i].destination);
+        g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+        g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+        g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
+    }
+
+    /* This runtime profile is observed only on engine0. */
+    fill_request(q, FILL + 0x40, GUI_FILL_WIDTH, GUI_FILL_WIDTH,
+                 GUI_FILL_ROWS, GUI_FILL_DESTINATION);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
+
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+                 GUI_FILL_DESTINATION);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x10), ==, 0);
+    g_assert_true(qtest_get_irq(q, 103 - 32));
+    qtest_memread(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_LENGTH, zero, GUI_FILL_LENGTH);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0xdec0ad01);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD0_END - 4), ==,
+                    0xdec0ad02);
+
+    qtest_writel(q, FILL + 8, 1);
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+    qtest_writel(q, GUI_FILL_DESTINATION, 0x51a70001);
+    qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0x51a70001);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0xdec0ad01);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD0_END - 4), ==,
+                    0xdec0ad02);
     qtest_quit(q);
 }
 
@@ -858,6 +939,7 @@ int main(int argc, char **argv)
     nikon_config_add_tests(image);
     nikon_bridge_add_tests();
     qtest_add_func("/nikon/fill", test_fill);
+    qtest_add_func("/nikon/gui-fill", test_fill_gui);
     qtest_add_func("/nikon/copy/transfer", test_copy);
     qtest_add_func("/nikon/copy/cancel", test_copy_cancel);
     qtest_add_func("/nikon/copy/large-jump", test_copy_large_jump);

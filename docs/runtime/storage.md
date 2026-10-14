@@ -39,6 +39,25 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
+### Resource57 record0 GUI canvas slot
+
+The same correct-base table and allocation path publish record0 through the
+firmware cell at `b181d384`. In the unchanged runtime its value is
+`bec5f200`; the record size is `4b0000`, yielding the exact physical slot
+`[bec5f200,bf10f200)`. The engine0 fill producer at Thumb `VA102dbadc` then
+configures width and stride `0b40`, row count `01e0`, and destination
+`bec5f200` before `VA102dbba2` submits the request. Its zeroed prefix is
+`[bec5f200,bedb0a00)`, length `151800`, corresponding to a 720x480 four-byte
+canvas. The remainder `[bedb0a00,bf10f200)` is record-owned storage but is not
+touched by this request.
+
+The board backs only this exact record0 slot as cold-zero RAM, independently
+from record5 below. Both adjacent addresses remain uncovered and contents
+persist across machine reset. The guest still owns publication, initialization,
+reuse and every later pixel. This canvas-sized request is upstream GUI storage;
+it does not itself establish rear-LCD scanout, EVF selection or a visible host
+frame.
+
 ### Rear-LCD composition slot
 
 The correct-base C1.70 ROM table at `VA123b73ec` contains nine 12-byte records
@@ -93,8 +112,8 @@ owns reuse and clearing.
 `tests/qtest/nikon/memory.c` covers every storage class's first and last word,
 separate retention across adjacent classes, original copy/stack/heap
 destinations, logical bus mirror exclusion, MXIC decode withdrawal/restoration
-without losing RAM contents, both outer holes, the exact composition slot and
-its neighbors, all six display-buffer bases, the display arena's exact
+without losing RAM contents, both outer holes, exact resource57 records0 and5
+and their neighbors, all six display-buffer bases, the display arena's exact
 neighbors, and reset retention. Build and execution results are separately
 scoped below.
 
