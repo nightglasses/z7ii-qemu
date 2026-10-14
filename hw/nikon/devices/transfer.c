@@ -28,6 +28,8 @@
 #define TRANSFER_CLEAR_HEIGHT 682U
 #define TRANSFER_CLEAR_PLANE_BYTES \
     (TRANSFER_CLEAR_WIDTH * TRANSFER_CLEAR_HEIGHT)
+#define TRANSFER_CLEAR_YUVA_PRIMARY_BYTES \
+    (2 * TRANSFER_CLEAR_PLANE_BYTES)
 
 typedef struct NikonTransferLutProgram {
     uint32_t source;
@@ -40,6 +42,8 @@ typedef struct NikonTransferProgram {
     bool clear;
     NikonTransferLutProgram lut;
     uint32_t plane[2];
+    uint32_t plane_bytes[2];
+    uint32_t format;
 } NikonTransferProgram;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTransferState, NIKON_TRANSFER)
@@ -406,7 +410,8 @@ static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
             expected = fields[field++].value;
         }
         if ((!draw && i == 37) ||
-            (draw && (i == 381 || i == 383 || i == 399))) {
+            (draw && (i == 9 || i == 379 || i == 381 || i == 383 ||
+                      i == 399))) {
             continue;
         }
         if (draw && ((i >= 72 && i < 328) || (i >= 340 && i < 372))) {
@@ -426,7 +431,8 @@ static bool nikon_transfer_clear_parse(NikonTransferState *s,
 {
     const uint32_t *setup, *draw;
     size_t setup_bytes, draw_bytes;
-    uint64_t first, second, extent = TRANSFER_CLEAR_PLANE_BYTES;
+    uint64_t first, second;
+    uint32_t format;
 
     setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
     draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
@@ -449,8 +455,9 @@ static bool nikon_transfer_clear_parse(NikonTransferState *s,
         *reason = "transfer-stream-geometry-not-supported";
         return false;
     }
-    if (le32_to_cpu(draw[9]) != 0x105 ||
-        le32_to_cpu(draw[379]) != 0x105) {
+    format = le32_to_cpu(draw[9]);
+    if ((format != 0x105 && format != 0x107) ||
+        le32_to_cpu(draw[379]) != format) {
         *reason = "transfer-stream-format-not-supported";
         return false;
     }
@@ -464,16 +471,20 @@ static bool nikon_transfer_clear_parse(NikonTransferState *s,
     }
     first = le32_to_cpu(draw[381]);
     second = le32_to_cpu(draw[383]);
-    if (first + extent > UINT32_MAX + 1ULL ||
-        second + extent > UINT32_MAX + 1ULL) {
+    program->plane_bytes[0] = format == 0x107 ?
+        TRANSFER_CLEAR_YUVA_PRIMARY_BYTES : TRANSFER_CLEAR_PLANE_BYTES;
+    program->plane_bytes[1] = TRANSFER_CLEAR_PLANE_BYTES;
+    if (first + program->plane_bytes[0] > UINT32_MAX + 1ULL ||
+        second + program->plane_bytes[1] > UINT32_MAX + 1ULL) {
         *reason = "transfer-stream-range-overflow";
         return false;
     }
-    if (first < second + extent && second < first + extent) {
+    if (first < second + program->plane_bytes[1] &&
+        second < first + program->plane_bytes[0]) {
         *reason = "transfer-stream-operands-overlap";
         return false;
     }
-    if (second != first + extent) {
+    if (second != first + program->plane_bytes[0]) {
         *reason = "transfer-stream-geometry-not-supported";
         return false;
     }
@@ -484,17 +495,20 @@ static bool nikon_transfer_clear_parse(NikonTransferState *s,
             uint64_t source = s->stream[j].source;
             uint64_t bytes = 8ULL * s->stream[j].units64;
 
-            if (destination < source + bytes && source < destination + extent) {
+            if (destination < source + bytes &&
+                source < destination + program->plane_bytes[i]) {
                 *reason = "transfer-stream-operands-overlap";
                 return false;
             }
         }
-        if (nikon_transfer_span(destination, extent, true) < extent) {
+        if (nikon_transfer_span(destination, program->plane_bytes[i], true) <
+            program->plane_bytes[i]) {
             *reason = "transfer-stream-memory-range-not-backed";
             return false;
         }
         program->plane[i] = destination;
     }
+    program->format = format;
     program->clear = true;
     return true;
 }
@@ -516,7 +530,7 @@ static bool nikon_transfer_clear_execute(NikonTransferProgram *program,
 {
     void *plane[2] = { NULL, NULL };
     hwaddr mapped[2] = {
-        TRANSFER_CLEAR_PLANE_BYTES, TRANSFER_CLEAR_PLANE_BYTES,
+        program->plane_bytes[0], program->plane_bytes[1],
     };
     uintptr_t first, second;
     bool success = false;
@@ -527,21 +541,31 @@ static bool nikon_transfer_clear_execute(NikonTransferProgram *program,
     for (unsigned i = 0; i < 2; i++) {
         plane[i] = address_space_map(&address_space_memory, program->plane[i],
                                      &mapped[i], true, attrs);
-        if (!plane[i] || mapped[i] != TRANSFER_CLEAR_PLANE_BYTES) {
+        if (!plane[i] || mapped[i] != program->plane_bytes[i]) {
             *reason = "transfer-stream-output-map-failed";
             goto out;
         }
     }
     first = (uintptr_t)plane[0];
     second = (uintptr_t)plane[1];
-    if (first < second + TRANSFER_CLEAR_PLANE_BYTES &&
-        second < first + TRANSFER_CLEAR_PLANE_BYTES) {
+    if (first < second + program->plane_bytes[1] &&
+        second < first + program->plane_bytes[0]) {
         *reason = "transfer-stream-operands-overlap";
         goto out;
     }
-    /* Functional limited-range BT.601 black: Y16, interleaved U/V128. */
-    memset(plane[0], 16, TRANSFER_CLEAR_PLANE_BYTES);
-    memset(plane[1], 128, TRANSFER_CLEAR_PLANE_BYTES);
+    /* Functional limited-range BT.601 black, with transparent 107 alpha. */
+    if (program->format == 0x105) {
+        memset(plane[0], 16, program->plane_bytes[0]);
+        memset(plane[1], 128, program->plane_bytes[1]);
+    } else {
+        uint8_t *packed = plane[0];
+
+        for (uint32_t i = 0; i < program->plane_bytes[0]; i += 4) {
+            packed[i] = packed[i + 1] = 16;
+            packed[i + 2] = packed[i + 3] = 128;
+        }
+        memset(plane[1], 0, program->plane_bytes[1]);
+    }
     success = true;
 out:
     for (unsigned i = 0; i < 2; i++) {

@@ -657,7 +657,8 @@ static void clear_emit(uint8_t *bytes, unsigned *at, uint32_t header,
  * firmware command bytes are included in the fixture.
  */
 static void build_clear_program(uint8_t *setup, uint8_t *draw,
-                                uint32_t first, uint32_t second)
+                                uint32_t format, uint32_t first,
+                                uint32_t second)
 {
     unsigned at = 0;
     uint8_t *bytes = setup;
@@ -693,7 +694,7 @@ static void build_clear_program(uint8_t *setup, uint8_t *draw,
     REG(0x190, 1, 0);
     REG(0x14e, 14, 0x1b0000);
     REG(0x156, 14, 0x1b0000);
-    REG(0x1a2, 15, 0x105);
+    REG(0x1a2, 15, format);
     REG(0x1a3, 15, 0x02b00400);
     REG(0x184, 4, 0);
     REG(0x1a7, 15, 0x101);
@@ -731,7 +732,7 @@ static void build_clear_program(uint8_t *setup, uint8_t *draw,
     REG(0x186, 3, 0x10f);
     REG(0x184, 2, 0);
     REG(0x1a0, 2, 0);
-    REG(0x1a2, 9, 0x105);
+    REG(0x1a2, 9, format);
     REG(0x1a4, 15, first);
     REG(0x1b5, 15, second);
     REG(0x1a7, 4, 0);
@@ -768,8 +769,10 @@ static MemTxResult submit_clear(TransferFixture *f, unsigned draw_bytes)
 static void test_yuv_clear(void)
 {
     enum { PLANE = 1024 * 682, OFFSET = 0x100000, SIZE = 0x300000 };
-    enum { VALID, HEADER, TRUNCATED, FORMAT, GEOMETRY, COLOR, MODE, KEY,
-           LUT, OVERFLOW, OVERLAP, DELTA, MMIO, STREAM_OVERLAP, BLEND,
+    enum { VALID_105, VALID_107, HEADER, TRUNCATED, FORMAT_FIRST,
+           FORMAT_SECOND, PACKED_ALPHA, GEOMETRY, COLOR, MODE, KEY, LUT,
+           OVERFLOW, OVERFLOW_107, OVERLAP_105, DELTA_105, OVERLAP_107,
+           DELTA_107, MMIO, STREAM_OVERLAP, STREAM_OVERLAP_107, BLEND,
            TRIGGER, UNBACKED, RESET, MAP_LOSS, BACKING_ALIAS, UNREALIZE,
            CASES };
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
@@ -795,13 +798,20 @@ static void test_yuv_clear(void)
 
     for (unsigned test = 0; test < CASES; test++) {
         unsigned length = NIKON_TRANSFER_CLEAR_DRAW_BYTES;
-        bool accepted = test == VALID || test >= RESET;
+        bool complete = test == VALID_105 || test == VALID_107;
+        bool profile107 = test == VALID_107 || test == OVERFLOW_107 ||
+                          test == OVERLAP_107 || test == DELTA_107 ||
+                          test == STREAM_OVERLAP_107 || test >= RESET;
+        bool accepted = complete || test >= RESET;
+        uint32_t format = profile107 ? 0x107 : 0x105;
+        uint32_t primary = profile107 ? 2 * PLANE : PLANE;
         uint8_t setup[NIKON_TRANSFER_CLEAR_SETUP_BYTES];
         uint8_t draw[NIKON_TRANSFER_CLEAR_DRAW_BYTES];
 
         device_cold_reset(f.dev);
         memset(data, 0xa5, SIZE);
-        build_clear_program(data, data + 0x1000, 0x500000, 0x500000 + PLANE);
+        build_clear_program(data, data + 0x1000, format, 0x500000,
+                            0x500000 + primary);
         switch (test) {
         case HEADER:
             stl_le_p(data + 0x1000 + 71 * 4, 0x0188f7f4);
@@ -809,8 +819,15 @@ static void test_yuv_clear(void)
         case TRUNCATED:
             length -= 8;
             break;
-        case FORMAT:
+        case FORMAT_FIRST:
             stl_le_p(data + 0x1000 + 9 * 4, 0x107);
+            break;
+        case FORMAT_SECOND:
+            stl_le_p(data + 0x1000 + 379 * 4, 0x107);
+            break;
+        case PACKED_ALPHA:
+            stl_le_p(data + 0x1000 + 9 * 4, 0x01000107);
+            stl_le_p(data + 0x1000 + 379 * 4, 0x01000107);
             break;
         case GEOMETRY:
             stl_le_p(data + 50 * 4, 1023);
@@ -830,11 +847,20 @@ static void test_yuv_clear(void)
         case OVERFLOW:
             stl_le_p(data + 0x1000 + 383 * 4, 0xfffff000);
             break;
-        case OVERLAP:
+        case OVERFLOW_107:
+            stl_le_p(data + 0x1000 + 381 * 4, 0xfffff000);
+            break;
+        case OVERLAP_105:
             stl_le_p(data + 0x1000 + 383 * 4, 0x500001);
             break;
-        case DELTA:
+        case DELTA_105:
             stl_le_p(data + 0x1000 + 383 * 4, 0x500001 + PLANE);
+            break;
+        case OVERLAP_107:
+            stl_le_p(data + 0x1000 + 383 * 4, 0x500000 + PLANE);
+            break;
+        case DELTA_107:
+            stl_le_p(data + 0x1000 + 383 * 4, 0x500001 + 2 * PLANE);
             break;
         case MMIO:
             stl_le_p(data + 0x1000 + 381 * 4, 0x800000);
@@ -843,6 +869,11 @@ static void test_yuv_clear(void)
         case STREAM_OVERLAP:
             stl_le_p(data + 0x1000 + 381 * 4, 0x400000);
             stl_le_p(data + 0x1000 + 383 * 4, 0x400000 + PLANE);
+            break;
+        case STREAM_OVERLAP_107:
+            /* Source400000 lies beyond a105 plane but inside this107 plane. */
+            stl_le_p(data + 0x1000 + 381 * 4, 0x355000);
+            stl_le_p(data + 0x1000 + 383 * 4, 0x4aa000);
             break;
         case BLEND:
             stl_le_p(data + 0x1000 + 377 * 4, 0x10000);
@@ -862,7 +893,7 @@ static void test_yuv_clear(void)
         g_assert_cmpint(submit_clear(&f, length), ==,
                         accepted ? MEMTX_OK : MEMTX_ERROR);
         g_assert_false(f.level);
-        for (unsigned i = 0; i < 2 * PLANE; i++) {
+        for (unsigned i = 0; i < primary + PLANE; i++) {
             g_assert_cmphex(data[OFFSET + i], ==, 0xa5);
         }
         if (test == RESET) {
@@ -871,23 +902,31 @@ static void test_yuv_clear(void)
             qdev_unrealize(f.dev);
         } else if (test == MAP_LOSS || test == BACKING_ALIAS) {
             memory_region_set_readonly(&alias, test == MAP_LOSS);
-            memory_region_add_subregion_overlap(root, 0x500000 + PLANE,
+            memory_region_add_subregion_overlap(root, 0x500000 + primary,
                                                 &alias, 1);
         }
         advance();
         g_assert_cmpmem(data, sizeof(setup), setup, sizeof(setup));
         g_assert_cmpmem(data + 0x1000, sizeof(draw), draw, sizeof(draw));
-        g_assert_cmpint(f.level, ==, test == VALID);
+        g_assert_cmpint(f.level, ==, complete);
         for (unsigned i = 0; i < SIZE; i++) {
-            if (i >= OFFSET && i < OFFSET + 2 * PLANE) {
-                g_assert_cmphex(data[i], ==, test == VALID ?
-                                (i < OFFSET + PLANE ? 16 : 128) : 0xa5);
+            if (i >= OFFSET && i < OFFSET + primary + PLANE) {
+                uint8_t expected = 0xa5;
+
+                if (complete && format == 0x105) {
+                    expected = i < OFFSET + PLANE ? 16 : 128;
+                } else if (complete && i < OFFSET + primary) {
+                    expected = (i - OFFSET) % 4 < 2 ? 16 : 128;
+                } else if (complete) {
+                    expected = 0;
+                }
+                g_assert_cmphex(data[i], ==, expected);
             } else if (i >= 0x2000) {
                 g_assert_cmphex(data[i], ==, 0xa5);
             }
         }
         g_assert_cmpuint(f.reads, ==, 0);
-        if (test == VALID) {
+        if (complete) {
             g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
             g_assert_false(f.level);
         } else if (test == MAP_LOSS || test == BACKING_ALIAS) {
