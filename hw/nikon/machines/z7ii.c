@@ -130,6 +130,9 @@ struct Z7IIMachineState {
     uint32_t ex_io_mask;
     uint32_t ex_io_high;
     char *ex_config_bytes;
+    bool ex_power_good;
+    DeviceState *ex_power_good_dev;
+    QEMUTimer *ex_power_good_timer;
     uint32_t ex_config_off[32];
     uint8_t ex_config_val[32];
     uint8_t ex_config_count;
@@ -620,6 +623,26 @@ static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
                  "CP15, SMP release, IRQ, DMA completion and pixels remain guest-owned");
 }
 
+static void z7ii_ex_power_good_tick(void *opaque)
+{
+    Z7IIMachineState *s = opaque;
+    NikonEXState *ex = NIKON_EX(s->ex_power_good_dev);
+    static const unsigned pins[][2] = {
+        { 0, 10 }, /* GPIOA.10 */
+        { 1, 1 },  /* GPIOB.1 */
+        { 6, 2 },  /* GPIOG.2 */
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
+        /* This is an external power-good wire. Replaying it is necessary
+         * after firmware changes the pin from output to input; the upstream
+         * GPIO model correctly ignores a low drive while output is active. */
+        qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
+    }
+    timer_mod(s->ex_power_good_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
+}
+
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                            DeviceState *spi_ports[])
 {
@@ -693,6 +716,13 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
+    if (s->ex_power_good) {
+        s->ex_power_good_dev = dev;
+        s->ex_power_good_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                              z7ii_ex_power_good_tick, s);
+        timer_mod(s->ex_power_good_timer,
+                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
+    }
 }
 
 static void z7ii_init(MachineState *machine)
@@ -1680,6 +1710,16 @@ static void z7ii_set_frame_contract(Object *obj, bool value, Error **errp)
     s->frame_contract = value;
 }
 
+static bool z7ii_get_ex_power_good(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->ex_power_good;
+}
+
+static void z7ii_set_ex_power_good(Object *obj, bool value, Error **errp)
+{
+    Z7II_MACHINE(obj)->ex_power_good = value;
+}
+
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1758,6 +1798,12 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                  z7ii_set_ex_io_levels);
     object_class_property_add_str(oc, "ex-config-bytes", z7ii_get_ex_config_bytes,
                                  z7ii_set_ex_config_bytes);
+    object_class_property_add_bool(oc, "ex-power-good",
+                                   z7ii_get_ex_power_good,
+                                   z7ii_set_ex_power_good);
+    object_class_property_set_description(oc, "ex-power-good",
+        "Finite external power-good input replayed on EX GPIOA.10, GPIOB.1 "
+        "and GPIOG.2");
     object_class_property_set_description(oc, "ex-config-bytes",
         "Finite external EX config-window bytes as hex offset:value entries; "
         "supplies erased-state configuration, does not edit the payload");
