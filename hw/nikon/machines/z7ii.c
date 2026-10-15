@@ -650,12 +650,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    for (i = 0; i < 24; i++) {
-        if (s->ex_io_mask & (1u << i)) {
-            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
-                         !!(s->ex_io_high & (1u << i)));
-        }
-    }
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
      * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
@@ -689,6 +683,14 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
+    /* Apply explicit board input levels only after the input source is
+     * realized and its pad outputs are connected to EX. */
+    for (i = 0; i < 24; i++) {
+        if (s->ex_io_mask & (1u << i)) {
+            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
+                         !!(s->ex_io_high & (1u << i)));
+        }
+    }
 }
 
 static void z7ii_init(MachineState *machine)
