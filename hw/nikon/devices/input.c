@@ -119,7 +119,6 @@ static const VMStateDescription nikon_input_vmstate = {
 static const Property nikon_input_properties[] = {
     DEFINE_PROP_UINT32("initial-down-mask", NikonInputState,
                        initial_down_mask, 0),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
 static void nikon_input_class_init(ObjectClass *oc, const void *data)
