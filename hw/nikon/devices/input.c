@@ -115,6 +115,12 @@ static const VMStateDescription nikon_input_vmstate = {
     .unmigratable = true,
 };
 
+static const Property nikon_input_properties[] = {
+    DEFINE_PROP_UINT32("initial-down-mask", NikonInputState,
+                       initial_down_mask, 0),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void nikon_input_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
@@ -123,6 +129,7 @@ static void nikon_input_class_init(ObjectClass *oc, const void *data)
     dc->realize = nikon_input_realize;
     dc->unrealize = nikon_input_unrealize;
     dc->vmsd = &nikon_input_vmstate;
+    device_class_set_props(dc, nikon_input_properties);
     rc->phases.exit = nikon_input_reset_exit;
     dc->user_creatable = false;
 }
