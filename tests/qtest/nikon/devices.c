@@ -929,6 +929,43 @@ static void test_copy_descriptor_unbound(void)
     qtest_quit(q);
 }
 
+static void test_copy_502_boundary(void)
+{
+    const unsigned length = 0x27800;
+    const uint32_t source = RAM + 0x100;
+    const uint32_t destination = 0x50200000;
+    QTestState *q = start(false, 1);
+
+    /* The source is a real RAM section; the destination is the observed
+     * guest-physical COPY target with no MemoryRegion owner. */
+    nikon_intercept_gic(q);
+    qtest_memset(q, source, 0x5a, length);
+    copy_request(q, 0, source, destination, length);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 0);
+    g_assert_false(qtest_get_irq(q, 45 - 32));
+
+    /* Range preflight rejects the whole transfer before any DMA beat. */
+    copy_complete(q, length);
+    g_assert_cmphex(qtest_readl(q, COPY + 0x30), ==, 1);
+    g_assert_true(qtest_get_irq(q, 45 - 32));
+    g_assert_true(qtest_qom_get_bool(q, "/machine/copy", "first-fault"));
+    g_assert_cmpuint(copy_property(q, "first-fault-channel"), ==, 0);
+    g_assert_cmpuint(copy_property(q, "first-fault-status"), ==, 1);
+    g_assert_cmphex(copy_property(q, "first-fault-source"), ==, source);
+    g_assert_cmphex(copy_property(q, "first-fault-destination"), ==,
+                    destination);
+    g_assert_cmpuint(copy_property(q, "first-fault-remaining"), ==, length);
+    g_assert_cmpuint(copy_property(q, "channel0-source-write-count"), ==, 2);
+    g_assert_cmpuint(copy_property(q, "channel0-destination-write-count"), ==,
+                     2);
+    g_assert_cmpuint(copy_property(q, "channel0-remaining-bytes"), ==, length);
+    g_assert_false(qtest_qom_get_bool(q, "/machine/copy", "channel0-running"));
+
+    qtest_writel(q, COPY + 0x30, 0);
+    g_assert_false(qtest_get_irq(q, 45 - 32));
+    qtest_quit(q);
+}
+
 static void test_copy(void)
 {
     uint8_t expected[513], actual[513];
@@ -1081,6 +1118,7 @@ int main(int argc, char **argv)
                    test_copy_descriptor_observability);
     qtest_add_func("/nikon/copy/descriptor-unbound",
                    test_copy_descriptor_unbound);
+    qtest_add_func("/nikon/copy/502-boundary", test_copy_502_boundary);
     qtest_add_func("/nikon/hdmac/transfer", test_hdmac);
     qtest_add_func("/nikon/hdmac/pending", test_hdmac_pending);
     qtest_add_func("/nikon/bench/dma", test_dma_bench);
