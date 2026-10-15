@@ -133,6 +133,8 @@ struct Z7IIMachineState {
     bool ex_power_good;
     DeviceState *ex_power_good_dev;
     QEMUTimer *ex_power_good_timer;
+    QEMUTimer *ex_power_edge_timer;
+    bool ex_power_edge_high;
     uint32_t ex_config_off[32];
     uint8_t ex_config_val[32];
     uint8_t ex_config_count;
@@ -643,6 +645,19 @@ static void z7ii_ex_power_good_tick(void *opaque)
               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
 }
 
+static void z7ii_ex_power_edge_tick(void *opaque)
+{
+    Z7IIMachineState *s = opaque;
+    NikonEXState *ex = NIKON_EX(s->ex_power_good_dev);
+
+    s->ex_power_edge_high = !s->ex_power_edge_high;
+    qemu_set_irq(nikon_ex_gpio_input(ex, 6, 0),
+                 s->ex_power_edge_high);
+    timer_mod(s->ex_power_edge_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) +
+              (s->ex_power_edge_high ? 20 : 200));
+}
+
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                            DeviceState *spi_ports[])
 {
@@ -722,6 +737,11 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                               z7ii_ex_power_good_tick, s);
         timer_mod(s->ex_power_good_timer,
                   qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
+        s->ex_power_edge_high = false;
+        s->ex_power_edge_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                              z7ii_ex_power_edge_tick, s);
+        timer_mod(s->ex_power_edge_timer,
+                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1000);
     }
 }
 
