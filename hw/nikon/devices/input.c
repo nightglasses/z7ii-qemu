@@ -32,6 +32,7 @@ struct NikonInputState {
     QemuInputHandlerState *handler;
     qemu_irq pads[NIKON_INPUT_PADS];
     bool down[NIKON_INPUT_PADS];
+    uint32_t initial_down_mask;
 };
 
 static void nikon_input_event(DeviceState *dev, QemuConsole *src,
@@ -80,6 +81,9 @@ static void nikon_input_realize(DeviceState *dev, Error **errp)
     NikonInputState *s = NIKON_INPUT(dev);
 
     s->handler = qemu_input_handler_register(dev, &nikon_input_handler);
+    for (unsigned i = 0; i < NIKON_INPUT_PADS; i++) {
+        s->down[i] = (s->initial_down_mask >> i) & 1;
+    }
     /* This bus-less frontend is not reached through a resettable qbus. */
     qemu_register_resettable(OBJECT(dev));
     nikon_input_publish(s);

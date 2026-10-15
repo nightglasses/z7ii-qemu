@@ -676,6 +676,16 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                nikon_ex_gpio_input(ex, 6, 6));
 
     object_property_add_child(OBJECT(s), "input", OBJECT(input));
+    {
+        uint32_t initial_down = 0;
+        for (i = 0; i < NIKON_INPUT_PADS; i++) {
+            if ((s->ex_io_mask & (1u << i)) &&
+                !(s->ex_io_high & (1u << i))) {
+                initial_down |= 1u << i;
+            }
+        }
+        qdev_prop_set_uint32(input, "initial-down-mask", initial_down);
+    }
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         unsigned id = nikon_input_gpio_ids[i];
 
@@ -683,14 +693,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
-    /* Apply explicit board input levels only after the input source is
-     * realized and its pad outputs are connected to EX. */
-    for (i = 0; i < 24; i++) {
-        if (s->ex_io_mask & (1u << i)) {
-            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
-                         !!(s->ex_io_high & (1u << i)));
-        }
-    }
 }
 
 static void z7ii_init(MachineState *machine)
