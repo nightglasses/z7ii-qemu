@@ -7,6 +7,7 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/resettable.h"
 #include "hw/nikon/input.h"
 #include "migration/vmstate.h"

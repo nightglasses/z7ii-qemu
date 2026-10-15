@@ -1645,7 +1645,7 @@ static void z7ii_set_ex_config_bytes(Object *obj, const char *value, Error **err
     }
     for (unsigned i = 0; entries[i] && value[0]; i++) {
         g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
-        unsigned long long off, val;
+        uint64_t off, val;
 
         if (g_strv_length(pair) != 2 || count >= 32 ||
             qemu_strtou64(pair[0], NULL, 16, &off) ||
