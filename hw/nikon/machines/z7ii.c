@@ -49,6 +49,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_MAX_CPUS 2
 #define Z7II_SLA_CPUS 2
 #define Z7II_EX_CPUS 1
+
+/* Software flash offset of the EX factory config block (VMA 0x08004000). */
+#define EX_CONFIG_OFFSET 0x4000
 #define Z7II_DOWNLOAD_BASE 0xb0d00000ULL
 #define Z7II_DOWNLOAD_SIZE 0x400000ULL
 #define Z7II_SELECTOR_ONE_BASE 0xb0900000ULL
@@ -136,6 +139,7 @@ struct Z7IIMachineState {
     uint32_t ex_config_off[32];
     uint8_t ex_config_val[32];
     uint8_t ex_config_count;
+    char *ex_config_input;
     bool frame_contract;
     char *nor_profile;
     char *descriptor17_input;
@@ -657,7 +661,7 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     unsigned i;
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
-    if (s->ex_config_count) {
+    if (s->ex_config_count || s->ex_config_input) {
         gsize size;
         const guint8 *data = g_bytes_get_data(payload, &size);
         guint8 *copy = g_memdup2(data, size);
@@ -666,6 +670,24 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
             if (s->ex_config_off[k] < size) {
                 copy[s->ex_config_off[k]] = s->ex_config_val[k];
             }
+        }
+        if (s->ex_config_input && *s->ex_config_input) {
+            g_autoptr(GError) error = NULL;
+            g_autofree char *block = NULL;
+            gsize block_size;
+
+            if (!g_file_get_contents(s->ex_config_input, &block, &block_size,
+                                     &error)) {
+                error_report("cannot load EX config input '%s': %s",
+                             s->ex_config_input, error->message);
+                exit(EXIT_FAILURE);
+            }
+            if (block_size > size - EX_CONFIG_OFFSET) {
+                error_report("EX config input must not exceed %zu bytes",
+                             (size_t)(size - EX_CONFIG_OFFSET));
+                exit(EXIT_FAILURE);
+            }
+            memcpy(copy + EX_CONFIG_OFFSET, block, block_size);
         }
         payload = g_bytes_new_take(copy, size);
     }
@@ -1693,6 +1715,26 @@ static void z7ii_set_ex_config_bytes(Object *obj, const char *value, Error **err
     s->ex_config_bytes = g_strdup(value);
 }
 
+static char *z7ii_get_ex_config_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->ex_config_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_ex_config_input(Object *obj, const char *value,
+                                     Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "ex-config-input must be configured before machine init");
+        return;
+    }
+    g_free(s->ex_config_input);
+    s->ex_config_input = g_strdup(value && *value ? value : NULL);
+}
+
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
@@ -1734,6 +1776,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->ex_adc_counts);
     g_free(s->ex_io_levels);
     g_free(s->ex_config_bytes);
+    g_free(s->ex_config_input);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1797,6 +1840,8 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                  z7ii_set_ex_io_levels);
     object_class_property_add_str(oc, "ex-config-bytes", z7ii_get_ex_config_bytes,
                                  z7ii_set_ex_config_bytes);
+    object_class_property_add_str(oc, "ex-config-input", z7ii_get_ex_config_input,
+                                 z7ii_set_ex_config_input);
     object_class_property_add_bool(oc, "ex-power-good",
                                    z7ii_get_ex_power_good,
                                    z7ii_set_ex_power_good);
@@ -1806,6 +1851,9 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "ex-config-bytes",
         "Finite external EX config-window bytes as hex offset:value entries; "
         "supplies erased-state configuration, does not edit the payload");
+    object_class_property_set_description(oc, "ex-config-input",
+        "External EX factory config block image copied at flash offset 0x4000 "
+        "(VMA 0x08004000); external input, does not edit the package payload");
     object_class_property_set_description(oc, "ex-io-levels",
         "Explicit EX I2C-expander pin:level entries separated by ';' "
         "(pins 0..23; levels 0/1); omitted pins remain disconnected");
