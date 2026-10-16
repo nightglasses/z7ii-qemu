@@ -7,7 +7,6 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "hw/core/irq.h"
-#include "hw/core/qdev-properties.h"
 #include "hw/core/resettable.h"
 #include "hw/nikon/input.h"
 #include "migration/vmstate.h"
@@ -33,7 +32,6 @@ struct NikonInputState {
     QemuInputHandlerState *handler;
     qemu_irq pads[NIKON_INPUT_PADS];
     bool down[NIKON_INPUT_PADS];
-    uint32_t initial_down_mask;
 };
 
 static void nikon_input_event(DeviceState *dev, QemuConsole *src,
@@ -82,9 +80,6 @@ static void nikon_input_realize(DeviceState *dev, Error **errp)
     NikonInputState *s = NIKON_INPUT(dev);
 
     s->handler = qemu_input_handler_register(dev, &nikon_input_handler);
-    for (unsigned i = 0; i < NIKON_INPUT_PADS; i++) {
-        s->down[i] = (s->initial_down_mask >> i) & 1;
-    }
     /* This bus-less frontend is not reached through a resettable qbus. */
     qemu_register_resettable(OBJECT(dev));
     nikon_input_publish(s);
@@ -116,11 +111,6 @@ static const VMStateDescription nikon_input_vmstate = {
     .unmigratable = true,
 };
 
-static const Property nikon_input_properties[] = {
-    DEFINE_PROP_UINT32("initial-down-mask", NikonInputState,
-                       initial_down_mask, 0),
-};
-
 static void nikon_input_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
@@ -129,7 +119,6 @@ static void nikon_input_class_init(ObjectClass *oc, const void *data)
     dc->realize = nikon_input_realize;
     dc->unrealize = nikon_input_unrealize;
     dc->vmsd = &nikon_input_vmstate;
-    device_class_set_props(dc, nikon_input_properties);
     rc->phases.exit = nikon_input_reset_exit;
     dc->user_creatable = false;
 }

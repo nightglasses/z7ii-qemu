@@ -129,15 +129,6 @@ struct Z7IIMachineState {
     char *ex_io_levels;
     uint32_t ex_io_mask;
     uint32_t ex_io_high;
-    char *ex_config_bytes;
-    bool ex_power_good;
-    DeviceState *ex_power_good_dev;
-    QEMUTimer *ex_power_good_timer;
-    QEMUTimer *ex_power_edge_timer;
-    bool ex_power_edge_high;
-    uint32_t ex_config_off[32];
-    uint8_t ex_config_val[32];
-    uint8_t ex_config_count;
     bool frame_contract;
     char *nor_profile;
     char *descriptor17_input;
@@ -625,39 +616,6 @@ static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
                  "CP15, SMP release, IRQ, DMA completion and pixels remain guest-owned");
 }
 
-static void z7ii_ex_power_good_tick(void *opaque)
-{
-    Z7IIMachineState *s = opaque;
-    NikonEXState *ex = NIKON_EX(s->ex_power_good_dev);
-    static const unsigned pins[][2] = {
-        { 0, 10 }, /* GPIOA.10 */
-        { 1, 1 },  /* GPIOB.1 */
-        { 6, 2 },  /* GPIOG.2 */
-    };
-
-    for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
-        /* This is an external power-good wire. Replaying it is necessary
-         * after firmware changes the pin from output to input; the upstream
-         * GPIO model correctly ignores a low drive while output is active. */
-        qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
-    }
-    timer_mod(s->ex_power_good_timer,
-              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
-}
-
-static void z7ii_ex_power_edge_tick(void *opaque)
-{
-    Z7IIMachineState *s = opaque;
-    NikonEXState *ex = NIKON_EX(s->ex_power_good_dev);
-
-    s->ex_power_edge_high = !s->ex_power_edge_high;
-    qemu_set_irq(nikon_ex_gpio_input(ex, 6, 0),
-                 s->ex_power_edge_high);
-    timer_mod(s->ex_power_edge_timer,
-              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) +
-              (s->ex_power_edge_high ? 20 : 200));
-}
-
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                            DeviceState *spi_ports[])
 {
@@ -669,18 +627,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     unsigned i;
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
-    if (s->ex_config_count) {
-        gsize size;
-        const guint8 *data = g_bytes_get_data(payload, &size);
-        guint8 *copy = g_memdup2(data, size);
-
-        for (unsigned k = 0; k < s->ex_config_count; k++) {
-            if (s->ex_config_off[k] < size) {
-                copy[s->ex_config_off[k]] = s->ex_config_val[k];
-            }
-        }
-        payload = g_bytes_new_take(copy, size);
-    }
     nikon_ex_set_firmware(ex, payload, &error_fatal);
     for (i = 0; i < ARRAY_SIZE(s->ex_adc_sample); i++) {
         if (s->ex_adc_mask & (1u << i)) {
@@ -688,6 +634,12 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    for (i = 0; i < 24; i++) {
+        if (s->ex_io_mask & (1u << i)) {
+            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
+                         !!(s->ex_io_high & (1u << i)));
+        }
+    }
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
      * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
@@ -714,16 +666,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                nikon_ex_gpio_input(ex, 6, 6));
 
     object_property_add_child(OBJECT(s), "input", OBJECT(input));
-    {
-        uint32_t initial_down = 0;
-        for (i = 0; i < NIKON_INPUT_PADS; i++) {
-            if ((s->ex_io_mask & (1u << i)) &&
-                !(s->ex_io_high & (1u << i))) {
-                initial_down |= 1u << i;
-            }
-        }
-        qdev_prop_set_uint32(input, "initial-down-mask", initial_down);
-    }
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         unsigned id = nikon_input_gpio_ids[i];
 
@@ -731,18 +673,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
-    if (s->ex_power_good) {
-        s->ex_power_good_dev = dev;
-        s->ex_power_good_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
-                                              z7ii_ex_power_good_tick, s);
-        timer_mod(s->ex_power_good_timer,
-                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
-        s->ex_power_edge_high = false;
-        s->ex_power_edge_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
-                                              z7ii_ex_power_edge_tick, s);
-        timer_mod(s->ex_power_edge_timer,
-                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1000);
-    }
 }
 
 static void z7ii_init(MachineState *machine)
@@ -1676,44 +1606,6 @@ static void z7ii_set_ex_io_levels(Object *obj, const char *value, Error **errp)
     s->ex_io_levels = g_strdup(value);
 }
 
-static char *z7ii_get_ex_config_bytes(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->ex_config_bytes;
-
-    return g_strdup(value ? value : "");
-}
-
-static void z7ii_set_ex_config_bytes(Object *obj, const char *value, Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
-    uint8_t count = 0;
-
-    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
-        error_setg(errp, "ex-config-bytes must be configured before machine init");
-        return;
-    }
-    for (unsigned i = 0; entries[i] && value[0]; i++) {
-        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
-        uint64_t off, val;
-
-        if (g_strv_length(pair) != 2 || count >= 32 ||
-            qemu_strtou64(pair[0], NULL, 16, &off) ||
-            qemu_strtou64(pair[1], NULL, 16, &val) || off > 0xffffffffULL ||
-            val > 0xff) {
-            error_setg(errp, "ex-config-bytes expects hex offset:value entries "
-                       "separated by ';' (offset < 4GiB, value <= 0xff)");
-            return;
-        }
-        s->ex_config_off[count] = off;
-        s->ex_config_val[count] = val;
-        count++;
-    }
-    s->ex_config_count = count;
-    g_free(s->ex_config_bytes);
-    s->ex_config_bytes = g_strdup(value);
-}
-
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
@@ -1730,16 +1622,6 @@ static void z7ii_set_frame_contract(Object *obj, bool value, Error **errp)
     s->frame_contract = value;
 }
 
-static bool z7ii_get_ex_power_good(Object *obj, Error **errp)
-{
-    return Z7II_MACHINE(obj)->ex_power_good;
-}
-
-static void z7ii_set_ex_power_good(Object *obj, bool value, Error **errp)
-{
-    Z7II_MACHINE(obj)->ex_power_good = value;
-}
-
 static void z7ii_finalize(Object *obj)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1754,7 +1636,6 @@ static void z7ii_finalize(Object *obj)
     g_free(s->cmos_image);
     g_free(s->ex_adc_counts);
     g_free(s->ex_io_levels);
-    g_free(s->ex_config_bytes);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1816,17 +1697,6 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
         "(channels 0..3; counts 0..4095); omitted channels remain disconnected");
     object_class_property_add_str(oc, "ex-io-levels", z7ii_get_ex_io_levels,
                                  z7ii_set_ex_io_levels);
-    object_class_property_add_str(oc, "ex-config-bytes", z7ii_get_ex_config_bytes,
-                                 z7ii_set_ex_config_bytes);
-    object_class_property_add_bool(oc, "ex-power-good",
-                                   z7ii_get_ex_power_good,
-                                   z7ii_set_ex_power_good);
-    object_class_property_set_description(oc, "ex-power-good",
-        "Finite external power-good input replayed on EX GPIOA.10, GPIOB.1 "
-        "and GPIOG.2");
-    object_class_property_set_description(oc, "ex-config-bytes",
-        "Finite external EX config-window bytes as hex offset:value entries; "
-        "supplies erased-state configuration, does not edit the payload");
     object_class_property_set_description(oc, "ex-io-levels",
         "Explicit EX I2C-expander pin:level entries separated by ';' "
         "(pins 0..23; levels 0/1); omitted pins remain disconnected");
