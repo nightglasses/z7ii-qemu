@@ -628,19 +628,22 @@ static void z7ii_ex_power_good_tick(void *opaque)
     Z7IIMachineState *s = opaque;
     NikonEXState *ex = NIKON_EX(s->ex_power_good_dev);
     static const unsigned pins[][2] = {
-        { 0, 10 }, /* GPIOA.10 */
-        { 1, 1 },  /* GPIOB.1 */
-        { 6, 2 },  /* GPIOG.2 */
+        { 0, 10 }, /* GPIOA.10, six-channel bit 0 */
+        { 1, 1 },  /* GPIOB.1, six-channel bit 1 */
+        { 1, 15 }, /* GPIOB.15 */
+        { 1, 11 }, /* GPIOB.11 */
+        { 1, 12 }, /* GPIOB.12 */
+        { 5, 3 },  /* GPIOF.3 */
+        { 6, 2 },  /* GPIOG.2, four-channel bit 2 */
     };
 
     for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
-        /* This is an external power-good wire. Replaying it is necessary
-         * after firmware changes the pin from output to input; the upstream
-         * GPIO model correctly ignores a low drive while output is active. */
+        /* These are external power-good wires. Replay them after the
+         * firmware changes GPIO modes so the input IDR reflects the board. */
         qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
     }
     timer_mod(s->ex_power_good_timer,
-              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
