@@ -99,6 +99,15 @@ bundle because raw MAS input has no private SLA domain. A combined run must
 record the selected input profile separately from the source-qualified EX
 endpoint and from any actual original GUI output.
 
+The configured EX battery path also polls a separate board input, EX GPIOD.13.
+The unchanged firmware leaves the pin as a GPIO input and reads its IDR bit at
+`0x40020c10`; with the input undriven the configured path repeatedly returns to
+its wait state before ADC/transport initialization. The machine therefore
+accepts the explicit boolean `ex-gpiod13=on` input, which holds that named GPIO
+input high and replays the level across EX GPIO mode/reset activity. Omission
+leaves the input undriven. This is a board-input assumption, not a fabricated
+guest status or power report; it only removes the observed GPIOD.13 gate.
+
 MAS has a separate `mas-boot-prefix` option with the same strict, erased or
 exact-file choices. The two options invoke the existing shared input parser
 independently and map distinct immutable ROMD storage in their own address

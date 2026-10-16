@@ -434,6 +434,33 @@ static void test_ex_io_levels_reject(void)
     }
 }
 
+static void test_ex_gpiod13(void)
+{
+    g_autofree char *bundle = peer_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf(
+        "-M z7ii-mas-diagnostic,bundle=%s,ex-gpiod13=on "
+        "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
+                              "'path':'/machine','property':'ex-gpiod13'}}");
+
+    g_assert_true(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+
+    /* The board input is a realization-time contract, not a live status
+     * control. Runtime changes must be rejected before they can affect the
+     * already-realized EX GPIO input. */
+    reply = qtest_qmp(q, "{'execute':'qom-set','arguments':{"
+                       "'path':'/machine','property':'ex-gpiod13',"
+                       "'value':false}}");
+    g_assert_nonnull(strstr(qdict_get_str(qdict_get_qdict(reply, "error"),
+                                            "desc"),
+                            "before machine init"));
+    qobject_unref(reply);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 static void mapping(QTestState *q, unsigned bank, uint32_t remote,
                     uint32_t local, uint32_t mask)
 {
@@ -608,6 +635,7 @@ void nikon_bridge_add_tests(void)
     qtest_add_func("/nikon/combined/ex-io-levels", test_ex_io_levels);
     qtest_add_func("/nikon/combined/ex-io-levels-reject",
                    test_ex_io_levels_reject);
+    qtest_add_func("/nikon/combined/ex-gpiod13", test_ex_gpiod13);
     qtest_add_func("/nikon/bridge/peer-window", test_peer_window);
     qtest_add_func("/nikon/bridge/sla-page-table", test_sla_page_table);
 }

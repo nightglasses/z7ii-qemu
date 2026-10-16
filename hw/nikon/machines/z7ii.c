@@ -133,6 +133,7 @@ struct Z7IIMachineState {
     uint32_t ex_io_mask;
     uint32_t ex_io_high;
     char *ex_config_bytes;
+    bool ex_gpiod13;
     bool ex_power_good;
     DeviceState *ex_power_good_dev;
     QEMUTimer *ex_power_good_timer;
@@ -641,10 +642,20 @@ static void z7ii_ex_power_good_tick(void *opaque)
         { 6, 2 },  /* GPIOG.2, four-channel bit 2 */
     };
 
-    for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
-        /* These are external power-good wires. Replay them after the
-         * firmware changes GPIO modes so the input IDR reflects the board. */
-        qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
+    if (s->ex_power_good) {
+        for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
+            /* These are external power-good wires. Replay them after the
+             * firmware changes GPIO modes so the input IDR reflects the
+             * board. */
+            qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
+        }
+    }
+    if (s->ex_gpiod13) {
+        /* GPIOD.13 is a separate board input polled by the configured
+         * battery path. Keep the declared external level present across
+         * GPIO reset/mode changes; do not infer a status or fabricate an
+         * edge for the guest. */
+        qemu_set_irq(nikon_ex_gpio_input(ex, 3, 13), 1);
     }
     timer_mod(s->ex_power_good_timer,
               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
@@ -737,7 +748,7 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
-    if (s->ex_power_good) {
+    if (s->ex_power_good || s->ex_gpiod13) {
         s->ex_power_good_dev = dev;
         s->ex_power_good_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                               z7ii_ex_power_good_tick, s);
@@ -1756,6 +1767,22 @@ static bool z7ii_get_ex_power_good(Object *obj, Error **errp)
     return Z7II_MACHINE(obj)->ex_power_good;
 }
 
+static bool z7ii_get_ex_gpiod13(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->ex_gpiod13;
+}
+
+static void z7ii_set_ex_gpiod13(Object *obj, bool value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp, "ex-gpiod13 must be configured before machine init");
+        return;
+    }
+    s->ex_gpiod13 = value;
+}
+
 static void z7ii_set_ex_power_good(Object *obj, bool value, Error **errp)
 {
     Z7II_MACHINE(obj)->ex_power_good = value;
@@ -1848,6 +1875,12 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "ex-power-good",
         "Finite external power-good input replayed on EX GPIOA.10, GPIOB.1 "
         "and GPIOG.2");
+    object_class_property_add_bool(oc, "ex-gpiod13",
+                                   z7ii_get_ex_gpiod13,
+                                   z7ii_set_ex_gpiod13);
+    object_class_property_set_description(oc, "ex-gpiod13",
+        "Drive the EX GPIOD.13 external board input high; omitted means "
+        "the input is left undriven");
     object_class_property_set_description(oc, "ex-config-bytes",
         "Finite external EX config-window bytes as hex offset:value entries; "
         "supplies erased-state configuration, does not edit the payload");
