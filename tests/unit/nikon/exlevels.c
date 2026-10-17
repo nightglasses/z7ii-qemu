@@ -4,8 +4,11 @@
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
 #include "qemu/crc-ccitt.h"
+#include "qapi/error.h"
 #include "hw/core/irq.h"
+#include "hw/i2c/i2c.h"
 #include "hw/nikon/ex.h"
+#include "hw/nikon/expower.h"
 #include "hw/nikon/sla.h"
 #include "system/reset.h"
 #include "system/runstate.h"
@@ -118,6 +121,56 @@ static void configured_levels(void)
     g_assert_cmphex(io_levels(bus), ==, 0xfffdff);
 }
 
+static void power_devices(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
+    I2CSlave *monitor = i2c_slave_new(TYPE_NIKON_EX_MONITOR, 0x6b);
+    I2CSlave *status = i2c_slave_new(TYPE_NIKON_EX_STATUS, 0x0d);
+
+    object_property_add_child(object_get_objects_root(), "ex-monitor",
+                              OBJECT(monitor));
+    object_property_add_child(object_get_objects_root(), "ex-status",
+                              OBJECT(status));
+    i2c_slave_realize_and_unref(monitor, bus, &error_abort);
+    i2c_slave_realize_and_unref(status, bus, &error_abort);
+
+    /* The optional zero probe is an observed NACK, not a wildcard command. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0), !=, 0);
+    i2c_end_transfer(bus);
+
+    /* Setup commands accept a zero-valued one-byte response. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x02), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    g_assert_cmphex(i2c_recv(bus), ==, 0);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+
+    /* The final 0x0b result is finite: one, then zero for controller
+     * prefetch, rather than an unbounded repeated status byte. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x0b), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    g_assert_cmphex(i2c_recv(bus), ==, 1);
+    g_assert_cmphex(i2c_recv(bus), ==, 0);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+
+    /* The periodic status endpoint has a 32-byte frame and a class-1 byte. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
+    g_assert_cmphex(i2c_recv(bus), ==, 0xa9);
+    for (unsigned i = 1; i < 32; i++) {
+        g_assert_cmphex(i2c_recv(bus), ==, 0);
+    }
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -142,6 +195,7 @@ int main(int argc, char **argv)
         qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     }
     g_test_add_func("/nikon/ex/configured-io-levels", configured_levels);
+    g_test_add_func("/nikon/ex/power-devices", power_devices);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(bundle);

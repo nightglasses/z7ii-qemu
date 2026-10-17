@@ -31,6 +31,7 @@
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
+#include "hw/nikon/expower.h"
 #include "hw/nikon/input.h"
 #include "hw/nikon/events.h"
 #include "hw/ssi/ssi.h" /* IWYU pragma: keep */
@@ -730,6 +731,17 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    if (z7ii_functional_gui(s)) {
+        I2CSlave *monitor = i2c_slave_new(TYPE_NIKON_EX_MONITOR, 0x6b);
+        I2CSlave *status = i2c_slave_new(TYPE_NIKON_EX_STATUS, 0x0d);
+
+        object_property_add_child(OBJECT(s), "ex-monitor", OBJECT(monitor));
+        object_property_add_child(OBJECT(s), "ex-status", OBJECT(status));
+        i2c_slave_realize_and_unref(monitor, nikon_ex_i2c_bus(ex, 0),
+                                    &error_fatal);
+        i2c_slave_realize_and_unref(status, nikon_ex_i2c_bus(ex, 0),
+                                    &error_fatal);
+    }
     if (z7ii_functional_gui(s)) {
         for (i = 0; i < 24; i++) {
             if (z7ii_ex_functional_inputs.io_mask & (1u << i)) {
