@@ -56,12 +56,17 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define EX_CONFIG_SIZE 0x0e2c
 #define EX_CONFIG_MAIN_OFFSET 0x10
 #define EX_CONFIG_GATE_OFFSET (EX_CONFIG_OFFSET + EX_CONFIG_MAIN_OFFSET + 0x21d)
+#define EX_CONFIG_MODE_OFFSET (EX_CONFIG_MAIN_OFFSET + 278)
+#define EX_CONFIG_AUX_OFFSET 0x8100
+#define EX_CONFIG_AUX_SIZE 0x0200
 
 typedef struct NikonEXConfigData {
     uint8_t fill;
     uint8_t magic[4];
     uint16_t channel0_offset;
     uint8_t channel0_value;
+    uint16_t mode_offset;
+    uint8_t mode_value;
     uint16_t gate_offset;
     uint8_t gate_value;
 } NikonEXConfigData;
@@ -76,10 +81,13 @@ typedef struct NikonEXFunctionalInputs {
 } NikonEXFunctionalInputs;
 
 static const NikonEXConfigData z7ii_ex_config_power_on = {
-    .fill = 1,
+    /* Unknown factory fields are erased/zero until proven otherwise. */
+    .fill = 0,
     .magic = { 'M', 'A', 'K', 'E' },
     .channel0_offset = EX_CONFIG_MAIN_OFFSET + 276,
     .channel0_value = 0,
+    .mode_offset = EX_CONFIG_MODE_OFFSET,
+    .mode_value = 5,
     .gate_offset = EX_CONFIG_GATE_OFFSET - EX_CONFIG_OFFSET,
     .gate_value = 1,
 };
@@ -87,9 +95,13 @@ static const NikonEXConfigData z7ii_ex_config_power_on = {
 /* Deterministic board contract used only by functional-gui. */
 static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
     .adc = { 3500, 3500, 3500, 3500 },
-    .adc_mask = 0xf,
-    .io_mask = (1u << 0) | (1u << 6) | (1u << 9),
-    .io_high = (1u << 0) | (1u << 6) | (1u << 9),
+    /* The known unchanged-firmware run supplies only battery channels 1..3;
+     * channel 0 is the board-side power gate and remains unconnected. */
+    .adc_mask = (1u << 1) | (1u << 2) | (1u << 3),
+    /* The power-monitor expander setup leaves the four observed control
+     * pins low; an omitted pin remains electrically disconnected. */
+    .io_mask = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 10),
+    .io_high = 0,
     .power_good = true,
     .gpiod13 = true,
 };
@@ -700,6 +712,18 @@ static void z7ii_apply_ex_config_data(uint8_t *copy, gsize size)
     memset(config, profile->fill, EX_CONFIG_SIZE);
     memcpy(config, profile->magic, sizeof(profile->magic));
     config[profile->channel0_offset] = profile->channel0_value;
+    config[profile->mode_offset] = profile->mode_value;
+    config[profile->mode_offset + 1] = profile->mode_value;
+    /* The complete-config branch reads a second factory view at 0x8100.
+     * It is another erased external region in the supplied image; keep its
+     * synthetic contract adjacent to the primary view rather than exposing a
+     * second runtime input. */
+    /* The auxiliary view is a structured parameter table, not a byte-fill
+     * region.  Unknown fields must retain erased zero rather than becoming
+     * pointers/counts with value 1 (which can make the firmware program an
+     * invalid DMA destination).  We currently provide only the primary
+     * view's proven gate fields. */
+    memset(copy + EX_CONFIG_AUX_OFFSET, 0, EX_CONFIG_AUX_SIZE);
     config[profile->gate_offset] = profile->gate_value;
 }
 

@@ -63,6 +63,8 @@ typedef struct EXI2C {
     bool receive;
     uint8_t rx[2];
     unsigned rx_count;
+    unsigned rx_remaining;
+    uint8_t last_write;
     I2CBus *bus;
 } EXI2C;
 
@@ -482,6 +484,14 @@ static void ex_external_input(void *opaque, int line, int level)
         s->external_mask[port] |= bit;
         s->external_level[port] = deposit32(s->external_level[port], pin,
                                           1, !!level);
+        /* An external wire remains physically connected while firmware
+         * temporarily selects the pin as an output.  The STM32 GPIO model
+         * disconnects such pins to avoid a driven short; reconnect it here
+         * so a later return to input mode observes the retained board level. */
+        uint16_t disconnected = object_property_get_uint(
+            OBJECT(s->gpio[port]), "disconnected-pins", &error_abort);
+        object_property_set_uint(OBJECT(s->gpio[port]), "disconnected-pins",
+                                 disconnected & ~bit, &error_abort);
         qemu_set_irq(qdev_get_gpio_in(s->gpio[port], pin), !!level);
     }
 }
@@ -582,6 +592,8 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
     memset(s->i2c[i].reg, 0, sizeof(s->i2c[i].reg));
     s->i2c[i].sr1_seen = s->i2c[i].receive = false;
     s->i2c[i].rx_count = 0;
+    s->i2c[i].rx_remaining = 0;
+    s->i2c[i].last_write = 0;
     ex_irq(s, ex_i2c_irq[i], false);
     ex_irq(s, ex_i2c_irq[i] + 1, false);
 }
@@ -590,8 +602,10 @@ static void ex_i2c_fill(EXI2C *p)
 {
     if (p->receive && i2c_bus_busy(p->bus)) {
         unsigned limit = (p->reg[0] & ((1 << 10) | (1 << 11))) ? 2 : 1;
-        while (p->rx_count < limit) {
+        limit = MIN(limit, p->rx_remaining);
+        while (p->rx_count < limit && p->rx_remaining) {
             p->rx[p->rx_count++] = i2c_recv(p->bus);
+            p->rx_remaining--;
         }
     }
     p->reg[5] = (p->reg[5] & ~0x44u) |
@@ -948,16 +962,23 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 if (consume && reg == 4 && p->receive && p->rx_count) {
                     p->reg[4] = p->rx[0];
                     bool pipeline = p->rx_count == 2;
-                    p->rx[0] = p->rx[1];
+                    if (pipeline) {
+                        p->rx[0] = p->rx[1];
+                    }
                     p->rx_count--;
-                    /* The shift register already clocks one final byte when
-                     * ACK is cleared with DR and the shift register occupied. */
-                    if (pipeline && !(p->reg[0] & (1 << 10)) &&
+                    /* With ACK cleared and both the data and shift
+                     * registers occupied, STM32 clocks the final byte into
+                     * the shift register before the last two DR reads. */
+                    if (pipeline && p->rx_remaining &&
+                        !(p->reg[0] & (1 << 10)) &&
                         i2c_bus_busy(p->bus)) {
                         p->rx[p->rx_count++] = i2c_recv(p->bus);
+                        p->rx_remaining--;
                         i2c_nack(p->bus);
                     }
-                    ex_i2c_fill(p);
+                    if (p->reg[0] & (1 << 10)) {
+                        ex_i2c_fill(p);
+                    }
                     ex_i2c_update(s, i);
                 }
                 v = p->reg[reg];
@@ -1185,6 +1206,30 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     if (p->reg[5] & 1) {
                         p->rx_count = 0;
                         p->receive = v & 1;
+                        /* The firmware uses finite receive lengths per
+                         * endpoint: four status bytes, one monitor byte,
+                         * and the short expander register read. */
+                        switch ((v >> 1) & 0x7f) {
+                        case 0x0d:
+                            /* The firmware transaction clocks a four-byte
+                             * status response; 32 is the completion code
+                             * returned by the transfer descriptor, not the
+                             * byte count. */
+                            p->rx_remaining = 4;
+                            break;
+                        case 0x6b:
+                            /* Monitor reads are one-byte register results. */
+                            p->rx_remaining = 1;
+                            break;
+                        case 0x22:
+                            /* The expander register-pointer read is one
+                             * byte; other reads use the short pair path. */
+                            p->rx_remaining = p->last_write == 0x02 ? 1 : 2;
+                            break;
+                        default:
+                            p->rx_remaining = 2;
+                            break;
+                        }
                         p->reg[5] &= ~1u;
                         if (i2c_start_transfer(p->bus, (v >> 1) & 0x7f, p->receive)) {
                             p->reg[5] |= 1 << 10; /* real absent slave NACK */
@@ -1196,6 +1241,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                             }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
+                        p->last_write = v;
                         p->reg[5] |= i2c_send(p->bus, v) ? 1 << 10 : 0x84;
                     } else {
                         p->reg[5] |= 1 << 10;

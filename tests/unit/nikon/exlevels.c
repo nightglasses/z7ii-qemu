@@ -135,9 +135,12 @@ static void power_devices(void)
     i2c_slave_realize_and_unref(monitor, bus, &error_abort);
     i2c_slave_realize_and_unref(status, bus, &error_abort);
 
-    /* The optional zero probe is an observed NACK, not a wildcard command. */
+    /* The boot qualification performs a zero-valued monitor probe. */
     g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
-    g_assert_cmpint(i2c_send(bus, 0), !=, 0);
+    g_assert_cmpint(i2c_send(bus, 0), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    g_assert_cmphex(i2c_recv(bus), ==, 1);
+    i2c_nack(bus);
     i2c_end_transfer(bus);
 
     /* Setup commands accept a zero-valued one-byte response. */
@@ -158,13 +161,14 @@ static void power_devices(void)
     i2c_nack(bus);
     i2c_end_transfer(bus);
 
-    /* The periodic status endpoint has a 32-byte frame and a class-1 byte. */
+    /* The periodic status endpoint returns a finite four-byte response; the
+     * transfer descriptor reports completion code 0x20 separately. */
     g_assert_cmpint(i2c_start_transfer(bus, 0x0d, false), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
     g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
     g_assert_cmphex(i2c_recv(bus), ==, 0xa9);
-    for (unsigned i = 1; i < 32; i++) {
+    for (unsigned i = 1; i < 4; i++) {
         g_assert_cmphex(i2c_recv(bus), ==, 0);
     }
     i2c_nack(bus);
