@@ -126,8 +126,8 @@ state. Readback from the first word `+0x6000` remains rejected by default;
 receive-bank accesses also remain rejected without an experimental connection.
 Other directions, widths and neighbors are not generic storage.
 
-`notification-v1` is a default-off research property. The composed machine's
-explicit `functional-profile=functional-gui-v1` sets the property on both MAS
+`notification` is a default-off research property. The composed machine's
+explicit `functional-profile=functional-gui` sets the property on both MAS
 and SLA bridges before realize and then connects the opted-in pair using
 `nikon_bridge_connect_notifications()`. A direct QOM global remains a focused
 device-test mechanism rather than the documented machine profile. The profile

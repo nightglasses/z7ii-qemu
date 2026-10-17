@@ -243,7 +243,7 @@ other uncovered transactions fail and report the original access context.
 The public factory `nikon_sla_create(parent, name, payload, boot_prefix,
 boot_shim, bridge_notifications, num_cpus, serial, errp)` refs the complete
 immutable SLA `GBytes` from the validated container. The composed
-`functional-gui-v1` profile supplies the bridge-notification choice before the
+`functional-gui` profile supplies the bridge-notification choice before the
 private SLA bridge is realized; standalone SLA and the strict composed profile
 leave it false.
 The caller may unref its own payload after creation. The standalone wrapper

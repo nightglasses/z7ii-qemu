@@ -11,7 +11,7 @@ Raw listings, byte checks and observations remain under ignored
 
 All six eight-second observations use the same dirty-worktree ARM binary
 `3848f3146a462f0649e586d548d1a264f1424949c17a67be24979eb8d06fdae9`,
-unchanged complete bundle, functional-v1, MTTCG, and explicitly enabled
+unchanged complete bundle, functional, MTTCG, and explicitly enabled
 [experimental notification profile](../devices/bridge/protocol.md).
 Actual notification properties are true in both domains. They capture 13 COPY
 requests and byte-exact loader extents, then the same first rejection:
@@ -156,7 +156,7 @@ physical reset/ACK law.
 
 Two independent twelve-second `processorfinal1/2` observations use ARM SHA256
 `ecb020af61b554c65d075640b6403095833e17b1b255eea812783a6d1d57a85f`,
-the complete original bundle, functional-v1, MTTCG and both experimental
+the complete original bundle, functional, MTTCG and both experimental
 notification propertiestrue. Each records14 COPY calls and three exact
 loader extents. Each also verifies the actual 16 KiB bootstrap view against
 its source, SHA256
@@ -194,7 +194,7 @@ The later [graphics request frontend](../devices/transfer/protocol.md) captures
 actual source bytes but does not interpret or complete a graphics command.
 Two twelve-second `graphicsstream1/2` runs use ARM SHA256
 `df46dc78f70c5de5b503a71d39e4614e37cffb9b53e36841285ed147af0dfd96`,
-complete bundle, functional-v1, MTTCG and both notification propertiestrue.
+complete bundle, functional, MTTCG and both notification propertiestrue.
 They retain14 COPY calls, three exact loader extents and the original processor
 timeout path. Both frontend byte hashes match guest-memory prefixes read
 with the same assumed lengths, not independently established full extents:
@@ -271,7 +271,7 @@ separately from the earlier prefix receipts and read-only study.
 Two independent twelve-second complete-original-bundle observations,
 `work/research/guiresume/extentfixed1/2`, use ARM SHA256
 `0398c59a4da249213e15e475ef8ccc9e8b763ccbc758d315162be823b1f688ad`,
-functional-v1, MTTCG and both actual notification propertiestrue. Their
+functional, MTTCG and both actual notification propertiestrue. Their
 receipts retain dirty source identity and actual argv; these are explicitly
 experimental notifications, not strict/default or physical qualification.
 Each records 14 COPY calls, three exact loader extents and byte-exact 16-KiB

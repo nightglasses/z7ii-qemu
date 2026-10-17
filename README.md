@@ -2,7 +2,7 @@
 
 This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine has an explicit, replaceable `boot-shim=functional-v1` loader profile; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine has an explicit, replaceable `boot-shim=functional` loader profile; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -36,11 +36,11 @@ Normal-LCD development uses one explicit functional hardware composition root:
 
 ```sh
 work/build/qemu/qemu-system-arm \
-  -M z7ii-mas-diagnostic,bundle=/absolute/path/to/decoded-container.bin,functional-profile=functional-gui-v1 \
+  -M z7ii-mas-diagnostic,bundle=/absolute/path/to/decoded-container.bin,functional-profile=functional-gui \
   -smp cpus=2,maxcpus=5
 ```
 
-`functional-gui-v1` currently selects the accepted `functional-v1` loader and
+`functional-gui` currently selects the accepted `functional` loader and
 connects the MAS/SLA opt-in notification endpoints before either bridge is
 realized, and joins readout-control requests to the existing CMOS timing/DMA
 engine. That join validates the finite C1.70 mapping, writes only the submitted
@@ -68,9 +68,9 @@ or ambiguous component input before any component becomes visible to a machine.
 - QEMU can and must implement complete finite deterministic hardware behavior for unchanged firmware. A functional model may implement CMOS/readout/service/graphics state machines, DMA, IRQs and scanout without claiming exact physical behavior. Only direct guest-software outcome injection is forbidden: writing guest event or status state to force success, invoking guest callbacks or ISRs, manipulating the guest PC or task state, or presenting a prefilled, fixed or host-drawn UI.
 - The primary ARM machine is `z7ii-mas-diagnostic`. It supports both the raw MAS diagnostic input and the validated five-component bundle. A raw MAS payload is not a complete update package. `nikonsla` is a separate ARM software-domain machine; `nikonex` and `nikonvr` cover the component profiles listed above.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
-- CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source requires explicit opt-in through fixtures or `functional-gui-v1`. This is a functional transport contract, not a recovered sensor specification.
+- CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source requires explicit opt-in through fixtures or `functional-gui`. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
-- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The explicit `functional-gui-v1` profile now joins a bounded readout mapping to CMOS primary-buffer DMA and generation-checked completion; capture/SDES and downstream ISP/display joins remain independent boundaries.
+- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The explicit `functional-gui` profile now joins a bounded readout mapping to CMOS primary-buffer DMA and generation-checked completion; capture/SDES and downstream ISP/display joins remain independent boundaries.
 - The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
 - The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
 - Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
@@ -95,7 +95,7 @@ flowchart TD
   SPI <--> MAS
 
   MAS --> Readout["readout-control"]
-  Readout -->|"functional-gui-v1 only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
+  Readout -->|"functional-gui only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
   Source["Explicit image or<br/>opt-in deterministic input"] --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]
   MAS --> Graphics["Finite paired graphics LUT executor<br/>actual output, IRQ129, completed status58 read"]

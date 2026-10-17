@@ -33,7 +33,7 @@ static const NikonBootShimRange mas_ranges[] = {
 
 bool nikon_bootshim_is_functional(const char *profile)
 {
-    return profile && !strcmp(profile, NIKON_BOOT_SHIM_FUNCTIONAL_V1);
+    return profile && !strcmp(profile, NIKON_BOOT_SHIM_FUNCTIONAL);
 }
 
 void nikon_bootshim_prepare_mas(const char *profile, MemoryRegion *root,

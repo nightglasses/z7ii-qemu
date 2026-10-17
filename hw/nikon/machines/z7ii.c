@@ -226,7 +226,7 @@ static const MemoryRegionOps z7ii_unknown_ops = {
 static bool z7ii_nor_experimental(const Z7IIMachineState *s)
 {
     return s->nor_profile &&
-           !strcmp(s->nor_profile, "c1.70-experimental-v1");
+           !strcmp(s->nor_profile, "c1.70-experimental");
 }
 
 static void z7ii_nor_set_romd(Z7IIMachineState *s, bool enabled)
@@ -593,7 +593,7 @@ static bool z7ii_functional_shim(Z7IIMachineState *s)
 static bool z7ii_functional_gui(const Z7IIMachineState *s)
 {
     return s->functional_profile &&
-           !strcmp(s->functional_profile, "functional-gui-v1");
+           !strcmp(s->functional_profile, "functional-gui");
 }
 
 static void z7ii_apply_functional_profile(Z7IIMachineState *s)
@@ -602,15 +602,15 @@ static void z7ii_apply_functional_profile(Z7IIMachineState *s)
         return;
     }
     if (!s->bundle_path) {
-        error_report("functional-gui-v1 requires a complete bundle");
+        error_report("functional-gui requires a complete bundle");
         exit(EXIT_FAILURE);
     }
-    if (s->boot_shim && strcmp(s->boot_shim, "functional-v1")) {
-        error_report("functional-gui-v1 requires boot-shim=functional-v1");
+    if (s->boot_shim && strcmp(s->boot_shim, "functional")) {
+        error_report("functional-gui requires boot-shim=functional");
         exit(EXIT_FAILURE);
     }
     g_free(s->boot_shim);
-    s->boot_shim = g_strdup("functional-v1");
+    s->boot_shim = g_strdup("functional");
     /* Keep the synthetic factory input inside the functional profile. */
     s->ex_config_synthetic = true;
 }
@@ -631,7 +631,7 @@ static void z7ii_select_functional_shim(Z7IIMachineState *s)
 static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
 {
     /*
-     * functional-v1 is a replaceable loader contract.  It supplies only
+     * functional is a replaceable loader contract.  It supplies only
      * package-external FF NOR inputs and the finite early copy destinations
      * observed in the unchanged bundle trace.  The guest still owns CP15,
      * TTBR, SMP release, IRQ, DMA completion and every display operation.
@@ -642,7 +642,7 @@ static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
     z7ii_select_functional_shim(s);
     nikon_bootshim_prepare_mas(s->boot_shim, get_system_memory(),
                                s->shim_mas, &error_fatal);
-    error_report("z7ii-mas-diagnostic: boot-shim=functional-v1; erased prefixes "
+    error_report("z7ii-mas-diagnostic: boot-shim=functional; erased prefixes "
                  "and finite early-copy views are functional assumptions; "
                  "CP15, SMP release, IRQ, DMA completion and pixels remain guest-owned");
 }
@@ -949,7 +949,7 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
              Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
     z7ii_prepare_functional_shim(s);
-    if (s->boot_shim && !strcmp(s->boot_shim, "functional-v1")) {
+    if (s->boot_shim && !strcmp(s->boot_shim, "functional")) {
         DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
 
         /* Original MAS boot control and its 16-KiB CPU-written program view.
@@ -1155,7 +1155,7 @@ static void z7ii_init(MachineState *machine)
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
-    qdev_prop_set_bit(bridge, "notification-v1", z7ii_functional_gui(s));
+    qdev_prop_set_bit(bridge, "notification", z7ii_functional_gui(s));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(bridge), 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(bridge), 0,
@@ -1434,7 +1434,7 @@ static void z7ii_init(MachineState *machine)
                                                           6 * 16 + 3));
         nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
         nikon_bridge_attach_peer(sla_bridge, 1, &address_space_memory);
-        /* Inert unless both devices explicitly opt into notification-v1. */
+        /* Inert unless both devices explicitly opt into notifications. */
         nikon_bridge_connect_notifications(bridge, sla_bridge);
         /* Paired request routing is a functional board assumption. */
         qdev_connect_gpio_out_named(bridge, "peer-start", 0,
@@ -1482,12 +1482,12 @@ static void z7ii_set_boot_shim(Object *obj, const char *value, Error **errp)
     Z7IIMachineState *s = Z7II_MACHINE(obj);
 
     if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "functional-v1")) {
+        !strcmp(value, "functional")) {
         g_free(s->boot_shim);
         s->boot_shim = g_strdup(value && *value ? value : "none");
         return;
     }
-    error_setg(errp, "boot-shim must be none or functional-v1");
+    error_setg(errp, "boot-shim must be none or functional");
 }
 
 static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
@@ -1516,12 +1516,12 @@ static void z7ii_set_functional_profile(Object *obj, const char *value,
         return;
     }
     if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "functional-gui-v1")) {
+        !strcmp(value, "functional-gui")) {
         g_free(s->functional_profile);
         s->functional_profile = g_strdup(value && *value ? value : "none");
         return;
     }
-    error_setg(errp, "functional-profile must be none or functional-gui-v1");
+    error_setg(errp, "functional-profile must be none or functional-gui");
 }
 
 static char *z7ii_get_nor_profile(Object *obj, Error **errp)
@@ -1540,12 +1540,12 @@ static void z7ii_set_nor_profile(Object *obj, const char *value, Error **errp)
         return;
     }
     if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "c1.70-experimental-v1")) {
+        !strcmp(value, "c1.70-experimental")) {
         g_free(s->nor_profile);
         s->nor_profile = g_strdup(value && *value ? value : "none");
         return;
     }
-    error_setg(errp, "nor-profile must be none or c1.70-experimental-v1");
+    error_setg(errp, "nor-profile must be none or c1.70-experimental");
 }
 
 static char *z7ii_get_descriptor17_input(Object *obj, Error **errp)
@@ -1780,11 +1780,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_get_functional_profile,
                                   z7ii_set_functional_profile);
     object_class_property_set_description(oc, "functional-profile",
-        "Explicit unchanged-firmware hardware profile: none or functional-gui-v1");
+        "Explicit unchanged-firmware hardware profile: none or functional-gui");
     object_class_property_add_str(oc, "boot-shim", z7ii_get_boot_shim,
                                   z7ii_set_boot_shim);
     object_class_property_set_description(oc, "boot-shim",
-        "Versioned functional loader profile: none or functional-v1");
+        "Functional loader profile: none or functional");
     object_class_property_add_str(oc, "nor-profile", z7ii_get_nor_profile,
                                   z7ii_set_nor_profile);
     object_class_property_set_description(oc, "nor-profile",

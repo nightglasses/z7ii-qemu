@@ -88,7 +88,7 @@ flowchart TD
   Loader --> Zero["Selector-zero arena<br/>PA 0xb0d00000..0xb1100000<br/>4 MiB"]
   Loader --> One["Selector-one arena<br/>PA 0xb0900000..0xb0d00000<br/>4 MiB"]
   Loader --> DDR["Separate storage classes<br/>kernel, private objects, modules,<br/>code, graphics and pixels"]
-  ROMD -->|"functional-v1 loader copies"| LoaderViews["Bounded loader RAM<br/>PA 0x50200000 / 0x50000000 / 0x50080000"]
+  ROMD -->|"functional loader copies"| LoaderViews["Bounded loader RAM<br/>PA 0x50200000 / 0x50000000 / 0x50080000"]
   Zero --> Bus["QEMU address spaces / DMA"]
   One --> Bus
   DDR --> Bus
@@ -97,7 +97,7 @@ flowchart TD
 
 The two 4 MiB arenas are separate `MemoryRegion` owners. The selector-one
 firmware range check extends to `0xb1000000`; the modeled arena ends at
-`0xb0d00000`. Under `functional-v1`, loader RAM covers PA `0x50200000`
+`0xb0d00000`. Under `functional`, loader RAM covers PA `0x50200000`
 (`0x27800` bytes), `0x50000000` (`0x57e30`) and `0x50080000` (`0x69e70`).
 Historical experimental receipts compare these loader extents byte-exactly.
 Physical backing/provider ownership and framebuffer identity remain unresolved.
@@ -123,7 +123,7 @@ sequenceDiagram
   C0->>K: create and start initial task
   C1->>K: per-core init and scheduler wait
   C0->>K: select service / PKGB tasks
-  Note over B,G: Historical notification-v1 experiment, no GUI acceptance
+  Note over B,G: Historical notification experiment, no GUI acceptance
   B-->>N: modeled notification reaches guest handler
   N->>G: guest sets EV3 mask 0x10
   G->>K: observed natural wait return in that experiment
@@ -132,7 +132,7 @@ sequenceDiagram
 Historical peer setters publish EV3 masks `0x1`/`0x2` (wrapper LRs
 `0x10200d0b`/`0x10200ceb`); these do not satisfy the GUI mask `0x10` wait.
 Strict/default bridge notifications reject PA `0x2013e000`.
-`functional-gui-v1` selects `boot-shim=functional-v1` and enables both MAS/SLA
+`functional-gui` selects `boot-shim=functional` and enables both MAS/SLA
 notification endpoints before realization. It also attaches the functional
 readout pipeline below. Notification wiring remains a functional hypothesis,
 not a recovered physical bank/reset/IRQ contract. Historical experimental wait
@@ -148,7 +148,7 @@ and [#485](https://github.com/mashiro01/nightglass/issues/485) are unblocked.
 ```mermaid
 flowchart TD
   Guest["Guest readout configuration<br/>and PA 0x2006b400 = 1"] --> Readout["readout-control<br/>owned request generation"]
-  Readout -->|"functional-gui-v1 only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
+  Readout -->|"functional-gui only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
   Image["Explicit PGM/PPM or<br/>opt-in deterministic source"] --> CMOS["CMOS timing / DMA engine"]
   Pipeline --> CMOS
   CMOS -->|"timed primary-buffer DMA"| RAM["Submitted writable guest RAM"]
@@ -190,7 +190,7 @@ is opt-in and is not wired as a CMOS-to-display handoff. See
 
 ```mermaid
 flowchart TD
-  MMIO["MAS MMIO"] --> Processor["Request-only processor<br/>functional-v1: PA 0x2c040000 / 0x04294000"]
+  MMIO["MAS MMIO"] --> Processor["Request-only processor<br/>functional: PA 0x2c040000 / 0x04294000"]
   Processor -. "no execution provider connected" .-> Execution["Processor execution / ready / replies unresolved"]
 
   MMIO --> Streams["Graphics frontend PA 0x20180000<br/>owned immutable paired streams"]
@@ -240,7 +240,7 @@ PA `0x2c012000` remain strict errors. Static Thumb recovery places the
 |---|---|---|
 | CPU startup | MAS CPU0/CPU1 roles observed; private SLA/EX instantiated | Physical CPU/board parameter qualification |
 | External components | Standalone RX VR and GNU NDS32 TPJ providers; typed peer transport | Explicit launch/wiring; no automatic five-component CPU integration |
-| Loader COPY | Two 4 MiB arenas; bounded 500*/502* RAM under functional-v1 | Physical backing/provider identity |
+| Loader COPY | Two 4 MiB arenas; bounded 500*/502* RAM under functional | Physical backing/provider identity |
 | EV3 | GUI mask0x10 producer; historical experimental wait return; profile enables notifications | Strict PA2013e000; physical notification contract unqualified |
 | Processor | MAS-only request/bootstrap storage; historical natural timeout | Execution/ready/reply provider |
 | Graphics | Full paired capture, finite LUT execution, output DMA, IRQ129 and post-completion status58 read | Other programs/formats, fences, IRQ131, other status semantics and original scanout join |

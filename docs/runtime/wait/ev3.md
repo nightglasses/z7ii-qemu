@@ -79,7 +79,7 @@ justified by this receipt.
 
 Two bounded eight-second observations (`work/research/guiresume/verified1/`
 and `verified2/`) use the unchanged complete C1.70 decoded bundle, not the
-raw-MAS configuration above. Both use `boot-shim=functional-v1`,
+raw-MAS configuration above. Both use `boot-shim=functional`,
 `-smp cpus=2,maxcpus=5`, and `-accel tcg,thread=multi`. Their shared rebuilt
 native binary SHA256 is
 `13158f95a0c3313ee9d177f50ed1d55ce9a5a317a67e3bab106736fab71fc764`.
@@ -157,7 +157,7 @@ flags, ready values, a NOR writer for the abort path, or longer waiting.
 
 The newer [notification-mask study](../../devices/bridge/protocol.md) separates
 source-supported set/clear intent from unproved firstword/bank/reset/IRQ laws.
-The default-off `notification-v1` property allows those laws to be explored as
+The default-off `notification` property allows those laws to be explored as
 explicit functional hypotheses; it is not accepted physical recovery or a
 replacement for the withdrawn ordinary-word experiment.
 

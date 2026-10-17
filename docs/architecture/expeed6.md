@@ -51,7 +51,7 @@ with the MAS/SLA CPU domains or with particular QEMU devices.
 ```mermaid
 flowchart LR
   Guest["Guest readout request / geometry"] --> Readout["readout-control"]
-  Readout -->|"functional-gui-v1 only"| Pipeline["Finite C1.70 mapping"]
+  Readout -->|"functional-gui only"| Pipeline["Finite C1.70 mapping"]
   Source["Explicit image or<br/>opt-in deterministic source"] --> CMOS["CMOS timed DMA"]
   Pipeline --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]

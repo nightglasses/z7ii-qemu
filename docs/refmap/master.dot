@@ -3051,7 +3051,7 @@ digraph master {
   "0x201350b0-0x2013514f" [label="0x201350b0-0x2013514f\nMAS bridge bank0 mapping arrays (5 x 8 words = 40 words)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
   "0x201350b0" [label="0x201350b0\nMAS bridge bank0 page port (selector2 adds 0x8000 -> bank1)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
   "0x20136000" [label="0x20136000\nMAS bridge getter base (bankmask2 adds 0x8000)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
-  "0x20136004" [label="0x20136004\nMAS bridge bank0 flag cell (+6004, notification-v1 opt-in)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
+  "0x20136004" [label="0x20136004\nMAS bridge bank0 flag cell (+6004, notification opt-in)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
   "0x20136008" [label="0x20136008\nMAS bridge OR-set mask (+6008)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
   "0x2013600c" [label="0x2013600c\nMAS bridge clear mask (+600c)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
   "0x2013829c" [label="0x2013829c\nMAS bridge bank0 ACK word (write 1 via bankmask2, IRQbit2)", shape=ellipse, style=filled, fillcolor="#cfe2ff"];

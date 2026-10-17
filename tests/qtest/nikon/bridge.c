@@ -278,7 +278,7 @@ static void test_combined_domains(void)
     g_autofree char *bundle = peer_bundle();
     g_autofree char *quoted = g_shell_quote(bundle);
     QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
-                              "functional-profile=functional-gui-v1 "
+                              "functional-profile=functional-gui "
                               "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
     QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
 
@@ -294,18 +294,18 @@ static void test_combined_domains(void)
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
                          "'path':'/machine','property':'functional-profile'}}");
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-gui-v1");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-gui");
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
                          "'path':'/machine','property':'boot-shim'}}");
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-v1");
+    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional");
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/bridge','property':'notification'}}");
     g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/sla/bridge','property':'notification'}}");
     g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
@@ -491,11 +491,11 @@ static void test_peer_window(void)
     g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "none");
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/bridge','property':'notification'}}");
     g_assert_false(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/sla/bridge','property':'notification'}}");
     g_assert_false(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     qtest_irq_intercept_out_named(q, path, SYSBUS_DEVICE_GPIO_IRQ);

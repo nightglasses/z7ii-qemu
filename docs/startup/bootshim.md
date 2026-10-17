@@ -1,6 +1,6 @@
 # Functional boot shim
 
-`functional-v1` is the replaceable loader profile for the embedded Z7II
+`functional` is the replaceable loader profile for the embedded Z7II
 machine. It loads the decoded five-component container, supplies the two
 package-external 128 KiB prefix views as erased NOR when no explicit prefix is
 provided, maps the finite early copy destinations observed in the unchanged
@@ -13,7 +13,7 @@ Run it with:
 
 ```sh
 qemu-system-arm \
-  -M z7ii-mas-diagnostic,bundle=/absolute/path/decoded-container.bin,boot-shim=functional-v1 \
+  -M z7ii-mas-diagnostic,bundle=/absolute/path/decoded-container.bin,boot-shim=functional \
   -smp cpus=2,maxcpus=5 -accel tcg,thread=single
 ```
 

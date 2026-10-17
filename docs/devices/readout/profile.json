@@ -33,13 +33,13 @@
     {"offset":"0x34","width":"u8","expression":"0x40 for selector byte zero, otherwise 1","status":"proven branch value; functional format pair at control+0x3fc"},
     {"offset":"0x35","width":"u8","expression":"same branch value as record+0x34","status":"proven branch value; functional format pair at control+0x3fc"}
   ],
-  "functional_gui_v1_mapping": {
+  "functional_gui_mapping": {
     "scope": "explicit finite C1.70 functional mapping; not a physical-camera identity claim",
     "request": "a write of 1 to 0x2006b400 owns the current readout generation",
     "primary_destination": "u32 at 0x2006b3e8",
     "primary_stride": "u32 at 0x2006b3ec; nonzero, 256-byte aligned, and even",
     "primary_span": "u32 at 0x2006b3f0; nonzero, at most 64 MiB, and exactly divisible by primary_stride",
-    "secondary_destination": "u32 at 0x2006b3f4; range-validated but not written by functional-gui-v1",
+    "secondary_destination": "u32 at 0x2006b3f4; range-validated but not written by functional-gui",
     "secondary_stride": "u32 at 0x2006b3f8; nonzero and 256-byte aligned",
     "accepted_formats": ["0x00400040", "0x00010001"],
     "functional_geometry": "two-byte samples; width = primary_stride / 2; height = primary_span / primary_stride",
@@ -57,7 +57,7 @@
     "a Nikon GIC line, guest callback, ISR invocation, display prefill, or physical CMOS-to-ISP edge"
   ],
   "qemu_boundary": {
-    "action": "strict/default profiles retain readout-control as a disconnected provider boundary; functional-gui-v1 must connect the bounded mapping to the CMOS engine",
+    "action": "strict/default profiles retain readout-control as a disconnected provider boundary; functional-gui must connect the bounded mapping to the CMOS engine",
     "must": [
       "accept only the two observed C1.70 format pairs",
       "validate all consumed geometry and ranges before starting DMA",

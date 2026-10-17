@@ -138,8 +138,8 @@ were parser-environment false positives, not code fixes to bypass failures.
 
 The current ARM binary SHA256 is
 `3848f3146a462f0649e586d548d1a264f1424949c17a67be24979eb8d06fdae9`.
-Two separate original complete-bundle, functional-v1, MTTCG eight-second
-observations explicitly enable `notification-v1`. Both enter GUI phase3 and
+Two separate original complete-bundle, functional, MTTCG eight-second
+observations explicitly enable `notification`. Both enter GUI phase3 and
 pass all three loader-byte comparisons; they capture 11/13 COPY requests and
 no COPY first fault. They then reject WORD write `0` at PA `0x2c04000c`, MAS PC
 `0x1020b4da`. Neither captures a child constructor or graphics transfer, and
@@ -319,7 +319,7 @@ additional native run accompanies this documentation-only correction.
 Two separate twelve-second original complete-bundle experiments,
 `extentfixed1/2`, use ARM SHA256
 `0398c59a4da249213e15e475ef8ccc9e8b763ccbc758d315162be823b1f688ad`
-with functional-v1, MTTCG and both notification propertiestrue. Each retains 14
+with functional, MTTCG and both notification propertiestrue. Each retains 14
 COPY calls, three exact loader extents, actual 16-KiB bootstrap equality and
 ten marker polls followed by natural timeout/stop. Device stream hashes match
 producer-bounded full 224/1688-byte inputs; the

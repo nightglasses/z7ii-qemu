@@ -110,7 +110,7 @@ static void test_notification_profile(void)
         dev[i] = qdev_new(TYPE_NIKON_BRIDGE);
         object_property_add_child(object_get_objects_root(), "notify[*]",
                                   OBJECT(dev[i]));
-        qdev_prop_set_bit(dev[i], "notification-v1", true);
+        qdev_prop_set_bit(dev[i], "notification", true);
         irq[i] = qemu_allocate_irq(irq_level, &level[i], 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(dev[i]), 0, irq[i]);
         g_assert_true(sysbus_realize(SYS_BUS_DEVICE(dev[i]), &error_abort));

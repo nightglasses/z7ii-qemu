@@ -613,7 +613,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     }
     /* Official 1006ade8/1006ad78: IRQ127, pending/ACK at 2013d020/d028. */
     s->bridge = sla_device(s, "bridge", TYPE_NIKON_BRIDGE);
-    qdev_prop_set_bit(s->bridge, "notification-v1", s->bridge_notifications);
+    qdev_prop_set_bit(s->bridge, "notification", s->bridge_notifications);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(s->bridge), &error_fatal);
     sla_map(s, s->bridge, 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(s->bridge), 0,

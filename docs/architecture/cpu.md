@@ -83,7 +83,7 @@ sequenceDiagram
 
 An empty CPU1 successor is a valid startup/affinity boundary. It must not be
 repaired by returning a synthetic task, writing a ready bit, or manufacturing
-an interrupt. The `functional-v1` profile already provides bounded RAM for the
+an interrupt. The `functional` profile already provides bounded RAM for the
 `0x50200000` descriptor-driven COPY. Its physical backing/provider identity
 remains unresolved; this does not imply missing model storage or a CPU1 fault.
 

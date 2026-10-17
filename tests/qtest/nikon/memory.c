@@ -542,7 +542,7 @@ static void nor_unlock(QTestState *qts, uint16_t command)
 static void test_nor_experimental_profile(void)
 {
     MemoryTest t = memory_init_machine(
-        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental-v1", "");
+        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental", "");
     QTestState *qts = t.qts;
 
     qtest_writel(qts, 0x04264000, 0x21);
@@ -613,7 +613,7 @@ static void test_descriptor17_input(void)
     close(fd);
     g_assert_true(g_file_set_contents(path, (char *)input, size, NULL));
     machine = g_strdup_printf(
-        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental-v1,"
+            ",mas-boot-prefix=erased,nor-profile=c1.70-experimental,"
         "descriptor17-input=%s", path);
     t = memory_init_machine(machine, "");
 

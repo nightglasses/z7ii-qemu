@@ -68,7 +68,7 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
  * An explicit command2006b400=1 creates a request generation and pulses
  * readout-request.  External providers may inspect that request and publish
  * ready/completion observations through the APIs below. The machine only
- * supplies a provider in the explicit functional-gui-v1 profile.
+ * supplies a provider in the explicit functional-gui profile.
  */
 bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request);
 bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation);
