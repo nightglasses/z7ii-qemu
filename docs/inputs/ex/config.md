@@ -1,45 +1,26 @@
-# Synthetic EX factory-config profile
+# Synthetic EX factory configuration
 
 The C1.70 update contains the complete 512 KiB EX component, but its factory
 configuration window at `0x08004000..0x08020000` is erased in that payload.
-The EX firmware nevertheless reads this window during cold start.  The
-`power-on-v1` profile supplies a deterministic **synthetic external input**
-for that missing board data; it does not modify the original component or
-claim to recover a Nikon factory dump.
+The EX firmware nevertheless reads this window during cold start.
 
-The existing `functional-gui-v1` profile selects it automatically.  An
-explicit selection is also available:
+For the experimental `functional-gui` machine profile, QEMU installs a small
+synthetic configuration structure held as a read-only C data object in the
+machine model.  It is not a recovered Nikon factory dump and it never changes
+the original EX component.  The object supplies the statically required
+`MAKE` marker, deterministic calibration seed bytes, the configured-path
+channel fields, and the gate at `0x0800422d`.
+
+The main configuration view begins at `0x08004010` (the adjacent id0 view
+begins at `0x08004000`), so the two important payload offsets are:
 
 ```text
--machine z7ii-mas-diagnostic,bundle=<decoded-container>,\
-  ex-config-profile=power-on-v1
+config[276] -> 0x4124   (selects the power-snapshot path)
+config[541] -> 0x422d   (enables the power predicate)
 ```
 
-The profile is intentionally separate from the EX firmware loader.  At
-realization it copies the immutable component to a private flash image, fills
-the external window with deterministic calibration bytes, writes the `MAKE`
-validator marker, clears the channel-0 enable byte used by the power snapshot,
-and enables the statically observed power predicate gate at payload offset
-`0x422d` (`VMA 0x0800422d`); the main config view begins at payload offset
-`0x4010`.  The guest still performs all validation, GPIO
-polling, ADC conversion, debounce, event generation and report construction.
-
-For a file supplied through `ex-config-input`, the file begins at the id0
-window (`0x08004000`), so `config[276]` is file offset `0x124` and
-`config[541]` is file offset `0x22d` (the extra `0x10` is the id1 view base).
-
-`ex-config-input=FILE` remains available for a later complete external block;
-`ex-config-bytes=off:value;...` remains the narrow override mechanism.  When
-combined, the order is profile baseline, file block, then byte overrides.  This
-allows a focused experiment without baking a synthetic value into the EX
-payload.  For a functional GUI run, no extra config option is needed.  Passing
-`ex-config-profile=none` explicitly disables the automatic synthetic input;
-outside `functional-gui-v1`, `none` remains the default and preserves
-unchanged-firmware behavior.
-
-The profile is only the configuration side of the boundary.  The board inputs
-remain explicit independent properties: `ex-gpiod13=on` for the early
-configured-path wait, `ex-power-good=on` for the low-active P0.10/P1.1/P6.2
-power predicate, and `ex-adc-counts` for the battery voltage lane.  A profile
-selection is therefore a synthetic-input run, not evidence that the original
-erased update image naturally reaches the GUI.
+No external config file, byte patch, profile-version selector, guest event,
+ADC result, GPIO edge or report is supplied.  The guest still performs all
+validation, GPIO polling, ADC conversion, debounce, event generation and
+report construction.  The default/non-functional machine path retains the
+unchanged erased EX window.
