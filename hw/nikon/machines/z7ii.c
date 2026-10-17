@@ -52,6 +52,27 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 /* Software flash offset of the EX factory config block (VMA 0x08004000). */
 #define EX_CONFIG_OFFSET 0x4000
+#define EX_CONFIG_SIZE 0x0e2c
+#define EX_CONFIG_MAIN_OFFSET 0x10
+#define EX_CONFIG_GATE_OFFSET (EX_CONFIG_OFFSET + EX_CONFIG_MAIN_OFFSET + 0x21d)
+
+typedef struct NikonEXConfigProfile {
+    uint8_t fill;
+    uint8_t magic[4];
+    uint16_t channel0_offset;
+    uint8_t channel0_value;
+    uint16_t gate_offset;
+    uint8_t gate_value;
+} NikonEXConfigProfile;
+
+static const NikonEXConfigProfile z7ii_ex_config_power_on_v1 = {
+    .fill = 1,
+    .magic = { 'M', 'A', 'K', 'E' },
+    .channel0_offset = EX_CONFIG_MAIN_OFFSET + 276,
+    .channel0_value = 0,
+    .gate_offset = EX_CONFIG_GATE_OFFSET - EX_CONFIG_OFFSET,
+    .gate_value = 1,
+};
 #define Z7II_DOWNLOAD_BASE 0xb0d00000ULL
 #define Z7II_DOWNLOAD_SIZE 0x400000ULL
 #define Z7II_SELECTOR_ONE_BASE 0xb0900000ULL
@@ -132,6 +153,7 @@ struct Z7IIMachineState {
     char *ex_io_levels;
     uint32_t ex_io_mask;
     uint32_t ex_io_high;
+    char *ex_config_profile;
     char *ex_config_bytes;
     bool ex_gpiod13;
     bool ex_power_good;
@@ -594,6 +616,11 @@ static void z7ii_apply_functional_profile(Z7IIMachineState *s)
     }
     g_free(s->boot_shim);
     s->boot_shim = g_strdup("functional-v1");
+    if (!s->ex_config_profile && !s->ex_config_input &&
+        !s->ex_config_count) {
+        /* Keep the synthetic factory input inside the functional profile. */
+        s->ex_config_profile = g_strdup("power-on-v1");
+    }
 }
 
 static void z7ii_select_functional_shim(Z7IIMachineState *s)
@@ -661,6 +688,33 @@ static void z7ii_ex_power_good_tick(void *opaque)
               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
 }
 
+static void z7ii_apply_ex_config_profile(Z7IIMachineState *s,
+                                         uint8_t *copy, gsize size)
+{
+    const NikonEXConfigProfile *profile = &z7ii_ex_config_power_on_v1;
+    uint8_t *config;
+
+    if (!s->ex_config_profile || !strcmp(s->ex_config_profile, "none")) {
+        return;
+    }
+    if (strcmp(s->ex_config_profile, "power-on-v1")) {
+        error_report("unsupported EX config profile '%s'",
+                     s->ex_config_profile);
+        exit(EXIT_FAILURE);
+    }
+    if (size < EX_CONFIG_OFFSET + EX_CONFIG_SIZE) {
+        error_report("EX firmware is too small for the factory config profile");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Synthetic external input, not recovered factory data. */
+    config = copy + EX_CONFIG_OFFSET;
+    memset(config, profile->fill, EX_CONFIG_SIZE);
+    memcpy(config, profile->magic, sizeof(profile->magic));
+    config[profile->channel0_offset] = profile->channel0_value;
+    config[profile->gate_offset] = profile->gate_value;
+}
+
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                            DeviceState *spi_ports[])
 {
@@ -672,16 +726,12 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     unsigned i;
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
-    if (s->ex_config_count || s->ex_config_input) {
+    if (s->ex_config_count || s->ex_config_input || s->ex_config_profile) {
         gsize size;
         const guint8 *data = g_bytes_get_data(payload, &size);
         guint8 *copy = g_memdup2(data, size);
 
-        for (unsigned k = 0; k < s->ex_config_count; k++) {
-            if (s->ex_config_off[k] < size) {
-                copy[s->ex_config_off[k]] = s->ex_config_val[k];
-            }
-        }
+        z7ii_apply_ex_config_profile(s, copy, size);
         if (s->ex_config_input && *s->ex_config_input) {
             g_autoptr(GError) error = NULL;
             g_autofree char *block = NULL;
@@ -699,6 +749,11 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                 exit(EXIT_FAILURE);
             }
             memcpy(copy + EX_CONFIG_OFFSET, block, block_size);
+        }
+        for (unsigned k = 0; k < s->ex_config_count; k++) {
+            if (s->ex_config_off[k] < size) {
+                copy[s->ex_config_off[k]] = s->ex_config_val[k];
+            }
         }
         payload = g_bytes_new_take(copy, size);
     }
@@ -1746,6 +1801,32 @@ static void z7ii_set_ex_config_input(Object *obj, const char *value,
     s->ex_config_input = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_ex_config_profile(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->ex_config_profile;
+
+    return g_strdup(value ? value : "none");
+}
+
+static void z7ii_set_ex_config_profile(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (!value || !*value || !strcmp(value, "none") ||
+        !strcmp(value, "power-on-v1")) {
+        if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+            error_setg(errp,
+                       "ex-config-profile must be configured before machine init");
+            return;
+        }
+        g_free(s->ex_config_profile);
+        s->ex_config_profile = g_strdup(value && *value ? value : "none");
+        return;
+    }
+    error_setg(errp, "ex-config-profile must be none or power-on-v1");
+}
+
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
@@ -1802,6 +1883,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->cmos_image);
     g_free(s->ex_adc_counts);
     g_free(s->ex_io_levels);
+    g_free(s->ex_config_profile);
     g_free(s->ex_config_bytes);
     g_free(s->ex_config_input);
 }
@@ -1869,6 +1951,9 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                  z7ii_set_ex_config_bytes);
     object_class_property_add_str(oc, "ex-config-input", z7ii_get_ex_config_input,
                                  z7ii_set_ex_config_input);
+    object_class_property_add_str(oc, "ex-config-profile",
+                                  z7ii_get_ex_config_profile,
+                                  z7ii_set_ex_config_profile);
     object_class_property_add_bool(oc, "ex-power-good",
                                    z7ii_get_ex_power_good,
                                    z7ii_set_ex_power_good);
@@ -1887,6 +1972,10 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "ex-config-input",
         "External EX factory config block image copied at flash offset 0x4000 "
         "(VMA 0x08004000); external input, does not edit the package payload");
+    object_class_property_set_description(oc, "ex-config-profile",
+        "Synthetic external EX config profile; power-on-v1 supplies the "
+        "statically required configured-path values without changing the "
+        "original EX payload");
     object_class_property_set_description(oc, "ex-io-levels",
         "Explicit EX I2C-expander pin:level entries separated by ';' "
         "(pins 0..23; levels 0/1); omitted pins remain disconnected");
