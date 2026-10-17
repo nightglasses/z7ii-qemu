@@ -1,4 +1,4 @@
-/* Explicit machine inputs reach the private EX expander's real I2C registers.
+/* Direct device inputs reach the private EX expander's real I2C registers.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -83,6 +83,9 @@ static void configured_levels(void)
     I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
 
     /* Pins 0/23 are held low; pin9 high; all others are disconnected. */
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 0), 0);
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 9), 1);
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 23), 0);
     g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
     for (unsigned port = 0; port < 3; port++) {
         io_write(bus, 0x50 + port, 0); /* Pull direction: down. */
@@ -128,8 +131,7 @@ int main(int argc, char **argv)
     socket = g_build_filename(directory, "qtest", NULL);
     chardev = g_strdup_printf("unix:%s,server=on,wait=off", socket);
     bundle = input_bundle(directory);
-    machine = g_strdup_printf("z7ii-mas-diagnostic,bundle=%s,"
-                              "ex-io-levels=0:0;9:1;23:0", bundle);
+    machine = g_strdup_printf("z7ii-mas-diagnostic,bundle=%s", bundle);
     g_test_init(&argc, &argv, NULL);
     {
         char *qemu_argv[] = {

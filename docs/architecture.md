@@ -132,7 +132,7 @@ sequenceDiagram
 Historical peer setters publish EV3 masks `0x1`/`0x2` (wrapper LRs
 `0x10200d0b`/`0x10200ceb`); these do not satisfy the GUI mask `0x10` wait.
 Strict/default bridge notifications reject PA `0x2013e000`.
-`functional-gui` selects `boot-shim=functional` and enables both MAS/SLA
+`functional-gui` installs the bounded loader contract and enables both MAS/SLA
 notification endpoints before realization. It also attaches the functional
 readout pipeline below. Notification wiring remains a functional hypothesis,
 not a recovered physical bank/reset/IRQ contract. Historical experimental wait

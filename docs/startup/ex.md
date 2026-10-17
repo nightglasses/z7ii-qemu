@@ -150,10 +150,11 @@ is held until changed or disconnected. The API is safe after object creation,
 including before realization: it stores the source state without scheduling
 conversion work on unrealized hardware. A later guest ADON/SWSTART request
 uses that state through the normal conversion path. All channels start
-disconnected. The combined diagnostic machine accepts explicitly configured
-[raw counts](../runtime/analog.md); it supplies no default analog profile.
-There is no default
-count or fabricated EOC to release the observed original wait.
+disconnected. The functional diagnostic composition supplies one deterministic
+board-input profile through the machine's internal EX contract; there is no
+machine-level raw-count override. Direct device tests may still connect or
+disconnect a channel through the EX input API. There is no fabricated EOC to
+release the observed original wait.
 
 The original polling family (`08043126`) and interrupt family
 (`0803cc90 -> 08043284`, then `08043388` and DR read `080430c8`) use the same

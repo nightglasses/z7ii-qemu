@@ -79,7 +79,7 @@ justified by this receipt.
 
 Two bounded eight-second observations (`work/research/guiresume/verified1/`
 and `verified2/`) use the unchanged complete C1.70 decoded bundle, not the
-raw-MAS configuration above. Both use `boot-shim=functional`,
+raw-MAS configuration above. Both use the internal functional loader,
 `-smp cpus=2,maxcpus=5`, and `-accel tcg,thread=multi`. Their shared rebuilt
 native binary SHA256 is
 `13158f95a0c3313ee9d177f50ed1d55ce9a5a317a67e3bab106736fab71fc764`.

@@ -1,7 +1,7 @@
 # Processor bootstrap request boundary
 
 `nikon-processor-control-functional` is a finite MAS-only configuration and
-caller-owned bootstrap store, created only by `boot-shim=functional`.
+caller-owned bootstrap store, created only by the `functional-gui` composition.
 Its control aperture is PA `2c040000`; its separate 16 KiB byte aperture is
 PA `04294000`. It is not a processor ISA, a physical IP identification,
 a second general RAM provider, or a ready/completion simulator.

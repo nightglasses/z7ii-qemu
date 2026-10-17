@@ -2,7 +2,7 @@
 
 This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine has an explicit, replaceable `boot-shim=functional` loader profile; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's `functional-gui` composition installs the bounded loader contract internally; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -40,8 +40,8 @@ work/build/qemu/qemu-system-arm \
   -smp cpus=2,maxcpus=5
 ```
 
-`functional-gui` currently selects the accepted `functional` loader and
-connects the MAS/SLA opt-in notification endpoints before either bridge is
+`functional-gui` currently installs the bounded loader contract and connects
+the MAS/SLA opt-in notification endpoints before either bridge is
 realized, and joins readout-control requests to the existing CMOS timing/DMA
 engine. That join validates the finite C1.70 mapping, writes only the submitted
 primary buffer and publishes generation-checked completion. An explicit
