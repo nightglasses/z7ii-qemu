@@ -19,6 +19,12 @@ config[276] -> 0x4124   (selects the power-snapshot path)
 config[541] -> 0x422d   (enables the power predicate)
 ```
 
+The same functional composition carries one deterministic board-input record:
+ADC1 channels `0..3` use raw count `3500`, expander pads `0`, `6` and `9` are
+high, GPIOD.13 is high, and the observed active-low power-good wires are held
+low. These values are model data for the functional fixture, not recovered
+factory calibration or a physical voltage claim.
+
 No external config file, byte patch, profile-version selector, guest event,
 ADC result, GPIO edge or report is supplied.  The guest still performs all
 validation, GPIO polling, ADC conversion, debounce, event generation and
