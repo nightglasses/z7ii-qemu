@@ -21,5 +21,6 @@ The profile does not modify any component bytes and does not inject a GUI,
 IRQ, DMA completion, or pixel. A successful run must therefore show the
 original firmware advancing through its own startup and producing the first
 display frame; a shim log or a stopped COPY transaction is not a GUI claim.
-The profile name is versioned so a future board-specific loader can replace it
-without changing the decoded firmware or the machine contract.
+The profile is deliberately a single named functional composition.  If a future
+board-specific loader is needed, it must be introduced as a separate, explicitly
+documented contract rather than by silently changing this one.
