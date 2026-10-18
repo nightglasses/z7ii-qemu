@@ -320,10 +320,11 @@ static uint8_t exstatus_recv(I2CSlave *slave)
 {
     NikonEXStatusState *s = exstatus_state(slave);
 
-    /* The periodic parser consumes the first byte of this short status
-     * response as its class selector. */
+    /* The transfer is four bytes long.  The EX service copies the fourth
+     * received byte into its status word before applying the class parser;
+     * the leading bytes are reserved/status padding in this profile. */
     uint8_t index = s->rx_index++;
-    uint8_t value = index == 0 ? 0xa9 : 0;
+    uint8_t value = index == 3 ? 0xa9 : 0;
     return value;
 }
 

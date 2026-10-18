@@ -167,10 +167,10 @@ static void power_devices(void)
     g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
     g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
-    g_assert_cmphex(i2c_recv(bus), ==, 0xa9);
-    for (unsigned i = 1; i < 4; i++) {
+    for (unsigned i = 0; i < 3; i++) {
         g_assert_cmphex(i2c_recv(bus), ==, 0);
     }
+    g_assert_cmphex(i2c_recv(bus), ==, 0xa9);
     i2c_nack(bus);
     i2c_end_transfer(bus);
 }
