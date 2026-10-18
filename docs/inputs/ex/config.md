@@ -20,13 +20,16 @@ config[541] -> 0x422d   (enables the power predicate)
 ```
 
 The same functional composition carries one deterministic board-input record:
-ADC1 channels `0..3` use raw count `3500`, expander pads `0`, `6` and `9` are
-high, GPIOD.13 is high, and the observed active-low power-good wires are held
-low. These values are model data for the functional fixture, not recovered
-factory calibration or a physical voltage claim.
+ADC1 channel `0` uses the full-scale raw count `4095` because the configured
+power path accepts channel 0 only above the firmware threshold `3819`; channels
+`1..3` use raw count `3500`. Expander pads `0`, `6` and `9` are high, GPIOD.13
+is high, and the observed active-low power-good wires are held low. These
+values are model data for the functional fixture, not recovered factory
+calibration or a physical voltage claim.
 
-No external config file, byte patch, profile-version selector, guest event,
-ADC result, GPIO edge or report is supplied.  The guest still performs all
-validation, GPIO polling, ADC conversion, debounce, event generation and
-report construction.  The default/non-functional machine path retains the
-unchanged erased EX window.
+No external config file, byte patch, profile-version selector, guest event or
+report is supplied at runtime; the finite board values above are owned by the
+built-in functional fixture.  The guest still performs all validation, GPIO
+polling, ADC conversion, debounce, event generation and report construction.
+The default/non-functional machine path retains the unchanged erased EX
+window.

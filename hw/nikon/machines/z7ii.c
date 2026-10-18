@@ -59,6 +59,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define EX_CONFIG_MODE_OFFSET (EX_CONFIG_MAIN_OFFSET + 278)
 #define EX_CONFIG_AUX_OFFSET 0x8100
 #define EX_CONFIG_AUX_SIZE 0x0200
+#define EX_ADC_POWER_RAIL_COUNT 4095
 
 typedef struct NikonEXConfigData {
     uint8_t fill;
@@ -94,10 +95,11 @@ static const NikonEXConfigData z7ii_ex_config_power_on = {
 
 /* Deterministic board contract used only by functional-gui. */
 static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
-    .adc = { 3500, 3500, 3500, 3500 },
-    /* The known unchanged-firmware run supplies only battery channels 1..3;
-     * channel 0 is the board-side power gate and remains unconnected. */
-    .adc_mask = (1u << 1) | (1u << 2) | (1u << 3),
+    /* The configured power path samples channel 0 against a firmware
+     * threshold of 3819.  Full-scale is a finite synthetic board-rail input,
+     * not a recovered voltage measurement. */
+    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, 3500, 3500 },
+    .adc_mask = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3),
     /* The power-monitor expander setup leaves the four observed control
      * pins low; an omitted pin remains electrically disconnected. */
     .io_mask = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 10),
