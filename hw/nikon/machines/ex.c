@@ -26,6 +26,7 @@
 #include "hw/char/stm32f2xx_usart.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
 #include "hw/nikon/bundle.h"
+#include "hw/nikon/exboot.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/exio.h"
@@ -1521,6 +1522,10 @@ static void ex_reset_on_cpu(CPUState *cpu, run_on_cpu_data data)
     NikonEXState *s = data.host_ptr;
     /* AIRCR resets the MCU, not an independently powered I2C peripheral. */
     ex_reset(DEVICE(s));
+    /* A guest-requested reset re-runs the boot loader like a real MCU. */
+    nikon_ex_boot_image(memory_region_get_ram_ptr(&s->ram), EX_RAM_BASE,
+                        EX_RAM_SIZE, memory_region_get_ram_ptr(&s->flash),
+                        EX_FLASH_BASE, EX_FLASH_SIZE, NIKON_EX_SCATTER_TABLE);
     /* ARMv7M is a QOM container, not a parent bus for these devices. */
     device_cold_reset(DEVICE(&s->armv7m.nvic));
     device_cold_reset(DEVICE(&s->armv7m.systick[M_REG_NS]));
@@ -1557,6 +1562,11 @@ static void ex_reset_hold(Object *obj, ResetType type)
     timer_del(s->exception_poll);
     ex_clear_first_exception(s);
     ex_reset(DEVICE(obj));
+    /* A boot loader re-applies the scatter table on every reset. */
+    nikon_ex_boot_image(memory_region_get_ram_ptr(&s->ram), EX_RAM_BASE,
+                        EX_RAM_SIZE, memory_region_get_ram_ptr(&s->flash),
+                        EX_FLASH_BASE, EX_FLASH_SIZE,
+                        NIKON_EX_SCATTER_TABLE);
 }
 
 static void ex_reset_exit(Object *obj, ResetType type)
@@ -1686,6 +1696,11 @@ static void ex_realize(DeviceState *dev, Error **errp)
     if (s->firmware) {
         memcpy(memory_region_get_ram_ptr(&s->flash),
                 g_bytes_get_data(s->firmware, NULL), EX_FLASH_SIZE);
+        /* Cold boot: the loader owns the data segment, before the CPU runs. */
+        nikon_ex_boot_image(memory_region_get_ram_ptr(&s->ram), EX_RAM_BASE,
+                            EX_RAM_SIZE, memory_region_get_ram_ptr(&s->flash),
+                            EX_FLASH_BASE, EX_FLASH_SIZE,
+                            NIKON_EX_SCATTER_TABLE);
     }
     memory_region_init_io(&s->peripheral, OBJECT(s), &ex_peripheral_ops, s,
                           "ex.peripherals", 0x30000);
@@ -1700,16 +1715,15 @@ static void ex_realize(DeviceState *dev, Error **errp)
 
     {
         /*
-         * Channel engine window reached by the original media record
-         * transfer (descriptor base 0x50060800).  Only the control, status
-         * and twenty channel entries are modelled; no completion source is
-         * invented.  See hw/nikon/devices/exengine.c.
+         * The media record path builds a descriptor from the constant
+         * 0x50060800 and drives control/status/data words there.  Model that
+         * finite block; see hw/nikon/devices/exrng.c.
          */
-        DeviceState *engine = qdev_new(TYPE_NIKON_EX_ENGINE);
+        DeviceState *rng = qdev_new(TYPE_NIKON_EX_RNG);
 
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(engine), &error_fatal);
-        memory_region_add_subregion(&s->memory, 0x50060000,
-                                    sysbus_mmio_get_region(SYS_BUS_DEVICE(engine), 0));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(rng), &error_fatal);
+        memory_region_add_subregion(&s->memory, 0x50060800,
+                                    sysbus_mmio_get_region(SYS_BUS_DEVICE(rng), 0));
     }
     qdev_prop_set_uint32(armv7m, "num-irq", 97);
     qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
