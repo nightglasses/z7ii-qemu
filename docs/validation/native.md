@@ -338,3 +338,22 @@ all-zero bootstrap equality is vacuous. These corrected capture receipts do
 not provide graphics processing/fence/status58/IRQ129, processor execution or
 independentD200, and do not promote notification hypotheses or accept GUI
 startup. No self-designed hash gates or fabricated success were added.
+
+## Profile-selector removal revalidation
+
+The `7d055a2a` selector removal deletes the machine-level
+`functional-profile`, `nor-profile` and `cmos-provider` selectors. The
+complete bundle now selects the composed board path; raw `-bios` remains a
+separate MAS-only diagnostic input. The following EX I2C cleanup removes the
+dead `last_write` field and the duplicate bundle-input selection call, and
+the controller uses ACK/STOP-bounded FIFO progress instead of a per-address
+receive-length table.
+
+`make check` passes all 32 Nikon executables with zero failures; the raw
+record is `work/build/qemu/meson-logs/testlog.txt`. The rebuilt ARM binary
+SHA256 is
+`b3d97591b347fad34e78140e86947fb275dc6daecf5c04c295b6f9a397303fe4`.
+The previously failing `/arm/nikon/ex/io` three-byte expander read passes.
+These are native contract/build receipts; they do not establish
+original-firmware startup or GUI output. The older 29-fixture/247-subtest
+receipts above remain historical.
