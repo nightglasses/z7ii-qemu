@@ -91,3 +91,67 @@ original MAS package. This option maps only that missing input range, keeps
 guest writes under the existing MEMC rejection contract, and never preloads
 the destination or page tables. MAS input is also valid with raw `-bios`; an
 SLA input still requires the complete bundle.
+
+## Host command lane
+
+The EX firmware is a uT-Kernel application with a message-driven command lane.
+`sub_8027e58` is the host-command dispatcher: a handler installed on the
+message object `0x2001f664` in the `BatCmAl1` task. It reads the id from
+`msg+0x10` (`sub_80270dc` subtracts 1000, so timer ids arrive as `1000+id`; the
+`msg+0x14 == -1` sentinel maps to id 999) and selects a handler with two
+byte-offset tables for ids 101..119 and 121..130 plus compare tiers for 120 and
+131..138. Any other id takes the default path at `0x8027ee4`, which logs
+`19013` and returns the message.
+
+| Source | Ids | Notes |
+|---|---|---|
+| event | 101..111, 126, 129, 132..134, 136..138 | posted by lane callbacks and the host/protocol handler `sub_8024d5c` |
+| timer | 112..116, 118..125, 130, 135 | 16 software timers created by `sub_8026df8` from the record table at `0x08051444`; periods 1..500 ms |
+| none | 117, 127, 128 | no case at all; id 128 is timer-driven but has no handler, so its 500 ms record always reaches the default path |
+
+The monitor lane is inside this dispatch, not beside it. Handlers 101, 102,
+104, 107, 114/124, 115, 116, 119, 120 and 126 call the `0x6b` committers
+(`sub_802b234`/`sub_802b40c`) and/or the `0x0d` service (`sub_802b6f0`). The
+shared sequence state is `0x2001f5da` (0 idle, 3 report, 5 powered, 6 bay-1
+done), the program state `0x2001f5b2` (0 idle, 1 armed, 2 dirty), the fault
+byte `0x2001f5db` and the last applied class `0x2001f5dc`. The board class
+bytes `0x2001f644..0x2001f647` are written only by `sub_8029418` from outside
+the host-id set.
+
+### Media presence inputs
+
+The presence poll `sub_8026718` reads one GPIO pin through the pin registry:
+`0x2001fe24` resolves to **GPIOE bit 9** (present = 0, absent = 1) and the
+firmware drives **GPIOB bit 2** as the media rail (`sub_802ba44`, BSRR
+`0x00000004` set and `0x00040000` reset). A second raw input, GPIOC bit 0,
+gates the periodic `0x0d` refresh. Both pin handles come from the boot
+registrar over the identity table at `0x0804d9b0`, and every cell involved is
+zeroed BSS, so a missing detect read never blocks startup: the poll simply
+keeps sampling, and ten consecutive low samples arm the insert path (rail on,
+`0x6b` commit, `0x0d` read, event `0x0202004d`).
+
+The machine does not drive these pins. With the GPIO reset level (0) the guest
+takes the present branch; with the pin high it stays absent and silent. No
+physical board meaning is claimed for the pins beyond what the image does.
+
+### Measured state of the lane
+
+Hardware-breakpoint windows on the complete bundle (240 s unless noted):
+
+- only ids 101 and 102 dispatch, about 2.5 times per second, and software timer
+  callbacks do post at the same order of rate;
+- the T-Kernel timer initializer `0x0804b808` (`current_time = 0`, timer queue
+  re-init, SysTick reload `49999`) runs about once per second as part of the
+  whole thirteen-step initialization chain (return addresses
+  `0x0804b5b5..0x0804b615`), so the RTOS time base never accumulates;
+- the MCU reset vector `0x080002b4` is re-entered at the same cadence with the
+  reset stack pointer, so the guest is looping through complete resets rather
+  than running on;
+- the fault that drives those resets is a bus fault whose stacked PC is
+  `0x080001d6` with `LR = 0xfffffffd` (an exception-return value), i.e. the
+  return path of the `BASEPRI` lock helpers `0x080001c4`/`0x080001d2`.
+
+That last item is the current frontier: the reset loop, not the monitor lane,
+is what keeps the periodic timers from running. The next probes are the
+`BASEPRI` helper callers, the bus-fault status word (CFSR/BFAR), and the AIRCR
+`SYSRESETREQ` writer at `0x08000606` that the fault path reaches.
