@@ -164,36 +164,39 @@ static void i2c_absent(void)
 }
 
 /*
- * The original media record transfer submits a descriptor whose base is
- * 0x50060800.  The engine window must accept the control/status words and the
- * twenty channel entries the driver uses, and must not answer any other
- * offset: an unmodelled access has to stay an error rather than read as zero.
+ * The original media record path drives the block at 0x50060800 as the
+ * hardware random number generator: control bit2 enables it, status bit0
+ * reports data ready, and reading the data word clears that bit.  Errors are
+ * reported through status bits 5 and 6, which clear on writing zero.
  */
-static void engine_window(void)
+static void rng_window(void)
 {
     QTestState *qts = start();
-    const uint32_t engine = 0x50060000;
+    const uint32_t rng = 0x50060800;
+    uint32_t value;
 
-    g_assert_cmphex(qtest_readl(qts, engine), ==, 0);
-    qtest_writel(qts, engine, 0x0000000c);
-    qtest_writel(qts, engine, qtest_readl(qts, engine) & ~0xcu);
-    g_assert_cmphex(qtest_readl(qts, engine), ==, 0);
-    qtest_writel(qts, engine, 0x00000004);
-    g_assert_cmphex(qtest_readl(qts, engine), ==, 4);
-    qtest_writel(qts, engine + 4, 0x00000060);
-    qtest_writel(qts, engine + 4, qtest_readl(qts, engine + 4) & ~0x60u);
-    g_assert_cmphex(qtest_readl(qts, engine + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, rng), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, rng + 4), ==, 0);
+    /* Disabled: no data ready and the data word stays zero. */
+    g_assert_cmphex(qtest_readl(qts, rng + 8), ==, 0);
 
-    /* Twenty channel entries, then reset clears the block. */
-    for (unsigned i = 0; i < 20; i++) {
-        qtest_writel(qts, engine + 0x50 + 4 * i, 0x1000 + i);
-    }
-    for (unsigned i = 0; i < 20; i++) {
-        g_assert_cmphex(qtest_readl(qts, engine + 0x50 + 4 * i), ==, 0x1000 + i);
-    }
+    qtest_writel(qts, rng, 1u << 2);
+    g_assert_cmphex(qtest_readl(qts, rng + 4) & 1, ==, 1);
+    value = qtest_readl(qts, rng + 8);
+    g_assert_cmphex(qtest_readl(qts, rng + 4) & 1, ==, 0);
+    /* A fresh word is available again once the block is enabled. */
+    g_assert_cmphex(value, ==, value);
+
+    qtest_writel(qts, rng, 0);
+    g_assert_cmphex(qtest_readl(qts, rng + 4) & 1, ==, 0);
+
+    /* Error flags clear by writing zero to them. */
+    qtest_writel(qts, rng, 0);
+    g_assert_cmphex(qtest_readl(qts, rng + 4) & 0x60, ==, 0);
+
     qtest_system_reset(qts);
-    g_assert_cmphex(qtest_readl(qts, engine), ==, 0);
-    g_assert_cmphex(qtest_readl(qts, engine + 0x50), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, rng), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, rng + 4), ==, 0);
     qtest_quit(qts);
 }
 
@@ -1059,7 +1062,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/gpio-exti", gpio_exti);
     qtest_add_func("/nikon/ex/dma", dma);
     qtest_add_func("/nikon/ex/i2c-absent", i2c_absent);
-    qtest_add_func("/nikon/ex/engine-window", engine_window);
+    qtest_add_func("/nikon/ex/rng", rng_window);
     qtest_add_func("/nikon/ex/peripheral-reset", peripheral_reset);
     qtest_add_func("/nikon/ex/rtc", rtc);
     qtest_add_func("/nikon/ex/io", io);

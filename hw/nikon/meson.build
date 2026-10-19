@@ -49,8 +49,9 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
 ))
 arm_common_ss.add(when: 'CONFIG_NIKON_SLA', if_true: files('machines/sla.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
-  'machines/ex.c', 'devices/exio.c', 'devices/extimer.c',
-  'devices/expower.c', 'devices/exengine.c', 'devices/input.c'))
+  'machines/ex.c', 'components/exboot.c', 'devices/exio.c',
+  'devices/extimer.c', 'devices/expower.c', 'devices/exrng.c',
+  'devices/input.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_CMOS', if_true: files('devices/cmos.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))

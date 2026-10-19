@@ -24,3 +24,12 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
     protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
   endforeach
 endif
+
+if have_system and (config_target_mak.has_key('arm-softmmu') and
+                   config_all_devices.has_key('CONFIG_NIKON_Z7II'))
+  fixture = executable('nikon_exboot_unit',
+    files('exboot.c', '../../../hw/nikon/components/exboot.c'), genh,
+    dependencies: [qemuutil])
+  test('nikon_exboot_unit', fixture, env: test_env, args: ['--tap', '-k'],
+    protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+endif
