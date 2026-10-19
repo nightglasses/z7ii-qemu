@@ -16,6 +16,7 @@
 #define TYPE_NIKON_SYSCONFIG "nikon-sysconfig-functional"
 #define TYPE_NIKON_GPIO "nikon-gpio-functional"
 #define TYPE_NIKON_EXIU "nikon-exiu-functional"
+#define TYPE_NIKON_EX_ENGINE "nikon-ex-engine-functional"
 #define TYPE_NIKON_HDMAC "nikon-hdmac-functional"
 #define TYPE_NIKON_I2C "nikon-i2c-functional"
 #define TYPE_NIKON_EYE_SENSOR "nikon-eye-sensor-functional"

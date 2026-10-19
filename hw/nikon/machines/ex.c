@@ -26,6 +26,7 @@
 #include "hw/char/stm32f2xx_usart.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
 #include "hw/nikon/bundle.h"
+#include "hw/nikon/devices.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/exio.h"
 #include "hw/nikon/expower.h"
@@ -1697,6 +1698,19 @@ static void ex_realize(DeviceState *dev, Error **errp)
                                             &s->spi[i].memory, 10);
     }
 
+    {
+        /*
+         * Channel engine window reached by the original media record
+         * transfer (descriptor base 0x50060800).  Only the control, status
+         * and twenty channel entries are modelled; no completion source is
+         * invented.  See hw/nikon/devices/exengine.c.
+         */
+        DeviceState *engine = qdev_new(TYPE_NIKON_EX_ENGINE);
+
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(engine), &error_fatal);
+        memory_region_add_subregion(&s->memory, 0x50060000,
+                                    sysbus_mmio_get_region(SYS_BUS_DEVICE(engine), 0));
+    }
     qdev_prop_set_uint32(armv7m, "num-irq", 97);
     qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
     qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m4"));
