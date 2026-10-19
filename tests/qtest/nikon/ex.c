@@ -442,6 +442,9 @@ static void io(void)
     io_start(qts, false);
     qtest_writel(qts, 0x40005410, 4);
     io_start(qts, true);
+    /* ACK stays set, so the acknowledged byte reaches the shift register one
+     * SCL byte later and raises BTF. */
+    qtest_clock_step(qts, 200000);
     g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x44, ==, 0x44);
     qtest_writel(qts, 0x40005400, 1);
     g_assert_cmphex(qtest_readl(qts, 0x40005410), ==, 0xff);
@@ -956,6 +959,38 @@ static void exception_receipt_bkpt(void)
     unlink(bios);
 }
 
+/*
+ * Original 0x6b monitor read: one sub-address byte, repeated START, then a
+ * single received byte.  The firmware clears ACK during the address phase, so
+ * the acknowledge bit for the first byte is a NACK and no second byte ever
+ * reaches the shift register.
+ */
+static void i2c_single_byte_read(void)
+{
+    QTestState *qts = start();
+    const uint32_t i2c = 0x40005400;
+
+    qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 10));
+    qtest_writel(qts, i2c + 0x10, 0xd6);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x82, ==, 0x82);
+    qtest_readl(qts, i2c + 0x18);
+    qtest_writel(qts, i2c + 0x10, 0x00);
+    qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 10));
+    qtest_writel(qts, i2c + 0x10, 0xd7);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x42);
+    qtest_readl(qts, i2c + 0x18);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x40);
+    /* Clearing ACK before any data is consumed keeps BTF clear. */
+    qtest_writel(qts, i2c, 1);
+    qtest_clock_step(qts, 200000);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x40);
+    qtest_writel(qts, i2c, 1 | (1 << 9));
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x50);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x10), ==, 0x00);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x44, ==, 0);
+    qtest_quit(qts);
+}
+
 static void stop_preserves_rx(void)
 {
     QTestState *qts = start();
@@ -994,6 +1029,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/rtc", rtc);
     qtest_add_func("/nikon/ex/io", io);
     qtest_add_func("/nikon/ex/stop-preserves-rx", stop_preserves_rx);
+    qtest_add_func("/nikon/ex/i2c-single-byte-read", i2c_single_byte_read);
     qtest_add_func("/nikon/ex/timer", timer_profile);
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);
