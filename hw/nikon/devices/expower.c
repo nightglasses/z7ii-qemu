@@ -1,13 +1,15 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Original EX qualification writes and verifies two finite control registers.
- * This software functional profile supplies no reset readback or ready event.
+ * Source-defined EX power control registers plus the functional 0x6b monitor
+ * register file and 0x0d status class register.  The 0x6b/0x0d endpoint data
+ * is a declared board profile, not a recovered device identity.
  */
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "hw/i2c/i2c.h"
 #include "hw/nikon/expower.h"
 #include "migration/vmstate.h"
+#include "qom/object.h"
 
 typedef struct NikonEXPowerState {
     I2CSlave parent_obj;
@@ -243,17 +245,42 @@ static const VMStateDescription exmonitor_vmstate = {
     },
 };
 
+#define EX_STATUS_TX_SIZE 2
+#define EX_STATUS_RESPONSE_SIZE 4
+#define EX_STATUS_CLASS_DEFAULT 1
+
+/*
+ * The EX service at 0x0802b6f0 reads four bytes and classifies the fourth:
+ * 0xa9/0xaa -> class 1, 0xc9/0xca -> class 2, 0xe9/0xea -> class 3, else 0.
+ * Keep one explicit byte per class instead of a literal in the receive path.
+ */
+static const uint8_t exstatus_class_byte[] = { 0x00, 0xa9, 0xc9, 0xe9 };
+
 typedef struct NikonEXStatusState {
     I2CSlave parent_obj;
-    uint8_t tx[2];
+    uint8_t tx[EX_STATUS_TX_SIZE];
     uint8_t count;
     uint8_t rx_index;
     bool valid;
+    uint8_t class;
 } NikonEXStatusState;
 
 static NikonEXStatusState *exstatus_state(I2CSlave *slave)
 {
     return container_of(slave, NikonEXStatusState, parent_obj);
+}
+
+static void exstatus_init(Object *obj)
+{
+    NikonEXStatusState *s = exstatus_state(I2C_SLAVE(obj));
+
+    /* A configured class is a board input; reset preserves it. */
+    s->class = EX_STATUS_CLASS_DEFAULT;
+    object_property_add_uint8_ptr(obj, "class", &s->class,
+                                  OBJ_PROP_FLAG_READWRITE);
+    object_property_set_description(obj, "class",
+                                    "Functional status class 0..3; 1 is the "
+                                    "bundle default");
 }
 
 static int exstatus_event(I2CSlave *slave, enum i2c_event event)
@@ -287,13 +314,15 @@ static int exstatus_send(I2CSlave *slave, uint8_t data)
 static uint8_t exstatus_recv(I2CSlave *slave)
 {
     NikonEXStatusState *s = exstatus_state(slave);
+    uint8_t index = s->rx_index++;
+    uint8_t class = s->class < ARRAY_SIZE(exstatus_class_byte) ?
+                    s->class : 0;
 
     /* The transfer is four bytes long.  The EX service copies the fourth
      * received byte into its status word before applying the class parser;
      * the leading bytes are reserved/status padding in this profile. */
-    uint8_t index = s->rx_index++;
-    uint8_t value = index == 3 ? 0xa9 : 0;
-    return value;
+    return index == EX_STATUS_RESPONSE_SIZE - 1 ?
+           exstatus_class_byte[class] : 0;
 }
 
 static void exstatus_reset_hold(Object *obj, ResetType type)
@@ -308,14 +337,15 @@ static void exstatus_reset_hold(Object *obj, ResetType type)
 
 static const VMStateDescription exstatus_vmstate = {
     .name = "nikon-ex-status",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_I2C_SLAVE(parent_obj, NikonEXStatusState),
-        VMSTATE_UINT8_ARRAY(tx, NikonEXStatusState, 2),
+        VMSTATE_UINT8_ARRAY(tx, NikonEXStatusState, EX_STATUS_TX_SIZE),
         VMSTATE_UINT8(count, NikonEXStatusState),
         VMSTATE_UINT8(rx_index, NikonEXStatusState),
         VMSTATE_BOOL(valid, NikonEXStatusState),
+        VMSTATE_UINT8(class, NikonEXStatusState),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -345,7 +375,7 @@ static void exstatus_class_init(ObjectClass *klass, const void *data)
     ic->send = exstatus_send;
     ic->event = exstatus_event;
     dc->vmsd = &exstatus_vmstate;
-    dc->desc = "EX functional power status protocol";
+    dc->desc = "EX functional power status class register";
     dc->user_creatable = false;
     rc->phases.hold = exstatus_reset_hold;
 }
@@ -372,6 +402,7 @@ static const TypeInfo expower_types[] = {
         .name = TYPE_NIKON_EX_STATUS,
         .parent = TYPE_I2C_SLAVE,
         .instance_size = sizeof(NikonEXStatusState),
+        .instance_init = exstatus_init,
         .class_init = exstatus_class_init,
     },
 };

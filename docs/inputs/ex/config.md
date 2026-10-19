@@ -25,9 +25,11 @@ record: ADC1 channel `0` uses the full-scale raw count `4095` because the
 configured power path accepts channel 0 only above the firmware threshold
 `3819`; channels `1..3` use raw count `3500`. Expander pads `0`, `1`, `3` and
 `10` are held low; omitted pads remain electrically disconnected. GPIOD.13 is
-high, and the observed active-low power-good wires are held low. These values
-are model data for the bundle board record, not recovered factory calibration
-or a physical voltage claim.
+high, and the observed active-low power-good wires are held low. The `0x0d`
+status endpoint defaults to class 1; its `class` property is a functional
+board input and reset preserves it. These values are model data for the
+bundle board record, not recovered factory calibration or a physical voltage
+claim.
 
 No external config file, byte patch, machine profile selector, guest event or
 report is supplied at runtime; the finite board values above are owned by the

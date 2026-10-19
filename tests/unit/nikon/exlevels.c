@@ -149,6 +149,19 @@ static uint8_t monitor_write_read(I2CBus *bus, uint8_t command, uint8_t value)
     return result;
 }
 
+static void status_read(I2CBus *bus, uint8_t value[4])
+{
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
+    for (unsigned i = 0; i < 4; i++) {
+        value[i] = i2c_recv(bus);
+    }
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+}
+
 static void power_devices(void)
 {
     NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
@@ -182,18 +195,38 @@ static void power_devices(void)
     g_assert_cmphex(monitor_read(bus, 0x00), ==, 0x00);
     g_assert_cmphex(monitor_read(bus, 0x0b), ==, 0x01);
 
-    /* The periodic status endpoint returns a finite four-byte response; the
-     * transfer descriptor reports completion code 0x20 separately. */
-    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, false), ==, 0);
-    g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
-    g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
-    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
-    for (unsigned i = 0; i < 3; i++) {
-        g_assert_cmphex(i2c_recv(bus), ==, 0);
-    }
-    g_assert_cmphex(i2c_recv(bus), ==, 0xa9);
-    i2c_nack(bus);
-    i2c_end_transfer(bus);
+    /* The periodic status endpoint returns a finite four-byte response whose
+     * fourth byte is the explicit class register; the leading bytes are
+     * reserved.  The transfer descriptor reports completion code 0x20
+     * separately. */
+    Object *status = object_resolve_path("/machine/ex/status", NULL);
+    uint8_t value[4];
+
+    g_assert_nonnull(status);
+    status_read(bus, value);
+    g_assert_cmphex(value[0], ==, 0);
+    g_assert_cmphex(value[1], ==, 0);
+    g_assert_cmphex(value[2], ==, 0);
+    g_assert_cmphex(value[3], ==, 0xa9); /* default class 1 */
+
+    object_property_set_uint(status, "class", 0, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0x00);
+    object_property_set_uint(status, "class", 2, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xc9);
+    object_property_set_uint(status, "class", 3, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xe9);
+
+    /* A configured class is a board input; reset preserves it. */
+    object_property_set_uint(status, "class", 2, &error_abort);
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xc9);
+    object_property_set_uint(status, "class", 1, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xa9);
 }
 
 int main(int argc, char **argv)
