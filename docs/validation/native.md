@@ -357,3 +357,20 @@ The previously failing `/arm/nikon/ex/io` three-byte expander read passes.
 These are native contract/build receipts; they do not establish
 original-firmware startup or GUI output. The older 29-fixture/247-subtest
 receipts above remain historical.
+
+## EX 0x6b monitor register-file correction
+
+The EX-side IDB shows that `0x0802b014` writes one descriptor byte under
+command 0/1/3, reads it back, and requires equality after the mode mask. The
+descriptor builders `0x08028ed8` and `0x08028cf0` supply zero or `0xa0`, not
+fixed `1/3/1`. The `0x6b` model was therefore changed from a constant
+responder to a register file: setup writes are echoed on the next read, and
+command `0x0b` remains a separate ready status of `1`.
+
+The focused `/nikon/ex/power-devices` case now covers write/read equality for
+commands 0/1/2/3, the `0x0b` finite ready/zero response, the out-of-range
+command NACK, and reset clearing. `make check` passes all 32 Nikon
+executables with zero failures; the rebuilt ARM binary SHA256 is
+`a45b4a720422b5f5969cd763b1443b2ecddbaaebcdfb263c2e8e0844eb2f7ffb`.
+This is a native model receipt and a static IDB comparison, not a fresh
+original-firmware power-snapshot receipt.

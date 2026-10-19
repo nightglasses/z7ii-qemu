@@ -145,16 +145,17 @@ static void expower_class_init(ObjectClass *klass, const void *data)
     rc->phases.hold = expower_reset_hold;
 }
 
+#define EX_MONITOR_REG_COUNT 0x12
+#define EX_MONITOR_STATUS_REG 0x0b
+#define EX_MONITOR_READY 1
+
 typedef struct NikonEXMonitorState {
     I2CSlave parent_obj;
     uint8_t command;
     uint8_t count;
     uint8_t rx_index;
-    uint8_t write_value;
     bool valid;
-    bool calibrated;
-    bool post_calibration_read;
-    uint8_t ready_polls;
+    uint8_t reg[EX_MONITOR_REG_COUNT];
 } NikonEXMonitorState;
 
 static NikonEXMonitorState *exmonitor_state(I2CSlave *slave)
@@ -170,7 +171,6 @@ static int exmonitor_event(I2CSlave *slave, enum i2c_event event)
         s->command = 0;
         s->count = 0;
         s->rx_index = 0;
-        s->write_value = 0;
         s->valid = false;
     } else if (event == I2C_START_RECV) {
         s->rx_index = 0;
@@ -186,22 +186,18 @@ static int exmonitor_send(I2CSlave *slave, uint8_t data)
     if (s->count > 1) {
         return -1;
     }
-    /* The boot monitor uses the status extensions 0x10 and 0x11 after
-     * calibration; they are read-only command selectors. */
-    if (s->count == 0 && data > 0x11) {
-        return -1;
-    }
     if (s->count == 0) {
+        if (data >= EX_MONITOR_REG_COUNT) {
+            return -1;
+        }
         s->command = data;
         s->count = 1;
         s->valid = true;
     } else {
-        s->write_value = data;
+        /* The firmware writes one byte per setup register and then reads it
+         * back.  Store the value so the read returns the same byte. */
+        s->reg[s->command] = data;
         s->count = 2;
-        if (s->command == 0x06 && data == 0x33) {
-            s->calibrated = true;
-            s->ready_polls = 0;
-        }
     }
     return 0;
 }
@@ -209,39 +205,16 @@ static int exmonitor_send(I2CSlave *slave, uint8_t data)
 static uint8_t exmonitor_recv(I2CSlave *slave)
 {
     NikonEXMonitorState *s = exmonitor_state(slave);
-
     uint8_t index = s->rx_index++;
-    uint8_t value;
 
-    switch (s->command) {
-    case 0x00:
-        value = (s->calibrated ? 0xa0 : 1) + index;
-        s->post_calibration_read = s->calibrated;
-        break;
-    case 0x01:
-        value = (s->calibrated ? 1 : 3) + index;
-        break;
-    case 0x0b:
-        /* The final qualification result accepts the ready value 1. */
-        value = index == 0 ? 1 : 0;
-        if (index == 0) {
-            s->ready_polls++;
-        }
-        break;
-    case 0x03:
-        value = 1 + index;
-        break;
-    default:
-        value = 0;
-        break;
+    /* One finite byte per register read; controller prefetch reads zero. */
+    if (index) {
+        return 0;
     }
-    if (s->command == 0x03 && s->calibrated &&
-        s->post_calibration_read) {
-        s->calibrated = false;
-        s->post_calibration_read = false;
+    if (s->command == EX_MONITOR_STATUS_REG) {
+        return EX_MONITOR_READY;
     }
-
-    return value;
+    return s->reg[s->command];
 }
 
 static void exmonitor_reset_hold(Object *obj, ResetType type)
@@ -252,25 +225,20 @@ static void exmonitor_reset_hold(Object *obj, ResetType type)
     s->count = 0;
     s->rx_index = 0;
     s->valid = false;
-    s->calibrated = false;
-    s->post_calibration_read = false;
-    s->ready_polls = 0;
+    memset(s->reg, 0, sizeof(s->reg));
 }
 
 static const VMStateDescription exmonitor_vmstate = {
     .name = "nikon-ex-monitor",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_I2C_SLAVE(parent_obj, NikonEXMonitorState),
         VMSTATE_UINT8(command, NikonEXMonitorState),
         VMSTATE_UINT8(count, NikonEXMonitorState),
         VMSTATE_UINT8(rx_index, NikonEXMonitorState),
-        VMSTATE_UINT8(write_value, NikonEXMonitorState),
         VMSTATE_BOOL(valid, NikonEXMonitorState),
-        VMSTATE_BOOL(calibrated, NikonEXMonitorState),
-        VMSTATE_BOOL(post_calibration_read, NikonEXMonitorState),
-        VMSTATE_UINT8(ready_polls, NikonEXMonitorState),
+        VMSTATE_UINT8_ARRAY(reg, NikonEXMonitorState, EX_MONITOR_REG_COUNT),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -362,7 +330,7 @@ static void exmonitor_class_init(ObjectClass *klass, const void *data)
     ic->send = exmonitor_send;
     ic->event = exmonitor_event;
     dc->vmsd = &exmonitor_vmstate;
-    dc->desc = "EX functional power monitor protocol";
+    dc->desc = "EX functional power monitor register file";
     dc->user_creatable = false;
     rc->phases.hold = exmonitor_reset_hold;
 }

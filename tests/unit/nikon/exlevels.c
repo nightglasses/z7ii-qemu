@@ -122,28 +122,48 @@ static void configured_levels(void)
     g_assert_cmphex(io_levels(bus), ==, 0xfff9f5);
 }
 
+static uint8_t monitor_read(I2CBus *bus, uint8_t command)
+{
+    uint8_t value;
+
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, command), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    value = i2c_recv(bus);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+    return value;
+}
+
+static uint8_t monitor_write_read(I2CBus *bus, uint8_t command, uint8_t value)
+{
+    uint8_t result;
+
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, command), ==, 0);
+    g_assert_cmpint(i2c_send(bus, value), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    result = i2c_recv(bus);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+    return result;
+}
+
 static void power_devices(void)
 {
     NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
     I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
-    /* The boot qualification performs a zero-valued monitor probe. */
-    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
-    g_assert_cmpint(i2c_send(bus, 0), ==, 0);
-    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
-    g_assert_cmphex(i2c_recv(bus), ==, 1);
-    i2c_nack(bus);
-    i2c_end_transfer(bus);
 
-    /* Setup commands accept a zero-valued one-byte response. */
-    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
-    g_assert_cmpint(i2c_send(bus, 0x02), ==, 0);
-    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
-    g_assert_cmphex(i2c_recv(bus), ==, 0);
-    i2c_nack(bus);
-    i2c_end_transfer(bus);
+    /* The boot qualification writes each setup register and reads it back.
+     * A zero-valued register therefore reads as zero. */
+    g_assert_cmphex(monitor_read(bus, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_write_read(bus, 0x00, 0xa0), ==, 0xa0);
+    g_assert_cmphex(monitor_write_read(bus, 0x01, 0xc0), ==, 0xc0);
+    g_assert_cmphex(monitor_write_read(bus, 0x02, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_write_read(bus, 0x03, 0x1f), ==, 0x1f);
 
-    /* The final 0x0b result is finite: one, then zero for controller
-     * prefetch, rather than an unbounded repeated status byte. */
+    /* The final 0x0b result is a separate ready status: one, then zero for
+     * controller prefetch, rather than an echoed setup register. */
     g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0x0b), ==, 0);
     g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
@@ -151,6 +171,16 @@ static void power_devices(void)
     g_assert_cmphex(i2c_recv(bus), ==, 0);
     i2c_nack(bus);
     i2c_end_transfer(bus);
+
+    /* A command beyond the register file is NACKed. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x12), !=, 0);
+    i2c_end_transfer(bus);
+
+    /* Reset clears the setup registers; the ready status remains one. */
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    g_assert_cmphex(monitor_read(bus, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_read(bus, 0x0b), ==, 0x01);
 
     /* The periodic status endpoint returns a finite four-byte response; the
      * transfer descriptor reports completion code 0x20 separately. */
