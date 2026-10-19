@@ -147,11 +147,21 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
 - the MCU reset vector `0x080002b4` is re-entered at the same cadence with the
   reset stack pointer, so the guest is looping through complete resets rather
   than running on;
-- the fault that drives those resets is a bus fault whose stacked PC is
-  `0x080001d6` with `LR = 0xfffffffd` (an exception-return value), i.e. the
-  return path of the `BASEPRI` lock helpers `0x080001c4`/`0x080001d2`.
+- the fault that drives those resets is a precise data bus error: `CFSR
+  = 0x8200` (precise error with a valid fault address) and `BFAR = 0x50060800`,
+  with the stacked frame showing `PC = 0x080001d6`, `LR = 0x080202f9` and
+  `R1 = 0xe000ef00` (the NVIC software-trigger register). The first bus fault
+  already carries that address, so an access to `0x50060800` is what raises it;
+  the machine maps flash, SRAM, the `0x40000000` peripheral window and the
+  system region, and nothing at `0x50060000`.
+- the descriptor that reaches that address is built in `sub_8023e36`, which
+  loads the literal `0x50060800` into a stack descriptor and submits it through
+  `sub_8044c40`/`sub_8044cd2`. The constant appears exactly once in the image,
+  so this is a single unimplemented peripheral or RAM window, not a general
+  aperture.
 
-That last item is the current frontier: the reset loop, not the monitor lane,
-is what keeps the periodic timers from running. The next probes are the
-`BASEPRI` helper callers, the bus-fault status word (CFSR/BFAR), and the AIRCR
-`SYSRESETREQ` writer at `0x08000606` that the fault path reaches.
+That is the current frontier: the reset loop, not the monitor lane, is what
+keeps the periodic timers from running. The next step is to identify the
+`0x50060800` window from the original software contract and either model it as
+an explicit device or keep it as an explicit unmapped fault; a read-zero or
+discard aperture would hide the very fault that is being measured.
