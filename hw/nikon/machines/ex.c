@@ -65,9 +65,15 @@ typedef struct EXI2C {
     unsigned rx_count;
     unsigned rx_remaining;
     I2CBus *bus;
+    NikonEXState *processor;
+    unsigned channel;
+    QEMUTimer *rx_timer;
 } EXI2C;
 
 #define EX_I2C_RX_UNBOUNDED UINT_MAX
+
+/* One SCL byte at 100 kHz; used until the guest programs CCR. */
+#define EX_I2C_DEFAULT_BYTE_NS 90000
 
 static bool ex_i2c_rx_open(const EXI2C *p)
 {
@@ -596,6 +602,7 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
 {
     i2c_end_transfer(s->i2c[i].bus);
     memset(s->i2c[i].reg, 0, sizeof(s->i2c[i].reg));
+    timer_del(s->i2c[i].rx_timer);
     s->i2c[i].sr1_seen = s->i2c[i].receive = false;
     s->i2c[i].rx_count = 0;
     s->i2c[i].rx_remaining = 0;
@@ -603,10 +610,9 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
     ex_irq(s, ex_i2c_irq[i] + 1, false);
 }
 
-static void ex_i2c_fill(EXI2C *p)
+static void ex_i2c_fill_limit(EXI2C *p, unsigned limit)
 {
     if (p->receive && i2c_bus_busy(p->bus)) {
-        unsigned limit = (p->reg[0] & ((1 << 10) | (1 << 11))) ? 2 : 1;
         limit = MIN(limit, p->rx_remaining);
         while (p->rx_count < limit && ex_i2c_rx_open(p)) {
             p->rx[p->rx_count++] = i2c_recv(p->bus);
@@ -617,6 +623,13 @@ static void ex_i2c_fill(EXI2C *p)
     }
     p->reg[5] = (p->reg[5] & ~0x44u) |
                 (p->rx_count ? 0x40 : 0) | (p->rx_count == 2 ? 4 : 0);
+}
+
+static void ex_i2c_fill(EXI2C *p)
+{
+    unsigned limit = (p->reg[0] & ((1 << 10) | (1 << 11))) ? 2 : 1;
+
+    ex_i2c_fill_limit(p, limit);
 }
 
 static void ex_rcc_reset_devices(NikonEXState *s, unsigned off, uint32_t bits)
@@ -713,6 +726,47 @@ static void ex_i2c_update(NikonEXState *s, unsigned channel)
     ex_irq(s, ex_i2c_irq[channel], event && (enables & (1 << 9)));
     ex_irq(s, ex_i2c_irq[channel] + 1,
            (status & 0xff00) && (enables & (1 << 8)));
+}
+
+/*
+ * The acknowledge bit for a received byte is sampled at the end of that byte,
+ * not when the address phase ends.  One SCL period is derived from the
+ * programmed CCR and APB1 clock, so a reader that clears ACK inside the first
+ * byte never receives a second one, while a reader that keeps ACK lets the
+ * next byte reach the shift register and raises BTF.
+ */
+static uint64_t ex_i2c_byte_ns(NikonEXState *s, const EXI2C *p)
+{
+    static const unsigned apb1_div[] = { 1, 1, 1, 1, 2, 4, 8, 16 };
+    uint32_t ccr = p->reg[7];
+    uint64_t hclk = clock_get_hz(s->cpuclk);
+    unsigned divider = apb1_div[extract32(s->rcc[2], 10, 3)];
+    uint64_t pclk = divider ? hclk / divider : 0;
+    uint64_t scl, ticks;
+
+    if (!pclk || !(ccr & 0xfff)) {
+        return EX_I2C_DEFAULT_BYTE_NS;
+    }
+    if (ccr & (1 << 15)) {
+        scl = (uint64_t)(ccr & 0xfff) * ((ccr & (1 << 14)) ? 25 : 3);
+    } else {
+        scl = (uint64_t)(ccr & 0xfff);
+    }
+    ticks = scl * 9; /* eight data bits plus the acknowledge bit */
+    return MAX(ticks * 1000000000ull / pclk, 1000ull);
+}
+
+static void ex_i2c_rx_shift(void *opaque)
+{
+    EXI2C *p = opaque;
+
+    if (!p->receive || !i2c_bus_busy(p->bus) || !(p->reg[0] & (1 << 10))) {
+        return;
+    }
+    if (p->rx_count < 2) {
+        ex_i2c_fill_limit(p, 2);
+    }
+    ex_i2c_update(p->processor, p->channel);
 }
 
 static void ex_dma_update(NikonEXState *s, unsigned controller, unsigned stream)
@@ -1201,6 +1255,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
+                uint32_t cr1_prev = p->reg[0];
                 if (reg == 5) {
                     p->reg[5] &= v | 0xff;
                 } else if (reg == 6) {
@@ -1209,11 +1264,15 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     p->reg[reg] = v;
                 }
                 if (reg == 0) {
+                    if ((cr1_prev & (1 << 10)) && !(v & (1 << 10))) {
+                        timer_del(p->rx_timer);
+                    }
                     if ((v & (1 << 15)) || !(v & 1)) {
                         i2c_end_transfer(p->bus);
                         p->reg[5] = p->reg[6] = 0;
                         p->rx_count = 0;
                     } else if (v & (1 << 9)) {
+                        timer_del(p->rx_timer);
                         i2c_end_transfer(p->bus);
                         p->reg[6] = 0;
                         /* STOPF stays observable after the transfer ends.
@@ -1224,6 +1283,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                         p->reg[5] |= 0x10;
                         p->reg[0] &= ~(1 << 9);
                     } else if (v & (1 << 8)) {
+                        timer_del(p->rx_timer);
                         p->reg[5] = 1; /* START generated, address required */
                         p->reg[6] = 3;
                         p->reg[0] &= ~(1 << 8);
@@ -1244,7 +1304,12 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                             p->reg[5] |= 2 | (p->receive ? 0x40 : 0x80);
                             p->reg[6] = p->receive ? 3 : 7;
                             if (p->receive) {
-                                ex_i2c_fill(p);
+                                ex_i2c_fill_limit(p, 1);
+                                if (p->reg[0] & (1 << 10)) {
+                                    timer_mod(p->rx_timer,
+                                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                                              ex_i2c_byte_ns(s, p));
+                                }
                             }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
@@ -1803,6 +1868,10 @@ static void ex_init(Object *obj)
     for (unsigned i = 0; i < 3; i++) {
         g_autofree char *name = g_strdup_printf("i2c%u", i + 1);
         s->i2c[i].bus = i2c_init_bus(DEVICE(s), name);
+        s->i2c[i].processor = s;
+        s->i2c[i].channel = i;
+        s->i2c[i].rx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                          ex_i2c_rx_shift, &s->i2c[i]);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(s->spi); i++) {
         g_autofree char *port_name = g_strdup_printf("port%u", i + 1);
@@ -1818,6 +1887,9 @@ static void ex_finalize(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
     timer_free(s->osc_timer);
+    for (unsigned i = 0; i < 3; i++) {
+        timer_free(s->i2c[i].rx_timer);
+    }
     timer_free(s->exception_poll);
     timer_free(s->rtc_sync);
     timer_free(s->rtc_tick);
