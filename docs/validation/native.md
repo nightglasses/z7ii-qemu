@@ -436,6 +436,8 @@ ARM binary SHA256 is
 An original-firmware hardware-breakpoint probe on the
 complete bundle now reaches the 0x6b read helper's event wait, the setup
 comparison at `0x0802b0d6` and its success exit at `0x0802b0e4` for commands
-0/1/3 and later repeats, across a 300 s window. That is the first time the
-original read-back equality path runs without a fabricated value; it is still
-not a complete original-firmware qualification of the monitor service.
+0/1/3 and later repeats, and the periodic `0x0d` status service at
+`0x0802b6f0`, across a 300 s window. That is the first time the original
+read-back equality and status-classification path runs without a fabricated
+value; it is still not a complete original-firmware qualification of the
+monitor service.
