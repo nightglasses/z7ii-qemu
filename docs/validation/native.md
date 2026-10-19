@@ -409,9 +409,9 @@ An original-firmware hardware-breakpoint probe on that bundle reaches the
 I2C receive handler then takes the `SR1` RXNE-with-BTF branch
 (`0x08046bfe`) instead of the single-byte completion branch
 (`0x08046cd0`), which leaves the driver state at `0x22` and prevents the
-read-back comparison from ever running. The receive prefetch therefore
-remains an explicit model boundary: it is not resolved by this checkpoint,
-and no original-firmware readback-equality receipt is claimed.
+read-back comparison from ever running. That receive-prefetch boundary is
+resolved by the [shift-byte change below](#ex-i2c-receive-shift-byte); this
+checkpoint keeps only the diagnosis.
 
 ## EX I2C receive shift byte
 
