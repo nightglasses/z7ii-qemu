@@ -185,6 +185,36 @@ static void power_devices(void)
     i2c_nack(bus);
     i2c_end_transfer(bus);
 
+    /* The original commit marshals this payload: cmd0 a0, cmd1 c0, cmd2 a0,
+     * cmd3 00, cmd4 00, cmd5 8d, cmd6 33 and cmd7 80.  Commands 0, 1 and 3
+     * are read back under the firmware masks; the rest are write-only. */
+    g_assert_cmphex(monitor_write_read(bus, 0x00, 0xa0), ==, 0xa0);
+    g_assert_cmphex(monitor_write_read(bus, 0x01, 0xc0), ==, 0xc0);
+    g_assert_cmphex(monitor_write_read(bus, 0x03, 0x00), ==, 0x00);
+    {
+        static const struct {
+            uint8_t command;
+            uint8_t value;
+        } write_only[] = {
+            { 0x02, 0xa0 }, { 0x04, 0x00 }, { 0x05, 0x8d },
+            { 0x06, 0x33 }, { 0x07, 0x80 },
+        };
+
+        for (unsigned i = 0; i < ARRAY_SIZE(write_only); i++) {
+            g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+            g_assert_cmpint(i2c_send(bus, write_only[i].command), ==, 0);
+            g_assert_cmpint(i2c_send(bus, write_only[i].value), ==, 0);
+            i2c_end_transfer(bus);
+        }
+    }
+
+    /* The three-failure sanitiser writes cmd1 = c0 and expects success. */
+    g_assert_cmphex(monitor_write_read(bus, 0x01, 0xc0), ==, 0xc0);
+    /* Status reads the lane depends on: 0x10 must keep bit7 clear and 0x11
+     * must not request a reprogram. */
+    g_assert_cmphex(monitor_read(bus, 0x10), ==, 0x00);
+    g_assert_cmphex(monitor_read(bus, 0x11), ==, 0x00);
+
     /* A command beyond the register file is NACKed. */
     g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0x12), !=, 0);
