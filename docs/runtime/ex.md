@@ -155,11 +155,17 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
   [the channel engine device](../devices/exengine/protocol.md), and the bus
   fault no longer occurs;
 - the remaining layer is a usage fault with `CFSR = 0x20000` (`INVSTATE`) at
-  stacked `PC = 0x0802af00` and `LR = 0x08020225`. The RTOS interrupt
-  dispatcher `sub_80201fc` indexes the RAM table at `0x20022d70` with
-  `IPSR - 16` and executes `blx` on the loaded word; the normal path carries
-  odd thumb pointers (for example IRQ31 selects `0x08041065`), so one table
-  entry holds an even value and the branch faults.
+  stacked `PC = 0x0802af00`, `LR = 0x08020225` and `R0 = 0x0802af00`. The only
+  code that returns to `0x08020224` is the RTOS interrupt dispatcher
+  `sub_80201fc`, which executes `blx` at `0x08020222` on the word it loads from
+  the table at `0x20022d70` (`IPSR - 16` as index), so a thumb branch landed on
+  an even address. What is *not* yet established is how that word became even:
+  the forty observed registrations into the same table all carry odd pointers
+  (IRQ31 gets `0x08041065`), and the image contains no `0x0802af00` constant at
+  all — the correct odd pointer `0x0802aee9` does appear, in the handler
+  installer `sub_802b128`. The fault frame also shows `R0` equal to the handler
+  value, which the dispatcher itself does not do, so the write path still needs
+  to be measured rather than inferred.
 
 That is the current frontier: the reset loop, not the monitor lane, is what
 keeps the periodic timers from running. The next step is to identify which interrupt's dispatcher entry is
