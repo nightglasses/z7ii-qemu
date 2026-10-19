@@ -89,7 +89,7 @@ interface used by this profile, not the physical MCU identity.
 | timers 1-14 | standard F4 bases | QEMU Clock/QEMUTimer counter, update and CC1-4 scheduling; upstream OR-IRQ combines the six shared advanced/small timer lines |
 | ADC 1-3 / common | `0x40012000 + 0x100*adc` / `0x40012304` | Configuration, external sample conversion, resolution/alignment, EOC/overrun, real DMA/IRQ; no fabricated reset samples |
 | SPI 1-4 | `0x40013000`, `0x40003800`, `0x40003c00`, `0x40013400` | Separate transmit/receive state, real SSI master transactions, external slave clocks, RXNE/TXE/overrun with DR/SR clear sequence, IRQ and DMA requests |
-| I2C 1-3 | `0x40005400 + 0x400*channel` | Real I2CBus START/address/data/STOP, actual slave ACK/NACK, SR1/SR2 address-clear sequence and event/error IRQ |
+| I2C 1-3 | `0x40005400 + 0x400*channel` | Real I2CBus START/address/data/STOP, actual slave ACK/NACK, SR1/SR2 address-clear sequence, an SCL-period receive shift byte that raises BTF only for an acknowledged byte, and event/error IRQ |
 | DMA 1-2 | `0x40026000 + 0x400*controller` | Eight streams each, real private-address-space bus beats, widths/increments/counts, half/complete/error status and W1C IRQ |
 
 All profile MMIO is little-endian and permits 1/2/4-byte accesses that stay

@@ -412,3 +412,29 @@ I2C receive handler then takes the `SR1` RXNE-with-BTF branch
 read-back comparison from ever running. The receive prefetch therefore
 remains an explicit model boundary: it is not resolved by this checkpoint,
 and no original-firmware readback-equality receipt is claimed.
+
+## EX I2C receive shift byte
+
+The controller previously queued two receive bytes as soon as the address
+matched, so a one-byte reader saw `SR1` RXNE together with BTF. The
+acknowledge bit for a received byte is sampled at the end of that byte, so a
+reader that clears ACK during the address phase never receives a second byte
+and BTF stays clear, while a reader that keeps ACK does. The model now
+delivers one byte at address match and the acknowledged shift byte after nine
+`CCR`-scaled periods of the APB1 clock (100 kHz until `CCR` is programmed),
+and cancels it when the guest clears ACK or ends the transfer.
+
+`/nikon/ex/i2c-single-byte-read` covers the original 0x6b sequence (`SR1`
+`0x42`, then `0x40`, then RXNE without BTF across a stepped clock, then STOPF
+preserving the received byte). The existing `/nikon/ex/io` three-byte HAL
+finish now steps one byte time before it expects BTF.
+
+`make check` passes all 32 Nikon executables with zero failures; the rebuilt
+ARM binary SHA256 is
+`f7380ad5d5d00d52b021fdf15b9f0bb96565e33a388bfead01d83fd08432ba01`
+(commit `0debf1e2`). An original-firmware hardware-breakpoint probe on the
+complete bundle now reaches the 0x6b read helper's event wait, the setup
+comparison at `0x0802b0d6` and its success exit at `0x0802b0e4` for commands
+0/1/3 and later repeats, across a 300 s window. That is the first time the
+original read-back equality path runs without a fabricated value; it is still
+not a complete original-firmware qualification of the monitor service.
