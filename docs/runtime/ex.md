@@ -147,21 +147,21 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
 - the MCU reset vector `0x080002b4` is re-entered at the same cadence with the
   reset stack pointer, so the guest is looping through complete resets rather
   than running on;
-- the fault that drives those resets is a precise data bus error: `CFSR
-  = 0x8200` (precise error with a valid fault address) and `BFAR = 0x50060800`,
-  with the stacked frame showing `PC = 0x080001d6`, `LR = 0x080202f9` and
-  `R1 = 0xe000ef00` (the NVIC software-trigger register). The first bus fault
-  already carries that address, so an access to `0x50060800` is what raises it;
-  the machine maps flash, SRAM, the `0x40000000` peripheral window and the
-  system region, and nothing at `0x50060000`.
-- the descriptor that reaches that address is built in `sub_8023e36`, which
-  loads the literal `0x50060800` into a stack descriptor and submits it through
-  `sub_8044c40`/`sub_8044cd2`. The constant appears exactly once in the image,
-  so this is a single unimplemented peripheral or RAM window, not a general
-  aperture.
+- the first fault layer was a precise data bus error: `CFSR = 0x8200` with
+  `BFAR = 0x50060800`. The descriptor reaching that address is built in
+  `sub_8023e36`, which loads the literal `0x50060800` into a stack descriptor
+  and submits it through `sub_8044c40`/`sub_8044cd2`. That window is now
+  modelled explicitly by
+  [the channel engine device](../devices/exengine/protocol.md), and the bus
+  fault no longer occurs;
+- the remaining layer is a usage fault with `CFSR = 0x20000` (`INVSTATE`) at
+  stacked `PC = 0x0802af00` and `LR = 0x08020225`. The RTOS interrupt
+  dispatcher `sub_80201fc` indexes the RAM table at `0x20022d70` with
+  `IPSR - 16` and executes `blx` on the loaded word; the normal path carries
+  odd thumb pointers (for example IRQ31 selects `0x08041065`), so one table
+  entry holds an even value and the branch faults.
 
 That is the current frontier: the reset loop, not the monitor lane, is what
-keeps the periodic timers from running. The next step is to identify the
-`0x50060800` window from the original software contract and either model it as
-an explicit device or keep it as an explicit unmapped fault; a read-zero or
-discard aperture would hide the very fault that is being measured.
+keeps the periodic timers from running. The next step is to identify which interrupt's dispatcher entry is
+stored without its thumb bit and who registers it; a read-zero or discard
+aperture would hide the fault instead of fixing it.
