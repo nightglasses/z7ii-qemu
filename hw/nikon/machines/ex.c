@@ -995,6 +995,12 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                     ex_i2c_fill(p);
                     ex_i2c_update(s, i);
                 }
+                if (consume && reg == 4 && p->receive && !p->rx_count) {
+                    /* The last DR read retires RXNE/BTF even when ACK was
+                     * already cleared and the STOP ended the bus. */
+                    p->reg[5] &= ~0x44u;
+                    ex_i2c_update(s, i);
+                }
                 v = p->reg[reg];
                 if (consume && reg == 5) {
                     p->sr1_seen = true;
@@ -1209,9 +1215,12 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     } else if (v & (1 << 9)) {
                         i2c_end_transfer(p->bus);
                         p->reg[6] = 0;
-                        p->reg[5] &= ~0xc7u;
-                        p->rx_count = 0;
-                        p->rx_remaining = 0;
+                        /* STOPF stays observable after the transfer ends.
+                         * Preserve RXNE/BTF and the received byte: the
+                         * firmware writes STOP before its RXNE wait, then
+                         * reads DR. */
+                        p->reg[5] &= ~0x02u;
+                        p->reg[5] |= 0x10;
                         p->reg[0] &= ~(1 << 9);
                     } else if (v & (1 << 8)) {
                         p->reg[5] = 1; /* START generated, address required */

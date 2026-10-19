@@ -956,6 +956,28 @@ static void exception_receipt_bkpt(void)
     unlink(bios);
 }
 
+static void stop_preserves_rx(void)
+{
+    QTestState *qts = start();
+    uint8_t value;
+
+    /* Select expander register 0 and start a one-byte read. */
+    io_start(qts, false);
+    qtest_writel(qts, 0x40005410, 0);
+    io_start(qts, true);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x40, ==, 0x40);
+
+    /* The firmware writes STOP before its RXNE wait.  The received byte
+     * must remain readable and STOPF must be observable. */
+    qtest_writel(qts, 0x40005400, 1 | (1 << 9));
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x50, ==, 0x50);
+
+    value = qtest_readl(qts, 0x40005410);
+    g_assert_cmphex(value, ==, 0xff);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x10, ==, 0x10);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -966,6 +988,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/peripheral-reset", peripheral_reset);
     qtest_add_func("/nikon/ex/rtc", rtc);
     qtest_add_func("/nikon/ex/io", io);
+    qtest_add_func("/nikon/ex/stop-preserves-rx", stop_preserves_rx);
     qtest_add_func("/nikon/ex/timer", timer_profile);
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);

@@ -379,3 +379,20 @@ zero failures; the rebuilt ARM binary SHA256 is
 `05b82111753f96cd8b9c8464bf40ff2b95ba969dc52846a0d5c6f2a78df41425`.
 This is a native model receipt and a static IDB comparison, not a fresh
 original-firmware power-snapshot receipt.
+
+## EX I2C STOP/RXNE revalidation
+
+The EX I2C controller previously cleared RXNE/BTF and dropped the received
+byte on a CR1 STOP. The 0x4f readback waits for RXNE or STOPF after that STOP
+and therefore never returned. The controller now sets STOPF, preserves
+RXNE/BTF and the received byte, and retires RXNE/BTF on the last DR read. The
+new `/arm/nikon/ex/stop-preserves-rx` qtest covers a STOP written before the
+DR read.
+
+`make check` passes all 32 Nikon executables with zero failures; the rebuilt
+ARM binary SHA256 is
+`6565fc2927ed7a8483e93d181fe6c21a1b0543f3b5a4bd2f901aadff7b6207b3`.
+A guest hardware-breakpoint probe then reaches the 0x6b setup: `sub_802b40c`
+runs, mode 0 writes, STOP and bus wait succeed, and the 0x6b read
+(`sub_802ae48`) is the current stop. No original-firmware readback-equality
+receipt is claimed.
