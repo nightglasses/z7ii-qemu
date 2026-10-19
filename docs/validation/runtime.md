@@ -15,7 +15,7 @@ Later GUI shared-status and expanded peer-memory changes are outside this scope.
 | Paths | Resulting behavior |
 | --- | --- |
 | `hw/nikon/machines/ex.c`, `include/hw/nikon/ex.h` | Keyed EX reset retires on its own vCPU thread and reaches CPU/NVIC/SysTick; held external ADC inputs survive processor reset and can be explicitly disconnected |
-| `hw/nikon/machines/z7ii.c` | Optional pre-init `ex-adc-counts` provides explicit raw ADC1 counts to the private EX; default channels remain disconnected |
+| `hw/nikon/machines/z7ii.c` | The complete bundle installs one deterministic EX board-input record; the private EX still owns ADC conversion and completion |
 | `hw/nikon/machines/sla.c`, `include/hw/nikon/sla.h` | Mature GICv1 active-view profile permits the real secure timer; exactly `[C1920B00,C1934AE8)` gains private deferred-copy capacity |
 | `tests/qtest/nikon/ex.c`, `tests/qtest/nikon/sla.c` | Focused ADC, actual secure timer and complete bounded deferred-copy fixtures |
 | `tests/unit/nikon/exreset.c`, `tests/unit/nikon/meson.build` | Native full-system local EX reset fixture and normal unit registration |

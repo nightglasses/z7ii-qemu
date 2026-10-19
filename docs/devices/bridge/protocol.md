@@ -110,7 +110,7 @@ research only, not accepted startup evidence. No final run reaches the
 transfer producer or a natural GUI frame; final COPY/loader checks fail
 before their submissions rather than inheriting the older 14-COPY PASS.
 
-## Opt-in notification hypothesis
+## Bundle notification mapping
 
 Original MAS/SLA bytes support notification-mask intent rather than two
 ordinary stored mailbox words: the set wrapper publishes `[0,0,mask,0]`, the
@@ -122,15 +122,15 @@ producer or hardware reset law.
 
 The maintained local bank0 flag cell at `+0x6004` therefore supports word-only
 OR-set at `+0x6008` and clear-mask at `+0x600c`, with functional empty reset
-state. Readback from the first word `+0x6000` remains rejected by default;
-receive-bank accesses also remain rejected without an experimental connection.
-Other directions, widths and neighbors are not generic storage.
+state. Readback from the first word `+0x6000` remains rejected; receive-bank
+accesses also remain rejected unless the bundle wires the pair. Other
+directions, widths and neighbors are not generic storage.
 
-`notification-v1` is a default-off research property. The composed machine's
-explicit `functional-profile=functional-gui-v1` sets the property on both MAS
-and SLA bridges before realize and then connects the opted-in pair using
-`nikon_bridge_connect_notifications()`. A direct QOM global remains a focused
-device-test mechanism rather than the documented machine profile. The profile
+`notification` is a default-off device property. The complete bundle
+composition sets the property on both MAS and SLA bridges before realize and
+then connects the pair using `nikon_bridge_connect_notifications()`. A direct
+QOM global remains a focused device-test mechanism rather than the documented
+bundle wiring, and raw standalone machines leave the property off. The mapping
 hypothesizes local
 bank0 to peer bank1 reflection, a flags mirror in the unused first getter
 word, empty reset state, and sticky IRQ cause bit15 on newly set bits. It is

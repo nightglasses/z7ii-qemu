@@ -31,6 +31,7 @@
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
+#include "hw/nikon/expower.h"
 #include "hw/nikon/input.h"
 #include "hw/nikon/events.h"
 #include "hw/ssi/ssi.h" /* IWYU pragma: keep */
@@ -49,6 +50,63 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_MAX_CPUS 2
 #define Z7II_SLA_CPUS 2
 #define Z7II_EX_CPUS 1
+
+/* Software flash offset of the EX factory config block (VMA 0x08004000). */
+#define EX_CONFIG_OFFSET 0x4000
+#define EX_CONFIG_SIZE 0x0e2c
+#define EX_CONFIG_MAIN_OFFSET 0x10
+#define EX_CONFIG_GATE_OFFSET (EX_CONFIG_OFFSET + EX_CONFIG_MAIN_OFFSET + 0x21d)
+#define EX_CONFIG_MODE_OFFSET (EX_CONFIG_MAIN_OFFSET + 278)
+#define EX_CONFIG_AUX_OFFSET 0x8100
+#define EX_CONFIG_AUX_SIZE 0x0200
+#define EX_ADC_POWER_RAIL_COUNT 4095
+
+typedef struct NikonEXConfigData {
+    uint8_t fill;
+    uint8_t magic[4];
+    uint16_t channel0_offset;
+    uint8_t channel0_value;
+    uint16_t mode_offset;
+    uint8_t mode_value;
+    uint16_t gate_offset;
+    uint8_t gate_value;
+} NikonEXConfigData;
+
+typedef struct NikonEXFunctionalInputs {
+    int adc[4];
+    uint8_t adc_mask;
+    uint32_t io_mask;
+    uint32_t io_high;
+    bool power_good;
+    bool gpiod13;
+} NikonEXFunctionalInputs;
+
+static const NikonEXConfigData z7ii_ex_config_power_on = {
+    /* Unknown factory fields are erased/zero until proven otherwise. */
+    .fill = 0,
+    .magic = { 'M', 'A', 'K', 'E' },
+    .channel0_offset = EX_CONFIG_MAIN_OFFSET + 276,
+    .channel0_value = 0,
+    .mode_offset = EX_CONFIG_MODE_OFFSET,
+    .mode_value = 5,
+    .gate_offset = EX_CONFIG_GATE_OFFSET - EX_CONFIG_OFFSET,
+    .gate_value = 1,
+};
+
+/* Deterministic board contract used by the complete bundle composition. */
+static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
+    /* The configured power path samples channel 0 against a firmware
+     * threshold of 3819.  Full-scale is a finite synthetic board-rail input,
+     * not a recovered voltage measurement. */
+    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, 3500, 3500 },
+    .adc_mask = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3),
+    /* The power-monitor expander setup leaves the four observed control
+     * pins low; an omitted pin remains electrically disconnected. */
+    .io_mask = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 10),
+    .io_high = 0,
+    .power_good = true,
+    .gpiod13 = true,
+};
 #define Z7II_DOWNLOAD_BASE 0xb0d00000ULL
 #define Z7II_DOWNLOAD_SIZE 0x400000ULL
 #define Z7II_SELECTOR_ONE_BASE 0xb0900000ULL
@@ -72,7 +130,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_DESCRIPTOR17_BASE 0x132c0000ULL
 #define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
 
-/* Experimental protocol state; disabled unless its named profile is selected. */
+/* NOR command protocol state for the mapped flash device. */
 typedef enum Z7IINorReadMode {
     Z7II_NOR_ARRAY,
     Z7II_NOR_AUTOSELECT,
@@ -117,20 +175,12 @@ struct Z7IIMachineState {
     ARMCPU cpu[Z7II_MAX_CPUS];
     unsigned num_cpus;
     char *bundle_path;
-    char *boot_shim;
-    char *functional_profile;
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *cmos_image;
-    bool cmos_provider;
-    char *ex_adc_counts;
-    int ex_adc_sample[4];
-    uint8_t ex_adc_mask;
-    char *ex_io_levels;
-    uint32_t ex_io_mask;
-    uint32_t ex_io_high;
+    DeviceState *ex_input_dev;
+    QEMUTimer *ex_input_timer;
     bool frame_contract;
-    char *nor_profile;
     char *descriptor17_input;
     Z7IINorReadMode nor_read_mode;
     Z7IINorCommandStage nor_command_stage;
@@ -194,12 +244,6 @@ static const MemoryRegionOps z7ii_unknown_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
-static bool z7ii_nor_experimental(const Z7IIMachineState *s)
-{
-    return s->nor_profile &&
-           !strcmp(s->nor_profile, "c1.70-experimental-v1");
-}
-
 static void z7ii_nor_set_romd(Z7IIMachineState *s, bool enabled)
 {
     if (!s->nor_regions_ready) {
@@ -254,9 +298,6 @@ static MemTxResult z7ii_nor_protocol_read(Z7IIMachineState *s,
     hwaddr offset = address - Z7II_NOR_BASE;
 
     *value = 0;
-    if (!z7ii_nor_experimental(s)) {
-        return nikon_memc_nor_access(s->memc, address, size, false, 0);
-    }
     if (nikon_memc_nor_backend_access(s->memc, address, size, false, 0) !=
         MEMTX_OK) {
         return MEMTX_ERROR;
@@ -300,9 +341,6 @@ static MemTxResult z7ii_nor_protocol_write(Z7IIMachineState *s,
     uint8_t *cell;
     hwaddr sector;
 
-    if (!z7ii_nor_experimental(s)) {
-        return nikon_memc_nor_access(s->memc, address, size, true, value);
-    }
     if (nikon_memc_nor_backend_access(s->memc, address, size, true, value) !=
         MEMTX_OK) {
         return MEMTX_ERROR;
@@ -556,37 +594,9 @@ static void z7ii_map_boot_prefix(Z7IIMachineState *s, GBytes *bytes)
     s->boot_prefix_present = true;
 }
 
-static bool z7ii_functional_shim(Z7IIMachineState *s)
+static void z7ii_select_bundle_inputs(Z7IIMachineState *s)
 {
-    return nikon_bootshim_is_functional(s->boot_shim);
-}
-
-static bool z7ii_functional_gui(const Z7IIMachineState *s)
-{
-    return s->functional_profile &&
-           !strcmp(s->functional_profile, "functional-gui-v1");
-}
-
-static void z7ii_apply_functional_profile(Z7IIMachineState *s)
-{
-    if (!z7ii_functional_gui(s)) {
-        return;
-    }
-    if (!s->bundle_path) {
-        error_report("functional-gui-v1 requires a complete bundle");
-        exit(EXIT_FAILURE);
-    }
-    if (s->boot_shim && strcmp(s->boot_shim, "functional-v1")) {
-        error_report("functional-gui-v1 requires boot-shim=functional-v1");
-        exit(EXIT_FAILURE);
-    }
-    g_free(s->boot_shim);
-    s->boot_shim = g_strdup("functional-v1");
-}
-
-static void z7ii_select_functional_shim(Z7IIMachineState *s)
-{
-    if (!z7ii_functional_shim(s)) {
+    if (!s->bundle) {
         return;
     }
     if (!s->mas_boot_prefix) {
@@ -597,23 +607,86 @@ static void z7ii_select_functional_shim(Z7IIMachineState *s)
     }
 }
 
-static void z7ii_prepare_functional_shim(Z7IIMachineState *s)
+static void z7ii_prepare_bundle_loader(Z7IIMachineState *s)
 {
     /*
-     * functional-v1 is a replaceable loader contract.  It supplies only
+     * The bundle loader supplies only
      * package-external FF NOR inputs and the finite early copy destinations
      * observed in the unchanged bundle trace.  The guest still owns CP15,
      * TTBR, SMP release, IRQ, DMA completion and every display operation.
      */
-    if (!z7ii_functional_shim(s)) {
+    if (!s->bundle) {
         return;
     }
-    z7ii_select_functional_shim(s);
-    nikon_bootshim_prepare_mas(s->boot_shim, get_system_memory(),
+    nikon_bootshim_prepare_mas(NIKON_BOOT_SHIM_FUNCTIONAL,
+                               get_system_memory(),
                                s->shim_mas, &error_fatal);
-    error_report("z7ii-mas-diagnostic: boot-shim=functional-v1; erased prefixes "
+    error_report("z7ii-mas-diagnostic: bundle loader; erased prefixes "
                  "and finite early-copy views are functional assumptions; "
                  "CP15, SMP release, IRQ, DMA completion and pixels remain guest-owned");
+}
+
+static void z7ii_ex_input_tick(void *opaque)
+{
+    Z7IIMachineState *s = opaque;
+    NikonEXState *ex = NIKON_EX(s->ex_input_dev);
+    static const unsigned pins[][2] = {
+        { 0, 10 }, /* GPIOA.10, six-channel bit 0 */
+        { 1, 1 },  /* GPIOB.1, six-channel bit 1 */
+        { 1, 15 }, /* GPIOB.15 */
+        { 1, 11 }, /* GPIOB.11 */
+        { 1, 12 }, /* GPIOB.12 */
+        { 5, 3 },  /* GPIOF.3 */
+        { 6, 2 },  /* GPIOG.2, four-channel bit 2 */
+    };
+
+    if (z7ii_ex_functional_inputs.power_good) {
+        for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
+            /* These are external power-good wires. Replay them after the
+             * firmware changes GPIO modes so the input IDR reflects the
+             * board. */
+            qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
+        }
+    }
+    if (z7ii_ex_functional_inputs.gpiod13) {
+        /* GPIOD.13 is a separate board input polled by the configured
+         * battery path. Keep the declared external level present across
+         * GPIO reset/mode changes; do not infer a status or fabricate an
+         * edge for the guest. */
+        qemu_set_irq(nikon_ex_gpio_input(ex, 3, 13), 1);
+    }
+    timer_mod(s->ex_input_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
+}
+
+static void z7ii_apply_ex_config_data(uint8_t *copy, gsize size)
+{
+    const NikonEXConfigData *config_data = &z7ii_ex_config_power_on;
+    uint8_t *config;
+
+    if (size < EX_CONFIG_OFFSET + EX_CONFIG_SIZE) {
+        error_report("EX firmware is too small for the factory config input");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Synthetic functional input, not recovered factory data. */
+    config = copy + EX_CONFIG_OFFSET;
+    memset(config, config_data->fill, EX_CONFIG_SIZE);
+    memcpy(config, config_data->magic, sizeof(config_data->magic));
+    config[config_data->channel0_offset] = config_data->channel0_value;
+    config[config_data->mode_offset] = config_data->mode_value;
+    config[config_data->mode_offset + 1] = config_data->mode_value;
+    /* The complete-config branch reads a second factory view at 0x8100.
+     * It is another erased external region in the supplied image; keep its
+     * synthetic contract adjacent to the primary view rather than exposing a
+     * second runtime input. */
+    /* The auxiliary view is a structured parameter table, not a byte-fill
+     * region.  Unknown fields must retain erased zero rather than becoming
+     * pointers/counts with value 1 (which can make the firmware program an
+     * invalid DMA destination).  We currently provide only the primary
+     * view's proven gate fields. */
+    memset(copy + EX_CONFIG_AUX_OFFSET, 0, EX_CONFIG_AUX_SIZE);
+    config[config_data->gate_offset] = config_data->gate_value;
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
@@ -627,17 +700,23 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     unsigned i;
 
     object_property_add_child(OBJECT(s), "ex", OBJECT(dev));
+    gsize size;
+    const guint8 *data = g_bytes_get_data(payload, &size);
+    guint8 *copy = g_memdup2(data, size);
+
+    z7ii_apply_ex_config_data(copy, size);
+    payload = g_bytes_new_take(copy, size);
     nikon_ex_set_firmware(ex, payload, &error_fatal);
-    for (i = 0; i < ARRAY_SIZE(s->ex_adc_sample); i++) {
-        if (s->ex_adc_mask & (1u << i)) {
-            nikon_ex_adc_input(ex, 0, i, s->ex_adc_sample[i]);
+    for (i = 0; i < ARRAY_SIZE(z7ii_ex_functional_inputs.adc); i++) {
+        if (z7ii_ex_functional_inputs.adc_mask & (1u << i)) {
+            nikon_ex_adc_input(ex, 0, i, z7ii_ex_functional_inputs.adc[i]);
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     for (i = 0; i < 24; i++) {
-        if (s->ex_io_mask & (1u << i)) {
+        if (z7ii_ex_functional_inputs.io_mask & (1u << i)) {
             qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
-                         !!(s->ex_io_high & (1u << i)));
+                         !!(z7ii_ex_functional_inputs.io_high & (1u << i)));
         }
     }
 
@@ -673,6 +752,11 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
     qdev_realize_and_unref(input, NULL, &error_fatal);
+    s->ex_input_dev = dev;
+    s->ex_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                     z7ii_ex_input_tick, s);
+    timer_mod(s->ex_input_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
 }
 
 static void z7ii_init(MachineState *machine)
@@ -696,7 +780,6 @@ static void z7ii_init(MachineState *machine)
         error_report("z7ii-mas-diagnostic currently requires Cortex-A7");
         exit(EXIT_FAILURE);
     }
-    z7ii_apply_functional_profile(s);
     if (!!machine->firmware == !!s->bundle_path) {
         error_report("select exactly one input: -bios <raw MAS payload> "
                      "or -machine bundle=<decoded container>");
@@ -704,14 +787,6 @@ static void z7ii_init(MachineState *machine)
     }
     if (s->sla_boot_prefix && !s->bundle_path) {
         error_report("sla-boot-prefix requires a complete bundle and private SLA");
-        exit(EXIT_FAILURE);
-    }
-    if (s->ex_adc_mask && !s->bundle_path) {
-        error_report("ex-adc-counts requires a complete bundle and private EX");
-        exit(EXIT_FAILURE);
-    }
-    if (s->ex_io_mask && !s->bundle_path) {
-        error_report("ex-io-levels requires a complete bundle and private EX");
         exit(EXIT_FAILURE);
     }
     if (machine->smp.cpus > Z7II_MAX_CPUS) {
@@ -741,8 +816,8 @@ static void z7ii_init(MachineState *machine)
                      (unsigned long long)MAS_MAX_SIZE);
         exit(EXIT_FAILURE);
     }
-    /* Select the functional profile before loading its external inputs. */
-    z7ii_select_functional_shim(s);
+    /* A complete bundle selects the composed board path; raw MAS stays isolated. */
+    z7ii_select_bundle_inputs(s);
     mas_boot_prefix = nikon_boot_prefix_load(s->mas_boot_prefix, &error_fatal);
 
     /* Reject all uncovered addresses, including missing RAM and devices. */
@@ -851,8 +926,8 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
              Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
-    z7ii_prepare_functional_shim(s);
-    if (s->boot_shim && !strcmp(s->boot_shim, "functional-v1")) {
+    z7ii_prepare_bundle_loader(s);
+    if (s->bundle) {
         DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
 
         /* Original MAS boot control and its 16-KiB CPU-written program view.
@@ -1024,13 +1099,12 @@ static void z7ii_init(MachineState *machine)
             qdev_prop_set_string(cmos, "image", s->cmos_image);
         }
         qdev_prop_set_bit(cmos, "fixture-provider",
-                          z7ii_functional_gui(s) || s->cmos_provider ||
-                          !!s->cmos_image);
+                          s->bundle || !!s->cmos_image);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
         /* Diagnostic transport aperture; no C1.70 physical MMIO is claimed. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
     }
-    if (z7ii_functional_gui(s)) {
+    if (s->bundle) {
         DeviceState *pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
 
         object_property_add_child(OBJECT(machine), "readout-pipeline",
@@ -1058,7 +1132,7 @@ static void z7ii_init(MachineState *machine)
     }
     bridge = qdev_new(TYPE_NIKON_BRIDGE);
     object_property_add_child(OBJECT(machine), "bridge", OBJECT(bridge));
-    qdev_prop_set_bit(bridge, "notification-v1", z7ii_functional_gui(s));
+    qdev_prop_set_bit(bridge, "notification", !!s->bundle);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(bridge), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(bridge), 0, 0x20130000);
     sysbus_connect_irq(SYS_BUS_DEVICE(bridge), 0,
@@ -1325,8 +1399,9 @@ static void z7ii_init(MachineState *machine)
         g_autoptr(GBytes) boot_prefix =
             nikon_boot_prefix_load(s->sla_boot_prefix, &error_fatal);
         DeviceState *sla = nikon_sla_create(OBJECT(machine), "sla", payload,
-                                            boot_prefix, s->boot_shim,
-                                            z7ii_functional_gui(s),
+                                            boot_prefix,
+                                            NIKON_BOOT_SHIM_FUNCTIONAL,
+                                            true,
                                             Z7II_SLA_CPUS, NULL,
                                             &error_fatal);
         DeviceState *sla_bridge = nikon_sla_bridge(sla);
@@ -1337,7 +1412,7 @@ static void z7ii_init(MachineState *machine)
                                                           6 * 16 + 3));
         nikon_bridge_attach_peer(bridge, 1, nikon_sla_address_space(sla));
         nikon_bridge_attach_peer(sla_bridge, 1, &address_space_memory);
-        /* Inert unless both devices explicitly opt into notification-v1. */
+        /* Inert unless both devices explicitly opt into notifications. */
         nikon_bridge_connect_notifications(bridge, sla_bridge);
         /* Paired request routing is a functional board assumption. */
         qdev_connect_gpio_out_named(bridge, "peer-start", 0,
@@ -1355,7 +1430,7 @@ static void z7ii_init(MachineState *machine)
     error_report("z7ii-mas-diagnostic: assumptions cpu=%s cpus=%u "
                  "image-base=0x10020000 entry=0x10020000 ARM "
                  "image-bytes=%" PRId64 " input=%s; "
-                 "MEMC=0x04264000 profile-only CBAR=0xf8100000 GICv1=256 "
+                 "MEMC=0x04264000 CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
                  "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
@@ -1373,82 +1448,12 @@ static char *z7ii_get_bundle(Object *obj, Error **errp)
     return g_strdup(Z7II_MACHINE(obj)->bundle_path);
 }
 
-static char *z7ii_get_boot_shim(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->boot_shim;
-
-    return g_strdup(value ? value : "none");
-}
-
-static void z7ii_set_boot_shim(Object *obj, const char *value, Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-
-    if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "functional-v1")) {
-        g_free(s->boot_shim);
-        s->boot_shim = g_strdup(value && *value ? value : "none");
-        return;
-    }
-    error_setg(errp, "boot-shim must be none or functional-v1");
-}
-
 static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
 
     g_free(s->bundle_path);
     s->bundle_path = g_strdup(value);
-}
-
-static char *z7ii_get_functional_profile(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->functional_profile;
-
-    return g_strdup(value ? value : "none");
-}
-
-static void z7ii_set_functional_profile(Object *obj, const char *value,
-                                        Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-
-    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
-        error_setg(errp,
-                   "functional-profile must be configured before machine init");
-        return;
-    }
-    if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "functional-gui-v1")) {
-        g_free(s->functional_profile);
-        s->functional_profile = g_strdup(value && *value ? value : "none");
-        return;
-    }
-    error_setg(errp, "functional-profile must be none or functional-gui-v1");
-}
-
-static char *z7ii_get_nor_profile(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->nor_profile;
-
-    return g_strdup(value ? value : "none");
-}
-
-static void z7ii_set_nor_profile(Object *obj, const char *value, Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-
-    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
-        error_setg(errp, "nor-profile must be configured before machine init");
-        return;
-    }
-    if (!value || !*value || !strcmp(value, "none") ||
-        !strcmp(value, "c1.70-experimental-v1")) {
-        g_free(s->nor_profile);
-        s->nor_profile = g_strdup(value && *value ? value : "none");
-        return;
-    }
-    error_setg(errp, "nor-profile must be none or c1.70-experimental-v1");
 }
 
 static char *z7ii_get_descriptor17_input(Object *obj, Error **errp)
@@ -1509,101 +1514,12 @@ static void z7ii_set_cmos_image(Object *obj, const char *value, Error **errp)
     s->cmos_image = g_strdup(value && *value ? value : NULL);
 }
 
-static bool z7ii_get_cmos_provider(Object *obj, Error **errp)
-{
-    return Z7II_MACHINE(obj)->cmos_provider;
-}
-
-static void z7ii_set_cmos_provider(Object *obj, bool value, Error **errp)
-{
-    Z7II_MACHINE(obj)->cmos_provider = value;
-}
-
 static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
 
     g_free(s->mas_boot_prefix);
     s->mas_boot_prefix = g_strdup(value);
-}
-
-static char *z7ii_get_ex_adc_counts(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->ex_adc_counts;
-
-    return g_strdup(value ? value : "");
-}
-
-static void z7ii_set_ex_adc_counts(Object *obj, const char *value, Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
-    int samples[4] = { 0 };
-    uint8_t mask = 0;
-
-    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
-        error_setg(errp, "ex-adc-counts must be configured before machine init");
-        return;
-    }
-    for (unsigned i = 0; entries[i] && value[0]; i++) {
-        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
-        int channel, sample;
-
-        if (g_strv_length(pair) != 2 ||
-            qemu_strtoi(pair[0], NULL, 10, &channel) ||
-            qemu_strtoi(pair[1], NULL, 10, &sample) ||
-            channel < 0 || channel > 3 ||
-            sample < 0 || sample > 4095 || (mask & (1u << channel))) {
-            error_setg(errp, "ex-adc-counts expects unique channel:raw-count "
-                       "entries separated by ';'; channels 0..3; counts 0..4095");
-            return;
-        }
-        samples[channel] = sample;
-        mask |= 1u << channel;
-    }
-    memcpy(s->ex_adc_sample, samples, sizeof(samples));
-    s->ex_adc_mask = mask;
-    g_free(s->ex_adc_counts);
-    s->ex_adc_counts = g_strdup(value);
-}
-
-static char *z7ii_get_ex_io_levels(Object *obj, Error **errp)
-{
-    const char *value = Z7II_MACHINE(obj)->ex_io_levels;
-
-    return g_strdup(value ? value : "");
-}
-
-static void z7ii_set_ex_io_levels(Object *obj, const char *value, Error **errp)
-{
-    Z7IIMachineState *s = Z7II_MACHINE(obj);
-    g_auto(GStrv) entries = g_strsplit(value, ";", -1);
-    uint32_t mask = 0, high = 0;
-
-    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
-        error_setg(errp, "ex-io-levels must be configured before machine init");
-        return;
-    }
-    for (unsigned i = 0; entries[i] && value[0]; i++) {
-        g_auto(GStrv) pair = g_strsplit(entries[i], ":", -1);
-        int pin, level;
-
-        if (g_strv_length(pair) != 2 ||
-            qemu_strtoi(pair[0], NULL, 10, &pin) ||
-            qemu_strtoi(pair[1], NULL, 10, &level) ||
-            pin < 0 || pin >= 24 || level < 0 || level > 1 ||
-            (mask & (1u << pin))) {
-            error_setg(errp, "ex-io-levels expects unique pin:level entries "
-                       "separated by ';'; pins 0..23; levels 0/1");
-            return;
-        }
-        mask |= 1u << pin;
-        high |= (uint32_t)level << pin;
-    }
-    s->ex_io_mask = mask;
-    s->ex_io_high = high;
-    g_free(s->ex_io_levels);
-    s->ex_io_levels = g_strdup(value);
 }
 
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
@@ -1627,15 +1543,12 @@ static void z7ii_finalize(Object *obj)
     Z7IIMachineState *s = Z7II_MACHINE(obj);
 
     nikon_bundle_free(s->bundle);
+    timer_free(s->ex_input_timer);
     g_free(s->bundle_path);
-    g_free(s->functional_profile);
-    g_free(s->nor_profile);
     g_free(s->descriptor17_input);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
-    g_free(s->ex_adc_counts);
-    g_free(s->ex_io_levels);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1653,19 +1566,6 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
-    object_class_property_add_str(oc, "functional-profile",
-                                  z7ii_get_functional_profile,
-                                  z7ii_set_functional_profile);
-    object_class_property_set_description(oc, "functional-profile",
-        "Explicit unchanged-firmware hardware profile: none or functional-gui-v1");
-    object_class_property_add_str(oc, "boot-shim", z7ii_get_boot_shim,
-                                  z7ii_set_boot_shim);
-    object_class_property_set_description(oc, "boot-shim",
-        "Versioned functional loader profile: none or functional-v1");
-    object_class_property_add_str(oc, "nor-profile", z7ii_get_nor_profile,
-                                  z7ii_set_nor_profile);
-    object_class_property_set_description(oc, "nor-profile",
-        "Explicit experimental NOR command profile; disabled by default");
     object_class_property_add_str(oc, "descriptor17-input",
                                   z7ii_get_descriptor17_input,
                                   z7ii_set_descriptor17_input);
@@ -1686,20 +1586,6 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_cmos_image);
     object_class_property_set_description(oc, "cmos-image",
         "Explicit binary PGM/PPM image for the functional CMOS provider");
-    object_class_property_add_bool(oc, "cmos-provider", z7ii_get_cmos_provider,
-                                   z7ii_set_cmos_provider);
-    object_class_property_set_description(oc, "cmos-provider",
-        "Enable the diagnostic CMOS provider; image input is preferred");
-    object_class_property_add_str(oc, "ex-adc-counts", z7ii_get_ex_adc_counts,
-                                 z7ii_set_ex_adc_counts);
-    object_class_property_set_description(oc, "ex-adc-counts",
-        "Explicit functional ADC1 channel:raw-count entries separated by ';' "
-        "(channels 0..3; counts 0..4095); omitted channels remain disconnected");
-    object_class_property_add_str(oc, "ex-io-levels", z7ii_get_ex_io_levels,
-                                 z7ii_set_ex_io_levels);
-    object_class_property_set_description(oc, "ex-io-levels",
-        "Explicit EX I2C-expander pin:level entries separated by ';' "
-        "(pins 0..23; levels 0/1); omitted pins remain disconnected");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
     object_class_property_set_description(oc, "frame-contract",

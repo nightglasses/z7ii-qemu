@@ -150,10 +150,11 @@ is held until changed or disconnected. The API is safe after object creation,
 including before realization: it stores the source state without scheduling
 conversion work on unrealized hardware. A later guest ADON/SWSTART request
 uses that state through the normal conversion path. All channels start
-disconnected. The combined diagnostic machine accepts explicitly configured
-[raw counts](../runtime/analog.md); it supplies no default analog profile.
-There is no default
-count or fabricated EOC to release the observed original wait.
+disconnected. The functional diagnostic composition supplies one deterministic
+board-input profile through the machine's internal EX contract; there is no
+machine-level raw-count override. Direct device tests may still connect or
+disconnect a channel through the EX input API. There is no fabricated EOC to
+release the observed original wait.
 
 The original polling family (`08043126`) and interrupt family
 (`0803cc90 -> 08043284`, then `08043388` and DR read `080430c8`) use the same
@@ -433,7 +434,8 @@ or retained switch level is inferred from this success condition. Before samplin
 the direct call at `0x0803759c` invokes `0x08048a64`: its original stack descriptor
 contains pin mask `0x20`, input mode 0 and pull-up 1, with GPIO base `0x40021800`.
 Thus this selected guest path changes G5 from its initial pull-down to pull-up;
-an external high driver is not required for the undriven functional profile.
+an external high driver is not required for the undriven functional
+configuration.
 
 Qualification `0x080389f4` includes three distinct operations. `0x080388b8`
 temporarily configures and reads F9 with pull-up, then configures it as an output

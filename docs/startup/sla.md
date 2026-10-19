@@ -243,9 +243,8 @@ other uncovered transactions fail and report the original access context.
 The public factory `nikon_sla_create(parent, name, payload, boot_prefix,
 boot_shim, bridge_notifications, num_cpus, serial, errp)` refs the complete
 immutable SLA `GBytes` from the validated container. The composed
-`functional-gui-v1` profile supplies the bridge-notification choice before the
-private SLA bridge is realized; standalone SLA and the strict composed profile
-leave it false.
+complete bundle composition supplies the bridge-notification choice before the
+private SLA bridge is realized; standalone SLA has no peer to notify.
 The caller may unref its own payload after creation. The standalone wrapper
 validates its container once and passes that same component boundary.
 `nikon_sla_address_space(domain)` returns a borrowed stable peer AddressSpace;
@@ -337,12 +336,14 @@ This run exposed the original timer initialization's GIC operations, but its
 initial interpretation was incomplete. `10036CAC..10036CC0` reads the active
 view, ORs the timer's bit29 and writes it back. A revision2 implementation
 turns that store into SET_ACTIVE29, suppressing timer delivery; implementing
-the write is therefore insufficient. The current functional profile uses the
-mature revision1 read-only active view, as does the MAS profile. Upstream logs
-the ignored writes at distributor offsets300..303. This is an explicit GIC
-profile convention, not a claim that the physical controller revision has been
+the write is therefore insufficient. The composed board configures the GIC
+with `revision=1`, whose read-only active view matches the original
+read-modify-write; the MAS domain uses that same value. Upstream logs the
+ignored writes at distributor offsets `300..303`. This is an explicit board
+configuration, not a claim that the physical controller revision has been
 recovered. The firmware's separate `10036D14` read of write-only GICC_EOIR
-also remains visible as an upstream guest error; no readback register is added.
+also remains visible as an upstream guest error; no readback register is
+added.
 
 The private-domain native fixture passed with the named peer output following
 GPIO direction and masked latch writes (builder `56a99b9`). Original two-core

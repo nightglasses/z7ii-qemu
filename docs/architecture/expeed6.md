@@ -51,8 +51,8 @@ with the MAS/SLA CPU domains or with particular QEMU devices.
 ```mermaid
 flowchart LR
   Guest["Guest readout request / geometry"] --> Readout["readout-control"]
-  Readout -->|"functional-gui-v1 only"| Pipeline["Finite C1.70 mapping"]
-  Source["Explicit image or<br/>opt-in deterministic source"] --> CMOS["CMOS timed DMA"]
+  Readout -->|"complete bundle only"| Pipeline["Finite C1.70 mapping"]
+  Source["Explicit image or<br/>bundle deterministic source"] --> CMOS["CMOS timed DMA"]
   Pipeline --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]
   CMOS -->|"done / error / cancel"| Pipeline
@@ -68,8 +68,8 @@ flowchart LR
 ```
 
 Solid edges are implemented functional contracts; they do not identify silicon
-blocks. Strict/default readout remains disconnected. The opt-in mapping writes
-only the validated primary destination and does not implement the secondary
+blocks. Raw MAS readout remains disconnected. The bundle mapping writes only
+the validated primary destination and does not implement the secondary
 plane or recover physical Bayer format/timing. Graphics also has a separate
 finite paired LUT executor with actual output and IRQ129; its output is not
 presumed to be a framebuffer. See the [current architecture](../architecture.md)

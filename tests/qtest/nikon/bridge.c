@@ -277,8 +277,7 @@ static void test_combined_domains(void)
 {
     g_autofree char *bundle = peer_bundle();
     g_autofree char *quoted = g_shell_quote(bundle);
-    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
-                              "functional-profile=functional-gui-v1 "
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
                               "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
     QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
 
@@ -293,19 +292,11 @@ static void test_combined_domains(void)
     g_assert_cmpstr(qdict_get_str(reply, "return"), ==, TYPE_NIKON_INPUT);
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine','property':'functional-profile'}}");
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-gui-v1");
-    qobject_unref(reply);
-    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine','property':'boot-shim'}}");
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "functional-v1");
-    qobject_unref(reply);
-    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/bridge','property':'notification'}}");
     g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
+                         "'path':'/machine/sla/bridge','property':'notification'}}");
     g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
@@ -322,116 +313,6 @@ static void test_combined_domains(void)
     g_assert_cmphex(qtest_readl(q, 0x08000000), ==, 0);
     qtest_quit(q);
     g_assert_cmpint(unlink(bundle), ==, 0);
-}
-
-static void test_ex_adc_channels(void)
-{
-    g_autofree char *bundle = peer_bundle();
-    g_autofree char *quoted = g_shell_quote(bundle);
-    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
-                              "ex-adc-counts=2:1234 "
-                              "-smp cpus=2,maxcpus=5 -nodefaults", quoted);
-    QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                              "'path':'/machine',"
-                              "'property':'ex-adc-counts'}}");
-    g_autofree char *error_output = NULL;
-    char *argv[] = {
-        (char *)qtest_qemu_binary(NULL), "-machine",
-        "z7ii-mas-diagnostic,ex-adc-counts=4:1234",
-        "-bios", "unused-ex-adc-channels-fixture", "-display", "none",
-        "-monitor", "none", "-serial", "none", "-S", NULL
-    };
-    int status;
-
-    /* Synthetic raw count, with no physical or consumer-state meaning. */
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "2:1234");
-    qobject_unref(reply);
-    qtest_quit(q);
-    g_assert_cmpint(unlink(bundle), ==, 0);
-
-    /* Reject the next channel at parsing, before any raw image is loaded. */
-    g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_DEFAULT,
-                               NULL, NULL, NULL, &error_output, &status, NULL));
-    g_assert_false(g_spawn_check_wait_status(status, NULL));
-    g_assert_nonnull(strstr(error_output,
-        "ex-adc-counts expects unique channel:raw-count"));
-}
-
-static void test_ex_io_levels(void)
-{
-    g_autofree char *bundle = peer_bundle();
-    g_autoptr(GString) levels = g_string_new(NULL);
-    const char *options[3];
-
-    for (unsigned i = 0; i < 24; i++) {
-        g_string_append_printf(levels, "%s%u:%u", i ? ";" : "", i, i & 1);
-    }
-    /* Omission and an empty value both keep inputs unbound. */
-    options[0] = NULL;
-    options[1] = "";
-    options[2] = levels->str;
-    for (unsigned i = 0; i < ARRAY_SIZE(options); i++) {
-        g_autofree char *machine = g_strdup_printf(
-            "z7ii-mas-diagnostic,bundle=%s%s%s", bundle,
-            options[i] ? ",ex-io-levels=" : "", options[i] ? options[i] : "");
-        g_autofree char *quoted = g_shell_quote(machine);
-        QTestState *q = qtest_initf("-M %s -smp cpus=2,maxcpus=5 -nodefaults",
-                                  quoted);
-        QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                                  "'path':'/machine',"
-                                  "'property':'ex-io-levels'}}");
-
-        g_assert_cmpstr(qdict_get_str(reply, "return"), ==,
-                        options[i] ? options[i] : "");
-        qobject_unref(reply);
-        /* Runtime changes are rejected atomically, including clearing. */
-        reply = qtest_qmp(q, "{'execute':'qom-set','arguments':{"
-                             "'path':'/machine','property':'ex-io-levels',"
-                             "'value':''}}");
-        g_assert_nonnull(strstr(qdict_get_str(qdict_get_qdict(reply, "error"),
-                                             "desc"), "before machine init"));
-        qobject_unref(reply);
-        qtest_system_reset(q);
-        reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                             "'path':'/machine','property':'ex-io-levels'}}");
-        g_assert_cmpstr(qdict_get_str(reply, "return"), ==,
-                        options[i] ? options[i] : "");
-        qobject_unref(reply);
-        qtest_quit(q);
-    }
-    g_assert_cmpint(unlink(bundle), ==, 0);
-}
-
-static void test_ex_io_levels_reject(void)
-{
-    static const char *const invalid[] = {
-        "0", "0:", ":0", "0:0:1", "0:0;", ";0:0", "0:0;;1:1",
-        "0:0;0:1", "0:0;00:1", "-1:0", "24:0", "0:-1", "0:2", "0:foo", "1x:1",
-        "0:1x", "2147483648:0", "0:2147483648",
-    };
-
-    /* A placeholder raw input suffices: all failures precede image loading. */
-    for (unsigned i = 0; i < ARRAY_SIZE(invalid) + 2; i++) {
-        const char *value = i < ARRAY_SIZE(invalid) ? invalid[i] :
-                            i == ARRAY_SIZE(invalid) ? "0:0" : "23:1";
-        const char *expected = i < ARRAY_SIZE(invalid) ?
-            "ex-io-levels expects unique pin:level" :
-            "ex-io-levels requires a complete bundle and private EX";
-        g_autofree char *machine = g_strdup_printf(
-            "z7ii-mas-diagnostic,ex-io-levels=%s", value);
-        g_autofree char *error_output = NULL;
-        char *argv[] = { (char *)qtest_qemu_binary(NULL), "-machine", machine,
-                         "-bios", "unused-ex-io-levels-fixture",
-                         "-display", "none",
-                         "-monitor", "none", "-serial", "none", "-S", NULL };
-        int status;
-
-        g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_DEFAULT,
-                                   NULL, NULL, NULL, &error_output,
-                                   &status, NULL));
-        g_assert_false(g_spawn_check_wait_status(status, NULL));
-        g_assert_nonnull(strstr(error_output, expected));
-    }
 }
 
 static void mapping(QTestState *q, unsigned bank, uint32_t remote,
@@ -460,16 +341,12 @@ static void test_peer_window(void)
     const uint64_t second = 0x464f0000;
 
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine','property':'functional-profile'}}");
-    g_assert_cmpstr(qdict_get_str(reply, "return"), ==, "none");
+                         "'path':'/machine/bridge','property':'notification'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/bridge','property':'notification-v1'}}");
-    g_assert_false(qdict_get_bool(reply, "return"));
-    qobject_unref(reply);
-    reply = qtest_qmp(q, "{'execute':'qom-get','arguments':{"
-                         "'path':'/machine/sla/bridge','property':'notification-v1'}}");
-    g_assert_false(qdict_get_bool(reply, "return"));
+                         "'path':'/machine/sla/bridge','property':'notification'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
     qobject_unref(reply);
     qtest_irq_intercept_out_named(q, path, SYSBUS_DEVICE_GPIO_IRQ);
     mapping(q, 1, 0xc60f0000, first, 0xffff0);
@@ -604,10 +481,6 @@ static void test_sla_page_table(void)
 void nikon_bridge_add_tests(void)
 {
     qtest_add_func("/nikon/combined/domains", test_combined_domains);
-    qtest_add_func("/nikon/combined/ex-adc-channels", test_ex_adc_channels);
-    qtest_add_func("/nikon/combined/ex-io-levels", test_ex_io_levels);
-    qtest_add_func("/nikon/combined/ex-io-levels-reject",
-                   test_ex_io_levels_reject);
     qtest_add_func("/nikon/bridge/peer-window", test_peer_window);
     qtest_add_func("/nikon/bridge/sla-page-table", test_sla_page_table);
 }

@@ -5,7 +5,7 @@
 #include "system/memory.h"
 #include "qapi/error.h"
 
-#define NIKON_BOOT_SHIM_FUNCTIONAL_V1 "functional-v1"
+#define NIKON_BOOT_SHIM_FUNCTIONAL "functional"
 
 enum NikonBootShimMasView {
     NIKON_BOOT_SHIM_MAS_COPY,

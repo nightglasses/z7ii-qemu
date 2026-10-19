@@ -2677,7 +2677,7 @@ MAS	0x20134908	field	MAS bridge bank0 poll/ready (command6 publishes bit0)	mas-b
 MAS	0x201350b0-0x2013514f	field	MAS bridge bank0 mapping arrays (5 x 8 words = 40 words)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x201350b0	remote page/mask/local page; final two arrays stay zero
 MAS	0x201350b0	field	MAS bridge bank0 page port (selector2 adds 0x8000 -> bank1)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x1006bdd0	
 MAS	0x20136000	field	MAS bridge getter base (bankmask2 adds 0x8000)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x2013e000	
-MAS	0x20136004	field	MAS bridge bank0 flag cell (+6004, notification-v1 opt-in)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x20136008 0x2013600c	
+MAS	0x20136004	field	MAS bridge bank0 flag cell (+6004, notification opt-in)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x20136008 0x2013600c
 MAS	0x20136008	field	MAS bridge OR-set mask (+6008)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x20136004	
 MAS	0x2013600c	field	MAS bridge clear mask (+600c)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x20136004	
 MAS	0x2013829c	field	MAS bridge bank0 ACK word (write 1 via bankmask2, IRQbit2)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x2013c908	
@@ -3264,7 +3264,7 @@ QEMU	0x2c090000	mmio	usio[0]	machine	verified	hw/nikon/machines/z7ii.c:946		sysb
 QEMU	0x2c0a0000	mmio	spi[0]	machine	verified	hw/nikon/machines/z7ii.c:1166		sysbus_mmio_map
 QEMU	0x50000000-0x50057e2f	ram	boot-shim MAS stage view (0x57e30)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50200000	
 QEMU	0x50080000-0x50089e6f	ram	boot-shim MAS stage-plane view (0x69e70)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50000000	
-QEMU	0x50200000-0x502277ff	ram	boot-shim MAS COPY view (0x27800)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50000000	functional-v1 replaceable loader contract
+QEMU	0x50200000-0x502277ff	ram	boot-shim MAS COPY view (0x27800)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50000000	functional replaceable loader contract
 QEMU	0x80300000-0x803277ff	ram	boot-shim SLA copy view (0x27800)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x10020000	
 QEMU	0xb1000000-0xb12049ff	ram	boot-shim MAS inner view (0x204a00)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x04008000	MAS inner image O[0x208853c,0x228cf3c) loaded by guest COPY
 QEMU	0xc8200000-0xc82fffff	ram	boot-shim MAS code view (0x300000)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50200000	

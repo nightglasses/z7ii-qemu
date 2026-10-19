@@ -63,8 +63,16 @@ typedef struct EXI2C {
     bool receive;
     uint8_t rx[2];
     unsigned rx_count;
+    unsigned rx_remaining;
     I2CBus *bus;
 } EXI2C;
+
+#define EX_I2C_RX_UNBOUNDED UINT_MAX
+
+static bool ex_i2c_rx_open(const EXI2C *p)
+{
+    return p->rx_remaining == EX_I2C_RX_UNBOUNDED || p->rx_remaining;
+}
 
 typedef struct EXDMAStream {
     uint32_t reg[6];
@@ -482,6 +490,14 @@ static void ex_external_input(void *opaque, int line, int level)
         s->external_mask[port] |= bit;
         s->external_level[port] = deposit32(s->external_level[port], pin,
                                           1, !!level);
+        /* An external wire remains physically connected while firmware
+         * temporarily selects the pin as an output.  The STM32 GPIO model
+         * disconnects such pins to avoid a driven short; reconnect it here
+         * so a later return to input mode observes the retained board level. */
+        uint16_t disconnected = object_property_get_uint(
+            OBJECT(s->gpio[port]), "disconnected-pins", &error_abort);
+        object_property_set_uint(OBJECT(s->gpio[port]), "disconnected-pins",
+                                 disconnected & ~bit, &error_abort);
         qemu_set_irq(qdev_get_gpio_in(s->gpio[port], pin), !!level);
     }
 }
@@ -582,6 +598,7 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
     memset(s->i2c[i].reg, 0, sizeof(s->i2c[i].reg));
     s->i2c[i].sr1_seen = s->i2c[i].receive = false;
     s->i2c[i].rx_count = 0;
+    s->i2c[i].rx_remaining = 0;
     ex_irq(s, ex_i2c_irq[i], false);
     ex_irq(s, ex_i2c_irq[i] + 1, false);
 }
@@ -590,8 +607,12 @@ static void ex_i2c_fill(EXI2C *p)
 {
     if (p->receive && i2c_bus_busy(p->bus)) {
         unsigned limit = (p->reg[0] & ((1 << 10) | (1 << 11))) ? 2 : 1;
-        while (p->rx_count < limit) {
+        limit = MIN(limit, p->rx_remaining);
+        while (p->rx_count < limit && ex_i2c_rx_open(p)) {
             p->rx[p->rx_count++] = i2c_recv(p->bus);
+            if (p->rx_remaining != EX_I2C_RX_UNBOUNDED) {
+                p->rx_remaining--;
+            }
         }
     }
     p->reg[5] = (p->reg[5] & ~0x44u) |
@@ -948,23 +969,44 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 if (consume && reg == 4 && p->receive && p->rx_count) {
                     p->reg[4] = p->rx[0];
                     bool pipeline = p->rx_count == 2;
-                    p->rx[0] = p->rx[1];
+                    if (pipeline) {
+                        p->rx[0] = p->rx[1];
+                    }
                     p->rx_count--;
-                    /* The shift register already clocks one final byte when
-                     * ACK is cleared with DR and the shift register occupied. */
-                    if (pipeline && !(p->reg[0] & (1 << 10)) &&
+                    /* With ACK cleared and both the data and shift
+                     * registers occupied, STM32 clocks the final byte into
+                     * the shift register before the last two DR reads. */
+                    if (pipeline && ex_i2c_rx_open(p) &&
+                        !(p->reg[0] & (1 << 10)) &&
                         i2c_bus_busy(p->bus)) {
                         p->rx[p->rx_count++] = i2c_recv(p->bus);
+                        if (p->rx_remaining != EX_I2C_RX_UNBOUNDED) {
+                            p->rx_remaining--;
+                        }
                         i2c_nack(p->bus);
                     }
+                    if (p->reg[0] & (1 << 10)) {
+                        ex_i2c_fill(p);
+                    }
+                    ex_i2c_update(s, i);
+                }
+                if (consume && reg == 4 && p->receive &&
+                    (p->reg[0] & (1 << 10)) && i2c_bus_busy(p->bus)) {
                     ex_i2c_fill(p);
+                    ex_i2c_update(s, i);
+                }
+                if (consume && reg == 4 && p->receive && !p->rx_count) {
+                    /* The last DR read retires RXNE/BTF even when ACK was
+                     * already cleared and the STOP ended the bus. */
+                    p->reg[5] &= ~0x44u;
                     ex_i2c_update(s, i);
                 }
                 v = p->reg[reg];
                 if (consume && reg == 5) {
                     p->sr1_seen = true;
                 } else if (consume && reg == 6 && p->sr1_seen) {
-                    p->reg[5] &= ~2u;
+                    /* SR1 followed by SR2 clears ADDR and STOPF. */
+                    p->reg[5] &= ~0x12u;
                     p->sr1_seen = false;
                     ex_i2c_update(s, i);
                 }
@@ -1174,7 +1216,12 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     } else if (v & (1 << 9)) {
                         i2c_end_transfer(p->bus);
                         p->reg[6] = 0;
-                        p->reg[5] &= ~0x83u;
+                        /* STOPF stays observable after the transfer ends.
+                         * Preserve RXNE/BTF and the received byte: the
+                         * firmware writes STOP before its RXNE wait, then
+                         * reads DR. */
+                        p->reg[5] &= ~0x02u;
+                        p->reg[5] |= 0x10;
                         p->reg[0] &= ~(1 << 9);
                     } else if (v & (1 << 8)) {
                         p->reg[5] = 1; /* START generated, address required */
@@ -1185,6 +1232,11 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     if (p->reg[5] & 1) {
                         p->rx_count = 0;
                         p->receive = v & 1;
+                        /* The guest controls the transfer boundary through
+                         * ACK/STOP.  Keep the controller FIFO fed until it
+                         * explicitly releases the bus; the slave owns its
+                         * register-group wrap semantics. */
+                        p->rx_remaining = EX_I2C_RX_UNBOUNDED;
                         p->reg[5] &= ~1u;
                         if (i2c_start_transfer(p->bus, (v >> 1) & 0x7f, p->receive)) {
                             p->reg[5] |= 1 << 10; /* real absent slave NACK */
@@ -1672,6 +1724,15 @@ static void ex_realize(DeviceState *dev, Error **errp)
 
         object_property_add_child(OBJECT(s), power[i].name, OBJECT(peer));
         i2c_slave_realize_and_unref(peer, s->i2c[0].bus, &error_fatal);
+    }
+    {
+        I2CSlave *monitor = i2c_slave_new(TYPE_NIKON_EX_MONITOR, 0x6b);
+        I2CSlave *status = i2c_slave_new(TYPE_NIKON_EX_STATUS, 0x0d);
+
+        object_property_add_child(OBJECT(s), "monitor", OBJECT(monitor));
+        object_property_add_child(OBJECT(s), "status", OBJECT(status));
+        i2c_slave_realize_and_unref(monitor, s->i2c[0].bus, &error_fatal);
+        i2c_slave_realize_and_unref(status, s->i2c[0].bus, &error_fatal);
     }
 }
 

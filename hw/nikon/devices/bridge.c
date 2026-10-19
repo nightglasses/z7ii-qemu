@@ -55,7 +55,7 @@ struct NikonBridgeState {
     uint32_t peer_ack;
     uint32_t notification_flags;
     NikonBridgeState *notification_peer;
-    bool notification_v1;
+    bool notifications_enabled;
     bool peer_event_level[3];
     bool peer_control_level[2];
     bool peer_ready;
@@ -414,9 +414,9 @@ static MemTxResult nikon_bridge_access(NikonBridgeState *s, hwaddr offset,
 
         /* Only 6004 and the complementary set/clear masks are source-bound.
          * 6000's raw mirror, cross-bank ACK and edge IRQ15 belong exclusively
-         * to the explicit experimental notification-v1 profile.
+         * to the explicit experimental notification profile.
          */
-        if (s->reset || (local == 0x6000 && !s->notification_v1) ||
+        if (s->reset || (local == 0x6000 && !s->notifications_enabled) ||
             !owner || owner->reset) {
             goto error;
         }
@@ -609,7 +609,7 @@ void nikon_bridge_connect_notifications(DeviceState *dev, DeviceState *peer)
         return;
     }
     /* Default devices never acquire an unqualified receive/IRQ producer. */
-    if (!s->notification_v1 || !other->notification_v1) {
+    if (!s->notifications_enabled || !other->notifications_enabled) {
         return;
     }
     assert(s != other);
@@ -685,7 +685,7 @@ static const VMStateDescription nikon_bridge_vmstate = {
 };
 
 static const Property nikon_bridge_properties[] = {
-    DEFINE_PROP_BOOL("notification-v1", NikonBridgeState, notification_v1,
+    DEFINE_PROP_BOOL("notification", NikonBridgeState, notifications_enabled,
                      false),
 };
 

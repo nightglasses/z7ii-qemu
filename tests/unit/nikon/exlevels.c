@@ -1,11 +1,14 @@
-/* Explicit machine inputs reach the private EX expander's real I2C registers.
+/* Direct device inputs reach the private EX expander's real I2C registers.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
 #include "qemu/crc-ccitt.h"
+#include "qapi/error.h"
 #include "hw/core/irq.h"
+#include "hw/i2c/i2c.h"
 #include "hw/nikon/ex.h"
+#include "hw/nikon/expower.h"
 #include "hw/nikon/sla.h"
 #include "system/reset.h"
 #include "system/runstate.h"
@@ -82,8 +85,12 @@ static void configured_levels(void)
     DeviceState *io = nikon_ex_io(ex);
     I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
 
-    /* Pins 0/23 are held low; pin9 high; all others are disconnected. */
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    /* The complete bundle applies its board-input record before the test
+     * drives pins 0/9/23: board pins 0,1,3,10 are low and pin9 is high. */
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 0), 0);
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 9), 1);
+    qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 23), 0);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
     for (unsigned port = 0; port < 3; port++) {
         io_write(bus, 0x50 + port, 0); /* Pull direction: down. */
         io_write(bus, 0x4c + port, 0xff); /* Enable pulls on every pad. */
@@ -91,7 +98,7 @@ static void configured_levels(void)
     /* A supplied high overrides the pull; omitted pins follow the pull. */
     g_assert_cmphex(io_levels(bus), ==, 1 << 9);
     qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
 
     /* Physical peer reset rejects transactions while held, then resets only
      * its registers: the three actual external drive levels remain present.
@@ -100,7 +107,7 @@ static void configured_levels(void)
     g_assert_cmpint(i2c_start_transfer(bus, 0x22, false), !=, 0);
     i2c_end_transfer(bus);
     qemu_set_irq(qdev_get_gpio_in_named(io, "reset", 0), 1);
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
 
     /* A later physical input change survives reset; machine configuration is
      * applied once at realization, not replayed as a reset-time override.
@@ -109,10 +116,117 @@ static void configured_levels(void)
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 9), -1);
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 23), -1);
     qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
-    g_assert_cmphex(io_levels(bus), ==, 0xffffff);
+    g_assert_cmphex(io_levels(bus), ==, 0xfffbf5);
     io_write(bus, 0x51, 0);
     io_write(bus, 0x4d, 2);
-    g_assert_cmphex(io_levels(bus), ==, 0xfffdff);
+    g_assert_cmphex(io_levels(bus), ==, 0xfff9f5);
+}
+
+static uint8_t monitor_read(I2CBus *bus, uint8_t command)
+{
+    uint8_t value;
+
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, command), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    value = i2c_recv(bus);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+    return value;
+}
+
+static uint8_t monitor_write_read(I2CBus *bus, uint8_t command, uint8_t value)
+{
+    uint8_t result;
+
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, command), ==, 0);
+    g_assert_cmpint(i2c_send(bus, value), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    result = i2c_recv(bus);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+    return result;
+}
+
+static void status_read(I2CBus *bus, uint8_t value[4])
+{
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x08), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x01), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x0d, true), ==, 0);
+    for (unsigned i = 0; i < 4; i++) {
+        value[i] = i2c_recv(bus);
+    }
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+}
+
+static void power_devices(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
+
+    /* The boot qualification writes each setup register and reads it back.
+     * A zero-valued register therefore reads as zero. */
+    g_assert_cmphex(monitor_read(bus, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_write_read(bus, 0x00, 0xa0), ==, 0xa0);
+    g_assert_cmphex(monitor_write_read(bus, 0x01, 0xc0), ==, 0xc0);
+    g_assert_cmphex(monitor_write_read(bus, 0x02, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_write_read(bus, 0x03, 0x1f), ==, 0x1f);
+
+    /* The final 0x0b result is a separate ready status: one, then zero for
+     * controller prefetch, rather than an echoed setup register. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x0b), ==, 0);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, true), ==, 0);
+    g_assert_cmphex(i2c_recv(bus), ==, 1);
+    g_assert_cmphex(i2c_recv(bus), ==, 0);
+    i2c_nack(bus);
+    i2c_end_transfer(bus);
+
+    /* A command beyond the register file is NACKed. */
+    g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x12), !=, 0);
+    i2c_end_transfer(bus);
+
+    /* Reset clears the setup registers; the ready status remains one. */
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    g_assert_cmphex(monitor_read(bus, 0x00), ==, 0x00);
+    g_assert_cmphex(monitor_read(bus, 0x0b), ==, 0x01);
+
+    /* The periodic status endpoint returns a finite four-byte response whose
+     * fourth byte is the explicit class register; the leading bytes are
+     * reserved.  The transfer descriptor reports completion code 0x20
+     * separately. */
+    Object *status = object_resolve_path("/machine/ex/status", NULL);
+    uint8_t value[4];
+
+    g_assert_nonnull(status);
+    status_read(bus, value);
+    g_assert_cmphex(value[0], ==, 0);
+    g_assert_cmphex(value[1], ==, 0);
+    g_assert_cmphex(value[2], ==, 0);
+    g_assert_cmphex(value[3], ==, 0xa9); /* default class 1 */
+
+    object_property_set_uint(status, "class", 0, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0x00);
+    object_property_set_uint(status, "class", 2, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xc9);
+    object_property_set_uint(status, "class", 3, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xe9);
+
+    /* A configured class is a board input; reset preserves it. */
+    object_property_set_uint(status, "class", 2, &error_abort);
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xc9);
+    object_property_set_uint(status, "class", 1, &error_abort);
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xa9);
 }
 
 int main(int argc, char **argv)
@@ -128,8 +242,7 @@ int main(int argc, char **argv)
     socket = g_build_filename(directory, "qtest", NULL);
     chardev = g_strdup_printf("unix:%s,server=on,wait=off", socket);
     bundle = input_bundle(directory);
-    machine = g_strdup_printf("z7ii-mas-diagnostic,bundle=%s,"
-                              "ex-io-levels=0:0;9:1;23:0", bundle);
+    machine = g_strdup_printf("z7ii-mas-diagnostic,bundle=%s", bundle);
     g_test_init(&argc, &argv, NULL);
     {
         char *qemu_argv[] = {
@@ -140,6 +253,7 @@ int main(int argc, char **argv)
         qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     }
     g_test_add_func("/nikon/ex/configured-io-levels", configured_levels);
+    g_test_add_func("/nikon/ex/power-devices", power_devices);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(bundle);
