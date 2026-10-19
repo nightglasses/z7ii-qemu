@@ -1005,7 +1005,8 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 if (consume && reg == 5) {
                     p->sr1_seen = true;
                 } else if (consume && reg == 6 && p->sr1_seen) {
-                    p->reg[5] &= ~2u;
+                    /* SR1 followed by SR2 clears ADDR and STOPF. */
+                    p->reg[5] &= ~0x12u;
                     p->sr1_seen = false;
                     ex_i2c_update(s, i);
                 }

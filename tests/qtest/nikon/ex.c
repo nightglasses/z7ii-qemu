@@ -975,6 +975,11 @@ static void stop_preserves_rx(void)
     value = qtest_readl(qts, 0x40005410);
     g_assert_cmphex(value, ==, 0xff);
     g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x10, ==, 0x10);
+
+    /* SR1 followed by SR2 clears STOPF and ADDR, matching the HAL event
+     * acknowledge. */
+    qtest_readl(qts, 0x40005418);
+    g_assert_cmphex(qtest_readl(qts, 0x40005414) & 0x12, ==, 0);
     qtest_quit(qts);
 }
 

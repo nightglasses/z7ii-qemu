@@ -385,14 +385,16 @@ original-firmware power-snapshot receipt.
 The EX I2C controller previously cleared RXNE/BTF and dropped the received
 byte on a CR1 STOP. The 0x4f readback waits for RXNE or STOPF after that STOP
 and therefore never returned. The controller now sets STOPF, preserves
-RXNE/BTF and the received byte, and retires RXNE/BTF on the last DR read. The
-new `/arm/nikon/ex/stop-preserves-rx` qtest covers a STOP written before the
-DR read.
+RXNE/BTF and the received byte, and retires RXNE/BTF on the last DR read.
+SR1 followed by SR2 now clears ADDR and STOPF, matching the HAL event
+acknowledge. The `/arm/nikon/ex/stop-preserves-rx` qtest covers the STOP
+written before the DR read and that SR1/SR2 clear.
 
 `make check` passes all 32 Nikon executables with zero failures; the rebuilt
 ARM binary SHA256 is
-`6565fc2927ed7a8483e93d181fe6c21a1b0543f3b5a4bd2f901aadff7b6207b3`.
-A guest hardware-breakpoint probe then reaches the 0x6b setup: `sub_802b40c`
-runs, mode 0 writes, STOP and bus wait succeed, and the 0x6b read
-(`sub_802ae48`) is the current stop. No original-firmware readback-equality
-receipt is claimed.
+`e0a9358da54f5355894255968726f16227eea5f496fab4f9d8b9404b2786ffc1`.
+A guest hardware-breakpoint probe reaches the 0x6b setup, and the 0x6b read
+reaches the EX I2C IRQ31 callback (`sub_802fce0`) and HAL state `32`, but no
+return to `0x0802ae78` is observed in the bounded window; the next target is
+the RTOS event/task wakeup. No original-firmware readback-equality receipt is
+claimed.
