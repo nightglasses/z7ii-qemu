@@ -431,8 +431,8 @@ finish now steps one byte time before it expects BTF.
 
 `make check` passes all 32 Nikon executables with zero failures; the rebuilt
 ARM binary SHA256 is
-`f7380ad5d5d00d52b021fdf15b9f0bb96565e33a388bfead01d83fd08432ba01`
-(commit `0debf1e2`). An original-firmware hardware-breakpoint probe on the
+`5157574bb9753ab2a785ba1e30b81b8d4d3d847422071fa1f2344bbdcceb9920`
+(rebuild of the `0debf1e2` code together with these documentation edits). An original-firmware hardware-breakpoint probe on the
 complete bundle now reaches the 0x6b read helper's event wait, the setup
 comparison at `0x0802b0d6` and its success exit at `0x0802b0e4` for commands
 0/1/3 and later repeats, across a 300 s window. That is the first time the
