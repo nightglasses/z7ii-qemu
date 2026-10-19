@@ -153,7 +153,7 @@ older 14-COPY observations above. The next evidence is the real producer,
 bank routing and reset law for the getter/publisher ports, not injected
 flags, ready values, a NOR writer for the abort path, or longer waiting.
 
-## Notification-profile experiment and current strict boundary
+## Notification mapping experiment and current unconnected boundary
 
 The newer [notification-mask study](../../devices/bridge/protocol.md) separates
 source-supported set/clear intent from unproved firstword/bank/reset/IRQ laws.
@@ -178,7 +178,8 @@ or a natural first frame. Their entry-only hooks did not qualify phase3
 completion or rendering.
 
 Six later read-only [startup observations](../coprocessor.md), with the same
-binary and explicit experimental profile, capture 13 COPY requests each and
+binary and the composed notification mapping, capture 13 COPY requests each
+and
 all three byte-exact extents. Additional hooks in the last two observe the
 GUI component phase3 routine returning1 before the controller abort; indexed
 callback returns and actual guest-written pointers corroborate its setup.
@@ -186,8 +187,8 @@ This is not a global initialization completion, graphics transfer or frame.
 
 `flagsdefault2` uses the same binary with both notification properties false
 and still rejects the two domains' reads at `0x2013e000`. It captures zero
-COPY submissions and fails its loader-byte checks. The strict frontier is
-therefore unchanged. Closing the notification laws remains necessary before
+COPY submissions and fails its loader-byte checks. The unconnected frontier
+is therefore unchanged. Closing the notification laws remains necessary before
 promoting the experimental path; interpreting the next `0x2c04` interface
 also requires a bounded device contract, not zero-write discard.
 

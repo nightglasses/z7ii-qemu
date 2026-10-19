@@ -11,14 +11,15 @@ Raw listings, byte checks and observations remain under ignored
 
 All six eight-second observations use the same dirty-worktree ARM binary
 `3848f3146a462f0649e586d548d1a264f1424949c17a67be24979eb8d06fdae9`,
-unchanged complete bundle, functional, MTTCG, and explicitly enabled
-[experimental notification profile](../devices/bridge/protocol.md).
+unchanged complete bundle, functional, MTTCG, and the composed
+[bundle notification mapping](../devices/bridge/protocol.md).
 Actual notification properties are true in both domains. They capture 13 COPY
 requests and byte-exact loader extents, then the same first rejection:
 MAS PC `0x1020b4da`, WORD write `0` to PA `0x2c04000c`.
 There are no debugger writes/calls, child-constructor or graphics-transfer
-observations. Fresh strict `coprocessordefault1` records both propertiesfalse,
-zero COPY and failed loader comparisons, still stopping at `0x2013e000`.
+observations. A fresh run without that connection, `coprocessordefault1`,
+records both properties false, zero COPY and failed loader comparisons, still
+stopping at `0x2013e000`.
 This study does
 not promote the experimental bank/reset/IRQ assumptions or deliver a frame.
 
@@ -181,8 +182,8 @@ merely accepting pointer writes
 or generating IRQ129 would not implement it. There are still no child or
 ordinary graphics-packet hooks, nor a natural first frame.
 
-The matching strict `processordefault1` run retains both notification
-propertiesfalse and the `2013e000` rejection, zero COPY and failed loader
+The matching unconnected `processordefault1` run retains both notification
+properties false and the `2013e000` rejection, zero COPY and failed loader
 comparisons. Its all-zero bootstrap equality is vacuous: no copy/request was
 observed and it is not acceptance evidence. COPY-only telemetry and its
 `NO_FAULT_OBSERVED_NOT_GUI_ACCEPTANCE` gate must not hide a separate uncovered
@@ -226,7 +227,7 @@ its aperture. This software sequence does not yet name the parameter's
 physical effect, reset or legal values. It is a separate active gap, not
 proof that the only remaining dependency is a graphics IRQ.
 
-The matching strict eight-second `graphicsstreamdefault1` remains blocked on
+The matching unconnected eight-second `graphicsstreamdefault1` remains blocked on
 MAS/SLA2013e000, captures zero COPY/failed loader extents and has no pending
 graphics streams. Neither experimental run observes a child constructor,
 ordinary graphics packet or natural first frame. Native front-end tests and
@@ -257,8 +258,8 @@ At this read-only qualification stage the frontend still computed `2*count`,
 not the observed `8*count`; that probe alone added no native/runtime PASS.
 The corrected capture and its separate receipts follow below. Neither stage
 provides processor execution, graphics processing, fence, status58 or IRQ129,
-resolves independentD200 or promotes default-off notification hypotheses.
-Strict/defaultPA2013e000 rejection remains.
+resolves independent D200 or promotes notification hypotheses.
+The unconnected PA `2013e000` rejection remains.
 
 ## Corrected full stream capture without processing completion
 
@@ -273,7 +274,7 @@ Two independent twelve-second complete-original-bundle observations,
 `0398c59a4da249213e15e475ef8ccc9e8b763ccbc758d315162be823b1f688ad`,
 functional, MTTCG and both actual notification propertiestrue. Their
 receipts retain dirty source identity and actual argv; these are explicitly
-experimental notifications, not strict/default or physical qualification.
+bundle notifications, not raw or physical qualification.
 Each records 14 COPY calls, three exact loader extents and byte-exact 16-KiB
 bootstrap storage, ten ready-marker polls, natural timeout stop and cleanup.
 No processor success is inferred.
@@ -309,8 +310,8 @@ lead through `10448f92`, `104498a8`, `1044a134` and `10449fc6` to the
 a natural boot-frame producer. The real startup frontier remains the
 `20180000` graphics processing/status/IRQ chain.
 
-The same binary's strict eight-second `extentdefault1` records both
-notification propertiesfalse, zero COPY calls, three failed loader comparisons
+The same binary's unconnected eight-second `extentdefault1` records both
+notification properties false, zero COPY calls, three failed loader comparisons
 and no pending streams, still rejecting MAS/SLA PA`2013e000`. Its zero-filled
 bootstrap equality is vacuous: no copy/request is observed. No default boot,
 notification hardware law, processing provider or first frame is accepted.

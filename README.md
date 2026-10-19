@@ -33,8 +33,8 @@ work/build/qemu/qemu-system-arm \
 ```
 
 A complete bundle installs the bounded loader contract and connects
-the MAS/SLA opt-in notification endpoints before either bridge is
-realized, and joins readout-control requests to the existing CMOS timing/DMA
+the MAS/SLA notification endpoints before either bridge is realized, and
+joins readout-control requests to the existing CMOS timing/DMA
 engine. That join validates the finite C1.70 mapping, writes only the submitted
 primary buffer and publishes generation-checked completion. An explicit
 PGM/PPM source is used when configured; otherwise the bundle path selects
@@ -88,7 +88,7 @@ flowchart TD
 
   MAS --> Readout["readout-control"]
   Readout -->|"complete bundle only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
-  Source["Explicit image or<br/>opt-in deterministic input"] --> CMOS
+  Source["Explicit image or<br/>bundle deterministic input"] --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]
   MAS --> Graphics["Finite paired graphics LUT executor<br/>actual output, IRQ129, completed status58 read"]
   GraphicsRAM["Guest-selected graphics input RAM"] --> Graphics
@@ -107,7 +107,7 @@ flowchart TD
   Unknown --> Stop["MEMTX_ERROR / diagnostic debug stop"]
 ```
 
-Solid arrows show implemented functional contracts, including opt-in model
+Solid arrows show implemented functional contracts, including declared model
 assumptions; dashed arrows identify unverified runtime joins or absent
 providers. The bundle instantiates MAS, SLA and EX CPUs in one ARM process.
 VR uses a separate RX QEMU profile, and TPJ has a separate GNU NDS32 runner

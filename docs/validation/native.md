@@ -1,21 +1,28 @@
 # Native GUI integration
 
+> Status: this file mixes historical receipts with the current green native
+> checkpoint. No original-firmware GUI startup is claimed. The latest green
+> native checkpoint is the 32/32 receipt near the bottom; the EX 0x6b read wait
+> is a WIP frontier detail, not a completed camera boot. Receipts below are
+> historical unless explicitly labeled current.
+
 The integration uses QEMU 11.1.2 at upstream commit
 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The configured development
-build is `work/build/mas-diagnostic`; its source is the matching fixed upstream
-checkout `work/upstream/qemu-11.1.2`. Maintained Nikon source lives in the parent
-repository's `hw/nikon`, `include/hw/nikon` and `tests/*/nikon`; the current
-official dependency is the read-only root `qemu/` submodule.
-Only the changed native source files were synchronized for incremental builds.
+build is `work/build/qemu`; its source is the ignored `work/config/source`
+view composed from the root `qemu/` submodule. Maintained Nikon source lives in
+the parent repository's `hw/nikon`, `include/hw/nikon` and `tests/*/nikon`; the
+current official dependency is the read-only root `qemu/` submodule.
 
-The `106a0ce` build compiled and linked the complete six-class storage profile,
-five-component bundle input, GPIO, completion, HDMAC, bridge and packet transfer.
-The original complete bundle subsequently entered GUI initialization phases 1
-and 2 and the GUI message task, then stopped on an unsupported USIO byte write.
-The corresponding original-run record is linked from
-[storage](../runtime/storage.md); it does not establish visible GUI output.
+The historical `106a0ce` build compiled and linked the complete six-class
+storage profile, five-component bundle input, GPIO, completion, HDMAC, bridge
+and packet transfer. The original complete bundle of that build entered GUI
+initialization phases 1 and 2 and the GUI message task, then stopped on an
+unsupported USIO byte write. The corresponding original-run record is linked
+from [storage](../runtime/storage.md); it does not establish visible GUI
+output and is not current-release evidence.
 
-The new cases passed across the initial batch and its necessary corrections:
+The historical cases below passed across the initial batch and its necessary
+corrections:
 
 | Cases | Result | Local evidence under `work/validation/gui` |
 |---|---|---|
@@ -26,9 +33,9 @@ The new cases passed across the initial batch and its necessary corrections:
 | Bundle parsing and invalid input rejection: 2 | PASS | `bundle.log`, before its VR record failure |
 | VR record extraction and bounds: 1 | PASS | `recordscorrected.log`, 0.33 seconds |
 
-The original 16 passing cases were not rerun. These 20 cases validate native
-functional contracts; they are not measurements of camera hardware or a claim
-that the complete camera boots.
+The original 16 passing cases were not rerun. These 20 historical cases validate
+native functional contracts; they are not measurements of camera hardware or a
+claim that the complete camera boots.
 
 The first Make invocation compiled the system and main qtest executables, but
 its extra explicit parallel qtest targets selected an upstream implicit Make
@@ -149,15 +156,15 @@ not default-profile boot or qualification of the experimental hardware laws.
 The same binary's default run confirms both notification properties false,
 rejects `0x2013e000`, captures zero COPY requests and fails the loader checks.
 Ignored receipts `work/research/guiresume/{flagsi2c1,flagsi2c2,flagsdefault2}`
-record each profile, hashes, dirty source identity and bounded exit. No GUI
-first-frame acceptance is claimed; the experimental results do not replace
-strict-profile failures or the historical identities above.
+record each connection state, hashes, dirty source identity and bounded exit.
+No GUI first-frame acceptance is claimed; the connected results do not
+replace unconnected failures or the historical identities above.
 
 ## Read-only coprocessor startup qualification
 
 Six later eight-second observations `coprocessor1..6` use this same binary,
-complete bundle and explicit experimental profile. Both actual notification
-properties are true in each receipt. Each captures 13 COPY submissions,
+complete bundle and the composed notification mapping. Both actual
+notification properties are true in each receipt. Each captures 13 COPY submissions,
 three byte-exact loader extents and the same rejected `2c04000c` write.
 None observes a child constructor, graphics transfer or frame. No emulation
 C, hardware reset/status behavior, backend, ISA decoder or ready producer was
@@ -175,9 +182,9 @@ program/data footers; the ARM loader's mask200 signal/wait/return is observed.
 This is program transport/validation, not coprocessor execution or a boot
 marker produced by hardware. The [startup boundary](../runtime/coprocessor.md)
 retains that pre-model unseen ready poll, original timeout path and
-still-unqualified physical controller/provider law. Fresh strict `coprocessordefault1` records both
-propertiesfalse, zero COPY, three failed loader comparisons and the unchanged
-`2013e000` rejection. All raw receipts and scripts remain under `work/`.
+still-unqualified physical controller/provider law. A fresh run without the
+connection, `coprocessordefault1`, records both properties false, zero COPY,
+three failed loader comparisons and the unchanged `2013e000` rejection. All raw receipts and scripts remain under `work/`.
 
 ## Bootstrap request boundary and timeout continuation
 
@@ -216,8 +223,8 @@ is not implemented. COPY-only `first-fault=null` does not mean global fault-free
 records uncovered transactions separately. No child, ordinary graphics
 packet, scanout or natural first frame is accepted.
 
-The same binary's strict eight-second `processordefault1` retains notification
-propertiesfalse, zero COPY, failed loader comparisons and first rejection
+The same binary's unconnected eight-second `processordefault1` retains
+notification properties false, zero COPY, failed loader comparisons and first rejection
 `2013e000`. Its zero-filled bootstrap/source equality does not prove a copy.
 The [processor contract](../devices/processor/protocol.md) and
 [runtime evidence](../runtime/coprocessor.md) distinguish ownership/storage,
@@ -262,7 +269,8 @@ MAS task's WORD write2014d200=0 at1046e19a. Thus there is both missing graphics
 processing/completion and an independent display-parameter aperture gap;
 these receipts do not isolate a single sole wait dependency or prove a frame.
 
-The same binary's strict `graphicsstreamdefault1` retains notificationsfalse,
+The same binary's unconnected `graphicsstreamdefault1` retains notifications
+false,
 zero COPY, failed loader comparisons, no pending streams and2013e000
 rejections. The [runtime evidence](../runtime/coprocessor.md) records the
 actual stream identities, corrected command ordinal and separate display
@@ -331,8 +339,8 @@ The first uncovered access is still WORD write0 to PA`2014d200` at
 MAS PC`1046e19a`. The new hooks observe caller VA`1044a4c4`, r1=0, and the
 already-loaded D100 value at VA`1046e190`, r0=0, without debugger MMIO reads or
 bypass. This is parameter/caller evidence, not a D200 implementation or
-permission to admit zero as a discard. The same binary's eight-second strict
-`extentdefault1` keeps both notification propertiesfalse, zero COPY, failed
+permission to admit zero as a discard. The same binary's unconnected eight-second
+`extentdefault1` keeps both notification properties false, zero COPY, failed
 loader comparisons, no pending streams and PA`2013e000` rejection; its
 all-zero bootstrap equality is vacuous. These corrected capture receipts do
 not provide graphics processing/fence/status58/IRQ129, processor execution or
@@ -341,7 +349,7 @@ startup. No self-designed hash gates or fabricated success were added.
 
 ## Profile-selector removal revalidation
 
-The `7d055a2a` selector removal deletes the machine-level
+The `04ec65c1` selector removal (old `7d055a2a`) deletes the machine-level
 `functional-profile`, `nor-profile` and `cmos-provider` selectors. The
 complete bundle now selects the composed board path; raw `-bios` remains a
 separate MAS-only diagnostic input. The following EX I2C cleanup removes the
@@ -352,7 +360,8 @@ receive-length table.
 `make check` passes all 32 Nikon executables with zero failures; the raw
 record is `work/build/qemu/meson-logs/testlog.txt`. The rebuilt ARM binary
 SHA256 is
-`b3d97591b347fad34e78140e86947fb275dc6daecf5c04c295b6f9a397303fe4`.
+`b3d97591b347fad34e78140e86947fb275dc6daecf5c04c295b6f9a397303fe4`
+(historical selector-removal checkpoint `04ec65c1`/`01daed54`).
 The previously failing `/arm/nikon/ex/io` three-byte expander read passes.
 These are native contract/build receipts; they do not establish
 original-firmware startup or GUI output. The older 29-fixture/247-subtest
@@ -376,9 +385,9 @@ commands 0/1/2/3, the `0x0b` finite ready/zero response, the `0x0d` class
 table (0/1/2/3) and reset-preserved class selection, the out-of-range command
 NACK, and reset clearing. `make check` passes all 32 Nikon executables with
 zero failures; the rebuilt ARM binary SHA256 is
-`05b82111753f96cd8b9c8464bf40ff2b95ba969dc52846a0d5c6f2a78df41425`.
-This is a native model receipt and a static IDB comparison, not a fresh
-original-firmware power-snapshot receipt.
+`05b82111753f96cd8b9c8464bf40ff2b95ba969dc52846a0d5c6f2a78df41425`
+(historical 0x0d checkpoint `6a363d24`). This is a native model receipt and a
+static IDB comparison, not a fresh original-firmware power-snapshot receipt.
 
 ## EX I2C STOP/RXNE revalidation
 
@@ -392,9 +401,9 @@ written before the DR read and that SR1/SR2 clear.
 
 `make check` passes all 32 Nikon executables with zero failures; the rebuilt
 ARM binary SHA256 is
-`e0a9358da54f5355894255968726f16227eea5f496fab4f9d8b9404b2786ffc1`.
-A guest hardware-breakpoint probe reaches the 0x6b setup, and the 0x6b read
-reaches the EX I2C IRQ31 callback (`sub_802fce0`) and HAL state `32`, but no
-return to `0x0802ae78` is observed in the bounded window; the next target is
-the RTOS event/task wakeup. No original-firmware readback-equality receipt is
-claimed.
+`e0a9358da54f5355894255968726f16227eea5f496fab4f9d8b9404b2786ffc1`
+(current release head `e838edf6`). A WIP guest hardware-breakpoint probe
+reaches the 0x6b setup, and the 0x6b read reaches the EX I2C IRQ31 callback
+(`sub_802fce0`) and HAL state `32`, but no return to `0x0802ae78` is observed
+in the bounded window; the next target is the RTOS event/task wakeup. No
+original-firmware readback-equality receipt is claimed.

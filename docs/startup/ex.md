@@ -434,7 +434,8 @@ or retained switch level is inferred from this success condition. Before samplin
 the direct call at `0x0803759c` invokes `0x08048a64`: its original stack descriptor
 contains pin mask `0x20`, input mode 0 and pull-up 1, with GPIO base `0x40021800`.
 Thus this selected guest path changes G5 from its initial pull-down to pull-up;
-an external high driver is not required for the undriven functional profile.
+an external high driver is not required for the undriven functional
+configuration.
 
 Qualification `0x080389f4` includes three distinct operations. `0x080388b8`
 temporarily configures and reads F9 with pull-up, then configures it as an output

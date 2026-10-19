@@ -131,12 +131,13 @@ sequenceDiagram
 
 Historical peer setters publish EV3 masks `0x1`/`0x2` (wrapper LRs
 `0x10200d0b`/`0x10200ceb`); these do not satisfy the GUI mask `0x10` wait.
-Strict/default bridge notifications reject PA `0x2013e000`.
-The complete bundle composition installs the bounded loader contract and enables both MAS/SLA
-notification endpoints before realization. It also attaches the functional
-readout pipeline below. Notification wiring remains a functional hypothesis,
-not a recovered physical bank/reset/IRQ contract. Historical experimental wait
-returns do not prove complete boot under the latest profile.
+The raw MAS diagnostic path rejects PA `0x2013e000`.
+The complete bundle composition installs the bounded loader contract and enables
+both MAS/SLA notification endpoints before realization. It also attaches the
+functional readout pipeline below. Notification wiring remains a functional
+hypothesis, not a recovered physical bank/reset/IRQ contract. Historical
+experimental wait returns do not prove complete boot under the latest bundle
+composition.
 
 The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480)
 dependency is closed: `0x42062002` is firmware-local and type-5 traffic is
@@ -172,8 +173,8 @@ validates the secondary destination/stride without writing it, and accepts
 only format pairs `00400040` and `00010001`. Functional samples are two bytes;
 width is stride/2 and height is span/stride. The CMOS engine performs actual
 timed DMA. Busy requests are rejected, stale generations cannot complete,
-and cancellation/reset stop pending work. Strict/default profiles leave this
-join disconnected. No physical pixel format, sensor timing, secondary-plane
+and cancellation/reset stop pending work. The raw MAS diagnostic path leaves
+this join disconnected. No physical pixel format, sensor timing, secondary-plane
 producer, GIC route or downstream ISP/display join is inferred. See the
 [readout mapping](devices/readout/profile.json),
 [controller contract](devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
@@ -240,13 +241,13 @@ PA `0x2c012000` remain strict errors. Static Thumb recovery places the
 |---|---|---|
 | CPU startup | MAS CPU0/CPU1 roles observed; private SLA/EX instantiated | Physical CPU/board parameter qualification |
 | External components | Standalone RX VR and GNU NDS32 TPJ providers; typed peer transport | Explicit launch/wiring; no automatic five-component CPU integration |
-| Loader COPY | Two 4 MiB arenas; bounded 500*/502* RAM under functional | Physical backing/provider identity |
-| EV3 | GUI mask0x10 producer; historical experimental wait return; profile enables notifications | Strict PA2013e000; physical notification contract unqualified |
+| Loader COPY | Two 4 MiB arenas; bounded 500*/502* RAM under the complete bundle | Physical backing/provider identity |
+| EV3 | GUI mask0x10 producer; historical experimental wait return; bundle enables notifications | Raw MAS rejects PA2013e000; physical notification contract unqualified |
 | Processor | MAS-only request/bootstrap storage; historical natural timeout | Execution/ready/reply provider |
 | Graphics | Full paired capture, finite LUT execution, output DMA, IRQ129 and post-completion status58 read | Other programs/formats, fences, IRQ131, other status semantics and original scanout join |
 | Copy/composition | Byte-copy DMA IRQ130; supplied-layer composition and console publication | Natural original producer/commit chain |
 | Display scalars | D100/D200/C0A0 finite contracts | C010, PA2c012000 and physical meanings |
-| CMOS/readout | Opt-in finite mapping, timed primary DMA and generation-checked completion; rejection/cancel/reset fixtures | Strict profile disconnected; secondary output, physical formats/timing, GIC and downstream joins |
+| CMOS/readout | Bundle finite mapping, timed primary DMA and generation-checked completion; rejection/cancel/reset fixtures | Raw MAS disconnected; secondary output, physical formats/timing, GIC and downstream joins |
 | GUI acceptance | Observation fixture explicitly reports missing evidence as `UNMET` | Natural source pixels, guest commit, completion and first console frame; interaction separately |
 
 Hardware models may produce causal status, IRQ and scanout through finite

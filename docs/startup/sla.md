@@ -336,12 +336,14 @@ This run exposed the original timer initialization's GIC operations, but its
 initial interpretation was incomplete. `10036CAC..10036CC0` reads the active
 view, ORs the timer's bit29 and writes it back. A revision2 implementation
 turns that store into SET_ACTIVE29, suppressing timer delivery; implementing
-the write is therefore insufficient. The current functional profile uses the
-mature revision1 read-only active view, as does the MAS profile. Upstream logs
-the ignored writes at distributor offsets300..303. This is an explicit GIC
-profile convention, not a claim that the physical controller revision has been
+the write is therefore insufficient. The composed board configures the GIC
+with `revision=1`, whose read-only active view matches the original
+read-modify-write; the MAS domain uses that same value. Upstream logs the
+ignored writes at distributor offsets `300..303`. This is an explicit board
+configuration, not a claim that the physical controller revision has been
 recovered. The firmware's separate `10036D14` read of write-only GICC_EOIR
-also remains visible as an upstream guest error; no readback register is added.
+also remains visible as an upstream guest error; no readback register is
+added.
 
 The private-domain native fixture passed with the named peer output following
 GPIO direction and masked latch writes (builder `56a99b9`). Original two-core
