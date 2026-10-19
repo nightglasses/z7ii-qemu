@@ -399,11 +399,16 @@ SR1 followed by SR2 now clears ADDR and STOPF, matching the HAL event
 acknowledge. The `/arm/nikon/ex/stop-preserves-rx` qtest covers the STOP
 written before the DR read and that SR1/SR2 clear.
 
-`make check` passes all 32 Nikon executables with zero failures; the rebuilt
-ARM binary SHA256 is
-`e0a9358da54f5355894255968726f16227eea5f496fab4f9d8b9404b2786ffc1`
-(current release head `e838edf6`). A WIP guest hardware-breakpoint probe
-reaches the 0x6b setup, and the 0x6b read reaches the EX I2C IRQ31 callback
-(`sub_802fce0`) and HAL state `32`, but no return to `0x0802ae78` is observed
-in the bounded window; the next target is the RTOS event/task wakeup. No
-original-firmware readback-equality receipt is claimed.
+`make check` passes all 32 Nikon executables with zero failures; the raw
+record is `work/build/qemu/meson-logs/testlog.txt` and the rebuilt ARM binary
+SHA256 is
+`838805c46707e5b2669914d77b76a6dc4d42f8deed2a9b101986211e1d5cc231`
+(release checkpoint `948f8a11`).
+An original-firmware hardware-breakpoint probe on that bundle reaches the
+0x6b read start with descriptor `0x2001fdcc` and its free-bus exit, and the
+I2C receive handler then takes the `SR1` RXNE-with-BTF branch
+(`0x08046bfe`) instead of the single-byte completion branch
+(`0x08046cd0`), which leaves the driver state at `0x22` and prevents the
+read-back comparison from ever running. The receive prefetch therefore
+remains an explicit model boundary: it is not resolved by this checkpoint,
+and no original-firmware readback-equality receipt is claimed.
