@@ -433,11 +433,12 @@ finish now steps one byte time before it expects BTF.
 ARM binary SHA256 is
 `5157574bb9753ab2a785ba1e30b81b8d4d3d847422071fa1f2344bbdcceb9920`
 (rebuild of the `0debf1e2` code together with these documentation edits).
-An original-firmware hardware-breakpoint probe on the
-complete bundle now reaches the 0x6b read helper's event wait, the setup
-comparison at `0x0802b0d6` and its success exit at `0x0802b0e4` for commands
-0/1/3 and later repeats, and the periodic `0x0d` status service at
-`0x0802b6f0`, across a 300 s window. That is the first time the original
-read-back equality and status-classification path runs without a fabricated
-value; it is still not a complete original-firmware qualification of the
-monitor service.
+An original-firmware hardware-breakpoint probe on the complete bundle now
+reaches the 0x6b read helper's event wait, the setup comparison at
+`0x0802b0d6` and its success exit at `0x0802b0e4` for commands 0/1/3 and later
+repeats, the periodic `0x0d` status service at `0x0802b6f0`, its raw
+fourth-byte store and the class stores that follow. A separate 300 s window
+records only `0x0802b0e4` equality hits, with no `0x0802b0da` mismatch and no
+`0x0802b112` sanitiser write, so the original read-back equality path really
+passes against the model rather than being sanitised. That is still not a
+complete original-firmware qualification of the monitor service.
