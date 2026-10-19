@@ -149,23 +149,20 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
   than running on;
 - the first fault layer was a precise data bus error: `CFSR = 0x8200` with
   `BFAR = 0x50060800`. The descriptor reaching that address is built in
-  `sub_8023e36`, which loads the literal `0x50060800` into a stack descriptor
-  and submits it through `sub_8044c40`/`sub_8044cd2`. That window is now
-  modelled explicitly by
-  [the channel engine device](../devices/exengine/protocol.md), and the bus
-  fault no longer occurs;
-- the remaining layer is a usage fault with `CFSR = 0x20000` (`INVSTATE`) at
-  stacked `PC = 0x0802af00`, `LR = 0x08020225` and `R0 = 0x0802af00`. The only
-  code that returns to `0x08020224` is the RTOS interrupt dispatcher
-  `sub_80201fc`, which executes `blx` at `0x08020222` on the word it loads from
-  the table at `0x20022d70` (`IPSR - 16` as index), so a thumb branch landed on
-  an even address. What is *not* yet established is how that word became even:
-  the forty observed registrations into the same table all carry odd pointers
-  (IRQ31 gets `0x08041065`), and the image contains no `0x0802af00` constant at
-  all — the correct odd pointer `0x0802aee9` does appear, in the handler
-  installer `sub_802b128`. The fault frame also shows `R0` equal to the handler
-  value, which the dispatcher itself does not do, so the write path still needs
-  to be measured rather than inferred.
+  `sub_8023e36` and driven through `sub_8044c40`/`sub_8044cd2`; the window is
+  the hardware random number generator and is modelled by
+  [the RNG device](../devices/exrng/protocol.md), which removed that fault;
+- the second layer was a usage fault (`INVSTATE`) with stacked
+  `PC = 0x0802af00` or `0x08000000`, i.e. branches through non-thumb pointers.
+  The cause was the missing boot data segment: the reset vector only relocates
+  the vector table, while a boot loader produces the descriptor image at
+  `0x2000d000` from the scatter table at `0x080038cc`. The loader and its two
+  decoders now run at cold boot and on every MCU reset
+  ([`exboot.c`](../../hw/nikon/components/exboot.c)), and the usage faults are
+  gone;
+- what remains is a deliberate reset: the T-Kernel path at `0x8042800` writes
+  AIRCR `SYSRESETREQ` while no fault is pending, roughly once a minute rather
+  than once a second. Identifying that caller is the current frontier.
 
 That is the current frontier: the reset loop, not the monitor lane, is what
 keeps the periodic timers from running. The next step is to identify which interrupt's dispatcher entry is
