@@ -64,7 +64,6 @@ typedef struct EXI2C {
     uint8_t rx[2];
     unsigned rx_count;
     unsigned rx_remaining;
-    uint8_t last_write;
     I2CBus *bus;
 } EXI2C;
 
@@ -600,7 +599,6 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
     s->i2c[i].sr1_seen = s->i2c[i].receive = false;
     s->i2c[i].rx_count = 0;
     s->i2c[i].rx_remaining = 0;
-    s->i2c[i].last_write = 0;
     ex_irq(s, ex_i2c_irq[i], false);
     ex_irq(s, ex_i2c_irq[i] + 1, false);
 }
@@ -1240,7 +1238,6 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                             }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
-                        p->last_write = v;
                         p->reg[5] |= i2c_send(p->bus, v) ? 1 << 10 : 0x84;
                     } else {
                         p->reg[5] |= 1 << 10;

@@ -618,7 +618,6 @@ static void z7ii_prepare_bundle_loader(Z7IIMachineState *s)
     if (!s->bundle) {
         return;
     }
-    z7ii_select_bundle_inputs(s);
     nikon_bootshim_prepare_mas(NIKON_BOOT_SHIM_FUNCTIONAL,
                                get_system_memory(),
                                s->shim_mas, &error_fatal);
