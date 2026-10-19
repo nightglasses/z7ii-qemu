@@ -132,7 +132,7 @@ sequenceDiagram
 Historical peer setters publish EV3 masks `0x1`/`0x2` (wrapper LRs
 `0x10200d0b`/`0x10200ceb`); these do not satisfy the GUI mask `0x10` wait.
 Strict/default bridge notifications reject PA `0x2013e000`.
-`functional-gui` installs the bounded loader contract and enables both MAS/SLA
+The complete bundle composition installs the bounded loader contract and enables both MAS/SLA
 notification endpoints before realization. It also attaches the functional
 readout pipeline below. Notification wiring remains a functional hypothesis,
 not a recovered physical bank/reset/IRQ contract. Historical experimental wait
@@ -148,7 +148,7 @@ and [#485](https://github.com/mashiro01/nightglass/issues/485) are unblocked.
 ```mermaid
 flowchart TD
   Guest["Guest readout configuration<br/>and PA 0x2006b400 = 1"] --> Readout["readout-control<br/>owned request generation"]
-  Readout -->|"functional-gui only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
+  Readout -->|"complete bundle only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
   Image["Explicit PGM/PPM or<br/>opt-in deterministic source"] --> CMOS["CMOS timing / DMA engine"]
   Pipeline --> CMOS
   CMOS -->|"timed primary-buffer DMA"| RAM["Submitted writable guest RAM"]

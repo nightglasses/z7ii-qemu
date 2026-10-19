@@ -85,11 +85,12 @@ static void configured_levels(void)
     DeviceState *io = nikon_ex_io(ex);
     I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
 
-    /* Pins 0/23 are held low; pin9 high; all others are disconnected. */
+    /* The complete bundle applies its board-input record before the test
+     * drives pins 0/9/23: board pins 0,1,3,10 are low and pin9 is high. */
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 0), 0);
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 9), 1);
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 23), 0);
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
     for (unsigned port = 0; port < 3; port++) {
         io_write(bus, 0x50 + port, 0); /* Pull direction: down. */
         io_write(bus, 0x4c + port, 0xff); /* Enable pulls on every pad. */
@@ -97,7 +98,7 @@ static void configured_levels(void)
     /* A supplied high overrides the pull; omitted pins follow the pull. */
     g_assert_cmphex(io_levels(bus), ==, 1 << 9);
     qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
 
     /* Physical peer reset rejects transactions while held, then resets only
      * its registers: the three actual external drive levels remain present.
@@ -106,7 +107,7 @@ static void configured_levels(void)
     g_assert_cmpint(i2c_start_transfer(bus, 0x22, false), !=, 0);
     i2c_end_transfer(bus);
     qemu_set_irq(qdev_get_gpio_in_named(io, "reset", 0), 1);
-    g_assert_cmphex(io_levels(bus), ==, 0x7ffffe);
+    g_assert_cmphex(io_levels(bus), ==, 0x7ffbf4);
 
     /* A later physical input change survives reset; machine configuration is
      * applied once at realization, not replayed as a reset-time override.
@@ -115,26 +116,16 @@ static void configured_levels(void)
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 9), -1);
     qemu_set_irq(qdev_get_gpio_in_named(io, "pad", 23), -1);
     qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
-    g_assert_cmphex(io_levels(bus), ==, 0xffffff);
+    g_assert_cmphex(io_levels(bus), ==, 0xfffbf5);
     io_write(bus, 0x51, 0);
     io_write(bus, 0x4d, 2);
-    g_assert_cmphex(io_levels(bus), ==, 0xfffdff);
+    g_assert_cmphex(io_levels(bus), ==, 0xfff9f5);
 }
 
 static void power_devices(void)
 {
     NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
     I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
-    I2CSlave *monitor = i2c_slave_new(TYPE_NIKON_EX_MONITOR, 0x6b);
-    I2CSlave *status = i2c_slave_new(TYPE_NIKON_EX_STATUS, 0x0d);
-
-    object_property_add_child(object_get_objects_root(), "ex-monitor",
-                              OBJECT(monitor));
-    object_property_add_child(object_get_objects_root(), "ex-status",
-                              OBJECT(status));
-    i2c_slave_realize_and_unref(monitor, bus, &error_abort);
-    i2c_slave_realize_and_unref(status, bus, &error_abort);
-
     /* The boot qualification performs a zero-valued monitor probe. */
     g_assert_cmpint(i2c_start_transfer(bus, 0x6b, false), ==, 0);
     g_assert_cmpint(i2c_send(bus, 0), ==, 0);

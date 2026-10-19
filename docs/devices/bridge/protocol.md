@@ -127,7 +127,7 @@ receive-bank accesses also remain rejected without an experimental connection.
 Other directions, widths and neighbors are not generic storage.
 
 `notification` is a default-off research property. The composed machine's
-explicit `functional-profile=functional-gui` sets the property on both MAS
+the complete bundle composition sets the property on both MAS
 and SLA bridges before realize and then connects the opted-in pair using
 `nikon_bridge_connect_notifications()`. A direct QOM global remains a focused
 device-test mechanism rather than the documented machine profile. The profile

@@ -539,10 +539,10 @@ static void nor_unlock(QTestState *qts, uint16_t command)
     qtest_writew(qts, 0x10000aaa, command);
 }
 
-static void test_nor_experimental_profile(void)
+static void test_nor_protocol(void)
 {
     MemoryTest t = memory_init_machine(
-        ",mas-boot-prefix=erased,nor-profile=c1.70-experimental", "");
+        ",mas-boot-prefix=erased", "");
     QTestState *qts = t.qts;
 
     qtest_writel(qts, 0x04264000, 0x21);
@@ -613,7 +613,7 @@ static void test_descriptor17_input(void)
     close(fd);
     g_assert_true(g_file_set_contents(path, (char *)input, size, NULL));
     machine = g_strdup_printf(
-            ",mas-boot-prefix=erased,nor-profile=c1.70-experimental,"
+            ",mas-boot-prefix=erased,"
         "descriptor17-input=%s", path);
     t = memory_init_machine(machine, "");
 
@@ -756,8 +756,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);
     qtest_add_func("/nikon/memory/external-input", test_external_input);
-    qtest_add_func("/nikon/memory/nor-experimental-profile",
-                   test_nor_experimental_profile);
+    qtest_add_func("/nikon/memory/nor-protocol", test_nor_protocol);
     qtest_add_func("/nikon/memory/descriptor17-input",
                    test_descriptor17_input);
     qtest_add_func("/nikon/memory/descriptor17-rejection",

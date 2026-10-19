@@ -81,8 +81,7 @@ static QTestState *pipeline_start(char **bundle)
 
     *bundle = functional_bundle();
     quoted = g_shell_quote(*bundle);
-    return qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
-                       "functional-profile=functional-gui "
+    return qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
                        "-smp cpus=2,maxcpus=5 -nodefaults -display none",
                        quoted);
 }

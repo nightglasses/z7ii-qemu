@@ -4,7 +4,7 @@ The C1.70 update contains the complete 512 KiB EX component, but its factory
 configuration window at `0x08004000..0x08020000` is erased in that payload.
 The EX firmware nevertheless reads this window during cold start.
 
-For the experimental `functional-gui` machine profile, QEMU installs a small
+For the complete bundle composition, QEMU installs a small
 synthetic configuration structure held as a read-only C data object in the
 machine model.  It is not a recovered Nikon factory dump and it never changes
 the original EX component.  The object supplies the statically required
@@ -31,5 +31,5 @@ No external config file, byte patch, profile-version selector, guest event or
 report is supplied at runtime; the finite board values above are owned by the
 built-in functional fixture.  The guest still performs all validation, GPIO
 polling, ADC conversion, debounce, event generation and report construction.
-The default/non-functional machine path retains the unchanged erased EX
-window.
+The raw MAS input path has no private EX component and therefore does not
+create this configuration view.
