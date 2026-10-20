@@ -214,6 +214,25 @@ power classification and LCD start at zero hits. This is separate from the TL4
 coprocessor boundary, which the guest reaches and leaves through its own
 timeout branch.
 
+### Power dispatch and transport are running
+
+With corrected function-entry probes (a Thumb pointer such as `0x08037CCD`
+executes at `0x08037CCC`; probing the odd address misses the entry), the
+power-on chain in the current bundle is measured end to end on one boot pass:
+
+| Tick | Event |
+|---|---|
+| `0x378` | `0x08038426` sets state `0x200159A4 + 0x0d` to `1` |
+| `0x390` | `0x080380AE` sets `+8` to `1` |
+| `0x38B` | dispatcher `0x0803825C` takes bit `0x1000` and enters handler `0x08037CCC` |
+| `0x396` | transport services `0x0803459C` (RX) and `0x08034A18` (TX) start |
+| `0x397` | producer `0x08038124` posts the service and clears `+8`/`+0x0d` |
+
+The MAS power classifier entry `0x1038A6A8` is also entered (once per window),
+so both domains do run their power code. Earlier statements that the transport
+services stay suspended, or that the classifier never runs, were probe-address
+artifacts and are withdrawn.
+
 ### Power qualification state at run time
 
 The missing record shows up directly in the EX RAM. At the 1200th `0x0d`
