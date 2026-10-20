@@ -640,13 +640,16 @@ static void z7ii_ex_input_tick(void *opaque)
         { 6, 2 },  /* GPIOG.2, four-channel bit 2 */
     };
 
-    if (z7ii_ex_functional_inputs.power_good) {
-        for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
-            /* These are external power-good wires. Replay them after the
-             * firmware changes GPIO modes so the input IDR reflects the
-             * board. */
-            qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]), 0);
-        }
+    for (unsigned i = 0; i < ARRAY_SIZE(pins); i++) {
+        /*
+         * These are external power-good wires.  The original firmware treats
+         * all of them low as a rail fault (it logs 20001 and reboots with
+         * status 14), so a good rail is asserted high.  Replay the declared
+         * board level after the firmware changes GPIO modes so the input IDR
+         * reflects it; a failed rail profile drives them low.
+         */
+        qemu_set_irq(nikon_ex_gpio_input(ex, pins[i][0], pins[i][1]),
+                     z7ii_ex_functional_inputs.power_good ? 1 : 0);
     }
     if (z7ii_ex_functional_inputs.gpiod13) {
         /* GPIOD.13 is a separate board input polled by the configured
