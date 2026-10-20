@@ -372,3 +372,14 @@ installed correctly. Field 0 is a countdown that differs per index; index 2
 reads `0x19` and index 1 `0x1a`, while the two timers that do dispatch
 (`1114`/`1115`) read `0x0c`/`0x0d`. The difference to explain is the
 callback delivery, not the record installation.
+
+### Cyclic dispatch site
+
+The callback for timer id `1114` returns to `0x0804AB77`, inside the RTOS
+cyclic-expiry path: `0x0804AB5A` updates the object (`0x0804AC5C`,
+`0x0804AC8C`), then loads `r0 = [obj]`, `r1 = [obj+8]` and calls the callback
+with `blx r1`.
+
+So the dispatch code is common and works for indices 3/4. Index 2's callback
+is installed in its block but never reached, which points at the expiry-list
+membership or object state maintained by `0x0804AC5C`/`0x0804AC8C`.
