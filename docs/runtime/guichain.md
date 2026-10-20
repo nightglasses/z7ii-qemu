@@ -2165,3 +2165,17 @@ Accepted criteria for the continuous-run goal, measured on this build:
 | periodic software timers dispatch | ids `1114`, `1115` and 10,000 timer posts |
 | monitor lane stable | 30,000 `0x0d` services, repeated `0x6b` equality edges |
 | no periodic reset | one cold-boot escalation then continuous in 600 s |
+
+## Measured app-state progression (latest pass)
+
+The MAS GUI app dispatcher at `0x1020D41A` takes `r1` as the state and `r0` as
+the context pointer (`0xB1818BD0`). A 60 s window reaches states `1`, `2` and
+`3`, and the state-3 branch at `0x1020D51E` executes (`lr=0x1020D42B` from the
+dispatcher). The deeper one-run marker `0x1020D5FA` stays at zero, so it
+belongs to a later sub-step rather than to the state-3 entry.
+
+In the same pass the EX record lane delivers only the four boot records
+(`0x01`, `0x0D`, `0x08`, `0x0A`) and never the type-`0x12` power record, and
+the MAS power classifier `0x1038A6AA` stays at zero hits. Both lanes therefore
+stop before the power classification that feeds the provider lifecycle and LCD
+start.
