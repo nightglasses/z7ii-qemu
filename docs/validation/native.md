@@ -442,3 +442,31 @@ records only `0x0802b0e4` equality hits, with no `0x0802b0da` mismatch and no
 `0x0802b112` sanitiser write, so the original read-back equality path really
 passes against the model rather than being sanitised. That is still not a
 complete original-firmware qualification of the monitor service.
+
+## EX continuous-run checkpoint
+
+The EX-specific fixes on this branch (RNG window at `0x50060800`, boot scatter
+loader, power-good wire polarity, board record published at attach) make the
+original EX image boot and run instead of restarting. Measured on the complete
+bundle with hardware breakpoints:
+
+| Observation | Window | Result |
+|---|---|---|
+| RTOS module initialisation | 180 s | `0x804b808` entered once, no re-init loop |
+| Time base | 180 s | tick `0x7cf, 0xf9f, 0x176f, ... 0x98ab` over 60,000 increments |
+| Host command dispatch | 240 s | >16,000 dispatches, ids `101`, `102`, `103`, `131`, `1114`, `1115` |
+| Software timers | 240 s | >10,000 posts, timer ids 114/115 reach their handlers |
+| Monitor lane | 240 s | 30,000 `0x0d` service entries and repeated `0x6b` equality edges |
+| Resets | 600 s | one cold-boot escalation, then continuous |
+
+The single reset is the firmware's own cold-boot ladder: it arms at tick
+`0x2aa4`, records reason 2, and escalates at tick `0x51b4` through
+`sub_8042d70` (status `15`) and the AIRCR writer. The block initialisation that
+gates the ladder runs once per cold boot (`tick 0x3e0`); the post-reset boot
+does not re-initialise it, so the ladder cannot re-arm and the domain keeps
+running. How the callback that runs the ladder is invoked, and which handshake
+it waits for, is still open and is tracked in the runtime notes.
+
+This is a bundle guest observation, not a native test receipt: `make check`
+still covers only the device and machine contracts (33 Nikon executables, all
+passing on this branch).
