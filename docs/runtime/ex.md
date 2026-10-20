@@ -275,3 +275,23 @@ teardown path, so reaching it is phase completion rather than GUI progress.
 - The board input record is published at attach time instead of after the
   first 100 ms tick, because its levels are wires rather than later inputs, so
   the early strap check sees the declared levels on the first boot pass.
+
+### Qualification record: no runtime writer
+
+The state calculator `0x0802866C` reads its first record at `0x2001FA90` and
+decides from `+0x38` and `+0x78`:
+
+- `+0x38 == 0` returns `2`; `+0x38 == 4` returns `3`; other values fall
+  through to `+0x78`, and `+0x78 == 0` returns `1`.
+
+An all-zero record therefore still yields `2`, not `0`. The measured output
+byte `0x2001FBAE` is `0`, so the publisher that stores the calculator result
+never runs; the missing record is not the only gap.
+
+Two write probes agree with that. A write watchpoint on the record word
+`0x2001FA90` fires once in a 65 s window, and only at the boot zero-fill
+(`0x080038BE`); no service path ever populates the fields. A breakpoint on the
+service-record entry `0x0802AB20` records no hit at all.
+
+The next target is therefore the caller that computes and publishes the power
+state (the setter chain around `0x0802937C`), not the record contents.
