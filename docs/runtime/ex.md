@@ -275,3 +275,165 @@ teardown path, so reaching it is phase completion rather than GUI progress.
 - The board input record is published at attach time instead of after the
   first 100 ms tick, because its levels are wires rather than later inputs, so
   the early strap check sees the declared levels on the first boot pass.
+
+### Qualification record: no runtime writer
+
+The state calculator `0x0802866C` reads its first record at `0x2001FA90` and
+decides from `+0x38` and `+0x78`:
+
+- `+0x38 == 0` returns `2`; `+0x38 == 4` returns `3`; other values fall
+  through to `+0x78`, and `+0x78 == 0` returns `1`.
+
+An all-zero record therefore still yields `2`, not `0`. The measured output
+byte `0x2001FBAE` is `0`, so the publisher that stores the calculator result
+never runs; the missing record is not the only gap.
+
+Two write probes agree with that. A write watchpoint on the record word
+`0x2001FA90` fires once in a 65 s window, and only at the boot zero-fill
+(`0x080038BE`); no service path ever populates the fields. A breakpoint on the
+service-record entry `0x0802AB20` records no hit at all.
+
+The next target is therefore the caller that computes and publishes the power
+state (the setter chain around `0x0802937C`), not the record contents.
+
+### The publisher is never entered
+
+Static callers recovered from the Thumb `BL` encoding of the EX image:
+`0x0802866C` (calculator) is called from `0x080285FA`, `0x08028162` and
+`0x0802892E`; the setter `0x0802937C` from `0x0802816E`, `0x08028932` and
+`0x0802A9C6`; the service-record entry `0x0802AB20` from `0x08028454`.
+
+At `0x08028150` the publisher always reaches the calculator: when the gate
+helper `0x08028200` returns zero it takes `r0 = 2` and jumps back to
+`0x0802815E`, which still calls `0x08028162`. A 50 s window records no hit at
+`0x08028200`, `0x08028162` or `0x0802816E`, so the containing function is
+never entered at all. The missing link is that caller, not the record, the
+gate helper or the calculator.
+
+### The publisher is host-command case 9
+
+The publisher `0x08028098` has a single `BL` caller, `0x0802800C`, which is
+case index `9` of the byte dispatch table at `0x08027EB2`
+(`tbb [pc, r1]`, bytes `92 95 98 7a 9b a7 19 19 aa ad`). The enclosing
+function is the host-command dispatcher `0x08027E58`
+(`push {r3..r7, lr}`), the handler installed on the message object
+`0x2001F664`; it has no `BL` caller of its own.
+
+So the power-state publisher runs only when the dispatcher receives the
+class that maps to index `9`, and that message is never dispatched in the
+current run. The next step is to decode the `r1`-class derivation and find
+which host id yields class `9`.
+
+### The publisher's class is host id 130
+
+The `tbb` at `0x08027EAE` indexes `r1 = id - 121` for ids `121..130`, so
+case index `9` is host id `130`. The dispatcher derives the id through
+`sub_80270DC(msg)`, and the mapped case calls the publisher.
+
+A 60 s window at the dispatcher entry logs the ids it actually takes:
+`101`, `102`, `103`, `131`, `1114` and `1115` (`0x65`, `0x66`, `0x67`,
+`0x83`, `0x45A`, `0x45B`). Host id `1130` (`0x46A`, the timer form of `130`)
+never appears.
+
+The software-timer record table at `0x08051444` uses 20-byte records
+(`callback`, `period`, 8-character name): record 0 is
+`0x08027D40 / 500 / "BatCmCy1"`, record 1 is `0x08027D38 / 250 / "BatC..."`.
+The next target is the callback record that should post id `130`, and why it
+does not run.
+
+### The id-130 timer exists but never fires
+
+The callback that posts host id `1130` is record 2 of the timer table: entry
+`0x08026988` (`movw r0, #1130`), period `50`, name `BatCmCy3`.
+
+Creation is complete. A breakpoint on the timer constructor `0x08026DF8` shows
+all sixteen indices created early in the boot (order `0,4,3,5,6,7,8,9,a,b,d,c,
+e,f,2,1`), including index `2`. The constructor receives the record's callback,
+period and name and creates the timer in the block at `0x2001FC2C`.
+
+Execution is not: a breakpoint on `0x08026988` records no hit in 45 s, while
+the lane does dispatch timer ids `1114`/`1115`. So the remaining question is
+why this created timer never delivers its callback, which is the last link
+before the power-state publisher.
+
+### Timer blocks carry identical structure
+
+At tick `0x55a` the timer control blocks at `0x2001FC2C + index*20` read:
+
+| Index | field 0 | callback | period | name |
+|---|---|---|---|---|
+| 1 | `0x1a` | `0x08027D38` | `0xfa` | `BatCmCy2` |
+| 2 | `0x19` | `0x08026988` | `0x32` | `BatCmCy3` |
+| 3 | `0x0d` | `0x08027D30` | `0x14` | `BatCmCy4` |
+| 4 | `0x0c` | `0x08027D28` | `0x05` | `BatCmCy5` |
+
+Every block holds the expected callback, period and name, so the record was
+installed correctly. Field 0 is a countdown that differs per index; index 2
+reads `0x19` and index 1 `0x1a`, while the two timers that do dispatch
+(`1114`/`1115`) read `0x0c`/`0x0d`. The difference to explain is the
+callback delivery, not the record installation.
+
+### Cyclic dispatch site
+
+The callback for timer id `1114` returns to `0x0804AB77`, inside the RTOS
+cyclic-expiry path: `0x0804AB5A` updates the object (`0x0804AC5C`,
+`0x0804AC8C`), then loads `r0 = [obj]`, `r1 = [obj+8]` and calls the callback
+with `blx r1`.
+
+So the dispatch code is common and works for indices 3/4. Index 2's callback
+is installed in its block but never reached, which points at the expiry-list
+membership or object state maintained by `0x0804AC5C`/`0x0804AC8C`.
+
+### The id-130 cyclic object was never started
+
+A memory search for the callbacks finds both the record block and the RTOS
+cyclic object. At tick `0x4e7`:
+
+| Object | `[0]` | `[4]` | `[8]` | `[12]`/`[16]` | `[20]` | `[24]` |
+|---|---|---|---|---|---|---|
+| id 130 (`0x200229A8`) | `0x08026989` | `0` | `0x32` | `0`/`0` | `0x270` | `0` |
+| id 114 (`0x20022738`) | `0x08027D29` | `1` | `5` | `0x20022654`/`0x200226E4` | `0x4EC` | `0x0804AB5B` |
+
+The working timer carries state `1`, list links, a next-expiry tick and a code
+pointer; the id-130 object carries state `0`, no links, no expiry and no code
+pointer. It was created but never started or linked, so the cyclic dispatcher
+cannot see it.
+
+This is the classification result: the gap is not a missing MAS producer, not
+an unmodelled external input and not a device contract. It is an EX-side
+cyclic object that the firmware creates and never starts.
+
+### Cyclic start API and its callers
+
+The start/stop API is `0x08020AB0`; its `BL` callers sit in the power module:
+`0x080339DA`, `0x08033BA4`, `0x08033C2A`, `0x08033CC6`, `0x08033D50`,
+`0x08033E10`. The 16-timer creation wrapper `0x08026DF8` is called from
+`0x08026D12..0x08026D30`.
+
+The id-130 object is created but not started, so the next check is which
+object each of those six start calls covers and whether the id-130 object is
+skipped by a condition inside the power module.
+
+### `0x08020AB0` is not the cyclic start path
+
+Resolving the literals at the six call sites shows they pass only two
+targets: `0x20013924` (five calls) and `0x200139A0` (one). Neither is a
+cyclic object: the created objects live at `0x20022738` (id 114) and
+`0x200229A8` (id 130). So `0x08020AB0` operates on the power/event blocks,
+not on cyclic handlers, and the earlier guess that it is the start API is
+withdrawn.
+
+The cyclic start/link call for the RTOS objects is still unidentified.
+
+### The RTOS start writer leaves the id-130 object untouched
+
+Write watchpoints on the two objects' state words (`+4`) show:
+
+- `0x2002273C` (id 114) is written `1` repeatedly by `0x0804D404`
+  (`lr=0x0804D3FD`), the RTOS path that starts/links a cyclic object;
+- `0x200229AC` (id 130) is written only by the boot zero-fill
+  (`0x080038BE`); `0x0804D404` never touches it.
+
+So the start routine exists and runs, and the id-130 object is simply not
+among the objects it is asked to start. The remaining step is the caller that
+selects the objects (`0x0804D404`'s caller chain) and its condition.
