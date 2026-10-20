@@ -295,3 +295,17 @@ service-record entry `0x0802AB20` records no hit at all.
 
 The next target is therefore the caller that computes and publishes the power
 state (the setter chain around `0x0802937C`), not the record contents.
+
+### The publisher is never entered
+
+Static callers recovered from the Thumb `BL` encoding of the EX image:
+`0x0802866C` (calculator) is called from `0x080285FA`, `0x08028162` and
+`0x0802892E`; the setter `0x0802937C` from `0x0802816E`, `0x08028932` and
+`0x0802A9C6`; the service-record entry `0x0802AB20` from `0x08028454`.
+
+At `0x08028150` the publisher always reaches the calculator: when the gate
+helper `0x08028200` returns zero it takes `r0 = 2` and jumps back to
+`0x0802815E`, which still calls `0x08028162`. A 50 s window records no hit at
+`0x08028200`, `0x08028162` or `0x0802816E`, so the containing function is
+never entered at all. The missing link is that caller, not the record, the
+gate helper or the calculator.
