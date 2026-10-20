@@ -309,3 +309,17 @@ helper `0x08028200` returns zero it takes `r0 = 2` and jumps back to
 `0x08028200`, `0x08028162` or `0x0802816E`, so the containing function is
 never entered at all. The missing link is that caller, not the record, the
 gate helper or the calculator.
+
+### The publisher is host-command case 9
+
+The publisher `0x08028098` has a single `BL` caller, `0x0802800C`, which is
+case index `9` of the byte dispatch table at `0x08027EB2`
+(`tbb [pc, r1]`, bytes `92 95 98 7a 9b a7 19 19 aa ad`). The enclosing
+function is the host-command dispatcher `0x08027E58`
+(`push {r3..r7, lr}`), the handler installed on the message object
+`0x2001F664`; it has no `BL` caller of its own.
+
+So the power-state publisher runs only when the dispatcher receives the
+class that maps to index `9`, and that message is never dispatched in the
+current run. The next step is to decode the `r1`-class derivation and find
+which host id yields class `9`.
