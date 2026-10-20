@@ -424,3 +424,16 @@ not on cyclic handlers, and the earlier guess that it is the start API is
 withdrawn.
 
 The cyclic start/link call for the RTOS objects is still unidentified.
+
+### The RTOS start writer leaves the id-130 object untouched
+
+Write watchpoints on the two objects' state words (`+4`) show:
+
+- `0x2002273C` (id 114) is written `1` repeatedly by `0x0804D404`
+  (`lr=0x0804D3FD`), the RTOS path that starts/links a cyclic object;
+- `0x200229AC` (id 130) is written only by the boot zero-fill
+  (`0x080038BE`); `0x0804D404` never touches it.
+
+So the start routine exists and runs, and the id-130 object is simply not
+among the objects it is asked to start. The remaining step is the caller that
+selects the objects (`0x0804D404`'s caller chain) and its condition.
