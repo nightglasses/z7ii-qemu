@@ -136,48 +136,66 @@ physical board meaning is claimed for the pins beyond what the image does.
 
 ### Measured state of the lane
 
-Hardware-breakpoint windows on the complete bundle (240 s unless noted):
+Windows on the complete bundle after the fixes listed under removed fault
+layers:
 
-- only ids 101 and 102 dispatch, about 2.5 times per second, and software timer
-  callbacks do post at the same order of rate;
-- the T-Kernel timer initializer `0x0804b808` (`current_time = 0`, timer queue
-  re-init, SysTick reload `49999`) runs about once per second as part of the
-  whole thirteen-step initialization chain (return addresses
-  `0x0804b5b5..0x0804b615`), so the RTOS time base never accumulates;
-- the MCU reset vector `0x080002b4` is re-entered at the same cadence with the
-  reset stack pointer, so the guest is looping through complete resets rather
-  than running on;
-- the first fault layer was a precise data bus error: `CFSR = 0x8200` with
-  `BFAR = 0x50060800`. The descriptor reaching that address is built in
+- the thirteen-step RTOS initialisation chain enters `0x804b808` once and does
+  not re-run; the tick is monotonic over 60,000 increments
+  (`0x7cf, 0xf9f, 0x176f, ... 0x98ab`);
+- the host command dispatcher takes more than 16,000 messages in 240 s with
+  ids `101`, `102`, `103`, `131`, `1114` and `1115`;
+- software timer callbacks post more than 10,000 messages in 240 s and timer
+  ids 114/115 reach their handlers;
+- the monitor lane runs 30,000 `0x0d` service entries and repeated `0x6b`
+  equality edges without a sanitiser write;
+- resets: one cold-boot escalation in 600 s, then continuous operation. A
+  90 s window enters the reset vector twice in total, the attach entry and
+  that single escalation.
+
+The remaining single reset is the firmware's own cold-boot management ladder,
+and it is a one-shot design rather than a model defect. The reload tick posts
+the verdict handler (`0x08032379`, mask `0x00200000` in the `{mask, handler}`
+table at `0x0804DF64`) from inside its `stage == 1` branch; the verdict arms
+the block at `0x20013d18` and records reason `2`. The block's parameters are
+copied at tick `0x3da` from the statically initialised word at `0x20013b54`
+(`0x010a0a01`: enable, period `10`, timeout `10`, flag) into `0x20013bc2`, so
+no runtime input decides them. The arm also emits one record through
+`sub_8033b48`; that record's builder sets `[0x200138ea + 4] = 1`, and the
+verdict's own re-arm guard reads that same byte. The guard can therefore never
+fire before the first arm, and no code path was found or observed that
+completes the cycle: a write watchpoint on the done byte `0x20013d1d` over
+60 s sees only the tick's expiry store (`0x8032cc6`) before the reset, and the
+block layout has no other store offset. On expiry the verdict logs `20002` and
+always escalates by reason (`1`/`2`/`3` produce status `12`/`15`/`16`), so the
+armed cycle is fatal by construction.
+
+The arm therefore happens at most once per SRAM lifetime: the post-reset pass
+does not re-run the block initialisation that sets the stage byte, and a 100 s
+post-reset window contains no verdict invocation at all. Whether the real
+camera's host answers the management cycle inside its ten-invocation window is
+not established; the composition deliberately does not synthesize such a
+reply, so the observed behaviour is the unchanged firmware's own cold-boot
+retry rather than an emulated handshake.
+
+### Removed fault layers
+
+- The first fault was a precise data bus error (`CFSR = 0x8200`,
+  `BFAR = 0x50060800`). The descriptor reaching that address is built in
   `sub_8023e36` and driven through `sub_8044c40`/`sub_8044cd2`; the window is
-  the hardware random number generator and is modelled by
-  [the RNG device](../devices/exrng/protocol.md), which removed that fault;
-- the second layer was a usage fault (`INVSTATE`) with stacked
-  `PC = 0x0802af00` or `0x08000000`, i.e. branches through non-thumb pointers.
-  The cause was the missing boot data segment: the reset vector only relocates
-  the vector table, while a boot loader produces the descriptor image at
+  the hardware random number generator, modelled by
+  [the RNG device](../devices/exrng/protocol.md).
+- The second was a usage fault (`INVSTATE`) with stacked `PC = 0x0802af00` or
+  `0x08000000`, i.e. calls through non-thumb pointers. The reset vector only
+  relocates the vector table; a boot loader produces the descriptor image at
   `0x2000d000` from the scatter table at `0x080038cc`. The loader and its two
-  decoders now run at cold boot and on every MCU reset
-  ([`exboot.c`](../../hw/nikon/components/exboot.c)), and the usage faults are
-  gone;
-- the board input record is published at attach time instead of after the first
-  100 ms tick, because its levels are wires rather than later inputs; the
-  original early strap check therefore sees the declared levels on the very
-  first boot pass;
-- the deliberate reset is now diagnosed: the machine's own board profile drove
+  decoders run at cold boot and on every MCU reset
+  ([`exboot.c`](../../hw/nikon/components/exboot.c)).
+- The earlier reset loop also included status `14`: the board profile drove
   the seven declared power-good wires (`PA10`, `PB1`, `PB15`, `PB11`, `PB12`,
   `PF3`, `PG2`) low, and the firmware treats all of them low as a rail fault.
   It logs `20001`, records status `14` in `0x2003a000` and writes AIRCR
-  `SYSRESETREQ` (`0x8042d74`). The profile now asserts those wires high while
-  `power_good` holds, so the strap check at `sub_8037f80` returns healthy and
-  that path is gone;
-- what remains is a second diagnosis ladder: the state block at `0x20013d18`
-  reports `+5 == 1` and `+6 == 2`, and that combination logs `20002` and
-  records status `15` (`0x8032378`..`0x80323a0`; codes `1`/`2`/`3` map to
-  `12`/`15`/`16`). Finding what fills `+5`/`+6` on a clean boot is the current
-  frontier.
-
-That is the current frontier: the reset loop, not the monitor lane, is what
-keeps the periodic timers from running. The next step is to identify which interrupt's dispatcher entry is
-stored without its thumb bit and who registers it; a read-zero or discard
-aperture would hide the fault instead of fixing it.
+  `SYSRESETREQ` (`0x8042d74`). The profile asserts those wires high while
+  `power_good` holds, so the strap check at `sub_8037f80` returns healthy.
+- The board input record is published at attach time instead of after the
+  first 100 ms tick, because its levels are wires rather than later inputs, so
+  the early strap check sees the declared levels on the first boot pass.
