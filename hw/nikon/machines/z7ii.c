@@ -758,8 +758,12 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     s->ex_input_dev = dev;
     s->ex_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                      z7ii_ex_input_tick, s);
-    timer_mod(s->ex_input_timer,
-              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
+    /*
+     * The declared board levels are wires, not something that appears later:
+     * publish them before the first guest instruction.  The periodic tick then
+     * keeps them present across GPIO mode changes and resets.
+     */
+    z7ii_ex_input_tick(s);
 }
 
 static void z7ii_init(MachineState *machine)
