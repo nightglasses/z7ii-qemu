@@ -132,6 +132,30 @@ alone do not prove that GUI output requires successful coprocessor execution;
 the natural failure/fallback path must be checked separately, not forced by a
 constant status4 or an injected marker.
 
+## Observed natural fallback
+
+A watchpoint window on the current request-only model records the natural
+fallback instead of a hard stop:
+
+- MAS CPU1 reaches `0x1020b4da` once (`lr=0x10371b59`) and the `0c` write is
+  accepted, so the caller proceeds into the `0x10371b32` lifecycle call;
+- the caller clears the marker word `0x50080000`, then polls that word at
+  `0x10371e44` against `0x53535353`; the observed polls return `0`, spaced by
+  the original one-second sleep helper `0x103dc538`;
+- after the ten polls the real timeout branch runs at `0x10371e5c`
+  (`r4=0xb1809770`), calls the stop helper `0x1020b47c`, clears the frontend
+  field at `+8`, and the boot continues;
+- a 180 s window with `-d guest_errors,unimp` takes that branch once and
+  records no unassigned or unsupported MMIO access, so this boundary is not a
+  hard device stop in that window.
+
+The marker writer is still the processor: with no execution provider the word
+never becomes `0x53535353`. Whether a GUI frame requires successful
+coprocessor execution or is produced on the fallback path must be decided by
+the next GUI-chain observation, not by injecting the marker or a constant
+status. The TL4 program ISA also remains unidentified, so an execution
+provider cannot be written from the current evidence.
+
 The original 25-pointer record at `1078aa58 + 2*100` and the live child selector
 join this frontend to [command bank2](../devices/command/protocol.md): effective
 root `2c041000`, two logical slot statuses, eight engine windows and an
