@@ -402,3 +402,14 @@ cannot see it.
 This is the classification result: the gap is not a missing MAS producer, not
 an unmodelled external input and not a device contract. It is an EX-side
 cyclic object that the firmware creates and never starts.
+
+### Cyclic start API and its callers
+
+The start/stop API is `0x08020AB0`; its `BL` callers sit in the power module:
+`0x080339DA`, `0x08033BA4`, `0x08033C2A`, `0x08033CC6`, `0x08033D50`,
+`0x08033E10`. The 16-timer creation wrapper `0x08026DF8` is called from
+`0x08026D12..0x08026D30`.
+
+The id-130 object is created but not started, so the next check is which
+object each of those six start calls covers and whether the id-130 object is
+skipped by a condition inside the power module.
