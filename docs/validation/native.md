@@ -461,11 +461,24 @@ bundle with hardware breakpoints:
 
 The single reset is the firmware's own cold-boot ladder: it arms at tick
 `0x2aa4`, records reason 2, and escalates at tick `0x51b4` through
-`sub_8042d70` (status `15`) and the AIRCR writer. The block initialisation that
-gates the ladder runs once per cold boot (`tick 0x3e0`); the post-reset boot
-does not re-initialise it, so the ladder cannot re-arm and the domain keeps
-running. How the callback that runs the ladder is invoked, and which handshake
-it waits for, is still open and is tracked in the runtime notes.
+`sub_8042d70` (status `15`) and the AIRCR writer. Further watchpoint windows
+identified the mechanism and show that the ladder is a one-shot design, not a
+model defect:
+
+| Observation | Window | Result |
+|---|---|---|
+| Ladder parameters | one boot | copied at tick `0x3da` from the static word `0x010a0a01` at `0x20013b54` into `0x20013bc2` |
+| Done-byte writers | 60 s | one store only, the tick expiry at `0x8032cc6`; no completion path observed |
+| Re-arm guard | one boot | `0x200138ea + 4` is written `1` by the arm's own record builder (`0x8033b92`) |
+| Verdict invocations | 100 s | two: arm at `0x2aa5`, escalation at `0x51b5`; none after the reset |
+| Reset vector | 90 s | two entries: the attach entry and the one escalation |
+
+The block initialisation that gates the ladder runs once per cold boot, and the
+post-reset pass neither re-initialises it nor posts the verdict again, so the
+ladder cannot re-arm and the domain keeps running. Whether the real camera's
+host answers the management cycle inside its ten-invocation window is not
+established; the bundle does not synthesize such a reply. The full block
+description is in the runtime notes.
 
 This is a bundle guest observation, not a native test receipt: `make check`
 still covers only the device and machine contracts (33 Nikon executables, all
