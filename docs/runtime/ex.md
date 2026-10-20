@@ -413,3 +413,14 @@ The start/stop API is `0x08020AB0`; its `BL` callers sit in the power module:
 The id-130 object is created but not started, so the next check is which
 object each of those six start calls covers and whether the id-130 object is
 skipped by a condition inside the power module.
+
+### `0x08020AB0` is not the cyclic start path
+
+Resolving the literals at the six call sites shows they pass only two
+targets: `0x20013924` (five calls) and `0x200139A0` (one). Neither is a
+cyclic object: the created objects live at `0x20022738` (id 114) and
+`0x200229A8` (id 130). So `0x08020AB0` operates on the power/event blocks,
+not on cyclic handlers, and the earlier guess that it is the start API is
+withdrawn.
+
+The cyclic start/link call for the RTOS objects is still unidentified.
