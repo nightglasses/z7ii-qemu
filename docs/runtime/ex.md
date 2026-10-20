@@ -355,3 +355,20 @@ Execution is not: a breakpoint on `0x08026988` records no hit in 45 s, while
 the lane does dispatch timer ids `1114`/`1115`. So the remaining question is
 why this created timer never delivers its callback, which is the last link
 before the power-state publisher.
+
+### Timer blocks carry identical structure
+
+At tick `0x55a` the timer control blocks at `0x2001FC2C + index*20` read:
+
+| Index | field 0 | callback | period | name |
+|---|---|---|---|---|
+| 1 | `0x1a` | `0x08027D38` | `0xfa` | `BatCmCy2` |
+| 2 | `0x19` | `0x08026988` | `0x32` | `BatCmCy3` |
+| 3 | `0x0d` | `0x08027D30` | `0x14` | `BatCmCy4` |
+| 4 | `0x0c` | `0x08027D28` | `0x05` | `BatCmCy5` |
+
+Every block holds the expected callback, period and name, so the record was
+installed correctly. Field 0 is a countdown that differs per index; index 2
+reads `0x19` and index 1 `0x1a`, while the two timers that do dispatch
+(`1114`/`1115`) read `0x0c`/`0x0d`. The difference to explain is the
+callback delivery, not the record installation.
