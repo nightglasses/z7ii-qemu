@@ -214,6 +214,26 @@ power classification and LCD start at zero hits. This is separate from the TL4
 coprocessor boundary, which the guest reaches and leaves through its own
 timeout branch.
 
+### Power qualification state at run time
+
+The missing record shows up directly in the EX RAM. At the 1200th `0x0d`
+service (tick `0x2659`) the state output byte `0x2001fbae` is `0`, the
+qualification record that feeds it (`0x2001fa90`) is sixteen zero bytes, and
+the sequence/program/fault cells read `2`/`0`/`0` with the last applied class
+`1`. The state calculator `0x0802866C` therefore has no record to interpret;
+it is not failing a threshold. That state is what the EX reports and what the
+MAS classifies as `0x43090001` (off).
+
+Two explanations remain, and the current evidence does not choose between
+them: either the MAS-side qualification-record producer is missing from the
+composition, or it is gated by a real external input (for example a power
+switch position) that this board record does not drive. Distinguishing them
+needs the MAS condition around the sender, not another EX-side measurement.
+
+The MAS GUI-app dispatcher `0x1020D41A` is not that gate: states `1`, `2` and
+`3` all run, and the state-3 branch at `0x1020D51E` is a release/unbind
+teardown path, so reaching it is phase completion rather than GUI progress.
+
 ### Removed fault layers
 
 - The first fault was a precise data bus error (`CFSR = 0x8200`,
