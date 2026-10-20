@@ -323,3 +323,20 @@ So the power-state publisher runs only when the dispatcher receives the
 class that maps to index `9`, and that message is never dispatched in the
 current run. The next step is to decode the `r1`-class derivation and find
 which host id yields class `9`.
+
+### The publisher's class is host id 130
+
+The `tbb` at `0x08027EAE` indexes `r1 = id - 121` for ids `121..130`, so
+case index `9` is host id `130`. The dispatcher derives the id through
+`sub_80270DC(msg)`, and the mapped case calls the publisher.
+
+A 60 s window at the dispatcher entry logs the ids it actually takes:
+`101`, `102`, `103`, `131`, `1114` and `1115` (`0x65`, `0x66`, `0x67`,
+`0x83`, `0x45A`, `0x45B`). Host id `1130` (`0x46A`, the timer form of `130`)
+never appears.
+
+The software-timer record table at `0x08051444` uses 20-byte records
+(`callback`, `period`, 8-character name): record 0 is
+`0x08027D40 / 500 / "BatCmCy1"`, record 1 is `0x08027D38 / 250 / "BatC..."`.
+The next target is the callback record that should post id `130`, and why it
+does not run.
