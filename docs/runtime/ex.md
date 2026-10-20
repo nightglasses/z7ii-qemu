@@ -340,3 +340,18 @@ The software-timer record table at `0x08051444` uses 20-byte records
 `0x08027D40 / 500 / "BatCmCy1"`, record 1 is `0x08027D38 / 250 / "BatC..."`.
 The next target is the callback record that should post id `130`, and why it
 does not run.
+
+### The id-130 timer exists but never fires
+
+The callback that posts host id `1130` is record 2 of the timer table: entry
+`0x08026988` (`movw r0, #1130`), period `50`, name `BatCmCy3`.
+
+Creation is complete. A breakpoint on the timer constructor `0x08026DF8` shows
+all sixteen indices created early in the boot (order `0,4,3,5,6,7,8,9,a,b,d,c,
+e,f,2,1`), including index `2`. The constructor receives the record's callback,
+period and name and creates the timer in the block at `0x2001FC2C`.
+
+Execution is not: a breakpoint on `0x08026988` records no hit in 45 s, while
+the lane does dispatch timer ids `1114`/`1115`. So the remaining question is
+why this created timer never delivers its callback, which is the last link
+before the power-state publisher.
