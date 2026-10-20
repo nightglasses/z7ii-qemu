@@ -177,6 +177,32 @@ not established; the composition deliberately does not synthesize such a
 reply, so the observed behaviour is the unchanged firmware's own cold-boot
 retry rather than an emulated handshake.
 
+### MAS record lane: the missing power-record type
+
+The EX message dispatcher at `0x080332F4` walks the `{type, handler}` table at
+`0x0804E15C` and tail-calls the handler for the incoming record's first byte.
+Only four records reach it in a 120 s window, all within the first millisecond
+of guest time:
+
+| Type | Handler | Meaning in this lane |
+|---|---|---|
+| `0x01` | `0x080333D8` | init record |
+| `0x0D` | `0x080333B4` | service record |
+| `0x08` | `0x08033398` | service record |
+| `0x0A` | `0x08033418` | service record |
+
+The power-record handler `0x08033328` is selected by type `0x12`, and that
+type never arrives. The `0x6b` setup gate is not the cause: the EX cell at
+`0x2000ED90` reads `1` at every dispatched record. The MAS TX engine itself
+keeps running (`0x10243468` is hit repeatedly), so the lane is not dead at the
+transport; the EX simply has no further records to dispatch.
+
+The next producer to identify is therefore the MAS-side builder of the type
+`0x12` record; its absence is what keeps the EX power-record path, the MAS
+power classification and LCD start at zero hits. This is separate from the TL4
+coprocessor boundary, which the guest reaches and leaves through its own
+timeout branch.
+
 ### Removed fault layers
 
 - The first fault was a precise data bus error (`CFSR = 0x8200`,
