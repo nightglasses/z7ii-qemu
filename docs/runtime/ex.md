@@ -160,9 +160,18 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
   decoders now run at cold boot and on every MCU reset
   ([`exboot.c`](../../hw/nikon/components/exboot.c)), and the usage faults are
   gone;
-- what remains is a deliberate reset: the T-Kernel path at `0x8042800` writes
-  AIRCR `SYSRESETREQ` while no fault is pending, roughly once a minute rather
-  than once a second. Identifying that caller is the current frontier.
+- the deliberate reset is now diagnosed: the machine's own board profile drove
+  the seven declared power-good wires (`PA10`, `PB1`, `PB15`, `PB11`, `PB12`,
+  `PF3`, `PG2`) low, and the firmware treats all of them low as a rail fault.
+  It logs `20001`, records status `14` in `0x2003a000` and writes AIRCR
+  `SYSRESETREQ` (`0x8042d74`). The profile now asserts those wires high while
+  `power_good` holds, so the strap check at `sub_8037f80` returns healthy and
+  that path is gone;
+- what remains is a second diagnosis ladder: the state block at `0x20013d18`
+  reports `+5 == 1` and `+6 == 2`, and that combination logs `20002` and
+  records status `15` (`0x8032378`..`0x80323a0`; codes `1`/`2`/`3` map to
+  `12`/`15`/`16`). Finding what fills `+5`/`+6` on a clean boot is the current
+  frontier.
 
 That is the current frontier: the reset loop, not the monitor lane, is what
 keeps the periodic timers from running. The next step is to identify which interrupt's dispatcher entry is
