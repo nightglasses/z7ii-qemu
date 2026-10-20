@@ -383,3 +383,22 @@ with `blx r1`.
 So the dispatch code is common and works for indices 3/4. Index 2's callback
 is installed in its block but never reached, which points at the expiry-list
 membership or object state maintained by `0x0804AC5C`/`0x0804AC8C`.
+
+### The id-130 cyclic object was never started
+
+A memory search for the callbacks finds both the record block and the RTOS
+cyclic object. At tick `0x4e7`:
+
+| Object | `[0]` | `[4]` | `[8]` | `[12]`/`[16]` | `[20]` | `[24]` |
+|---|---|---|---|---|---|---|
+| id 130 (`0x200229A8`) | `0x08026989` | `0` | `0x32` | `0`/`0` | `0x270` | `0` |
+| id 114 (`0x20022738`) | `0x08027D29` | `1` | `5` | `0x20022654`/`0x200226E4` | `0x4EC` | `0x0804AB5B` |
+
+The working timer carries state `1`, list links, a next-expiry tick and a code
+pointer; the id-130 object carries state `0`, no links, no expiry and no code
+pointer. It was created but never started or linked, so the cyclic dispatcher
+cannot see it.
+
+This is the classification result: the gap is not a missing MAS producer, not
+an unmodelled external input and not a device contract. It is an EX-side
+cyclic object that the firmware creates and never starts.
