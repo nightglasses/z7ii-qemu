@@ -67,3 +67,13 @@ runtime channel-0 destination `0x00000000` remains open: its control/record
 producer must still be observed before it can be changed. A GUI milestone
 cannot skip this gate: COPY completion is upstream of readout, scanout, and
 the first frame.
+
+Two write-watchpoint windows narrow the producer without closing the gate. The
+only CPU programming of the controller tuple (`04251010` count, `04251014`
+source, `04251018` destination) observed in a 40 s window is the SLA selector
+copy (`0x10000000` to `0xc8200000`, `0x300000` bytes, SLA CPUs); a 180 s
+MAS-filtered window records no MAS write at all. No CPU-issued request with
+destination `0x00000000` appears in either domain. The record this gate refers
+to therefore comes from a later stage, another master, or a device-side
+producer, and the next instrument is a watch on the request record in RAM
+rather than more CPU store watchpoints.
