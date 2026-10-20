@@ -160,6 +160,10 @@ Hardware-breakpoint windows on the complete bundle (240 s unless noted):
   decoders now run at cold boot and on every MCU reset
   ([`exboot.c`](../../hw/nikon/components/exboot.c)), and the usage faults are
   gone;
+- the board input record is published at attach time instead of after the first
+  100 ms tick, because its levels are wires rather than later inputs; the
+  original early strap check therefore sees the declared levels on the very
+  first boot pass;
 - the deliberate reset is now diagnosed: the machine's own board profile drove
   the seven declared power-good wires (`PA10`, `PB1`, `PB15`, `PB11`, `PB12`,
   `PF3`, `PG2`) low, and the firmware treats all of them low as a rail fault.
