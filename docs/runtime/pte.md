@@ -68,12 +68,29 @@ producer must still be observed before it can be changed. A GUI milestone
 cannot skip this gate: COPY completion is upstream of readout, scanout, and
 the first frame.
 
-Two write-watchpoint windows narrow the producer without closing the gate. The
-only CPU programming of the controller tuple (`04251010` count, `04251014`
-source, `04251018` destination) observed in a 40 s window is the SLA selector
-copy (`0x10000000` to `0xc8200000`, `0x300000` bytes, SLA CPUs); a 180 s
-MAS-filtered window records no MAS write at all. No CPU-issued request with
-destination `0x00000000` appears in either domain. The record this gate refers
-to therefore comes from a later stage, another master, or a device-side
-producer, and the next instrument is a watch on the request record in RAM
-rather than more CPU store watchpoints.
+Two instruments now bound this gate more tightly, and the earlier
+write-watchpoint reading is withdrawn as an instrument artifact.
+
+- QOM telemetry on `/machine/copy` after 40 s and 90 s reports exactly one
+  channel-0 request: 1,048,576 bytes, start `362065000`-`366432000` ns (about
+  366 ms of virtual time), remaining 0, so the controller accepted and
+  completed it. Reading the device registers with `xp` gives the tuple
+  `count 0` (the model's post-completion residual), `source 0x10100000`,
+  `destination 0xbab00000`, configuration `0x30f00`, global `0x11000000`.
+  Channels 1..3 retain zero.
+- No destination-`0x00000000` request appears in that window, and a 180 s run
+  produces no `COPY first DMA fault` report, so the historical
+  `source=0x107a4f34, destination=0x00000000` fault retained in the WIP log is
+  not reproduced by the current tree.
+- Hardware write watchpoints cannot settle this for MAS. Pinned QEMU sends an
+  MMIO store through `int_st_mmio_leN` and `memory_region_dispatch_write`
+  without calling `cpu_check_watchpoint`, so a watchpoint on the controller's
+  PA never fires for MAS kernel stores; the earlier "no MAS write observed"
+  reading was an artifact of that path.
+- Same-address hits in the SLA domain are RAM in the SLA address map, not the
+  MAS controller.
+
+The tuple this gate asked for is therefore captured for the one observed
+request; what remains is to decide whether the historical destination-zero
+record still exists in any stage, which needs a device-side submission log
+rather than CPU watchpoints.
