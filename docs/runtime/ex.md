@@ -157,9 +157,10 @@ and it is a one-shot design rather than a model defect. The reload tick posts
 the verdict handler (`0x08032379`, mask `0x00200000` in the `{mask, handler}`
 table at `0x0804DF64`) from inside its `stage == 1` branch; the verdict arms
 the block at `0x20013d18` and records reason `2`. The block's parameters are
-copied at tick `0x3da` from the statically initialised word at `0x20013b54`
-(`0x010a0a01`: enable, period `10`, timeout `10`, flag) into `0x20013bc2`, so
-no runtime input decides them. The arm also emits one record through
+host-supplied: the type-`0x0a` record's payload word at `+4` (`0x010a0a01`:
+enable, period `10`, timeout `10`, flag) is copied into `0x20013bc2` at tick
+`0x3da` by the record handler `0x08033418`, so the period and timeout come from
+the MAS record lane rather than from EX constants. The arm also emits one record through
 `sub_8033b48`; that record's builder sets `[0x200138ea + 4] = 1`, and the
 verdict's own re-arm guard reads that same byte. The guard can therefore never
 fire before the first arm, and no code path was found or observed that
@@ -189,7 +190,17 @@ of guest time:
 | `0x01` | `0x080333D8` | init record |
 | `0x0D` | `0x080333B4` | service record |
 | `0x08` | `0x08033398` | service record |
-| `0x0A` | `0x08033418` | service record |
+| `0x0A` | `0x08033418` | management-cycle descriptor; payload `+4` = `0x010a0a01` |
+
+The boot payloads read out at the dispatcher are a version handshake and the
+management descriptor:
+
+```text
+0x01  len 1c   01 02 00 00 "01.70.02"
+0x0d  len 1c   0d 02 00 00 "01.70.02"
+0x08  len 05   08 00 00 00 0a 00 00 00 00 00 00 00 34 00 00 00
+0x0a  len 08   0a 00 00 00 01 0a 0a 01 00 00 00 00 ...
+```
 
 The power-record handler `0x08033328` is selected by type `0x12`, and that
 type never arrives. The `0x6b` setup gate is not the cause: the EX cell at
