@@ -1,3 +1,20 @@
+fixture = executable('nikon_battery_unit',
+  files('battery.c', '../../../tools/nikon/battery.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_battery_unit', fixture, env: test_env,
+  args: ['--tap', '-k', nikon_battery_tool.full_path()],
+  depends: nikon_battery_tool, protocol: 'tap', timeout: 30,
+  suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_batterypeer_unit',
+  files('batterypeer.c', '../../../tools/nikon/battery.c',
+        '../../../tools/nikon/batterypeer.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_batterypeer_unit', fixture, env: test_env,
+  args: ['--tap', '-k', nikon_battery_tool.full_path()],
+  depends: nikon_battery_tool, protocol: 'tap', timeout: 30,
+  suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',

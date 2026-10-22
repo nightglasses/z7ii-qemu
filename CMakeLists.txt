@@ -74,7 +74,7 @@ if(NOT EXISTS "${QEMU_UPSTREAM}/configure")
   message(FATAL_ERROR "Initialize dependencies: git submodule update --init --recursive")
 endif()
 native_provider("${QEMU_UPSTREAM}")
-foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon tools/nikon)
   if(EXISTS "${QEMU_UPSTREAM}/${directory}")
     message(FATAL_ERROR "Project-owned ${directory} belongs outside the official qemu/ dependency")
   endif()
@@ -114,7 +114,7 @@ endforeach()
 # Meson owns downloaded subprojects; refresh their declared native overlays too.
 include(cmake/wrap.cmake)
 
-foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon tools/nikon)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
     RELATIVE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/${directory}/*")
   foreach(path IN LISTS sources)
