@@ -21,6 +21,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
+#include "chardev/char.h"
 #include "hw/arm/armv7m.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/char/stm32f2xx_usart.h"
@@ -122,6 +123,7 @@ struct NikonEXState {
     Clock *timerclk[14];
     DeviceState *gpio[9];
     DeviceState *uart[6];
+    Chardev *uart0_chardev;
     DeviceState *timer[14];
     DeviceState *io;
     OrIRQState timer_or[6];
@@ -1758,7 +1760,9 @@ static void ex_realize(DeviceState *dev, Error **errp)
     for (unsigned i = 0; i < ARRAY_SIZE(uart_base); i++) {
         DeviceState *uart = qdev_new(TYPE_STM32F2XX_USART);
         s->uart[i] = uart;
-        qdev_prop_set_chr(uart, "chardev", serial_hd(i));
+        qdev_prop_set_chr(uart, "chardev",
+                          i == 0 && s->uart0_chardev ? s->uart0_chardev :
+                                                     serial_hd(i));
         ex_map_device(s, uart, uart_base[i], uart_irq[i]);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(timer_base); i++) {
@@ -1954,11 +1958,18 @@ static void ex_finalize(Object *obj)
     }
 }
 
+static const Property ex_properties[] = {
+    /* A raw EX endpoint must not share MAS serial0's multiplexed backend. */
+    DEFINE_PROP_LINK("uart0-chardev", NikonEXState, uart0_chardev,
+                     TYPE_CHARDEV, Chardev *),
+};
+
 static void ex_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
     dc->realize = ex_realize;
+    device_class_set_props(dc, ex_properties);
     rc->phases.hold = ex_reset_hold;
     rc->phases.exit = ex_reset_exit;
     dc->desc = "Nikon EX Cortex-M4 software functional profile";

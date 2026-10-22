@@ -34,6 +34,10 @@ foreach profile : ['EX', 'SENSOR']
     nikon_arm_fixtures += {'nikon_' + name: files(name + '.c')}
   endif
 endforeach
+if config_all_devices.has_key('CONFIG_NIKON_EX')
+  nikon_arm_fixtures += {'nikon_rng': files('rng.c')}
+  nikon_arm_fixtures += {'nikon_uart': files('uart.c')}
+endif
 if config_all_devices.has_key('CONFIG_NIKON_STORAGE') and config_all_devices.has_key('CONFIG_ARM_VIRT')
   nikon_arm_fixtures += {'nikon_storage': files('storage.c')}
 endif
