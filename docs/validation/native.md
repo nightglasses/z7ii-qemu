@@ -1,10 +1,66 @@
 # Native GUI integration
 
+The integrated 2026-10-22 macOS `make check` run passes all40 Nikon test
+executables and348 TAP cases (ARM/RX qtests and native units). It includes
+the previously uncommitted finite graphics implementation and the kind40
+storage correction. The first full run exposed an obsolete eye-sensor fixture
+expectation that HOLD TX completion stayed clear; the corrected fixture checks
+completion while the bus remains held, including its post-reset reuse. All24
+sensor cases pass, followed by the complete40-executable green batch.
+Raw logs are `work/runs/kindforty-20261022/native-suite-red.log` and
+`native-suite-green.txt`/`.json`. This validates the integrated functional
+models, not physical timing or an original-firmware GUI first frame.
+
+The kind40 exact-storage correction passes all19 cases in `nikon_memory`
+after an actual old-model red. The new case covers allocation endpoints,
+independent cells, neighboring holes, absence of a physical VA mirror and
+reset retention. The separate unchanged-firmware run completes the original
+clear and stops at a source-stream read at PA50560000. See
+[kind40.md](../runtime/kind40.md) and `work/runs/kindforty-20261022/`.
+
+The capture-control mask/enable correction passes all four focused capture
+cases after exact original/native reds. It covers complement normalization,
+all12 reset/enable bits and their aliases, independent RMW/IRQ controls,
+adjacent fields, invalid requests, publication/W1C and reset. Separate unchanged
+original runs now finish the initializer and reject a buffer clear at PA62059800.
+No frame completion is generated. See [control.md](../devices/sensor/control.md)
+and parent-owned `work/runs/capturemask-20261022/` receipts; this is not a
+whole-suite or GUI-first-frame result.
+
+The timing divider/load correction passes all12 cases in `nikon_timer`
+after recorded original/native reds. It tests all256 byte encodings across
+12 channels, scaled initial/recurring expiry, divider phase, terminal/MAX
+counts, invalid submission retention, capture, compare and reset cancellation.
+The source-derived divisor field replaces the obsolete one-shot/source1 opcode
+split. Separate unchanged-firmware runs cross channel7's seven waits and next
+reject a capture-control mask write. These focused results do not establish
+a GUI first frame; see [load.md](../devices/timing/load.md) and parent-owned
+`work/runs/timingmatrix-20261022/` receipts.
+
+The earlier MXIC active read-view correction passes all eight configuration qtests
+in one focused native batch after a recorded old-model selector failure.
+Coverage and unchanged-firmware continuation are qualified separately in
+[view.md](../devices/config/view.md). That original run completed the
+configuration initializer and stopped at channel7's raw31 shared timing load;
+no GUI first frame is established. Receipts: `work/runs/mxic-20261022/`.
+
+The reproducible-input extension passes five RNG qtests, two raw-UART routing
+qtests, eight battery arithmetic/CLI units, nine finite-peer units and three
+fill qtests (27 distinct cases in their applicable batches). Actual old-source
+RNG/property, routing, attention-parser and record5-profile red receipts are
+retained separately from greens in `work/runs/reproducible-20261026/`.
+The original EX auth/0c/0e acceptance and original MAS record5 callback/waiter
+are separate execution receipts. This is a focused macOS result, not a whole
+suite, Linux CI, physical timing or GUI-first-frame result. See
+[batterypeer.md](../runtime/batterypeer.md) and [fill.md](../runtime/fill.md).
+
 > Status: this file mixes historical receipts with the current green native
-> checkpoint. No original-firmware GUI startup is claimed. The latest green
-> native checkpoint is the 32/32 receipt near the bottom; the EX 0x6b read wait
-> is a WIP frontier detail, not a completed camera boot. Receipts below are
-> historical unless explicitly labeled current.
+> checkpoint. No original-firmware GUI startup is claimed. The EX continuous-run
+> checkpoint below records 33 passing Nikon executables; the earlier 0x6b read
+> wait is resolved by the receive shift-byte change. The 2026-10-21 VR retirement
+> check is a focused 2-executable/22-subtest run, not a new full-suite receipt;
+> see [the VR note](../startup/vr-domain.md). The later affine-path check is
+> one transfer executable/nine cases. Earlier receipts keep their own scope.
 
 The integration uses QEMU 11.1.2 at upstream commit
 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The configured development
@@ -483,3 +539,225 @@ description is in the runtime notes.
 This is a bundle guest observation, not a native test receipt: `make check`
 still covers only the device and machine contracts (33 Nikon executables, all
 passing on this branch).
+
+## RGBA initial mode-byte variant
+
+The extended `/nikon/transfer/rgba-clear` case fails on the old parser's
+word25=8 submission (`MEMTX_ERROR` instead of `MEMTX_OK`). After admitting
+only initial0/8 with the later word60=8 still required,
+`make check MTESTARGS='nikon_transfer_unit'` builds the native source graph
+and passes one executable, all six registered transfer cases. The fixture
+verifies output bytes, untouched rows/tail/guards, no early IRQ, ACK,
+initial18 rejection, final0 rejection and initial8 map-loss/reset/unrealize
+cancellation. Receipts: `work/runs/streammodel-20261022/{red,green}.log`.
+
+This is a focused native receipt. The separately qualified unchanged-firmware
+run uses an explicit constructed descriptor17 input, reaches original IRQ129,
+and then rejects a later176/368-byte program. It does not establish GUI startup
+or physical-camera graphics fidelity; see [the frontier](frontier.md).
+
+## RGBA720x480 single-path clear
+
+The new `/nikon/transfer/rgba-single-clear` case fails against the preceding
+model: the first valid176/368-byte submission returns `MEMTX_ERROR` instead of
+`MEMTX_OK`. The finite single-path fields and shared RGBA executor then pass
+`make check MTESTARGS='nikon_transfer_unit'`: one executable, seven registered
+cases. The shared fixture runs both profiles, checking all pixels, neighbors,
+slot tails, no early IRQ and ACK, changed format/geometry/clip/target/endings,
+setup/draw truncation, indirect path/coordinate and opaque-key rejection,
+overlap, read-only output, and initial8 map-loss/reset/unrealize cancellation.
+The second-key equality test applies only to the two-path profile; single-path
+draw91 is instead checked as the fixed ending operand.
+
+Receipts are `work/runs/singleclear-20261022/{red,green}.log`. This is a focused
+batch, not a rerun of the whole Nikon suite. The unchanged-bundle functional
+run separately observes this clear and original IRQ129, then rejects the
+168/232-byte gray continuation. No GUI frame or physical color fidelity is
+established.
+
+## RGBA gray continuation context
+
+The new `/nikon/transfer/rgba-gray` fixture establishes720x480 through a real
+modeled initialization/completion/ACK, then submits the168/232-byte gray pair.
+It fails against the preceding parser (`MEMTX_ERROR` instead of `MEMTX_OK`).
+After adding finite retained context and strided rectangle output,
+`make check MTESTARGS='nikon_transfer_unit'` passes one executable/eight cases.
+The gray case compares every target pixel and guards/tail; it exercises ACK
+retention and repeat, cold/other/reset contexts, pending initialization
+cancellation and execution failure, invalid fields/keys/color/path/ranges,
+pending reset/unrealize and execution-time map loss. Rejected complete programs
+and failed execution are checked not to leave reusable context.
+
+Receipts: `work/runs/graycontext-20261022/{red,green}.log`. The intermediate
+`fixturecomparison.log` contains a signed-extension error in the fixture's
+hex comparison; storing the loaded word as uint32 corrects it. This is a
+focused transfer batch, not a full-suite receipt. The separate unchanged-bundle
+functional run observes actual gray/black boundary samples and original IRQ129,
+then rejects the next21488/28832-byte batch. It establishes neither scanout
+nor a GUI first frame.
+
+## Affine outline fill
+
+The new `/nikon/transfer/path-fill` fixture first establishes/ACKs the real
+modeled720x480 context, then submits two synthetic41/55-word path pairs. The
+preceding parser rejects the valid batch (`red.log`). An independent review
+adds a RAM-backing alias case: valid coordinates reached through a different
+guest address aliasing the output are incorrectly accepted before the fix
+(`aliasred.log`) and rejected afterwards. The final
+`make check MTESTARGS='nikon_transfer_unit'` passes one executable/nine cases
+(`finalgreen.log`). `buildinclude.log` is an earlier missing `<math.h>` compile
+failure; it is not a runnable red-test result.
+
+Coverage includes affine scale/translation, opposite and same-direction inner
+contours distinguishing nonzero fill, quadratic interior/exterior samples,
+coverage fringes over gray, clipping, all unaffected pixels and guards/tail,
+retained context across ACK/repeat, cold context rejection, over-limit batches,
+unknown/relative segments, bad counts/keys/fields/color/fill-rule flags,
+nonfinite/perspective inputs, unbacked/overlapping/aliased inputs, unsupported
+alpha, late bad DMA data, map loss, reset and unrealize. The latter cases
+preserve the full destination and produce no completion IRQ.
+
+Adding the path source and explicit Cairo dependency uses `make configure`
+before the native batch. The fixed official submodule stays clean. This is a
+focused transfer receipt, not a full-suite or pixel-exact-camera claim.
+The final unchanged-bundle functional execution separately renders all131
+original glyphs, enters original IRQ129 and then rejects the824/1112-byte
+five-rectangle pair. Raw memory/PNG preview is not final scanout evidence.
+Receipts: `work/runs/pathmodel-20261022/`.
+
+## Ordered opaque path paints and relative H/V
+
+`work/runs/coloredpaths-20261022/red.log` reproduces valid even-odd rejection
+on the preceding model. The extension adds relative07/09 in object space,
+even-odd fill, ordered opaque paints and distinct packed RGB channels. The
+former gray continuation uses the shared path processor; its invalid geometry
+and paint tests now use NaN/unsupported alpha instead of valid new inputs.
+`green.log` records the intervening stale coordinate-negative fixture failure;
+`finalgreen.log` passes one executable/all nine transfer cases, including
+late rejection, unchanged output, DMA alias/map loss, reset and cancellation.
+The separate unchanged-bundle run completes the824/1112-byte batch through
+original IRQ129 and compares every pixel against the previous glyph frame.
+Its next unsupported packet is176/336 bytes with an inline path and image
+sampling state. These results establish neither physical raster precision nor
+final display scanout.
+
+## Inline path and A8 image modulation
+
+`work/runs/texturemodel-20261023/red.log` records valid176/336-byte synthetic
+image rejection on the preceding parser. `verifiedgreen.log` passes the
+expanded native transfer executable, all10 cases. Image coverage includes
+alpha0/64/128/255 and RGB channels, padded row width, affine path transforms,
+f24 sampler, vertical inversion/clamping, entire target and guards, context
+and repeat, delayed source reads, malformed fields/types/matrices/keys,
+range/overlap/backing aliases, target alpha/map loss, reset and unrealize.
+Unrealize is the final image subcase so later cases never reuse an unrealized
+device. Intermediate logs retain a direct-load comparison correction and a
+wrong f24 translation constant in the flip oracle before their correction;
+only`verifiedgreen.log` is the final native receipt.
+
+Independent read-only review finds the captured44/84-word state/geometry,
+80x72 A8 stride, f24 sampling and mode14 modulation consistent with the fixed
+reference and current bounds. The parent separately runs unchanged firmware
+with the same functional descriptor:3751 icon pixels change before original
+IRQ129, all pixels outside the72x72 patch remain equal to the prior frame,
+and target alpha stays opaque. The subsequent224/1736-byte
+RGBA-input/YUV-output pair is rejected. No physical GPU precision or final
+display publication is established.
+
+## RGBA input to YUV105 conversion
+
+`work/runs/yuvmodel-20261023/red.log` records valid224/1736-byte rejection by
+the previous model. `green.log` passes one native transfer executable, all11
+cases. New coverage uses seven independently tabulated RGB/YUV colors,
+different neighbors/source rows, a floating f24 oracle against the device's
+integer expression, full-plane comparison, alpha0, alpha255 and unsupported
+partial alpha, deferred source mutation, malformed sampler/LUT/format/key,
+layout/wrap/range/command overlap, source/plane backing aliases, map loss,
+reset and unrealize. Earlier `fixturebuild.log` and `fixturemath.log` record
+test declaration/math-header issues, not behavioral red receipts.
+
+Independent review matches every fixed field and all682 source rows to the
+original capture/reference, and checks SRC/chroma plus output protections.
+The separate unchanged-firmware run completes before IRQ129: full black RGB
+source unchanged, Y all16, UV all128,698368 bytes per plane, adjacent guards
+unchanged. The next captured pair retains224/1736 lengths but switches to
+720x480 scaling/YUVA107, subsequently covered below. No final scanout or normal
+startup is established by these results.
+
+## Scaled RGBA input to packed YUVA107
+
+`work/runs/yuva107-20261023/red.log` fails on the preceding model's rejection
+of valid224/1736-byte input. `green-final.log` passes one native transfer
+executable, all12 cases. The new case checks720x480→1024x682 sampling against
+an independent floating f24 oracle, seven tabulated colors, all packed and
+alpha bytes,0/64/128/255 source alpha, old-alpha retention at partial coverage,
+white old-target/blue-source edge color mixing, deferred mutation, malformed
+fields/LUT/layout/ranges, source/plane backing aliases, map loss, reset and
+unrealize. `green-color.log` retains a test-oracle correction: a one-unit RGB
+change does not imply one Y unit. Device arithmetic was unchanged by that fix.
+
+Independent read-only review matches all fixed fields and all1024/682 sampling
+indices, packed layout, SRC coverage and output protections. Separate original
+execution with unchanged bundle/input completes before IRQ129, with1382400
+zero source bytes unchanged,1396736 primary bytes containing Y16/UV128,
+698368 alpha bytes0 and neighboring guards unchanged. The next176/1552-byte
+warning-source SRC_OVER continuation is subsequently covered below. Its
+complete command decode and former parser-fallback diagnosis remain alongside
+that historical run.
+
+## YUVA107 SRC_OVER continuation and retained context
+
+`work/runs/srcover-20261024/red.log` records valid initialized176/1552-byte
+rejection on the preceding model. `green-final.log` passes one native transfer
+executable, all13 cases. New coverage tabulates white-over-blue colors with
+source alpha0/64/128/255 and old alpha0/128/255; it checks every packed/alpha
+byte, bounded fractional-edge error, repeat across ACK, absent/failed/canceled/
+reset/incompatible initialization, rejected-stream invalidation, malformed
+blend/sampler/format/LUT/196 mask/key/operand/layout/ranges, backing aliases,
+deferred source mutation, map loss and reset/unrealize. Late failure/reset
+also reject a following continuation. Initial`fixturebuild.log` is a helper
+name compile issue, not behavioral red. Independent review verifies the
+captured fields, byte masks, lifecycle and non-overflowing integer weights.
+
+Separate unchanged-firmware/input execution reaches original IRQ129 and
+composites the actual warning into1396736 packed YUV bytes and698368 alpha
+bytes. An independent floating sampler checks every packed byte; alpha is
+within1 of analytic coverage. Source and adjacent guards are unchanged.
+`composition.png` is a decode of captured memory, not host-rendered UI or
+proof of scanout. The subsequent60-second window has no new graphics error
+or MAS data abort. Joined manager probes observe worker4→worker0 completion;
+worker0 later stays class1/mode0 while GUI remains class4/mode0, readiness0.
+These are functional-input execution receipts, not normal camera boot.
+## Acceleration and paired NOR input checkpoint
+
+The parent built through the existing native Make/Meson graph. The descriptor18
+fixture first rejected the absent property; after implementation,`nikon_memory`
+passes18 subtests, including paired descriptor17/18 input, boundaries, NOR write
+persistence across reset, wrong sizes and unreadable files. Fixtures use synthetic
+bytes; no original record is included.
+
+The held-selector regression first fails with COMP0 on the old I2C model. The
+source-backed held-batch correction passes the complete`nikon` qtest executable:
+105 subtests, including the new acceleration controller/repeated-START cases and
+16+2-byte held TX batches. A combined two-prefix GLib selection ran18 passing
+subtests but produced invalid multiple TAP plans; the clean full-executable pass
+is the accepted batch. Existing unrelated compile warnings remain unchanged.
+
+`nikon_acceleration_unit` passes5 subtests covering initial/configuration sequence,
+signed sample extrema, missing data, invalid transactions, partial/reset/restart
+boundaries and out-of-range values on every axis. The normal board attaches the
+peer without samples unless explicitly provided. The official QEMU submodule
+tracked tree remains clean.
+
+Review also found that the clocked slave callback can run without`current_cpu`,
+so a generic CPU-access reporter could silently skip its uncovered-read error.
+The peer now reports its bus address/register/offset and requests a debug stop
+independently of CPU attribution. The final acceleration-only qtest batch passes
+3 cases, including a seven-byte request against the six-byte sample boundary;
+QMP confirms`debug`. This adds one distinct case to the105-case earlier batch.
+
+Commands: `make check MTESTARGS=nikon_memory`,
+`make check MTESTARGS=nikon`, and
+`make check MTESTARGS=nikon_acceleration_unit`.
+Original-firmware progress is independently recorded in
+[guiupdate](../runtime/guiupdate.md), with no first-frame claim.

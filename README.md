@@ -43,6 +43,71 @@ state or a prefilled UI. Missing physical-camera evidence, exact Bayer fidelity
 or full GPU precision does not block functional implementation. Raw `-bios`
 remains the isolated MAS input mode.
 
+Persistent parameter data can be supplied separately through the explicit
+[`descriptor17-input` / `descriptor18-input` properties](docs/inputs/nor/descriptor.md). A
+[constructed functional profile](docs/inputs/nor/functional.md) uses unchanged
+firmware to parse a hypothetical virtual-camera configuration; recovering a
+physical factory image is a separate fidelity objective. The current experiment
+passes ID34 initialization, RGBA clears, a gray panel and131 original glyph
+outlines through original IRQ129. Those glyphs render the battery communication
+warning into guest memory. Five subsequent gray rectangles also complete;
+an inline A8 image submission adds the red warning icon through IRQ129.
+The224/1736-byte conversion from a separate1024-wide RGBA buffer to YUV105
+also completes, followed by720x480 scaling into1024x682 YUVA107. The current
+176/1552-byte continuation now composites the warning surface with SRC_OVER
+using retained107 context. The following bounded run has no graphics error
+and returns from warning worker4 to worker0; GUI readiness remains unarmed.
+The [current policy trace](docs/runtime/policy.md) crosses main mode5 using
+the existing F4 input held before initial EX sampling. Original code selects
+main mode1 and starts GUI worker3/mode1 while BatCk remains2. The finite
+[channel9 initial-count load](docs/devices/timing/protocol.md) now reaches
+the original timer callback with status1. The subsequent720x480 zero fill to
+resource57 record5 at `0xbf309600` now completes through the original IRQ,
+callback and waiter; readiness remains unarmed in the bounded continuation.
+The [reproducible RNG input](docs/inputs/ex/rng.md) and
+[finite UART battery peer](docs/runtime/batterypeer.md) now support the complete
+finite battery command inventory, including status/metrics, configuration/control
+and the conditional echo. Unchanged EX accepts authentication and normal class1
+query continuation through this peer.
+Source-backed9600-baud byte pacing now sustains normal UART polling; original
+EX reaches charge100/diagnostic0 and MAS BatCk becomes1. See the
+[protocol inventory](docs/runtime/batteryprotocol.md) for the modeled scope.
+Joining that healthy peer with cold F4 changes the earlier warning path:
+BatCk remains1, worker0 keeps processing events, and GUI stays idle rather
+than entering the earlier warning-driven mode1. The [ordinary GUI investigation](docs/runtime/guiupdate.md)
+captures the actual divergence: the no-peer battery report sets properties6401/6402,
+and6401=1 selects GUI action8; the healthy report clears both properties and
+skips that branch. Input lock80 and its delivered value0 are derived policy state, not a
+missing readiness notification.
+The subsequent [normal-request continuation](docs/runtime/guiupdate.md)
+supplies complete acceleration/TEMP records and explicit raw sensor samples.
+Unchanged firmware initializes the acceleration device through I2C2, completes
+the direction contribution and selects application state2. Both qualified TEMP
+candidates make the normal display request return0 and enter primary state1,
+with BatCk1 and power1. The [MXIC read-view correction](docs/devices/config/view.md)
+now completes the full configuration transaction with active readback selected.
+The [timing divider/load model](docs/devices/timing/load.md) now covers the
+complete source byte/load interface; raw31 means divide-by50. Original channel7
+crosses all seven waits. The [capture-control model](docs/devices/sensor/control.md)
+now completes complemented-mask and paired reset/enable initialization. The
+[kind40 allocation](docs/runtime/kind40.md) now has exact source-backed RAM;
+the original mapping from VA `0x36d59800` to PA `0x62059800` and complete clear
+are verified. The next stop is a source-stream read at PA `0x50560000` inside
+`0x1023c3d2`; its ownership, content and bounds remain to be joined.
+The earlier432/616-byte
+pair belongs to the erased-TEMP failure continuation. No GUI first frame is
+claimed from accepted request admission.
+The earlier [readiness trace](docs/runtime/readiness.md), without the peer,
+observes selector1 skipping the selector34 gate; GUI mode entry reaches its
+return with gate0 and pending3=0.
+Final scanout and a GUI first frame remain unverified.
+
+The [wire-only battery tool](docs/runtime/batterytool.md) is built as
+`work/build/qemu/tools/nikon/nikon-battery` by the normal source graph, with
+native arithmetic, range, cancellation and CLI fixtures. It derives first-auth
+replies and provides the complete finite protocol described above; unknown
+commands and fields remain explicit errors.
+
 The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
 input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
 replacement for the combined bundle path. `nikonsla`, `nikonex`, and `nikonvr`
@@ -122,9 +187,12 @@ recovered sensor format, timing law, GIC route or CMOS-to-ISP/display path.
 
 Graphics stream counts 28/211 are 64-bit units, yielding full 224/1688-byte
 snapshots. The finite LUT executor validates the supported program family,
-reads a 128x128 input and writes a 32x32 result before raising IRQ129. Its
-post-completion offset `0x58` read reports bit26 clear; other status semantics,
-fences, IRQ131 and other program families remain unsupported. Ordinary
+reads a 128x128 input and writes a 32x32 result before raising IRQ129. Finite
+RGBA profiles also clear surfaces and fill bounded affine MOVE/LINE/QUAD/CLOSE
+outlines using Cairo coverage, retained720x480 context and black SRC_OVER.
+No host font or replacement text is used. The post-completion offset `0x58`
+read reports bit26 clear; other status semantics, fences, IRQ131 and unsupported
+program families remain explicit boundaries. Ordinary
 byte-copy IRQ130 and image-bank composition/console publication are separate
 implemented paths. No graphics output buffer is presumed to be a screen.
 
@@ -133,6 +201,8 @@ The MAS request-only processor at PA `0x2c040000` plus bootstrap view
 naturally timed out there; earlier full-stream receipts also predate the LUT
 executor and retain pending graphics work. See [runtime evidence](docs/runtime/coprocessor.md)
 and [native receipts](docs/validation/native.md) for those historical results.
+[The startup frontier](docs/validation/frontier.md) states what the supplied EX
+component demonstrably reaches and which gates it cannot reach at all.
 No new original-firmware GUI result is implied by the current source graph.
 D100/D200/C0A0 retain bounded scalar state with no event/completion side effect;
 C010 and PA `0x2c012000` remain strict boundaries. The `1046bfxx` image-start
@@ -148,7 +218,7 @@ packets and save decisions.
 
 The `qemu/` submodule is the official QEMU source pinned to `v11.1.2` (`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`). Keep that checkout clean; the project-owned source is under `hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, and `tests/unit/nikon`.
 
-Install CMake 3.24 or newer, a C compiler, Make, Meson/Ninja, `pkg-config`, GLib, pixman, and the Python packages required by the upstream QEMU build. Then run:
+Install CMake 3.24 or newer, a C compiler, Make, Meson/Ninja, `pkg-config`, GLib, pixman, Cairo 1.16 or newer, and the Python packages required by the upstream QEMU build. Then run:
 
 ```sh
 git submodule update --init --recursive
