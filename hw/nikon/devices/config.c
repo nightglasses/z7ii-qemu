@@ -295,10 +295,12 @@ static MemTxResult config_write(void *opaque, hwaddr offset, uint64_t value,
         }
         return MEMTX_OK;
     }
-    if (s->active_view) {
-        return config_error(s, s->regs.addr + offset, size, true, value,
-                            "mxic-config-active-view-write");
-    }
+    /*
+     * TRVSW selects readback, not write permission. MAS 103d1f10 calls the
+     * complete 102070c0 initializer with active readback still selected:
+     * configuration/slot writes target draft state, selectors remain live,
+     * and only TCFTRG plus the completion timer publishes the selected draft.
+     */
     if (offset == 0x34) {
         if (value != 1) {
             return config_error(s, s->regs.addr + 0x34, size, true, value,
@@ -384,7 +386,7 @@ static MemTxResult slot_write(void *opaque, hwaddr offset, uint64_t value,
 {
     NikonMXICConfigState *s = opaque;
     unsigned index = offset / 4;
-    if (size != 4 || (offset & 3) || !s->access || s->active_view || s->busy ||
+    if (size != 4 || (offset & 3) || !s->access || s->busy ||
         (value & ~0x7f7f7f7fU)) {
         return config_error(s, s->slots.addr + offset, size, true, value,
                             "mxic-slot-access-not-supported");

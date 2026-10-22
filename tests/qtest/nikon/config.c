@@ -204,8 +204,62 @@ static void test_transaction(void)
     qtest_writel(q, CONFIG + 0x44, 1);
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, configuration_word(2));
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x4804), ==, slot_word(1));
-    qtest_writel(q, CONFIG + 0x100, 0); /* active view cannot mutate draft */
+    /* Read view does not select the write target. */
+    qtest_writel(q, CONFIG + 0x100, 0);
     g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, configuration_word(2));
+    qtest_writel(q, CONFIG + 0x44, 0);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, 0);
+    qtest_quit(q);
+}
+
+static void test_read_view(void)
+{
+    QTestState *q = start();
+
+    /*
+     * MAS 103d1f10(2, 0) calls 102070c0(0) with TRVSW still one.
+     * Its complete initializer writes selectors, shadow fields/slots, requests
+     * publication, then writes live parameters without changing that view.
+     */
+    qtest_writel(q, CONFIG + 0x44, 1);
+    selectors(q);
+    qtest_writel(q, CONFIG + 0x3000, 0x10);
+    qtest_writel(q, CONFIG + 0x3000, 4); /* reserved selector bit */
+    qtest_writew(q, CONFIG + 0x3000, 0);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x3000), ==, 0x10);
+    draft(q, ARRAY_SIZE(snapshot_offsets), 512);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_writel(q, CONFIG + 0x5010 + i * 4, 0x12340000 + i);
+    }
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x44), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, 0);
+    g_assert_cmphex(qtest_readl(q, SLOTS + 4), ==, 0);
+    qtest_writel(q, CONFIG + 0x34, 1);
+    qtest_writel(q, CONFIG + 0x3000, 0x20); /* busy still rejects live writes */
+    qtest_writel(q, SLOTS + 4, 0); /* busy still protects the pending draft */
+    qtest_clock_step(q, 9999);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x38) & 1, ==, 0);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x100), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x38) & 1, ==, 1);
+    for (unsigned i = 0; i < ARRAY_SIZE(snapshot_offsets); i++) {
+        g_assert_cmphex(qtest_readl(q, CONFIG + snapshot_offsets[i]), ==,
+                        configuration_word(i));
+    }
+    for (unsigned i = 0; i < 512; i++) {
+        g_assert_cmphex(qtest_readl(q, SLOTS + i * 4), ==, slot_word(i));
+    }
+    qtest_writel(q, CONFIG + 0x60, 0);
+    qtest_writel(q, SLOTS + 4, 0); /* TAEN still gates table writes */
+    live_parameters(q, false);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x3000), ==, 0x10);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x44), ==, 1);
+    qtest_writel(q, CONFIG + 0x44, 0);
+    g_assert_cmphex(qtest_readl(q, CONFIG + 0x4804), ==, slot_word(1));
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmphex(qtest_readl(q, CONFIG + 0x5010 + i * 4), ==,
+                        0x12340000 + i);
+    }
     qtest_quit(q);
 }
 
@@ -392,6 +446,7 @@ void nikon_config_add_tests(const char *bios)
     qtest_add_data_func("/nikon/config/mas", GUINT_TO_POINTER(0), test_family);
     qtest_add_data_func("/nikon/config/sla", GUINT_TO_POINTER(1), test_family);
     qtest_add_func("/nikon/config/transaction", test_transaction);
+    qtest_add_func("/nikon/config/readview", test_read_view);
     qtest_add_func("/nikon/config/resetfields", test_reset_fields);
     qtest_add_func("/nikon/config/partial", test_partial);
     qtest_add_func("/nikon/config/second", test_second);

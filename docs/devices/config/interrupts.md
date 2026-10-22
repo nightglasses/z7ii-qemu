@@ -10,6 +10,11 @@ All addresses below are functional board PA bindings, with relative offsets deco
 
 `1005A842` (O239682, `2de9f84f`, Thumb) reads all eight table banks at `24074000` under TAEN and TRVSW, so the table window supports gated word reads. `1005A12E/1005A17E` select active region views. The machine connects config named output `view[0]` to MXIC named input `view[0]` for the first unit; the second uses `+838` internally. Region snapshots consequently return actual retained active region words.
 
+The later [first-unit reconfiguration](view.md) establishes that TRVSW selects
+readback without blocking draft/table/live writes or TCFTRG. Busy still protects
+an executing configuration; TAEN still gates the table window. The original
+normal-request initializer completes with TRVSW1 and never clears it on the host.
+
 The complete live parameter producers `1005AABE` (O240318), `1005ACB2` (O240818), and `1005AD94` (O241044) establish two 63-row pairs at CONFIG-relative `2400/2600`, and two 32-row pairs at `5400/5600`, stride8. Word0 keeps mode bits1:0 and period bits27:18; the thirteen earlier period interfaces retain their established bits27:16. Word1 supports the independent RMW fields bits4:0, 11:8 and 21:16, mask `003F0F1F`. TLVL first-word fields extend to four ports per group at `2000/2100 + port*40 + level*C`, with three levels each. Only the earlier two ports expose the other two TLVL words; the new ports expose their source-proved low four-bit first-word interface. All unrelated holes, widths and reserved fields still fail.
 
 The source registration `10059F0A` binds object110 at COPY1 `C10064AC` (original O842980), callback pointer `10059DD1`, and IRQ128. Handler `10059DD0` (O237008, `2de9f047`, Thumb) reads and W1C-acknowledges both finite pending groups. The machine connects MXIC sysbus output0 to config named input `region[0]`; config output0 ORs that genuine level with its own enabled pending state and connects to IRQ128 (GIC SPI index96). This is signal wiring, with no global AddressSpace or DMA engine requirement. Object14F/IRQ118 uses the separate `201A0300` family and is outside this model.
