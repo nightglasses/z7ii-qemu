@@ -1,5 +1,13 @@
 # Gated external capture profile
 
+The later [divider audit](load.md) supersedes this checkpoint's source1 timing
+interpretation. The current narrow capture profile still requires raw1 at
+Bchannel+4, but that byte now means divisor2. Samples use the divided wrapping
+counter; there is no once-only source1 threshold. The additional native capture
+case verifies counts300/600 after two200ns active intervals at the declared
+nominal3GHz input, separated by a paused interval, plus reset cancellation.
+Historical fixed-binary receipts below retain their original timing semantics.
+
 Native C and initial fixture recipe `19adb80700992ee8dd63d8409d85c9f194b4a154` extend the separate source1 counter checkpoint. Corrected qtest recipe is `5a822117f9472e0d749c3dbc077d9c7de1864ade`; its changes affect only external-input observation. The [fixed whole capture contract](https://github.com/mashiro01/nightglass/blob/b7a5bd1656bff8798beb197e811c389650018161/research/z7ii/qemu-multichannel-timing-contract.md) preserves original70B enable method1036e8ea and28B result reader1036e930, channel5/6 pointer geometry and the high callback branches. Historical partial saved-native coverage remains partial, rather than a claim of accepted whole firmware CFGs.
 
 The prior exact51b8 original run stopped at CPU1 PC1036e8fc, writing1 to2c011610. R5=1 is the actual first optional input word. Its second word0 is a static high-caller join, not an independently captured live word. The original low method enables the optional word, reads A+8/A+0, clears A+8 bit5 and sets A+0 bits1/2 for modeflag0. A nonzero modeflag instead sets bit5; its hardware event meaning remains unbound. The result reader reads B+18 into output+4, then B+14 into output+0. No original instruction in that method supplies the capture event itself.
@@ -21,7 +29,7 @@ Bits1/2 reach the original primary high-caller callback (`status & 2F`). Bit4 be
 
 Input levels change only through the external qdev interface. Gate/enable/configuration changes do not create an edge. Sampling disable preserves prior samples and pending state for normal acknowledgement. Counter gate disable freezes elapsed ticks and suppresses sampling. Channel/global/system reset clears capture enable, samples and pending state, while preserving the external pad level. Period reprogramming clears samples and capture pending state as an explicit new-timebase convention. Enabling a high pad after reset or reconfiguration therefore does not fabricate a rising edge.
 
-Both inputs use the same independent nominal3GHz source1 Clock, not a physical frequency assertion. The inherited MAX+1 threshold remains64-bit; optional capture does not alias source1 to opcode0 periodic behavior. An enabled capture configuration rejects changes to another opcode before mutation, including while bitmap-paused. Unsupported capture values/modes/capabilities/results writes, shared submissions and other features fail. No unknown input, packing, capture timer, peer or waveform provider is silently added.
+Both inputs use the same independent nominal3GHz input Clock, not a physical frequency assertion. The divided period+1 threshold remains64-bit. An enabled capture configuration rejects divider changes before mutation, including while bitmap-paused. Unsupported capture values/modes/capabilities/results writes, shared submissions while capture is enabled and other features fail. No unknown input, packing, capture timer, peer or waveform provider is silently added.
 
 The implementation reuses upstream [named qdev GPIO inputs](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/qdev.h), Clock, QEMUTimer and IRQ APIs. External-input fixtures use the official [QEMUQtestMachine](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/python/qemu/machine/qtest.py) and [qtest pin/clock protocol](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/system/qtest.c). They inject input edges, never result/status words or guest software flags. Device state remains explicitly unmigratable.
 

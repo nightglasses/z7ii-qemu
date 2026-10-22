@@ -2,17 +2,34 @@
 
 This document freezes the source1 checkpoint. The later [external capture extension](capture.md) separately records its interface, native checks and next original dependency; earlier receipts below keep their original scope.
 
+The current [divider/load contract](load.md) supersedes the historical opcode
+interpretation below. Bchannel+4 is the source's eight-bit divisor-minus-one
+field: raw31 means divide by50, not one-shot. All256 byte encodings use the
+same configured/stopped basic-channel initial-count submission, scaled counts
+and periodic wrap; raw1 no longer has a special once-only threshold. The
+normal original run now crosses all seven channel7 waits and stops on a
+capture-control mask write at PA20068000. Twelve focused native cases pass;
+source joins, precise limits and receipts are in that current contract.
+
+## Shared value and channel commit
+
+The finite [initial-count load](load.md) now accepts the original channel9
+shared-value/one-channel submit and reaches its original callback with status1.
+The next unchanged-firmware stop is a new fill destination at PA20070010.
+The extension records source semantics, virtual assumptions and native receipts
+separately from the historical checkpoints below.
+
 Code/native/fixture recipe `51b8e37ee709040fdc7328a53362fc6fc7fef3b6` implements the finite timing/control protocol at2c010000/2c011000, including an independent direct-source1 virtual counter profile. The [fixed whole source contract](https://github.com/mashiro01/nightglass/blob/69c9345438b35c459f569b3bc50bf66af8012a72/research/z7ii/qemu-multichannel-timing-contract.md) exports12 original objects/register-pointer tables, IRQ172..183 and setup/callback callers. Saved-native coverage remains partial; bounded original-byte methods are not all accepted native CFGs. The high caller's3,000,000,000/period arithmetic supports a timing role. No source/destination/descriptor producer exists in this evidence. The manufacturer XDMA layout differs and is rejected; this module performs no DMA memory copy.
 
 ## Source interfaces and named virtual assumptions
 
-Global A+0 is the original1/0 reset-like pulse, A+4 the original1 configuration. Global B+0 is the guest's shared12-bit channel bitmap; B+c accepts the original initializer0. Every channel is at+100+100*n in each window. A+0 retains the supported basic control0/1; A+4/+8 support their zero-disabled basic configuration. A+10 contains generated pending status, acknowledged by original ISR read/writeback. B+0 is channel reset, B+4 opcode, B+8 period−1, B+c current-counter getter. Unknown globals, A+c/+14 and unsupported nonzero optional mode/feature operations fail rather than form a regfile. Original setup's capability-specific optional enable0 writes are accepted only at their actual pointer-backed offsets/channels; absent capabilities remain unavailable. Shared B+4/+8 packet submission semantics remain unsupported.
+Global A+0 is the original1/0 reset-like pulse, A+4 the original1 configuration. Global B+0 is the guest's shared12-bit channel bitmap; B+c accepts the original initializer0. Every channel is at+100+100*n in each window. A+0 retains the supported basic control0/1; A+4/+8 support their zero-disabled basic configuration. A+10 contains generated pending status, acknowledged by original ISR read/writeback. B+0 is channel reset, B+4 opcode, B+8 period−1, B+c current-counter getter. Unknown globals, A+c/+14 and unsupported nonzero optional mode/feature operations fail rather than form a regfile. Original setup's capability-specific optional enable0 writes are accepted only at their actual pointer-backed offsets/channels; absent capabilities remain unavailable. Shared B+4/+8 supports only the initial-count load described above.
 
 The virtual profile explicitly assumes zero reset/configuration/bitmap/status, A reset1 assertion cancelling all channels, channel reset1 cancelling and clearing its own state, and master/bitmap/local control gates. Counters are not started until the guest supplies a period. Gate disable freezes the current count and cancels its timer; reenabling resumes it. Period programming clears elapsed/completed state and schedules a fresh interval only when all gates allow it. One-shot completion remains latched until period/reset reconfiguration. There is no input edge or PWM waveform provider.
 
 Opcode31 is modeled as **one-shot**, opcode0 as **periodic**, and opcode1 as a **free-running direct source**. These meanings, threshold status bit0 and ISR **W1C** are named functional conventions; the numeric opcode1 hardware meaning is not established. Periodic expiry wraps and can report again after acknowledgement; one-shot freezes at period+1. Direct-source1 continues counting and exposes the low32 count bits. It reports its configured threshold once; acknowledgement or gate pause/resume does not rearm that report. Period programming or reset clears the report state. No read creates an event. Pending state drives the actual channel GIC IRQ; the host never calls a guest callback or sets a software event flag.
 
-The complete activation state uses the existing master, shared bitmap, local control, reset and programmed-period gates. Supported configuration is checked before writes mutate it; changing a running opcode, unsupported capture enable, invalid bitmap bits and shared submissions reject while retaining prior supported state. No unsupported feature value is retained for a later global enable to activate. Optional capture/compare/PWM requests and other status causes remain unavailable. In particular accepting source1 does not produce capture results or external edges.
+The complete activation state uses the existing master, shared bitmap, local control, reset and programmed-period gates. Supported configuration is checked before writes mutate it; changing a running opcode, unsupported capture enable, invalid bitmap bits and unsupported shared submissions reject while retaining prior supported state. No unsupported feature value is retained for a later global enable to activate. Optional capture/compare/PWM requests and other status causes remain unavailable. In particular accepting source1 does not produce capture results or external edges.
 
 A separate upstream Clock uses **nominal3GHz**, matching the software arithmetic scalar only as a virtual board input. Counts derive from elapsed virtual nanoseconds, never read-count increments. Encoded periodFFFFFFFF is expanded in64 bits to4,294,967,296 ticks, approximately1.431655765 seconds at this nominal clock; it is neither zero nor a proven hardware infinite mode. QEMUTimer events round up to nanoseconds and check actual elapsed ticks. This is not a physical frequency, clock-source identity or EXPEED benchmark. The module reuses pinned QEMU [Clock](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/clock.h), [QEMUTimer](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/qemu/timer.h), MemoryRegion/SysBus and IRQ APIs; state is explicitly unmigratable. MMIO operations are aligned32-bit words; unknown widths/holes/requests fail.
 
