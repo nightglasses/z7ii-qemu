@@ -128,6 +128,9 @@ static void domain(bool readonly)
     request_profile(q, 0x0b40, 0x0b40, 0x01e0, 0xbec5f200);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
     qtest_writel(q, FILL + 8, 0x11);
+    request_profile(q, 0x0b40, 0x0b40, 0x01e0, 0xbf309600);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
+    qtest_writel(q, FILL + 8, 0x11);
     request(q, BACKEND_SIZE);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
     g_assert_cmphex(qtest_readl(q, SENTINEL), ==, 0x87654321);
@@ -148,6 +151,51 @@ static void test_readonly(void)
     domain(true);
 }
 
+static void test_composition(void)
+{
+    const uint32_t destination = 0xbf309600, length = 720 * 480 * 4;
+    const uint32_t slot_end = 0xbf7b9600;
+    g_autofree uint8_t *bytes = g_malloc(length);
+    g_autofree uint8_t *zero = g_malloc0(length);
+    g_autofree char *bios = g_shell_quote(image);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic -bios %s -serial none",
+                               bios);
+    g_autofree char *fill = nikon_device_path(q, TYPE_NIKON_FILL);
+
+    qtest_irq_intercept_out_named(q, fill, "sysbus-irq");
+    memset(bytes, 0xa5, length);
+    qtest_memwrite(q, destination, bytes, length);
+    qtest_writel(q, destination - 4, 0x57050001);
+    qtest_writel(q, destination + length, 0x57050002);
+    qtest_writel(q, slot_end - 4, 0x57050003);
+    request_profile(q, 0xb40, 0xb40, 0x1df, destination);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    request_profile(q, 0xb40, 0xb40, 0x1e0, destination + 4);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    qtest_memread(q, destination, zero, length);
+    g_assert_cmpmem(bytes, length, zero, length);
+    memset(zero, 0, length);
+    g_assert_false(qtest_get_irq(q, 0));
+    request_profile(q, 0xb40, 0xb40, 0x1e0, destination);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_memread(q, destination, bytes, length);
+    g_assert_cmpmem(bytes, length, zero, length);
+    g_assert_cmphex(qtest_readl(q, destination - 4), ==, 0x57050001);
+    g_assert_cmphex(qtest_readl(q, destination + length), ==, 0x57050002);
+    g_assert_cmphex(qtest_readl(q, slot_end - 4), ==, 0x57050003);
+    qtest_writel(q, FILL + 8, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    request_profile(q, 0xb40, 0xb40, 0x1e0, destination);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    g_assert_cmphex(qtest_readl(q, destination + length), ==, 0x57050002);
+    qtest_quit(q);
+}
+
 int main(int argc, char **argv)
 {
     const uint8_t idle[] = { 0xfe, 0xff, 0xff, 0xea };
@@ -160,6 +208,7 @@ int main(int argc, char **argv)
     close(fd);
     qtest_add_func("/nikon/fill/private", test_private);
     qtest_add_func("/nikon/fill/readonly", test_readonly);
+    qtest_add_func("/nikon/fill/composition", test_composition);
     result = g_test_run();
     unlink(image);
     g_free(image);

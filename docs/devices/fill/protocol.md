@@ -50,6 +50,13 @@ that destination. Thus `0f00 * 021c = 1fa400` clears the entire exact
 Its left neighbor is record0 and its right neighbor is record5; neither is
 part of this request.
 
+The held-F4 mode1 path subsequently submits the720x480 tuple to resource57
+record5, the independently allocated LCD composition slot
+`[bf309600,bf7b9600)`. The model additionally admits that exact base; only
+`[bf309600,bf45ae00)` is cleared. The upper producer, IRQ/consumer chain and
+new native/original receipts are joined in [fill.md](../../runtime/fill.md).
+No new geometry, format or general destination rule is introduced.
+
 The functional model accepts only those complete engine0 tuples at their
 firmware-published destinations, in addition to the older startup form. For
 the record0/record7 tuple, widths `0b3f`/`0b41`, a different stride, row counts

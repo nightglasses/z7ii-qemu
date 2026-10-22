@@ -19,6 +19,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 #define NIKON_FILL_GUI_WIDTH 0x0b40U
 #define NIKON_FILL_GUI_ROWS 0x01e0U
 #define NIKON_FILL_GUI_RECORD0 0xbec5f200U
+#define NIKON_FILL_GUI_RECORD5 0xbf309600U
 #define NIKON_FILL_GUI_RECORD7 0xc175d600U
 #define NIKON_FILL_GUI_RECORD1_WIDTH 0x0f00U
 #define NIKON_FILL_GUI_RECORD1_ROWS 0x021cU
@@ -129,6 +130,7 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                               e->stride == NIKON_FILL_GUI_WIDTH &&
                               e->count == NIKON_FILL_GUI_ROWS &&
                               (e->destination == NIKON_FILL_GUI_RECORD0 ||
+                               e->destination == NIKON_FILL_GUI_RECORD5 ||
                                e->destination == NIKON_FILL_GUI_RECORD7);
     bool gui_record1_profile = e == &s->engine[0] &&
                                e->mask == 0x11 &&
