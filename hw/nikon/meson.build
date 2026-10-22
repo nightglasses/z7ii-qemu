@@ -70,8 +70,13 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/readoutpipeline.c',
   'peers/spi.c',
   'devices/transfer.c',
+  'devices/path.c',
   'devices/save.c',
 ))
+if config_all_devices.has_key('CONFIG_NIKON_Z7II')
+  arm_common_ss.add(when: 'CONFIG_NIKON_Z7II',
+                    if_true: dependency('cairo', version: '>=1.16'))
+endif
 
 rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'machines/vr.c',

@@ -13,7 +13,7 @@ make check
 make bench
 ```
 
-需要 CMake 3.24 或更新版本，以及 QEMU 官方的 C 编译器、Make、Meson/Ninja、pkg-config、GLib、pixman 和官方构建 Python 依赖。使用默认编译器，或用 QEMU 官方 configure 参数指定交叉工具链；构建和测试没有本项目的 Python 调度器。
+需要 CMake 3.24 或更新版本，以及 QEMU 官方的 C 编译器、Make、Meson/Ninja、pkg-config、GLib、pixman、Cairo 1.16+ 和官方构建 Python 依赖。Nikon Z7II 的有限路径模块通过 Meson 显式链接 Cairo，只用 image/A8 coverage，不调用宿主字体；本次使用已安装的 Cairo 1.18.6，无依赖安装。使用默认编译器，或用 QEMU 官方 configure 参数指定交叉工具链；构建和测试没有本项目的 Python 调度器。
 
 `hw/nikon`、`include/hw/nikon`、`tests/qtest/nikon`、`tests/unit/nikon` 是本仓库维护的普通源码。CMake 在 ignored `work/config/source` 创建原生源图：文件指向这两个 checkout，目录本身可写，Meson wraps 的下载不会修改 submodule。`hw/Kconfig`、`hw/meson.build`、`tests/qtest/meson.build`、`tests/unit/meson.build` 添加 Nikon 的原生入口；没有 patch、拷贝覆盖或兼容路径。
 

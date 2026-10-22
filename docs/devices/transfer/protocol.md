@@ -88,6 +88,13 @@ The frontend requires explicit `1214/1298` configuration, validates each
 complete direct-memory source, and snapshots it immutably across effective
 MemoryRegion boundaries.
 
+The original wait path `106ee1f8` (cases 8/10) additionally writes `1214` with
+bit24 (`0x01000000`) while both streams are still pending, then spins on bit26
+of register `58`.  That write is a caller fence request, not a configuration
+change: the frontend accepts it during a pending stream and keeps the retained
+`1214` value.  Completion itself stays timer-driven and is reported through
+`58`, so the spin exits only after the stream actually completes.
+
 The LUT C1.70 program family executes. Three unchanged-firmware jobs
 were observed with the same command-header fingerprint and different operand
 addresses/table values. The accepted profile is:
@@ -301,6 +308,267 @@ append and bulk-copy production. Those observations support the finite packet
 fingerprint only. They do not establish a processor ISA or physical GPU
 fidelity, and Z9's different command encoding is not transplanted.
 
+### Initial mode-byte variant
+
+The constructed descriptor17 run supplies the same232/416-byte RGBA program
+with draw word25=8 instead of0. Header word24=`01841004` writes register184's
+low byte. Original MAS setter `10645c86` preserves software-shadow bit3 while
+changing another field; the clear builder `1068bd90` calls it with0 at
+`1068bdee`, then calls `10646062(...,1)` at `1068be22`. The latter emits the
+already-required word59/60 pair, overwriting the same low byte with8 before
+either draw trigger. The [producer investigation](../../runtime/stream.md)
+records the original addresses and fixed public decoder corroboration.
+
+The finite fingerprint therefore accepts only0 or8 at word25. Word60 must
+still be8; all other fixed fields, ordering, path data, geometry, DMA bounds
+and overlap checks remain unchanged. The existing executor performs the same
+RGBA clear and deferred IRQ129. No arbitrary register program is accepted.
+
+The new initial8 fixture fails against the old parser, then the complete
+`nikon_transfer_unit` batch passes: one executable, six registered test cases.
+It checks both initial values' full pixels and guards, rejects initial18 and
+final word60=0, and exercises initial8 with map loss, reset and unrealize.
+Receipts: `work/runs/streammodel-20261022/{red,green}.log`.
+
+With unchanged firmware and the same explicit functional input, the captured
+indirect paths match the model, the surface's active first/last samples become
+`00 00 00 ff`, and original IRQ129 handler `106ee3ca` is entered. The next
+176/368-byte program initially fails the LUT length guard, motivating the
+finite single-path extension below.
+
+### Finite720x480 single-path clear
+
+The model also accepts the captured176-byte setup/368-byte draw pair with
+format0 RGBA8888, extent720x480, clip719/479, mode8, paint `ff000000`, state108,
+one path key `10001` and one trigger. Target `c175d600` is fixed to resource57
+record7; its physical display identity is unestablished. The shared DMA/path
+validation requires segments `02 07 09 07 00` and float32 coordinates
+`(0,0,720,480,-720)`. The path operand at setup34 must be nonzero and echo at
+draw80. Draw91 is the fixed ending operand1, not a second dynamic path operand.
+All other headers, fields, ordering and zeros match this separate finite table.
+Initial draw25 is0/8, with draw60=8 still mandatory. Crossed profile lengths,
+other formats/geometry/clips/colors/targets, bad endings, unknown state and
+invalid path/range/overlap reject without completion.
+
+The existing deferred RGBA executor writes `00 00 00 ff` to precisely
+`[c175d600,c18aee00)`,151800 hex bytes, without a six-row offset. Resource57's
+record7 slot ends at `c1c0d600`; its remaining tail is untouched. Native
+fixtures compare every output byte, both guard regions and the full slot tail,
+reject changed fields, setup/draw truncation and bad indirect data, and retain
+the IRQ/ACK, reset, unrealize and execution-time map-loss checks for initial8.
+The new case fails against the previous model, then the complete transfer unit
+batch passes one executable/seven cases. Receipts are
+`work/runs/singleclear-20261022/{red,green}.log`.
+
+The unchanged bundle with the same explicit functional input submits the pair;
+its target first/last samples change from cold zero to `00 00 00 ff`, the tail
+sample remains zero, and original IRQ129 handler `106ee3ca` is entered.
+The subsequent168/232-byte pair selects gray paint `ffb4b4b4` and a
+centered rectangle `(96,86,528,308,-528)` on the same target. It omits full
+format/extent/clip initialization and uses the bounded continuation below.
+
+### Finite gray continuation and retained context
+
+Successful completion of the full720x480 profile establishes a finite known
+context: format0, target `c175d600`, extent720x480, clip719/479 and its remaining
+fixed state. This is represented by one validity bit, not a generic register
+bank. Completion publishes it only after successful DMA execution; ACK and
+ordinary stream ownership changes retain it. Successful gray continuation
+retains it too. Reset/unrealize, rejected complete programs, execution failure
+or completion of the LUT/YUV/1024-wide profiles invalidate it. A canceled or
+failed initialization cannot establish context. Busy or malformed transport
+writes still fail before execution; they do not synthesize a context.
+
+The observed gray packet is168/232 bytes, target `c175d600`, paint `ffb4b4b4`,
+mode8/state108, key10002, one trigger and normal ending/NOP. Its arrays are
+`02 07 09 07 00` and `(96,86,528,308,-528)`. It now uses the shared path
+processor below, including its field, topology, DMA and context checks;
+the former dedicated gray fingerprint and executor branch were removed.
+
+The path executor maps/prechecks the complete target before writing.
+For this input it writes528 pixels on308 rows with720-pixel stride;
+only `[96,624) × [86,394)` changes to bytes `b4 b4 b4 ff`. Side gaps, other
+rows, target tail and neighbors remain unchanged. It raises IRQ129 after
+successful work through the existing deferred completion path. This extends
+finite guest-produced graphics processing; it does not publish a console frame.
+
+The new gray fixture fails on the previous parser, then the complete transfer
+unit batch passes one executable/eight cases. It compares the entire target,
+guards/tail, delayed IRQ and ACK, context retention across ACK/repeat, cold and
+wrong-context rejection, reset/canceled/failed initialization, malformed fields
+and DMA operands, execution-time map loss and pending reset/unrealize. It also
+checks context invalidation after a rejected program or failed execution.
+Receipts: `work/runs/graycontext-20261022/{red,green}.log`. The intervening
+`fixturecomparison.log` is a test signed-extension comparison error, corrected
+by storing the loaded word as uint32 before comparison; it is not a pixel defect.
+
+With unchanged firmware and the same explicit functional input, real target
+samples change from black to gray, the side/next-row samples stay black, and
+original IRQ129 handler `106ee3ca` is entered. The subsequent pair is
+21488/28832 bytes with131 transformed black paths, keys10003..10085, on the
+same target. Complete decoding and all131 indirect paths are retained;
+the bounded path profile below now processes it.
+
+### Finite transformed opaque paths
+
+The [original glyph evidence](../../runtime/path.md) establishes absolute
+CLOSE/MOVE/LINE/QUAD segments00/02/04/0a, column-major affine matrices, direct
+target-memory y, nonzero winding from registera5 bit8 and black SRC_OVER.
+The131 paths correspond to six ROM strings warning that the battery cannot
+communicate with the camera; they are not a normal ready screen.
+
+The packet profile accepts1..256 paths, each exactly41 setup words and55 draw
+words, one final two-word ending and zero alignment padding where needed.
+All fixed fields retain their observed values: format0/target `c175d600`,
+state108, mode8 and blend selector1. Paint may be any opaque packed RGBA;
+operand `00040102` selects nonzero and `00040002` selects even-odd fill.
+Count/descriptors, matrix, DMA operands and matched sequential keys vary.
+The known720x480 context is mandatory and retained after successful completion.
+Counts are bounded to64 segments/256 float coordinates per path; these and
+coordinate/matrix magnitudes4096/transformed8192 are functional work limits,
+not recovered silicon capacities. Perspective/singular/nonfinite transforms,
+other segments, malformed contours/counts, unsupported states,
+nonopaque target alpha, missing context and incomplete packets remain errors.
+
+`devices/path.c` validates topology and converts quadratic to exact cubic
+control points. Relative horizontal07 and vertical09 each consume one scalar,
+update the object-space position and then apply the affine matrix. Cairo A8
+WINDING or EVEN_ODD/OVER coverage uses GRAY antialiasing and
+1/16-pixel tolerance. It never selects a font or imports text. Transfer code
+preflights the full target, packet ranges and all indirect arrays; it rejects
+guest overlap and effective RAM-backing aliases with the target. Read-only
+arrays may be reused by multiple glyphs. At deferred execution it revalidates
+data, composites each path/paint in command order into a premultiplied RGBA
+scratch overlay, maps/prechecks the full opaque target, then applies SRC_OVER
+with integer rounding. Any late
+bad path, map loss, reset or unrealize prevents output/completion. No partial
+glyph batch is committed. Coverage precision is a functional approximation.
+
+The new synthetic path fixture distinguishes transformed geometry, quadratic
+interior from its bounding box, nonzero contour direction/holes, partial
+coverage over gray, clipping, late bad data and cancellation. Old-parser red
+and nine-case transfer green are in `work/runs/pathmodel-20261022/`; the
+independent backing-alias review produced `aliasred.log` before its fix and
+`finalgreen.log` afterwards. `buildinclude.log` is an initial missing math-header
+compile failure, not the red fixture receipt. Cairo is an explicit Z7II Meson
+dependency and the official QEMU submodule is unchanged.
+
+The final unchanged-bundle functional run produces25958 changed panel pixels,
+including11874 solid black and14084 coverage-edge pixels, and enters original
+IRQ129. All target alpha remains opaque and pixels outside the gray panel
+remain black. Captured `frame.bin` is guest memory, not a scanout commit.
+`preview.png` merely reverses rows following the fixed Z7 presentation
+convention; it does not prove Z7II panel orientation or a visible first frame.
+The subsequent824/1112-byte pair has five relative H/V rectangles, even-odd operand
+`00040002`, and mixed `ffe6e6e6`/`ffb4b4b4` paints. It now completes through
+original IRQ129, preserving all pixels outside the five paths. Native coverage
+adds same-direction even-odd holes, relative H/V, overlapping ordered paints,
+distinct RGB channels, invalid alpha and relative topology. The focused
+nine-case batch passes; receipts are `work/runs/coloredpaths-20261022/`.
+The subsequent176/336-byte packet uses the finite image extension below.
+
+### Inline signed32 path and A8 image modulation
+
+The [image evidence](../../runtime/image.md) identifies a44/84-word packet,
+five inline signed32 coordinates, relative H/V segments, an80x72 A8 source,
+f24 sample matrix and mode14 modulation by opaque packed RGBA paint. The
+model accepts this exact header/state family in the retained720x480 context;
+variable dimensions are bounded1..256 and both extent writes must match.
+Only the known inline five-segment path, affine matrices, opaque paint,
+matched class1 keys and nonzero echoed operands are supported. Other image
+formats, modes, perspective, indirect geometry in this family and nonopaque
+target alpha stay explicit errors.
+
+`nikon_transfer_image_parse` validates the entire target, command and image
+ranges/overlaps and effective backing aliases. At deferred execution it reads
+the current alpha source, reuses the affine path rasterizer and builds an
+image-modulated premultiplied overlay. `nikon_path_image` decodes the f24
+matrix, samples at pixel centers with functional nearest/clamp behavior and
+preserves direct buffer y. The shared path executor prechecks target alpha,
+commits SRC_OVER and raises IRQ129. Late errors, reset and cancellation leave
+the target unchanged. No console frame or guest callback is injected.
+
+The synthetic fixture covers alpha/color channels, stride, transforms, flip,
+clamping, malformed/unsafe inputs, backing aliases, delayed data reads, map
+loss and reset/unrealize. The focused native batch passes all10 cases after
+old-model red. Unchanged firmware then renders the red icon:3751 changed
+pixels,3365 solid and386 alpha edges; all outside-patch pixels match the prior
+frame. Receipts: `work/runs/texturemodel-20261023/`. The subsequent224/1736-byte
+RGBA-input/YUV105-output pair uses the finite conversion below; see the
+[current frontier](../../validation/frontier.md). Physical raster/filter
+precision and final scanout remain separate, unverified properties.
+
+### Finite RGBA input to YUV105 and scaled YUVA107 planes
+
+The [conversion evidence](../../runtime/conversion.md) establishes56/434-word
+commands, a1024x688 source with fixed f24 sampler, inline integer rectangle
+covering logical rows6..688, SRC mode2, output105, a256-entry identity primary
+table and exact captured32-entry secondary configuration. The profile fixes
+all sampler, conversion, LUT, state, geometry and ending fields. Only image/
+output addresses, matched class1 key and echoed opaque operand vary. Other
+table values remain unsupported. A second exact224/1736-byte profile accepts
+720x480 scaling into107; it does not allow arbitrary mixed state.
+
+`nikon_transfer_convert_parse` checks2818048 source bytes and698368 bytes
+per Y/UV plane, exact plane delta, complete direct spans, wrap, overlap and
+effective backing aliases. The generalized alias helper also serves prior
+path/image profiles. At deferred execution, source alpha must be0 or255;
+transparent pixels become black and opaque pixels retain RGB for the captured
+SRC-to-no-alpha operation. The exact fixed f24 row expression selects source
+rows687..0. Functional limited-range BT.601 conversion and pairwise chroma
+averaging use the fixed Z7 convention; physical programmable LUT/matrix
+precision remains unverified. The known tables qualify this bounded state,
+not general LUT execution.
+
+The complete image is read and both planes computed in scratch memory before
+either output is mapped for writing. Both maps and their backing independence
+must succeed before the two copies. Late failure, reset or unrealize preserves
+both outputs and publishes no IRQ. Success raises IRQ129, with the prior
+720x480 continuation context invalidated by the new full initialization.
+
+Native old-model red becomes green with all11 transfer cases. The new
+fixture checks seven colors, independent sampling and chroma oracles, every
+plane byte, alpha, source/command/plane aliases, bad fields/tables/ranges,
+delayed input, map loss and cancellation. Unchanged firmware then converts
+the separate black RGBA source to full Y16/UV128 planes through original
+IRQ129; it leaves source and guards unchanged. Receipts:
+`work/runs/yuvmodel-20261023/`.
+
+The107 profile reads1382400 source bytes and writes1396736 packed Y0/Y1/U/V
+bytes plus698368 separate alpha bytes, with exact plane delta155000(hex).
+The captured float path matrix rasterizes a1024x688 mask whose active rows
+begin at6; first-row/final-column coverage is partial. Its fixed f24 sampler
+selects720x480 source pixels at target centers using exact integer ratios.
+Selector7 uses the declared functional nearest/clamp convention. Source and
+old-target alpha0..255 are supported. SRC coverage preserves the old target
+where coverage is partial; old packed YUV is converted to RGB before blending.
+Both targets are read into scratch, and both writable maps/alias checks must
+succeed before either commit. Successful107 completion retains this finite
+state for the SRC_OVER continuation below.
+
+`work/runs/yuva107-20261023/` records old-model red and all12 native cases
+passing, including partial alpha, edge color/alpha retention and previous
+safety/cancellation boundaries. Unchanged firmware completes this pair through
+IRQ129 with source/guards preserved, packed Y16/UV128 and alpha0. The next
+176/1552-byte packet switches to the warning source and SRC_OVER while omitting
+full target initialization. This exact continuation now processes using the
+successful107 context. It validates the shorter192 upload and low16-bit196
+write, both fixed LUTs, sampler, blend, layout and dynamic operand matches.
+The same preflight/deferred DMA and atomic two-plane commit checks apply.
+SRC_OVER uses`sa=As*coverage*255`, `da=Ad*(65025-As*coverage)` for straight
+RGB and rounded alpha. The largest rounded RGB numerator fits32-bit unsigned.
+
+ACK and successful107 continuation preserve the context; cold or unsuccessful
+initialization does not establish it. A different completed profile, rejected
+complete stream, late failure, reset or unrealize clears it. Native old-model
+red and all13 transfer cases passing are in`work/runs/srcover-20261024/`,
+including source/old alpha combinations, every packed byte, repeat, lifecycle,
+mask/field/range/alias rejection and late cancellation. Original unchanged
+execution completes through IRQ129 and its actual packed buffer contains the
+warning. Independent full-frame and alpha-coverage checks pass. The subsequent
+bounded run returns from worker4 to worker0 with no new graphics error; see
+the conversion evidence for the remaining policy/readiness boundary.
+
 The native tests in `tests/qtest/nikon/transfer.c` check data movement,
 unchanged packet addresses, delayed completion, IRQ130, and cancellation. They
 also submit synthetic firmware-shaped LUT packets for byte-exact output,
@@ -339,7 +607,7 @@ return, IRQ129 or frame; see
 [runtime evidence](../../runtime/coprocessor.md).
 
 Remaining work is active, not accepted as a completed GUI: physical color
-fidelity, programs/formats/geometry outside the finite LUT and clear profiles,
+fidelity, programs/formats/geometry outside the finite LUT, clear, path and A8 profiles,
 IRQ131, other status58 states, fences,
 processing replies and final scanout remain unsupported. The selected graphics
 destination is not presented as a screen. Console output must consume the

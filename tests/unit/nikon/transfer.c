@@ -8,6 +8,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/transfer.h"
+#include "hw/nikon/path.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
 
@@ -186,6 +187,21 @@ static void test_romd_boundary(void)
         g_assert_cmpint(write_register(f, 0x10d4, 0x1102), ==, MEMTX_OK);
         g_assert_cmpint(write_register(f, 0x10dc, 1), ==, MEMTX_OK);
         g_assert_cmpint(write_register(f, 0x10d0, 1), ==, MEMTX_OK);
+        /* The original wait path kicks 1214 with bit24 while the streams are
+         * still pending (sub_106ee1f8 case 8/10).  It must be accepted and
+         * must not overwrite the retained configuration. */
+        g_assert_cmpint(write_register(f, 0x1214, 0x1000000), ==, MEMTX_OK);
+        {
+            MemoryRegion *regs = sysbus_mmio_get_region(SYS_BUS_DEVICE(f->dev),
+                                                        0);
+            uint64_t value = 0;
+
+            g_assert_cmpint(memory_region_dispatch_read(regs, 0x1214, &value,
+                                                        MO_32,
+                                                        MEMTXATTRS_UNSPECIFIED),
+                            ==, MEMTX_OK);
+            g_assert_cmphex(value, ==, 0xffff);
+        }
         {
             NikonTransferStreamRequest stream;
             size_t length;
@@ -751,8 +767,101 @@ static void build_clear_program(uint8_t *setup, uint8_t *draw,
 #undef EMIT
 }
 
+static void build_convert_program(uint8_t *setup, uint8_t *draw)
+{
+    uint8_t clear_setup[NIKON_TRANSFER_CLEAR_SETUP_BYTES];
+    uint8_t clear_draw[NIKON_TRANSFER_CLEAR_DRAW_BYTES];
+    unsigned at = 0;
+    uint8_t *bytes = setup;
+    static const uint32_t secondary[] = {
+        0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192,
+        256, 384, 512, 768, 1024, 1280, 1536, 1792, 2048, 2304,
+        2560, 2816, 3072, 3328, 3584, 3840,
+    };
+
+#define EMIT(header, ...) \
+    clear_emit(bytes, &at, header, (uint32_t[]) { __VA_ARGS__ }, \
+               sizeof((uint32_t[]) { __VA_ARGS__ }) / sizeof(uint32_t))
+#define REG(r, m, v) EMIT(((r) << 16) | ((m) << 12) | 4, v)
+    memset(setup, 0, 224);
+    memset(draw, 0, 1736);
+    build_clear_program(clear_setup, clear_draw, 0x105, 0x800000, 0x8aa800);
+    REG(0x69, 1, 0x80);
+    EMIT(0x0041f046, 0x3f800000, 0, 0, 0, 0x3f800000, 0, 0, 0, 0x3f800000);
+    EMIT(0x0041f046, 0x3f800000, 0, 0, 0, 0xbf800000, 0,
+         0, 0x442c0000, 0x3f800000);
+    REG(0x65, 3, 0x2100);
+    REG(3, 15, 5);
+    REG(5, 15, 0x80000005);
+    REG(0x63, 15, 5);
+    REG(0x5e, 15, 0x3f800000);
+    REG(0x5f, 15, 0);
+    REG(0x40, 15, 0x0ac01000);
+    EMIT(0x0080f026, 0x12345000, 0, 16, 0x0ac01000, 0);
+    REG(6, 15, 1);
+    EMIT(0x0a, 0x07090702, 0);
+    EMIT(0x00010022, 0, 0, 1024, 682, -1024);
+    REG(0x85, 15, 0x10001);
+    g_assert_cmpuint(at, ==, 55);
+    bytes = draw;
+    memcpy(draw, clear_draw, 45 * 4);
+    at = 45;
+    EMIT(0x010c7046, 0x350000, 0, 0, 0, 0xb58064, 0x3f0241, 0, 0, 0x3f0000);
+    REG(0x158, 15, 0x040002aa);
+    REG(0x156, 7, 0x001b0100);
+    REG(0x152, 15, 0x040002b0);
+    REG(0x140, 1, 2);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x140, 4, 0x210000);
+    REG(0x155, 15, 0x410000);
+    REG(0x1a0, 4, 0);
+    REG(0x184, 1, 0);
+    REG(0x140, 1, 2);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x140, 2, 0);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x115, 12, 0x01000000);
+    REG(0x1aa, 1, 0);
+    REG(0x184, 1, 2);
+    REG(0x186, 8, 0x07000000);
+    REG(0x187, 15, 0);
+    stl_le_p(draw + at++ * 4, 0x0188f7fc);
+    for (unsigned i = 0; i < 256; i++) {
+        stl_le_p(draw + at++ * 4, i * 16);
+    }
+    EMIT(0x0192f02e, 0x400, 0, 0x400, 0, 0x400, 0);
+    REG(0x186, 8, 0x38000000);
+    REG(0x187, 15, 0);
+    stl_le_p(draw + at++ * 4, 0x0188f0fc);
+    for (unsigned i = 0; i < 32; i++) {
+        stl_le_p(draw + at++ * 4, secondary[i]);
+    }
+    REG(0x186, 3, 0x10f);
+    REG(0x184, 2, 0);
+    REG(0x1a0, 2, 0);
+    REG(0x1a2, 9, 0x105);
+    REG(0x1a4, 15, 0x800000);
+    REG(0x1b5, 15, 0x8aa800);
+    REG(0x1a5, 1, 0);
+    REG(0x1a7, 4, 0);
+    REG(0x115, 8, 0x01000000);
+    REG(0x153, 1, 1);
+    REG(0x143, 1, 1);
+    EMIT(0x00a0f02e, 0x12345000, 0, 16, 0x0ac01000, 0, 2);
+    REG(0xa6, 15, 0x10001);
+    REG(0x1a6, 1, 1);
+    REG(8, 1, 1);
+    g_assert_cmpuint(at, ==, 433);
+#undef REG
+#undef EMIT
+}
+
 static void build_rgba_program(uint8_t *setup, uint8_t *draw,
-                               uint32_t coordinates, uint32_t segments)
+                               uint32_t coordinates, uint32_t segments,
+                               bool single)
 {
     unsigned at = 0;
     uint8_t *bytes = setup;
@@ -766,8 +875,8 @@ static void build_rgba_program(uint8_t *setup, uint8_t *draw,
     REG(0x69, 1, 0x80);
     EMIT(0x005ef00e, 0x3f800000, 0);
     REG(0x63, 15, 5);
-    REG(0x40, 15, 0x0ac01000);
-    REG(0x40, 15, 0x0ac01000);
+    REG(0x40, 15, single ? 0x07800b40 : 0x0ac01000);
+    REG(0x40, 15, single ? 0x07800b40 : 0x0ac01000);
     EMIT(0x0041f046, 0x3f800000, 0, 0, 0, 0x3f800000, 0,
          0, 0, 0x3f800000);
     REG(4, 15, coordinates);
@@ -776,15 +885,18 @@ static void build_rgba_program(uint8_t *setup, uint8_t *draw,
     REG(3, 15, 0x10000005);
     REG(0x65, 3, 0x2100);
     REG(0x66, 15, 0x6004);
-    EMIT(0x0080f026, 0x12345000, 0, 0x200, 0x08701000, 0);
+    EMIT(0x0080f026, 0x12345000, 0, 0x200,
+         single ? 0x07800b40 : 0x08701000, 0);
     REG(6, 15, 1);
     REG(0x85, 15, 0x10001);
-    REG(5, 15, 0xd0000005);
-    REG(3, 15, 0x10000005);
-    EMIT(0x0080f026, 0x12346000, 0, 0x200, 0x02501000, 0x1f790);
-    REG(6, 15, 1);
-    REG(0x85, 15, 0x10002);
-    g_assert_cmpuint(at, ==, 57); /* final zero alignment word */
+    if (!single) {
+        REG(5, 15, 0xd0000005);
+        REG(3, 15, 0x10000005);
+        EMIT(0x0080f026, 0x12346000, 0, 0x200, 0x02501000, 0x1f790);
+        REG(6, 15, 1);
+        REG(0x85, 15, 0x10002);
+    }
+    g_assert_cmpuint(at, ==, single ? 43 : 57);
 
     bytes = draw;
     at = 0;
@@ -793,10 +905,10 @@ static void build_rgba_program(uint8_t *setup, uint8_t *draw,
     REG(0x14e, 14, 0x1b0000);
     REG(0x156, 14, 0x1b0000);
     REG(0x1a2, 15, 0);
-    REG(0x1a3, 15, 0x02b00400);
+    REG(0x1a3, 15, single ? 0x01e002d0 : 0x02b00400);
     REG(0x184, 4, 0);
     REG(0x1a7, 15, 0x01000101);
-    REG(0x11c, 15, 0x02b00000);
+    REG(0x11c, 15, single ? 0x01e00000 : 0x02b00000);
     REG(0x1a0, 8, 0);
     REG(0x1aa, 1, 0);
     REG(0x1a0, 4, 0x10000);
@@ -804,13 +916,14 @@ static void build_rgba_program(uint8_t *setup, uint8_t *draw,
     REG(0x184, 2, 0);
     REG(0x1a0, 2, 0);
     REG(0x1a2, 9, 0);
-    REG(0x1a4, 15, 0xbf309600);
+    REG(0x1a4, 15, single ? 0xc175d600 : 0xbf309600);
     REG(0x1a5, 1, 1);
     REG(0x1a7, 4, 0);
     REG(0x140, 1, 0);
     REG(0x14d, 15, 0);
     REG(0x14d, 15, 0);
-    EMIT(0x00c0f00e, 0x03ff0000, 0x02af0000);
+    EMIT(0x00c0f00e, single ? 0x02cf0000 : 0x03ff0000,
+         single ? 0x01df0000 : 0x02af0000);
     REG(0x100, 1, 1);
     REG(0x115, 1, 1);
     REG(0x1b0, 1, 0xd);
@@ -827,26 +940,30 @@ static void build_rgba_program(uint8_t *setup, uint8_t *draw,
     REG(0x115, 12, 0);
     REG(0x185, 15, 0xff000000);
     REG(0x186, 3, 0x108);
-    EMIT(0x00a0f02e, 0x12345000, 0, 0x200, 0x08701000, 0,
+    EMIT(0x00a0f02e, 0x12345000, 0, 0x200,
+         single ? 0x07800b40 : 0x08701000, 0,
          0x00040002);
     REG(0xa6, 15, 0x10001);
     REG(0x1a6, 1, 1);
-    EMIT(0x00a0f02e, 0x12346000, 0, 0x200, 0x02501000, 0x21c,
-         0x00040002);
-    REG(0xa6, 15, 0x10002);
-    REG(0x1a6, 1, 1);
+    if (!single) {
+        EMIT(0x00a0f02e, 0x12346000, 0, 0x200, 0x02501000, 0x21c,
+             0x00040002);
+        REG(0xa6, 15, 0x10002);
+        REG(0x1a6, 1, 1);
+    }
     REG(8, 1, 1);
-    g_assert_cmpuint(at, ==, 103); /* final zero alignment word */
+    g_assert_cmpuint(at, ==, single ? 92 : 103);
 #undef REG
 #undef EMIT
 }
 
-static MemTxResult submit_rgba(TransferFixture *f, unsigned draw_bytes)
+static MemTxResult submit_rgba(TransferFixture *f, unsigned setup_bytes,
+                               unsigned draw_bytes)
 {
     const uint32_t packet[][2] = {
         { 0x1214, 0x100ffff }, { 0x1298, 0 },
         { 0x10d4, 0x400000 },
-        { 0x10dc, NIKON_TRANSFER_RGBA_SETUP_BYTES / 8 }, { 0x10d0, 1 },
+        { 0x10dc, setup_bytes / 8 }, { 0x10d0, 1 },
         { 0x10e4, 0x401000 }, { 0x10ec, draw_bytes / 8 },
     };
 
@@ -857,18 +974,20 @@ static MemTxResult submit_rgba(TransferFixture *f, unsigned draw_bytes)
     return write_register(f, 0x10e0, 1);
 }
 
-static void test_rgba_clear(void)
+static void test_rgba_clear_profile(bool single)
 {
+    const unsigned extent = single ? 0x151800 : 0x2b0000;
+    const unsigned active_offset = single ? 0 : 0x6000;
+    const unsigned active = extent - active_offset;
+    const unsigned slot = 0x4b0000;
     enum {
-        EXTENT = 0x2b0000, ACTIVE_OFFSET = 0x6000,
-        ACTIVE = 0x2aa000, SLOT = 0x4b0000,
-    };
-    enum {
-        UNKNOWN, TRUNCATED, PATH, FORMAT, OPAQUE_ZERO, OPAQUE_EQUAL,
-        OPAQUE_ECHO, RANGE, OVERLAP, TARGET_FIELD, SUCCESS, MAP_LOSS,
+        UNKNOWN, TRUNCATED, SETUP_TRUNCATED, PATH, COORDINATE, FORMAT,
+        GEOMETRY, CLIP, ENDING, OPAQUE_ZERO, OPAQUE_EQUAL,
+        OPAQUE_ECHO, RANGE, OVERLAP, TARGET_FIELD, INITIAL_CLEAR,
+        INITIAL_UNKNOWN, FINAL_CLEAR, SUCCESS, MAP_LOSS,
         RESET, CANCEL, CASES,
     };
-    const hwaddr target = 0xbf309600;
+    const hwaddr target = single ? 0xc175d600 : 0xbf309600;
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
     MemoryRegion commands, surface;
     MemoryRegion *root = get_system_memory();
@@ -881,7 +1000,7 @@ static void test_rgba_clear(void)
                                           &error_abort);
     memory_region_add_subregion(root, 0x400000, &commands);
     memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
-                                          "test.rgba-surface", SLOT + 8, 0,
+                                          "test.rgba-surface", slot + 8, 0,
                                           &error_abort);
     memory_region_add_subregion(root, target - 4, &surface);
     command_data = memory_region_get_ram_ptr(&commands);
@@ -892,23 +1011,37 @@ static void test_rgba_clear(void)
 
     for (unsigned test = UNKNOWN; test < CASES; test++) {
         uint32_t segments = 0x402000;
-        unsigned draw_bytes = NIKON_TRANSFER_RGBA_DRAW_BYTES;
-        bool accepted = test == SUCCESS || test == MAP_LOSS ||
+        unsigned setup_bytes = single ? NIKON_TRANSFER_RGBA_SINGLE_SETUP_BYTES :
+                                        NIKON_TRANSFER_RGBA_SETUP_BYTES;
+        unsigned draw_bytes = single ? NIKON_TRANSFER_RGBA_SINGLE_DRAW_BYTES :
+                                       NIKON_TRANSFER_RGBA_DRAW_BYTES;
+        bool complete = test == SUCCESS || test == INITIAL_CLEAR;
+        bool accepted = complete || test == MAP_LOSS ||
                         test == RESET || test == CANCEL;
         g_autofree uint8_t *before = NULL;
 
+        if (single && test == OPAQUE_EQUAL) {
+            continue; /* Only the two-path profile has a second operand. */
+        }
         device_cold_reset(f.dev);
         memset(command_data, 0, 0x3000);
-        memset(surface_data, 0xa5, SLOT + 8);
+        memset(surface_data, 0xa5, slot + 8);
         build_rgba_program(command_data, command_data + 0x1000,
-                           0x402100, segments);
+                           0x402100, segments, single);
         memcpy(command_data + 0x2000,
                (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
         for (unsigned i = 0; i < 5; i++) {
-            static const uint32_t coordinate[] = {
-                0, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000,
+            const uint32_t coordinate[] = {
+                0, single ? 0 : 0x40c00000,
+                single ? 0x44340000 : 0x44800000,
+                single ? 0x43f00000 : 0x442a8000,
+                single ? 0xc4340000 : 0xc4800000,
             };
             stl_le_p(command_data + 0x2100 + 4 * i, coordinate[i]);
+        }
+        if (test == INITIAL_CLEAR || test == MAP_LOSS ||
+            test == RESET || test == CANCEL) {
+            stl_le_p(command_data + 0x1000 + 25 * 4, 8);
         }
         switch (test) {
         case UNKNOWN:
@@ -917,11 +1050,26 @@ static void test_rgba_clear(void)
         case TRUNCATED:
             draw_bytes -= 8;
             break;
+        case SETUP_TRUNCATED:
+            setup_bytes -= 8;
+            break;
         case PATH:
             command_data[0x2002] ^= 1;
             break;
+        case COORDINATE:
+            command_data[0x2108] ^= 1;
+            break;
         case FORMAT:
             stl_le_p(command_data + 0x1000 + 9 * 4, 1);
+            break;
+        case GEOMETRY:
+            command_data[0x1000 + 11 * 4] ^= 1;
+            break;
+        case CLIP:
+            command_data[0x1000 + 45 * 4] ^= 1;
+            break;
+        case ENDING:
+            stl_le_p(command_data + 0x1000 + (single ? 91 : 102) * 4, 0);
             break;
         case OPAQUE_ZERO:
             stl_le_p(command_data + 34 * 4, 0);
@@ -944,11 +1092,17 @@ static void test_rgba_clear(void)
         case TARGET_FIELD:
             stl_le_p(command_data + 0x1000 + 33 * 4, target + 4);
             break;
+        case INITIAL_UNKNOWN:
+            stl_le_p(command_data + 0x1000 + 25 * 4, 0x18);
+            break;
+        case FINAL_CLEAR:
+            stl_le_p(command_data + 0x1000 + 60 * 4, 0);
+            break;
         default:
             break;
         }
-        before = g_memdup2(surface_data, SLOT + 8);
-        g_assert_cmpint(submit_rgba(&f, draw_bytes), ==,
+        before = g_memdup2(surface_data, slot + 8);
+        g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes), ==,
                         accepted ? MEMTX_OK : MEMTX_ERROR);
         g_assert_false(f.level);
         if (test == RANGE) {
@@ -964,23 +1118,536 @@ static void test_rgba_clear(void)
         if (test == MAP_LOSS) {
             memory_region_set_readonly(&surface, false);
         }
-        g_assert_cmpint(f.level, ==, test == SUCCESS);
-        if (test == SUCCESS) {
-            g_assert_cmpmem(surface_data, 4 + ACTIVE_OFFSET,
-                            before, 4 + ACTIVE_OFFSET);
-            for (unsigned i = 0; i < ACTIVE; i++) {
-                g_assert_cmphex(surface_data[4 + ACTIVE_OFFSET + i], ==,
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            g_assert_cmpmem(surface_data, 4 + active_offset,
+                            before, 4 + active_offset);
+            for (unsigned i = 0; i < active; i++) {
+                g_assert_cmphex(surface_data[4 + active_offset + i], ==,
                                 i % 4 == 3 ? 0xff : 0);
             }
-            g_assert_cmpuint(ACTIVE_OFFSET + ACTIVE, ==, EXTENT);
-            g_assert_cmpmem(surface_data + 4 + EXTENT, SLOT - EXTENT + 4,
-                            before + 4 + EXTENT, SLOT - EXTENT + 4);
+            g_assert_cmpuint(active_offset + active, ==, extent);
+            g_assert_cmpmem(surface_data + 4 + extent, slot - extent + 4,
+                            before + 4 + extent, slot - extent + 4);
             g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
             g_assert_false(f.level);
         } else {
-            g_assert_cmpmem(surface_data, SLOT + 8, before, SLOT + 8);
+            g_assert_cmpmem(surface_data, slot + 8, before, slot + 8);
         }
     }
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void test_rgba_clear(void)
+{
+    test_rgba_clear_profile(false);
+}
+
+static void test_rgba_single_clear(void)
+{
+    test_rgba_clear_profile(true);
+}
+
+static void build_rgba_gray_program(uint8_t *setup, uint8_t *draw)
+{
+    uint8_t full_setup[NIKON_TRANSFER_RGBA_SETUP_BYTES];
+    uint8_t full_draw[NIKON_TRANSFER_RGBA_DRAW_BYTES];
+
+    build_rgba_program(full_setup, full_draw, 0x402100, 0x402000, true);
+    /* The continuation omits register69 and full target/clip initialization. */
+    memcpy(setup, full_setup + 2 * 4, NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES);
+    memcpy(draw, full_draw + 20 * 4, 18 * 4);
+    memcpy(draw + 18 * 4, full_draw + 38 * 4, 6 * 4);
+    memcpy(draw + 24 * 4, full_draw + 59 * 4, 33 * 4);
+    stl_le_p(draw + 57 * 4, 0);
+    stl_le_p(setup + 32 * 4, 0x12346000);
+    stl_le_p(setup + 40 * 4, 0x10002);
+    stl_le_p(draw + 5 * 4, 8);
+    stl_le_p(draw + 41 * 4, 0xffb4b4b4);
+    stl_le_p(draw + 45 * 4, 0x12346000);
+    stl_le_p(draw + 52 * 4, 0x10002);
+}
+
+static void test_rgba_gray(void)
+{
+    enum { EXTENT = 720 * 480 * 4, SLOT = 0x4b0000 };
+    enum {
+        SUCCESS, COLD, OTHER_CONTEXT, CANCELED_INIT, FAILED_INIT, RESET_CONTEXT,
+        UNKNOWN, SHORT_SETUP, SHORT_DRAW, PATH, COORDINATE, COLOR, TARGET,
+        KEY_ZERO, KEY_ECHO, MODE, ENDING, RANGE, OVERLAP, REJECT_INVALIDATE,
+        REPEAT, MAP_LOSS, RESET_PENDING, CANCEL, CASES,
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface, other;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *command_data, *surface_data;
+
+    object_property_add_child(object_get_objects_root(), "transfer-gray[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+                                          "test.gray-command", 0x3000, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+                                          "test.gray-surface", SLOT + 8, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0xc175d600 - 4, &surface);
+    memory_region_init_ram_flags_nomigrate(&other, OBJECT(f.dev),
+                                          "test.gray-other", 0x2b0000, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0xbf309600, &other);
+    command_data = memory_region_get_ram_ptr(&commands);
+    surface_data = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned setup_bytes = NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES;
+        unsigned draw_bytes = NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES;
+        bool complete = test == SUCCESS || test == REPEAT;
+        bool accepted = complete || test == MAP_LOSS ||
+                        test == RESET_PENDING || test == CANCEL;
+        g_autofree uint8_t *before = NULL;
+
+        device_cold_reset(f.dev);
+        memset(surface_data, 0xa5, SLOT + 8);
+        memset(command_data, 0, 0x3000);
+        memcpy(command_data + 0x2000,
+               (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+        if (test != COLD) {
+            const uint32_t coordinate[] = {
+                0, 0, 0x44340000, 0x43f00000, 0xc4340000,
+            };
+
+            build_rgba_program(command_data, command_data + 0x1000,
+                               0x402100, 0x402000, true);
+            for (unsigned i = 0; i < ARRAY_SIZE(coordinate); i++) {
+                stl_le_p(command_data + 0x2100 + i * 4, coordinate[i]);
+            }
+            g_assert_cmpint(submit_rgba(&f,
+                            NIKON_TRANSFER_RGBA_SINGLE_SETUP_BYTES,
+                            NIKON_TRANSFER_RGBA_SINGLE_DRAW_BYTES), ==, MEMTX_OK);
+            g_assert_false(f.level);
+            if (test == CANCELED_INIT) {
+                device_cold_reset(f.dev);
+            } else if (test == FAILED_INIT) {
+                memory_region_set_readonly(&surface, true);
+            }
+            advance();
+            g_assert_cmpint(f.level, ==,
+                            test != CANCELED_INIT && test != FAILED_INIT);
+            memory_region_set_readonly(&surface, false);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        if (test == OTHER_CONTEXT) {
+            const uint32_t coordinate[] = {
+                0, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000,
+            };
+
+            build_rgba_program(command_data, command_data + 0x1000,
+                               0x402100, 0x402000, false);
+            for (unsigned i = 0; i < ARRAY_SIZE(coordinate); i++) {
+                stl_le_p(command_data + 0x2100 + i * 4, coordinate[i]);
+            }
+            g_assert_cmpint(submit_rgba(&f, NIKON_TRANSFER_RGBA_SETUP_BYTES,
+                            NIKON_TRANSFER_RGBA_DRAW_BYTES), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else if (test == RESET_CONTEXT) {
+            device_cold_reset(f.dev);
+        }
+        build_rgba_gray_program(command_data, command_data + 0x1000);
+        for (unsigned i = 0; i < 5; i++) {
+            static const uint32_t coordinate[] = {
+                0x42c00000, 0x42ac0000, 0x44040000, 0x439a0000, 0xc4040000,
+            };
+            stl_le_p(command_data + 0x2100 + i * 4, coordinate[i]);
+        }
+        switch (test) {
+        case UNKNOWN:
+            command_data[4] ^= 1;
+            break;
+        case SHORT_SETUP:
+            setup_bytes -= 8;
+            break;
+        case SHORT_DRAW:
+            draw_bytes -= 8;
+            break;
+        case PATH:
+            command_data[0x2002] ^= 1;
+            break;
+        case COORDINATE:
+            stl_le_p(command_data + 0x2108, 0x7fc00000);
+            break;
+        case COLOR:
+        case REJECT_INVALIDATE:
+            stl_le_p(command_data + 0x1000 + 41 * 4, 0x7fb4b4b4);
+            break;
+        case TARGET:
+            stl_le_p(command_data + 0x1000 + 13 * 4, 0xc175d604);
+            break;
+        case KEY_ZERO:
+            stl_le_p(command_data + 32 * 4, 0);
+            stl_le_p(command_data + 0x1000 + 45 * 4, 0);
+            break;
+        case KEY_ECHO:
+            stl_le_p(command_data + 0x1000 + 45 * 4, 4);
+            break;
+        case MODE:
+            stl_le_p(command_data + 0x1000 + 25 * 4, 0);
+            break;
+        case ENDING:
+            stl_le_p(command_data + 0x1000 + 56 * 4, 0);
+            break;
+        case RANGE:
+            memory_region_set_readonly(&surface, true);
+            break;
+        case OVERLAP:
+            stl_le_p(command_data + 20 * 4, 0xc175d600);
+            break;
+        default:
+            break;
+        }
+        before = g_memdup2(surface_data, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == RANGE) {
+            memory_region_set_readonly(&surface, false);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == RESET_PENDING) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            for (unsigned y = 0; y < 480; y++) {
+                for (unsigned x = 0; x < 720; x++) {
+                    uint32_t expected = x >= 96 && x < 624 &&
+                                        y >= 86 && y < 394 ?
+                                        0xffb4b4b4 : 0xff000000;
+
+                    uint32_t actual = ldl_le_p(surface_data + 4 +
+                                               (y * 720 + x) * 4);
+
+                    g_assert_cmphex(actual, ==, expected);
+                }
+            }
+            g_assert_cmpmem(surface_data, 4, before, 4);
+            g_assert_cmpmem(surface_data + 4 + EXTENT, SLOT - EXTENT + 4,
+                            before + 4 + EXTENT, SLOT - EXTENT + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else {
+            g_assert_cmpmem(surface_data, SLOT + 8, before, SLOT + 8);
+        }
+        if (test == REPEAT || test == REJECT_INVALIDATE ||
+            test == MAP_LOSS || test == RESET_PENDING) {
+            stl_le_p(command_data + 0x1000 + 41 * 4, 0xffb4b4b4);
+            g_assert_cmpint(submit_rgba(&f, NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES,
+                            NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES), ==,
+                            test == REPEAT ? MEMTX_OK : MEMTX_ERROR);
+            advance();
+            g_assert_cmpint(f.level, ==, test == REPEAT);
+        }
+    }
+    memory_region_del_subregion(root, &other);
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void path_floats(uint8_t *destination, const float *values, unsigned count)
+{
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t bits;
+
+        memcpy(&bits, &values[i], 4);
+        stl_le_p(destination + i * 4, bits);
+    }
+}
+
+static void build_path_program(uint8_t *data)
+{
+    uint8_t setup[NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES];
+    uint8_t draw[NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES];
+    const float matrix[] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    const float polygon[] = {
+        10, 10, 30, 10, 30, 30, 10, 30,
+        15, 15, 15, 25, 25, 25, 25, 15,
+    };
+    const float quadratic[] = { 40, 10, 60, 10, 60, 30, 40, 30 };
+
+    build_rgba_gray_program(setup, draw);
+    for (unsigned i = 0; i < 2; i++) {
+        uint8_t *s = data + i * 41 * 4;
+        uint8_t *d = data + 0x1000 + i * 55 * 4;
+        uint32_t ncoord = i ? 8 : 16, nseg = i ? 4 : 10;
+
+        memcpy(s, setup, 41 * 4);
+        memcpy(d, draw, 55 * 4);
+        stl_le_p(s + 4 * 4, nseg);
+        path_floats(s + 10 * 4, matrix, 9);
+        path_floats(s + 10 * 4, (float[]) { i ? 1 : 2 }, 1);
+        path_floats(s + 16 * 4, (float[]) { i ? 100 : 4, i ? 0 : 3 }, 2);
+        stl_le_p(s + 20 * 4, 0x402100 + i * 0x200);
+        stl_le_p(s + 22 * 4, 0xd0000000 | ncoord);
+        stl_le_p(s + 24 * 4, 0x402000 + i * 0x200);
+        stl_le_p(s + 26 * 4, 0x10000000 | nseg);
+        stl_le_p(s + 32 * 4, 0x12345000 + i * 0x1000);
+        stl_le_p(s + 40 * 4, 0x10003 + i);
+        stl_le_p(d + 41 * 4, 0xff000000);
+        stl_le_p(d + 45 * 4, 0x12345000 + i * 0x1000);
+        stl_le_p(d + 50 * 4, 0x40102);
+        stl_le_p(d + 52 * 4, 0x10003 + i);
+    }
+    stl_le_p(data + 0x1000 + 110 * 4, 0x00081004);
+    stl_le_p(data + 0x1000 + 111 * 4, 1);
+    memcpy(data + 0x2000, (uint8_t[]) { 2, 4, 4, 4, 0, 2, 4, 4, 4, 0 }, 10);
+    memcpy(data + 0x2200, (uint8_t[]) { 2, 10, 4, 0 }, 4);
+    path_floats(data + 0x2100, polygon, ARRAY_SIZE(polygon));
+    path_floats(data + 0x2300, quadratic, ARRAY_SIZE(quadratic));
+}
+
+static void test_path_fill(void)
+{
+    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4 };
+    enum {
+        SUCCESS, COLD, COUNT_LIMIT, UNKNOWN, SHORT_DRAW, COORD_COUNT, SEG_COUNT,
+        RELATIVE, NAN_COORD, INF_MATRIX, PERSPECTIVE, KEY, MEMORY, OVERLAP,
+        LATE_BAD, FILL_RULE, COLOR, ALPHA, ALIAS, SAME_WINDING, EVEN_ODD,
+        COLORS, CHANNELS, BAD_RELATIVE, CLIPPED, REPEAT,
+        DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES,
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-path[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+                                          "test.path-command", 0x20000, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+                                          "test.path-surface", SLOT + 8, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0xc175d600 - 4, &surface);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.path-alias",
+                            &surface, 4 + 0x10000, 64);
+    memory_region_add_subregion(root, 0x500000, &alias);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned setup_bytes = 82 * 4, draw_bytes = 112 * 4;
+        bool colored = test == COLORS || test == CHANNELS;
+        bool complete = test == SUCCESS || test == SAME_WINDING ||
+                        test == EVEN_ODD || colored ||
+                        test == CLIPPED || test == REPEAT;
+        bool accepted = complete || test == DATA_CHANGE || test == MAP_LOSS ||
+                        test == RESET || test == CANCEL || test == ALPHA;
+        g_autofree uint8_t *before = NULL;
+
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x20000);
+        memset(pixels, 0xa5, SLOT + 8);
+        if (test != COLD) {
+            build_rgba_program(data, data + 0x1000, 0x402100, 0x402000, true);
+            memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+            path_floats(data + 0x2100, (float[]) { 0, 0, 720, 480, -720 }, 5);
+            g_assert_cmpint(submit_rgba(&f, 176, 368), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            for (unsigned i = 0; i < EXTENT; i += 4) {
+                stl_le_p(pixels + 4 + i, 0xffb4b4b4);
+            }
+        }
+        build_path_program(data);
+        if (colored) {
+            for (unsigned i = 0; i < 2; i++) {
+                uint8_t *a = data + i * 41 * 4;
+                uint8_t *b = data + 0x1000 + i * 55 * 4;
+                uint32_t paint = test == CHANNELS ?
+                    (i ? 0xffa0c0e0 : 0xff204080) :
+                    (i ? 0xffb4b4b4 : 0xffe6e6e6);
+
+                stl_le_p(a + 4 * 4, 5);
+                stl_le_p(a + 22 * 4, 0xd0000005);
+                stl_le_p(a + 26 * 4, 0x10000005);
+                stl_le_p(b + 41 * 4, paint);
+                stl_le_p(b + 50 * 4, 0x40002);
+                memcpy(data + 0x2000 + i * 0x200,
+                       (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+                path_floats(data + 0x2100 + i * 0x200,
+                            (float[]) { i ? 40 : 10, 10, 20, 20, -20 }, 5);
+            }
+            path_floats(data + 41 * 4 + 16 * 4, (float[]) { 0, 0 }, 2);
+        }
+        switch (test) {
+        case COUNT_LIMIT:
+            setup_bytes = ROUND_UP(41 * (NIKON_PATH_MAX_BATCH + 1), 2) * 4;
+            draw_bytes = ROUND_UP(55 * (NIKON_PATH_MAX_BATCH + 1) + 2, 2) * 4;
+            break;
+        case UNKNOWN:
+            data[0] ^= 1;
+            break;
+        case SHORT_DRAW:
+            draw_bytes -= 8;
+            break;
+        case COORD_COUNT:
+            stl_le_p(data + 22 * 4, 0xd000000f);
+            break;
+        case SEG_COUNT:
+            stl_le_p(data + 26 * 4, 0x10000009);
+            break;
+        case RELATIVE:
+            data[0x2001] = 5;
+            break;
+        case NAN_COORD:
+            stl_le_p(data + 0x2100, 0x7fc00000);
+            break;
+        case INF_MATRIX:
+            stl_le_p(data + 10 * 4, 0x7f800000);
+            break;
+        case PERSPECTIVE:
+            path_floats(data + 12 * 4, (float[]) { 1 }, 1);
+            break;
+        case KEY:
+            stl_le_p(data + 0x1000 + 52 * 4, 0x10005);
+            break;
+        case MEMORY:
+            stl_le_p(data + 24 * 4, 0x600000);
+            break;
+        case OVERLAP:
+            stl_le_p(data + 20 * 4, 0xc175d600);
+            break;
+        case LATE_BAD:
+            data[0x2203] = 0xff;
+            break;
+        case FILL_RULE:
+            stl_le_p(data + 0x1000 + 50 * 4, 0x40202);
+            break;
+        case COLOR:
+            stl_le_p(data + 0x1000 + 41 * 4, 0x7f010000);
+            break;
+        case ALPHA:
+            pixels[7] = 0;
+            break;
+        case ALIAS:
+            stl_le_p(data + 20 * 4, 0x500000);
+            memcpy(pixels + 4 + 0x10000, data + 0x2100, 64);
+            break;
+        case SAME_WINDING:
+        case EVEN_ODD:
+            path_floats(data + 0x2120,
+                        (float[]) { 15, 15, 25, 15, 25, 25, 15, 25 }, 8);
+            if (test == EVEN_ODD) {
+                stl_le_p(data + 0x1000 + 50 * 4, 0x40002);
+            }
+            break;
+        case BAD_RELATIVE:
+            data[0x2000] = 7;
+            break;
+        case CLIPPED:
+            path_floats(data + 16 * 4, (float[]) { -30, 3 }, 2);
+            break;
+        default:
+            break;
+        }
+        before = g_memdup2(pixels, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == DATA_CHANGE) {
+            data[0x2201] = 0xff;
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            bool fringe = false;
+
+            for (unsigned y = 0; y < 480; y++) {
+                for (unsigned x = 0; x < 720; x++) {
+                    uint32_t actual = ldl_le_p(pixels + 4 + (y * 720 + x) * 4);
+                    bool first = test == CLIPPED ? x < 30 && y >= 13 && y < 33 :
+                                     x >= 24 && x < 64 && y >= 13 && y < 33;
+                    bool second = colored ? x >= 40 && x < 60 && y >= 10 && y < 30 :
+                                            x >= 140 && x < 160 && y >= 10 && y < 30;
+
+                    if (!first && !second) {
+                        g_assert_cmphex(actual, ==, 0xffb4b4b4);
+                    }
+                    if (colored) {
+                        uint32_t paint = test == CHANNELS ?
+                            (second ? 0xffa0c0e0 : 0xff204080) :
+                            (second ? 0xffb4b4b4 : 0xffe6e6e6);
+
+                        g_assert_cmphex(actual, ==,
+                                        first || second ? paint : 0xffb4b4b4);
+                    }
+                    fringe |= (actual & 255) > 0 && (actual & 255) < 180;
+                }
+            }
+            if (!colored) {
+                g_assert_true(fringe);
+            }
+            if (!colored && test != CLIPPED) {
+                uint32_t body = ldl_le_p(pixels + 4 + (14 * 720 + 26) * 4);
+                uint32_t hole = ldl_le_p(pixels + 4 + (20 * 720 + 40) * 4);
+
+                g_assert_cmphex(body, ==, 0xff000000);
+                g_assert_cmphex(hole, ==, test == SAME_WINDING ?
+                                0xff000000 : 0xffb4b4b4);
+            }
+            if (!colored) {
+                uint32_t inside = ldl_le_p(pixels + 4 + (25 * 720 + 145) * 4);
+                uint32_t outside = ldl_le_p(pixels + 4 + (12 * 720 + 154) * 4);
+
+                g_assert_cmphex(inside, ==, 0xff000000);
+                g_assert_cmphex(outside, ==, 0xffb4b4b4);
+            }
+            g_assert_cmpmem(pixels, 4, before, 4);
+            g_assert_cmpmem(pixels + 4 + EXTENT, SLOT - EXTENT + 4,
+                            before + 4 + EXTENT, SLOT - EXTENT + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == REPEAT) {
+                g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes), ==,
+                                MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+            }
+        } else {
+            g_assert_cmpmem(pixels, SLOT + 8, before, SLOT + 8);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
     memory_region_del_subregion(root, &surface);
     memory_region_del_subregion(root, &commands);
     drain_call_rcu();
@@ -1181,6 +1848,837 @@ static void test_yuv_clear(void)
     qemu_free_irq(f.irq);
 }
 
+static void build_image_program(uint8_t *setup, uint8_t *draw)
+{
+    unsigned at = 0;
+    uint8_t *bytes = setup;
+    const float transform[] = { 1, 0, 0, 0, 1, 0, 10, 20, 1 };
+    const uint32_t sample[] = {
+        0x3c0000, 0, 0xbf4000, 0, 0x3d0000, 0xc14000, 0, 0, 0x3f0000,
+    };
+
+#define WORD(v) do { stl_le_p(bytes + 4 * at++, (v)); } while (0)
+#define REG(r, mask, v) do { \
+    WORD(((r) << 16) | ((mask) << 12) | 4); \
+    WORD(v); \
+} while (0)
+    WORD(0x0041f046);
+    path_floats(setup + 4, transform, 9);
+    at += 9;
+    REG(0x65, 3, 0x2100);
+    REG(3, 15, 5);
+    REG(5, 15, 0x80000005);
+    REG(0x63, 15, 5);
+    REG(0x5e, 15, 0x3f800000);
+    REG(0x5f, 15, 0);
+    REG(0x40, 15, 0x07800b40);
+    WORD(0x0080f026);
+    WORD(0x12345000);
+    WORD(0);
+    WORD(0x10);
+    WORD(0x07800b40);
+    WORD(0);
+    REG(6, 15, 1);
+    WORD(0x0a);
+    WORD(0x07090702);
+    WORD(0);
+    WORD(0x00010022);
+    WORD(0);
+    WORD(0);
+    WORD(4);
+    WORD(3);
+    WORD(-4);
+    REG(0x85, 15, 0x10010);
+    WORD(0);
+    g_assert_cmpuint(at, ==, 44);
+    at = 0;
+    bytes = draw;
+    WORD(0x010c7046);
+    for (unsigned i = 0; i < 9; i++) {
+        WORD(sample[i]);
+    }
+    REG(0x158, 15, 0x00080004);
+    REG(0x156, 7, 0x001b0018);
+    REG(0x152, 15, 0x00080004);
+    REG(0x140, 1, 2);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x140, 4, 0x210000);
+    REG(0x155, 15, 0x403000);
+    REG(0x1a0, 4, 0x10000);
+    REG(0x184, 1, 8);
+    REG(0x140, 1, 2);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x140, 2, 0);
+    REG(0x14d, 15, 0);
+    REG(0x14d, 15, 0);
+    REG(0x115, 12, 0x01000000);
+    REG(0x185, 15, 0xff4848f0);
+    REG(0x1aa, 1, 0);
+    REG(0x184, 1, 14);
+    REG(0x186, 3, 0x108);
+    REG(0x184, 2, 0);
+    REG(0x1a0, 2, 0);
+    REG(0x1a2, 9, 0);
+    REG(0x1a4, 15, 0xc175d600);
+    REG(0x1a5, 1, 1);
+    REG(0x1a7, 4, 0);
+    REG(0x115, 8, 0x01000000);
+    REG(0x153, 1, 1);
+    REG(0x143, 1, 1);
+    WORD(0x00a0f02e);
+    WORD(0x12345000);
+    WORD(0);
+    WORD(0x10);
+    WORD(0x07800b40);
+    WORD(0);
+    WORD(2);
+    REG(0xa6, 15, 0x10010);
+    REG(0x1a6, 1, 1);
+    REG(8, 1, 1);
+    WORD(0);
+    g_assert_cmpuint(at, ==, 84);
+#undef REG
+#undef WORD
+}
+
+static void test_image_fill(void)
+{
+    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4 };
+    enum {
+        SUCCESS, COLD, SHORT, UNKNOWN, TYPE, SEGMENT, COORDINATE, TRANSFORM,
+        SAMPLE, PERSPECTIVE, ZERO_SIZE, SIZE_MISMATCH, TOO_BIG, PAINT, MODE,
+        KEY, OPAQUE, MEMORY, OVERLAP, COMMAND_OVERLAP, ALIAS, ALPHA,
+        DATA_CHANGE, MAP_LOSS, RESET, REPEAT, CLAMP_SAMPLE, FLIP, CANCEL, CASES,
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-image[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+                                          "test.image-command", 0x20000, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+                                          "test.image-surface", SLOT + 8, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0xc175d600 - 4, &surface);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.image-alias",
+                            &surface, 4 + 0x10000, 32);
+    memory_region_add_subregion(root, 0x500000, &alias);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned setup_bytes = 176;
+        bool complete = test == SUCCESS || test == DATA_CHANGE ||
+                        test == REPEAT || test == CLAMP_SAMPLE || test == FLIP;
+        bool accepted = complete || test == ALPHA || test == MAP_LOSS ||
+                        test == RESET || test == CANCEL;
+        g_autofree uint8_t *before = NULL;
+
+        g_test_message("image case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x20000);
+        memset(pixels, 0xa5, SLOT + 8);
+        if (test != COLD) {
+            build_rgba_program(data, data + 0x1000, 0x402100, 0x402000, true);
+            memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+            path_floats(data + 0x2100, (float[]) { 0, 0, 720, 480, -720 }, 5);
+            g_assert_cmpint(submit_rgba(&f, 176, 368), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            for (unsigned i = 0; i < EXTENT; i += 4) {
+                stl_le_p(pixels + 4 + i, 0xff808080);
+            }
+        }
+        build_image_program(data, data + 0x1000);
+        for (unsigned i = 0; i < 32; i++) {
+            data[0x3000 + i] = (uint8_t[]) { 0, 64, 128, 255 }[(i + i / 8) % 4];
+        }
+        switch (test) {
+        case SHORT: setup_bytes -= 8; break;
+        case UNKNOWN: data[0] ^= 1; break;
+        case TYPE: stl_le_p(data + 15 * 4, 0xc0000005); break;
+        case SEGMENT: data[33 * 4 + 1] = 5; break;
+        case COORDINATE: stl_le_p(data + 38 * 4, 0x7fffffff); break;
+        case TRANSFORM: stl_le_p(data + 4, 0x7fc00000); break;
+        case SAMPLE: stl_le_p(data + 0x1000 + 4, 0x1000000); break;
+        case PERSPECTIVE: stl_le_p(data + 0x1000 + 7 * 4, 0x3f0000); break;
+        case ZERO_SIZE: stl_le_p(data + 0x1000 + 11 * 4, 0); break;
+        case SIZE_MISMATCH: stl_le_p(data + 0x1000 + 15 * 4, 0x00090004); break;
+        case TOO_BIG:
+            stl_le_p(data + 0x1000 + 11 * 4, 0x01010004);
+            stl_le_p(data + 0x1000 + 15 * 4, 0x01010004);
+            break;
+        case PAINT: stl_le_p(data + 0x1000 + 45 * 4, 0x7f4848f0); break;
+        case MODE: stl_le_p(data + 0x1000 + 49 * 4, 2); break;
+        case KEY: stl_le_p(data + 0x1000 + 78 * 4, 0x10011); break;
+        case OPAQUE: stl_le_p(data + 0x1000 + 71 * 4, 0); break;
+        case MEMORY: stl_le_p(data + 0x1000 + 25 * 4, 0x600000); break;
+        case OVERLAP: stl_le_p(data + 0x1000 + 25 * 4, 0xc175d600); break;
+        case COMMAND_OVERLAP:
+            stl_le_p(data + 0x1000 + 25 * 4, 0x400000);
+            break;
+        case ALIAS: stl_le_p(data + 0x1000 + 25 * 4, 0x500000); break;
+        case ALPHA: pixels[7] = 0; break;
+        case CLAMP_SAMPLE:
+            stl_le_p(data + 0x1000 + 3 * 4, 0x3f0000);
+            stl_le_p(data + 0x1000 + 6 * 4, 0x3f0000);
+            break;
+        case FLIP:
+            path_floats(data + 5 * 4, (float[]) { -1 }, 1);
+            path_floats(data + 8 * 4, (float[]) { 23 }, 1);
+            stl_le_p(data + 0x1000 + 5 * 4, 0xbd0000);
+            stl_le_p(data + 0x1000 + 6 * 4, 0x417000);
+            break;
+        default: break;
+        }
+        before = g_memdup2(pixels, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, setup_bytes, 336), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == DATA_CHANGE) {
+            data[0x3000] = 255;
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            for (unsigned y = 0; y < 480; y++) {
+                for (unsigned x = 0; x < 720; x++) {
+                    uint32_t expected = 0xff808080;
+                    uint32_t actual = ldl_le_p(pixels + 4 + (y * 720 + x) * 4);
+
+                    if (x >= 10 && x < 14 && y >= 20 && y < 23) {
+                        unsigned row = test == FLIP ? 22 - y : y - 20;
+                        unsigned a = data[0x3000 + (test == CLAMP_SAMPLE ? 31 :
+                                                    row * 8 + x - 10)];
+                        expected = 0xff000000;
+                        for (unsigned c = 0; c < 3; c++) {
+                            unsigned color = (0xff4848f0 >> (8 * c)) & 255;
+                            expected |= ((color * a + 128 * (255 - a) + 127) /
+                                         255) << (8 * c);
+                        }
+                    }
+                    if (actual != expected) {
+                        g_test_message("image pixel %u/%u: %08x != %08x",
+                                        x, y, actual, expected);
+                    }
+                    g_assert_cmphex(actual, ==, expected);
+                }
+            }
+            g_assert_cmpmem(pixels, 4, before, 4);
+            g_assert_cmpmem(pixels + 4 + EXTENT, SLOT - EXTENT + 4,
+                            before + 4 + EXTENT, SLOT - EXTENT + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == REPEAT) {
+                g_assert_cmpint(submit_rgba(&f, 176, 336), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+            }
+        } else {
+            g_assert_cmpmem(pixels, SLOT + 8, before, SLOT + 8);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void build_scaled_program(uint8_t *setup, uint8_t *draw, bool over)
+{
+    build_convert_program(setup, draw);
+    stl_le_p(setup + 13 * 4, 0x3fb60b00);
+    stl_le_p(setup + 17 * 4, 0xbfb5dd80);
+    stl_le_p(setup + 20 * 4, 0x442bffff);
+    stl_le_p(setup + 50 * 4, 720);
+    stl_le_p(setup + 51 * 4, 480);
+    stl_le_p(setup + 52 * 4, -720);
+    stl_le_p(draw + 9 * 4, 0x107);
+    stl_le_p(draw + 46 * 4, 0x34fff8);
+    stl_le_p(draw + 54 * 4, 0x3efffe);
+    stl_le_p(draw + 56 * 4, 0x02d001e0);
+    stl_le_p(draw + 60 * 4, 0x02d001e0);
+    stl_le_p(draw + 405 * 4, 0x107);
+    stl_le_p(draw + 409 * 4, 0x955000);
+    stl_le_p(draw + 417 * 4, 7);
+    stl_le_p(draw + 419 * 4, 7);
+    if (over) {
+        memmove(setup, setup + 12 * 4, 176);
+        memmove(draw, draw + 45 * 4, 1552);
+        stl_le_p(setup + 42 * 4, 0x10002);
+        stl_le_p(draw + 27 * 4, 0x10000);
+        stl_le_p(draw + 29 * 4, 2);
+        stl_le_p(draw + 309 * 4, 0x0192f01e);
+        stl_le_p(draw + 314 * 4, 0x01963004);
+        stl_le_p(draw + 315 * 4, 0x400);
+        stl_le_p(draw + 366 * 4, 1);
+        stl_le_p(draw + 383 * 4, 0x10002);
+    }
+}
+
+static void test_rgba_yuv(void)
+{
+    enum { W = 1024, H = 682, PLANE = W * H, INPUT = W * 688 * 4,
+           SLOT = 0x4b0000 };
+    enum { SUCCESS, SHORT, HEADER, GEOMETRY, SAMPLE, LUT, SECONDARY, FORMAT,
+           MODE, KEY, OPERAND, DELTA, OVERFLOW, SOURCE_RANGE, SOURCE_OVERLAP,
+           COMMAND_OVERLAP, SOURCE_ALIAS, PLANE_ALIAS, PARTIAL_ALPHA,
+           DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
+    static const uint32_t rgba[] = {
+        0xff000000, 0xffffffff, 0xff0000ff, 0xff00ff00,
+        0xffff0000, 0xff00ffff, 0xffffff00,
+    };
+    static const uint8_t yuv[][3] = {
+        {16,128,128}, {235,128,128}, {82,90,240}, {144,54,34},
+        {41,240,110}, {210,16,146}, {169,166,16},
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, input, output, source_alias, plane_alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *source, *target;
+
+    object_property_add_child(object_get_objects_root(), "transfer-convert[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.convert-command", 0x4000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&input, OBJECT(f.dev),
+        "test.convert-input", INPUT, 0, &error_abort);
+    memory_region_add_subregion(root, 0x410000, &input);
+    memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+        "test.convert-output", SLOT + 8, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000 - 4, &output);
+    memory_region_init_alias(&source_alias, OBJECT(f.dev), "test.convert-alias",
+                            &output, 4, INPUT);
+    memory_region_add_subregion(root, 0x1000000, &source_alias);
+    memory_region_init_alias(&plane_alias, OBJECT(f.dev), "test.convert-planes",
+                            &output, 4, PLANE);
+    data = memory_region_get_ram_ptr(&commands);
+    source = memory_region_get_ram_ptr(&input);
+    target = memory_region_get_ram_ptr(&output);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        bool complete = test == SUCCESS || test == DATA_CHANGE;
+        bool accepted = complete || test == PARTIAL_ALPHA || test == MAP_LOSS ||
+                        test == RESET || test == CANCEL;
+        unsigned draw_bytes = 1736;
+        g_autofree uint8_t *before = NULL;
+
+        g_test_message("convert case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x4000);
+        memset(target, 0xa5, SLOT + 8);
+        for (unsigned y = 0; y < 688; y++) {
+            for (unsigned x = 0; x < W; x++) {
+                stl_le_p(source + 4 * (y * W + x), y ? rgba[(x + y) % 7] :
+                                                               0x00123456);
+            }
+        }
+        build_convert_program(data, data + 0x1000);
+        switch (test) {
+        case SHORT: draw_bytes -= 8; break;
+        case HEADER: data[0] ^= 1; break;
+        case GEOMETRY: stl_le_p(data + 51 * 4, 681); break;
+        case SAMPLE: stl_le_p(data + 0x1000 + 50 * 4, 0x358064); break;
+        case LUT: stl_le_p(data + 0x1000 + 100 * 4, 0xfff); break;
+        case SECONDARY: stl_le_p(data + 0x1000 + 367 * 4, 0); break;
+        case FORMAT: stl_le_p(data + 0x1000 + 405 * 4, 0x107); break;
+        case MODE: stl_le_p(data + 0x1000 + 92 * 4, 14); break;
+        case KEY: stl_le_p(data + 0x1000 + 428 * 4, 0x10002); break;
+        case OPERAND: stl_le_p(data + 0x1000 + 421 * 4, 0); break;
+        case DELTA: stl_le_p(data + 0x1000 + 409 * 4, 0x8aa804); break;
+        case OVERFLOW:
+            stl_le_p(data + 0x1000 + 407 * 4, 0xfff00000);
+            stl_le_p(data + 0x1000 + 409 * 4, 0xfffaa800);
+            break;
+        case SOURCE_RANGE: stl_le_p(data + 0x1000 + 70 * 4, 0x700000); break;
+        case SOURCE_OVERLAP: stl_le_p(data + 0x1000 + 70 * 4, 0x800000); break;
+        case COMMAND_OVERLAP: stl_le_p(data + 0x1000 + 70 * 4, 0x400000); break;
+        case SOURCE_ALIAS: stl_le_p(data + 0x1000 + 70 * 4, 0x1000000); break;
+        case PLANE_ALIAS:
+            memory_region_add_subregion_overlap(root, 0x8aa800, &plane_alias, 1);
+            break;
+        case PARTIAL_ALPHA: source[INPUT - 1] = 128; break;
+        default: break;
+        }
+        before = g_memdup2(target, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, 224, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == DATA_CHANGE) {
+            stl_le_p(source + 4 * (687 * W), rgba[2]);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&output, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output, false);
+        if (test == PLANE_ALIAS) {
+            memory_region_del_subregion(root, &plane_alias);
+        }
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            for (unsigned y = 0; y < H; y++) {
+                unsigned sy = (-98404.0 / 67108864 * (y + 6.5) +
+                               66113.0 / 65536) * 688;
+                for (unsigned x = 0; x < W; x += 2) {
+                    unsigned a = sy ? (x + sy) % 7 : 0;
+                    unsigned b = sy ? (x + 1 + sy) % 7 : 0;
+                    if (test == DATA_CHANGE && y == 0 && x == 0) { a = 2; }
+                    g_assert_cmpuint(target[4 + y * W + x], ==, yuv[a][0]);
+                    g_assert_cmpuint(target[5 + y * W + x], ==, yuv[b][0]);
+                    g_assert_cmpuint(target[4 + PLANE + y * W + x], ==,
+                                     (yuv[a][1] + yuv[b][1] + 1) / 2);
+                    g_assert_cmpuint(target[5 + PLANE + y * W + x], ==,
+                                     (yuv[a][2] + yuv[b][2] + 1) / 2);
+                }
+            }
+            g_assert_cmpmem(target, 4, before, 4);
+            g_assert_cmpmem(target + 4 + 2 * PLANE, SLOT - 2 * PLANE + 4,
+                            before + 4 + 2 * PLANE, SLOT - 2 * PLANE + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else {
+            g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+        }
+    }
+    memory_region_del_subregion(root, &source_alias);
+    memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &input);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void test_scaled_yuva(void)
+{
+    enum { W = 1024, H = 682, PLANE = W * H, INPUT = 720 * 480 * 4,
+           SLOT = 0x4b0000 };
+    enum { SUCCESS, SHORT, TRANSFORM, SAMPLE, SOURCE_SIZE, FORMAT, FILTER,
+           LUT, GEOMETRY, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS, PLANE_ALIAS,
+           DATA_CHANGE, EDGE_KEEP, EDGE_COLOR, MAP_LOSS, RESET, CANCEL, CASES };
+    static const uint32_t rgba[] = {
+        0xff000000, 0xffffffff, 0xff0000ff, 0xff00ff00,
+        0xffff0000, 0xff00ffff, 0xffffff00,
+    };
+    static const uint8_t yuv[][3] = {
+        {16,128,128}, {235,128,128}, {82,90,240}, {144,54,34},
+        {41,240,110}, {210,16,146}, {169,166,16},
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, input, output, source_alias, plane_alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *source, *target;
+
+    object_property_add_child(object_get_objects_root(), "transfer-scaled[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.scaled-command", 0x4000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&input, OBJECT(f.dev),
+        "test.scaled-input", INPUT, 0, &error_abort);
+    memory_region_add_subregion(root, 0x410000, &input);
+    memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+        "test.scaled-output", SLOT + 8, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000 - 4, &output);
+    memory_region_init_alias(&source_alias, OBJECT(f.dev), "test.scaled-alias",
+                            &output, 4, INPUT);
+    memory_region_add_subregion(root, 0x1000000, &source_alias);
+    memory_region_init_alias(&plane_alias, OBJECT(f.dev), "test.scaled-planes",
+                            &output, 4, PLANE);
+    data = memory_region_get_ram_ptr(&commands);
+    source = memory_region_get_ram_ptr(&input);
+    target = memory_region_get_ram_ptr(&output);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        bool complete = test == SUCCESS || test == DATA_CHANGE ||
+                        test == EDGE_KEEP || test == EDGE_COLOR;
+        bool accepted = complete || test == MAP_LOSS || test == RESET ||
+                        test == CANCEL;
+        unsigned draw_bytes = 1736;
+        g_autofree uint8_t *before = NULL;
+
+        g_test_message("scaled case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x4000);
+        memset(target, 0xa5, SLOT + 8);
+        for (unsigned i = 0; i < 720 * 480; i++) {
+            unsigned color = (i % 720 + i / 720) % 7;
+            unsigned alpha = test == EDGE_KEEP ? 0 : test == EDGE_COLOR ? 255 :
+                              (uint8_t[]) { 0, 64, 128, 255 }[i % 4];
+            if (test == EDGE_COLOR) {
+                color = 4;
+            }
+            stl_le_p(source + 4 * i, (rgba[color] & 0xffffff) | (alpha << 24));
+        }
+        for (unsigned i = 0; i < 2 * PLANE; i += 4) {
+            stl_le_p(target + 4 + i, test == EDGE_COLOR ? 0x8080ebeb : 0x80801010);
+        }
+        memset(target + 4 + 2 * PLANE,
+               test == EDGE_KEEP || test == EDGE_COLOR ? 255 : 0, PLANE);
+        build_convert_program(data, data + 0x1000);
+        stl_le_p(data + 13 * 4, 0x3fb60b00);
+        stl_le_p(data + 17 * 4, 0xbfb5dd80);
+        stl_le_p(data + 20 * 4, 0x442bffff);
+        stl_le_p(data + 50 * 4, 720);
+        stl_le_p(data + 51 * 4, 480);
+        stl_le_p(data + 52 * 4, -720);
+        stl_le_p(data + 0x1000 + 9 * 4, 0x107);
+        stl_le_p(data + 0x1000 + 46 * 4, 0x34fff8);
+        stl_le_p(data + 0x1000 + 54 * 4, 0x3efffe);
+        stl_le_p(data + 0x1000 + 56 * 4, 0x02d001e0);
+        stl_le_p(data + 0x1000 + 60 * 4, 0x02d001e0);
+        stl_le_p(data + 0x1000 + 405 * 4, 0x107);
+        stl_le_p(data + 0x1000 + 409 * 4, 0x955000);
+        stl_le_p(data + 0x1000 + 417 * 4, 7);
+        stl_le_p(data + 0x1000 + 419 * 4, 7);
+        switch (test) {
+        case SHORT: draw_bytes -= 8; break;
+        case TRANSFORM: stl_le_p(data + 13 * 4, 0x3f800000); break;
+        case SAMPLE: stl_le_p(data + 0x1000 + 54 * 4, 0x3f0000); break;
+        case SOURCE_SIZE: stl_le_p(data + 0x1000 + 60 * 4, 0x040002b0); break;
+        case FORMAT: stl_le_p(data + 0x1000 + 405 * 4, 0x105); break;
+        case FILTER: stl_le_p(data + 0x1000 + 417 * 4, 1); break;
+        case LUT: stl_le_p(data + 0x1000 + 100 * 4, 0xfff); break;
+        case GEOMETRY: stl_le_p(data + 51 * 4, 479); break;
+        case DELTA: stl_le_p(data + 0x1000 + 409 * 4, 0x8aa800); break;
+        case OVERFLOW:
+            stl_le_p(data + 0x1000 + 407 * 4, 0xffe00000);
+            stl_le_p(data + 0x1000 + 409 * 4, 0xfff55000);
+            break;
+        case RANGE: stl_le_p(data + 0x1000 + 70 * 4, 0x700000); break;
+        case SOURCE_ALIAS: stl_le_p(data + 0x1000 + 70 * 4, 0x1000000); break;
+        case PLANE_ALIAS:
+            memory_region_add_subregion_overlap(root, 0x955000, &plane_alias, 1);
+            break;
+        default: break;
+        }
+        before = g_memdup2(target, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, 224, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == DATA_CHANGE) {
+            stl_le_p(source + 4 * (479 * 720), rgba[2]);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&output, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output, false);
+        if (test == PLANE_ALIAS) {
+            memory_region_del_subregion(root, &plane_alias);
+        }
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            bool edge = false;
+            double z = 131070.0 / 131072;
+            for (unsigned y = 0; y < H; y++) {
+                unsigned sy = (-98404.0 / 67108864 * (y + 6.5) +
+                               66113.0 / 65536) * 480 / z;
+                for (unsigned x = 0; x < W; x += 2) {
+                    unsigned colors[2];
+                    for (unsigned j = 0; j < 2; j++) {
+                        unsigned sx = 131064.0 / 134217728 * (x + j + 0.5) * 720 / z;
+                        unsigned a = source[4 * (sy * 720 + sx) + 3];
+                        unsigned actual = target[4 + 2 * PLANE + y * W + x + j];
+                        colors[j] = test == EDGE_COLOR ? 4 :
+                                    a ? (sx + sy) % 7 : 0;
+                        if (test == DATA_CHANGE && sx == 0 && sy == 479) {
+                            colors[j] = 2;
+                        }
+                        if (test == EDGE_KEEP) {
+                            g_assert_cmpuint(actual, <=, 8);
+                            if (y > 0 && x + j < W - 1) {
+                                g_assert_cmpuint(actual, ==, 0);
+                            }
+                            edge |= actual > 0;
+                        } else if (test == EDGE_COLOR) {
+                            g_assert_cmpuint(actual, ==, 255);
+                        } else {
+                            g_assert_cmpuint(actual, <=, a);
+                            g_assert_cmpuint(actual + 4, >=, a);
+                            if (y > 0 && x + j < W - 1) {
+                                g_assert_cmpuint(actual, ==, a);
+                            }
+                        }
+                    }
+                    unsigned at = 4 + 2 * (y * W + x);
+                    if (test == EDGE_COLOR) {
+                        /* Analytic rectangle coverage bounds Cairo quantization. */
+                        for (unsigned j = 0; j < 2; j++) {
+                            unsigned lift = y == 0 ? 1 : 0;
+                            lift += x + j == W - 1 ? 2 : 0;
+                            unsigned expected = (uint8_t[]) {41,42,42,43}[lift];
+                            g_assert_cmpuint(target[at + j] + 1, >=, expected);
+                            g_assert_cmpuint(target[at + j], <=, expected + 1);
+                            if (y > 0 && x + j < W - 1) {
+                                g_assert_cmpuint(target[at + j], ==, 41);
+                            }
+                            edge |= target[at + j] > 41;
+                        }
+                        g_assert_cmpuint(target[at + 2], >=, 239);
+                        g_assert_cmpuint(target[at + 2], <=, 240);
+                        g_assert_cmpuint(target[at + 3], ==, 110);
+                        continue;
+                    }
+                    g_assert_cmpuint(target[at], ==, yuv[colors[0]][0]);
+                    g_assert_cmpuint(target[at + 1], ==, yuv[colors[1]][0]);
+                    g_assert_cmpuint(target[at + 2], ==,
+                        (yuv[colors[0]][1] + yuv[colors[1]][1] + 1) / 2);
+                    g_assert_cmpuint(target[at + 3], ==,
+                        (yuv[colors[0]][2] + yuv[colors[1]][2] + 1) / 2);
+                }
+            }
+            if (test == EDGE_KEEP || test == EDGE_COLOR) {
+                g_assert_true(edge);
+            }
+            g_assert_cmpmem(target, 4, before, 4);
+            g_assert_cmpmem(target + 4 + 3 * PLANE, SLOT - 3 * PLANE + 4,
+                            before + 4 + 3 * PLANE, SLOT - 3 * PLANE + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else {
+            g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+        }
+    }
+    memory_region_del_subregion(root, &source_alias);
+    memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &input);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void test_yuva_over(void)
+{
+    enum { W = 1024, H = 682, PLANE = W * H, INPUT = 720 * 480 * 4,
+           SLOT = 0x4b0000 };
+    enum { SUCCESS, REPEAT, COLD, RESET_INIT, FAILED_INIT, OTHER_INIT,
+           CANCELED_INIT, REJECTED, SHORT, BLEND, FORMAT, SAMPLER, LUT,
+           PARTIAL_WRITE, KEY, OPAQUE, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS,
+           PLANE_ALIAS, DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
+    static const uint8_t expected[4][3][4] = {
+        {{16,128,128,0}, {41,240,110,128}, {41,240,110,255}},
+        {{235,128,128,64}, {119,195,117,160}, {90,212,115,255}},
+        {{235,128,128,128}, {170,165,122,192}, {138,184,119,255}},
+        {{235,128,128,255}, {235,128,128,255}, {235,128,128,255}},
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, input, output, source_alias, plane_alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *source, *target;
+
+    object_property_add_child(object_get_objects_root(), "transfer-over[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.over-command", 0x4000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&input, OBJECT(f.dev),
+        "test.over-input", INPUT, 0, &error_abort);
+    memory_region_add_subregion(root, 0x410000, &input);
+    memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+        "test.over-output", SLOT + 8, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000 - 4, &output);
+    memory_region_init_alias(&source_alias, OBJECT(f.dev), "test.over-alias",
+                            &output, 4, INPUT);
+    memory_region_add_subregion(root, 0x1000000, &source_alias);
+    memory_region_init_alias(&plane_alias, OBJECT(f.dev), "test.over-planes",
+                            &output, 4, PLANE);
+    data = memory_region_get_ram_ptr(&commands);
+    source = memory_region_get_ram_ptr(&input);
+    target = memory_region_get_ram_ptr(&output);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        bool complete = test == SUCCESS || test == REPEAT || test == DATA_CHANGE;
+        bool accepted = complete || test == MAP_LOSS || test == RESET ||
+                        test == CANCEL;
+        unsigned draw_bytes = 1552;
+        g_autofree uint8_t *before = NULL;
+
+        g_test_message("over case %u", test);
+        device_cold_reset(f.dev);
+        memset(source, 0, INPUT);
+        memset(target, 0, SLOT + 8);
+        build_scaled_program(data, data + 0x1000, false);
+        if (test != COLD) {
+            if (test == FAILED_INIT) {
+                stl_le_p(data + 0x1000 + 417 * 4, 1);
+            }
+            g_assert_cmpint(submit_rgba(&f, 224, 1736), ==,
+                            test == FAILED_INIT ? MEMTX_ERROR : MEMTX_OK);
+            if (test == CANCELED_INIT) {
+                device_cold_reset(f.dev);
+            }
+            advance();
+            if (test != FAILED_INIT && test != CANCELED_INIT) {
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+        }
+        if (test == RESET_INIT) {
+            device_cold_reset(f.dev);
+        } else if (test == OTHER_INIT) {
+            build_clear_program(data, data + 0x1000, 0x105, 0x800000, 0x8aa800);
+            g_assert_cmpint(submit_rgba(&f, 224, 1648), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else if (test == REJECTED) {
+            build_scaled_program(data, data + 0x1000, true);
+            stl_le_p(data + 0x1000 + 27 * 4, 0);
+            g_assert_cmpint(submit_rgba(&f, 176, 1552), ==, MEMTX_ERROR);
+        }
+        for (unsigned i = 0; i < 720 * 480; i++) {
+            stl_le_p(source + 4 * i, 0xffffff |
+                      ((uint32_t)(uint8_t[]) {0,64,128,255}[i % 4] << 24));
+        }
+        memset(target, 0xa5, SLOT + 8);
+        for (unsigned i = 0; i < PLANE; i += 2) {
+            stl_le_p(target + 4 + 2 * i, 0x6ef02929); /* Opaque blue in YUV. */
+        }
+        for (unsigned i = 0; i < PLANE; i++) {
+            target[4 + 2 * PLANE + i] = (uint8_t[]) {0,128,255}[i % 3];
+        }
+        build_scaled_program(data, data + 0x1000, true);
+        switch (test) {
+        case SHORT: draw_bytes -= 8; break;
+        case BLEND: stl_le_p(data + 0x1000 + 27 * 4, 0); break;
+        case FORMAT: stl_le_p(data + 0x1000 + 360 * 4, 0x105); break;
+        case SAMPLER: stl_le_p(data + 0x1000 + 9 * 4, 0x3f0000); break;
+        case LUT: stl_le_p(data + 0x1000 + 55 * 4, 99); break;
+        case PARTIAL_WRITE: stl_le_p(data + 0x1000 + 314 * 4, 0x0196f004); break;
+        case KEY: stl_le_p(data + 42 * 4, 0x10003); break;
+        case OPAQUE: stl_le_p(data + 0x1000 + 376 * 4, 0); break;
+        case DELTA: stl_le_p(data + 0x1000 + 364 * 4, 0x8aa800); break;
+        case OVERFLOW:
+            stl_le_p(data + 0x1000 + 362 * 4, 0xffe00000);
+            stl_le_p(data + 0x1000 + 364 * 4, 0xfff55000);
+            break;
+        case RANGE: stl_le_p(data + 0x1000 + 25 * 4, 0x700000); break;
+        case SOURCE_ALIAS: stl_le_p(data + 0x1000 + 25 * 4, 0x1000000); break;
+        case PLANE_ALIAS:
+            memory_region_add_subregion_overlap(root, 0x955000, &plane_alias, 1);
+            break;
+        default: break;
+        }
+        before = g_memdup2(target, SLOT + 8);
+        g_assert_cmpint(submit_rgba(&f, 176, draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == DATA_CHANGE) {
+            stl_le_p(source + 4 * (479 * 720), 0xffffffff);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&output, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output, false);
+        if (test == PLANE_ALIAS) {
+            memory_region_del_subregion(root, &plane_alias);
+        }
+        g_assert_cmpint(f.level, ==, complete);
+        if (complete) {
+            for (unsigned y = 0; y < H; y++) {
+                unsigned sy = (-98404.0 / 67108864 * (y + 6.5) +
+                               66113.0 / 65536) * 480 / (131070.0 / 131072);
+                for (unsigned x = 0; x < W; x += 2) {
+                    const uint8_t *want[2];
+                    unsigned at = y * W + x;
+                    for (unsigned j = 0; j < 2; j++) {
+                        unsigned sx = 131064.0 / 134217728 * (x + j + 0.5) *
+                                      720 / (131070.0 / 131072);
+                        unsigned a = (sy * 720 + sx) % 4;
+                        if (test == DATA_CHANGE && sy == 479 && sx == 0) {
+                            a = 3;
+                        }
+                        want[j] = expected[a][(at + j) % 3];
+                    }
+                    uint8_t values[] = {want[0][0], want[1][0],
+                        (want[0][1] + want[1][1] + 1) / 2,
+                        (want[0][2] + want[1][2] + 1) / 2};
+                    unsigned tolerance = y == 0 || x == W - 2 ? 2 : 0;
+                    for (unsigned c = 0; c < 4; c++) {
+                        unsigned actual = target[4 + 2 * at + c];
+                        g_assert_cmpuint(actual + tolerance, >=, values[c]);
+                        g_assert_cmpuint(actual, <=, values[c] + tolerance);
+                    }
+                    for (unsigned j = 0; j < 2; j++) {
+                        unsigned actual = target[4 + 2 * PLANE + at + j];
+                        g_assert_cmpuint(actual + tolerance, >=, want[j][3]);
+                        g_assert_cmpuint(actual, <=, want[j][3] + tolerance);
+                    }
+                }
+            }
+            g_assert_cmpmem(target, 4, before, 4);
+            g_assert_cmpmem(target + 4 + 3 * PLANE, SLOT - 3 * PLANE + 4,
+                            before + 4 + 3 * PLANE, SLOT - 3 * PLANE + 4);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == REPEAT) {
+                g_assert_cmpint(submit_rgba(&f, 176, 1552), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+            }
+        } else {
+            g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+            if (test == MAP_LOSS || test == RESET) {
+                build_scaled_program(data, data + 0x1000, true);
+                g_assert_cmpint(submit_rgba(&f, 176, 1552), ==, MEMTX_ERROR);
+                advance();
+                g_assert_false(f.level);
+                g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+            }
+        }
+    }
+    memory_region_del_subregion(root, &source_alias);
+    memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &input);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -1208,6 +2706,13 @@ int main(int argc, char **argv)
                     test_stream_extent_boundaries);
     g_test_add_func("/nikon/transfer/yuv-clear", test_yuv_clear);
     g_test_add_func("/nikon/transfer/rgba-clear", test_rgba_clear);
+    g_test_add_func("/nikon/transfer/rgba-single-clear", test_rgba_single_clear);
+    g_test_add_func("/nikon/transfer/rgba-gray", test_rgba_gray);
+    g_test_add_func("/nikon/transfer/path-fill", test_path_fill);
+    g_test_add_func("/nikon/transfer/image-fill", test_image_fill);
+    g_test_add_func("/nikon/transfer/rgba-yuv", test_rgba_yuv);
+    g_test_add_func("/nikon/transfer/scaled-yuva", test_scaled_yuva);
+    g_test_add_func("/nikon/transfer/yuva-over", test_yuva_over);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
