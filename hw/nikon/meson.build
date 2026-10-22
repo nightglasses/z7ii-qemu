@@ -57,6 +57,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_CMOS', if_true: files('devices/cmos.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
+  'components/exconfig.c',
   'devices/dispatcher.c',
   'devices/banks.c',
   'peers/i2c.c',

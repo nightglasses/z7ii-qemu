@@ -32,4 +32,10 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
     dependencies: [qemuutil])
   test('nikon_exboot_unit', fixture, env: test_env, args: ['--tap', '-k'],
     protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
+  fixture = executable('nikon_exconfig_unit',
+    files('exconfig.c', '../../../hw/nikon/components/exconfig.c'), genh,
+    dependencies: [qemuutil])
+  test('nikon_exconfig_unit', fixture, env: test_env, args: ['--tap', '-k'],
+    protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
 endif

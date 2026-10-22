@@ -34,6 +34,7 @@
 #include "hw/nikon/expower.h"
 #include "hw/nikon/input.h"
 #include "hw/nikon/events.h"
+#include "hw/nikon/exconfig.h"
 #include "hw/ssi/ssi.h" /* IWYU pragma: keep */
 #include "hw/i2c/i2c.h"
 
@@ -51,26 +52,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_SLA_CPUS 2
 #define Z7II_EX_CPUS 1
 
-/* Software flash offset of the EX factory config block (VMA 0x08004000). */
-#define EX_CONFIG_OFFSET 0x4000
-#define EX_CONFIG_SIZE 0x0e2c
-#define EX_CONFIG_MAIN_OFFSET 0x10
-#define EX_CONFIG_GATE_OFFSET (EX_CONFIG_OFFSET + EX_CONFIG_MAIN_OFFSET + 0x21d)
-#define EX_CONFIG_MODE_OFFSET (EX_CONFIG_MAIN_OFFSET + 278)
-#define EX_CONFIG_AUX_OFFSET 0x8100
-#define EX_CONFIG_AUX_SIZE 0x0200
 #define EX_ADC_POWER_RAIL_COUNT 4095
-
-typedef struct NikonEXConfigData {
-    uint8_t fill;
-    uint8_t magic[4];
-    uint16_t channel0_offset;
-    uint8_t channel0_value;
-    uint16_t mode_offset;
-    uint8_t mode_value;
-    uint16_t gate_offset;
-    uint8_t gate_value;
-} NikonEXConfigData;
 
 typedef struct NikonEXFunctionalInputs {
     int adc[4];
@@ -80,18 +62,6 @@ typedef struct NikonEXFunctionalInputs {
     bool power_good;
     bool gpiod13;
 } NikonEXFunctionalInputs;
-
-static const NikonEXConfigData z7ii_ex_config_power_on = {
-    /* Unknown factory fields are erased/zero until proven otherwise. */
-    .fill = 0,
-    .magic = { 'M', 'A', 'K', 'E' },
-    .channel0_offset = EX_CONFIG_MAIN_OFFSET + 276,
-    .channel0_value = 0,
-    .mode_offset = EX_CONFIG_MODE_OFFSET,
-    .mode_value = 5,
-    .gate_offset = EX_CONFIG_GATE_OFFSET - EX_CONFIG_OFFSET,
-    .gate_value = 1,
-};
 
 /* Deterministic board contract used by the complete bundle composition. */
 static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
@@ -664,32 +634,16 @@ static void z7ii_ex_input_tick(void *opaque)
 
 static void z7ii_apply_ex_config_data(uint8_t *copy, gsize size)
 {
-    const NikonEXConfigData *config_data = &z7ii_ex_config_power_on;
-    uint8_t *config;
-
-    if (size < EX_CONFIG_OFFSET + EX_CONFIG_SIZE) {
+    /*
+     * The supplied EX component has an erased factory window, so install the
+     * class-factory structure the firmware's own block validator accepts.
+     * This is model data for the bundle board record, not recovered factory
+     * calibration; see include/hw/nikon/exconfig.h for the block layout.
+     */
+    if (!nikon_ex_config_compose(copy, size)) {
         error_report("EX firmware is too small for the factory config input");
         exit(EXIT_FAILURE);
     }
-
-    /* Synthetic functional input, not recovered factory data. */
-    config = copy + EX_CONFIG_OFFSET;
-    memset(config, config_data->fill, EX_CONFIG_SIZE);
-    memcpy(config, config_data->magic, sizeof(config_data->magic));
-    config[config_data->channel0_offset] = config_data->channel0_value;
-    config[config_data->mode_offset] = config_data->mode_value;
-    config[config_data->mode_offset + 1] = config_data->mode_value;
-    /* The complete-config branch reads a second factory view at 0x8100.
-     * It is another erased external region in the supplied image; keep its
-     * synthetic contract adjacent to the primary view rather than exposing a
-     * second runtime input. */
-    /* The auxiliary view is a structured parameter table, not a byte-fill
-     * region.  Unknown fields must retain erased zero rather than becoming
-     * pointers/counts with value 1 (which can make the firmware program an
-     * invalid DMA destination).  We currently provide only the primary
-     * view's proven gate fields. */
-    memset(copy + EX_CONFIG_AUX_OFFSET, 0, EX_CONFIG_AUX_SIZE);
-    config[config_data->gate_offset] = config_data->gate_value;
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
