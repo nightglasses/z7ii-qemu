@@ -671,6 +671,92 @@ static void test_descriptor17_rejection(void)
     }
 }
 
+static void test_descriptor18_input(void)
+{
+    const size_t size = 0xa0000;
+    g_autofree uint8_t *input = g_malloc(size);
+    g_autofree char *path17 = NULL;
+    g_autofree char *path18 = NULL;
+    g_autofree char *machine = NULL;
+    MemoryTest t;
+    int fd;
+
+    for (size_t i = 0; i < size; i++) {
+        input[i] = (i * 31 + (i >> 9) * 13 + 9) & 0xff;
+    }
+    memcpy(input + size - 4, "ENDM", 4);
+    fd = g_file_open_tmp("nikon-descriptor18-XXXXXX", &path18, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path18, (char *)input, size, NULL));
+    fd = g_file_open_tmp("nikon-descriptor17-pair-XXXXXX", &path17, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path17, (char *)input, 0x20000, NULL));
+    machine = g_strdup_printf(",mas-boot-prefix=erased,"
+                              "descriptor17-input=%s,descriptor18-input=%s",
+                              path17, path18);
+    t = memory_init_machine(machine, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132dfffe), ==,
+                    lduw_le_p(input + 0x1fffe));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0000), ==, lduw_le_p(input));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0100), ==,
+                    lduw_le_p(input + 0x100));
+    g_assert_cmphex(qtest_readw(t.qts, 0x13370000), ==,
+                    lduw_le_p(input + 0x90000));
+    g_assert_cmphex(qtest_readw(t.qts, 0x1337fffc), ==,
+                    lduw_le_p(input + size - 4));
+    g_assert_cmphex(qtest_readw(t.qts, 0x1337fffe), ==,
+                    lduw_le_p(input + size - 2));
+    g_assert_cmphex(qtest_readw(t.qts, 0x133a0000), ==, 0xffff);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, 0x132e0000, 0);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0000), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0100), ==,
+                    lduw_le_p(input + 0x100));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==, lduw_le_p(input));
+    memory_quit(&t);
+    unlink(path17);
+    unlink(path18);
+}
+
+static void test_descriptor18_rejection(void)
+{
+    g_autofree char *path = NULL;
+    g_autofree uint8_t *input = g_malloc0(0xa0001);
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(
+            ",descriptor18-input=%s",
+            g_getenv("NIKON_DESCRIPTOR18_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-descriptor18-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_DESCRIPTOR18_FIXTURE", path, true);
+    for (unsigned i = 0; i < 2; i++) {
+        g_assert_true(g_file_set_contents(path, (char *)input,
+                                          i ? 0xa0001 : 4, NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(
+            "*descriptor18 input must contain exactly 640 KiB*");
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor18 input*");
+    g_unsetenv("NIKON_DESCRIPTOR18_FIXTURE");
+}
+
 static void test_sysconfig_profile(void)
 {
     const uint32_t base = 0x04280000;
@@ -761,6 +847,9 @@ int main(int argc, char **argv)
                    test_descriptor17_input);
     qtest_add_func("/nikon/memory/descriptor17-rejection",
                    test_descriptor17_rejection);
+    qtest_add_func("/nikon/memory/descriptor18-input", test_descriptor18_input);
+    qtest_add_func("/nikon/memory/descriptor18-rejection",
+                   test_descriptor18_rejection);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     return g_test_run();
 }

@@ -99,6 +99,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_NOR_CFI_QUERY 0x100000aaULL
 #define Z7II_DESCRIPTOR17_BASE 0x132c0000ULL
 #define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
+#define Z7II_DESCRIPTOR18_BASE 0x132e0000ULL
+#define Z7II_DESCRIPTOR18_SIZE 0x000a0000ULL
 
 /* NOR command protocol state for the mapped flash device. */
 typedef enum Z7IINorReadMode {
@@ -152,6 +154,7 @@ struct Z7IIMachineState {
     QEMUTimer *ex_input_timer;
     bool frame_contract;
     char *descriptor17_input;
+    char *descriptor18_input;
     Z7IINorReadMode nor_read_mode;
     Z7IINorCommandStage nor_command_stage;
     hwaddr nor_buffer_sector;
@@ -525,26 +528,29 @@ static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
     memory_region_add_subregion(get_system_memory(), base, &slot->region);
 }
 
-static void z7ii_load_descriptor17_input(Z7IIMachineState *s)
+static void z7ii_load_descriptor_input(Z7IIMachineState *s, const char *path,
+                                      unsigned descriptor, hwaddr base,
+                                      size_t expected_size)
 {
     g_autoptr(GError) error = NULL;
     g_autofree char *data = NULL;
     gsize size;
     uint8_t *destination;
 
-    if (!s->descriptor17_input || !*s->descriptor17_input) {
+    if (!path || !*path) {
         return;
     }
-    if (!g_file_get_contents(s->descriptor17_input, &data, &size, &error)) {
-        error_report("cannot load descriptor17 input '%s': %s",
-                     s->descriptor17_input, error->message);
+    if (!g_file_get_contents(path, &data, &size, &error)) {
+        error_report("cannot load descriptor%u input '%s': %s",
+                     descriptor, path, error->message);
         exit(EXIT_FAILURE);
     }
-    if (size != Z7II_DESCRIPTOR17_SIZE) {
-        error_report("descriptor17 input must contain exactly 128 KiB");
+    if (size != expected_size) {
+        error_report("descriptor%u input must contain exactly %zu KiB",
+                     descriptor, expected_size / 1024);
         exit(EXIT_FAILURE);
     }
-    destination = z7ii_nor_external_pointer(s, Z7II_DESCRIPTOR17_BASE, size);
+    destination = z7ii_nor_external_pointer(s, base, size);
     g_assert(destination);
     memcpy(destination, data, size);
 }
@@ -829,7 +835,12 @@ static void z7ii_init(MachineState *machine)
 
             z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
         }
-        z7ii_load_descriptor17_input(s);
+        z7ii_load_descriptor_input(s, s->descriptor17_input, 17,
+                                  Z7II_DESCRIPTOR17_BASE,
+                                  Z7II_DESCRIPTOR17_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor18_input, 18,
+                                  Z7II_DESCRIPTOR18_BASE,
+                                  Z7II_DESCRIPTOR18_SIZE);
         s->nor_regions_ready = true;
     }
 
@@ -1454,6 +1465,27 @@ static void z7ii_set_descriptor17_input(Object *obj, const char *value,
     s->descriptor17_input = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_descriptor18_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor18_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor18_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor18-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor18_input);
+    s->descriptor18_input = g_strdup(value && *value ? value : NULL);
+}
+
 static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
 {
     const char *value = Z7II_MACHINE(obj)->sla_boot_prefix;
@@ -1523,6 +1555,7 @@ static void z7ii_finalize(Object *obj)
     timer_free(s->ex_input_timer);
     g_free(s->bundle_path);
     g_free(s->descriptor17_input);
+    g_free(s->descriptor18_input);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
@@ -1548,6 +1581,12 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_descriptor17_input);
     object_class_property_set_description(oc, "descriptor17-input",
         "Optional exact 128 KiB external NOR input at 0x132c0000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor18-input",
+                                  z7ii_get_descriptor18_input,
+                                  z7ii_set_descriptor18_input);
+    object_class_property_set_description(oc, "descriptor18-input",
+        "Optional exact 640 KiB external NOR input at 0x132e0000; "
         "omitted bytes remain erased");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);
