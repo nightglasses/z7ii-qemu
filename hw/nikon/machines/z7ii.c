@@ -91,6 +91,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_RESOURCE57_RECORD1_SIZE 0x1fa400ULL
 #define Z7II_RESOURCE57_RECORD7_BASE 0xc175d600ULL
 #define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
+#define Z7II_KIND40_BASE 0x62059800ULL
+#define Z7II_KIND40_SIZE 0x1c8000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
@@ -176,6 +178,7 @@ struct Z7IIMachineState {
     MemoryRegion resource57_record7;
     MemoryRegion lcd_composition;
     MemoryRegion display_buffers;
+    MemoryRegion kind40_buffer;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     MemoryRegion download;
     /* Selector-one packed download arena; independent from selector zero. */
@@ -898,6 +901,14 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
              Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
+    /*
+     * 10238314 acquires kind40, length1c8000, into holder b26b48d8.
+     * Its original object publishes PA62059800; 103c5a7a uses source record15
+     * to return VA36d59800. Guest PTEs translate that view back to this RAM.
+     * Back only this owned allocation, not the enclosing 5f900000 class.
+     */
+    z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
+             Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
     /*
      * Observational LCD scanout for the composition buffer.  A panel scans its
      * buffer continuously; this observer samples the guest-owned region on a

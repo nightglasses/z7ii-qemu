@@ -122,6 +122,35 @@ static void test_no_bus_mirror(void)
     memory_quit(&t);
 }
 
+static void test_kind40_buffer(void)
+{
+    const uint64_t base = 0x62059800, end = 0x62221800;
+    const uint64_t addresses[] = { base, base + 0xe4000, end - 4 };
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==, 0);
+        qtest_writel(t.qts, addresses[i], 0x40280000 + i);
+    }
+    /* The logical view requires the guest MMU; adjacent bytes stay holes. */
+    qtest_writel(t.qts, 0x36d59800, 0x12345678);
+    qtest_writel(t.qts, base - 4, 0x12345678);
+    qtest_writel(t.qts, end, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, 0x36d59800), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==,
+                            0x40280000 + i);
+        }
+    }
+    memory_quit(&t);
+}
+
 static void set_decode(MemoryTest *t, uint32_t high_length)
 {
     qtest_writel(t->qts, 0x20016d50, 0x60000000);
@@ -826,6 +855,7 @@ int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/memory/storage-profile", test_storage_profile);
+    qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
     qtest_add_func("/nikon/memory/no-physical-logical-mirror",
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);

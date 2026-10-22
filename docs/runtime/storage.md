@@ -1,5 +1,9 @@
 # Complete software storage profile
 
+The additional exact [kind40 allocation](kind40.md) at
+`[62059800,62221800)` is backed separately. Its original VA conversion and
+section PTE are verified; the surrounding address class remains uncovered.
+
 The Z7II functional board backs the six complete source-bound storage classes
 21 through 26. This replaces allocation-sized module memory and separate kernel
 copy, BSS, table and stack fragments. Each physical byte has one RAM cell shared
