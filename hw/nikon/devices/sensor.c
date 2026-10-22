@@ -813,13 +813,22 @@ static bool nikon_capture_config(unsigned offset, uint32_t *mask)
         return true;
     }
     switch (offset) {
-    case 0: case 4: case 0x18:
+    case 0: case 4: case 0x10: case 0x14: case 0x18:
         *mask = 0xfff;
         return true;
     case 0xc:
         *mask = 0xc;
         return true;
+    /* 1020bfc2/1020ab3c: raw word parameters, separate boolean enable. */
+    case 0x20: case 0x24: case 0x60:
     case 8: case 0x8c: case 0x100: case 0x104:
+        return true;
+    case 0x28:
+        *mask = 1;
+        return true;
+    case 0x70:
+        /* 1020bfde: boolean bits5/1 and the two-bit selector at bits4:3. */
+        *mask = 0x3a;
         return true;
     case 0x88:
         *mask = 0xff;
@@ -974,6 +983,30 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
     if (offset >= 0x210 && offset <= 0x2f0 && (offset & 0x1f) == 0x10) {
         s->pending[(offset - 0x210) / 0x20] &= ~value;
         nikon_capture_irqs(s);
+        return MEMTX_OK;
+    }
+    if (offset == 0 || offset == 4 || offset == 0x10 || offset == 0x14) {
+        unsigned first = offset < 8 ? 0 : 4;
+        uint32_t padding = value & ~0xfffU;
+        uint32_t bits = value & 0xfff;
+        uint32_t state = s->configuration[first];
+
+        /*
+         * 1020a50c/1020a518 expose paired set/clear commands. 10239740
+         * submits a complemented unit mask, whose upper bits are padding.
+         * Keep a finite mask/complement grammar, not arbitrary upper bits.
+         */
+        if (padding && padding != ~0xfffU) {
+            return nikon_capture_error(s, offset, size, true, value);
+        }
+        if (offset == 0 || offset == 0x10) {
+            state |= bits;
+        } else {
+            state &= ~bits;
+        }
+        /* Functional readback mirrors effective state through both aliases. */
+        s->configuration[first] = s->configuration[first + 1] = state;
+        s->known[first] = s->known[first + 1] = true;
         return MEMTX_OK;
     }
     if (!nikon_capture_config(offset, &mask) || (value & ~mask)) {

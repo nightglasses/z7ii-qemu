@@ -751,6 +751,81 @@ static void test_capture_configuration(void)
     qtest_quit(q);
 }
 
+static void test_capture_controls(void)
+{
+    QTestState *q = capture_start(NULL);
+    uint32_t selected = 0x2bf;
+
+    /* 10239740 complements 102396e8's selected units before initialization. */
+    qtest_writel(q, CAPTURE_BASE, ~selected);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, (~selected & 0xfff));
+    qtest_writel(q, CAPTURE_BASE + 4, 0xfff);
+    for (unsigned bit = 0; bit < 12; bit++) {
+        uint32_t unit = 1U << bit;
+
+        qtest_writel(q, CAPTURE_BASE, unit);
+        qtest_writel(q, CAPTURE_BASE, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 4), ==, unit);
+        qtest_writel(q, CAPTURE_BASE + 4, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, 0);
+        qtest_writel(q, CAPTURE_BASE + 0x10, 0xfff);
+        qtest_writel(q, CAPTURE_BASE + 0x14, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x10), ==,
+                        (0xfff & ~unit));
+        qtest_writel(q, CAPTURE_BASE + 0x10, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x14), ==, 0xfff);
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x18, selected);
+    qtest_writel(q, CAPTURE_BASE + 0x18,
+                 qtest_readl(q, CAPTURE_BASE + 0x18) & ~0x20);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==,
+                    (selected & ~0x20));
+    qtest_writel(q, CAPTURE_BASE + 0x24, 15);
+    qtest_writel(q, CAPTURE_BASE + 0x20, 31);
+    qtest_writel(q, CAPTURE_BASE + 0x28, 1);
+    qtest_writel(q, CAPTURE_BASE + 0x60, 0x80000001);
+    qtest_writel(q, CAPTURE_BASE + 0x70, (3 << 3) | (1 << 5) | (1 << 1));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x24), ==, 15);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x20), ==, 31);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x28), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x60), ==, 0x80000001);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0x3a);
+    qtest_writel(q, CAPTURE_BASE, 0x1000); /* Neither mask nor complement. */
+    qtest_writew(q, CAPTURE_BASE + 0x10, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x18, 0x1000);
+    qtest_writel(q, CAPTURE_BASE + 0x28, 2);
+    qtest_writel(q, CAPTURE_BASE + 0x70, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x10), ==, 0xfff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==,
+                    (selected & ~0x20));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x28), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0x3a);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x200, 8);
+    status_word(q, CAPTURE_PATH, 0, 8);
+    status_word(q, CAPTURE_PATH, 1, 0);
+    publish_capture(q, 0);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0xfff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 8);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    for (unsigned offset = 0; offset <= 0x28; offset += 4) {
+        if (offset != 0x1c) {
+            g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + offset), ==, 0);
+        }
+    }
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x60), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
 static void test_capture_status(void)
 {
     QTestState *q = capture_start(NULL);
@@ -1234,6 +1309,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/controller/publication", test_sdes_publication);
     qtest_add_func("/nikon/sensor/capture/configuration",
                     test_capture_configuration);
+    qtest_add_func("/nikon/sensor/capture/controls", test_capture_controls);
     qtest_add_func("/nikon/sensor/capture/status", test_capture_status);
     qtest_add_func("/nikon/sensor/capture/publication", test_capture_publication);
     qtest_add_func("/nikon/sensor/readout/configuration",

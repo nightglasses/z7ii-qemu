@@ -70,6 +70,13 @@ Three new focused qtest cases cover independent configuration banks without IRQ,
 
 ## Original capture configuration and commit family
 
+The later [mask and enable audit](control.md) supersedes the independent
+12-bit0/4 storage restriction below. Original complemented masks now normalize
+into paired reset/enable bitmaps; the complete adjacent source controls are
+modeled without generating status. Four focused native cases pass, and unchanged
+normal-request execution reaches its next buffer-clear/address-translation
+boundary at board PA62059800. Earlier receipts below retain their fixed scope.
+
 The same saved `ec048f9fde8723ba2db9657f2e88410933b21099` source closes a separate control outlet: `102d8606`/`102d8810`/`102d8c54`→`102dab42`/`102dabca`→23-pointer configuration packet→`103003dc`. Its callback field is RAM `b18a7798`, derived from original literal `10300450`=`b18a778c`. Initializer `1023954a`, at callsite `102396b4`, registers original literal `10239a00` (bytes `2d912310`, Thumb `1023912d`) through `103981cc`→`1026d72a`/`102fe10e`, only when that callback field is zero. `1023912c` copies the packet into local storage and invokes `10238fbc`, whose nonnull pointer checks select twenty accessors `1020c46a..1020c536`. These are software provenance and configuration facts, not an observation that original capture has run.
 
 `nikon-capture-control`, also in `sensor.c`, has one region of size `1180` hex. Machine placement at original VA `20068000` uses the existing explicit VA=PA convention. The device accepts aligned little-endian32-bit accesses only. The finite configuration stores are offsets `0`, `4`, `8`, `c`, `18`, `88`, `8c`, `100`, `104`, `500`, `508..81c`, `a00..afc`, `c00..e3c`, `f00..100c`, and `1100..117c`, plus the eight masks below. It uses an explicit functional cold-zero reset profile for only these known control/configuration words, then retains accepted writes. Other offsets and unknown data observations remain bus errors. In particular `504`, `900` and gaps between coefficient tables are not included merely because they lie in this aperture. Registers `0/4` are bounded to12 bits and `88` to8 bits by their saved stores; the packed tables retain full32-bit values rather than assigning guessed Boolean or pixel meanings.
