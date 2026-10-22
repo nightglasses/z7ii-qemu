@@ -224,6 +224,13 @@ application `00018583`. This endpoint supplies neither that data slot nor
 target instructions, and its synthetic fixture is not an original VR ACK
 receipt.
 
+The [VR domain note](vr-domain.md) records the two-process camera/VR wiring,
+the run in which the loaded VR guest stops at this slot, and the package-external
+input still required to continue. SCI5 initialisation precedes the stop;
+original interrupt servicing and guest-produced replies remain unverified.
+Further VR boot probes are deferred for the GUI investigation; the note separates
+the current machine contract from the retired RAM and resident-hook experiments.
+
 ## Explicit external input and flash storage
 
 `nikon-vr-input` now supplies a sparse container for the loaded VR domain's

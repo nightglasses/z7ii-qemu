@@ -28,6 +28,9 @@ guest has accepted a Nikon application message. Source-backed CS, readiness and
 slave state must be implemented by the actual endpoint before it completes a
 word.
 
+The client that drives port 4, its job descriptor and the exact bytes that port
+puts on the wire are recorded in [runtime/transport.md](../../runtime/transport.md).
+
 The saved native SPI DMA initialization now binds the whole three-port family.
 `103705a8` copies the 88-byte policy returned by `10207462` into `b1d4ff84`;
 `103705cc` binds DMA resources only in `12a..131`. The original EX transmit
