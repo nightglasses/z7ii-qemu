@@ -36,6 +36,7 @@
 #define TYPE_NIKON_SHARED_PARAMETER_EVENTS "nikon-shared-parameter-events-functional"
 #define TYPE_NIKON_PARAMETER_EVENTS "nikon-parameter-events-functional"
 #define TYPE_NIKON_DUAL_EVENT_BANKS "nikon-dual-event-banks-functional"
+#define TYPE_NIKON_PANEL "nikon-panel-functional"
 #define TYPE_NIKON_BYTE_EVENT_ROUTER "nikon-byte-event-router-functional"
 #define TYPE_NIKON_REQUEST_STATUS "nikon-request-status-functional"
 #define TYPE_NIKON_SDI "nikon-sdi-functional"

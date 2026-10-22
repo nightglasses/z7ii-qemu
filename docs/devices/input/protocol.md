@@ -101,7 +101,22 @@ GUI consumer remain open. This device sends none of that record itself.
 The MENU name is not bound to any row above. Physical dial names and touch
 packet coordinates are also unbound; no wheel delta
 or touch event is translated into GPIO transitions or memory writes.
-An original input-to-GUI run remains pending.
+The later C5 startup join below establishes one original input-to-GUI-worker
+transition; other input consumers and a visible GUI first frame remain open.
+
+### Original C5 startup join
+
+With the unchanged bundle and explicit functional descriptor, QMP `cont` and
+F4-down sent consecutively let the existing pad3/C5 level be present before
+initial EX sampling. EX sample `2001f334` bit0 becomes1, original MAS record
+byte20 becomes2, normalized type1 selects main mode1, and the manager starts
+GUI worker3/mode1. BatCk remains2 and no battery peer is attached. The run
+then stops at an unsupported shared channel9 timing transaction, before a
+verified GUI first frame. This is a functional host binding, not a physical
+camera button name. Late F4-down reaches C5 low but does not by itself
+retrigger the consumed EX synchronization update. The complete source,
+negative late-input window and cold-input receipts are in
+[policy.md](../../runtime/policy.md) and `work/runs/policy-20261025/`.
 
 ## Original dispatch and rotary consumers
 

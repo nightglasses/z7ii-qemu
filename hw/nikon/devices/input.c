@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/log.h"
 #include "qemu/module.h"
 #include "hw/core/irq.h"
 #include "hw/core/resettable.h"
@@ -46,6 +47,11 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
             if (s->down[i] != event->key.down) {
                 s->down[i] = event->key.down;
                 qemu_set_irq(s->pads[i], !s->down[i]);
+                /* Assistance receipt: every host key that reaches a pad. */
+                qemu_log_mask(LOG_GUEST_ERROR,
+                              "nikon-input: pad=%u ex-pad=%#04x %s active-low"
+                              " level=%u\n", i, nikon_input_gpio_ids[i],
+                              s->down[i] ? "down" : "up", !s->down[i]);
             }
             return;
         }

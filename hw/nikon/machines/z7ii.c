@@ -887,6 +887,22 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
              Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
+    /*
+     * Observational LCD scanout for the composition buffer.  A panel scans its
+     * buffer continuously; this observer samples the guest-owned region on a
+     * virtual-clock cadence and publishes a console surface.  It adds no guest
+     * register, IRQ, completion or status and never writes guest memory.
+     */
+    {
+        DeviceState *panel = qdev_new(TYPE_NIKON_PANEL);
+
+        qdev_prop_set_uint64(panel, "base", Z7II_LCD_COMPOSITION_BASE);
+        qdev_prop_set_uint32(panel, "width", 1024);
+        qdev_prop_set_uint32(panel, "height", 688);
+        qdev_prop_set_uint32(panel, "skip-rows", 6);
+        object_property_add_child(OBJECT(machine), "panel", OBJECT(panel));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(panel), &error_fatal);
+    }
     z7ii_prepare_bundle_loader(s);
     if (s->bundle) {
         DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
