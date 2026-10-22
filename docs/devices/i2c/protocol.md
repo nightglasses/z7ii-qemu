@@ -1,5 +1,23 @@
 # Four I²C interfaces and asynchronous bus transactions
 
+## Held TX batch completion
+
+The original combined acceleration read sets the driver HOLD flag for its
+selector TX and waits for COMP before submitting RX. ISR`1036d686` requires
+COMP1 with zero software remaining count and no error; callback`10370f3e`
+stores that ISR snapshot and signals the waiter. It independently retains
+HOLD when driver+44 is set. FIFOempty2 alone does not satisfy this contract.
+
+Both local and asynchronous controller paths now report COMP only after the
+last accepted WRITE byte empties a FIFO batch, retaining the bus until restart
+or HOLD release. An address-only empty held TX still follows the existing
+configured starvation timeout. A newly filled batch must clock its bytes before
+another COMP. Releasing HOLD after an acknowledged COMP produces STOP without
+replaying completion. Native coverage includes16-byte then2-byte held batches,
+no early COMP during pending bytes, repeated START/RX, timeout and reset/cancel.
+Original unchanged execution now completes the acceleration status and sample
+reads; see [acceleration](../acceleration/protocol.md).
+
 The controller now has an explicit asynchronous board endpoint alongside the
 official synchronous I2CBus. They are mutually exclusive: attachment requires
 an idle controller and an empty local bus, then closes that bus to local slave
@@ -14,6 +32,8 @@ actually been clocked. READ carries zero and publishes only an actual returned
 byte. A final returned byte is followed by an explicit master NACK; the endpoint
 does not add another implicit NACK. STOP completion releases active bus state,
 and non-HOLD transfer COMP is generated only after that real STOP completes.
+After the last accepted WRITE byte drains a held TX batch, COMP is generated
+while the bus and endpoint remain held. It is independent of STOP.
 Phase completion means a physical functional bus action, not a TPJ application
 acknowledgement. `NIKON_I2C_NAK=0x100` is separate from all valid bytes, including
 an actual returned `ff`.
@@ -84,7 +104,7 @@ This stage implements the four original controller bases `2c018000..2c01b000` an
 
 The virtual board starts each controller idle: CR/address/count/ISR/pause/timeout0, IMR2ff, empty16-byte TX/RX FIFOs and independent nominal48MHz Clock. These are functional assumptions, not Nikon reset or rate measurements. Word-only MMIO follows the [Linux v6.12 Cadence register interface](https://github.com/torvalds/linux/blob/v6.12/drivers/i2c/busses/i2c-cadence.c#L21-L118) and the AMD register/protocol references linked in the research. SR derives bus/FIFO/direction state; IER/IDR change one mask, and ISR events persist until W1C. Reads do not create transfer completion.
 
-Each controller owns an official [I2CBus](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/i2c/core.c#L106-L182), Fifo8, Clock and virtual-time timer. An address request schedules actual upstream start/send/recv/end actions; an empty bus returns address NACK. Byte frames use9 virtual SCL cycles and the candidate divisor22×(divA+1)×(divB+1). No peripheral is attached in the original machine. The positive synthetic test alone attaches upstream `at24c-eeprom`; its bytes are not camera data.
+Each controller owns an official [I2CBus](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/i2c/core.c#L106-L182), Fifo8, Clock and virtual-time timer. An address request schedules actual upstream start/send/recv/end actions; an empty bus returns address NACK. Byte frames use9 virtual SCL cycles and the candidate divisor22×(divA+1)×(divB+1). Raw MAS diagnostics leave these buses empty. The complete-bundle composition attaches the qualified eye and acceleration endpoints on I2C2. Synthetic tests may attach upstream `at24c-eeprom`; its bytes are not camera data.
 
 Normal7-bit master TX/RX is supported. TX TRANS_SIZE returns unsent-byte-count minus one (empty0); RX TRANS_SIZE is remaining expected bytes, and slave counts describe queued FIFO state. These are the standard candidate conventions, not proof of Nikon's variant encoding. RX full waits for guest pop/rearm rather than dropping data. Empty DATA read reports RXUNF and returns a named underflow value0; full DATA write reports TXOVF and preserves existing bytes. FIFO clear cancels work and clears counts/FIFOs; W1C remains separate. HOLD retains a selected endpoint, permits same-address repeated START and stops when released after completion. Configured TX starvation timeout is `(TIMEOUT+1)` virtual SCL cycles; zero disables that assumption. No external slave master is invented.
 

@@ -1099,6 +1099,7 @@ int main(int argc, char **argv)
     nikon_sdi_add_tests(image);
     nikon_spi_add_tests(image);
     nikon_i2c_add_tests(image);
+    nikon_acceleration_add_tests(image);
     nikon_pressure_add_tests(image);
     nikon_processing_add_tests(image);
     nikon_config_add_tests(image);

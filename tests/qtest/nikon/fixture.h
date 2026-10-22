@@ -4,6 +4,8 @@
 #ifndef NIKON_QTEST_FIXTURE_H
 #define NIKON_QTEST_FIXTURE_H
 
+void nikon_acceleration_add_tests(const char *image);
+
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
 #include "../libqtest.h"

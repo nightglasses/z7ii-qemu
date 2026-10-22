@@ -162,7 +162,9 @@ static void eye_pointer(QTestState *q, uint8_t reg)
     eye_i2c_write(q, 0, 0x3e);
     eye_i2c_write(q, 8, 0x38);
     eye_wait(q, 0x40, 0);
-    g_assert_cmphex(eye_i2c_read(q, 0x10) & 5, ==, 0);
+    /* HOLD retains the bus, while the transmitted selector batch completes. */
+    g_assert_cmphex(eye_i2c_read(q, 0x10) & 5, ==, 1);
+    g_assert_cmphex(eye_i2c_read(q, 4) & 0x100, ==, 0x100);
     eye_clear_irq(q);
 }
 

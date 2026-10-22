@@ -1251,6 +1251,12 @@ static void z7ii_init(MachineState *machine)
         if (i == 2 && s->bundle) {
             i2c_slave_create_simple(nikon_i2c_bus(i2c),
                                     TYPE_NIKON_EYE_SENSOR, 0x38);
+            /*
+             * Original unit6 handle 0x00020040 selects this bus. Samples
+             * remain unavailable until explicitly supplied as board input.
+             */
+            i2c_slave_create_simple(nikon_i2c_bus(i2c),
+                                    TYPE_NIKON_ACCELERATION, 0x1d);
         }
     }
     for (i = 0; i < 2; i++) {

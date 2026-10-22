@@ -20,6 +20,7 @@
 #define TYPE_NIKON_HDMAC "nikon-hdmac-functional"
 #define TYPE_NIKON_I2C "nikon-i2c-functional"
 #define TYPE_NIKON_EYE_SENSOR "nikon-eye-sensor-functional"
+#define TYPE_NIKON_ACCELERATION "nikon-acceleration-functional"
 #define TYPE_NIKON_AUDIO "nikon-audio-functional"
 #define TYPE_NIKON_TIMING "nikon-timing-functional"
 #define TYPE_NIKON_COPY "nikon-copy-functional"

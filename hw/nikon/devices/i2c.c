@@ -234,7 +234,12 @@ void nikon_i2c_async_complete(DeviceState *dev, uint64_t token, uint32_t result)
         nikon_i2c_progress(s);
         break;
     case NIKON_I2C_WRITE:
-        nikon_i2c_progress(s);
+        if (fifo8_is_empty(&s->tx) && (s->control & I2C_HOLD)) {
+            s->pending |= 2;
+            nikon_i2c_complete(s);
+        } else {
+            nikon_i2c_progress(s);
+        }
         break;
     case NIKON_I2C_READ:
         fifo8_push(&s->rx, result);
@@ -366,13 +371,17 @@ static void nikon_i2c_step(void *opaque)
                 nikon_i2c_irq(s);
                 return;
             }
-        }
-        if (fifo8_is_empty(&s->tx)) {
-            s->pending |= 2;
-            if (!(s->control & I2C_HOLD)) {
+            if (fifo8_is_empty(&s->tx)) {
+                s->pending |= 2;
+                /*
+                 * Original combined reads wait for TX COMP before RX. HOLD
+                 * retains ownership; it does not suppress batch completion.
+                 */
                 nikon_i2c_complete(s);
                 return;
             }
+        } else {
+            s->pending |= 2;
         }
     }
     nikon_i2c_irq(s);
