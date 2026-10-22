@@ -55,6 +55,15 @@ MemTxResult nikon_memc_nor_backend_access(DeviceState *dev, hwaddr address,
                                          uint64_t value);
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
                        bool write, uint64_t value, const char *reason);
+
+/*
+ * A guest poll loop whose modelled completion can never happen used to be
+ * silent: the firmware spins on a status bit forever.  Devices call this from
+ * the status read; after `limit` consecutive polls that observed no state
+ * change the wait is reported as an uncovered stall and the VM stops.
+ */
+bool nikon_wait_stall(bool *reported, hwaddr addr, unsigned size,
+                      uint64_t value, unsigned limit, const char *reason);
 void nikon_mxic_attach_ram(DeviceState *dev, MemoryRegion *ram, hwaddr address);
 /* Return the controller's real upstream I2C bus after realization. */
 I2CBus *nikon_i2c_bus(DeviceState *dev);

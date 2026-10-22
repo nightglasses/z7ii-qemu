@@ -62,6 +62,7 @@ typedef struct EXSPI {
 typedef struct EXI2C {
     uint32_t reg[9];
     bool sr1_seen;
+    bool sr1_stalled;
     bool receive;
     uint8_t rx[2];
     unsigned rx_count;
@@ -1047,7 +1048,8 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                     ex_i2c_update(s, i);
                 }
                 if (consume && reg == 4 && p->receive &&
-                    (p->reg[0] & (1 << 10)) && i2c_bus_busy(p->bus)) {
+                    (p->reg[0] & (1 << 10)) && i2c_bus_busy(p->bus) &&
+                    !(p->reg[5] & 0x02)) {
                     ex_i2c_fill(p);
                     ex_i2c_update(s, i);
                 }
@@ -1060,10 +1062,27 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 v = p->reg[reg];
                 if (consume && reg == 5) {
                     p->sr1_seen = true;
+                    /* The original HAL polls SR1; a modelled event that never
+                     * arrives must report instead of spinning silently. */
+                    nikon_wait_stall(&p->sr1_stalled, addr, size, v, 50000,
+                                     "i2c-sr1");
                 } else if (consume && reg == 6 && p->sr1_seen) {
-                    /* SR1 followed by SR2 clears ADDR and STOPF. */
+                    /* SR1 followed by SR2 clears ADDR and STOPF.  For a
+                     * receive, that is also the moment the stretched bus
+                     * releases and the first data byte is clocked. */
+                    bool addr_cleared = p->reg[5] & 0x02;
+
                     p->reg[5] &= ~0x12u;
                     p->sr1_seen = false;
+                    if (addr_cleared && p->receive && !p->rx_count &&
+                        i2c_bus_busy(p->bus)) {
+                        ex_i2c_fill_limit(p, 1);
+                        if (p->reg[0] & (1 << 10)) {
+                            timer_mod(p->rx_timer,
+                                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                                      ex_i2c_byte_ns(s, p));
+                        }
+                    }
                     ex_i2c_update(s, i);
                 }
                 goto found;
@@ -1303,16 +1322,15 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                         if (i2c_start_transfer(p->bus, (v >> 1) & 0x7f, p->receive)) {
                             p->reg[5] |= 1 << 10; /* real absent slave NACK */
                         } else {
-                            p->reg[5] |= 2 | (p->receive ? 0x40 : 0x80);
+                            /*
+                             * Real hardware stretches SCL after the address
+                             * phase: the first data byte is clocked only
+                             * once the guest clears ADDR by reading SR1 then
+                             * SR2.  Delivering a byte here would set
+                             * RXNE/BTF before the guest ever clears ADDR.
+                             */
+                            p->reg[5] |= p->receive ? 2 : (2 | 0x80);
                             p->reg[6] = p->receive ? 3 : 7;
-                            if (p->receive) {
-                                ex_i2c_fill_limit(p, 1);
-                                if (p->reg[0] & (1 << 10)) {
-                                    timer_mod(p->rx_timer,
-                                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                                              ex_i2c_byte_ns(s, p));
-                                }
-                            }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
                         p->reg[5] |= i2c_send(p->bus, v) ? 1 << 10 : 0x84;

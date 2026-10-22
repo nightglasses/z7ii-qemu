@@ -1014,7 +1014,15 @@ static void i2c_single_byte_read(void)
     qtest_writel(qts, i2c + 0x10, 0x00);
     qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 10));
     qtest_writel(qts, i2c + 0x10, 0xd7);
-    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x42);
+    /* The address phase raises ADDR alone: the controller stretches SCL
+     * until the guest clears ADDR with the SR1-then-SR2 read, so the first
+     * data byte is not in DR yet. */
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x02);
+    /* Reading DR before the stretch is released must not fabricate a
+     * received byte: DR still holds the address byte that was written and
+     * ADDR stays set. */
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x10), ==, 0xd7);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x02);
     qtest_readl(qts, i2c + 0x18);
     g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x40);
     /* Clearing ACK before any data is consumed keeps BTF clear. */
