@@ -160,6 +160,34 @@ static void set_decode(MemoryTest *t, uint32_t high_length)
     qtest_writel(t->qts, 0x20016d40, 1);
 }
 
+static void test_row_storage(void)
+{
+    const uint32_t cells[] = {
+        0x50300000, 0x5055fffc, 0x50560000, 0x5063fffc,
+    };
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x120b0000 + i);
+    }
+    qtest_writel(t.qts, 0x502ffffc, 0x12345678);
+    qtest_writel(t.qts, 0x50640000, 0x12345678);
+    qtest_writel(t.qts, 0x30260000, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, 0x502ffffc), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0x50640000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0x30260000), ==, 0);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x120b0000 + i);
+        }
+    }
+    memory_quit(&t);
+}
+
 static void test_decode_retention(void)
 {
     MemoryTest t = memory_init("");
@@ -669,6 +697,88 @@ static void test_descriptor17_input(void)
     unlink(path);
 }
 
+static void test_row_input(gconstpointer opaque)
+{
+    const unsigned id = GPOINTER_TO_UINT(opaque);
+    const uint32_t base = id == 11 ? 0x12a80000 : 0x12ce0000;
+    const size_t size = id == 11 ? 0x260000 : 0xe0000;
+    g_autofree uint8_t *input = g_malloc(size);
+    g_autofree char *path = NULL;
+    g_autofree char *machine = NULL;
+    MemoryTest t;
+    int fd;
+
+    for (size_t i = 0; i < size; i++) {
+        input[i] = (i * 13 + (i >> 12) * 19 + id) & 0xff;
+    }
+    fd = g_file_open_tmp("nikon-row-input-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (char *)input, size, NULL));
+    machine = g_strdup_printf(",mas-boot-prefix=erased,descriptor%u-input=%s",
+                              id, path);
+    t = memory_init_machine(machine, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    for (unsigned i = 0; i < 3; i++) {
+        size_t offset = i == 0 ? 0 : i == 1 ? size / 2 : size - 2;
+
+        g_assert_cmphex(qtest_readw(t.qts, base + offset), ==,
+                        lduw_le_p(input + offset));
+    }
+    g_assert_cmphex(qtest_readw(t.qts, base - 2), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x3e0000), ==, 0xffff);
+    /* File input populates NOR only, never its destination RAM or an event. */
+    g_assert_cmphex(qtest_readl(t.qts, id == 11 ? 0x50300000 : 0x50560000),
+                    ==, 0);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base, 0);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==,
+                    lduw_le_p(input + size - 2));
+    memory_quit(&t);
+    unlink(path);
+}
+
+static void test_row_input_rejection(gconstpointer opaque)
+{
+    const unsigned id = GPOINTER_TO_UINT(opaque);
+    const size_t size = id == 11 ? 0x260000 : 0xe0000;
+    g_autofree uint8_t *input = g_malloc0(size + 1);
+    g_autofree char *path = NULL;
+    g_autofree char *expected = NULL;
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(",descriptor%u-input=%s",
+            id, g_getenv("NIKON_ROW_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-row-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_ROW_FIXTURE", path, true);
+    expected = g_strdup_printf(
+        "*descriptor%u input must contain exactly %zu KiB*", id, size / 1024);
+    for (unsigned i = 0; i < 2; i++) {
+        g_assert_true(g_file_set_contents(path, (char *)input,
+                                          i ? size + 1 : size - 1, NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(expected);
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor*input*");
+    g_unsetenv("NIKON_ROW_FIXTURE");
+}
+
 static void test_descriptor17_rejection(void)
 {
     if (g_test_subprocess()) {
@@ -856,6 +966,15 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/memory/storage-profile", test_storage_profile);
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
+    qtest_add_func("/nikon/memory/row-storage", test_row_storage);
+    qtest_add_data_func("/nikon/memory/descriptor11-input",
+                        GUINT_TO_POINTER(11), test_row_input);
+    qtest_add_data_func("/nikon/memory/descriptor12-input",
+                        GUINT_TO_POINTER(12), test_row_input);
+    qtest_add_data_func("/nikon/memory/descriptor11-rejection",
+                        GUINT_TO_POINTER(11), test_row_input_rejection);
+    qtest_add_data_func("/nikon/memory/descriptor12-rejection",
+                        GUINT_TO_POINTER(12), test_row_input_rejection);
     qtest_add_func("/nikon/memory/no-physical-logical-mirror",
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);

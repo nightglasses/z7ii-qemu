@@ -1,4 +1,18 @@
-# Descriptor17 and descriptor18 external inputs
+# External descriptor inputs
+
+Resource11/12 primary inputs use the same NOR lifecycle described below:
+
+| Property | Exact primary range | File size | Alternative bank retained separately |
+| --- | --- | ---: | --- |
+| `descriptor11-input` | `[12a80000,12ce0000)` | 2432 KiB | `12e60000` |
+| `descriptor12-input` | `[12ce0000,12dc0000)` | 896 KiB | `130c0000` |
+
+Omitted primary and alternative banks remain erased; missing files or wrong
+sizes fail creation. Inputs do not replay on reset or initialize destination
+RAM. Original code selects/validates the bank, performs phased copies/fills
+and publishes completion. Marker `ENDM` is at slot end-4 and its sequence
+counter at end-8 for these two records. The resource12 empty-list hypothesis and
+its original continuation are qualified in [rows.md](../../runtime/rows.md).
 
 The Z7II C1.70 resource registry defines descriptor ID17 as the finite external
 NOR span `[0x132c0000,0x132e0000)`.  Its original loader checks the final four

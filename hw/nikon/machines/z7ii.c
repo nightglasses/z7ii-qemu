@@ -93,12 +93,18 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
 #define Z7II_KIND40_BASE 0x62059800ULL
 #define Z7II_KIND40_SIZE 0x1c8000ULL
+#define Z7II_ROW_STORAGE_BASE 0x50300000ULL
+#define Z7II_ROW_STORAGE_SIZE 0x340000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
 #define Z7II_NOR_UNLOCK_ONE 0x10000aaaULL
 #define Z7II_NOR_UNLOCK_TWO 0x10000554ULL
 #define Z7II_NOR_CFI_QUERY 0x100000aaULL
+#define Z7II_DESCRIPTOR11_BASE 0x12a80000ULL
+#define Z7II_DESCRIPTOR11_SIZE 0x00260000ULL
+#define Z7II_DESCRIPTOR12_BASE 0x12ce0000ULL
+#define Z7II_DESCRIPTOR12_SIZE 0x000e0000ULL
 #define Z7II_DESCRIPTOR17_BASE 0x132c0000ULL
 #define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
 #define Z7II_DESCRIPTOR18_BASE 0x132e0000ULL
@@ -155,6 +161,8 @@ struct Z7IIMachineState {
     DeviceState *ex_input_dev;
     QEMUTimer *ex_input_timer;
     bool frame_contract;
+    char *descriptor11_input;
+    char *descriptor12_input;
     char *descriptor17_input;
     char *descriptor18_input;
     Z7IINorReadMode nor_read_mode;
@@ -179,6 +187,7 @@ struct Z7IIMachineState {
     MemoryRegion lcd_composition;
     MemoryRegion display_buffers;
     MemoryRegion kind40_buffer;
+    MemoryRegion row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     MemoryRegion download;
     /* Selector-one packed download arena; independent from selector zero. */
@@ -838,6 +847,12 @@ static void z7ii_init(MachineState *machine)
 
             z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
         }
+        z7ii_load_descriptor_input(s, s->descriptor11_input, 11,
+                                  Z7II_DESCRIPTOR11_BASE,
+                                  Z7II_DESCRIPTOR11_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor12_input, 12,
+                                  Z7II_DESCRIPTOR12_BASE,
+                                  Z7II_DESCRIPTOR12_SIZE);
         z7ii_load_descriptor_input(s, s->descriptor17_input, 17,
                                   Z7II_DESCRIPTOR17_BASE,
                                   Z7II_DESCRIPTOR17_SIZE);
@@ -909,6 +924,12 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
              Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
+    /*
+     * Resource11/12 destinations from 10248468; full loader extents at
+     * 118d0930/118d09d0. Original code supplies all contents from NOR.
+     */
+    z7ii_ram(&s->row_storage, "z7ii.row-storage",
+             Z7II_ROW_STORAGE_BASE, Z7II_ROW_STORAGE_SIZE);
     /*
      * Observational LCD scanout for the composition buffer.  A panel scans its
      * buffer continuously; this observer samples the guest-owned region on a
@@ -1461,6 +1482,48 @@ static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
     s->bundle_path = g_strdup(value);
 }
 
+static char *z7ii_get_descriptor11_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor11_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor11_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor11-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor11_input);
+    s->descriptor11_input = g_strdup(value && *value ? value : NULL);
+}
+
+static char *z7ii_get_descriptor12_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor12_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor12_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor12-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor12_input);
+    s->descriptor12_input = g_strdup(value && *value ? value : NULL);
+}
+
 static char *z7ii_get_descriptor17_input(Object *obj, Error **errp)
 {
     const char *value = Z7II_MACHINE(obj)->descriptor17_input;
@@ -1571,6 +1634,8 @@ static void z7ii_finalize(Object *obj)
     nikon_bundle_free(s->bundle);
     timer_free(s->ex_input_timer);
     g_free(s->bundle_path);
+    g_free(s->descriptor11_input);
+    g_free(s->descriptor12_input);
     g_free(s->descriptor17_input);
     g_free(s->descriptor18_input);
     g_free(s->sla_boot_prefix);
@@ -1593,6 +1658,18 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "descriptor11-input",
+                                  z7ii_get_descriptor11_input,
+                                  z7ii_set_descriptor11_input);
+    object_class_property_set_description(oc, "descriptor11-input",
+        "Optional exact 2432 KiB primary NOR input at 0x12a80000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor12-input",
+                                  z7ii_get_descriptor12_input,
+                                  z7ii_set_descriptor12_input);
+    object_class_property_set_description(oc, "descriptor12-input",
+        "Optional exact 896 KiB primary NOR input at 0x12ce0000; "
+        "omitted bytes remain erased");
     object_class_property_add_str(oc, "descriptor17-input",
                                   z7ii_get_descriptor17_input,
                                   z7ii_set_descriptor17_input);

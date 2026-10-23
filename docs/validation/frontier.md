@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; source-stream storage frontier
+## Normal display request accepted; system-configuration frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -40,10 +40,15 @@ record15 converts PA`62059800` to VA`36d59800`; original section descriptor
 `62014426` translates that VA back to the same PA. Only the owned`1c8000`-byte
 allocation is backed, with no physical VA mirror or whole-class expansion.
 All19 native memory cases pass after an actual old-model red. In unchanged
-execution the original clear returns to`10238364`. The next first rejection is
-CPU0 PC`1023c3fe`, READ32 PA`50560000`, inside the same initializer's
-source-stream copier. Its stream ownership, content and full bounds remain
-the next dependency. Parent-owned`kindforty-20261022` receipts retain this join.
+execution the original clear returns to`10238364`.
+The [resource11/12 source-stream join](../runtime/rows.md) now backs both
+complete destination capacities and accepts explicit primary NOR files.
+Original validation/loading and all eight layouts produce a byte-exact
+`1c8000`-byte output containing2640 empty rows under the declared functional
+input. All24 memory qtests pass after an actual native red. The next first
+rejection is CPU0 PC`103c5d6e`, WRITE32 PA`04280064`=`10`, reason
+`sysconfig-access-not-supported`. Parent-owned`streamstorage-20261022`
+receipts retain this join; the earlier kind40 receipts keep their own scope.
 Application02/01 and primary request state1 remain; the later snapshot has
 power0 and BatCk-containing word`00010101`, separate from the earlier
 BatCk1/power1 request-admission checkpoint. The UART peer rejects no request.
@@ -52,7 +57,9 @@ request admission is not completion, scanout or a GUI first frame. The earlier
 432/616-byte graphics pair belongs to the erased-TEMP failure transition and is
 not the current accepted-request frontier.
 
-Records remain qualified cross-model ROM candidates. Physical board selection,
+TEMP/acceleration records remain qualified cross-model ROM candidates;
+the resource12 empty list is a separately declared functional hypothesis.
+Physical board selection,
 calibration, raw acceleration units and conversion latency remain functional
 limits. See [guiupdate](../runtime/guiupdate.md), parent-owned`guinormal-20261022`
 receipts and`temp-comparison.json` for the full joins and prior comparisons.

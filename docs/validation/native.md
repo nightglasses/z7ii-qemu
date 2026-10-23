@@ -1,5 +1,14 @@
 # Native GUI integration
 
+The resource11/12 destination and explicit-NOR-input change passes all24
+`nikon_memory` qtests after a native old-model row-storage failure. New cases
+cover RAM capacity/bounds/alias/reset and both input files' bytes, exact sizes,
+missing files, erased neighbors/alternative banks, unchanged destination RAM
+and NOR mutation persistence. Original execution is separately qualified in
+[rows.md](../runtime/rows.md): the whole2640-row output matches and the next
+rejection is system configuration. Receipts: `work/runs/streamstorage-20261022/`.
+This is a focused batch; the full-suite result below predates this change.
+
 The integrated 2026-10-22 macOS `make check` run passes all40 Nikon test
 executables and348 TAP cases (ARM/RX qtests and native units). It includes
 the previously uncommitted finite graphics implementation and the kind40

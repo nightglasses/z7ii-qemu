@@ -1,5 +1,10 @@
 # Kind40 storage and address conversion
 
+The subsequent source-stream boundary is now resolved by the
+[resource11/12 producer and storage join](rows.md), including all eight layouts.
+With explicit valid empty-list inputs, the next rejection is system
+configuration PA`04280064`. The paragraphs below retain the kind40 checkpoint.
+
 The normal GUI initializer at MAS Thumb VA`10238314` requests allocation kind40
 (decimal) through `1030d96e(0,40,1c8000)`. It retains the returned object in
 `b26b48d8` and passes the physical pointer reached through object+4 to

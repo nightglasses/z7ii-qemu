@@ -3,6 +3,9 @@
 The additional exact [kind40 allocation](kind40.md) at
 `[62059800,62221800)` is backed separately. Its original VA conversion and
 section PTE are verified; the surrounding address class remains uncovered.
+The [resource11/12 phased loader](rows.md) additionally owns contiguous
+destination capacities `[50300000,50640000)`. NOR inputs populate only flash;
+the original guest produces this RAM's content.
 
 The Z7II functional board backs the six complete source-bound storage classes
 21 through 26. This replaces allocation-sized module memory and separate kernel

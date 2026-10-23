@@ -92,8 +92,10 @@ crosses all seven waits. The [capture-control model](docs/devices/sensor/control
 now completes complemented-mask and paired reset/enable initialization. The
 [kind40 allocation](docs/runtime/kind40.md) now has exact source-backed RAM;
 the original mapping from VA `0x36d59800` to PA `0x62059800` and complete clear
-are verified. The next stop is a source-stream read at PA `0x50560000` inside
-`0x1023c3d2`; its ownership, content and bounds remain to be joined.
+are verified. The [resource11/12 producer join](docs/runtime/rows.md) now covers
+both target capacities and explicit primary NOR input. Original code loads and
+converts all eight row layouts, with the complete2640-row output verified.
+The next stop is a system-configuration write at `0x04280064` from `0x103c5d6e`.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

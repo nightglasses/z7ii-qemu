@@ -12,9 +12,11 @@ Original channel7 callbacks and all seven waits now complete. The
 complemented-mask and paired reset/enable initialization without supplying
 status. The [kind40 storage join](kind40.md) confirms the original allocation
 and section mapping from VA`36d59800` to PA`62059800`. Its exact`1c8000`-byte
-RAM backing lets the original clear return. The next mainline stop is CPU0
-MAS`1023c3fe`, READ32 PA`50560000`, in the initializer's source-stream copier;
-the streams' producer, content and bounds remain to be established.
+RAM backing lets the original clear return. The [resource11/12 join](rows.md)
+now supplies complete target storage and explicit primary NOR inputs. Original
+phased loading and all eight layouts produce the expected2640 empty rows;
+the complete`1c8000`-byte output is verified. The next mainline stop is CPU0
+MAS`103c5d6e`, WRITE32 PA`04280064`=`10`, a system-configuration contract.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.
