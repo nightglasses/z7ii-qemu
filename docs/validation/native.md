@@ -1,5 +1,15 @@
 # Native GUI integration
 
+The complete SYS indexed configuration family at`04280064/68/6c` passes
+all25 `nikon_memory` qtests after the new case fails against the old model.
+The case covers every bit of all three ports, word replacement, independent
+state, bad-width/unaligned-write preservation, holes and reset reuse.
+Separate unchanged-bundle execution crosses the old store and next rejects
+`20060028=1` in the peripheral-event router; UART requests remain accepted.
+See [SYS runtime](../devices/sysconfig/runtime.md) and ignored receipts in
+`work/runs/sysconfig-20261022/`. This is a focused batch, not a new full-suite
+or GUI-first-frame result.
+
 The resource11/12 destination and explicit-NOR-input change passes all24
 `nikon_memory` qtests after a native old-model row-storage failure. New cases
 cover RAM capacity/bounds/alias/reset and both input files' bytes, exact sizes,

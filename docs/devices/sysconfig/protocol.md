@@ -1,6 +1,6 @@
 # Original second system-configuration object
 
-The initial fixed stage below is extended by the [original GPIO boot selector fields](../gpio/protocol.md) at34/38 and the complete bootstrap producers described below. The earlier receipts are preserved.
+The initial fixed stage below is extended by the [original GPIO boot selector fields](../gpio/protocol.md) at34/38, the bootstrap producers below and the [complete indexed configuration interface](runtime.md). The current model retains all32 guest-written bits at64/68/6c through the three original wrapper indices0/1/2, with read-before-write rejection and reset invalidation. Caller shadow-word masks are not decoder permissions. No IRQ, ready or clock effect is inferred. The earlier receipts are preserved.
 
 This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). After UART initialization, original CPU0 issued `PC10200ef0 / WRITE32 PA04280030 / value410`. The [fixed whole object and indexed-caller contract](https://github.com/mashiro01/nightglass/blob/6bde4c6/research/z7ii/qemu-system-control-contract.md) identifies a separate `04280004`-based API, not the `04281000` PLL controller: full-word input configuration stores, restricted bit0/two-nibble setters, two low-field getters and mutex-protected indexed control-word RMW. The implementation covers that distinct object as one finite device.
 

@@ -15,8 +15,13 @@ and section mapping from VA`36d59800` to PA`62059800`. Its exact`1c8000`-byte
 RAM backing lets the original clear return. The [resource11/12 join](rows.md)
 now supplies complete target storage and explicit primary NOR inputs. Original
 phased loading and all eight layouts produce the expected2640 empty rows;
-the complete`1c8000`-byte output is verified. The next mainline stop is CPU0
-MAS`103c5d6e`, WRITE32 PA`04280064`=`10`, a system-configuration contract.
+the complete`1c8000`-byte output is verified. The
+[SYS configuration audit](../devices/sysconfig/runtime.md) now supports the
+complete three-port full-word interface at`04280064/68/6c`, with all25 memory
+qtests passing after an old-model red. Original execution crosses the old
+`103c5d6e` store and reaches`102d9448` → `102fea1e(1,1)` → `102974de`.
+The next first rejection is CPU0 MAS`102dc88c`, WRITE32 PA`20060028`=`1`,
+a peripheral-event-router request whose producer/effect contract is unresolved.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.

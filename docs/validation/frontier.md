@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; system-configuration frontier
+## Normal display request accepted; peripheral-event-router frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -45,14 +45,22 @@ The [resource11/12 source-stream join](../runtime/rows.md) now backs both
 complete destination capacities and accepts explicit primary NOR files.
 Original validation/loading and all eight layouts produce a byte-exact
 `1c8000`-byte output containing2640 empty rows under the declared functional
-input. All24 memory qtests pass after an actual native red. The next first
-rejection is CPU0 PC`103c5d6e`, WRITE32 PA`04280064`=`10`, reason
-`sysconfig-access-not-supported`. Parent-owned`streamstorage-20261022`
-receipts retain this join; the earlier kind40 receipts keep their own scope.
+input. All24 memory qtests pass after an actual native red.
+The [SYS configuration audit](../devices/sysconfig/runtime.md) then completes
+all three full-word ports`04280064/68/6c`, with25 memory qtests passing after
+an actual old-model red. Original execution crosses`103c5d6e` and joins the
+`b18a7718 != 0` branch at`102d9448` → `102fea1e(1,1)` → `102974de`.
+The next first rejection is CPU0 PC`102dc88c`, WRITE32 PA`20060028`=`1`,
+reason`peripheral-event-router-access-or-activation-not-supported`.
+The three write1 request ports`28/2c/30` need a producer/effect contract;
+ordinary configuration retention does not establish their behavior.
+Parent-owned`sysconfig-20261022` receipts retain this continuation;
+`streamstorage-20261022` and the earlier kind40 receipts keep their own scope.
 Application02/01 and primary request state1 remain; the later snapshot has
 power0 and BatCk-containing word`00010101`, separate from the earlier
 BatCk1/power1 request-admission checkpoint. The UART peer rejects no request.
-Gate/pending3/display-ready and sampled surfaces remain0;
+Gate/pending3/display-ready remain0; sampled composition words now include
+`ff000000`, while the sampled scanout word remains0;
 request admission is not completion, scanout or a GUI first frame. The earlier
 432/616-byte graphics pair belongs to the erased-TEMP failure transition and is
 not the current accepted-request frontier.

@@ -1,4 +1,68 @@
-# Five SYS configuration words
+# SYS configuration runtime
+
+## Complete three-word indexed configuration interface
+
+The C1.70 MAS primitive at `103c5d68..103c5d72` loads a word from its
+third argument and stores it at PA `04280064 + 4 * index`. Its three
+explicit wrappers at `1029765a/1029766c/1029767e` supply indices0/1/2.
+All three ports `64/68/6c` now accept full-word replacement, including
+index1 whose wrapper has no identified incoming reference in this audit.
+There is no primitive-side mask, register RMW, alias strobe or completion.
+This is the complete recovered wrapper family, not a wildcard indexed aperture.
+
+The upper helpers modify guest shadow words before submitting the whole word:
+
+| Helper | Shadow word | Operation | Port |
+|---|---|---|---|
+| `102fe72a` | `b18a77ac` | replace bit4 from input bit0 | `64` |
+| `102fe744` | `b18a77ac` | replace bits6..9 from input bit0 | `64` |
+| `102fe76a` | `b18a77b0` | replace bits25..28 from input bit0 | `6c` |
+| `102fe790` | `b18a77b0` | clear low20; conditionally OR `000ffff0` | `6c` |
+
+These operations preserve other cached bits. Their masks describe software
+operations, not hardware writable permissions; restricting the decoder to
+their union would incorrectly reject the original full-word interface.
+The neighboring original primitives were also checked: `30` is a direct word
+store, `34+4*index` is the separate selector family, `74` packs two nibbles,
+and `78..88` is the existing five-word RMW family below. They do not alias
+the three new ports.
+
+Full-word readback is the device's existing functional retention convention;
+physical readable/writable fields and downstream electrical effects are not
+recovered. Reads require a previous aligned guest word store. Reset invalidates
+all three words; no manufacturer reset value is supplied. Other offsets,
+widths and alignment remain errors. There is no asynchronous work to cancel,
+IRQ, timer, clock, peripheral reset or host-written guest event.
+
+The old model rejects both original `103c5d6e / WRITE32 04280064=10` and
+the new native case's first singleton-bit write. With the complete family,
+`make check MTESTARGS=nikon_memory` passes all25 native cases. The new
+`sysconfig-controls` case covers all32 bits of each port, whole-word
+replacement, independent words, invalid-width/unaligned-write preservation,
+neighbor holes and repeat use after reset. qtest's zero result for an errored
+read does not independently prove its bus transaction status.
+
+Unchanged-bundle continuation with the existing explicit NOR inputs, cold held
+F4, RNG0 and normally paced UART peer passes the old store. Readback and the
+guest shadow both equal `10`. The bounded TCG trace joins
+`102d93a2` → `102fe72a(1)` → `1029765a(10)` →
+`103c5d68(index0, &10)`, then reaches the conditional `b18a7718 != 0`
+branch at `102d9448`. That calls `102fea1e(1,1)` → `102974de` →
+`102dc888`; the next first rejection is CPU0 `102dc88c`, WRITE32
+PA `20060028=1`, the separate peripheral-event-router request interface.
+Its neighboring `2c/30` source helpers also issue write1 requests; they
+cannot be equated to retained configuration or completed events from that
+observation alone. The request producer/effect contract remains to be joined.
+
+Receipts are in ignored `work/runs/sysconfig-20261022/`: original/native reds,
+native green, source projection, call chains and final read-only snapshot.
+The UART peer has no rejected requests. Application bytes remain `02/01`,
+primary request state1, BatCk-containing word `00010101` and power0.
+Gate/pending3/display-ready remain0. Some sampled composition words now contain
+`ff000000`; scanout's sampled word remains0. These are memory observations,
+not a verified GUI frame or whole boot.
+
+## Earlier five-word interface and receipts
 
 The current model keeps complete guest-written 32-bit values at `04280078`, `0428007c`, `04280080`, `04280084`, and `04280088`. Boot initialization and dynamic bit set/clear use the same storage. The former caller-sample masks and special bootstrap values have been removed. Only aligned word accesses to this finite set are accepted; other SYS interfaces retain their independent constraints.
 

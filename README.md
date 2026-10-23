@@ -95,7 +95,10 @@ the original mapping from VA `0x36d59800` to PA `0x62059800` and complete clear
 are verified. The [resource11/12 producer join](docs/runtime/rows.md) now covers
 both target capacities and explicit primary NOR input. Original code loads and
 converts all eight row layouts, with the complete2640-row output verified.
-The next stop is a system-configuration write at `0x04280064` from `0x103c5d6e`.
+The [SYS configuration family](docs/devices/sysconfig/runtime.md) now supports
+all three full-word ports `0x04280064/68/6c`; all25 memory qtests pass.
+Original execution crosses that store and next rejects the peripheral-event
+router request `0x20060028=1` from `0x102dc88c`.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

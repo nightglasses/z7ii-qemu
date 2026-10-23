@@ -961,6 +961,54 @@ static void test_sysconfig_profile(void)
     }
 }
 
+static void test_sysconfig_controls(void)
+{
+    const uint32_t base = 0x04280000;
+    const unsigned offsets[] = { 0x64, 0x68, 0x6c };
+    MemoryTest t = memory_init("");
+
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+            uint32_t addr = base + offsets[i];
+
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0);
+            for (unsigned bit = 0; bit < 32; bit++) {
+                uint32_t value = 1U << bit;
+
+                qtest_writel(t.qts, addr, value);
+                g_assert_cmphex(qtest_readl(t.qts, addr), ==, value);
+            }
+            qtest_writel(t.qts, addr, 0xffffffff);
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0xffffffff);
+            qtest_writeb(t.qts, addr, 0);
+            qtest_writew(t.qts, addr, 0);
+            qtest_writel(t.qts, addr + 1, 0);
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0xffffffff);
+        }
+        /* Whole-word replacement of independent groups, without strobes. */
+        qtest_writel(t.qts, base + 0x64, 0x10);
+        qtest_writel(t.qts, base + 0x68, 0xa55a5aa5);
+        qtest_writel(t.qts, base + 0x6c, 0xffff0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x10);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0xffff0);
+        qtest_writel(t.qts, base + 0x64, 0x3c0);
+        qtest_writel(t.qts, base + 0x6c, 0x1e000000);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x3c0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0x1e000000);
+        for (unsigned hole = 0x60; hole <= 0x70; hole += 0x10) {
+            qtest_writel(t.qts, base + hole, 0xffffffff);
+            g_assert_cmphex(qtest_readl(t.qts, base + hole), ==, 0);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x3c0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x68), ==, 0xa55a5aa5);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0x1e000000);
+    }
+    memory_quit(&t);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -1000,5 +1048,6 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/descriptor18-rejection",
                    test_descriptor18_rejection);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
+    qtest_add_func("/nikon/memory/sysconfig-controls", test_sysconfig_controls);
     return g_test_run();
 }
