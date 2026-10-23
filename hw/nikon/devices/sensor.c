@@ -772,12 +772,39 @@ static const TypeInfo nikon_sdes_type = {
 };
 
 /* Capture configuration packet10238fbc and handlers1020a836..1020a9b2.
- * Status has an explicit provider. Register writes never manufacture it.
+ * Data status has an explicit provider. Finite stop fences below do no DMA.
  */
 #define CAPTURE_SIZE 0x1180
 #define CAPTURE_WORDS (CAPTURE_SIZE / 4)
 #define CAPTURE_STATUS_WORDS 8
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureControl, NIKON_CAPTURE_CONTROL)
+
+/*
+ * 1023858a and10239298..10239548 identify upper quiescence causes;
+ * 1020a71a identifies separate low-level stop causes. No pixel work implied.
+ */
+static const struct {
+    uint32_t unit;
+    uint32_t causes[CAPTURE_STATUS_WORDS];
+} nikon_capture_stops[] = {
+    { 1,     { [0] = 0x200 } },
+    { 2,     { [7] = 0x38 } },
+    { 4,     { [0] = 0x8000 } },
+    { 8,     { [0] = 0x8000 } },
+    { 0x10,  { [0] = 0x80000000, [1] = 1 } },
+    { 0x20,  { [0] = 0x18000000 } },
+    { 0x40,  { [0] = 0x20000 } },
+    { 0x80,  { [0] = 0x80000 } },
+    { 0x200, { [1] = 0x180 } },
+    { 0x400, { [1] = 0x18 } },
+    { 0x800, { [1] = 0x1800 } },
+};
+
+typedef struct NikonCaptureStop {
+    NikonCaptureControl *s;
+    QEMUTimer *timer;
+    unsigned index;
+} NikonCaptureStop;
 
 struct NikonCaptureControl {
     SysBusDevice parent_obj;
@@ -789,6 +816,8 @@ struct NikonCaptureControl {
     uint32_t pending[CAPTURE_STATUS_WORDS];
     uint32_t levels[CAPTURE_STATUS_WORDS], seen[CAPTURE_STATUS_WORDS];
     uint32_t event_levels;
+    NikonCaptureStop stop[ARRAY_SIZE(nikon_capture_stops)];
+    uint32_t drained_shared;
     bool reported_error;
 };
 
@@ -816,12 +845,13 @@ static bool nikon_capture_config(unsigned offset, uint32_t *mask)
     case 0: case 4: case 0x10: case 0x14: case 0x18:
         *mask = 0xfff;
         return true;
-    case 0xc:
-        *mask = 0xc;
+    case 8: case 0xc:
+        /* All eleven recovered unit bits, not reserved bit8. */
+        *mask = 0xeff;
         return true;
     /* 1020bfc2/1020ab3c: raw word parameters, separate boolean enable. */
     case 0x20: case 0x24: case 0x60:
-    case 8: case 0x8c: case 0x100: case 0x104:
+    case 0x8c: case 0x100: case 0x104:
         return true;
     case 0x28:
         *mask = 1;
@@ -870,6 +900,55 @@ static void nikon_capture_irqs(NikonCaptureControl *s)
     }
     for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
         qemu_set_irq(s->irq[i], !!active[i]);
+    }
+}
+
+static void nikon_capture_shared(NikonCaptureControl *s)
+{
+    if (!s->drained_shared || (s->configuration[8 / 4] & 0xc)) {
+        return;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        if ((nikon_capture_stops[i].unit & 0xc) &&
+            timer_pending(s->stop[i].timer)) {
+            return;
+        }
+    }
+    s->drained_shared = 0;
+    s->pending[0] |= 0x8000;
+    nikon_capture_irqs(s);
+}
+
+static void nikon_capture_stopped(void *opaque)
+{
+    NikonCaptureStop *stop = opaque;
+    NikonCaptureControl *s = stop->s;
+    unsigned i = stop->index;
+
+    if (nikon_capture_stops[i].unit & 0xc) {
+        /* Keep expired identities until the shared drain can be delivered. */
+        s->drained_shared |= nikon_capture_stops[i].unit;
+        nikon_capture_shared(s);
+        return;
+    }
+    if (s->configuration[8 / 4] & nikon_capture_stops[i].unit) {
+        return;
+    }
+    for (unsigned word = 0; word < CAPTURE_STATUS_WORDS; word++) {
+        s->pending[word] |= nikon_capture_stops[i].causes[word];
+    }
+    nikon_capture_irqs(s);
+}
+
+static void nikon_capture_cancel(NikonCaptureControl *s, uint32_t units)
+{
+    s->configuration[8 / 4] &= ~units;
+    s->configuration[0xc / 4] = s->configuration[8 / 4];
+    s->drained_shared &= ~units;
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        if (units & nikon_capture_stops[i].unit) {
+            timer_del(s->stop[i].timer);
+        }
     }
 }
 
@@ -985,6 +1064,32 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         nikon_capture_irqs(s);
         return MEMTX_OK;
     }
+    if (offset == 8 || offset == 0xc) {
+        if (value & ~0xeffU) {
+            return nikon_capture_error(s, offset, size, true, value);
+        }
+        if (offset == 8) {
+            nikon_capture_cancel(s, value);
+            /* Run intent alone implies no pixels or normal completion. */
+            s->configuration[8 / 4] |= value & s->configuration[0x10 / 4] &
+                                        ~s->configuration[0];
+        } else {
+            s->configuration[8 / 4] &= ~value;
+            for (i = 0; i < ARRAY_SIZE(s->stop); i++) {
+                if ((value & nikon_capture_stops[i].unit) &&
+                    !(s->drained_shared & nikon_capture_stops[i].unit) &&
+                    !timer_pending(s->stop[i].timer)) {
+                    /* Hypothesis: idempotent quiescence takes1us, no data. */
+                    timer_mod(s->stop[i].timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
+                }
+            }
+        }
+        /* Functional readback mirrors run state, not the last stop mask. */
+        s->configuration[0xc / 4] = s->configuration[8 / 4];
+        nikon_capture_shared(s);
+        return MEMTX_OK;
+    }
     if (offset == 0 || offset == 4 || offset == 0x10 || offset == 0x14) {
         unsigned first = offset < 8 ? 0 : 4;
         uint32_t padding = value & ~0xfffU;
@@ -1007,6 +1112,10 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         /* Functional readback mirrors effective state through both aliases. */
         s->configuration[first] = s->configuration[first + 1] = state;
         s->known[first] = s->known[first + 1] = true;
+        if (offset == 0 || offset == 0x14) {
+            nikon_capture_cancel(s, bits);
+            nikon_capture_shared(s);
+        }
         return MEMTX_OK;
     }
     if (!nikon_capture_config(offset, &mask) || (value & ~mask)) {
@@ -1056,6 +1165,7 @@ static void nikon_capture_reset(DeviceState *dev)
     memset(s->seen, 0, sizeof(s->seen));
     s->event_levels = 0;
     s->reported_error = false;
+    nikon_capture_cancel(s, 0xeff);
     for (i = 0; i < ARRAY_SIZE(s->command_data); i++) {
         qemu_set_irq(s->command_data[i], 0);
     }
@@ -1070,6 +1180,12 @@ static void nikon_capture_init(Object *obj)
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(obj);
     unsigned i;
 
+    for (i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        s->stop[i].s = s;
+        s->stop[i].index = i;
+        s->stop[i].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                       nikon_capture_stopped, &s->stop[i]);
+    }
     memory_region_init_io(&s->memory, obj, &nikon_capture_ops, s,
                           "nikon-capture-control", CAPTURE_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
@@ -1084,6 +1200,15 @@ static void nikon_capture_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(s), s->command_publish, "command-publish", 2);
 }
 
+static void nikon_capture_finalize(Object *obj)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(obj);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        timer_free(s->stop[i].timer);
+    }
+}
+
 static const VMStateDescription nikon_capture_vmstate = {
     .name = "nikon-capture-control",
     .unmigratable = true,
@@ -1094,6 +1219,7 @@ static void nikon_capture_class_init(ObjectClass *oc, const void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_capture_vmstate;
+    dc->unrealize = nikon_capture_reset;
     device_class_set_legacy_reset(dc, nikon_capture_reset);
 }
 
@@ -1102,6 +1228,7 @@ static const TypeInfo nikon_capture_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonCaptureControl),
     .instance_init = nikon_capture_init,
+    .instance_finalize = nikon_capture_finalize,
     .class_init = nikon_capture_class_init,
 };
 

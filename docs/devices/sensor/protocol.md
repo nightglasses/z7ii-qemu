@@ -70,12 +70,13 @@ Three new focused qtest cases cover independent configuration banks without IRQ,
 
 ## Original capture configuration and commit family
 
-The later [mask and enable audit](control.md) supersedes the independent
-12-bit0/4 storage restriction below. Original complemented masks now normalize
-into paired reset/enable bitmaps; the complete adjacent source controls are
-modeled without generating status. Four focused native cases pass, and unchanged
-normal-request execution reaches its next buffer-clear/address-translation
-boundary at board PA62059800. Earlier receipts below retain their fixed scope.
+The [mask and enable audit](control.md) supersedes independent0/4 storage.
+The current [run/stop profile](runstop.md) also replaces08 retention and the
+restricted0c mask with the whole11-unit control family and explicit deferred
+quiescence hypotheses. All25 sensor cases pass; original execution crosses
+the old0c rejection without generating data or a completed frame. The original
+coefficient/publication audit and historical receipts below retain their
+fixed scope; current control semantics and runtime limits are in runstop.md.
 
 The same saved `ec048f9fde8723ba2db9657f2e88410933b21099` source closes a separate control outlet: `102d8606`/`102d8810`/`102d8c54`→`102dab42`/`102dabca`→23-pointer configuration packet→`103003dc`. Its callback field is RAM `b18a7798`, derived from original literal `10300450`=`b18a778c`. Initializer `1023954a`, at callsite `102396b4`, registers original literal `10239a00` (bytes `2d912310`, Thumb `1023912d`) through `103981cc`→`1026d72a`/`102fe10e`, only when that callback field is zero. `1023912c` copies the packet into local storage and invokes `10238fbc`, whose nonnull pointer checks select twenty accessors `1020c46a..1020c536`. These are software provenance and configuration facts, not an observation that original capture has run.
 

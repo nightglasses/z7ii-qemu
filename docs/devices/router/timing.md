@@ -1,5 +1,9 @@
 # Finite router timing and requests
 
+The later [capture run/stop profile](../sensor/runstop.md) crosses this
+checkpoint's capture-control rejection and advances to audio PA2c08010c.
+The router-specific original observations below retain their earlier scope.
+
 This functional model closes PA `20060028/2c/30` together. Original MAS
 instructions establish the command formats and guest consumers; the phase,
 completion and input cadence below are explicit, falsifiable hypotheses. They

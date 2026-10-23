@@ -706,7 +706,7 @@ static void test_capture_configuration(void)
     qtest_writel(q, CAPTURE_BASE + 0x18, 0xfff);
     qtest_writel(q, CAPTURE_BASE + 0xc, 0xc);
     g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==, 0xfff);
-    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xc), ==, 0xc);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xc), ==, 0);
     for (i = 0; i < 8; i++) {
         uint64_t mask = CAPTURE_BASE + 0x200 + i * 0x20;
 
@@ -823,6 +823,140 @@ static void test_capture_controls(void)
     g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x60), ==, 0);
     g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0);
     g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
+static void test_capture_runstop(void)
+{
+    static const struct {
+        uint32_t unit, first, second, last;
+    } stops[] = {
+        { 1, 0x200, 0, 0 }, { 2, 0, 0, 0x38 }, { 4, 0x8000, 0, 0 },
+        { 8, 0x8000, 0, 0 }, { 0x10, 0x80000000, 1, 0 },
+        { 0x20, 0x18000000, 0, 0 }, { 0x40, 0x20000, 0, 0 },
+        { 0x80, 0x80000, 0, 0 }, { 0x200, 0, 0x180, 0 },
+        { 0x400, 0, 0x18, 0 }, { 0x800, 0, 0x1800, 0 },
+    };
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, CAPTURE_BASE + 0x200, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x220, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x2e0, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0xeff);
+    for (unsigned i = 0; i < ARRAY_SIZE(stops); i++) {
+        qtest_writel(q, CAPTURE_BASE + 8, stops[i].unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, stops[i].unit);
+        qtest_clock_step(q, 2000);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+        qtest_writel(q, CAPTURE_BASE + 0xc, stops[i].unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+        qtest_clock_step(q, 999);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+        qtest_clock_step(q, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==,
+                        stops[i].first);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==,
+                        stops[i].second);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x2f0), ==,
+                        stops[i].last);
+        g_assert_cmpint(qtest_get_irq(q, 4), ==, !!stops[i].last);
+        g_assert_cmpint(qtest_get_irq(q, 0), ==,
+                        !!(stops[i].first | stops[i].second));
+        qtest_writel(q, CAPTURE_BASE + 0x210, UINT32_MAX);
+        qtest_writel(q, CAPTURE_BASE + 0x230, UINT32_MAX);
+        qtest_writel(q, CAPTURE_BASE + 0x2f0, UINT32_MAX);
+    }
+
+    /* Quiescence is idempotent; independent units keep separate deadlines. */
+    qtest_writel(q, CAPTURE_BASE + 0x200, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 1);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x401);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x200);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE + 0x200, 0x200);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x200);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0x18);
+    qtest_writel(q, CAPTURE_BASE + 0x230, 0x18);
+
+    /* The4/8 drain consumer is shared: one live half prevents notification. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0xc);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 8);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+
+    qtest_writel(q, CAPTURE_BASE + 8, 0xc);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_writel(q, CAPTURE_BASE, 8);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 4, 8);
+
+    /* An expired half retains its identity if the other half is cancelled. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 501);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE, 8);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 4, 8);
+
+    /* Start supersedes an uncompleted stop; reset/disable cancel per unit. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xeff);
+    qtest_writel(q, CAPTURE_BASE + 8, 3);
+    qtest_writel(q, CAPTURE_BASE, 0x2fc);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0xc00);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    /* Disabled/reset units stay idle. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0xeff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x100);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x1000);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xffffffff);
+    qtest_writeb(q, CAPTURE_BASE + 0xc, 1);
+    qtest_writew(q, CAPTURE_BASE + 0xc, 1);
+    qtest_writel(q, CAPTURE_BASE + 0xd, 1);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xeff);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 1);
+    qtest_qmp_assert_success(q, "{'execute':'qom-set','arguments':{"
+                            "'path':%s,'property':'realized','value':false}}",
+                            CAPTURE_PATH);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
     qtest_quit(q);
 }
 
@@ -1310,6 +1444,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/capture/configuration",
                     test_capture_configuration);
     qtest_add_func("/nikon/sensor/capture/controls", test_capture_controls);
+    qtest_add_func("/nikon/sensor/capture/runstop", test_capture_runstop);
     qtest_add_func("/nikon/sensor/capture/status", test_capture_status);
     qtest_add_func("/nikon/sensor/capture/publication", test_capture_publication);
     qtest_add_func("/nikon/sensor/readout/configuration",

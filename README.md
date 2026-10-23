@@ -101,7 +101,12 @@ The [router timing model](docs/devices/router/timing.md) now covers all three
 requests and a virtual TG input under explicit functional hypotheses. All23
 SLA and25 memory qtests pass. Original IRQ87 callbacks release both subsequent
 waits and application state advances to03/02; the next first rejection is
-capture-control `0x2006800c=1` at `0x1020a832`.
+the capture-control stop request at that checkpoint. The complete
+[capture run/stop model](docs/devices/sensor/runstop.md) now covers all11 unit
+bits, separate low-level/upper quiescence causes and shared4/8 lifetime;
+all25 sensor qtests pass. Original execution crosses that store and a later
+GUI completion callback. The current first rejection is audio configuration
+`0x2c08010c=0x0d820000` at `0x1036dafc`.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

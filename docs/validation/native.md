@@ -1,5 +1,16 @@
 # Native GUI integration
 
+The [capture run/stop model](../devices/sensor/runstop.md) passes all25
+`nikon_sensor` cases in one final applicable batch after the old-model and
+shared4/8 deadline/lost-identity reds. The whole11-unit family, both stop
+notification layers, shared drain, staggered/duplicate commands, per-unit
+cancellation, pending/W1C, reset/unrealize and negative access boundaries are
+covered. Receipts are in `work/runs/captureflow-20261022/`, including
+`native-final-receipt.log`. Original-bundle execution is separate: the old0c
+store returns, a later GUI4000 wait receives its original callback, and the
+next first rejection is audio PA2c08010c=0d820000. No capture ISR, completed
+pixel frame or new full-suite pass is claimed by this continuation.
+
 The [finite router timing model](../devices/router/timing.md) passes23
 `nikon_sla` plus25 `nikon_memory` cases in one focused batch after actual
 unsupported-request and staggered-fence reds. New coverage includes all three

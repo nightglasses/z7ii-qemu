@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; capture-control request frontier
+## Normal display request accepted; audio configuration frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -60,12 +60,21 @@ are functional assumptions, not physical measurements.
 In final-binary original execution, IRQ87 reaches original callback102d6b6a
 with raw80/10, and waits return1 at102d94a2/102d9510. Application bytes are
 03/02, primary request state11, power0 and BatCk-containing word00010001.
-The next first rejection is CPU0 PC`1020a832`, WRITE32 PA`2006800c=1`,
-reason`capture-control-access-or-reset-value-not-supported`. Its primitive
-1020a830 writes R1 through base20068000 offset0c; the whole08/0c family and
-capture producer remain to be investigated. No2c/30 execution is claimed
-before this stop; their contract is native-tested only.
-Receipts are in `routerfunctional-20261022`; earlier `router-20261022`,
+At that router checkpoint the first rejection is CPU0 PC`1020a832`, WRITE32
+PA`2006800c=1`. The [capture run/stop profile](../devices/sensor/runstop.md)
+now covers all11 source-selected unit bits with separate low-level/upper
+quiescence causes, shared4/8 and independent cancellation lifetimes. All25
+sensor qtests pass after native reds. Original code crosses that store and
+later GUI wait4000 is released by original callback104be418(05040005).
+The current first rejection is CPU0 PC`1036dafc`, WRITE32 PA
+`2c08010c=0d820000`, reason`audio-access-or-profile-not-supported`.
+Original1036da82 constructs this audio configuration word by RMW of byte
+fields; its related format/control words are the next whole-family audit.
+The capture notification mappings have native coverage only in this run;
+the observed0c is followed by disable14 before its queued fence completes.
+No2c/30 router execution is claimed; their contract is native-tested only.
+Latest receipts are in `captureflow-20261022`; `routerfunctional-20261022`,
+earlier `router-20261022`,
 `sysconfig-20261022`, `streamstorage-20261022` retain their own checkpoints.
 The UART peer rejects no request. Gate/pending3/display-ready remain0;
 request admission and TG boundaries do not establish scanout or a GUI first frame. The earlier

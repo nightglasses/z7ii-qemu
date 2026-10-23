@@ -1,5 +1,10 @@
 # Capture-control masks and enables
 
+The current [run/stop profile](runstop.md) additionally models the complete
+08/0c unit family and source-mapped quiescence notifications under explicit
+functional hypotheses. All25 sensor qtests pass. The buffer-clear boundary
+below is the earlier reset/enable-only checkpoint, not the current frontier.
+
 The normal GUI-request continuation now passes the capture-control initializer.
 The previous rejection of WRITE32 board PA `20068000=fffffd40` was a model
 restriction: a complemented unit mask was checked as a plain12-bit integer.
@@ -61,7 +66,7 @@ a command pulse, raising IRQ or completing a frame. Exact effects on an actual
 processing provider require a separate source-bound mapping. The existing
 100/104 explicit command publication and eight IRQ masks remain independent.
 
-## Validation and next boundary
+## Earlier validation and next boundary
 
 The unchanged-bundle `red.py` run fails its exact complemented-store assertion.
 The new native `controls` case then fails on the old implementation, reading0

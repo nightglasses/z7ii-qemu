@@ -25,13 +25,32 @@ pairs. The current [finite timing model](../devices/router/timing.md) supports
 the three requests and a virtual TG input under explicit hypotheses;23 SLA
 plus25 memory qtests pass. Final-binary original execution reaches the real
 IRQ87 handler/callback with raw80/10 and both waits return1. Application bytes
-advance to03/02 and primary request state11. The next first rejection is CPU0
-MAS`1020a832`, WRITE32 PA`2006800c=1`, in the capture-control08/0c family.
+advance to03/02 and primary request state11. The later
+[capture run/stop model](../devices/sensor/runstop.md) now handles the entire
+08/0c family, with native coverage of all11 units, low-level/upper notifications,
+shared4/8 timing and cancellation. All25 sensor qtests pass. Original code
+executes08=1, returns from0c=1 through1023cd50, then disables unit1; this
+continuation cancels the queued fence and does not exercise a capture ISR.
+The current first MMIO rejection is CPU0 MAS`1036dafc`, WRITE32 PA
+`2c08010c=0d820000`, in the audio format/control initializer1036da82.
 The healthy UART peer rejects no request; GUI gate/pending3/display-ready
 remain0. Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.
+
+The bounded GUI trace additionally joins worker3 main `1053d2fa` to
+`1053d0ec(10000)` and its ordinary phase2 dispatch. `104a94fe(8)` requests
+the display operation via `105801fc(2,104be419)`/event bit20 at `b181a5b4`,
+then waits on primary GUI bit4000 at `104a96e4`, timeout1000. A longer run
+observes the real `104be418(05040005)` callback, which sets4000 through
+`10634088`; execution continues to `104a94fe(10)` and later request200.
+The earlier8-host-second trace's unreturned wait was a window boundary,
+not a permanent missing event. The first optional stack snapshot failed on
+an unmapped sampled SP; the corrected read-only snapshot succeeds.
+Parent-owned receipts are in `work/runs/captureflow-20261022/`. The later
+audio rejection is the current concrete frontier; GUI gate, pending3 and
+display-ready still remain0.
 
 In the earlier descriptor17-only baseline, the healthy battery continuation
 remains in worker0 policy action29. The

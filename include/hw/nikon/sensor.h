@@ -80,7 +80,9 @@ bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion regio
 
 /* Original configuration/commit family at VA20068000, IRQ94..98.
  * One region of size0x1180. Status publication word counts are2/1/2/2/1.
- * No pixel encoding, destination or completion meaning is assigned here.
+ * External publication owns data causes. The08/0c functional run/stop profile
+ * also produces source-mapped quiescence causes through deferred timers;
+ * it implies no pixel encoding, DMA destination or completed frame.
  */
 enum NikonCaptureEvent {
     NIKON_CAPTURE_FIRST_EVENT,
