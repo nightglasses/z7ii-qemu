@@ -1,5 +1,9 @@
 # Capture run, stop and quiescence
 
+The later [audio format profile](../audio/format.md) crosses this checkpoint's
+audio rejection and next reaches the HDMAC descriptor flag boundary. The
+capture-specific original observations below retain their earlier scope.
+
 The complete finite `08/0c` family replaces unconstrained08 retention and the
 old0c mask restricted to bits2/3. All addresses below are C1.70 MAS VAs unless
 marked PA; offsets are relative to capture-control PA `20068000`.

@@ -1,6 +1,7 @@
 /*
  * Two-channel Audio I/F functional profile, original MAS register protocol.
  * FIFO payloads are opaque words: no physical PCM packing is inferred.
+ * Source-shaped format/port fields are metadata for that opaque endpoint.
  * Reset, independent nominal clock and disconnected input are assumptions.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -18,6 +19,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonAudioState, NIKON_AUDIO)
 typedef struct NikonAudioChannel {
     NikonAudioState *owner;
     uint32_t control, mode, status, divider, port;
+    uint32_t block_control, block_samples[2];
     Fifo32 output[2];
     QEMUTimer *timer;
     qemu_irq irq;
@@ -138,6 +140,7 @@ static void nikon_audio_channel_reset(NikonAudioChannel *c)
 {
     timer_del(c->timer);
     c->control = c->mode = c->status = c->divider = c->port = 0;
+    c->block_control = c->block_samples[0] = c->block_samples[1] = 0;
     fifo32_reset(&c->output[0]);
     fifo32_reset(&c->output[1]);
     nikon_audio_update(c);
@@ -197,6 +200,12 @@ static MemTxResult nikon_audio_read(void *opaque, hwaddr offset, uint64_t *value
             }
         }
         break;
+    case 0x40:
+        *value = c->block_control;
+        break;
+    case 0x44: case 0x48:
+        *value = c->block_samples[((offset & 0xff) - 0x44) / 4];
+        break;
     case 0:
     case 40:
     case 44:
@@ -214,7 +223,7 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
 {
     NikonAudioState *s = opaque;
     NikonAudioChannel *c;
-    unsigned lane = 0, format, i;
+    unsigned lane = 0, i;
     uint32_t old;
 
     if (size != 4 || (offset & 3)) {
@@ -241,11 +250,8 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
     c = &s->channel[(offset - 0x100) >> 8];
     switch (offset & 0xff) {
     case 8:
-        format = (value >> 24) & 127;
         if ((value & ~0xff8fff03U) ||
-            (format && format != 0x44 && format != 0x4d) ||
-            (((value >> 16) & 15) && ((value >> 16) & 15) != 0xa &&
-             ((value >> 16) & 15) != 0xc) ||
+            ((c->block_control & 0x100) && (value & (1U << 13))) ||
             ((value & 2) && (value & (1U << 15)))) {
             return nikon_audio_error(s, offset, size, true, value);
         }
@@ -260,8 +266,8 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
         }
         break;
     case 12:
-        /* Retain stage bits24/25 and unknown23/26, not stereo/swap/loopback. */
-        if ((value & ~0x07800000U) ||
+        /* 1036da06/da82: swaps/stereo are labels, stages affect real queues. */
+        if ((value & ~0x0f8f0000U) ||
             (((value ^ c->mode) & (1U << 25)) && nikon_audio_used(c))) {
             return nikon_audio_error(s, offset, size, true, value);
         }
@@ -276,19 +282,34 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
                     (c->status & value & 0x30000U);
         break;
     case 20:
-        i = (value >> 24) & 31;
-        if ((value & ~0xdf1f0000U) || (i && !(i & 1))) {
+        /* 1036db04 masks full5/3/2-bit divider fields, without a code list. */
+        if (value & ~0xdf1f0000U) {
             return nikon_audio_error(s, offset, size, true, value);
         }
         c->divider = value;
         timer_del(c->timer);
         break;
     case 24:
-        /* No mix, pin routing or sample packing inferred from AUDP. */
-        if (value) {
+        /* 1036da06/da82: finite wire-format metadata, no PCM rendering. */
+        if (value & ~0x33030101U) {
             return nikon_audio_error(s, offset, size, true, value);
         }
         c->port = value;
+        break;
+    case 0x40:
+        if ((value & ~0x101U) ||
+            ((value & 0x100) && (c->control & (1U << 13))) ||
+            (((value ^ c->block_control) & 0x100) && nikon_audio_used(c))) {
+            return nikon_audio_error(s, offset, size, true, value);
+        }
+        /* Programming only. Dual-channel DMA output cannot be started yet. */
+        c->block_control = value;
+        break;
+    case 0x44: case 0x48:
+        if (value & ~0xffffU) {
+            return nikon_audio_error(s, offset, size, true, value);
+        }
+        c->block_samples[((offset & 0xff) - 0x44) / 4] = value;
         break;
     case 4:
     case 60:
@@ -304,7 +325,8 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
             return nikon_audio_error(s, offset, size, true, value);
         }
     output:
-        if ((s->reset & (1U << c->index)) ||
+        if ((c->block_control & 0x100) ||
+            (s->reset & (1U << c->index)) ||
             fifo32_num_used(&c->output[lane]) >= nikon_audio_capacity(c)) {
             return nikon_audio_error(s, offset, size, true, value);
         }
@@ -383,6 +405,7 @@ static void nikon_audio_class_init(ObjectClass *oc, const void *data)
 
     dc->vmsd = &nikon_audio_vmstate;
     dc->user_creatable = false;
+    dc->unrealize = nikon_audio_reset;
     device_class_set_legacy_reset(dc, nikon_audio_reset);
 }
 

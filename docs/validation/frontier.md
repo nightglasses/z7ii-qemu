@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; audio configuration frontier
+## Normal display request accepted; HDMAC descriptor frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -66,14 +66,20 @@ now covers all11 source-selected unit bits with separate low-level/upper
 quiescence causes, shared4/8 and independent cancellation lifetimes. All25
 sensor qtests pass after native reds. Original code crosses that store and
 later GUI wait4000 is released by original callback104be418(05040005).
-The current first rejection is CPU0 PC`1036dafc`, WRITE32 PA
-`2c08010c=0d820000`, reason`audio-access-or-profile-not-supported`.
-Original1036da82 constructs this audio configuration word by RMW of byte
-fields; its related format/control words are the next whole-family audit.
+The [audio format profile](../devices/audio/format.md) now accepts the complete
+source-shaped format/port/divider fields and block programming;15 native
+audio/DMA/HDMAC cases pass. Original1036da82 constructs AUMD0d820000 by RMW
+and returns to102dea1c. Block programming and masks then execute. The current
+first rejection is CPU0 PC`102dc47a`, WRITE32 PA`2c030034=2ae00000`,
+reason`hdmac-access-or-command-not-supported`. Original102dc41e constructs
+this descriptor CB word; the rejected23:21 flag group must be audited with
+the whole request/transfer lifecycle. Input start, samples and audio DMA
+completion have not yet occurred.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `captureflow-20261022`; `routerfunctional-20261022`,
+Latest receipts are in `audioformat-20261023`; `captureflow-20261022`,
+`routerfunctional-20261022`,
 earlier `router-20261022`,
 `sysconfig-20261022`, `streamstorage-20261022` retain their own checkpoints.
 The UART peer rejects no request. Gate/pending3/display-ready remain0;

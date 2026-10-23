@@ -6,6 +6,7 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
                    'sampling.c', 'image.c', 'sdi.c', 'spi.c', 'processing.c',
                    'config.c', 'i2c.c', 'pressure.c', 'acceleration.c'),
     'nikon_timer': files('timer.c'),
+    'nikon_audio': files('audio.c'),
     'nikon_dma': files('dma.c'),
     'nikon_memory': files('memory.c'),
     'nikon_usio': files('usio.c'),

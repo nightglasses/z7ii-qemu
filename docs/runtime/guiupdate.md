@@ -31,8 +31,13 @@ advance to03/02 and primary request state11. The later
 shared4/8 timing and cancellation. All25 sensor qtests pass. Original code
 executes08=1, returns from0c=1 through1023cd50, then disables unit1; this
 continuation cancels the queued fence and does not exercise a capture ISR.
-The current first MMIO rejection is CPU0 MAS`1036dafc`, WRITE32 PA
-`2c08010c=0d820000`, in the audio format/control initializer1036da82.
+The [audio format profile](../devices/audio/format.md) now crosses that
+continuation's audio rejection: setter1036da82 returns to102dea1c, followed
+by block programming1036ddd6 and IRQ/DMA masks1036e444. The current first
+MMIO rejection is CPU0 MAS`102dc47a`, WRITE32 PA`2c030034=2ae00000`,
+in HDMAC descriptor builder102dc41e. Its three flag bits23:21 are the next
+whole-family audit. The microphone initializer has not reached final input
+start; no audio sample or completion is claimed.
 The healthy UART peer rejects no request; GUI gate/pending3/display-ready
 remain0. Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
@@ -49,7 +54,7 @@ The earlier8-host-second trace's unreturned wait was a window boundary,
 not a permanent missing event. The first optional stack snapshot failed on
 an unmapped sampled SP; the corrected read-only snapshot succeeds.
 Parent-owned receipts are in `work/runs/captureflow-20261022/`. The later
-audio rejection is the current concrete frontier; GUI gate, pending3 and
+HDMAC descriptor rejection is the current concrete frontier; GUI gate, pending3 and
 display-ready still remain0.
 
 In the earlier descriptor17-only baseline, the healthy battery continuation

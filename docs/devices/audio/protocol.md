@@ -1,5 +1,12 @@
 # Dual Audio I/F and per-beat HDMAC requests
 
+The current [format and block profile](format.md) supersedes the old format
+whitelist, stereo/port rejection and absent block-programming fields. Native
+audio/DMA/HDMAC validation passes4+7+4 cases; two additional guard assertions
+pass in the focused4-case audio rerun. Original format setup now returns and
+the next first rejection is HDMAC PA2c030034=2ae00000. Historical receipts
+below retain their exact code and execution scopes.
+
 This stage addresses [QEMU 原版启动与最小设备模型](https://github.com/mashiro01/nightglass/issues/331). Initial code `180d7e49f0b934cda8ad16c0a7964e84e7af3aed` adds the two-channel Audio I/F at `2c080000` and GPIO request inputs on the existing HDMAC. The review correction below is exact code `752783a6a4a6fba2eb7b9bcc4c03e93f604f48a0`. It keeps original instructions, task dispatch, IRQ handlers and data transfers in the guest.
 
 ## Source and model contract
@@ -8,7 +15,7 @@ The frozen [whole Audio contract](https://github.com/mashiro01/nightglass/blob/1
 
 The named virtual profile has zero configuration/reset word, disabled channels, empty FIFOs, no errors and an independent nominal 48MHz Clock. AURES bits0/1 assert/reset only the selected channel; release supplies no samples. The original AUCR12/13 enable-command variant is supported directly. AUCR full/empty and AUST usage flags derive from real queue occupancy. Underflow arises from an enabled internal output clock attempting to consume an empty FIFO; its flag is W0C, so writing1 preserves it and writing0 clears it. IRQ167/168 depend on enabled cause bits. Unknown widths, bank holes and extension registers fail.
 
-The sink consumes **opaque 32-bit words**, without PCM playback or inferred low-half left/right packing. Combined data uses one queue; separate PIO uses two opaque lane queues and consumes a pair only when both are present. Capacity is1 or16 selected stages. Original format encodings44/4d and0a/0c can be latched as opaque profile labels;4d is not assigned a physical bit depth. Original unknown AUMD bits23/26 are retained explicitly. Stereo bit27, swap/loopback, nonzero AUDP routing/packing, separate-lane DMA and AUDMA2 sample-count modes remain unsupported. Input stage-selection bit24 is retained, but disconnected input supplies no stages at either capacity and never reports full or fabricates samples; an attempted empty input read fails. Output bit25 changes actual queue capacity. AUCC divider-enabled output advances from virtual time using the documented divisor candidates; without an internal clock source it waits. These assumptions do not measure hardware rates or EXPEED performance.
+The sink consumes **opaque32-bit words**, without PCM playback or inferred low-half left/right packing. Combined data uses one queue; separate PIO uses two lane queues and consumes a pair only when both are present. Capacity is1 or16 selected stages. Full4-bit/7-bit format labels, stereo/swap fields and finite AUDP wire metadata are now accepted as specified in format.md; no physical encoding, mixing fidelity or bit depth is assigned. Loopback, separate-lane DMA and active dual-channel DMA output remain unsupported. Block controls and16-bit lengths may be programmed while idle, but unsupported output cannot start or consume queued words. Disconnected input supplies no occupied stages or samples. Output stage selection changes actual capacity; virtual clock consumption derives real FIFO state. The nominal clock/divider assumptions do not measure physical rates or EXPEED performance.
 
 The module reuses pinned QEMU [Fifo32](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/qemu/fifo32.h), Clock, QEMUTimer, IRQ/GPIO and [DMA bus helpers](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/dma.h). It deliberately uses a declared virtual sink rather than guessing a codec/PCM backend. Stateful devices remain explicitly unmigratable.
 
@@ -26,7 +33,7 @@ The run exited0 with a QMP debug stop, direct payload equality true and whole-bo
 
 The current trace independently records primary scanner status2 in R0 at iterator PC`102a7e00` (log6211–6216), and its original return block with R6=0 (log6268–6273), which returns NULL. A second scanner invocation follows the structured reader; then the actual alternate start/end are131e0000/13220000 (log6324–6329). This proves original blank/error branches, not valid records. The current request entry is102a85f4 (log6037–6042); static94-entry descriptors are not upgraded to captured runtime object words.
 
-## Stereo review correction
+## Historical stereo review correction
 
 Review found that the initial AUMD writable mask accepted stereo bit27 despite lacking a stereo packing protocol. Code752783a rejects that field before mutating mode state, while retaining the original named bit23/26 flags and stage-selection bits24/25. The new fixture first writes07800000, attempts0f800000, observes the real transaction error, then uses upstream HMP to verify the prior mode remains07800000.
 
@@ -38,4 +45,4 @@ The next work follows the actual alternate record aperture and the whole12-chann
 
 The [QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397) checked the complete saved initialization, reset, PIO, FIFO/status, IRQ mask/W0C, divider and logical-DMA consumers. These existing paths retain their real occupancy and bus semantics. The HDMAC lifecycle extension now makes explicit PB and global DH holds compose with output DREQ: a clock-driven sink may free a stage, but a held channel cannot accept the next DMA beat until every gate is released. The new synthetic native test content exercises that real connection; it has not been compiled or run by this implementation task. No Audio C behavior or original run is added here.
 
-Input selector5 remains disconnected because samples and an input clock are external inputs absent from the package. The saved sample-count setters at AUDMA2CTL/+44/+48 do not bind a complete terminal counter/IRQ protocol; getters at+54..60 also lack a bound producer. Stereo/packing/loopback and sample-count operation are future protocol work, not additional device instances or successful transfers. No saved producer joins Audio/HDMAC to event/EXIU or proves frame completion. The bound output selectors3/7 and GIC167/168 are preserved; no guessed signal wiring is introduced.
+Input selector5 remains disconnected because samples and an input clock are external inputs absent from the package. The later format.md profile supports AUDMA2CTL/+44/+48 programming, but does not infer a terminal counter/IRQ or execute dual-channel output. Active PCM/packing/loopback remains outside the opaque endpoint contract. No saved producer joins Audio/HDMAC to event/EXIU or proves frame completion. The bound output selectors3/7 and GIC167/168 are preserved; no guessed signal wiring is introduced.

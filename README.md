@@ -105,8 +105,11 @@ the capture-control stop request at that checkpoint. The complete
 [capture run/stop model](docs/devices/sensor/runstop.md) now covers all11 unit
 bits, separate low-level/upper quiescence causes and shared4/8 lifetime;
 all25 sensor qtests pass. Original execution crosses that store and a later
-GUI completion callback. The current first rejection is audio configuration
-`0x2c08010c=0x0d820000` at `0x1036dafc`.
+GUI completion callback. The [audio format profile](docs/devices/audio/format.md)
+now covers the complete source-shaped format/port/divider fields and block
+programming, with15 native audio/DMA/HDMAC cases passing. Original setup crosses
+the audio store and next rejects HDMAC descriptor flags at `0x2c030034=0x2ae00000`,
+PC `0x102dc47a`; microphone input start and sample transfer are not yet observed.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

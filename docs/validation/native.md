@@ -1,5 +1,17 @@
 # Native GUI integration
 
+The [audio format/block profile](../devices/audio/format.md) passes4 new
+`nikon_audio`,7 `nikon_dma` and4 `nikon_hdmac` cases in one applicable batch,
+after the old-model format case fails on0d820000. Coverage includes all format,
+port and1024 divider combinations, real FIFO drain, programming-only block
+state, preserved-state rejection and reset/unrealize. Two review-requested
+guard assertions pass in a focused4-case audio rerun. Receipts are in
+`work/runs/audioformat-20261023/`, including `native-final-receipt.log` and
+`native-guards-receipt.log`. The separate unchanged original continuation
+crosses format/block setup and next rejects HDMAC PA2c030034=2ae00000;
+it does not complete microphone initialization, capture input samples or
+establish a GUI first frame. This is not a new full-suite result.
+
 The [capture run/stop model](../devices/sensor/runstop.md) passes all25
 `nikon_sensor` cases in one final applicable batch after the old-model and
 shared4/8 deadline/lost-identity reds. The whole11-unit family, both stop
@@ -8,7 +20,7 @@ cancellation, pending/W1C, reset/unrealize and negative access boundaries are
 covered. Receipts are in `work/runs/captureflow-20261022/`, including
 `native-final-receipt.log`. Original-bundle execution is separate: the old0c
 store returns, a later GUI4000 wait receives its original callback, and the
-next first rejection is audio PA2c08010c=0d820000. No capture ISR, completed
+at that capture-only checkpoint the next rejection is audio PA2c08010c=0d820000. No capture ISR, completed
 pixel frame or new full-suite pass is claimed by this continuation.
 
 The [finite router timing model](../devices/router/timing.md) passes23
