@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; partial-alpha SRC_OVER frontier
+## Normal display request accepted; 224/472-byte graphics frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -98,16 +98,21 @@ addresses over reset. The [continuation model](../devices/transfer/continuation.
 now retains the initialized profile and next key across ACK, completing the
 2120/2368-byte pair's ten rectangles with keys `10005..1000e`. All 15 transfer
 unit cases pass; unchanged execution receives original IRQ129 for that pair.
-The current rejection is CPU1 PC `106ee3c6`, WRITE32 PA `201810e0=1`,
-`transfer-stream-program-not-supported`, on complete 176/368-byte buffers at
-PA `bd0dff90/bd15ff90`. Fixed fields match the existing record7 SRC_OVER
-profile except partial-alpha paint `cc000000`; indirect arrays are not yet
-validated and partial-alpha compositing remains unsupported. Input sample
-transfer, audio completion and GUI first frame remain unverified.
+The [RGBA SRC_OVER extension](../devices/transfer/over.md) then validates the
+176/368-byte pair's indirect rectangle `[91,628) × [158,322)` and paint
+`cc000000` over an observed all-zero target. Shared path/image execution now
+handles destination alpha0..255. All16 transfer unit cases pass, including64
+source/destination alpha pairs. Original IRQ129 follows176/368,5576/7488,
+656/888,176/336 and224/376 STARTs. The current rejection is CPU1 PC
+`106ee3c6`, WRITE32 PA `201810e0=1`,
+`transfer-rectangle-count-not-supported`, on complete224/472-byte buffers at
+PA `bd0dff90/bd15ff90`. Its producer/state/operand family remains to be joined.
+Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `rectanglecontinuation-20261023`; `ramalignment-20261023`,
+Latest receipts are in `rgbaover-20261023`; `rectanglecontinuation-20261023`,
+`ramalignment-20261023`,
 `graphicscommands-20261023`,
 `audiolevels-20261023`,
 `hdmacflags-20261023`,

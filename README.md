@@ -128,10 +128,12 @@ assertion in resource57 record0 while preserving exact physical boundaries;
 that 43-case memory/transfer native batch passes. The later
 [context continuation model](docs/devices/transfer/continuation.md) completes
 the 2120/2368-byte, ten-rectangle batch without its earlier initialization
-prefix. All 15 transfer unit cases pass; original execution receives IRQ129
-and next rejects a 176/368-byte record7 SRC_OVER submission with partial-alpha
-paint `cc000000`. GUI gate/pending3/display-ready remain zero; no GUI first
-frame is established.
+prefix. The [RGBA SRC_OVER model](docs/devices/transfer/over.md) then completes
+the 176/368-byte indirect rectangle with paint `cc000000`, including subsequent
+path/image compositing over nonopaque destinations. All 16 transfer unit cases
+pass. Original execution receives IRQ129 for five more pairs before rejecting
+a 224/472-byte pair with `transfer-rectangle-count-not-supported`.
+GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

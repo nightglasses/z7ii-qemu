@@ -60,7 +60,7 @@ typedef struct NikonTransferLutProgram {
 typedef enum NikonTransferProgramKind {
     TRANSFER_PROGRAM_LUT,
     TRANSFER_PROGRAM_YUV_CLEAR,
-    TRANSFER_PROGRAM_RGBA_CLEAR,
+    TRANSFER_PROGRAM_RGBA_FILL,
     TRANSFER_PROGRAM_PATH_FILL,
     TRANSFER_PROGRAM_IMAGE_FILL,
     TRANSFER_PROGRAM_RGBA_YUV,
@@ -76,6 +76,7 @@ typedef struct NikonTransferProgram {
     bool over;
     uint32_t image_source;
     uint32_t rgba_width, rgba_height, rgba_stride, rgba_paint;
+    uint32_t rgba_coordinates[5];
 } NikonTransferProgram;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonTransferState, NIKON_TRANSFER)
@@ -659,7 +660,8 @@ static bool nikon_transfer_rgba_fingerprint(const uint32_t *words,
             expected = fields[field++].value;
         }
         if ((!draw && (i == 22 || i == 26 || i == 34 || i == 48)) ||
-            (draw && (i == 80 || (!single && i == 91)))) {
+            (draw && (i == 80 || (!single && i == 91) ||
+                      (single && i == 76)))) {
             continue;
         }
         /*
@@ -1012,13 +1014,12 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
     static const uint8_t expected_segments[TRANSFER_RGBA_PATH_SEGMENT_BYTES] = {
         0x02, 0x07, 0x09, 0x07, 0x00,
     };
-    static const uint32_t expected_coordinates[][5] = {
-        { 0, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000 },
-        { 0, 0, 0x44340000, 0x43f00000, 0xc4340000 },
+    static const uint32_t expected_coordinates[5] = {
+        0, 0x40c00000, 0x44800000, 0x442a8000, 0xc4800000,
     };
     const uint32_t *setup, *draw;
     uint8_t segments[TRANSFER_RGBA_PATH_SEGMENT_BYTES];
-    uint32_t coordinates[ARRAY_SIZE(expected_coordinates[0])];
+    uint32_t coordinates[ARRAY_SIZE(expected_coordinates)];
     size_t setup_bytes, draw_bytes;
     uint64_t input[4], input_bytes[4];
     bool single;
@@ -1096,10 +1097,17 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
         }
     }
     if (nikon_transfer_span(target, target_bytes, true) < target_bytes ||
+        (input[3] & 3) ||
         !nikon_transfer_range(input[2], input_bytes[2], false) ||
         !nikon_transfer_range(input[3], input_bytes[3], false)) {
         *reason = "transfer-stream-memory-range-not-backed";
         return false;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(input); i++) {
+        if (nikon_transfer_alias(input[i], input_bytes[i], target, target_bytes)) {
+            *reason = "transfer-stream-operands-overlap";
+            return false;
+        }
     }
     if (dma_memory_read(&address_space_memory, input[2], segments,
             sizeof(segments), MEMTXATTRS_UNSPECIFIED) != MEMTX_OK ||
@@ -1112,20 +1120,36 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
         *reason = "transfer-stream-path-not-supported";
         return false;
     }
-    for (unsigned i = 0; i < ARRAY_SIZE(coordinates); i++) {
-        if (le32_to_cpu(coordinates[i]) !=
-            expected_coordinates[single][i]) {
+    if (single) {
+        float values[5];
+
+        for (unsigned i = 0; i < ARRAY_SIZE(values); i++) {
+            uint32_t bits = le32_to_cpu(coordinates[i]);
+
+            memcpy(&values[i], &bits, sizeof(bits));
+        }
+        if (values[2] <= 0 || values[3] <= 0 || values[4] != -values[2] ||
+            !nikon_path_mask(NULL, 720, 480, segments, 5, coordinates, 5,
+                             setup + 12, false, reason)) {
             *reason = "transfer-stream-path-not-supported";
             return false;
         }
+    } else {
+        for (unsigned i = 0; i < ARRAY_SIZE(coordinates); i++) {
+            if (le32_to_cpu(coordinates[i]) != expected_coordinates[i]) {
+                *reason = "transfer-stream-path-not-supported";
+                return false;
+            }
+        }
     }
-    program->kind = TRANSFER_PROGRAM_RGBA_CLEAR;
+    program->kind = TRANSFER_PROGRAM_RGBA_FILL;
     /* Format0 paths use their explicit rows without a YUV alignment bias. */
     program->plane[0] = target + active_offset;
     program->rgba_stride = single ? 720 : TRANSFER_RGBA_WIDTH;
     program->rgba_width = program->rgba_stride;
     program->rgba_height = single ? 480 : TRANSFER_RGBA_ACTIVE_HEIGHT;
-    program->rgba_paint = 0xff000000;
+    program->rgba_paint = le32_to_cpu(draw[76]);
+    memcpy(program->rgba_coordinates, coordinates, sizeof(coordinates));
     program->plane_bytes[0] = 4 * ((program->rgba_height - 1) *
                                   program->rgba_stride + program->rgba_width);
     program->format = 0;
@@ -1690,6 +1714,30 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     return nikon_transfer_lut_parse(s, &program->lut, reason);
 }
 
+/*
+ * Straight RGBA output; path/image overlays already have associated RGB.
+ * Retain 255^3 weights until division, as in the YUVA107 over convention.
+ */
+static void nikon_transfer_rgba_over(uint8_t *destination, const uint8_t *source,
+                                    unsigned coverage, bool premultiplied)
+{
+    unsigned alpha = source[3] * coverage;
+    unsigned sa = alpha * 255;
+    unsigned da = destination[3] * (65025 - alpha);
+    unsigned sum = sa + da;
+    unsigned scale = premultiplied ? coverage * 65025 : sa;
+
+    if (!alpha) {
+        return;
+    }
+    for (unsigned c = 0; c < 3; c++) {
+        uint64_t color = (uint64_t)source[c] * scale + destination[c] * da;
+
+        destination[c] = (color + sum / 2) / sum;
+    }
+    destination[3] = (sum + 32512) / 65025;
+}
+
 static bool nikon_transfer_paths_execute(NikonTransferState *s, bool image,
                                          const char **reason)
 {
@@ -1713,21 +1761,8 @@ static bool nikon_transfer_paths_execute(NikonTransferState *s, bool image,
         *reason = "transfer-path-output-map-failed";
         return false;
     }
-    /* This finite context has opaque RGBA backing; reject other alpha modes. */
     for (unsigned i = 0; i < NIKON_PATH_MASK_BYTES; i++) {
-        if (destination[4 * i + 3] != 255) {
-            address_space_unmap(&address_space_memory, destination, bytes,
-                                true, 0);
-            *reason = "transfer-path-alpha-not-supported";
-            return false;
-        }
-    }
-    for (unsigned i = 0; i < NIKON_PATH_MASK_BYTES; i++) {
-        for (unsigned c = 0; c < 3; c++) {
-            destination[4 * i + c] =
-                overlay[4 * i + c] + (destination[4 * i + c] *
-                    (255 - overlay[4 * i + 3]) + 127) / 255;
-        }
+        nikon_transfer_rgba_over(destination + 4 * i, overlay + 4 * i, 255, true);
     }
     address_space_unmap(&address_space_memory, destination, bytes, true, bytes);
     return true;
@@ -1736,10 +1771,25 @@ static bool nikon_transfer_paths_execute(NikonTransferState *s, bool image,
 static bool nikon_transfer_rgba_execute(NikonTransferProgram *program,
                                         const char **reason)
 {
+    static const uint8_t segments[] = { 2, 7, 9, 7, 0 };
+    const uint32_t identity[] = {
+        cpu_to_le32(0x3f800000), 0, 0, 0, cpu_to_le32(0x3f800000),
+        0, 0, 0, cpu_to_le32(0x3f800000),
+    };
+    unsigned bias = program->rgba_stride == 720 ? 0 : TRANSFER_RGBA_ACTIVE_Y;
+    g_autofree uint8_t *mask = g_malloc0(program->rgba_stride *
+                                       (program->rgba_height + bias));
     hwaddr mapped = program->plane_bytes[0];
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
-    uint32_t *destination;
+    uint8_t *destination;
+    uint8_t source[4];
 
+    if (!nikon_path_mask(mask, program->rgba_stride, program->rgba_height + bias,
+                         segments, 5, program->rgba_coordinates, 5,
+                         identity, false, reason)) {
+        return false;
+    }
+    stl_le_p(source, program->rgba_paint);
     attrs.memory = true;
     destination = address_space_map(&address_space_memory, program->plane[0],
                                     &mapped, true, attrs);
@@ -1753,8 +1803,10 @@ static bool nikon_transfer_rgba_execute(NikonTransferProgram *program,
     }
     for (unsigned y = 0; y < program->rgba_height; y++) {
         for (unsigned x = 0; x < program->rgba_width; x++) {
-            stl_le_p(&destination[y * program->rgba_stride + x],
-                     program->rgba_paint);
+            nikon_transfer_rgba_over(destination +
+                                    4 * (y * program->rgba_stride + x), source,
+                                    mask[(y + bias) * program->rgba_stride + x],
+                                    false);
         }
     }
     address_space_unmap(&address_space_memory, destination, mapped, true,
@@ -2024,7 +2076,7 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s, bool *rgba720,
     if (parsed.kind == TRANSFER_PROGRAM_YUV_CLEAR) {
         return nikon_transfer_clear_execute(&parsed, reason);
     }
-    if (parsed.kind == TRANSFER_PROGRAM_RGBA_CLEAR) {
+    if (parsed.kind == TRANSFER_PROGRAM_RGBA_FILL) {
         if (!nikon_transfer_rgba_execute(&parsed, reason)) {
             return false;
         }

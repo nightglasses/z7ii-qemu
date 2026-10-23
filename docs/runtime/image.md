@@ -56,14 +56,15 @@ bounded integer coordinate words, matching nonzero opaque operand, matched
 class1 key, equal source extents, source address and opaque paint. Only this
 five-segment closed inline H/V path family and A8 source with dimensions1..256 are
 accepted. Perspective/singular/nonfinite transforms, unsupported types/modes,
-nonopaque source paint/target alpha and incomplete packets remain errors.
+nonopaque source paint and incomplete packets remain errors. The later
+[SRC_OVER extension](../devices/transfer/over.md) supports destination alpha0..255.
 The magnitude/count bounds are functional work limits, not silicon limits.
 
 `nikon_transfer_image_parse` validates context, packet/source/target ranges,
 command overlaps and effective RAM aliases. Exact integer-to-float conversion
 within±4096 reuses the existing affine path rasterizer. At deferred execution,
 the image is read through DMA, coverage and premultiplied modulation are built
-in scratch buffers, and the complete opaque target is prechecked before any
+in scratch buffers, and the complete target mapping is checked before any
 write. The shared path executor applies SRC_OVER and IRQ129 only after work
 succeeds. Late map/data errors, reset and unrealize preserve output.
 

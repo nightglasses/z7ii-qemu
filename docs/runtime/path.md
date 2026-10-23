@@ -164,8 +164,9 @@ to produce per-path A8 coverage with GRAY antialiasing and1/16-pixel
 tolerance. The packet/DMA layer validates the entire batch, including
 effective RAM backing aliases with the output. At deferred execution it
 revalidates inputs, composites each opaque paint in command order into a
-premultiplied RGBA scratch overlay, maps/prechecks the opaque target, then
-applies that overlay with integer rounding. Nonopaque alpha, unsupported segments/states,
+premultiplied RGBA scratch overlay, maps/prechecks the full target, then
+applies that overlay with integer rounding. The later [SRC_OVER extension](../devices/transfer/over.md)
+supports destination alpha0..255. Nonopaque source paint, unsupported segments/states,
 perspective/nonfinite data and malformed/unsafe ranges remain errors.
 Reset/unrealize and any late error leave the destination unchanged.
 

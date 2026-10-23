@@ -4,19 +4,20 @@
 
 The [inline rectangle model](rectangles.md), [RAM backing fix](../../startup/ram.md)
 and [context continuation](continuation.md) now cross both the 856/1088 and
-2120/2368-byte checkpoints. All 15 transfer unit cases pass; original IRQ 129
+2120/2368-byte checkpoints. Original IRQ 129
 follows each pair. The device retains the initialized format/clip profile and
 expected key across ACK, validates the whole next batch and publishes updated
 state only after successful pixel execution.
 
+The [RGBA SRC_OVER extension](over.md) validates the next 176/368-byte
+indirect rectangle and implements paint `cc000000` over the observed transparent
+target, plus shared path/image destination-alpha handling. All16 transfer unit
+cases pass. Original IRQ129 follows five further pairs, ending with224/376.
 The next CPU1 WRITE32 PA `201810e0=1`, original PC `106ee3c6`, rejects with
-`transfer-stream-program-not-supported`. Complete setup/draw buffers are
-176/368 bytes at PA `bd0dff90/bd15ff90`. Their fixed fields match the existing
-720×480 record7 SRC_OVER family except paint `cc000000`, where the model
-requires `ff000000`; shadow bit3 is already supported. Indirect arrays remain
-to be checked and partial-alpha execution remains unimplemented. GUI readiness
-is zero and no first frame is claimed. The analysis below records earlier
-checkpoint receipts.
+`transfer-rectangle-count-not-supported` on complete224/472-byte buffers at
+`bd0dff90/bd15ff90`. The next state/operand family needs producer analysis.
+GUI readiness is zero and no first frame is claimed. The analysis below
+records earlier checkpoint receipts.
 
 At the [Audio observation checkpoint](../audio/monitor.md), unchanged
 firmware's first uncovered access was CPU1 MAS VA106ee3c6, WRITE32 board
@@ -467,8 +468,9 @@ The known720x480 context is mandatory and retained after successful completion.
 Counts are bounded to64 segments/256 float coordinates per path; these and
 coordinate/matrix magnitudes4096/transformed8192 are functional work limits,
 not recovered silicon capacities. Perspective/singular/nonfinite transforms,
-other segments, malformed contours/counts, unsupported states,
-nonopaque target alpha, missing context and incomplete packets remain errors.
+other segments, malformed contours/counts, unsupported states, nonopaque source
+paint, missing context and incomplete packets remain errors. Destination
+alpha0..255 is supported by the later [SRC_OVER extension](over.md).
 
 `devices/path.c` validates topology and converts quadratic to exact cubic
 control points. Relative horizontal07 and vertical09 each consume one scalar,
@@ -479,7 +481,7 @@ preflights the full target, packet ranges and all indirect arrays; it rejects
 guest overlap and effective RAM-backing aliases with the target. Read-only
 arrays may be reused by multiple glyphs. At deferred execution it revalidates
 data, composites each path/paint in command order into a premultiplied RGBA
-scratch overlay, maps/prechecks the full opaque target, then applies SRC_OVER
+scratch overlay, maps/prechecks the full target, then applies SRC_OVER
 with integer rounding. Any late
 bad path, map loss, reset or unrealize prevents output/completion. No partial
 glyph batch is committed. Coverage precision is a functional approximation.
@@ -517,16 +519,17 @@ variable dimensions are bounded1..256 and both extent writes must match.
 Only the known inline five-segment path, affine matrices, opaque paint,
 matched class1 keys and nonzero echoed operands are supported. Other image
 formats, modes, perspective, indirect geometry in this family and nonopaque
-target alpha stay explicit errors.
+source paint stay explicit errors. Destination alpha0..255 is supported.
 
 `nikon_transfer_image_parse` validates the entire target, command and image
 ranges/overlaps and effective backing aliases. At deferred execution it reads
 the current alpha source, reuses the affine path rasterizer and builds an
 image-modulated premultiplied overlay. `nikon_path_image` decodes the f24
 matrix, samples at pixel centers with functional nearest/clamp behavior and
-preserves direct buffer y. The shared path executor prechecks target alpha,
-commits SRC_OVER and raises IRQ129. Late errors, reset and cancellation leave
-the target unchanged. No console frame or guest callback is injected.
+preserves direct buffer y. The shared path executor validates output mapping,
+commits normalized RGBA SRC_OVER and raises IRQ129. Late errors, reset and
+cancellation leave the target unchanged. No console frame or guest callback
+is injected.
 
 The synthetic fixture covers alpha/color channels, stride, transforms, flip,
 clamping, malformed/unsafe inputs, backing aliases, delayed data reads, map

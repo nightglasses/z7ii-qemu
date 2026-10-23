@@ -4,7 +4,8 @@ The normal GUI path's 2120/2368-byte pair contains ten more integer SRC
 rectangles in the previously initialized 720×480 graphics context. The finite
 model now retains that context and validates the next batch's key sequence.
 Unchanged original execution completes the pair through original IRQ 129;
-the next rejection is a 176/368-byte SRC_OVER program with partial alpha.
+the later [SRC_OVER extension](over.md) also completes the next partial-alpha
+pair. See the [current frontier](../../validation/frontier.md) for its successor.
 GUI first frame remains unverified.
 
 ## Producer and omitted initialization
@@ -100,12 +101,14 @@ The next CPU1 WRITE32 board PA `201810e0=1`, original PC `106ee3c6`, rejects
 with `transfer-stream-program-not-supported`. Complete next buffers are
 176 bytes at PA `bd0dff90` and 368 bytes at PA `bd15ff90`.
 
-The next pair matches the existing single-path 720×480, record7 target
-`c175d600`, SRC_OVER register profile except paint `cc000000` where the finite
-model requires `ff000000`. Draw word25 is 8, an already accepted shadow bit3
-variation. Indirect coordinate/segment contents have not yet been validated
-for this new pair; neither pointer equality nor matching fixed fields proves
-their contents. Partial-alpha compositing is the next contract to investigate.
+At that continuation-only checkpoint, the next pair matched the existing
+single-path 720×480, record7 target `c175d600`, SRC_OVER register profile except
+paint `cc000000`, where the old model required `ff000000`. Draw word25 is 8,
+an already accepted shadow bit3 variation. Indirect coordinate/segment contents
+had not yet been validated; neither pointer equality nor matching fixed fields
+proved their contents. These observations motivated the later
+[SRC_OVER analysis](over.md), which now validates those arrays and implements
+partial-alpha compositing.
 The final read-only snapshot has BatCk `00010001` and GUI gate/pending3/
 display-ready zero; the UART peer rejects no protocol request.
 

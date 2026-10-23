@@ -1,5 +1,16 @@
 # Native GUI integration
 
+The [RGBA SRC_OVER extension](../devices/transfer/over.md) passes all16 transfer
+unit cases in1.21s after the new valid submission fails against the old model.
+Its35 variant types include64 source/destination alpha pairs, independent full
+pixel/guard comparisons, partial/fractional/clipped geometry, ordered context
+continuation, alias boundaries, immutable capture, late indirect changes and
+reset/unrealize/map-loss cancellation. Existing path/A8 image cases also cover
+nonopaque targets. Independent read-only review found no concrete defect.
+Separate unchanged execution crosses five more graphics pairs through original
+IRQ129 and next rejects224/472 bytes with `transfer-rectangle-count-not-supported`.
+GUI readiness remains zero. Receipts: `work/runs/rgbaover-20261023/`.
+
 The [rectangle context continuation](../devices/transfer/continuation.md)
 passes the complete 15-case `nikon_transfer_unit` batch after the new valid
 continuation fails against the old model. Its 31 variants cover cross-batch
@@ -7,8 +18,9 @@ key/wrap, chained odd batches, exact ordered pixels/guards, counts and padding,
 explicit target changes, invalid/missing/foreign contexts, alias boundaries,
 immutable capture and reset/unrealize/map-loss cancellation. Independent review
 found no concrete defect. Separate unchanged execution receives original IRQ129
-after 2120/2368 START and next rejects a 176/368-byte partial-alpha SRC_OVER
-program. Current GUI readiness is zero; no GUI first frame is established.
+after 2120/2368 START and, at that continuation-only checkpoint, next rejects a
+176/368-byte partial-alpha SRC_OVER program. That snapshot's GUI readiness is
+zero; no GUI first frame is established.
 Receipts are in `work/runs/rectanglecontinuation-20261023/`.
 
 The [MAS RAM backing fix](../startup/ram.md) passes all 43 applicable cases:

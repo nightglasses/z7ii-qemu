@@ -6,8 +6,8 @@ a non-page-aligned physical base. The fix preserves every physical base and
 length, with a private backing prefix and an exact alias at the original base.
 The RAM-only original run reaches a 2120/2368-byte graphics submission.
 The later [context continuation model](../devices/transfer/continuation.md)
-completes it and next reaches a partial-alpha SRC_OVER boundary. GUI first
-frame remains unverified.
+completes it. Later graphics progress is recorded in the
+[current frontier](../validation/frontier.md). GUI first frame remains unverified.
 
 ## Captured failure
 

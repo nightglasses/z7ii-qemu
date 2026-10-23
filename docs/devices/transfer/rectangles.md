@@ -7,8 +7,9 @@ The unchanged original now receives IRQ 129 for this submission. The later
 [RAM backing fix](../../startup/ram.md) resolves the host TLB assertion recorded
 below. The later [context continuation](continuation.md) also completes ten
 rectangles in 2120/2368 bytes without this family's initialization prefix.
-Original execution next rejects a partial-alpha SRC_OVER program. No GUI first
-frame is established.
+The later [SRC_OVER extension](over.md) crosses the partial-alpha checkpoint;
+see the [current frontier](../../validation/frontier.md). No GUI first frame
+is established.
 
 ## Direct evidence
 
