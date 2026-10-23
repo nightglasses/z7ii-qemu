@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; peripheral-event-router frontier
+## Normal display request accepted; capture-control request frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -50,24 +50,25 @@ The [SYS configuration audit](../devices/sysconfig/runtime.md) then completes
 all three full-word ports`04280064/68/6c`, with25 memory qtests passing after
 an actual old-model red. Original execution crosses`103c5d6e` and joins the
 `b18a7718 != 0` branch at`102d9448` → `102fea1e(1,1)` → `102974de`.
-The next first rejection is CPU0 PC`102dc88c`, WRITE32 PA`20060028`=`1`,
-reason`peripheral-event-router-access-or-activation-not-supported`.
-The three write1 request ports`28/2c/30` need a producer/effect contract;
-ordinary configuration retention does not establish their behavior.
-The [router audit](../devices/router/runtime.md) identifies all three request
-producers and the IRQ87→CSENEV01 bit8 consumer. It also corrects all five
-00..24 set/clear pairs, passing all20 SLA qtests. The corrected original state
-is`00=3/08=236/10=0/18=0/20=503`; the first rejection remains the same28
-request. No TG producer is connected, and no request-to-cause or clock-period
-contract has yet been established. The request family remains unsupported.
-Parent-owned`router-20261022` and`sysconfig-20261022` receipts retain this continuation;
-`streamstorage-20261022` and the earlier kind40 receipts keep their own scope.
-Application02/01 and primary request state1 remain; the later snapshot has
-power0 and BatCk-containing word`00010101`, separate from the earlier
-BatCk1/power1 request-admission checkpoint. The UART peer rejects no request.
-Gate/pending3/display-ready remain0; sampled composition words now include
-`ff000000`, while the sampled scanout word remains0;
-request admission is not completion, scanout or a GUI first frame. The earlier
+The [router audit](../devices/router/runtime.md) corrects all five00..24
+set/clear pairs and identifies all three write1 request producers and IRQ
+consumers. The [finite timing model](../devices/router/timing.md) now adds
+explicit resynchronization/fence hypotheses and a30Hz virtual input;23 SLA
+plus25 memory qtests pass. This cadence and the request-to-cause assignments
+are functional assumptions, not physical measurements.
+
+In final-binary original execution, IRQ87 reaches original callback102d6b6a
+with raw80/10, and waits return1 at102d94a2/102d9510. Application bytes are
+03/02, primary request state11, power0 and BatCk-containing word00010001.
+The next first rejection is CPU0 PC`1020a832`, WRITE32 PA`2006800c=1`,
+reason`capture-control-access-or-reset-value-not-supported`. Its primitive
+1020a830 writes R1 through base20068000 offset0c; the whole08/0c family and
+capture producer remain to be investigated. No2c/30 execution is claimed
+before this stop; their contract is native-tested only.
+Receipts are in `routerfunctional-20261022`; earlier `router-20261022`,
+`sysconfig-20261022`, `streamstorage-20261022` retain their own checkpoints.
+The UART peer rejects no request. Gate/pending3/display-ready remain0;
+request admission and TG boundaries do not establish scanout or a GUI first frame. The earlier
 432/616-byte graphics pair belongs to the erased-TEMP failure transition and is
 not the current accepted-request frontier.
 

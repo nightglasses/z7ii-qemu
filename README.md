@@ -97,11 +97,11 @@ both target capacities and explicit primary NOR input. Original code loads and
 converts all eight row layouts, with the complete2640-row output verified.
 The [SYS configuration family](docs/devices/sysconfig/runtime.md) now supports
 all three full-word ports `0x04280064/68/6c`; all25 memory qtests pass.
-Original execution crosses that store and next rejects the peripheral-event
-router request `0x20060028=1` from `0x102dc88c`.
-The [router audit](docs/devices/router/runtime.md) corrects all five set/clear
-control pairs and passes all20 SLA qtests. The request family and TG event
-producer remain unresolved; the original startup frontier is unchanged.
+The [router timing model](docs/devices/router/timing.md) now covers all three
+requests and a virtual TG input under explicit functional hypotheses. All23
+SLA and25 memory qtests pass. Original IRQ87 callbacks release both subsequent
+waits and application state advances to03/02; the next first rejection is
+capture-control `0x2006800c=1` at `0x1020a832`.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

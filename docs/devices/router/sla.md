@@ -35,7 +35,9 @@ The mature `TYPE_NIKON_PERIPHERAL_EVENT_ROUTER` covers every direct operation
 above, including full-word mask RMW, three separate pending words and selective
 W1C. The private SLA binding is MMIO0 `20060000`, size `330`; SysBus outputs
 0/1/2 connect to IRQ86/87/88. Machine mapping belongs to the SLA owner. The
-75 named `external-pending` inputs remain disconnected by default.
+75 named `external-pending` inputs remain disconnected by default. The private
+SLA router also retains `input-period-ns=0`; the MAS board explicitly supplies
+the virtual TG input described in [timing.md](timing.md).
 
 The inherited finite configuration masks and six lanes are enumerated in
 `protocol.md`. The [later MAS runtime audit](runtime.md) corrects the five
@@ -43,8 +45,9 @@ The inherited finite configuration masks and six lanes are enumerated in
 interpretation is removed. Cold configuration/pending zero, set-port readback,
 one-enabled masks and explicit rising-edge providers are functional model
 conventions. Mask40/4C filtering is a convention, not physical gating proved
-by these handlers. A configuration write or clock advance cannot produce
-pending state. Masking retains pending; acknowledgment clears only selected
+by these handlers. With no input, configuration/time alone cannot produce
+periodic pending; explicit2c/30 commands still schedule their finite fences.
+Masking retains pending; acknowledgment clears only selected
 bits; reset clears configuration/pending while retaining actual input levels.
 
 SOURCE11's larger family projection still omits `9F064..9F0CB`,
@@ -53,8 +56,10 @@ Existing older continuous diagnostic material mentioned in `protocol.md` is
 not promoted into officially qualified instructions here. The sole source
 consumer has been asked once for already-qualified whole bodies and exact
 table facts. No new decoding/index or inferred function entry was performed.
-Requests `28/2C/30`, unknown status/data, holes and unsupported widths remain
-rejected. Neither the table pointers nor a nonzero retained B0 value proves
+The later MAS-backed functional profile now implements WRITE32 value1 at
+`28/2C/30` under named hypotheses; the omitted SLA bodies are not promoted
+into evidence for those effects. Unknown commands/status/data, holes and
+unsupported widths remain rejected. Neither table pointers nor retained B0 prove
 an activation, transfer or physical ready protocol.
 
 The standalone helper `nikon_router_test(QTestState *, const char *, uint64_t)`

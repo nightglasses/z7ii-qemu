@@ -1048,6 +1048,8 @@ static void z7ii_init(MachineState *machine)
     {
         DeviceState *router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
 
+        /* Functional virtual camera boundary input; not measured TG timing. */
+        qdev_prop_set_uint32(router, "input-period-ns", 33333334);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(router), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(router), 0, 0x20060000);
         for (i = 0; i < 3; i++) {

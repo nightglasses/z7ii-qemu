@@ -2,9 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
-#include "libqtest.h"
-
-void nikon_router_test(QTestState *q, const char *path, uint64_t base);
+#include "router.h"
 
 void nikon_router_test(QTestState *q, const char *path, uint64_t base)
 {
@@ -163,4 +161,178 @@ void nikon_router_test(QTestState *q, const char *path, uint64_t base)
     qtest_set_irq_in(q, path, "external-pending", 42, 1);
     g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80000000);
     g_assert_false(qtest_get_irq(q, 1));
+}
+
+void nikon_router_requests_test(QTestState *q, const char *path, uint64_t base)
+{
+    qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    qtest_writel(q, base + 0x40, 0x400);
+    qtest_writel(q, base + 0x4c, 1);
+    qtest_set_irq_in(q, path, "external-pending", 0, 1);
+    qtest_writel(q, base + 0x28, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, base + 0x38), ==, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+
+    /* A fence completes without an input clock and without pixel work. */
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x400);
+    g_assert_true(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x44, 0x400);
+    g_assert_false(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x30, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 1);
+    g_assert_true(qtest_get_irq(q, 2));
+    qtest_writel(q, base + 0x4c, 0);
+    g_assert_false(qtest_get_irq(q, 2));
+    qtest_writel(q, base + 0x4c, 1);
+    g_assert_true(qtest_get_irq(q, 2));
+    qtest_writel(q, base + 0x50, 1);
+
+    /* Coalesced fences and phase resync do not ACK latched input causes. */
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_writel(q, base + 0x30, 1);
+    qtest_writel(q, base + 0x28, 1);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x400);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x38), ==, 1);
+    qtest_writel(q, base + 0x44, 0x400);
+    qtest_writel(q, base + 0x50, 1);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+
+    /* Different request classes each receive their own processing interval. */
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_writel(q, base + 0x30, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x400);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+    qtest_writel(q, base + 0x44, 0x400);
+    qtest_clock_step(q, 998);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 1);
+    qtest_writel(q, base + 0x50, 1);
+    for (unsigned off = 0x28; off <= 0x30; off += 4) {
+        qtest_writel(q, base + off, 0);
+        qtest_writel(q, base + off, 2);
+        qtest_writeb(q, base + off, 1);
+        qtest_writew(q, base + off, 1);
+        qtest_writel(q, base + off + 1, 1);
+    }
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_writel(q, base + 0x30, 1);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+    /* No connected clock input: enabling alone cannot produce boundaries. */
+    qtest_writel(q, base + 0x10, 1);
+    qtest_writel(q, base + 0x28, 1);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x400);
+}
+
+void nikon_router_timing_test(QTestState *q, const char *path, uint64_t base)
+{
+    qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    qtest_writel(q, base + 0x40, 0x490);
+    qtest_writel(q, base, 3);
+    qtest_writel(q, base + 0x10, 1);
+    qtest_writel(q, base + 0x28, 1);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_writel(q, base + 4, 3);
+    qtest_clock_step(q, 499);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+    g_assert_true(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x44, 0x80);
+    qtest_clock_step(q, 500);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x10);
+    qtest_writel(q, base + 0x44, 0x10);
+
+    /* Masking preserves real boundaries; resync restarts the low phase. */
+    qtest_writel(q, base + 0x40, 0);
+    qtest_clock_step(q, 500);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+    g_assert_false(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x28, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+    qtest_writel(q, base + 0x40, 0x490);
+    g_assert_true(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x44, 0x80);
+    qtest_clock_step(q, 499);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+
+    /* Stop cancels a queued boundary; explicit force still drives edges. */
+    qtest_writel(q, base, 3);
+    qtest_writel(q, base + 0x44, 0xffffffff);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_writel(q, base + 0x70, 2);
+    qtest_writel(q, base + 0x70, 3);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+    qtest_writel(q, base + 0x44, 0x80);
+    qtest_writel(q, base + 0x70, 3);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    qtest_writel(q, base + 0x70, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x10);
+    qtest_writel(q, base + 0x44, 0x10);
+    qtest_writel(q, base + 0x14, 1);
+    qtest_writel(q, base + 0x70, 2);
+    qtest_writel(q, base + 0x70, 3);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+
+    qtest_writel(q, base + 0x70, 0);
+    qtest_writel(q, base + 4, 3);
+    qtest_writel(q, base + 0x10, 1);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_false(qtest_get_irq(q, 1));
+    qtest_writel(q, base + 0x10, 1);
+    qtest_clock_step(q, 500);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x80);
+
+    /* Unload/re-realize retires all timers and queued fence identities. */
+    qtest_writel(q, base + 0x44, 0x80);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_writel(q, base + 0x30, 1);
+    qtest_qmp_assert_success(q, "{'execute':'qom-set', 'arguments': {"
+                            "'path':%s, 'property':'realized', 'value':false}}",
+                            path);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'qom-set', 'arguments': {"
+                            "'path':%s, 'property':'realized', 'value':true}}",
+                            path);
+    qtest_writel(q, base + 0x2c, 1);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, base + 0x44), ==, 0x400);
+    g_assert_cmphex(qtest_readl(q, base + 0x50), ==, 0);
 }

@@ -20,12 +20,15 @@ the complete`1c8000`-byte output is verified. The
 complete three-port full-word interface at`04280064/68/6c`, with all25 memory
 qtests passing after an old-model red. Original execution crosses the old
 `103c5d6e` store and reaches`102d9448` → `102fea1e(1,1)` → `102974de`.
-The next first rejection is CPU0 MAS`102dc88c`, WRITE32 PA`20060028`=`1`,
-a peripheral-event-router request whose producer/effect contract is unresolved.
-The [router audit](../devices/router/runtime.md) corrects the complete five
-set/clear pairs and joins IRQ87 bit4 to the next CSENEV01 bit8 wait. All20 SLA
-qtests pass, but original execution still stops at the same request. The three
-request effects and the TG hardware producer have not been closed.
+The [router audit](../devices/router/runtime.md) corrects all five set/clear
+pairs. The current [finite timing model](../devices/router/timing.md) supports
+the three requests and a virtual TG input under explicit hypotheses;23 SLA
+plus25 memory qtests pass. Final-binary original execution reaches the real
+IRQ87 handler/callback with raw80/10 and both waits return1. Application bytes
+advance to03/02 and primary request state11. The next first rejection is CPU0
+MAS`1020a832`, WRITE32 PA`2006800c=1`, in the capture-control08/0c family.
+The healthy UART peer rejects no request; GUI gate/pending3/display-ready
+remain0. Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.

@@ -1,18 +1,21 @@
 # Native GUI integration
 
-The router paired-control correction passes all20 `nikon_sla` cases after
-the exact old-model partial-clear failure. The router case checks all five
-set/clear pairs, zero/partial/invalid masks, widths/alignment, reset reuse,
-all75 external providers and the existing IRQ/ACK boundaries. The unchanged
-bundle still first rejects`20060028=1`; this is not a new startup checkpoint.
-See [router runtime](../devices/router/runtime.md) and
-`work/runs/router-20261022/`. Request effects and the TG producer remain open.
+The [finite router timing model](../devices/router/timing.md) passes23
+`nikon_sla` plus25 `nikon_memory` cases in one focused batch after actual
+unsupported-request and staggered-fence reds. New coverage includes all three
+requests, independent deadlines/coalescing, phase/gates/force, absent input,
+invalid accesses/period and reset/unrealize cancellation. Receipts are in
+`work/runs/routerfunctional-20261022/native-final-receipt.log`. Final-binary
+original execution under the declared functional hypotheses crosses both
+IRQ87 waits and next rejects capture-control`2006800c=1`. This is not a new
+full-suite, physical-camera or GUI-first-frame result. The earlier20-case
+paired-control checkpoint remains in `work/runs/router-20261022/`.
 
 The complete SYS indexed configuration family at`04280064/68/6c` passes
 all25 `nikon_memory` qtests after the new case fails against the old model.
 The case covers every bit of all three ports, word replacement, independent
 state, bad-width/unaligned-write preservation, holes and reset reuse.
-Separate unchanged-bundle execution crosses the old store and next rejects
+At that earlier SYS-only checkpoint, unchanged-bundle execution crosses the store and next rejects
 `20060028=1` in the peripheral-event router; UART requests remain accepted.
 See [SYS runtime](../devices/sysconfig/runtime.md) and ignored receipts in
 `work/runs/sysconfig-20261022/`. This is a focused batch, not a new full-suite

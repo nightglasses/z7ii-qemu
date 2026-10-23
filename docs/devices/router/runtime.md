@@ -1,5 +1,11 @@
 # Router requests and normal GUI startup
 
+The current [finite timing/request model](timing.md) implements the three
+commands under explicit functional hypotheses. Final-binary original execution
+crosses the IRQ87 waits and next rejects capture-control PA `2006800c=1`.
+The audit below preserves the earlier paired-control-only checkpoint; its
+unsupported-request and absent-producer observations apply to that revision.
+
 ## Complete paired-control correction
 
 The C1.70 MAS helpers `102dc808` and `102dc83c` select five pairs of
@@ -67,7 +73,7 @@ produces a timing pulse, nor which raw cause follows which request. The
 request-status poll, request-to-cause table or clock unit is recovered here.
 Neither the request stores nor a successful ISR consumer proves that mapping.
 
-## Event consumers and the absent producer
+## Event consumers and the earlier absent producer
 
 | Hardware status / dispatch | Original consumer | Guest result |
 |---|---|---|
@@ -100,7 +106,7 @@ is explicitly a diagnostic timing experiment with an assumed cadence, not
 an established request-driven device contract. Importing that timer would
 add a new hypothesis rather than recover the current hardware condition.
 
-## Original continuation and remaining boundary
+## Earlier original continuation and remaining boundary
 
 With unchanged bundle bytes and the existing functional NOR, RNG0,
 acceleration and paced battery UART inputs, the corrected original run has:
