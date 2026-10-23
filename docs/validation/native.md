@@ -1,5 +1,17 @@
 # Native GUI integration
 
+The [Audio observation profile](../devices/audio/monitor.md) passes22
+applicable native cases: Audio7/DMA10/HDMAC5. A real HDMAC monitor read
+reproduces the old model's SS3 before the new finite profile returns SS5 and
+the actual word. New cases cover all8 observation registers, real sink-derived
+output, held/empty/underflow behavior, separate lanes, quieter replacement,
+negative writes and reset/unrealize. Last-observed policy,16-bit extraction
+and zero high bits are documented functional assumptions. Independent review
+found no defect. Separate unchanged-bundle runs cross the input getter and
+amplitude consumer, then first reject CPU1 PA201810e0=1 at106ee3c6 with
+transfer-stream-truncated. Receipts are in `work/runs/audiolevels-20261023/`;
+no full-suite, microphone sample transfer or GUI first-frame claim is made.
+
 The [HDMAC reload family](../devices/hdmac/reload.md) passes an applicable
 21-case batch (DMA10/HDMAC4/Audio4/memory3) after the old-model RD matrix red.
 A later private-root/DREQ/error case passes in the focused5-case HDMAC run;
@@ -9,7 +21,7 @@ hold/rearm, reentrant cancel, reset, no automatic repeat and partial-error
 boundaries are covered. Receipts are in `work/runs/hdmacflags-20261023/`.
 Independent read-only review found no defect. Separate unchanged-bundle runs
 cross the original descriptor stores/starts and input enable, reach the
-microphone initializer's return sequence and next reject Audio READ32
+microphone initializer's return sequence and, at that earlier checkpoint, next reject Audio READ32
 PA2c080154 at1036e3d8. No input DMA beat or GUI first frame is established.
 This is not a new full-suite result.
 

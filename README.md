@@ -112,9 +112,15 @@ programming, with15 native audio/DMA/HDMAC cases passing. The subsequent
 combinations and passes21 applicable native cases plus focused boundary/guard
 checks. Original setup crosses both input descriptor stores/starts, sets audio
 input enable and reaches the microphone initializer's return sequence.
-The next first rejection is READ32 `0x2c080154`, PC `0x1036e3d8`, in the
-two-word Audio getter. Input selectors5/6 still lack a sample producer; actual
-sample transfer and audio completion remain unverified.
+The subsequent [Audio observation profile](docs/devices/audio/monitor.md)
+supports both paired getters under explicit last-observed/packing assumptions;
+all22 applicable Audio/DMA/HDMAC cases pass. The original input getter and
+amplitude conversion now return. The next first rejection is CPU1 WRITE32
+`0x201810e0=1`, PC `0x106ee3c6`, with `transfer-stream-truncated` in the
+graphics parser. Input selectors5/6 still lack a sample producer; actual sample
+transfer and audio completion remain unverified.
+The complete next856/1088-byte submission is captured; its current rejection
+comes from unrecognized dispatch falling back to fixed LUT length checks.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

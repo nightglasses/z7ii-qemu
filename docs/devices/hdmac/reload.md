@@ -1,5 +1,10 @@
 # HDMAC descriptor reload
 
+Later continuation: the [Audio observation profile](../audio/monitor.md)
+crosses the54/58 getter recorded below. The current first rejection is
+graphics submission PA201810e0=1 with transfer-stream-truncated. This
+document retains its reload-only receipts and scope.
+
 The normal GUI continuation programs three reload flags in the audio input
 descriptors. The complete eight-combination family is now supported, across
 byte/halfword/word widths and fixed/incrementing endpoints. Original firmware

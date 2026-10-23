@@ -2,8 +2,9 @@
 
 Later continuation: the [HDMAC reload model](../hdmac/reload.md) crosses the
 descriptor rejection recorded below, arms both input channels and reaches
-input enable plus the initializer return sequence. The current first error is
-the separate Audio54/58 getter, at READ32 PA2c080154. The receipts in this
+input enable plus the initializer return sequence. The subsequent
+[observation profile](monitor.md) crosses the separate54/58 getter and next
+rejects graphics submission PA201810e0=1. The receipts in this
 document retain their earlier scope; actual input samples remain unverified.
 
 The normal GUI continuation reaches microphone initialization, not an output

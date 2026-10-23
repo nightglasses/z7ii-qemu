@@ -1,5 +1,29 @@
 # Graphics packet transfer
 
+## Current normal-startup frontier
+
+After the [Audio observation continuation](../audio/monitor.md), unchanged
+firmware's first uncovered access is CPU1 MAS VA106ee3c6, WRITE32 board
+PA201810e0=1. Original submitter106ee04a programs64-bit unit counts6b/88:
+setup856 bytes at PAbd0dff90, draw1088 bytes at PAbd15ff90. Both complete
+buffers are saved in `work/runs/audiolevels-20261023/final-stream0.bin` and
+`final-stream1.bin`; `verified.json` binds the actual submit metadata. The
+trace includes both writer-entry and store instruction PCs, since later TCG
+blocks enter at106ee3c6. Earlier snapshots using only106ee3c4 metadata are
+partial buffers, not complete submissions.
+
+Both streams contain720x480 geometry fields. Draw word50 is0, so the current
+path dispatch predicate does not select this family;1088 matches no other
+supported draw-size dispatch. The fallback LUT parser requires224/1688 and
+therefore reports`transfer-stream-truncated`. The transport has read the
+submitted extents; this diagnostic does not establish genuinely truncated
+guest commands. The next work is to recover the complete command/state family
+and its upstream producer, then validate a finite execution model. No IRQ129,
+rendered result or GUI first frame is claimed for this rejected submission.
+The older supported profiles and receipts below retain their own scope.
+
+## Existing transfer contracts
+
 The original C1.70 producer `VA106eeb5c` fills a packet consumed by
 `106ee148`. The latter writes source and destination addresses at offsets
 `c00/c04`, secondary addresses at `c34/c38`, geometry at `c08/c0c`, control at

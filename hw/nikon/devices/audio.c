@@ -20,6 +20,7 @@ typedef struct NikonAudioChannel {
     NikonAudioState *owner;
     uint32_t control, mode, status, divider, port;
     uint32_t block_control, block_samples[2];
+    uint16_t output_monitor[2];
     Fifo32 output[2];
     QEMUTimer *timer;
     qemu_irq irq;
@@ -124,11 +125,13 @@ static void nikon_audio_sink(void *opaque)
     }
     if (!fifo32_is_empty(&c->output[0]) &&
         (!separate || !fifo32_is_empty(&c->output[1]))) {
-        /* Virtual endpoint consumes real words, without guessing PCM layout. */
-        fifo32_pop(&c->output[0]);
-        if (separate) {
-            fifo32_pop(&c->output[1]);
-        }
+        uint32_t word = fifo32_pop(&c->output[0]);
+
+        /* The finite monitor observes low16/high16 for a combined word, or
+         * low16 of each separate word. This is not a physical PCM decoder. */
+        c->output_monitor[0] = word;
+        c->output_monitor[1] = separate ? fifo32_pop(&c->output[1]) :
+                                        word >> 16;
     } else {
         c->status |= 1U << 17;
     }
@@ -141,6 +144,7 @@ static void nikon_audio_channel_reset(NikonAudioChannel *c)
     timer_del(c->timer);
     c->control = c->mode = c->status = c->divider = c->port = 0;
     c->block_control = c->block_samples[0] = c->block_samples[1] = 0;
+    c->output_monitor[0] = c->output_monitor[1] = 0;
     fifo32_reset(&c->output[0]);
     fifo32_reset(&c->output[1]);
     nikon_audio_update(c);
@@ -169,7 +173,7 @@ static MemTxResult nikon_audio_read(void *opaque, hwaddr offset, uint64_t *value
         *value = s->reset;
         return MEMTX_OK;
     }
-    if (offset < 0x100 || offset >= 0x250) {
+    if (offset < 0x100 || offset >= 0x264) {
         return nikon_audio_error(s, offset, size, false, 0);
     }
     c = &s->channel[(offset - 0x100) >> 8];
@@ -205,6 +209,13 @@ static MemTxResult nikon_audio_read(void *opaque, hwaddr offset, uint64_t *value
         break;
     case 0x44: case 0x48:
         *value = c->block_samples[((offset & 0xff) - 0x44) / 4];
+        break;
+    case 0x54: case 0x58:
+        /* Disconnected input has no observed sample; retain reset zero.
+         * Unlike FIFO data, this non-consuming monitor can be read empty. */
+        break;
+    case 0x5c: case 0x60:
+        *value = c->output_monitor[((offset & 0xff) - 0x5c) / 4];
         break;
     case 0:
     case 40:
@@ -244,7 +255,7 @@ static MemTxResult nikon_audio_write(void *opaque, hwaddr offset, uint64_t value
         }
         return MEMTX_OK;
     }
-    if (offset < 0x100 || offset >= 0x250) {
+    if (offset < 0x100 || offset >= 0x264) {
         return nikon_audio_error(s, offset, size, true, value);
     }
     c = &s->channel[(offset - 0x100) >> 8];
@@ -368,7 +379,7 @@ static void nikon_audio_init(Object *obj)
 
     s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-audio-clock");
     memory_region_init_io(&s->regs, obj, &nikon_audio_ops, s,
-                          "nikon.audio", 0x250);
+                          "nikon.audio", 0x264);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
     qdev_init_gpio_out(DEVICE(obj), s->request, 3);
     for (i = 0; i < 2; i++) {

@@ -4,7 +4,9 @@ Current extension: [descriptor reload](reload.md) supports all8 RC/RS/RD
 combinations with selected-field restoration at normal completion, EB-clear,
 real bus/DREQ lifecycle and explicit cancel/error conventions. The original
 microphone setup now reaches input enable and its return sequence; the next
-first error is the Audio getter at PA2c080154. Older receipts below retain
+first error at that checkpoint is the Audio getter at PA2c080154. The later
+[Audio observation profile](../audio/monitor.md) crosses it and reaches a
+graphics stream parser rejection. Older receipts below retain
 their original checkpoints and validation scope.
 
 Review correction: exact C`7b4327d74677dae537e4834e4533508448a37bea` built natively and passed22 HDMAC fixtures at `work/issue331/hdmac-state-7b4327d/result.json`. No original run was repeated for this correction; the original execution evidence below remains exact C`84c9e02`, not relabeled as7b.
