@@ -1,5 +1,6 @@
 /*
  * Nikon peripheral-event router: finite configuration and pending profile.
+ * 102dc808/83c use paired set/clear ports; 102dc86c reads set-port state.
  * Cold state, W1C and mask polarity are explicit virtual conventions.
  * No host callback, data, DMA or request-completion producer is supplied.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -139,6 +140,10 @@ static MemTxResult nikon_event_router_read(void *opaque, hwaddr offset,
     if (domain >= 0) {
         *value = s->pending[domain];
     } else if (nikon_event_router_config(offset, &mask)) {
+        /* Clear aliases have no recovered read consumer. */
+        if (offset <= 0x24 && (offset & 4)) {
+            return nikon_event_router_error(s, offset, size, false, 0);
+        }
         *value = s->config[offset / 4];
     } else {
         return nikon_event_router_error(s, offset, size, false, 0);
@@ -166,7 +171,17 @@ static MemTxResult nikon_event_router_write(void *opaque, hwaddr offset,
             (value & ~mask) != 0) {
             return nikon_event_router_error(s, offset, size, true, value);
         }
-        s->config[offset / 4] = value;
+        if (offset <= 0x24) {
+            unsigned index = (offset & ~4U) / 4;
+
+            if (offset & 4) {
+                s->config[index] &= ~value;
+            } else {
+                s->config[index] |= value;
+            }
+        } else {
+            s->config[offset / 4] = value;
+        }
     } else {
         return nikon_event_router_error(s, offset, size, true, value);
     }

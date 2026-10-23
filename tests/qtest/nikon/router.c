@@ -24,25 +24,48 @@ void nikon_router_test(QTestState *q, const char *path, uint64_t base)
         g_assert_false(qtest_get_irq(q, domain));
     }
 
-    /* Exact 9F030 packed-selector writes, for its two valid alternatives. */
+    /* Source-shaped packed fields through set/clear selectors. */
     qtest_writel(q, base, 0x3f);
     qtest_writel(q, base + 8, 0x7fff);
     qtest_writel(q, base + 4, 0x21);
     qtest_writel(q, base + 0xc, 0x4567);
-    g_assert_cmphex(qtest_readl(q, base), ==, 0x3f);
-    g_assert_cmphex(qtest_readl(q, base + 8), ==, 0x7fff);
-    g_assert_cmphex(qtest_readl(q, base + 4), ==, 0x21);
-    g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0x4567);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0x1e);
+    g_assert_cmphex(qtest_readl(q, base + 8), ==, 0x3a98);
+
+    /* All five set/clear pairs share state; zero preserves other requests. */
+    for (i = 0; i < 5; i++) {
+        static const uint32_t fields[] = { 0x3f, 0x7fff, 1, 1, 0x7ff };
+        uint64_t set = base + i * 8, clear = set + 4;
+
+        qtest_writel(q, clear, fields[i]);
+        for (j = 0; j < 32; j++) {
+            uint32_t bit = 1u << j;
+
+            qtest_writel(q, set, bit);
+            g_assert_cmphex(qtest_readl(q, set), ==, bit & fields[i]);
+            qtest_writel(q, clear, bit);
+            g_assert_cmphex(qtest_readl(q, set), ==, 0);
+        }
+        qtest_writel(q, set, fields[i]);
+        qtest_writel(q, set, 0);
+        qtest_writel(q, clear, 0);
+        qtest_writeb(q, clear, 0xff);
+        qtest_writew(q, clear, 0xffff);
+        qtest_writel(q, clear + 1, fields[i]);
+        g_assert_cmphex(qtest_readl(q, set), ==, fields[i]);
+        qtest_writel(q, clear, 1);
+        g_assert_cmphex(qtest_readl(q, set), ==, fields[i] & ~1);
+        qtest_writel(q, clear, fields[i]);
+    }
 
     /* Inherited finite configuration contract, without activating requests. */
-    for (i = 0x10; i <= 0x1c; i += 4) {
+    for (i = 0x10; i <= 0x18; i += 8) {
         qtest_writel(q, base + i, 1);
         g_assert_cmphex(qtest_readl(q, base + i), ==, 1);
     }
     qtest_writel(q, base + 0x20, 0x7ff);
     qtest_writel(q, base + 0x24, 0x321);
-    g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0x7ff);
-    g_assert_cmphex(qtest_readl(q, base + 0x24), ==, 0x321);
+    g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0x4de);
     for (i = 0x70; i <= 0x9c; i += 4) {
         qtest_writel(q, base + i, 3);
         g_assert_cmphex(qtest_readl(q, base + i), ==, 3);
@@ -122,6 +145,12 @@ void nikon_router_test(QTestState *q, const char *path, uint64_t base)
     g_assert_true(qtest_get_irq(q, 1));
 
     qtest_system_reset(q);
+    for (i = 0; i < 5; i++) {
+        g_assert_cmphex(qtest_readl(q, base + i * 8), ==, 0);
+        qtest_writel(q, base + i * 8, 1);
+        qtest_writel(q, base + i * 8 + 4, 1);
+        g_assert_cmphex(qtest_readl(q, base + i * 8), ==, 0);
+    }
     g_assert_cmphex(qtest_readl(q, base + 0xb0), ==, 0);
     for (domain = 0; domain < 3; domain++) {
         g_assert_cmphex(qtest_readl(q, base + masks[domain]), ==, 0);

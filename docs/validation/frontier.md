@@ -54,7 +54,13 @@ The next first rejection is CPU0 PC`102dc88c`, WRITE32 PA`20060028`=`1`,
 reason`peripheral-event-router-access-or-activation-not-supported`.
 The three write1 request ports`28/2c/30` need a producer/effect contract;
 ordinary configuration retention does not establish their behavior.
-Parent-owned`sysconfig-20261022` receipts retain this continuation;
+The [router audit](../devices/router/runtime.md) identifies all three request
+producers and the IRQ87→CSENEV01 bit8 consumer. It also corrects all five
+00..24 set/clear pairs, passing all20 SLA qtests. The corrected original state
+is`00=3/08=236/10=0/18=0/20=503`; the first rejection remains the same28
+request. No TG producer is connected, and no request-to-cause or clock-period
+contract has yet been established. The request family remains unsupported.
+Parent-owned`router-20261022` and`sysconfig-20261022` receipts retain this continuation;
 `streamstorage-20261022` and the earlier kind40 receipts keep their own scope.
 Application02/01 and primary request state1 remain; the later snapshot has
 power0 and BatCk-containing word`00010101`, separate from the earlier

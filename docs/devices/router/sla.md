@@ -38,7 +38,9 @@ W1C. The private SLA binding is MMIO0 `20060000`, size `330`; SysBus outputs
 75 named `external-pending` inputs remain disconnected by default.
 
 The inherited finite configuration masks and six lanes are enumerated in
-`protocol.md`. Cold configuration/pending zero, configuration readback,
+`protocol.md`. The [later MAS runtime audit](runtime.md) corrects the five
+00..24 set/clear pairs in the shared device; the old ten-word retention
+interpretation is removed. Cold configuration/pending zero, set-port readback,
 one-enabled masks and explicit rising-edge providers are functional model
 conventions. Mask40/4C filtering is a convention, not physical gating proved
 by these handlers. A configuration write or clock advance cannot produce

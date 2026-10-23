@@ -99,6 +99,9 @@ The [SYS configuration family](docs/devices/sysconfig/runtime.md) now supports
 all three full-word ports `0x04280064/68/6c`; all25 memory qtests pass.
 Original execution crosses that store and next rejects the peripheral-event
 router request `0x20060028=1` from `0x102dc88c`.
+The [router audit](docs/devices/router/runtime.md) corrects all five set/clear
+control pairs and passes all20 SLA qtests. The request family and TG event
+producer remain unresolved; the original startup frontier is unchanged.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

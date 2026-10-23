@@ -1,5 +1,13 @@
 # Native GUI integration
 
+The router paired-control correction passes all20 `nikon_sla` cases after
+the exact old-model partial-clear failure. The router case checks all five
+set/clear pairs, zero/partial/invalid masks, widths/alignment, reset reuse,
+all75 external providers and the existing IRQ/ACK boundaries. The unchanged
+bundle still first rejects`20060028=1`; this is not a new startup checkpoint.
+See [router runtime](../devices/router/runtime.md) and
+`work/runs/router-20261022/`. Request effects and the TG producer remain open.
+
 The complete SYS indexed configuration family at`04280064/68/6c` passes
 all25 `nikon_memory` qtests after the new case fails against the old model.
 The case covers every bit of all three ports, word replacement, independent

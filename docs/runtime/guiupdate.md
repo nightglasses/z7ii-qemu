@@ -22,6 +22,10 @@ qtests passing after an old-model red. Original execution crosses the old
 `103c5d6e` store and reaches`102d9448` → `102fea1e(1,1)` → `102974de`.
 The next first rejection is CPU0 MAS`102dc88c`, WRITE32 PA`20060028`=`1`,
 a peripheral-event-router request whose producer/effect contract is unresolved.
+The [router audit](../devices/router/runtime.md) corrects the complete five
+set/clear pairs and joins IRQ87 bit4 to the next CSENEV01 bit8 wait. All20 SLA
+qtests pass, but original execution still stops at the same request. The three
+request effects and the TG hardware producer have not been closed.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.
