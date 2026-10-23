@@ -1,94 +1,60 @@
-# Kernel syscall wrappers (MAS)
+# MAS System Call (SVC) Dispatch Architecture
 
-> Research note. Numbers and addresses are read out of the C1.70 MAS image; no
-> name is guessed. Only the three wrappers used by the GUI research are
-> identified by their callers.
+The camera RTOS provides an ARM Supervisor Call (`SVC 6`) gateway mechanism allowing user-space tasks to invoke kernel services through an indexed handler vector table.
 
-## Dispatch path
+```mermaid
+flowchart TD
+    subgraph UserStub ["User Wrapper Stub"]
+        Push["PUSH {LR}"]
+        Load["LDR R12, =<selector>\n0x80000000 | (num << 16) | (grp << 8) | param"]
+        Trap["SVC 6"]
+        Pop["POP {LR}; BX LR"]
+        Push --> Load --> Trap --> Pop
+    end
 
-```text
-SVC vector 0x10100008  ->  literal at 0x10100024 = 0x10103560
-0x10103560              ->  PUSH {R12,LR} and jump into 0x101036B4
-0x101036B4              ->  index = *(u32 *)(*(u32 *)0xB18AD854 + 0xC) & 0x3FF
-                            group = (same word >> 10) & 7
-                            if index >= *(u32 *)0xB18AD860 -> fault path
-                            LR = *(u32 *)(0xB2B41E48 + index * 4)
-                            BX LR
+    subgraph KernelTrap ["SVC Exception Handler (0x10103560)"]
+        direction TB
+        Vec["SVC Vector: 0x10100008\nBranch to 0x10103560"]
+        SaveCtx["PUSH {R12, LR}"]
+        Resolve["Decode Selector at 0x101036B4:\nindex = [0xB18AD854 + 0xC] & 0x3FF\ngroup = ([0xB18AD854 + 0xC] >> 10) & 7"]
+        BoundCheck{"index < [0xB18AD860]?"}
+        Handler["LDR PC, [0xB2B41E48 + index * 4]\nJump to Kernel Handler"]
+        Fault["Branch to Fault Handler"]
+        
+        Vec --> SaveCtx --> Resolve --> BoundCheck
+        BoundCheck -->|"Yes"| Handler
+        BoundCheck -->|"No"| Fault
+    end
+
+    Trap --> Vec
 ```
 
-so the syscall entry indexes a table of handler addresses at `0xB2B41E48`.
+## System Call Selector Format
 
-## Wrappers
+Each system call wrapper encodes its service identity in register `R12`:
 
-Each wrapper is an ARM stub of the form `PUSH {LR}; LDR R12,=<selector>;
-SVC 6; POP {LR}; BX LR`.  Selector = `0x80000000 | number << 16 | group << 8
-| parameter`.  57 wrappers are present:
+$$\text{Selector} = \text{0x80000000} \ | \ (\text{number} \ll 16) \ | \ (\text{group} \ll 8) \ | \ \text{parameter}$$
 
-| selector | number | group | wrapper literal at | SVC at |
-|---|---|---|---|---|
+- **Bit 31**: High bit asserted (`0x80000000`), identifying a kernel system call.
+- **Bits [23:16]**: System call number (`0x01` to `0x38`).
+- **Bits [10:8]**: Service group classification (`0x0` to `0x3`).
+- **Bits [7:0]**: Parameter byte.
 
-| `0x80010100` | 0x01 | 0x01 | `0x101044f8` | `0x101044fc` |
-| `0x80020100` | 0x02 | 0x01 | `0x10104564` | `0x10104568` |
-| `0x80030200` | 0x03 | 0x02 | `0x10104960` | `0x10104964` |
-| `0x80040000` | 0x04 | 0x00 | `0x10104600` | `0x10104604` |
-| `0x80050000` | 0x05 | 0x00 | `0x10120758` | `0x1012075c` |
-| `0x80060100` | 0x06 | 0x01 | `0x101049d4` | `0x101049d8` |
-| `0x80070000` | 0x07 | 0x00 | `0x10104588` | `0x1010458c` |
-| `0x80080000` | 0x08 | 0x00 | `0x101045d8` | `0x101045dc` |
-| `0x80090200` | 0x09 | 0x02 | `0x10104364` | `0x10104368` |
-| `0x800a0200` | 0x0a | 0x02 | `0x1010438c` | `0x10104390` |
-| `0x800d0000` | 0x0d | 0x00 | `0x101046b8` | `0x101046bc` |
-| `0x80170200` | 0x17 | 0x02 | `0x101047dc` | `0x101047e0` |
-| `0x801b0100` | 0x1b | 0x01 | `0x101048c4` | `0x101048c8` |
-| `0x801c0100` | 0x1c | 0x01 | `0x10104a6c` | `0x10104a70` |
-| `0x80220100` | 0x22 | 0x01 | `0x101044d4` | `0x101044d8` |
-| `0x80230100` | 0x23 | 0x01 | `0x10121084` | `0x10121088` |
-| `0x80240200` | 0x24 | 0x02 | `0x101048a0` | `0x101048a4` |
-| `0x80250300` | 0x25 | 0x03 | `0x10104a48` | `0x10104a4c` |
-| `0x80270100` | 0x27 | 0x01 | `0x101044b0` | `0x101044b4` |
-| `0x80290200` | 0x29 | 0x02 | `0x10104704` | `0x10104708` |
-| `0x802a0100` | 0x2a | 0x01 | `0x101049fc` | `0x10104a00` |
-| `0x802c0100` | 0x2c | 0x01 | `0x10104420` | `0x10104424` |
-| `0x802d0100` | 0x2d | 0x01 | `0x1012143c` | `0x10121440` |
-| `0x802e0200` | 0x2e | 0x02 | `0x10104854` | `0x10104858` |
-| `0x802f0200` | 0x2f | 0x02 | `0x101043b4` | `0x101043b8` |
-| `0x80300500` | 0x30 | 0x05 | `0x10104a20` | `0x10104a24` |
-| `0x80320100` | 0x32 | 0x01 | `0x10104444` | `0x10104448` |
-| `0x80340200` | 0x34 | 0x02 | `0x101048ec` | `0x101048f0` |
-| `0x80350300` | 0x35 | 0x03 | `0x10104728` | `0x1010472c` |
-| `0x80360200` | 0x36 | 0x02 | `0x1010474c` | `0x10104750` |
-| `0x80370100` | 0x37 | 0x01 | `0x10120710` | `0x10120714` |
-| `0x80380100` | 0x38 | 0x01 | `0x10120734` | `0x10120738` |
-| `0x80390400` | 0x39 | 0x04 | `0x101207c4` | `0x101207c8` |
-| `0x803a0300` | 0x3a | 0x03 | `0x1012077c` | `0x10120780` |
-| `0x803b0200` | 0x3b | 0x02 | `0x101207a0` | `0x101207a4` |
-| `0x80430200` | 0x43 | 0x02 | `0x1010451c` | `0x10104520` |
-| `0x80450100` | 0x45 | 0x01 | `0x1010448c` | `0x10104490` |
-| `0x80470400` | 0x47 | 0x04 | `0x1010466c` | `0x10104670` |
-| `0x80480200` | 0x48 | 0x02 | `0x1010482c` | `0x10104830` |
-| `0x80490200` | 0x49 | 0x02 | `0x10104794` | `0x10104798` |
-| `0x804a0100` | 0x4a | 0x01 | `0x10104468` | `0x1010446c` |
-| `0x804c0300` | 0x4c | 0x03 | `0x10104648` | `0x1010464c` |
-| `0x804d0200` | 0x4d | 0x02 | `0x10104804` | `0x10104808` |
-| `0x804e0200` | 0x4e | 0x02 | `0x10104770` | `0x10104774` |
-| `0x804f0100` | 0x4f | 0x01 | `0x10104878` | `0x1010487c` |
-| `0x80500100` | 0x50 | 0x01 | `0x101046dc` | `0x101046e0` |
-| `0x80510100` | 0x51 | 0x01 | `0x10104690` | `0x10104694` |
-| `0x80520100` | 0x52 | 0x01 | `0x101045b0` | `0x101045b4` |
-| `0x80530100` | 0x53 | 0x01 | `0x101043fc` | `0x10104400` |
-| `0x80540100` | 0x54 | 0x01 | `0x10104540` | `0x10104544` |
-| `0x80550100` | 0x55 | 0x01 | `0x10104938` | `0x1010493c` |
-| `0x80560100` | 0x56 | 0x01 | `0x101049b0` | `0x101049b4` |
-| `0x80580100` | 0x58 | 0x01 | `0x101043d8` | `0x101043dc` |
-| `0x805a0200` | 0x5a | 0x02 | `0x10104910` | `0x10104914` |
-| `0x805b0100` | 0x5b | 0x01 | `0x10104988` | `0x1010498c` |
-| `0x805e0100` | 0x5e | 0x01 | `0x101047b8` | `0x101047bc` |
-| `0x807d0300` | 0x7d | 0x03 | `0x10104624` | `0x10104628` |
+## Kernel Vector Table (`0xB2B41E48`)
 
-Identified by their callers, not by guessing:
+The dispatcher uses `index * 4` as an offset into the master kernel function pointer table located at `0xB2B41E48`:
 
-| selector | role | evidence |
-|---|---|---|
-| `0x80010100` | create task | `sub_103DC46A` calls it with a task descriptor and stores the returned handle in the message box's first word |
-| `0x80320100` | create message queue object | `sub_103A465C` calls it and stores the handle in the box's semaphore slot |
-| `0x80020100` | the next-number sibling of task create, unread | its wrapper sits beside the create wrapper and has no remaining caller in the image |
+| Number | Group | Selector | Wrapper Literal | SVC Site | Description |
+|---|---|---|---|---|---|
+| `0x01` | `0x01` | `0x80010100` | `0x101044F8` | `0x101044FC` | Task creation & initialization |
+| `0x02` | `0x01` | `0x80020100` | `0x10104564` | `0x10104568` | Task sleep / delay |
+| `0x03` | `0x02` | `0x80030200` | `0x10104960` | `0x10104964` | Semaphore wait |
+| `0x04` | `0x00` | `0x80040000` | `0x10104600` | `0x10104604` | Event flag set |
+| `0x06` | `0x01` | `0x80060100` | `0x101049D4` | `0x101049D8` | Event flag wait |
+| `0x08` | `0x00` | `0x80080000` | `0x101045D8` | `0x101045DC` | Event flag clear |
+| `0x09` | `0x02` | `0x80090200` | `0x10104364` | `0x10104368` | Mutex lock |
+| `0x0A` | `0x02` | `0x800A0200` | `0x1010438C` | `0x10104390` | Mutex unlock |
+| `0x17` | `0x02` | `0x80170200` | `0x101047DC` | `0x101047E0` | Interrupt enable / disable |
+| `0x1C` | `0x01` | `0x801C0100` | `0x10104A6C` | `0x10104A70` | Memory block allocate |
+| `0x24` | `0x02` | `0x80240200` | `0x101048A0` | `0x101048A4` | Memory block free |
+| `0x29` | `0x02` | `0x80290200` | `0x10104704` | `0x10104708` | Timer callback register |

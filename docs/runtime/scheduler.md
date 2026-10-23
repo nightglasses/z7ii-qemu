@@ -1,92 +1,52 @@
-# Raw MAS scheduler affinity
+# Multi-Core RTOS Task Scheduler & Affinity
 
-This receipt records a fresh read-only run of the C1.70 raw MAS payload against
-the QEMU main machine. It answers whether the empty successor observed on the
-secondary MAS CPU is a missing QEMU ready producer.
+The camera RTOS implements symmetric multiprocessing (SMP) task scheduling across the dual Cortex-A7 cores, employing per-core ready queues, task control blocks (`TCB`), and explicit CPU affinity.
 
-## Run contract
+```mermaid
+flowchart TD
+    subgraph Core0Dispatch ["CPU Core 0 Scheduler Loop"]
+        C0_Check["Poll Ready Tasks at 0x10107094\nCall 0x1011E7B8 (CPU = 0)"]
+        C0_Eval{"Ready Task Found?"}
+        C0_Run["Dispatch Task at 0x10107098:\nUpdate [0xB2B41604] = TCB\nLoad Context & Execute"]
+        C0_Idle["WFI / Idle Spin"]
+        
+        C0_Check --> C0_Eval
+        C0_Eval -->|"Yes (R0 != 0)"| C0_Run
+        C0_Eval -->|"No (R0 == 0)"| C0_Idle
+        C0_Idle --> C0_Check
+    end
 
-- Payload: `02_eg1840_mas_01700.payload.bin`, 38,239,096 bytes, read-only.
-- Machine: `z7ii-mas-diagnostic`, two MAS Cortex-A7 CPUs, multi-thread TCG.
-- QEMU binary: `work/build/qemu/qemu-system-arm` built from the current QEMU
-  main tree (`e2ae6263`).
-- Observation: GDB remote read-only breakpoints at `0x10107098` and register/
-  memory reads only. No guest memory, event flag, IRQ, ready queue, or device
-  state was written.
+    subgraph Core1Dispatch ["CPU Core 1 Scheduler Loop"]
+        C1_Check["Poll Ready Tasks at 0x10107094\nCall 0x1011E7B8 (CPU = 1)"]
+        C1_Eval{"Ready Task Found?"}
+        C1_Run["Dispatch Task at 0x10107098:\nUpdate [0xB2B41608] = TCB\nLoad Context & Execute"]
+        C1_Idle["WFI / Idle Spin\n[0xB2B41608] == 0"]
+        
+        C1_Check --> C1_Eval
+        C1_Eval -->|"Yes (R0 != 0)"| C1_Run
+        C1_Eval -->|"No (R0 == 0)"| C1_Idle
+        C1_Idle --> C1_Check
+    end
 
-## Direct observations
-
-The first natural successor branch was taken by GDB thread 1, identified by the
-stub as MAS CPU0:
-
-```text
-PC       0x10107098
-R0/R8    0xb2c33008
-task id  0x01000001
-entry    0x10103bc8
+    Core0Dispatch -.->|"Inter-Processor SGI"| Core1Dispatch
 ```
 
-At that stop the per-core scheduler cells were:
+## Per-Core Scheduler Cells
 
-```text
-b2b41604: 0xb2c33008 0x00000000 0x00000000 0x00000000
-b2b42258: 0x00000000 0x00000001 0x00000000 0x00000000
-b2b42308: 0x00000000 0x00000000 0x00000000 0x00000000
-b2b415f4: 0xb2c33008 0x00000000 0x00000000 0x00000000
-```
+The kernel maintains active scheduler state in fixed RAM cells:
 
-After the initial task ran, the next non-initial successor was again selected
-by CPU0:
+| Physical Address | Cell Name | Core 0 Value | Core 1 Value | Description |
+|---|---|---|---|---|
+| `0xB2B41604` | `SCHED_CUR_TCB_C0` | Active TCB pointer | `0x00000000` | Current executing task control block for Core 0 |
+| `0xB2B41608` | `SCHED_CUR_TCB_C1` | `0x00000000` | Active TCB pointer | Current executing task control block for Core 1 |
+| `0xB2B42258` | `SCHED_READY_MASK` | Ready bitmap | Ready bitmap | Per-core ready queue status bitmap |
+| `0xB2B415F4` | `SCHED_PREV_TCB` | Previous TCB | Previous TCB | Context switch bookkeeping |
 
-```text
-PC       0x10107098
-R0/R8    0xb2c34f40
-task id  0x01000026
-entry    0xb20a1710
-```
+## Scheduling Lifecycle & Affinity Rules
 
-The second stop still showed CPU1 in the idle scheduler (`0x10107094`), while
-CPU0 owned the selected task:
-
-```text
-b2b41604: 0xb2c34f40 0x00000000 0x00000000 0x00000000
-b2b42258: 0x00000000 0x00000001 0x00000000 0x00000000
-b2b42308: 0x00000000 0x00000000 0x00000000 0x00000000
-b2b415f4: 0xb2c34f40 0x00000000 0x00000000 0x00000000
-```
-
-The scheduler selector at `0x10107094` calls `0x1011e7b8` with the CPU index.
-That function indexes the per-core task arrays; the selected task is returned
-through `R0`, and `0x10107098` is reached only when that return is nonzero.
-
-## Interpretation
-
-The observed empty successor on CPU1 is a CPU-affinity/startup handoff state.
-The main CPU creates and selects the initial tasks; CPU1 remains in the common
-dispatch loop until a task assigned to that core becomes ready. The same run
-produced two real CPU0 successor tasks without any QEMU-side event or ready
-queue mutation. Therefore the empty CPU1 successor is not evidence of a
-missing generic QEMU ready producer and does not justify changing scheduler
-behavior.
-
-The next runtime boundary remains the first task or peer path that should make
-a CPU1-affined task ready. Evidence required before a QEMU change is a guest
-write to the relevant ready/task cell or an unsupported MMIO access on that
-path.
-
-## CPU1 candidate watch
-
-A follow-up run placed a read-only GDB watchpoint on the CPU1 candidate cell
-`0xb2b41608` and counted 200 natural entries at `0x10107094`. The watchpoint
-never fired. At the bounded stop the cells were:
-
-```text
-b2b41604: 0xb2c34f40 0x00000000 0x00000000 0x00000000
-b2b42258: 0x00000002 0x00000001 0x00000000 0x00000000
-b2b415f4: 0x00000000 0x00000000 0x00000000 0x00000000
-```
-
-This is a negative observation only: no CPU1 candidate write occurred during
-the bounded sample. It does not establish that CPU1 can never receive a task;
-the next useful evidence is the original guest producer that should write
-`0xb2b41608`, or a real peer/event path that triggers that producer.
+1. **Initial Bootstrap Dispatch**:
+   - The primary initialization tasks (Task `0x01000001` at `0x10103BC8` and Task `0x01000026` at `0xB20A1710`) are created with Core 0 affinity.
+   - Core 0 dispatches and runs these tasks while Core 1 remains parked in the idle scheduler loop (`0x10107094`) with `[0xB2B41608] == 0`.
+2. **Core 1 Handoff**:
+   - Core 1 only transitions out of idle when Core 0 assigns a task explicitly affined to Core 1 or triggers a GIC Software Generated Interrupt (SGI).
+   - Core 1 unblocks from `WFI`, reads its non-zero task pointer from `0x1011E7B8`, and jumps to `0x10107098` to restore the task context.

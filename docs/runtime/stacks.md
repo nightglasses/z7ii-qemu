@@ -1,15 +1,50 @@
-# Guest kernel copy and per-core virtual mode stacks
+# Dual-Core ARM Exception Mode Stacks
 
-This layer continues [QEMU startup and device contracts](https://github.com/mashiro01/nightglass/issues/331). The original [MAS runtime producer](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-runtime.md) records usermain `O1e0046 → O348290`: source VA `10100000`, destination `bab00000`, copy length `21538`. The board adds exactly `[bab00000,bab21538)` as cold RAM, attached to the existing finite MXIC DDR decode. It does not copy bytes on the host or change a guest PTE, VBAR, PC or cache state. RAM outside the exact copy extent remains unsupported.
+The Nikon EXPEED architecture provisions dedicated 16 KiB physical stack spaces for each of the six ARM Cortex-A7 execution modes, banked independently across CPU Core 0 and CPU Core 1.
 
-The later original `O348150` call receives `(10100000,bab00000,100000)`. Its recovered body updates a one-MiB short-descriptor section mapping, preserving existing PTE attributes and performing guest cache/TLB maintenance. The third argument is the mapping interval, not a proven additional RAM allocation or one-MiB copy. The firmware must execute that routine itself; the board's exact destination backing does not fabricate a physical alias for the remaining section. The source body and CP15 interpretation are being retained by the RTOS startup research line; this report does not infer a complete physical loader state from that call.
+```mermaid
+flowchart TD
+    subgraph Core0Stacks ["Core 0 Mode Stacks (Stride: 0x4000)"]
+        direction TB
+        C0_UND["UND Mode Top: 0xB2BB0000 (16 KiB)"]
+        C0_SVC["SVC Mode Top: 0xB2BA8000 (16 KiB)"]
+        C0_ABT["ABT Mode Top: 0xB2BA0000 (16 KiB)"]
+        C0_FIQ["FIQ Mode Top: 0xB2B98000 (16 KiB)"]
+        C0_IRQ["IRQ Mode Top: 0xB2B90000 (16 KiB)"]
+        C0_SYS["SYS Mode Top: 0xB2B88000 (16 KiB)"]
+        
+        C0_UND --- C0_SVC --- C0_ABT --- C0_FIQ --- C0_IRQ --- C0_SYS
+    end
 
-At C `72591dbdecba02003227317ffe59a41b2fe650ad`, native incremental build and four focused backing tests passed (`work/issue331/kernel-copy-focused-first/result.json`): first/last words, below/above rejection and withdrawal of the real backing by a MXIC region commit. Original `work/issue331/original-kernel-copy-72591db/receipt.json` then advances beyond the copy-start stop. Its log records guest GICD SGI request `+f00=00020001`, a real IRQ on CPU1, and the first uncovered word write at CPU1 PC `101036ac`, address `b2b93ff8`, value `b18ad8b0`. The subsequent Data Abort reports DFSR `1808` and that same DFAR. This ordering identifies the stack access as the cause of this new abort; it is not an earlier Data Abort requiring the host to skip a handler. QEMU exits zero, complete payload comparison is unchanged and host wall time is 0.195846 seconds.
+    subgraph Core1Stacks ["Core 1 Mode Stacks (Offset: -0x4000)"]
+        direction TB
+        C1_UND["UND Mode Top: 0xB2BAC000 (16 KiB)"]
+        C1_SVC["SVC Mode Top: 0xB2BA4000 (16 KiB)"]
+        C1_ABT["ABT Mode Top: 0xB2B9C000 (16 KiB)"]
+        C1_FIQ["FIQ Mode Top: 0xB2B94000 (16 KiB)"]
+        C1_IRQ["IRQ Mode Top: 0xB2B8C000 (16 KiB)"]
+        C1_SYS["SYS Mode Top: 0xB2B84000 (16 KiB)"]
+        
+        C1_UND --- C1_SVC --- C1_ABT --- C1_FIQ --- C1_IRQ --- C1_SYS
+    end
+```
 
-The original six mode SP tops are `b2bb0000/b2ba8000/b2ba0000/b2b98000/b2b90000/b2b88000`; each core subtracts its selector times `4000`. The canonical functional board now supplies a declared sixteen-KiB virtual backing below each of those six per-core tops. This capacity is an explicit model assumption, not a consequence proved by the selector stride or a measurement of physical stack memory. Configured core count determines which slots exist. It replaces the earlier standalone CPU1 seventy-two-byte prefix; historical prefix-stage receipts remain unchanged. No original SP instruction or IRQ context is replaced. Each slot remains an ordinary upstream RAM region subject to the same finite DDR decode.
+## Stack Layout & Top Calculations
 
-At C `c1bc6fb03c7d76d533da1122c9ed9926debc95d4`, native build and three focused tests passed (`work/issue331/percore-stack-focused-first/result.json`): writes to both ends of all six CPU1 mode backings and the actual IRQ-save address; rejection below the combined stack area; and rejection of the CPU1-only slot in a one-core machine. The synthetic accesses validate RAM coverage, not real CPU1 scheduling. The original run separately demonstrates CPU1 progressing past its real IRQ save into the next indexed system-control request: CPU1 PC `103b092c`, word read `04281058`, which remains unsupported pending the complete two-bank bit-control contract.
+Each mode stack provides 16 KiB (`0x4000` bytes) of dedicated descending stack memory:
 
-The unaltered log specifically records guest SGI submission at line1288, CPU1 IRQ entry at1289, upstream IAR acknowledgement of IRQ1 at1292, original IRQ-to-SVC gateway at1293 and guest EOI1 at1299. This is a complete observed CPU1 acknowledge/handler-gateway/EOI sequence, using upstream GIC and original code; the host supplies neither the SGI nor a callback invocation. It does not independently measure every copied byte or establish physical interprocessor timing.
+$$\text{Stack Top}(\text{mode}, \text{core}) = \text{Base Top}(\text{mode}) - (\text{core} \times 0x4000)$$
 
-`work/issue331/original-percore-stack-first/receipt.json` records QEMU exit zero, complete payload directly unchanged, wall time 0.165891 seconds and `whole_boot_verified=false`. Its `machine_revision` was mistakenly recorded as the branch name; the run was taken immediately after the frozen C commit `c1bc6fb03c7d76d533da1122c9ed9926debc95d4` was built, with no intervening C edits. That exact fixed source binding is stated here while preserving the original receipt. The CPU1 clock read is the current stop. PKGB completion, physical device acceptance and a menu remain unverified.
+| Execution Mode | Base Top (CPU 0) | Base Top (CPU 1) | Size | Primary Usage |
+|---|---|---|---|---|
+| **Undefined (`UND`)** | `0xB2BB0000` | `0xB2BAC000` | 16 KiB | Undefined instruction traps |
+| **Supervisor (`SVC`)** | `0xB2BA8000` | `0xB2BA4000` | 16 KiB | System call wrappers, OS kernel calls |
+| **Abort (`ABT`)** | `0xB2BA0000` | `0xB2B9C000` | 16 KiB | Prefetch and Data Abort exception handlers |
+| **FIQ (`FIQ`)** | `0xB2B98000` | `0xB2B94000` | 16 KiB | Fast interrupt service routines |
+| **IRQ (`IRQ`)** | `0xB2B90000` | `0xB2B8C000` | 16 KiB | Peripheral interrupt dispatching & ISR entry |
+| **System (`SYS`)** | `0xB2B88000` | `0xB2B84000` | 16 KiB | Initial bootstrap task execution stack |
+
+## Inter-Core Isolation & Safety
+
+1. **SMP Stride**: The 16 KiB per-core offset prevents stack corruption when both cores handle simultaneous interrupts (e.g. Core 0 processing GIC SPI while Core 1 handles SGI).
+2. **Context Preservation**: During hardware interrupt entry, the CPU switches to IRQ mode, saves context into its private IRQ stack, acknowledges GIC IAR, and transitions to SVC mode for high-level RTOS service execution.

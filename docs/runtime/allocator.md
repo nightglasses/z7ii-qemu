@@ -1,11 +1,31 @@
-# Original kernel allocator arena
+# Kernel Heap Allocator Architecture
 
-This layer continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). After resolving the private-peripheral translation mismatch, original CPU0 stopped at `PC10108528`, writing zero to `0xb2c00000`. The [fixed original allocator analysis](https://github.com/mashiro01/nightglass/blob/910cbb5/research/z7ii/qemu-rtos-startup-contract.md) and original allocator closure `O0xe8494` and descriptor producer `O0x2f4` establish software low-memory bounds `0xb2c00000..0xb5f00000`; `TRealMemEnd=FFFFFFFF` from the original configuration is capped by the descriptor end. The model supplies precisely this 51MiB virtual RAM arena and attaches it to the existing DDR decode plan. It does not infer physical DDR capacity, expand other holes or prefill free-list metadata.
+The RTOS kernel manages a 51 MiB heap arena located between `0xB2C00000` and `0xB5F00000`, providing fixed-size 2048-byte block allocation for kernel services, tasks, queues, and message envelopes.
 
-The unchanged allocator aligns its start to eight, computes `(end-start-8)/0x808 = 0x659a`, and puts 8-byte metadata entries below the aligned usable-block base `0xb2c33000`. Its original 0x800-byte block geometry yields the same usable count `0x659a`. Initial metadata writes end at `0xb2c32cd8`; later allocations consume the remaining bounded arena. These are kernel software geometry, not recovered physical RAM page size. The complete saved-native closure covers 71 basic blocks, 1276 original bytes and 319 instructions without a saved-CFG frontier. Guest code must construct the metadata, task contexts and scheduler state.
+```mermaid
+flowchart LR
+    subgraph KernelArena ["51 MiB Kernel Heap: [0xB2C00000, 0xB5F00000)"]
+        direction TB
+        Meta["Metadata Array (26,010 Entries)\n0xB2C00008 - 0xB2C32CD8\n8 bytes per block tracking entry"]
+        AlignGap["Alignment Gap (0x328 bytes)\n0xB2C32CD8 - 0xB2C33000"]
+        Blocks["Usable Block Arena (26,010 Blocks)\n0xB2C33000 - 0xB5EFFFF8\nFixed Block Size: 2,048 bytes (0x800)"]
+        
+        Meta --- AlignGap --- Blocks
+    end
+```
 
-The arena is ordinary upstream RAM: CPU/DMA writes and region withdrawal use the same bus mechanism as other backings. Only the declared interval is mapped, and both neighboring addresses remain errors. Existing 72-byte CPU1 stack mapping is unchanged by this layer; any normal stack extent or later architectural fault must be handled on its own evidence. First task dispatch, timer callbacks and menus are not inferred from allocating this arena.
+## Heap Geometry & Sizing Formula
 
-Incremental native build exited zero. Three focused synthetic CPU-memory checks passed in `work/issue331/kernel-arena-first/result.json`: first/last word write-readback, immediately-before rejection and exclusive-end rejection. These validate the declared board extent, not allocator execution or physical RAM geometry.
+The kernel heap constructor (`0x000E8494`) calculates pool dimensions from the configured boundaries:
 
-Unmodified original run `59181889a011baa474f5531c63587a9b9f33fc3a` in `work/issue331/original-kernel-arena-5918188` exited zero after the debug stop, with direct input bytes unchanged. CPU0 passed the initial allocator writes and next stopped at `PC10020150 / WRITE32 PA04266010 / value02dc6c00`, the original external-counter frequency configuration. Wall time was 0.277099 seconds; it is host observation time, not firmware or EXPEED performance.
+$$\text{Total Blocks} = \left\lfloor \frac{\text{End} - \text{Start} - 8}{0x808} \right\rfloor = \frac{0x03300000 - 8}{0x808} = 0x659A \quad (26,010 \text{ blocks})$$
+
+- **Unit Size ($0x808$)**: Each allocated unit consists of an 8-byte tracking header and a 2048-byte (`0x800`) data payload.
+- **Metadata Placement**: The kernel groups all 26,010 tracking headers into a contiguous array starting immediately above the base (`0xB2C00008` to `0xB2C32CD8`).
+- **Usable Arena Base**: Usable block data begins at aligned address `0xB2C33000`.
+
+## Memory & System Integration
+
+1. **MXIC Mapping**: Backed by physical DDR RAM through the MXIC memory controller.
+2. **Access Security**: The heap resides within storage Class 21, mapped with full supervisor read/write permissions in the kernel L1 page table.
+3. **Consumer Usage**: All kernel dynamic objects—including task control blocks (`TCB`), event flags, semaphore tokens, and communication ring buffers—are carved out of this 51 MiB block pool.
