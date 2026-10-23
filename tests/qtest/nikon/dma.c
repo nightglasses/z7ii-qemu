@@ -222,6 +222,165 @@ static void test_audio_pause(void)
     qtest_quit(q);
 }
 
+static void test_reload_matrix(void)
+{
+    QTestState *q = start();
+    uint64_t channel = HDMAC + 0x10;
+
+    qtest_writel(q, HDMAC, 0x90000000);
+    for (unsigned tw = 0; tw < 3; tw++) {
+        unsigned width = 1U << tw;
+
+        for (unsigned fixed = 0; fixed < 4; fixed++) {
+            for (unsigned reload = 0; reload < 8; reload++) {
+                uint32_t cb = tw << 26 | fixed << 24 | reload << 21 |
+                              0x180000;
+                uint32_t source = RAM + 0x1000;
+                uint32_t destination = RAM + 0x2000;
+
+                for (unsigned i = 0; i < 32; i++) {
+                    qtest_writeb(q, source + i, 0x40 + i);
+                    qtest_writeb(q, destination + i, 0);
+                }
+                setup(q, channel, source, destination, cb, 0xa0010001);
+                g_assert_cmphex(qtest_readl(q, channel + 4), ==, cb);
+                qtest_clock_step_next(q);
+                /* BC=TC=1 means four beats. Fixed endpoints still perform
+                 * every bus transaction; reload changes only final readback. */
+                for (unsigned beat = 0; beat < 4; beat++) {
+                    for (unsigned byte = 0; byte < width; byte++) {
+                        unsigned offset = byte +
+                                          ((fixed & 1) ? 0 : beat * width);
+                        unsigned expected = 0x40 + byte;
+
+                        if (!(fixed & 2)) {
+                            expected += ((fixed & 1) ? 3 : beat) * width;
+                        }
+                        g_assert_cmphex(qtest_readb(q, destination + offset),
+                                        ==, expected);
+                    }
+                }
+                g_assert_cmphex(qtest_readl(q, channel + 8), ==,
+                                source + ((fixed & 2) || (reload & 2) ? 0 :
+                                          4 * width));
+                g_assert_cmphex(qtest_readl(q, channel + 12), ==,
+                                destination + ((fixed & 1) || (reload & 1) ? 0 :
+                                               4 * width));
+                g_assert_cmphex(qtest_readl(q, channel), ==,
+                                0x20000000 | ((reload & 4) ? 0x10001 : 0));
+                g_assert_cmphex(qtest_readl(q, channel + 4), ==, cb | 0x50000);
+                g_assert_true(qtest_get_irq(q, 150 - 32));
+                qtest_writel(q, channel + 4, cb);
+                g_assert_false(qtest_get_irq(q, 150 - 32));
+                /* Acknowledgement and elapsed time alone cannot repeat DMA. */
+                qtest_writeb(q, destination, 0xaa);
+                qtest_clock_step(q, 100000);
+                g_assert_cmphex(qtest_readb(q, destination), ==, 0xaa);
+            }
+        }
+    }
+    qtest_quit(q);
+}
+
+static void test_reload_lifetime(void)
+{
+    QTestState *q = start();
+    uint64_t channel = HDMAC + 0x10;
+    const uint32_t invalid[] = {
+        0x08f80001, 0x08f80100, 0x08f81000, 0x48f80000,
+        0x0cf80000, 0x38f80000,
+    };
+
+    qtest_writel(q, RAM + 0x1000, 0x12345678);
+    qtest_writel(q, RAM + 0x1004, 0x90abcdef);
+    qtest_writel(q, HDMAC, 0x90000000);
+    setup(q, channel, RAM + 0x1000, RAM + 0x2000, 0x08f80000, 0xe0000001);
+    /* Reload flags do not relax reserved/protection/TT/TW/MS boundaries,
+     * nor permit configuration changes to an armed operation. */
+    for (unsigned i = 0; i < G_N_ELEMENTS(invalid); i++) {
+        qtest_writel(q, channel + 4, invalid[i]);
+        g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08f80000);
+    }
+    qtest_writel(q, channel + 4, 0x08d80000);
+    qtest_writel(q, channel + 8, RAM + 0x1004);
+    qtest_writel(q, channel + 12, RAM + 0x2004);
+    qtest_writel(q, channel, 0xe0010001);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08f80000);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1000);
+    g_assert_cmphex(qtest_readl(q, channel + 12), ==, RAM + 0x2000);
+    g_assert_cmphex(qtest_readl(q, channel), ==, 0xe0000001);
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x2000), ==, 0);
+    qtest_writel(q, channel, 0xa0000001);
+    qtest_clock_step_next(q);
+    for (unsigned i = 0; i < 2; i++) {
+        g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1000);
+        g_assert_cmphex(qtest_readl(q, channel + 12), ==, RAM + 0x2000);
+        g_assert_cmphex(qtest_readl(q, channel), ==, 0x20000001);
+        g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08fd0000);
+        g_assert_cmphex(qtest_readl(q, RAM + 0x2004), ==, 0x90abcdef);
+        qtest_writel(q, channel + 4, 0x08f80000);
+        qtest_writel(q, RAM + 0x2004, 0);
+        if (!i) {
+            qtest_writel(q, channel, 0xa0000001);
+            qtest_clock_step_next(q);
+        }
+    }
+    /* New programming must replace the prior operation's reload snapshot. */
+    setup(q, channel, RAM + 0x1004, RAM + 0x2004, 0x08f80000, 0xa0000000);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1004);
+    g_assert_cmphex(qtest_readl(q, channel + 12), ==, RAM + 0x2004);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x2004), ==, 0x90abcdef);
+
+    qtest_writel(q, channel + 4, 0x08f80000);
+    qtest_writel(q, channel, 0xe0000000);
+    qtest_writel(q, channel, 0x60000000);
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08fa0000);
+    g_assert_false(qtest_readl(q, channel) & EB);
+    qtest_writel(q, channel + 4, 0x08f80000);
+    qtest_writel(q, channel, 0xe0000000);
+    qtest_qmp_assert_success(q, "{'execute': 'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, channel), ==, 0);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, 0);
+    g_assert_false(qtest_get_irq(q, 150 - 32));
+    qtest_quit(q);
+}
+
+static void test_reload_reentrant(void)
+{
+    QTestState *q = start();
+    uint64_t channel = HDMAC + 0x10;
+
+    qtest_writel(q, HDMAC, 0x90000000);
+    qtest_writel(q, RAM + 0x1000, 0xe0000001);
+    qtest_writel(q, RAM + 0x1004, 0x08e00000);
+    setup(q, channel, RAM + 0x1000, channel, 0x08f80000, 0xa0000001);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1004);
+    g_assert_cmphex(qtest_readl(q, channel + 12), ==, channel + 4);
+    qtest_writel(q, channel, 0xa0000001);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1000);
+    g_assert_cmphex(qtest_readl(q, channel + 12), ==, channel);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08e50000);
+    g_assert_false(qtest_get_irq(q, 150 - 32));
+
+    qtest_writel(q, channel + 4, 0x08f80000);
+    qtest_writel(q, RAM + 0x1000, 0x20000001);
+    qtest_writel(q, channel, 0xa0000001);
+    qtest_clock_step_next(q);
+    /* A real bus cancel invalidates the operation before any reload/CI. */
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x08fa0000);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, RAM + 0x1000);
+    g_assert_cmphex(qtest_readl(q, channel), ==, 0x20000001);
+    qtest_quit(q);
+}
+
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
@@ -239,6 +398,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/dma/reentrant/pause", test_reentrant_pause);
     qtest_add_func("/nikon/dma/reentrant/halt", test_reentrant_halt);
     qtest_add_func("/nikon/dma/audio/pause", test_audio_pause);
+    qtest_add_func("/nikon/dma/reload/matrix", test_reload_matrix);
+    qtest_add_func("/nikon/dma/reload/lifetime", test_reload_lifetime);
+    qtest_add_func("/nikon/dma/reload/reentrant", test_reload_reentrant);
     result = g_test_run();
     unlink(image);
     g_free(image);

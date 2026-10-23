@@ -1,5 +1,18 @@
 # Native GUI integration
 
+The [HDMAC reload family](../devices/hdmac/reload.md) passes an applicable
+21-case batch (DMA10/HDMAC4/Audio4/memory3) after the old-model RD matrix red.
+A later private-root/DREQ/error case passes in the focused5-case HDMAC run;
+additional rejection guards pass in the focused3-case reload run. All8 reload
+combinations,3 widths and4 fixed-address combinations execute real bus copies;
+hold/rearm, reentrant cancel, reset, no automatic repeat and partial-error
+boundaries are covered. Receipts are in `work/runs/hdmacflags-20261023/`.
+Independent read-only review found no defect. Separate unchanged-bundle runs
+cross the original descriptor stores/starts and input enable, reach the
+microphone initializer's return sequence and next reject Audio READ32
+PA2c080154 at1036e3d8. No input DMA beat or GUI first frame is established.
+This is not a new full-suite result.
+
 The [audio format/block profile](../devices/audio/format.md) passes4 new
 `nikon_audio`,7 `nikon_dma` and4 `nikon_hdmac` cases in one applicable batch,
 after the old-model format case fails on0d820000. Coverage includes all format,
@@ -8,7 +21,7 @@ state, preserved-state rejection and reset/unrealize. Two review-requested
 guard assertions pass in a focused4-case audio rerun. Receipts are in
 `work/runs/audioformat-20261023/`, including `native-final-receipt.log` and
 `native-guards-receipt.log`. The separate unchanged original continuation
-crosses format/block setup and next rejects HDMAC PA2c030034=2ae00000;
+crosses format/block setup and, at that earlier checkpoint, next rejects HDMAC PA2c030034=2ae00000;
 it does not complete microphone initialization, capture input samples or
 establish a GUI first frame. This is not a new full-suite result.
 

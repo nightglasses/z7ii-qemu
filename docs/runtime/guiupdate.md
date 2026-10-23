@@ -33,11 +33,15 @@ executes08=1, returns from0c=1 through1023cd50, then disables unit1; this
 continuation cancels the queued fence and does not exercise a capture ISR.
 The [audio format profile](../devices/audio/format.md) now crosses that
 continuation's audio rejection: setter1036da82 returns to102dea1c, followed
-by block programming1036ddd6 and IRQ/DMA masks1036e444. The current first
-MMIO rejection is CPU0 MAS`102dc47a`, WRITE32 PA`2c030034=2ae00000`,
-in HDMAC descriptor builder102dc41e. Its three flag bits23:21 are the next
-whole-family audit. The microphone initializer has not reached final input
-start; no audio sample or completion is claimed.
+by block programming1036ddd6 and IRQ/DMA masks1036e444. The
+[HDMAC reload audit](../devices/hdmac/reload.md) identifies bits23:21 as
+RC/RS/RD and covers all8 combinations with normal-completion restoration and
+separate cancel/error/reset behavior. Original code now programs and arms
+input selectors5/6, executes1036dd3a input enable and reaches the microphone
+initializer's return sequence102dea90. The next first MMIO rejection is CPU0
+MAS`1036e3d8`, READ32 PA`2c080154`, in the two-word Audio getter reached
+through102e0bdc→102df00a→1036e3b4. Selectors5/6 have no input sample
+producer; no actual audio beat or completion is claimed.
 The healthy UART peer rejects no request; GUI gate/pending3/display-ready
 remain0. Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the

@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; HDMAC descriptor frontier
+## Normal display request accepted; Audio getter frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -69,16 +69,21 @@ later GUI wait4000 is released by original callback104be418(05040005).
 The [audio format profile](../devices/audio/format.md) now accepts the complete
 source-shaped format/port/divider fields and block programming;15 native
 audio/DMA/HDMAC cases pass. Original1036da82 constructs AUMD0d820000 by RMW
-and returns to102dea1c. Block programming and masks then execute. The current
-first rejection is CPU0 PC`102dc47a`, WRITE32 PA`2c030034=2ae00000`,
-reason`hdmac-access-or-command-not-supported`. Original102dc41e constructs
-this descriptor CB word; the rejected23:21 flag group must be audited with
-the whole request/transfer lifecycle. Input start, samples and audio DMA
-completion have not yet occurred.
+and returns to102dea1c. Block programming and masks then execute. The
+[HDMAC reload model](../devices/hdmac/reload.md) now covers all8 combinations
+of RC/RS/RD at bits23:21. An applicable21-case native batch, focused5-case
+HDMAC boundary run and3-case reload guard run pass after the old-model red.
+Original102dc41e accepts both input descriptors, the original start arms
+selectors5/6, and1036dd3a input enable returns to102dea86. The initializer
+reaches its return sequence102dea90. The current first rejection is CPU0
+PC`1036e3d8`, READ32 PA`2c080154`, in the Audio getter1036e3b4. Its54/58
+producer/readback family remains to be established. Both DMA channels retain
+EB1/SS0 with no connected input producer; samples and audio DMA completion
+are not claimed.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `audioformat-20261023`; `captureflow-20261022`,
+Latest receipts are in `hdmacflags-20261023`; `audioformat-20261023`, `captureflow-20261022`,
 `routerfunctional-20261022`,
 earlier `router-20261022`,
 `sysconfig-20261022`, `streamstorage-20261022` retain their own checkpoints.

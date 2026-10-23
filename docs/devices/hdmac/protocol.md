@@ -1,5 +1,12 @@
 # Paired HDMAC functional DMA model
 
+Current extension: [descriptor reload](reload.md) supports all8 RC/RS/RD
+combinations with selected-field restoration at normal completion, EB-clear,
+real bus/DREQ lifecycle and explicit cancel/error conventions. The original
+microphone setup now reaches input enable and its return sequence; the next
+first error is the Audio getter at PA2c080154. Older receipts below retain
+their original checkpoints and validation scope.
+
 Review correction: exact C`7b4327d74677dae537e4834e4533508448a37bea` built natively and passed22 HDMAC fixtures at `work/issue331/hdmac-state-7b4327d/result.json`. No original run was repeated for this correction; the original execution evidence below remains exact C`84c9e02`, not relabeled as7b.
 
 CA, CB, source/destination changes while EB is armed now share a pure candidate preflight, including width/address alignment. DE enable preflights all armed channels before mutating control or timers. Rejected changes preserve the old state. New soft and external-request negative sequences arm unaligned byte addresses with DE off, then attempt a word-width update: both fail and monitor readback verifies original CA/CB/SA/DA. A positive sequence fixes the addresses before changing width and then completes a real word copy.
@@ -14,9 +21,9 @@ The [Socionext-authored header](https://github.com/killsmm/m10v_mono/blob/cebff0
 
 The model uses two finite SysBus instances: global+0 and eight channels at+10+index×10, with CA/CB/SA/DA at+0/+4/+8/+c. Aligned word accesses only. Virtual reset clears all fields/status/timers, with DE off and no pending IRQ. Global PR chooses fixed low-index or rotating arbitration among virtual-time-ready requests; cursor starts0 and advances after a serviced channel. This is an explicit functional arbitration policy, not measured hardware concurrency or throughput.
 
-DE and EB arm a request; IS0 additionally requires software ST. Nonzero IS remains armed with no completion while no DREQ producer is connected. Implemented transfers support non-reload byte/halfword/word beats, fixed or incrementing source/destination, block/burst/demand field encodings0..2 and ordinary non-wrap beat types. Channel PB and global DH1 suspend the same request; DH0 resumes the bank. Protection/pitch fields, reload, wrapped bursts, DH2..15, DS and transform encodings remain explicitly unsupported when requested. TT must be0, width/mode3 are refused; unknown registers/widths/reserved fields fail. Unsupported requests cannot become successful linear copies.
+DE and EB arm a request; IS0 additionally requires software ST. Nonzero IS remains armed with no completion while no DREQ producer is connected. Implemented transfers support byte/halfword/word beats, fixed or incrementing source/destination, block/burst/demand field encodings0..2, all8 RC/RS/RD reload combinations and ordinary non-wrap beat types. Channel PB and global DH1 suspend the same request; DH0 resumes the bank. Protection fields, wrapped bursts, DH2..15, DS and transform encodings remain explicitly unsupported when requested. TT must be0, width/mode3 are refused; unknown registers/widths/reserved fields fail. Unsupported requests cannot become successful linear copies.
 
-An independent official Clock48MHz provides one nominal tick per configured beat. A software request waits that many virtual ticks, then its finite transfer runs through official `dma_memory_read/write` in one event. External requests accept one beat per event and recheck their actual wire. Other CPUs do not observe an intermediate streaming timing model. Sources and sinks are the existing real board address space, not debugger writes or private successful memory. Each beat honors fixed addresses and width; source/destination bus failure produces SS3/4, address wrap SS1, success SS5. CI gates successful IRQ and EI gates errors. Completion clears EB and end counters; error/cancel retain the request counter fields. This readback convention and DE-disable/EB-clear cancellation→SS2 are explicit functional assumptions; physical partial-transfer count/retry details remain unverified. Real bus writes completed before an error are not rolled back. Reset and cancel remove pending timer callbacks.
+An independent official Clock48MHz provides one nominal tick per configured beat. A software request waits that many virtual ticks, then its finite transfer runs through official `dma_memory_read/write` in one event. External requests accept one beat per event and recheck their actual wire. Other CPUs do not observe an intermediate streaming timing model. Sources and sinks are the existing real board address space, not debugger writes or private successful memory. Each beat honors fixed addresses and width; source/destination bus failure produces SS3/4, address wrap SS1, success SS5. CI gates successful IRQ and EI gates errors. Completion clears EB and restores RC-selected initial counters (otherwise zero); RS/RD independently restore initial addresses. Error/cancel retain the request counter fields without reload. This readback convention and DE-disable/EB-clear cancellation→SS2 are explicit functional assumptions; physical partial-transfer count/retry details remain unverified. Real bus writes completed before an error are not rolled back. Reset and cancel remove pending timer callbacks.
 
 CB readback preserves guest configuration and device-produced SS. Writes may preserve existing SS or clear it, never create arbitrary nonzero completion. The original ISR's CB&~`1f0000` clears SS/CI/EI and deasserts the real GIC line. No read callback manufactures completion, source data or IRQ. Stateful devices use official unmigratable VMState.
 
@@ -36,7 +43,7 @@ Native test content `tests/qtest/nikon/dma.c` supplies seven synthetic cases: al
 
 The first integrated native run compiled but failed the first resume destination check (`work/validation/gui/dma.log` in the build owner's `native-qemu-source` worktree). Its command passed `-S` with the qtest accelerator. Upstream `system/cpus.c` disables the virtual clock when pausing CPUs, and `util/qemu-timer.c` advances qtest time through timer lists that honor that enable state. The fixture now leaves the qtest virtual clock enabled; qtest does not execute guest instructions. Resume and reentrant-start checks advance to the next actual timer deadline, while held/canceled-state observations still advance a positive interval and Audio completion spans its real repeated clock events. This corrects the fixture's timer eligibility rather than changing device status or transfer semantics. Native validation of this child remains the sole build owner's task.
 
-Unbound reload/wrap/protection/DS/transform semantics are future protocol work, rather than counted as additional devices. Disconnected peripheral requests require a real producer or declared external input. The only currently bound Audio wires are bank1 selectors3/7; input5 has no samples. No source joins these DMA signals to the separate event/EXIU interfaces, so no frame-completion signal is inferred.
+Wrap/protection/DS/transform semantics remain future protocol work, rather than counted as additional devices. The later [reload extension](reload.md) closes RC/RS/RD separately. Disconnected peripheral requests require a real producer or declared external input. The only currently bound Audio wires are bank1 selectors3/7; input5 has no samples. No source joins these DMA signals to the separate event/EXIU interfaces, so no frame-completion signal is inferred.
 
 ## Private component DMA
 
@@ -78,14 +85,14 @@ remain the sole builder's responsibility; source provision is not a PASS claim.
 
 The complete SLA driver family `1005f644..1005f8aa` preserves the same register
 geometry and lifecycle. Its setup writes IS/BT/BC/TC into CA at bits24/20/16/0
-and TT/TW/SA/DA/SP/DP/RL into CB at bits28/26/25/24/23/22/21. The entire SPI
-consumer pair `1005c70e..1005c7fa` sets BT=BC=SP=DP=RL=0, TT=2, TW=1,
+and MS/TW/FS/FD/RC/RS/RD into CB at bits28/26/25/24/23/22/21. The entire SPI
+consumer pair `1005c70e..1005c7fa` sets BT=BC=RC=RS=RD=0, MS=2, TW=1,
 TC=halfword-count-minus-one. RX fixes SA; TX fixes DA. The optional opposite
 fixed address uses the same preserved SA/DA field. The start family sets CI/EI
 and EB, clears ST for external requests, and uses ST with IS=0 for software
 requests. All of these configurations are supported by the existing HDMAC
 model; mode4's CTRL400 belongs to the SPI endpoint rather than HDMAC global
-control. No transfer transform or reload mode has been inferred.
+control. No transfer transform is inferred from the MS field. RC/RS/RD meanings are established separately in the later [reload audit](reload.md).
 
 SLA COPY records `C1004db8` contain the sixteen driver objects: bank0 handles
 12a..131 / IRQ150..157 and bank1 handles132..139 / IRQ142..149. The register

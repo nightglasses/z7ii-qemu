@@ -1,5 +1,11 @@
 # Audio format and block configuration
 
+Later continuation: the [HDMAC reload model](../hdmac/reload.md) crosses the
+descriptor rejection recorded below, arms both input channels and reaches
+input enable plus the initializer return sequence. The current first error is
+the separate Audio54/58 getter, at READ32 PA2c080154. The receipts in this
+document retain their earlier scope; actual input samples remain unverified.
+
 The normal GUI continuation reaches microphone initialization, not an output
 sample transfer. The old profile rejected its legal AUMD fields. This model
 closes the complete source-shaped format, port, divider and block-programming

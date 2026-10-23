@@ -24,6 +24,10 @@
 #define HDMAC_SS (7U << 16)
 #define HDMAC_CI (1U << 19)
 #define HDMAC_EI (1U << 20)
+#define HDMAC_RD (1U << 21)
+#define HDMAC_RS (1U << 22)
+#define HDMAC_RC (1U << 23)
+#define HDMAC_COUNT 0xfffffU
 OBJECT_DECLARE_SIMPLE_TYPE(NikonHDMACState, NIKON_HDMAC)
 
 typedef struct NikonHDMACChannel {
@@ -36,6 +40,7 @@ typedef struct NikonHDMACChannel {
     int64_t wait_ns;
     uint64_t generation;
     uint32_t remaining;
+    uint32_t initial_count, initial_source, initial_destination;
 } NikonHDMACChannel;
 
 typedef struct NikonHDMACReadonlyRange {
@@ -249,8 +254,17 @@ static void nikon_hdmac_transfer(void *opaque)
         }
         return;
     }
-    /* End counters are a functional convention, not measured readback. */
-    c->ca &= ~0xfffffU;
+    /* Matching IP reloads selected fields only after normal completion.
+     * EB still clears: reload does not create another peripheral request.
+     * Non-reload end counters remain a functional readback convention. */
+    c->ca = (c->ca & ~HDMAC_COUNT) |
+            ((c->cb & HDMAC_RC) ? c->initial_count : 0);
+    if (c->cb & HDMAC_RS) {
+        c->source = c->initial_source;
+    }
+    if (c->cb & HDMAC_RD) {
+        c->destination = c->initial_destination;
+    }
     nikon_hdmac_finish(c, 5);
 }
 
@@ -260,11 +274,11 @@ static bool nikon_hdmac_start_supported(uint32_t ca, uint32_t cb,
     unsigned beat = (ca >> 20) & 15;
     unsigned width = (cb >> 26) & 3;
 
-    /* No wrap/reload, transfer transforms or address pitch emulation. */
+    /* No wrapped bursts, transfer transforms or protection transactions. */
     return width < 3 &&
            (beat == 0 || beat == 8 || beat == 9 || beat == 11 ||
             beat == 13 || beat == 15) &&
-           !(cb & 0xc0e0ff00U) && ((cb >> 28) & 3) < 3 &&
+           !(cb & 0xc000ff00U) && ((cb >> 28) & 3) < 3 &&
            !(source & ((1U << width) - 1)) &&
            !(destination & ((1U << width) - 1));
 }
@@ -283,6 +297,9 @@ static void nikon_hdmac_schedule(NikonHDMACChannel *c)
     c->running = true;
     c->generation++;
     c->remaining = beats;
+    c->initial_count = c->ca & HDMAC_COUNT;
+    c->initial_source = c->source;
+    c->initial_destination = c->destination;
     c->wait_ns = MAX(1, clock_ticks_to_ns(s->clock, selection ? 1 : beats));
     nikon_hdmac_update(c);
 }
@@ -407,7 +424,7 @@ static MemTxResult nikon_hdmac_write(void *opaque, hwaddr offset, uint64_t value
         }
         break;
     case 4:
-        if ((value & 0xc0e0ffffU) || ((value >> 26) & 3) == 3 ||
+        if ((value & 0xc000ffffU) || ((value >> 26) & 3) == 3 ||
             ((value >> 28) & 3) == 3 || ((value & HDMAC_SS) &&
                              (value & HDMAC_SS) != (c->cb & HDMAC_SS)) ||
             (c->running &&
@@ -469,6 +486,7 @@ static void nikon_hdmac_reset(DeviceState *dev)
         c->ca = c->cb = c->source = c->destination = 0;
         c->running = false;
         c->remaining = 0;
+        c->initial_count = c->initial_source = c->initial_destination = 0;
         c->ready_at = c->wait_ns = 0;
         nikon_hdmac_irq(c);
     }

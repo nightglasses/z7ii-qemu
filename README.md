@@ -107,9 +107,14 @@ bits, separate low-level/upper quiescence causes and shared4/8 lifetime;
 all25 sensor qtests pass. Original execution crosses that store and a later
 GUI completion callback. The [audio format profile](docs/devices/audio/format.md)
 now covers the complete source-shaped format/port/divider fields and block
-programming, with15 native audio/DMA/HDMAC cases passing. Original setup crosses
-the audio store and next rejects HDMAC descriptor flags at `0x2c030034=0x2ae00000`,
-PC `0x102dc47a`; microphone input start and sample transfer are not yet observed.
+programming, with15 native audio/DMA/HDMAC cases passing. The subsequent
+[HDMAC reload model](docs/devices/hdmac/reload.md) covers all8 RC/RS/RD
+combinations and passes21 applicable native cases plus focused boundary/guard
+checks. Original setup crosses both input descriptor stores/starts, sets audio
+input enable and reaches the microphone initializer's return sequence.
+The next first rejection is READ32 `0x2c080154`, PC `0x1036e3d8`, in the
+two-word Audio getter. Input selectors5/6 still lack a sample producer; actual
+sample transfer and audio completion remain unverified.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.
