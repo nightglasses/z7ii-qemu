@@ -2,8 +2,15 @@
 
 ## Current normal-startup frontier
 
-After the [Audio observation continuation](../audio/monitor.md), unchanged
-firmware's first uncovered access is CPU1 MAS VA106ee3c6, WRITE32 board
+The [inline rectangle model](rectangles.md) now implements the856/1088-byte
+checkpoint below. All14 transfer unit cases pass, and unchanged original
+execution receives IRQ129 after that submission. Further execution aborts at
+the host QEMU `tlb_set_page_full` RAM/IOTLB alignment assertion. The failing
+physical page is not yet bound; no final guest snapshot or first frame is
+claimed. The rejected-packet analysis below records the preceding model.
+
+At the [Audio observation checkpoint](../audio/monitor.md), unchanged
+firmware's first uncovered access was CPU1 MAS VA106ee3c6, WRITE32 board
 PA201810e0=1. Original submitter106ee04a programs64-bit unit counts6b/88:
 setup856 bytes at PAbd0dff90, draw1088 bytes at PAbd15ff90. Both complete
 buffers are saved in `work/runs/audiolevels-20261023/final-stream0.bin` and
@@ -12,14 +19,14 @@ trace includes both writer-entry and store instruction PCs, since later TCG
 blocks enter at106ee3c6. Earlier snapshots using only106ee3c4 metadata are
 partial buffers, not complete submissions.
 
-Both streams contain720x480 geometry fields. Draw word50 is0, so the current
+Both streams contain720x480 geometry fields. Draw word50 is0, so the earlier
 path dispatch predicate does not select this family;1088 matches no other
 supported draw-size dispatch. The fallback LUT parser requires224/1688 and
 therefore reports`transfer-stream-truncated`. The transport has read the
 submitted extents; this diagnostic does not establish genuinely truncated
-guest commands. The next work is to recover the complete command/state family
-and its upstream producer, then validate a finite execution model. No IRQ129,
-rendered result or GUI first frame is claimed for this rejected submission.
+guest commands. The producer and finite SRC-clear contract are now recorded
+in [rectangles](rectangles.md). The earlier rejected submission itself does
+not establish IRQ129, rendered output or a GUI first frame.
 The older supported profiles and receipts below retain their own scope.
 
 ## Existing transfer contracts

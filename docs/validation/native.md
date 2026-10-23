@@ -1,5 +1,19 @@
 # Native GUI integration
 
+The [inline rectangle family](../devices/transfer/rectangles.md) passes the
+complete14-case `nikon_transfer_unit` batch after its new submission fails
+against the old parser. Its40 variants plus shared-header LUT regression
+cover variable batch sizes, SRC RGBA/alpha, ordering, key wrap, full pixels/
+guards, field/count/padding rejection, physical backing aliases, true backed
+4GiB crossing, snapshot ownership and reset/unrealize/map-loss cancellation.
+Independent review identified the32-bit end gap; it was fixed before the
+final full applicable batch and final review passed. Separate unchanged
+execution crosses856/1088 START and enters original IRQ129, then aborts in
+host QEMU's RAM/IOTLB page-alignment assertion. No final guest snapshot,
+physical GPU fidelity or GUI first frame is claimed. Receipts are in
+`work/runs/graphicscommands-20261023/`, including `native-final.log` and
+`verified-progress.json`; earlier failed integration remains separate.
+
 The [Audio observation profile](../devices/audio/monitor.md) passes22
 applicable native cases: Audio7/DMA10/HDMAC5. A real HDMAC monitor read
 reproduces the old model's SS3 before the new finite profile returns SS5 and

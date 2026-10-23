@@ -2679,6 +2679,301 @@ static void test_yuva_over(void)
     qemu_free_irq(f.irq);
 }
 
+typedef struct InlineRectangle {
+    int32_t x, y, width, height;
+    uint32_t paint;
+} InlineRectangle;
+
+static void inline_word(uint8_t *bytes, unsigned *at, uint32_t value)
+{
+    stl_le_p(bytes + 4 * (*at)++, value);
+}
+
+static void inline_pair(uint8_t *bytes, unsigned *at, uint32_t header,
+                         uint32_t value)
+{
+    inline_word(bytes, at, header);
+    inline_word(bytes, at, value);
+}
+
+static void build_inline_rectangles(uint8_t *setup, uint8_t *draw,
+                                     const InlineRectangle *rectangles,
+                                     unsigned count, uint32_t target,
+                                     unsigned *setup_bytes,
+                                     unsigned *draw_bytes)
+{
+    unsigned a = 0, b = 0;
+
+#define A(h, v) inline_pair(setup, &a, h, v)
+#define B(h, v) inline_pair(draw, &b, h, v)
+    A(0x00691004, 0x80);
+    B(0x01408004, 0); B(0x01901004, 0);
+    B(0x014ee004, 0x1b0000); B(0x0156e004, 0x1b0000);
+    B(0x01a2f004, 0); B(0x01a3f004, 0x01e002d0);
+    B(0x01844004, 0); B(0x01a7f004, 0x01000101);
+    B(0x011cf004, 480U << 16); B(0x01a08004, 0);
+    inline_word(draw, &b, 0x00c0f00e);
+    inline_word(draw, &b, 719U << 16);
+    inline_word(draw, &b, 479U << 16);
+    B(0x01001004, 1); B(0x01151004, 1);
+    B(0x01b01004, 13); B(0x01b31004, 1);
+    B(0x01848004, 0); B(0x01a11004, 0);
+    for (unsigned i = 0; i < count; i++) {
+        const InlineRectangle *r = &rectangles[i];
+        uint32_t key = 0x10000 | ((0xfffc + i) % 0xfffe + 1);
+        uint32_t scratch = (i & 1) ? 0x22220000 : 0x11110000;
+
+        for (unsigned m = 0; m < 2; m++) {
+            inline_word(setup, &a, 0x0041f046);
+            for (unsigned k = 0; k < 9; k++) {
+                inline_word(setup, &a, k % 4 ? 0 : 0x3f800000);
+            }
+        }
+        A(0x00653004, 0x100); A(0x0040f004, 0x01e002d0);
+        A(0x0003f004, 5); A(0x0005f004, 0x80000005);
+        A(0x0063f004, 5); A(0x005ef004, 0x3f800000);
+        A(0x005ff004, 0);
+        inline_word(setup, &a, 0x0080f026);
+        inline_word(setup, &a, scratch); inline_word(setup, &a, 0);
+        inline_word(setup, &a, 16);
+        inline_word(setup, &a, 0x01e002d0); inline_word(setup, &a, 0);
+        A(0x0006f004, 1);
+        inline_word(setup, &a, 0x0a);
+        inline_word(setup, &a, 0x07090702); inline_word(setup, &a, 0);
+        inline_word(setup, &a, 0x00010022);
+        inline_word(setup, &a, r->x); inline_word(setup, &a, r->y);
+        inline_word(setup, &a, r->width);
+        inline_word(setup, &a, r->height);
+        inline_word(setup, &a, -r->width);
+        A(0x0085f004, key);
+
+        B(0x0115c004, 0);
+        B(0x01401004, 0); B(0x014df004, 0); B(0x014df004, 0);
+        B(0x01401004, 0); B(0x014df004, 0); B(0x014df004, 0);
+        B(0x01402004, 0); B(0x014df004, 0); B(0x014df004, 0);
+        B(0x01841004, 8); B(0x01863004, 0x108); B(0x01842004, 0);
+        B(0x01a02004, 0); B(0x01a29004, 0); B(0x01a4f004, target);
+        B(0x01a74004, 0); B(0x0185f004, r->paint);
+        B(0x01841004, 8); B(0x01848004, 0);
+        B(0x01a04004, 0); B(0x01a51004, 0); B(0x01aa1004, 0);
+        inline_word(draw, &b, 0x00a0f02e);
+        inline_word(draw, &b, scratch); inline_word(draw, &b, 0);
+        inline_word(draw, &b, 16);
+        inline_word(draw, &b, 0x01e002d0);
+        inline_word(draw, &b, 0); inline_word(draw, &b, 0);
+        B(0x00a6f004, key); B(0x01a61004, 1);
+        if (i + 1 < count) {
+            B(0x01848004, 0);
+        }
+    }
+    B(0x00081004, 1);
+    if (a & 1) {
+        inline_word(setup, &a, 0);
+    }
+    if (b & 1) {
+        inline_word(draw, &b, 0);
+    }
+    *setup_bytes = a * 4;
+    *draw_bytes = b * 4;
+#undef A
+#undef B
+}
+
+static MemTxResult submit_inline_rectangles(TransferFixture *f, uint32_t source,
+                                             unsigned setup_bytes,
+                                             unsigned draw_bytes)
+{
+    const uint32_t packet[][2] = {
+        {0x1214, 0x100ffff}, {0x1298, 0}, {0x10d4, source},
+        {0x10dc, setup_bytes / 8}, {0x10d0, 1},
+        {0x10e4, 0x420000}, {0x10ec, draw_bytes / 8},
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmpint(write_register(f, packet[i][0], packet[i][1]), ==,
+                        MEMTX_OK);
+    }
+    return write_register(f, 0x10e0, 1);
+}
+
+static void test_inline_rectangles(void)
+{
+    enum { W = 720, H = 480, BYTES = W * H * 4, SLOT = 0x4b0000 };
+    enum { SUCCESS, TRANSPARENT, OVERLAP, ONE, TWO, THREE, FIVE, MAXIMUM,
+           TOO_MANY, SHORT_SETUP, SHORT_DRAW, SETUP_PAD, DRAW_PAD, HEADER,
+           MATRIX, SEGMENTS, COORDINATES, WIDTH, POSITION, SIZE, CLIP, FORMAT,
+           BLEND, MODE, KEY, KEY_ZERO, SCRATCH_ZERO, SCRATCH_ECHO, TARGET,
+           TARGET_ALIGN, RANGE, ADDRESS_WRAP, READONLY, COMMAND_OVERLAP,
+           SOURCE_ALIAS,
+           ENDING, DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
+    const InlineRectangle original[] = {
+        {128, 2, 124, 48, 0}, {266, 2, 104, 48, 0x80332211},
+        {436, 2, 153, 48, 0xffaabbcc}, {195, 60, 328, 48, 0x44556677},
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, output, alias, high;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels, *high_pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-inline[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.inline-command", 0x40000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+        "test.inline-output", SLOT + 8, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000 - 4, &output);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.inline-alias",
+                            &output, 4, SLOT);
+    memory_region_add_subregion(root, 0x1000000, &alias);
+    memory_region_init_ram_flags_nomigrate(&high, OBJECT(f.dev),
+        "test.inline-high", BYTES + 0x10000, 0, &error_abort);
+    memory_region_add_subregion(root, 0xffff0000, &high);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&output);
+    high_pixels = memory_region_get_ram_ptr(&high);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    /* The LUT family shares reset header1a11 with rectangle initialization.
+     * Its32x32 geometry must still dispatch to the real LUT renderer. */
+    build_lut_program(data, data + 0x20000, 0x410000, 0x800000);
+    stl_le_p(data + 0x20000 + 33 * 4, 0x01a11004);
+    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, 224, 1688), ==,
+                    MEMTX_OK);
+    advance();
+    g_assert_true(f.level);
+    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        InlineRectangle rectangles[NIKON_PATH_MAX_BATCH + 1];
+        unsigned count = test == ONE ? 1 : test == TWO ? 2 : test == THREE ? 3 :
+                         test == FIVE ? 5 : test == MAXIMUM ? 256 :
+                         test == TOO_MANY ? 257 : 4;
+        unsigned setup_bytes, draw_bytes;
+        uint32_t source = 0x400000;
+        bool complete = test <= MAXIMUM || test == DATA_CHANGE;
+        bool accepted = complete || test == MAP_LOSS || test == RESET ||
+                        test == CANCEL;
+        g_autofree uint8_t *before = NULL;
+        g_autofree uint8_t *expected = NULL;
+
+        g_test_message("inline rectangle case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x40000);
+        memset(pixels, 0xa5, SLOT + 8);
+        memset(high_pixels, 0x5a, BYTES + 0x10000);
+        for (unsigned i = 0; i < count; i++) {
+            rectangles[i] = i < 4 ? original[i] : (InlineRectangle) {
+                i % 600, i % 400, 7, 8, 0x01020304U * i,
+            };
+            if (test == TRANSPARENT) {
+                rectangles[i].paint = 0;
+            } else if (test == OVERLAP) {
+                rectangles[i].x = 2;
+                rectangles[i].y = 3;
+            }
+        }
+        build_inline_rectangles(data, data + 0x20000, rectangles, count,
+                                0x800000, &setup_bytes, &draw_bytes);
+        if (count == 4) {
+            g_assert_cmpuint(setup_bytes, ==, 856);
+            g_assert_cmpuint(draw_bytes, ==, 1088);
+        }
+        switch (test) {
+        case SHORT_SETUP: setup_bytes -= 8; break;
+        case SHORT_DRAW: draw_bytes -= 8; break;
+        case SETUP_PAD:
+            /* Three records have a setup padding word. */
+            build_inline_rectangles(data, data + 0x20000, rectangles, 3,
+                                    0x800000, &setup_bytes, &draw_bytes);
+            stl_le_p(data + setup_bytes - 4, 1);
+            break;
+        case DRAW_PAD: stl_le_p(data + 0x20000 + draw_bytes - 4, 1); break;
+        case HEADER: data[2 * 4] ^= 1; break;
+        case MATRIX: stl_le_p(data + (2 + 11) * 4, 0x40000000); break;
+        case SEGMENTS: data[(2 + 43) * 4] = 4; break;
+        case COORDINATES: stl_le_p(data + (2 + 50) * 4, -123); break;
+        case WIDTH: stl_le_p(data + (2 + 48) * 4, 0); break;
+        case POSITION: stl_le_p(data + (2 + 46) * 4, 720); break;
+        case SIZE: stl_le_p(data + (2 + 23) * 4, 0x01e102d0); break;
+        case CLIP: stl_le_p(data + 0x20000 + 21 * 4, 0x02ce0000); break;
+        case FORMAT: stl_le_p(data + 0x20000 + 9 * 4, 0x105); break;
+        case BLEND: stl_le_p(data + 0x20000 + (35 + 41) * 4, 0x10000); break;
+        case MODE: stl_le_p(data + 0x20000 + (35 + 21) * 4, 14); break;
+        case KEY: stl_le_p(data + 0x20000 + (35 + 59 * 3 + 54) * 4, 1); break;
+        case KEY_ZERO: stl_le_p(data + (2 + 52) * 4, 0x10000); break;
+        case SCRATCH_ZERO: stl_le_p(data + (2 + 35) * 4, 0); break;
+        case SCRATCH_ECHO: stl_le_p(data + 0x20000 + (35 + 47) * 4, 1); break;
+        case TARGET: stl_le_p(data + 0x20000 + (35 + 59 * 3 + 31) * 4,
+                             0x800004); break;
+        case TARGET_ALIGN: case RANGE: case ADDRESS_WRAP:
+        case READONLY: case COMMAND_OVERLAP:
+            for (unsigned i = 0; i < 4; i++) {
+                stl_le_p(data + 0x20000 + (35 + 59 * i + 31) * 4,
+                    test == TARGET_ALIGN ? 0x800001 : test == RANGE ?
+                    0x2000000 : test == ADDRESS_WRAP ? 0xfffff000 :
+                    test == COMMAND_OVERLAP ? 0x400000 : 0x800000);
+            }
+            if (test == READONLY) {
+                memory_region_set_readonly(&output, true);
+            }
+            break;
+        case SOURCE_ALIAS:
+            source = 0x1000000;
+            memcpy(pixels + 4, data, setup_bytes);
+            break;
+        case ENDING: stl_le_p(data + 0x20000 + 269 * 4, 0); break;
+        default: break;
+        }
+        before = g_memdup2(pixels, SLOT + 8);
+        expected = g_memdup2(pixels, SLOT + 8);
+        for (unsigned i = 0; i < count; i++) {
+            InlineRectangle *r = &rectangles[i];
+
+            for (unsigned y = r->y; y < r->y + r->height; y++) {
+                for (unsigned x = r->x; x < r->x + r->width; x++) {
+                    stl_le_p(expected + 4 + 4 * (y * W + x), r->paint);
+                }
+            }
+        }
+        g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                 draw_bytes), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        g_assert_cmpmem(pixels, SLOT + 8, before, SLOT + 8);
+        if (test == DATA_CHANGE) {
+            memset(data, 0xff, 0x40000);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&output, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output, false);
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels, SLOT + 8,
+                        complete ? expected : before, SLOT + 8);
+        for (unsigned i = 0; i < BYTES + 0x10000; i++) {
+            g_assert_cmphex(high_pixels[i], ==, 0x5a);
+        }
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            g_assert_false(f.level);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &high);
+    memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -2713,6 +3008,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rgba-yuv", test_rgba_yuv);
     g_test_add_func("/nikon/transfer/scaled-yuva", test_scaled_yuva);
     g_test_add_func("/nikon/transfer/yuva-over", test_yuva_over);
+    g_test_add_func("/nikon/transfer/inline-rectangles", test_inline_rectangles);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

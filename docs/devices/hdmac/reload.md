@@ -1,9 +1,11 @@
 # HDMAC descriptor reload
 
 Later continuation: the [Audio observation profile](../audio/monitor.md)
-crosses the54/58 getter recorded below. The current first rejection is
+crosses the54/58 getter recorded below. The first rejection at that checkpoint is
 graphics submission PA201810e0=1 with transfer-stream-truncated. This
-document retains its reload-only receipts and scope.
+document retains its reload-only receipts and scope. The later
+[rectangle model](../transfer/rectangles.md) crosses that graphics rejection
+and next reaches the host RAM/IOTLB alignment assertion.
 
 The normal GUI continuation programs three reload flags in the audio input
 descriptors. The complete eight-combination family is now supported, across

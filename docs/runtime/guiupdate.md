@@ -41,15 +41,20 @@ input selectors5/6, executes1036dd3a input enable and reaches the microphone
 initializer's return sequence102dea90. The [Audio observation profile](../devices/audio/monitor.md)
 now crosses102e0bdc→102df00a→1036e3b4 and the amplitude consumer under
 explicit last-observed/packing hypotheses. All22 applicable native cases pass.
-The next first MMIO rejection is CPU1 MAS`106ee3c6`, WRITE32
+The next first MMIO rejection at that Audio-only checkpoint is CPU1 MAS`106ee3c6`, WRITE32
 PA`201810e0=1`, reason`transfer-stream-truncated`. The paired graphics
 submitter is106ee04a; complete856/1088-byte buffers are captured at
 PAbd0dff90/bd15ff90. The current dispatch falls through to LUT length checks;
-the [whole command family](../devices/transfer/protocol.md) is the next
-investigation. Selectors5/6 have no input sample producer; no actual
-audio beat or completion is claimed.
-The healthy UART peer rejects no request; GUI gate/pending3/display-ready
-remain0. Hypothesized timing does not establish physical TG semantics.
+the [inline rectangle model](../devices/transfer/rectangles.md) now executes
+that family with14 transfer unit cases passing. Original IRQ129 follows its
+856/1088 START and further clear generation runs. The current measured stop
+is host QEMU's RAM/IOTLB page-alignment assertion in tlb_set_page_full,
+cputlb.c:1080. The failing physical page remains to be bound. The final GDB
+snapshot did not run after host abort; prior GUI gate/pending3/display-ready0
+values are not relabeled as current final state. Selectors5/6 have no input
+sample producer; no actual audio beat or completion is claimed.
+The healthy UART peer rejects no protocol request before host termination.
+Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and
 scanout remain unverified.

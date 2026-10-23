@@ -115,12 +115,16 @@ input enable and reaches the microphone initializer's return sequence.
 The subsequent [Audio observation profile](docs/devices/audio/monitor.md)
 supports both paired getters under explicit last-observed/packing assumptions;
 all22 applicable Audio/DMA/HDMAC cases pass. The original input getter and
-amplitude conversion now return. The next first rejection is CPU1 WRITE32
+amplitude conversion now return. At that Audio-only checkpoint the next rejection is CPU1 WRITE32
 `0x201810e0=1`, PC `0x106ee3c6`, with `transfer-stream-truncated` in the
 graphics parser. Input selectors5/6 still lack a sample producer; actual sample
 transfer and audio completion remain unverified.
-The complete next856/1088-byte submission is captured; its current rejection
-comes from unrecognized dispatch falling back to fixed LUT length checks.
+The [inline rectangle model](docs/devices/transfer/rectangles.md) now handles
+that856/1088-byte family, including variable counts/colors, SRC alpha clearing,
+key wrap and strict RAM/alias boundaries. All14 transfer unit cases pass.
+Unchanged original execution submits the four rectangles and receives IRQ129.
+The next measured stop is a host QEMU RAM/IOTLB page-alignment assertion;
+the aborted run supplies no final guest readiness snapshot or GUI first frame.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

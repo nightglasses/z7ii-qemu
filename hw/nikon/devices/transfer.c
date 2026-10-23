@@ -64,6 +64,7 @@ typedef enum NikonTransferProgramKind {
     TRANSFER_PROGRAM_PATH_FILL,
     TRANSFER_PROGRAM_IMAGE_FILL,
     TRANSFER_PROGRAM_RGBA_YUV,
+    TRANSFER_PROGRAM_RECTANGLES,
 } NikonTransferProgramKind;
 
 typedef struct NikonTransferProgram {
@@ -1448,12 +1449,198 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
     return true;
 }
 
+/*
+ * 1068bd90/10646324: self-contained signed32, identity rectangle clears.
+ * Fields are the emitted register protocol, not an opaque firmware fixture.
+ */
+static const NikonTransferField rectangle_setup_fields[] = {
+    {0, 0x0041f046}, {1, 0x3f800000}, {5, 0x3f800000}, {9, 0x3f800000},
+    {10, 0x0041f046}, {11, 0x3f800000}, {15, 0x3f800000}, {19, 0x3f800000},
+    {20, 0x00653004}, {21, 0x100}, {22, 0x0040f004}, {23, 0x01e002d0},
+    {24, 0x0003f004}, {25, 5}, {26, 0x0005f004}, {27, 0x80000005},
+    {28, 0x0063f004}, {29, 5}, {30, 0x005ef004}, {31, 0x3f800000},
+    {32, 0x005ff004}, {34, 0x0080f026}, {37, 16}, {38, 0x01e002d0},
+    {40, 0x0006f004}, {41, 1}, {42, 0x0a}, {43, 0x07090702},
+    {45, 0x00010022}, {51, 0x0085f004},
+};
+
+static const NikonTransferField rectangle_prefix_fields[] = {
+    {0, 0x01408004}, {2, 0x01901004},
+    {4, 0x014ee004}, {5, 0x1b0000}, {6, 0x0156e004}, {7, 0x1b0000},
+    {8, 0x01a2f004}, {10, 0x01a3f004}, {11, 0x01e002d0},
+    {12, 0x01844004}, {14, 0x01a7f004}, {15, 0x01000101},
+    {16, 0x011cf004}, {17, 0x01e00000}, {18, 0x01a08004},
+    {20, 0x00c0f00e}, {21, 0x02cf0000}, {22, 0x01df0000},
+    {23, 0x01001004}, {24, 1}, {25, 0x01151004}, {26, 1},
+    {27, 0x01b01004}, {28, 13}, {29, 0x01b31004}, {30, 1},
+    {31, 0x01848004}, {33, 0x01a11004},
+};
+
+static const NikonTransferField rectangle_draw_fields[] = {
+    {0, 0x0115c004}, {2, 0x01401004}, {4, 0x014df004}, {6, 0x014df004},
+    {8, 0x01401004}, {10, 0x014df004}, {12, 0x014df004},
+    {14, 0x01402004}, {16, 0x014df004}, {18, 0x014df004},
+    {20, 0x01841004}, {21, 8}, {22, 0x01863004}, {23, 0x108},
+    {24, 0x01842004}, {26, 0x01a02004}, {28, 0x01a29004},
+    {30, 0x01a4f004}, {32, 0x01a74004}, {34, 0x0185f004},
+    {36, 0x01841004}, {37, 8}, {38, 0x01848004},
+    {40, 0x01a04004}, /* SRC: alpha zero clears the covered destination. */
+    {42, 0x01a51004}, {44, 0x01aa1004}, {46, 0x00a0f02e},
+    {49, 16}, {50, 0x01e002d0}, {53, 0x00a6f004},
+    {55, 0x01a61004}, {56, 1},
+};
+
+static bool nikon_transfer_rectangle_fields(const uint32_t *words,
+                                            unsigned count,
+                                            const NikonTransferField *fields,
+                                            unsigned field_count,
+                                            uint64_t operands)
+{
+    unsigned field = 0;
+
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t expected = 0;
+
+        if (field < field_count && fields[field].word == i) {
+            expected = fields[field++].value;
+        }
+        if (!(operands & (1ULL << i)) && le32_to_cpu(words[i]) != expected) {
+            return false;
+        }
+    }
+    return field == field_count;
+}
+
+static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
+                                      const char **reason)
+{
+    struct {
+        uint32_t x, y, width, height, paint;
+    } rectangles[NIKON_PATH_MAX_BATCH];
+    size_t setup_bytes, draw_bytes;
+    const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
+    const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    const uint32_t bytes = 4 * NIKON_PATH_MASK_BYTES;
+    unsigned count = setup_bytes >= 8 ? (setup_bytes / 4 - 2) / 53 : 0;
+    uint32_t target, key;
+
+    if (!count || count > NIKON_PATH_MAX_BATCH ||
+        setup_bytes != ROUND_UP(2 + 53 * count, 2) * 4 ||
+        draw_bytes != ROUND_UP(35 + 59 * count, 2) * 4) {
+        *reason = "transfer-rectangle-count-not-supported";
+        return false;
+    }
+    if (le32_to_cpu(setup[0]) != 0x00691004 || le32_to_cpu(setup[1]) != 0x80 ||
+        !nikon_transfer_rectangle_fields(draw, 35, rectangle_prefix_fields,
+                              ARRAY_SIZE(rectangle_prefix_fields), 0) ||
+        ((count & 1) && le32_to_cpu(setup[2 + 53 * count])) ||
+        (!(count & 1) && le32_to_cpu(draw[35 + 59 * count])) ||
+        le32_to_cpu(draw[33 + 59 * count]) != 0x00081004 ||
+        le32_to_cpu(draw[34 + 59 * count]) != 1) {
+        *reason = "transfer-rectangle-context-not-supported";
+        return false;
+    }
+    target = le32_to_cpu(draw[35 + 31]);
+    key = le32_to_cpu(setup[2 + 52]);
+    if ((target & 3) || (uint64_t)target + bytes > (1ULL << 32) ||
+        (key >> 16) != 1 || !(key & 0xffff) ||
+        (key & 0xffff) == 0xffff ||
+        nikon_transfer_span(target, bytes, true) < bytes) {
+        *reason = "transfer-rectangle-target-or-key-not-supported";
+        return false;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        if (nikon_transfer_overlap(target, bytes, s->stream[i].source,
+                                   8ULL * s->stream[i].units64) ||
+            nikon_transfer_alias(s->stream[i].source,
+                                  8ULL * s->stream[i].units64, target, bytes)) {
+            *reason = "transfer-stream-operands-overlap";
+            return false;
+        }
+    }
+    if (nikon_transfer_overlap(s->stream[0].source, setup_bytes,
+                               s->stream[1].source, draw_bytes)) {
+        *reason = "transfer-stream-operands-overlap";
+        return false;
+    }
+    for (unsigned i = 0; i < count; i++) {
+        const uint32_t *a = setup + 2 + 53 * i;
+        const uint32_t *b = draw + 35 + 59 * i;
+        uint32_t expected_key = 0x10000 | ((key - 0x10001 + i) % 0xfffe + 1);
+        int32_t x = le32_to_cpu(a[46]), y = le32_to_cpu(a[47]);
+        int32_t width = le32_to_cpu(a[48]), height = le32_to_cpu(a[49]);
+
+        if (!nikon_transfer_rectangle_fields(a, 53, rectangle_setup_fields,
+                ARRAY_SIZE(rectangle_setup_fields),
+                (1ULL << 35) | (31ULL << 46) | (1ULL << 52)) ||
+            !nikon_transfer_rectangle_fields(b, 57, rectangle_draw_fields,
+                ARRAY_SIZE(rectangle_draw_fields),
+                (1ULL << 31) | (1ULL << 35) | (1ULL << 47) | (1ULL << 54)) ||
+            (i && (le32_to_cpu(b[-2]) != 0x01848004 || b[-1])) ||
+            !a[35] || a[35] != b[47] || le32_to_cpu(a[52]) != expected_key ||
+            le32_to_cpu(b[54]) != expected_key ||
+            le32_to_cpu(b[31]) != target ||
+            x < 0 || y < 0 || width <= 0 || height <= 0 ||
+            (uint64_t)x + width > NIKON_PATH_WIDTH ||
+            (uint64_t)y + height > NIKON_PATH_HEIGHT ||
+            le32_to_cpu(a[50]) != -(uint32_t)width) {
+            *reason = "transfer-rectangle-program-not-supported";
+            return false;
+        }
+        rectangles[i].x = x;
+        rectangles[i].y = y;
+        rectangles[i].width = width;
+        rectangles[i].height = height;
+        rectangles[i].paint = le32_to_cpu(b[35]);
+    }
+    if (execute) {
+        hwaddr mapped = bytes;
+        MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+        uint8_t *destination;
+
+        attrs.memory = true;
+        destination = address_space_map(&address_space_memory, target, &mapped,
+                                        true, attrs);
+        if (!destination || mapped != bytes) {
+            if (destination) {
+                address_space_unmap(&address_space_memory, destination, mapped,
+                                    true, 0);
+            }
+            *reason = "transfer-stream-output-map-failed";
+            return false;
+        }
+        /*
+         * Integer, identity, SRC rectangles have exact half-open coverage.
+         * Scratch slots are paired by key, not emulated GPU internals.
+         */
+        for (unsigned i = 0; i < count; i++) {
+            for (unsigned y = rectangles[i].y;
+                 y < rectangles[i].y + rectangles[i].height; y++) {
+                for (unsigned x = rectangles[i].x;
+                     x < rectangles[i].x + rectangles[i].width; x++) {
+                    stl_le_p(destination + 4 * (y * NIKON_PATH_WIDTH + x),
+                             rectangles[i].paint);
+                }
+            }
+        }
+        address_space_unmap(&address_space_memory, destination, mapped,
+                            true, mapped);
+    }
+    return true;
+}
+
 static bool nikon_transfer_stream_parse(NikonTransferState *s,
                                         NikonTransferProgram *program,
                                         const char **reason)
 {
     size_t draw_bytes;
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+
+    if (draw_bytes >= 35 * 4 && le32_to_cpu(draw[11]) == 0x01e002d0 &&
+        le32_to_cpu(draw[33]) == 0x01a11004) {
+        program->kind = TRANSFER_PROGRAM_RECTANGLES;
+        return nikon_transfer_rectangles(s, false, reason);
+    }
 
     if (draw_bytes == 1736 || draw_bytes == 1552) {
         program->kind = TRANSFER_PROGRAM_RGBA_YUV;
@@ -1792,6 +1979,9 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s, bool *rgba720,
 
     if (!nikon_transfer_stream_parse(s, &parsed, reason)) {
         return false;
+    }
+    if (parsed.kind == TRANSFER_PROGRAM_RECTANGLES) {
+        return nikon_transfer_rectangles(s, true, reason);
     }
     if (parsed.kind == TRANSFER_PROGRAM_RGBA_YUV) {
         if (!nikon_transfer_convert_execute(&parsed, reason)) {

@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; graphics stream frontier
+## Normal display request accepted; host RAM/IOTLB frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -79,24 +79,36 @@ reaches its return sequence102dea90. The [Audio observation profile](../devices/
 now supports the54/58 and5c/60 getters under explicit last-observed/packing
 assumptions;22 applicable native cases pass after the old-model SS3 red.
 Original execution crosses the input getter and amplitude consumer. The
-current first rejection is CPU1 PC`106ee3c6`, WRITE32 PA`201810e0=1`,
+first rejection at that Audio-only checkpoint is CPU1 PC`106ee3c6`, WRITE32 PA`201810e0=1`,
 reason`transfer-stream-truncated`, in paired graphics submission106ee04a.
 This is a parser frontier, not proof of genuinely truncated guest data.
 The captured submission is856/1088 bytes at PAbd0dff90/bd15ff90, with
 720x480 geometry fields. Its unrecognized dispatch falls back to fixed LUT
 length validation; see the [transfer frontier](../devices/transfer/protocol.md).
-Both input DMA channels retain EB1/SS0 without a sample producer; samples
-and audio DMA completion are not claimed.
+The [inline rectangle model](../devices/transfer/rectangles.md) now supports
+the whole self-contained signed32/SRC family. All14 transfer unit cases pass,
+including variable batches, colors/alpha, key wrap, exact pixels and guarded
+32-bit RAM/alias boundaries. Original856/1088 START is followed by entry to
+original IRQ129 handler106ee3ca. Further clear generation runs, then host
+QEMU aborts in`accel/tcg/cputlb.c:1080`, `tlb_set_page_full`, asserting
+`!(iotlb & ~TARGET_PAGE_MASK)`. This is the current measured stop; a specific
+physical page/MemoryRegion has not yet been captured. Unaligned board RAM
+backing is a source-based candidate, not a proven identity for the failing page.
+No final guest snapshot was obtained after abort. Input sample transfer,
+audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `audiolevels-20261023`; `hdmacflags-20261023`,
+Latest receipts are in `graphicscommands-20261023`; `audiolevels-20261023`,
+`hdmacflags-20261023`,
 `audioformat-20261023`, `captureflow-20261022`,
 `routerfunctional-20261022`,
 earlier `router-20261022`,
 `sysconfig-20261022`, `streamstorage-20261022` retain their own checkpoints.
-The UART peer rejects no request. Gate/pending3/display-ready remain0;
-request admission and TG boundaries do not establish scanout or a GUI first frame. The earlier
+The UART peer rejects no protocol request before host termination. At the
+prior Audio checkpoint gate/pending3/display-ready remained0; current final
+readiness was not sampled after the host abort.
+Request admission and TG boundaries do not establish scanout or a GUI first frame. The earlier
 432/616-byte graphics pair belongs to the erased-TEMP failure transition and is
 not the current accepted-request frontier.
 
