@@ -1,11 +1,22 @@
 # Native GUI integration
 
+The [rectangle context continuation](../devices/transfer/continuation.md)
+passes the complete 15-case `nikon_transfer_unit` batch after the new valid
+continuation fails against the old model. Its 31 variants cover cross-batch
+key/wrap, chained odd batches, exact ordered pixels/guards, counts and padding,
+explicit target changes, invalid/missing/foreign contexts, alias boundaries,
+immutable capture and reset/unrealize/map-loss cancellation. Independent review
+found no concrete defect. Separate unchanged execution receives original IRQ129
+after 2120/2368 START and next rejects a 176/368-byte partial-alpha SRC_OVER
+program. Current GUI readiness is zero; no GUI first frame is established.
+Receipts are in `work/runs/rectanglecontinuation-20261023/`.
+
 The [MAS RAM backing fix](../startup/ram.md) passes all 43 applicable cases:
 memory qtest 26, memory unit 3 and transfer unit 14. Its new real-TCG regression
 fails with the old host IOTLB assertion, then verifies 39 addresses with
 CPU/bus bidirectional reads and writes over two reset phases. Existing boundary
 and MXIC cases remain green. Separate unchanged execution crosses the host
-assertion and stops at the next 2120/2368-byte graphics submission; the final
+assertion and, at that RAM-only checkpoint, stops at the 2120/2368-byte submission; the final
 snapshot has GUI gate/pending3/display-ready zero. Receipts are in
 `work/runs/ramalignment-20261023/`. No GUI first frame is claimed.
 

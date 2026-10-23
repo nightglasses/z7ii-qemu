@@ -4,8 +4,10 @@ The normal GUI continuation's host TLB assertion was caused by the MAS board's
 RAM mapping helper. It mapped an independently allocated RAM block directly at
 a non-page-aligned physical base. The fix preserves every physical base and
 length, with a private backing prefix and an exact alias at the original base.
-Unchanged original execution now reaches the next 2120/2368-byte graphics
-submission. GUI first frame remains unverified.
+The RAM-only original run reaches a 2120/2368-byte graphics submission.
+The later [context continuation model](../devices/transfer/continuation.md)
+completes it and next reaches a partial-alpha SRC_OVER boundary. GUI first
+frame remains unverified.
 
 ## Captured failure
 
@@ -88,10 +90,11 @@ PA `bd1603d0`. They contain ten signed integer rectangles with target
 `bec5f200`, paint zero, alternating scratch operands and keys `10005..1000e`.
 Setup has ten 53-word records without the earlier two-word initialization;
 draw has ten 59-word transition/body groups and a two-word ending. The earlier
-self-contained initialization prefix is absent. Context continuation is the
-next contract to recover and validate; a length fallback's truncated diagnostic
-does not establish genuinely incomplete guest commands. No model is added for
-that next submission in this RAM fix.
+self-contained initialization prefix is absent. At this RAM-only checkpoint
+context continuation was unsupported; a length fallback's truncated diagnostic
+does not establish genuinely incomplete guest commands. The subsequent
+[continuation model](../devices/transfer/continuation.md) implements that
+contract separately from the RAM fix and completes this pair through IRQ129.
 
 Ignored receipts: `work/runs/ramalignment-20261023/` contains the diagnostic
 probe, native red/green logs, normal green argv/QMP/GDB/trace, both complete

@@ -128,6 +128,7 @@ struct NikonTransferState {
     uint64_t stream_serial;
     bool stream_running, stream_ready, stream_irq_pending;
     bool rgba720, yuva107;
+    uint32_t rectangle_key;
     bool wait_reported;
 };
 
@@ -253,6 +254,7 @@ static void nikon_transfer_stream_clear(NikonTransferState *s)
     s->stream_running = false;
     s->rgba720 = false;
     s->yuva107 = false;
+    s->rectangle_key = 0;
     for (unsigned i = 0; i < ARRAY_SIZE(s->stream); i++) {
         g_clear_pointer(&s->stream[i].bytes, g_bytes_unref);
         memset(&s->stream[i], 0, sizeof(s->stream[i]));
@@ -1450,7 +1452,8 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
 }
 
 /*
- * 1068bd90/10646324: self-contained signed32, identity rectangle clears.
+ * 1068bd90/10646324: signed32, identity rectangle clears. 106454b2 emits
+ * initialization only when its global dirty flag is set; ACK retains state.
  * Fields are the emitted register protocol, not an opaque firmware fixture.
  */
 static const NikonTransferField rectangle_setup_fields[] = {
@@ -1512,6 +1515,7 @@ static bool nikon_transfer_rectangle_fields(const uint32_t *words,
 }
 
 static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
+                                      uint32_t *next_key,
                                       const char **reason)
 {
     struct {
@@ -1521,27 +1525,38 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
     const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
     const uint32_t bytes = 4 * NIKON_PATH_MASK_BYTES;
-    unsigned count = setup_bytes >= 8 ? (setup_bytes / 4 - 2) / 53 : 0;
+    bool initial = le32_to_cpu(draw[0]) == 0x01408004;
+    unsigned setup_prefix = initial ? 2 : 0;
+    unsigned draw_prefix = initial ? 35 : 2;
+    unsigned count = setup_bytes / 4 >= setup_prefix ?
+                     (setup_bytes / 4 - setup_prefix) / 53 : 0;
+    unsigned draw_words = draw_prefix + 59 * count;
     uint32_t target, key;
 
     if (!count || count > NIKON_PATH_MAX_BATCH ||
-        setup_bytes != ROUND_UP(2 + 53 * count, 2) * 4 ||
-        draw_bytes != ROUND_UP(35 + 59 * count, 2) * 4) {
+        setup_bytes != ROUND_UP(setup_prefix + 53 * count, 2) * 4 ||
+        draw_bytes != ROUND_UP(draw_words, 2) * 4) {
         *reason = "transfer-rectangle-count-not-supported";
         return false;
     }
-    if (le32_to_cpu(setup[0]) != 0x00691004 || le32_to_cpu(setup[1]) != 0x80 ||
-        !nikon_transfer_rectangle_fields(draw, 35, rectangle_prefix_fields,
-                              ARRAY_SIZE(rectangle_prefix_fields), 0) ||
-        ((count & 1) && le32_to_cpu(setup[2 + 53 * count])) ||
-        (!(count & 1) && le32_to_cpu(draw[35 + 59 * count])) ||
-        le32_to_cpu(draw[33 + 59 * count]) != 0x00081004 ||
-        le32_to_cpu(draw[34 + 59 * count]) != 1) {
+    if ((initial && (le32_to_cpu(setup[0]) != 0x00691004 ||
+                     le32_to_cpu(setup[1]) != 0x80 ||
+                     !nikon_transfer_rectangle_fields(draw, 35,
+                         rectangle_prefix_fields,
+                         ARRAY_SIZE(rectangle_prefix_fields), 0))) ||
+        ((count & 1) && le32_to_cpu(setup[setup_prefix + 53 * count])) ||
+        ((draw_words & 1) && le32_to_cpu(draw[draw_words])) ||
+        le32_to_cpu(draw[draw_words - 2]) != 0x00081004 ||
+        le32_to_cpu(draw[draw_words - 1]) != 1) {
         *reason = "transfer-rectangle-context-not-supported";
         return false;
     }
-    target = le32_to_cpu(draw[35 + 31]);
-    key = le32_to_cpu(setup[2 + 52]);
+    target = le32_to_cpu(draw[draw_prefix + 31]);
+    key = le32_to_cpu(setup[setup_prefix + 52]);
+    if (!initial && (!s->rectangle_key || key != s->rectangle_key)) {
+        *reason = "transfer-rectangle-context-not-established";
+        return false;
+    }
     if ((target & 3) || (uint64_t)target + bytes > (1ULL << 32) ||
         (key >> 16) != 1 || !(key & 0xffff) ||
         (key & 0xffff) == 0xffff ||
@@ -1564,8 +1579,8 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
         return false;
     }
     for (unsigned i = 0; i < count; i++) {
-        const uint32_t *a = setup + 2 + 53 * i;
-        const uint32_t *b = draw + 35 + 59 * i;
+        const uint32_t *a = setup + setup_prefix + 53 * i;
+        const uint32_t *b = draw + draw_prefix + 59 * i;
         uint32_t expected_key = 0x10000 | ((key - 0x10001 + i) % 0xfffe + 1);
         int32_t x = le32_to_cpu(a[46]), y = le32_to_cpu(a[47]);
         int32_t width = le32_to_cpu(a[48]), height = le32_to_cpu(a[49]);
@@ -1576,7 +1591,8 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
             !nikon_transfer_rectangle_fields(b, 57, rectangle_draw_fields,
                 ARRAY_SIZE(rectangle_draw_fields),
                 (1ULL << 31) | (1ULL << 35) | (1ULL << 47) | (1ULL << 54)) ||
-            (i && (le32_to_cpu(b[-2]) != 0x01848004 || b[-1])) ||
+            ((i || !initial) &&
+             (le32_to_cpu(b[-2]) != 0x01848004 || b[-1])) ||
             !a[35] || a[35] != b[47] || le32_to_cpu(a[52]) != expected_key ||
             le32_to_cpu(b[54]) != expected_key ||
             le32_to_cpu(b[31]) != target ||
@@ -1625,6 +1641,7 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
         }
         address_space_unmap(&address_space_memory, destination, mapped,
                             true, mapped);
+        *next_key = 0x10000 | ((key - 0x10001 + count) % 0xfffe + 1);
     }
     return true;
 }
@@ -1636,10 +1653,14 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     size_t draw_bytes;
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
 
-    if (draw_bytes >= 35 * 4 && le32_to_cpu(draw[11]) == 0x01e002d0 &&
-        le32_to_cpu(draw[33]) == 0x01a11004) {
+    if ((draw_bytes >= 35 * 4 && le32_to_cpu(draw[11]) == 0x01e002d0 &&
+         le32_to_cpu(draw[33]) == 0x01a11004) ||
+        (draw_bytes >= 59 * 4 && le32_to_cpu(draw[0]) == 0x01848004 &&
+         le32_to_cpu(draw[2]) == 0x0115c004 &&
+         le32_to_cpu(draw[48]) == 0x00a0f02e &&
+         le32_to_cpu(draw[52]) == 0x01e002d0)) {
         program->kind = TRANSFER_PROGRAM_RECTANGLES;
-        return nikon_transfer_rectangles(s, false, reason);
+        return nikon_transfer_rectangles(s, false, NULL, reason);
     }
 
     if (draw_bytes == 1736 || draw_bytes == 1552) {
@@ -1968,6 +1989,7 @@ out:
 
 static bool nikon_transfer_stream_execute(NikonTransferState *s, bool *rgba720,
                                           bool *yuva107,
+                                          uint32_t *rectangle_key,
                                           const char **reason)
 {
     NikonTransferProgram parsed;
@@ -1981,7 +2003,7 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s, bool *rgba720,
         return false;
     }
     if (parsed.kind == TRANSFER_PROGRAM_RECTANGLES) {
-        return nikon_transfer_rectangles(s, true, reason);
+        return nikon_transfer_rectangles(s, true, rectangle_key, reason);
     }
     if (parsed.kind == TRANSFER_PROGRAM_RGBA_YUV) {
         if (!nikon_transfer_convert_execute(&parsed, reason)) {
@@ -2056,11 +2078,13 @@ static void nikon_transfer_stream_complete(void *opaque)
     NikonTransferState *s = opaque;
     const char *reason = NULL;
     bool success, rgba720 = false, yuva107 = false;
+    uint32_t rectangle_key = 0;
 
     if (!s->stream_running) {
         return;
     }
-    success = nikon_transfer_stream_execute(s, &rgba720, &yuva107, &reason);
+    success = nikon_transfer_stream_execute(s, &rgba720, &yuva107,
+                                            &rectangle_key, &reason);
     nikon_transfer_stream_clear(s);
     if (!success) {
         nikon_transfer_error(s, 0x10e0, 4, true, 1, reason);
@@ -2069,6 +2093,7 @@ static void nikon_transfer_stream_complete(void *opaque)
     /* Publish context only after successful execution; ACK retains it. */
     s->rgba720 = rgba720;
     s->yuva107 = yuva107;
+    s->rectangle_key = rectangle_key;
     s->stream_ready = true;
     s->stream_irq_pending = true;
     nikon_transfer_irq(s);

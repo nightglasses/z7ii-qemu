@@ -2,18 +2,21 @@
 
 ## Current normal-startup frontier
 
-The [inline rectangle model](rectangles.md) implements the 856/1088-byte
-checkpoint below. All 14 transfer unit cases pass, and unchanged original
-execution receives IRQ 129. The [RAM backing fix](../../startup/ram.md) then
-resolves the following host TLB assertion in resource57 record0 without
-changing physical boundaries. The next rejected submission is CPU0 WRITE32
-PA `201810e0=1`, original PC `106ee3c6`, with complete setup/draw buffers of
-2120/2368 bytes at PA `bd0e02f0/bd1603d0`. They contain ten inline rectangles
-targeting `bec5f200`, paint zero, keys `10005..1000e`, without the previous
-initialization prefix. Context continuation is not implemented by the current
-self-contained model; fallback LUT length validation reports
-`transfer-stream-truncated`. Current GUI readiness remains zero and no first
-frame is claimed. The rejected-packet analysis below records the earlier pair.
+The [inline rectangle model](rectangles.md), [RAM backing fix](../../startup/ram.md)
+and [context continuation](continuation.md) now cross both the 856/1088 and
+2120/2368-byte checkpoints. All 15 transfer unit cases pass; original IRQ 129
+follows each pair. The device retains the initialized format/clip profile and
+expected key across ACK, validates the whole next batch and publishes updated
+state only after successful pixel execution.
+
+The next CPU1 WRITE32 PA `201810e0=1`, original PC `106ee3c6`, rejects with
+`transfer-stream-program-not-supported`. Complete setup/draw buffers are
+176/368 bytes at PA `bd0dff90/bd15ff90`. Their fixed fields match the existing
+720×480 record7 SRC_OVER family except paint `cc000000`, where the model
+requires `ff000000`; shadow bit3 is already supported. Indirect arrays remain
+to be checked and partial-alpha execution remains unimplemented. GUI readiness
+is zero and no first frame is claimed. The analysis below records earlier
+checkpoint receipts.
 
 At the [Audio observation checkpoint](../audio/monitor.md), unchanged
 firmware's first uncovered access was CPU1 MAS VA106ee3c6, WRITE32 board

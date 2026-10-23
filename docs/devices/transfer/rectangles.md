@@ -5,9 +5,10 @@ clears. The new finite model handles the whole self-contained batch family,
 including variable count, coordinates, colors, target and sequential keys.
 The unchanged original now receives IRQ 129 for this submission. The later
 [RAM backing fix](../../startup/ram.md) resolves the host TLB assertion recorded
-below. The current graphics frontier is a 2120/2368-byte continuation containing
-ten rectangles without this family's initialization prefix. No GUI first frame
-is established.
+below. The later [context continuation](continuation.md) also completes ten
+rectangles in 2120/2368 bytes without this family's initialization prefix.
+Original execution next rejects a partial-alpha SRC_OVER program. No GUI first
+frame is established.
 
 ## Direct evidence
 
@@ -80,6 +81,11 @@ data. It does not implement a generic GPU command VM or a physical rasterizer.
 This self-contained profile does not establish the old c175d600 RGBA720 or
 YUVA107 continuation contexts; successful execution invalidates those scoped
 context flags instead of applying them to bec5f200.
+
+The [continuation extension](continuation.md) now retains this family's own
+initialized profile and expected next key after successful execution. It is
+separate from those older scoped flags and supports omitted initialization
+only with a valid retained profile.
 
 ## Native validation and original continuation
 

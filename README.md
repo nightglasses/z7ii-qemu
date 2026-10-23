@@ -121,14 +121,17 @@ graphics parser. Input selectors5/6 still lack a sample producer; actual sample
 transfer and audio completion remain unverified.
 The [inline rectangle model](docs/devices/transfer/rectangles.md) now handles
 that856/1088-byte family, including variable counts/colors, SRC alpha clearing,
-key wrap and strict RAM/alias boundaries. All14 transfer unit cases pass.
+key wrap and strict RAM/alias boundaries.
 Unchanged original execution submits the four rectangles and receives IRQ129.
 The [RAM backing fix](docs/startup/ram.md) resolves the subsequent host IOTLB
 assertion in resource57 record0 while preserving exact physical boundaries;
-all 43 applicable memory/transfer native cases pass. Original execution now
-reaches a 2120/2368-byte, ten-rectangle continuation without the earlier
-initialization prefix. It is rejected by the current graphics parser; GUI
-gate/pending3/display-ready remain zero and no GUI first frame is established.
+that 43-case memory/transfer native batch passes. The later
+[context continuation model](docs/devices/transfer/continuation.md) completes
+the 2120/2368-byte, ten-rectangle batch without its earlier initialization
+prefix. All 15 transfer unit cases pass; original execution receives IRQ129
+and next rejects a 176/368-byte record7 SRC_OVER submission with partial-alpha
+paint `cc000000`. GUI gate/pending3/display-ready remain zero; no GUI first
+frame is established.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

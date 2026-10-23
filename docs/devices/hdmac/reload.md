@@ -3,10 +3,8 @@
 Later continuation: the [Audio observation profile](../audio/monitor.md)
 crosses the54/58 getter recorded below. The first rejection at that checkpoint is
 graphics submission PA201810e0=1 with transfer-stream-truncated. This
-document retains its reload-only receipts and scope. The later
-[rectangle model](../transfer/rectangles.md) crosses that graphics rejection
-and the subsequent [RAM fix](../../startup/ram.md) crosses its host IOTLB
-assertion to reach the next ten-rectangle graphics continuation.
+document retains its reload-only receipts and scope. Later graphics and RAM
+progress is tracked in the [current startup frontier](../../validation/frontier.md).
 
 The normal GUI continuation programs three reload flags in the audio input
 descriptors. The complete eight-combination family is now supported, across

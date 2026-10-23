@@ -6,9 +6,8 @@ input enable plus the initializer return sequence. The subsequent
 [observation profile](monitor.md) crosses the separate54/58 getter and next
 rejects graphics submission PA201810e0=1. The receipts in this
 document retain their earlier scope; actual input samples remain unverified.
-The later [rectangle model](../transfer/rectangles.md) crosses that graphics
-rejection; the subsequent [RAM fix](../../startup/ram.md) crosses its host
-IOTLB assertion and next reaches a ten-rectangle graphics continuation.
+Later graphics and RAM progress is tracked in the
+[current startup frontier](../../validation/frontier.md).
 
 The normal GUI continuation reaches microphone initialization, not an output
 sample transfer. The old profile rejected its legal AUMD fields. This model

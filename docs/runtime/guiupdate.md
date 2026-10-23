@@ -46,13 +46,15 @@ PA`201810e0=1`, reason`transfer-stream-truncated`. The paired graphics
 submitter is106ee04a; complete856/1088-byte buffers are captured at
 PAbd0dff90/bd15ff90. That dispatch fell through to LUT length checks;
 the [inline rectangle model](../devices/transfer/rectangles.md) now executes
-that family with14 transfer unit cases passing. Original IRQ129 follows its
+that family with an initial 14-case batch passing. Original IRQ129 follows its
 856/1088 START and further clear generation runs. The [RAM backing fix](../startup/ram.md)
 resolves the following host TLB assertion at PA `bed661c8` in resource57 record0
-without changing physical bounds; all 43 applicable native cases pass.
-The current stop is the next 2120/2368-byte graphics submission: ten rectangles
-with keys `10005..1000e` omit the earlier initialization prefix. CPU0 original
-PC `106ee3c6` writes PA `201810e0=1` and the parser rejects this continuation.
+without changing physical bounds; its 43-case native batch passes.
+The later [context continuation](../devices/transfer/continuation.md) completes
+the next 2120/2368-byte pair and receives original IRQ129. All 15 transfer unit
+cases pass. The current CPU1 original PC `106ee3c6` writes PA `201810e0=1`
+and rejects a 176/368-byte single-path record7 SRC_OVER program with paint
+`cc000000`; partial-alpha execution and this pair's indirect data remain open.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

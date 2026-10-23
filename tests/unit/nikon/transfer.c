@@ -2699,6 +2699,7 @@ static void inline_pair(uint8_t *bytes, unsigned *at, uint32_t header,
 static void build_inline_rectangles(uint8_t *setup, uint8_t *draw,
                                      const InlineRectangle *rectangles,
                                      unsigned count, uint32_t target,
+                                     bool initial, uint32_t first_key,
                                      unsigned *setup_bytes,
                                      unsigned *draw_bytes)
 {
@@ -2706,21 +2707,25 @@ static void build_inline_rectangles(uint8_t *setup, uint8_t *draw,
 
 #define A(h, v) inline_pair(setup, &a, h, v)
 #define B(h, v) inline_pair(draw, &b, h, v)
-    A(0x00691004, 0x80);
-    B(0x01408004, 0); B(0x01901004, 0);
-    B(0x014ee004, 0x1b0000); B(0x0156e004, 0x1b0000);
-    B(0x01a2f004, 0); B(0x01a3f004, 0x01e002d0);
-    B(0x01844004, 0); B(0x01a7f004, 0x01000101);
-    B(0x011cf004, 480U << 16); B(0x01a08004, 0);
-    inline_word(draw, &b, 0x00c0f00e);
-    inline_word(draw, &b, 719U << 16);
-    inline_word(draw, &b, 479U << 16);
-    B(0x01001004, 1); B(0x01151004, 1);
-    B(0x01b01004, 13); B(0x01b31004, 1);
-    B(0x01848004, 0); B(0x01a11004, 0);
+    if (initial) {
+        A(0x00691004, 0x80);
+        B(0x01408004, 0); B(0x01901004, 0);
+        B(0x014ee004, 0x1b0000); B(0x0156e004, 0x1b0000);
+        B(0x01a2f004, 0); B(0x01a3f004, 0x01e002d0);
+        B(0x01844004, 0); B(0x01a7f004, 0x01000101);
+        B(0x011cf004, 480U << 16); B(0x01a08004, 0);
+        inline_word(draw, &b, 0x00c0f00e);
+        inline_word(draw, &b, 719U << 16);
+        inline_word(draw, &b, 479U << 16);
+        B(0x01001004, 1); B(0x01151004, 1);
+        B(0x01b01004, 13); B(0x01b31004, 1);
+        B(0x01848004, 0); B(0x01a11004, 0);
+    } else {
+        B(0x01848004, 0);
+    }
     for (unsigned i = 0; i < count; i++) {
         const InlineRectangle *r = &rectangles[i];
-        uint32_t key = 0x10000 | ((0xfffc + i) % 0xfffe + 1);
+        uint32_t key = 0x10000 | ((first_key - 0x10001 + i) % 0xfffe + 1);
         uint32_t scratch = (i & 1) ? 0x22220000 : 0x11110000;
 
         for (unsigned m = 0; m < 2; m++) {
@@ -2781,10 +2786,11 @@ static void build_inline_rectangles(uint8_t *setup, uint8_t *draw,
 
 static MemTxResult submit_inline_rectangles(TransferFixture *f, uint32_t source,
                                              unsigned setup_bytes,
-                                             unsigned draw_bytes)
+                                             unsigned draw_bytes, bool initial)
 {
     const uint32_t packet[][2] = {
-        {0x1214, 0x100ffff}, {0x1298, 0}, {0x10d4, source},
+        {0x1214, initial ? 0x100ffff : 0xffff},
+        {0x1298, 0}, {0x10d4, source},
         {0x10dc, setup_bytes / 8}, {0x10d0, 1},
         {0x10e4, 0x420000}, {0x10ec, draw_bytes / 8},
     };
@@ -2839,7 +2845,7 @@ static void test_inline_rectangles(void)
      * Its32x32 geometry must still dispatch to the real LUT renderer. */
     build_lut_program(data, data + 0x20000, 0x410000, 0x800000);
     stl_le_p(data + 0x20000 + 33 * 4, 0x01a11004);
-    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, 224, 1688), ==,
+    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, 224, 1688, true), ==,
                     MEMTX_OK);
     advance();
     g_assert_true(f.level);
@@ -2874,7 +2880,8 @@ static void test_inline_rectangles(void)
             }
         }
         build_inline_rectangles(data, data + 0x20000, rectangles, count,
-                                0x800000, &setup_bytes, &draw_bytes);
+                                0x800000, true, 0x1fffd,
+                                &setup_bytes, &draw_bytes);
         if (count == 4) {
             g_assert_cmpuint(setup_bytes, ==, 856);
             g_assert_cmpuint(draw_bytes, ==, 1088);
@@ -2885,7 +2892,8 @@ static void test_inline_rectangles(void)
         case SETUP_PAD:
             /* Three records have a setup padding word. */
             build_inline_rectangles(data, data + 0x20000, rectangles, 3,
-                                    0x800000, &setup_bytes, &draw_bytes);
+                                    0x800000, true, 0x1fffd,
+                                    &setup_bytes, &draw_bytes);
             stl_le_p(data + setup_bytes - 4, 1);
             break;
         case DRAW_PAD: stl_le_p(data + 0x20000 + draw_bytes - 4, 1); break;
@@ -2937,7 +2945,7 @@ static void test_inline_rectangles(void)
             }
         }
         g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
-                                                 draw_bytes), ==,
+                                                 draw_bytes, true), ==,
                         accepted ? MEMTX_OK : MEMTX_ERROR);
         g_assert_false(f.level);
         g_assert_cmpmem(pixels, SLOT + 8, before, SLOT + 8);
@@ -2966,6 +2974,229 @@ static void test_inline_rectangles(void)
     memory_region_del_subregion(root, &alias);
     memory_region_del_subregion(root, &high);
     memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void test_rectangle_continuation(void)
+{
+    enum { SLOT = 0x4b0000, GUARDS = SLOT + 8 };
+    enum { SUCCESS, COLORED, OVERLAP, ONE, TWO, THREE, FIVE, MAXIMUM,
+           TOO_MANY, WRAP, CHAIN, TARGET_CHANGE, NO_CONTEXT, RESET_CONTEXT,
+           LUT_CONTEXT, REJECT_CONTEXT, FAILED_EXEC_CONTEXT, WRONG_KEY, REPLAY,
+           SETUP_PAD, DRAW_PAD, TRANSITION, LATE_FIELD, ENDING, SOURCE_ALIAS,
+           LOSS, RESET, DATA_CHANGE, BEFORE_COMPLETE, BEFORE_ACK, CANCEL, CASES };
+    const InlineRectangle seed[] = {
+        {128, 2, 124, 48, 0xff112233}, {266, 2, 104, 48, 0xff223344},
+        {436, 2, 153, 48, 0xff334455}, {195, 60, 328, 48, 0xff445566},
+    };
+    const InlineRectangle original[] = {
+        {286, 58, 92, 52, 0}, {284, 56, 104, 56, 0},
+        {398, 58, 117, 52, 0}, {396, 56, 129, 56, 0},
+        {398, 58, 125, 52, 0}, {396, 56, 129, 56, 0},
+        {201, 64, 316, 40, 0}, {201, 64, 316, 40, 0},
+        {2, 304, 80, 48, 0}, {660, 304, 58, 48, 0},
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, output[2], alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels[2];
+
+    object_property_add_child(object_get_objects_root(), "transfer-context[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.context-command", 0x40000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    data = memory_region_get_ram_ptr(&commands);
+    for (unsigned i = 0; i < 2; i++) {
+        g_autofree char *name = g_strdup_printf("test.context-output%u", i);
+
+        memory_region_init_ram_flags_nomigrate(&output[i], OBJECT(f.dev),
+                                               name, GUARDS, 0, &error_abort);
+        memory_region_add_subregion(root, i ? 0x1000000 - 4 : 0x800000 - 4,
+                                    &output[i]);
+        pixels[i] = memory_region_get_ram_ptr(&output[i]);
+    }
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.context-alias",
+                            &output[0], 4, SLOT);
+    memory_region_add_subregion(root, 0x1800000, &alias);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        InlineRectangle rectangles[NIKON_PATH_MAX_BATCH + 1];
+        unsigned count = test == ONE ? 1 : test == TWO ? 2 :
+                         test == THREE || test == SETUP_PAD ||
+                         test == DRAW_PAD || test == CHAIN ? 3 :
+                         test == FIVE ? 5 : test == MAXIMUM ? 256 :
+                         test == TOO_MANY ? 257 : 10;
+        uint32_t first_key = test == WRAP ? 0x10001 : 0x10005;
+        uint32_t source = 0x400000;
+        unsigned target_index = test == TARGET_CHANGE;
+        uint32_t target = target_index ? 0x1000000 : 0x800000;
+        unsigned setup_bytes, draw_bytes;
+        bool accepted = test <= TARGET_CHANGE || test == REPLAY || test >= LOSS;
+        bool complete = accepted && test != LOSS && test != RESET &&
+                        test != CANCEL;
+        g_autofree uint8_t *before0 = NULL;
+        g_autofree uint8_t *before1 = NULL;
+        g_autofree uint8_t *expected = NULL;
+
+        g_test_message("rectangle continuation case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x40000);
+        memset(pixels[0], 0xa5, GUARDS);
+        memset(pixels[1], 0x5a, GUARDS);
+        if (test != NO_CONTEXT) {
+            build_inline_rectangles(data, data + 0x20000, seed, 4, 0x800000,
+                true, test == WRAP ? 0x1fffb : 0x10001,
+                &setup_bytes, &draw_bytes);
+            if (test == REJECT_CONTEXT) {
+                stl_le_p(data + (2 + 11) * 4, 0x40000000);
+            }
+            g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                      draw_bytes, true), ==,
+                            test == REJECT_CONTEXT ? MEMTX_ERROR : MEMTX_OK);
+            if (test == BEFORE_COMPLETE) {
+                g_assert_cmpint(write_register(&f, 0x10d4, source), ==,
+                                MEMTX_ERROR);
+            } else if (test == FAILED_EXEC_CONTEXT) {
+                memory_region_set_readonly(&output[0], true);
+            }
+            advance();
+            memory_region_set_readonly(&output[0], false);
+            g_assert_cmpint(f.level, ==, test != REJECT_CONTEXT &&
+                                        test != FAILED_EXEC_CONTEXT);
+            if (test == BEFORE_ACK) {
+                g_assert_cmpint(write_register(&f, 0x10d4, source), ==,
+                                MEMTX_ERROR);
+            }
+            if (f.level) {
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+            if (test == RESET_CONTEXT) {
+                device_cold_reset(f.dev);
+            } else if (test == LUT_CONTEXT) {
+                build_lut_program(data, data + 0x20000, 0x410000, 0x1000000);
+                g_assert_cmpint(submit_inline_rectangles(&f, source, 224, 1688,
+                                                          true),
+                                ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+        }
+        for (unsigned i = 0; i < count; i++) {
+            rectangles[i] = original[i % ARRAY_SIZE(original)];
+            if (test == COLORED || test == OVERLAP || test == CHAIN) {
+                rectangles[i].paint = 0x12345678U * (i + 1);
+            }
+            if (test == OVERLAP) {
+                rectangles[i].x = 280;
+                rectangles[i].y = 58;
+            }
+        }
+        build_inline_rectangles(data, data + 0x20000, rectangles, count, target,
+                                false, test == WRONG_KEY ? first_key + 1 :
+                                first_key, &setup_bytes, &draw_bytes);
+        if (count == 10) {
+            g_assert_cmpuint(setup_bytes, ==, 2120);
+            g_assert_cmpuint(draw_bytes, ==, 2368);
+        }
+        switch (test) {
+        case SETUP_PAD: stl_le_p(data + setup_bytes - 4, 1); break;
+        case DRAW_PAD: stl_le_p(data + 0x20000 + draw_bytes - 4, 1); break;
+        case TRANSITION: stl_le_p(data + 0x20000 + 60 * 4, 1); break;
+        case LATE_FIELD:
+            stl_le_p(data + (53 * (count - 1) + 11) * 4, 0x40000000);
+            break;
+        case ENDING: stl_le_p(data + 0x20000 + 59 * count * 4, 0); break;
+        case SOURCE_ALIAS:
+            source = 0x1800000;
+            memcpy(pixels[0] + 4, data, setup_bytes);
+            break;
+        default: break;
+        }
+        before0 = g_memdup2(pixels[0], GUARDS);
+        before1 = g_memdup2(pixels[1], GUARDS);
+        expected = g_memdup2(pixels[target_index], GUARDS);
+        for (unsigned i = 0; i < count; i++) {
+            InlineRectangle *r = &rectangles[i];
+
+            for (unsigned y = r->y; y < r->y + r->height; y++) {
+                for (unsigned x = r->x; x < r->x + r->width; x++) {
+                    stl_le_p(expected + 4 + 4 * (y * 720 + x), r->paint);
+                }
+            }
+        }
+        /* The bound is enforced before any write even for count 257. */
+        accepted &= test != TOO_MANY;
+        complete &= test != TOO_MANY;
+        g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                 draw_bytes, false), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        g_assert_cmpmem(pixels[0], GUARDS, before0, GUARDS);
+        g_assert_cmpmem(pixels[1], GUARDS, before1, GUARDS);
+        if (test == LOSS) {
+            memory_region_set_readonly(&output[0], true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == DATA_CHANGE) {
+            memset(data, 0xff, 0x40000);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output[0], false);
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels[0], GUARDS,
+                        complete && !target_index ? expected : before0, GUARDS);
+        g_assert_cmpmem(pixels[1], GUARDS,
+                        complete && target_index ? expected : before1, GUARDS);
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        if (test == REPLAY || test == LOSS || test == RESET) {
+            g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                      draw_bytes, false), ==,
+                            MEMTX_ERROR);
+            advance();
+            g_assert_false(f.level);
+            g_assert_cmpmem(pixels[0], GUARDS,
+                            complete ? expected : before0, GUARDS);
+        } else if (test == CHAIN) {
+            /* Retain clip/format and next key across another odd batch. */
+            for (unsigned i = 0; i < 3; i++) {
+                InlineRectangle *r = &rectangles[i];
+
+                r->paint ^= 0xffffffff;
+                for (unsigned y = r->y; y < r->y + r->height; y++) {
+                    for (unsigned x = r->x; x < r->x + r->width; x++) {
+                        stl_le_p(expected + 4 + 4 * (y * 720 + x), r->paint);
+                    }
+                }
+            }
+            build_inline_rectangles(data, data + 0x20000, rectangles, 3, target,
+                                    false, first_key + count,
+                                    &setup_bytes, &draw_bytes);
+            g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                      draw_bytes, false), ==,
+                            MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpmem(pixels[0], GUARDS, expected, GUARDS);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    for (unsigned i = 0; i < 2; i++) {
+        memory_region_del_subregion(root, &output[i]);
+    }
     memory_region_del_subregion(root, &commands);
     drain_call_rcu();
     object_unparent(OBJECT(f.dev));
@@ -3009,6 +3240,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/scaled-yuva", test_scaled_yuva);
     g_test_add_func("/nikon/transfer/yuva-over", test_yuva_over);
     g_test_add_func("/nikon/transfer/inline-rectangles", test_inline_rectangles);
+    g_test_add_func("/nikon/transfer/rectangle-continuation",
+                    test_rectangle_continuation);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

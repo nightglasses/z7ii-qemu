@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; rectangle context continuation frontier
+## Normal display request accepted; partial-alpha SRC_OVER frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -86,25 +86,29 @@ The captured submission is856/1088 bytes at PAbd0dff90/bd15ff90, with
 720x480 geometry fields. Its unrecognized dispatch falls back to fixed LUT
 length validation; see the [transfer frontier](../devices/transfer/protocol.md).
 The [inline rectangle model](../devices/transfer/rectangles.md) now supports
-the whole self-contained signed32/SRC family. All14 transfer unit cases pass,
+the whole self-contained signed32/SRC family. Its initial 14-case batch passes,
 including variable batches, colors/alpha, key wrap, exact pixels and guarded
 32-bit RAM/alias boundaries. Original856/1088 START is followed by entry to
 original IRQ129 handler106ee3ca. The subsequent host IOTLB assertion is now
 [bound and fixed](../startup/ram.md): original PC `10634fbe`, VA `38f661c8`
 maps to PA `bed661c8` in `z7ii.resource57-record0`; its independently mapped
 backing had the wrong page offset. Exact aliases preserve all physical bounds.
-All 43 applicable memory/transfer native cases pass, including real TCG reads
-and writes at 39 addresses over reset. Unchanged execution now stops at CPU0
-PC `106ee3c6`, WRITE32 PA `201810e0=1`, `transfer-stream-truncated`, on a
-complete 2120/2368-byte pair at PA `bd0e02f0/bd1603d0`. Ten inline rectangles
-continue keys `10005..1000e` and target `bec5f200` without the preceding
-self-contained initialization prefix. Context continuation remains unsupported;
-the fallback diagnostic does not prove truncated guest data. Input sample
+The RAM-only 43-case batch passes, including real TCG reads and writes at 39
+addresses over reset. The [continuation model](../devices/transfer/continuation.md)
+now retains the initialized profile and next key across ACK, completing the
+2120/2368-byte pair's ten rectangles with keys `10005..1000e`. All 15 transfer
+unit cases pass; unchanged execution receives original IRQ129 for that pair.
+The current rejection is CPU1 PC `106ee3c6`, WRITE32 PA `201810e0=1`,
+`transfer-stream-program-not-supported`, on complete 176/368-byte buffers at
+PA `bd0dff90/bd15ff90`. Fixed fields match the existing record7 SRC_OVER
+profile except partial-alpha paint `cc000000`; indirect arrays are not yet
+validated and partial-alpha compositing remains unsupported. Input sample
 transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `ramalignment-20261023`; `graphicscommands-20261023`,
+Latest receipts are in `rectanglecontinuation-20261023`; `ramalignment-20261023`,
+`graphicscommands-20261023`,
 `audiolevels-20261023`,
 `hdmacflags-20261023`,
 `audioformat-20261023`, `captureflow-20261022`,
