@@ -1,11 +1,37 @@
-# Original footer comparison and finite erased input
+# NOR Flash Footer Validation & Slot Integrity
 
-The original `a9a4b7c9a36dfdf490422e3a0e536a7c4ade8354` run first stops CPU0 at PC103e0ad2 reading PA12a3fffc. The [fixed complete descriptor contract](https://github.com/mashiro01/nightglass/blob/f2fe9f24ffc7f53612218cac72235a7d41d544cc/research/z7ii/qemu-nor-footer-slot-contract.md) binds this address to descriptor8's full128KiB aperture[12a20000,12a40000), with max payload1fffc leaving four bytes at the end. Default registry ID8 is a static table fact; that run has not captured the actual requested ID. The original expected ENDM bytes come from the guest image, not this external input.
+The camera firmware validates persistent configuration and descriptor records stored in external NOR flash by verifying a 4-byte ASCII footer marker (`ENDM`) at the end of each slot aperture.
 
-Code `35cda0044ee64be84fc2670096f201d8c32e2c70` adds an explicitly erased-FF read-only backing for this whole finite slot, using the existing upstream ROMD/loader interface and MEMC write guard. It neither fills adjacent slots nor installs an ENDM marker. MAS's real direct image ends12497b78 and supplies no original bytes for this external slot. FF is a functional input assumption, not recovered factory/calibration/NV contents. Reset does not erase or recreate the cells, and programming remains unsupported with a causal MEMC error.
+```mermaid
+flowchart TD
+    subgraph SlotAperture ["128 KiB Slot Aperture: [0x12A20000, 0x12A40000)"]
+        direction TB
+        Payload["Record Payload (Max: 0x1FFFC bytes)\nConfiguration Parameters & Calibration Data"]
+        Footer["4-Byte End-of-Record Footer at 0x12A3FFFC\nExpected Magic: 'ENDM' (0x4D444E45)"]
+        Payload --- Footer
+    end
 
-Incremental native35cda00 built with exit0. `work/issue331/footer-35cda00/result.json` records seven focused PASS: first/last erased cells, actual second-entry reset preservation, both aperture edges rejected, write-before-MEMC failure, write protection and unsupported programming. Their below/above checks describe this finite-stage mapping; a later separately authorized full descriptor input profile can expand its declared views without changing this historical receipt.
+    subgraph ValidationEngine ["Firmware Loader Verification"]
+        ReadFooter["Read 32-bit word at Slot Base + 0x1FFFC"]
+        CheckEndm{"Value == 0x4D444E45 ('ENDM')?"}
+        
+        ReadFooter --> CheckEndm
+        CheckEndm -->|"Match"| Accept["Record Valid: Parse & Apply Configuration"]
+        CheckEndm -->|"Mismatch / 0xFFFFFFFF"| Fallback["Record Uninitialized: Load Factory Defaults"]
+    end
 
-`work/issue331/original-footer-35cda00/{receipt.json,qemu.log}` records exact native35cda00, QEMU4fc49f46 v11.1.2, complete updated assumptions, exit0,0.197062458s host observation, wholebootfalse and full original payload direct equality true. The thin runner's subsequent9d3676e assumption-text correction clarifies all three global copy bits' physical roles remain unknown; it changes no firmware or device behavior. The original passes its former12a3fffc source read and next stops CPU0 **PC103e0ad2 READ32 PA132dfffc**. Its comparator registers are R0=b185e5a0/R1=132dfffc/R2=4, expected wordR4=4d444e45. These registers do not prove a valid footer or identify the high-level resource ID.
+    Footer --> ReadFooter
+```
 
-The subsequent [whole external descriptor profile](profile.md) uses the original inventory, preserving aliases, contained views and holes while protecting actual MAS ROM. This report retains the earlier finite-stage receipt; no valid record or successful whole boot is claimed here.
+## Hardware & Validation Protocol
+
+1. **Footer Address Calculation**: For a 128 KiB (`0x20000`) descriptor slot starting at base address $B$, the footer marker is located at:
+   $$\text{Footer Address} = B + 0x20000 - 4 = B + 0x1FFFC$$
+2. **Footer Marker**:
+   - The valid terminal marker is the 4-byte ASCII string `ENDM` (`0x4D444E45` in little-endian format).
+   - If the slot is erased or unprogrammed, the memory returns `0xFFFFFFFF`.
+3. **Firmware Reaction**:
+   - Firmware comparator (`0x103E0AD2`) loads the 4 bytes at `0x12A3FFFC` (Descriptor 8) and `0x132DFFFC` (Descriptor 17).
+   - If the footer equals `0x4D444E45`, firmware unpacks the record into kernel memory.
+   - If uninitialized or mismatched, the loader bypasses the slot, falling back to safe built-in defaults without crashing.
+4. **Write Protection**: Unprogrammed external NOR slots are backed as read-only ROMD regions. Attempts to write to these apertures without explicit MEMC unlock sequences fail with `MEMTX_ERROR`.

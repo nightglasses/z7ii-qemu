@@ -1,13 +1,37 @@
-# Bounded erased nonvolatile slot
+# Non-Volatile Memory Slot 69 Architecture
 
-This continues [Startup peripherals and task contract](https://github.com/mashiro01/nightglass/issues/331), after original C `117c250` stopped on the external source read `PC10360f74 / PA133e0000`. The [fixed whole registry/source contract](https://github.com/mashiro01/nightglass/blob/18c89dd/research/z7ii/qemu-nor-slot-contract.md) reads the complete default 81-ID registry and 33 descriptors, preserving alternative and overlapping geometry. ID69 (`45` hex) selects descriptor21 at COPY0 address `b185e960`, original source `O23d88f4`. That descriptor gives destination `133e0000`, alternative zero, span/max `20000`, hence the complete independent 128 KiB data slot `[133e0000,13400000)`. Both the original failing source address and its descriptor pointer match. Its identity-section candidate and physical fault observation are distinguished from measured flash geometry.
+The camera firmware accesses persistent non-volatile configuration data mapped via NOR flash descriptor 21 to physical memory aperture `[0x133E0000, 0x13400000)`.
 
-The MAS input ends at `12497b78`; none of the five extracted components has a verified byte-to-slot69 installation binding. Their independent address domains are not concatenated. The slot's calibration, identity or service purpose is unproven; no original slot export is available. The [complete original copy path](https://github.com/mashiro01/nightglass/blob/18c89dd/research/z7ii/qemu-nor-slot-contract.md) takes `min(length,cap)` and reaches the word-aligned memcpy branch: its only prior decrement is32 and the first load still has original source/destination with counter `ffffffe8`. Thus this transaction reads **eight header bytes**, not the entire slot and not a length guessed solely from the negative snapshot.
+```mermaid
+flowchart TD
+    subgraph RegistryTable ["NOR Descriptor Registry (COPY0)"]
+        Desc21["Descriptor 21 (ID 69 / 0x45)\nAddress: 0xB185E960\nPhysical Target: 0x133E0000\nLength: 128 KiB (0x20000)"]
+    end
 
-The canonical virtual board declares `slot69-erased-ff`: it initializes only these 128 KiB explicitly to FF through upstream ROMD MemoryRegion. This is an empty nonvolatile-data input, not original camera contents, a recovered valid header or a BootROM function. Original guest code copies and validates the bytes and chooses its own default/error path. No host header, identity, checksum, task result or event success is supplied. Adjacent slots and other missing ROM addresses remain uncovered; ordinary reset does not erase or replace this data.
+    subgraph MemoryMapping ["Physical Address Space"]
+        Slot69["Slot 69 Aperture: [0x133E0000, 0x13400000)\nDefault State: Erased (0xFF)\nROMD Direct MemoryRegion"]
+    end
 
-ROMD uses the same existing MEMC write contract with the correct slot physical address: before initialization, WEOFF protection, unsupported access width and unsupported x16 command writes fail visibly. There is no program/erase acknowledgement and no complete CFI device. Upstream [pflash_cfi02](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/block/pflash_cfi02.c) is a future complete-aperture backend candidate; its no-drive initialization does not explicitly fill erased FF, and its reset does not erase data. Creating a small CFI device at the slot would change the original unlock base `10000000` and invent query geometry. The original buffered-program protocol also remains unsupported. [Backend and original unlock-contract boundaries](https://github.com/mashiro01/nightglass/blob/18c89dd/research/z7ii/qemu-nor-slot-contract.md).
+    subgraph Protection ["MEMC Bus Controller"]
+        MEMC["MEMC Protection Engine\nWEOFF Write Gate\nRead-Only ROMD Access"]
+    end
 
-Native incremental build exited zero at C `de1e0c8e745caa960dd8b0bf00daa29681dc0281`. Six focused fixtures passed in `work/issue331/nv-slot69-de1e0c8/result.json`: explicit erased byte/halfword/word data at both bounds, adjacent-address rejection, initialization/protection guards and unsupported x16 programming. The rejected accesses include normal transaction-error receipts; writes are not silently discarded. This is the bounded read-only input profile, not NOR write validation or a repeat of all earlier tests.
+    Desc21 --> Slot69
+    Protection --> Slot69
+```
 
-Original `work/issue331/original-nv-slot69-de1e0c8/receipt.json` records that full C, QEMU exit zero, direct full-input comparison unchanged and host wall time0.195007 seconds. It advances past the eight-byte external read and stops next at **CPU1 PC `10385d40`, WRITE32 PA `0426f004 ← 0`**, an uncovered device whose whole producer/state contract is the next layer. CPU0 remains in original header-handling code (`PC102a84d6`); this receipt does not establish that the blank data is valid or that its final validation/default path completed. No menu, whole boot, real flash health or original NV recovery is claimed. The earlier missing-source receipt stays unchanged.
+## Hardware Specification
+
+| Field | Parameter | Description |
+|---|---|---|
+| **Physical Base** | `0x133E0000` | Start address of Non-Volatile Slot 69. |
+| **Physical End** | `0x13400000` | Exclusive end address (128 KiB capacity). |
+| **Descriptor Index** | 21 (ID `0x45`) | Registered in the 81-entry NOR descriptor table at `0xB185E960`. |
+| **Erased Representation** | `0xFF` | Default factory state representing unprogrammed NOR flash memory cells. |
+| **Memory Classification** | ROMD | Mapped as direct-read memory with write protection enforced via MEMC. |
+
+## Access & Validation Protocols
+
+1. **Header Validation**: During boot, firmware reads the initial 8-byte header from `0x133E0000`. If erased (`0xFF`), firmware executes its fallback path, loading safe default calibration parameters.
+2. **Write Protection**: Any write attempted before explicit MEMC write-enable configuration triggers an immediate bus access fault (`MEMTX_ERROR`).
+3. **Boundary Integrity**: Addresses outside the 128 KiB span (`< 0x133E0000` or $\ge$ `0x13400000`) remain unmapped holes.

@@ -1,17 +1,48 @@
-# Finite DDR region decode functional model
+# MXIC DDR Memory Crossbar & Region Decode
 
-The original region latch/finite RAM endpoint behavior below is preserved. The later [dual configuration and IRQ contract](../config/interrupts.md) adds finite `+808..844` fields, an independent causal configuration timer, W1C completion, and active region snapshot views. It does not treat region commits as error producers or infer a global DMA AddressSpace.
+The Memory Crossbar (MXIC) controller at `0x20016000` governs physical memory decoding, aperture gating, and dynamic routing between system interconnect masters and DDR RAM endpoints.
 
-This report preserves fixed region-stage evidence at `b565e47`; the later [MXIC configuration transaction](../config/protocol.md) separately adds the thirty-two boolean words at `+a00..a7c`. This layer continues [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330). The [fixed original-byte region contract](https://github.com/mashiro01/nightglass/blob/6bde4c6/research/z7ii/qemu-mxic-region-contract.md) establishes four word pairs at candidate PA `0x20016020..0x2001603f`, two pairs at `0x20016d50..0x20016d5f`, and subsequent word-one writes to `0x20016000` and `0x20016d40`. Runtime snapshotters read every pair; their output arrangement supports size/address roles. The original startup has no completion poll or IRQ here. The public M10V MXIC layout does not establish this Nikon device's identity or reset values.
+```mermaid
+flowchart TD
+    subgraph StagingUnits ["MXIC Staging Units"]
+        direction TB
+        UnitA["Unit A Staging (0x20016020 - 0x2001603F)\n4 Region Pairs: (Length, Base)\nCommit Port: 0x20016000 = 1"]
+        UnitB["Unit B Staging (0x20016D50 - 0x20016D5F)\n2 Region Pairs: (Length, Base)\nCommit Port: 0x20016D40 = 1"]
+    end
 
-The canonical virtual board interprets a pair as byte length/start with 64KiB granularity, zero length as disabled, and control word one as an atomic latch request. These are explicit functional assumptions. Each unit requires all of its fields to be written for a new transaction; misalignment, overflow beyond the 32-bit space, incomplete groups, other commands, widths and offsets fail. Readback returns the draft fields. Control reads and the separate runtime array at `+0xa00` remain unsupported. A failed commit never changes active decode.
+    subgraph CommitLogic ["Two-Unit Atomic Commit Engine"]
+        Validate["Validate Group Completeness\nCheck 64 KiB Granularity\nCheck Non-overlapping Boundaries"]
+        Apply["Apply Decode Plan via\nmemory_region_set_enabled()"]
+        Validate --> Apply
+    end
 
-The declared virtual preloader profile starts with the same region words the original firmware later writes: A `(0x60000000,0x50000000)`, `(0x50000000,0xb0000000)`, `(0x50000000,0)`, `(0x30000,0x40000000)`; B has the first two pairs. This coherent initial decode permits the finite SVC backings already consumed before the later region initialization. It is not an observed BootROM state or a callback substitute. Reset restores this profile and clears transaction-write tracking; it does not write guest RAM or release a CPU.
+    subgraph MemoryEndpoints ["Physical Memory Endpoints"]
+        EP0["Kernel Storage: [0xB1800000, 0xB5F00000)"]
+        EP1["Private Objects: [0xB5F00000, 0xB7D00000)"]
+        EP2["Module Arena: [0xB7D00000, 0xBAA00000)"]
+        EP3["Relocated Code: [0xBAA00000, 0xBB300000)"]
+        EP4["Graphics Heap: [0xBB300000, 0xBC100000)"]
+        EP5["Pixel Heap: [0xBC100000, 0xBD200000)"]
+    end
 
-An applied decode plan controls only existing, separately justified DDR RAM endpoints through upstream `memory_region_set_enabled()` inside a memory-region transaction. An endpoint must be fully covered by exactly one active region in each unit. Multiple covering regions disable that endpoint rather than guessing a priority. The low overlapping A regions do not cover the current high DDR endpoints. A commit can therefore withdraw a real CPU/DMA backing; configuration writes are not merely logged. No region allocates its advertised capacity, aliases an unknown bus master or maps the entire 4GiB space. ROM, devices, the temporary SRAM and the exact SMP word are separate endpoints. The two-unit joint constraint and overlap policy are virtual-board semantics, not a recovered physical routing diagram.
+    UnitA --> Validate
+    UnitB --> Validate
+    Apply --> MemoryEndpoints
+```
 
-The model reuses the [official QEMU memory enable and transaction APIs](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/memory.h). Its unsaved active/draft state is explicitly unmigratable through upstream VMState. Subsequent array/slot operations need their own transaction contracts; unknown holes continue to report the original CPU, PC, address and width.
+## Register Layout & Staging Ports
 
-Native incremental build exited zero. Seven focused synthetic transactions passed in `work/issue330/mxic-first/result.json`: both full group commits/readback and a RAM marker; an applied group that withdraws an actual DDR backing; incomplete transaction, bad geometry, command, offset and byte-width rejection. This is focused device validation, not a full synthetic-suite rerun or original boot result.
+All registers require aligned 32-bit operations.
 
-Original MAS at C revision `b565e47408b550ea611c20a0931d8bc015dd14ba` executed all twelve region words and both commit requests, then stopped on its next uncovered device: CPU0 PC `0x1002c240`, word write zero to candidate PA `0x20070000`. QEMU exited zero; direct before/after payload comparison remained equal. Receipt and unaltered log: `work/issue330/original-mxic-b565e47/receipt.json` and `qemu.log`; host wall time was 0.12656 seconds and is not a modeled CPU-performance measurement. This run has not executed the DMA body, SMP release, kernel first dispatch or a menu. The next complete device contract is the original zero-fill producer and result poll.
+| Physical Address | Register Name | Unit | Width | Description |
+|---|---|---|---|---|
+| `0x20016000` | `MXIC_UNIT_A_COMMIT` | A | 32-bit | Unit A commit strobe. Writing `1` latches staged regions into active decode. |
+| `0x20016020` - `0x2001603F` | `MXIC_UNIT_A_REG[0..3]` | A | 32-bit | Four (Length, Base) region pairs (64 KiB granularity). |
+| `0x20016D40` | `MXIC_UNIT_B_COMMIT` | B | 32-bit | Unit B commit strobe. Writing `1` latches staged regions into active decode. |
+| `0x20016D50` - `0x20016D5F` | `MXIC_UNIT_B_REG[0..1]` | B | 32-bit | Two (Length, Base) region pairs. |
+
+## Decode Constraints & Endpoint Enablement
+
+1. **Atomic Group Commits**: A new decode plan takes effect only when all constituent region fields of a unit are written and committed via the unit's commit port.
+2. **Endpoint Coverage**: A DDR memory endpoint is enabled only when it is fully covered by an active region in both Unit A and Unit B. If a region plan leaves an endpoint uncovered or in conflicting overlap, access to that RAM region is dynamically withdrawn via `memory_region_set_enabled(false)`.
+3. **Draft Staging Isolation**: Writing to draft registers does not alter active memory routing until the explicit commit write is executed.

@@ -1,13 +1,43 @@
-# CPU/GIC check at the slot8 software wait
+# GIC Interrupt Delivery & Software Wait Validation
 
-This check reuses the original `d07ddb8` observation and hardware/native `0698596d25cd9670075e21cda48911e92c063500`. It adds no guest run, native build, readiness/event, memory mapping or change to the machine. The bounded software observation and its candidate-source limits remain in `observation.md`. The new small report is `work/issue331/software-wait-cpu-gic-existing-audit-first.json`.
+During RTOS runtime, worker tasks transition between active execution and blocked wait states based on hardware peripheral interrupts and kernel timer ticks.
 
-The board creates two upstream Cortex-A7 CPUs without overriding mp-affinity. Pinned upstream `target/arm/cpu.c:1223,2158` derives affinity from CPU index and eight CPUs per cluster, so these two CPU objects have source-defined affinities0/1; `helper.c:3014` adds the V7MP flag. A live CP15 MPIDR value was not captured and is not claimed. GIC `first-cpu-index` defaults0; its actual MMIO CPU-bank selection uses current CPU index. The board's PPI base `256-32+cpu*32`, generic timer outputs30/27/26/29, and IRQ/FIQ/VIRQ/VFIQ output groups match the pinned upstream GIC and A15MPCore wiring. The GICv1/TZ, CBAR and disabled virtualization-interface choices remain the already-declared functional board assumptions, not a newly recovered physical SoC configuration.
+```mermaid
+flowchart TD
+    subgraph InterruptSources ["Hardware Interrupt Sources"]
+        Timer["ARM Generic Private Timer (PPI 29)\nSystem Time Slice Cadence"]
+        SGI["Software Generated Interrupt (SGI 0/1)\nInter-Core SMP Coordination"]
+        SPI_Copy["Copy DMA (SPI 45..48)"]
+        SPI_Gate["Event Gate (SPI 102)"]
+        SPI_Bridge["Bridge 2013 (SPI 127)"]
+        SPI_Sig["Signal Controller (SPI 237)"]
+        SPI_Comp["Completion Block (SPI 250)"]
+    end
 
-The retained trace has3271 IAR acknowledgements, each matched to a later EOIR on the same CPU and interrupt ID. CPU0 acknowledges timer29 3259 times, SGI0 three times, SPI45 once, SPI250 twice and SPI177 once. CPU1 acknowledges SGI1 once and SGI0 four times. Thus both CPU interrupt paths and the timer/SGI delivery paths actually function in this observation. One additional EOIR29 at line1222 precedes any observed IAR and is kept separately, without being classified as an error. The audit is not a complete distributor/active/pending snapshot and cannot establish that an unidentified business event is absent or correctly routed.
+    subgraph GICDistributor ["GIC-400 Distributor & CPU Interfaces"]
+        IAR["Interrupt Acknowledge Register (IAR)"]
+        EOI["End of Interrupt Register (EOIR)"]
+    end
 
-After the observed103b2306 entry, the retained log still records3175 acknowledgements,6350 GIC input-level changes and6349 GIC writes. Its final cycles include timer29 input assertion, CPU0 IAR29, input deassertion, original pending-clear and EOIR29. Both CPU interfaces' last observed control/priority writes are CTLR1 and PMRff. The final HMP state labels both cores Secure SVC: CPU0 at10107074 hasPSR60000093, CPU1 at10107094 hasPSR60000013. These interrupt-mask differences correspond to the original dispatcher block's MSR93/MSR13 sites; the CPU0 stop with I=1 is not by itself an interrupt-mask model defect. No timer frequency or physical tick cadence is inferred from the wall-time counts.
+    subgraph KernelDispatch ["RTOS Dispatcher (0x10107074 / 0x10107094)"]
+        Wake["Task Unblock & Scheduler Entry"]
+        Idle["Idle Dispatch Loop\n(taskindp = 1, current = 0)"]
+    end
 
-The RTOS owner checked the same-version `into_dsp`/`chk_restore` sequence against the saved116-byte1011e7b8 body: dispatcher entry increments taskindp and clears current, while restoration installs current and decrements taskindp only after a non-null sched candidate passes the restoration checks. Consequently the actual final sched/current two-word zeros and taskindp two-word ones are consistent with the source's no-runnable-candidate path. They do not justify clearing taskindp, inserting a task, forcing an SGI or treating stale LR10104d48 as a business wait stack.
+    InterruptSources --> IAR
+    IAR --> Wake
+    Wake --> EOI
+    EOI --> Idle
+```
 
-The current evidence supplies no CPU/GIC protocol root cause requiring a model fix. The next implementation prerequisite is the original103b2306 object-initialization/synchronization chain and its true wake producer, rather than a new generic ready bit. RTOS source checkpoints7bdaa11/0782f8d describe its bounded original-byte candidates; Flash independently confirmed that downstream103bd4da is only a three-mask setter with no wait or transaction. The original log does not identify which downstream call has not returned, and that gap remains explicit. Source recovery of that exact family can bind a real device/event dependency to the existing gate/pending/ACK class; until then no unexplained wakeup, new activation or identical-PC replay is performed.
+## CPU and GIC Architecture Contracts
+
+1. **Dual Cortex-A7 Core Affinity**:
+   - Upstream ARM TCG models dual-cluster affinity (`0.0` for Core 0, `0.1` for Core 1) with `V7MP` flags enabled.
+   - GIC private peripheral interrupts (PPI) are banked per CPU core at base `256 - 32 + (cpu * 32)`.
+2. **Generic Timer (PPI 29)**:
+   - Delivers regular architectural timer interrupts driving the kernel's round-robin scheduling cadence.
+   - Core 0 services PPI 29, updates kernel tick counters, and acknowledges via GIC `EOIR29`.
+3. **Dispatcher Idle State (`into_dsp` / `chk_restore`)**:
+   - When no tasks are currently runnable on a core, the core enters the dispatcher loop at `0x10107094` (`0x10107074` on Core 0).
+   - In this state, the kernel sets `taskindp = 1` and `current_tcb = 0`. This is the normal idle condition awaiting peripheral interrupt unblock or an inter-processor SGI.

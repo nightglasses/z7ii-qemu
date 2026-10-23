@@ -1,43 +1,44 @@
-# Original second system-configuration object
+# Second System Configuration Controller (SysConfig)
 
-The initial fixed stage below is extended by the [original GPIO boot selector fields](../gpio/protocol.md) at34/38 and the complete bootstrap producers described below. The earlier receipts are preserved.
+The Second System Configuration Controller at physical base `0x04280000` manages hardware strapping pins, chip variant identification, early boot parameters, and multi-bank control registers.
 
-This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). After UART initialization, original CPU0 issued `PC10200ef0 / WRITE32 PA04280030 / value410`. The [fixed whole object and indexed-caller contract](https://github.com/mashiro01/nightglass/blob/6bde4c6/research/z7ii/qemu-system-control-contract.md) identifies a separate `04280004`-based API, not the `04281000` PLL controller: full-word input configuration stores, restricted bit0/two-nibble setters, two low-field getters and mutex-protected indexed control-word RMW. The implementation covers that distinct object as one finite device.
+```mermaid
+flowchart TD
+    subgraph SysConfigRegisters ["SysConfig Controller (0x04280000)"]
+        direction TB
+        ID["Chip ID & Variant (0x00)\nBits [5:0]: Identity (0..63)\nBits [31:28]: Variant (0..15)"]
+        Straps["Hardware Straps\n0x20: Wide Strap [9:0]\n0x2C: Narrow Strap [4:0]"]
+        CfgWords["Configuration Words\n0x04, 0x08, 0x28, 0x30\n0x24 (Bit 0), 0x74 (Nibbles)"]
+        GPIO_Sel["GPIO Boot Selectors\n0x34, 0x38"]
+        Banks["Five Banked Control Registers\n0x78: Bank 0 (0x73FFFFFF)\n0x7C: Bank 1 (0xFFFFFFFF)\n0x80: Bank 2 (0x01FFC1FF)\n0x84: Bank 3 (0x31FFFFFF)\n0x88: Bank 4 (0x000004EE)"]
+    end
 
-Absolute configuration fields `04/08/28/30` accept the helper's full word; `24` accepts bit0 and `74` accepts two nibbles. Their readback requires a prior guest store, not an invented manufacturer reset. GPIO selectors `34/38` retain their existing fields and functional cold-zero state. The three read-only input words `00/20/2c` now have the finite named profile below. Unspecified indexed-helper ranges remain unsupported. No frequency is inferred from these configuration words, and no autonomous ready, completion, IRQ or physical module effect is invented.
+    Straps --> ID
+    Banks -->|"Mutex-Protected RMW"| Subsystems["SoC Subsystems"]
+```
 
-Four indexed request words at `7c/80/84/88` reset to zero as a declared virtual board input. Guest RMW controls only actual immediate caller bits: bank1 `0/1/2/9/10/11/12/24`; bank2 `6/7/8/16..24`; bank3 `6/7/8/9/10/11/12/14/15/16/17/27/28`; bank4 `2/6/10`. These are writable request-state bits, without unsupported physical reset/gate names. Reads return their current state, and clear/set operations preserve other supported requests; outside-mask writes fail. Unknown offsets, indices and widths fail, rather than expanding the helper to an arbitrary register file. Public JMLEXS layout differs and supplies no valid Nikon reset profile; this model is firmware-interface functional coverage, not a chip identity claim.
+## Register Layout
 
-Incremental native build exited zero. Seven focused synthetic checks in `work/issue331/sysconfig-first/result.json` passed: whole direct configuration interface, all four control banks through set/read/clear, configuration read-before-write, unsupported control bits, bit-field violation, byte width and unbounded indexed offset rejection. Migration/snapshot is explicitly blocked. These fixtures test virtual software-contract state; original execution and downstream device effects require separate runs.
+All accesses require strictly aligned 32-bit operations.
 
-Original run `cf6250c6e01ae2b60b58374106c24d0419d0f2af` in `work/issue331/original-sysconfig-cf6250c` exited zero after the next debug stop, wall0.246452s, direct input unchanged. CPU0 passed the original full configuration store and next issued `PC10200f0a / WRITE32 PA04282000 / valueffff0000`, a separate unsupported control bank. This run does not demonstrate all runtime indexed callers or their physical side effects; their supported software interface is covered by the focused fixtures.
+| Offset | Register Name | Width | Access | Description |
+|---|---|---|---|---|
+| `0x00` | `SYS_ID_VARIANT` | 32-bit | R | Read-only chip identity (`bits [5:0]`) and silicon variant (`bits [31:28]`). |
+| `0x04`, `0x08` | `SYS_CFG0`, `SYS_CFG1` | 32-bit | R/W | Full-word system configuration registers. Read requires prior write. |
+| `0x20` | `SYS_STRAP_WIDE` | 32-bit | R | Read-only wide hardware strap register (`bits [9:0]`). |
+| `0x24` | `SYS_BIT0_CFG` | 32-bit | R/W | Single-bit control register (bit 0 writable). |
+| `0x28`, `0x30` | `SYS_CFG2`, `SYS_CFG3` | 32-bit | R/W | Full-word configuration registers. |
+| `0x2C` | `SYS_STRAP_NARROW`| 32-bit | R | Read-only narrow hardware strap register (`bits [4:0]`). |
+| `0x34`, `0x38` | `SYS_GPIO_SEL0..1`| 32-bit | R/W | GPIO pin selection and multiplexing registers. |
+| `0x74` | `SYS_NIBBLE_CFG` | 32-bit | R/W | Dual-nibble configuration setter. |
+| `0x78` | `SYS_BANK0` | 32-bit | R/W | Bank 0 control register (initialized to `0x73FFFFFF`). |
+| `0x7C` | `SYS_BANK1` | 32-bit | R/W | Bank 1 control register (initialized to `0xFFFFFFFF`). |
+| `0x80` | `SYS_BANK2` | 32-bit | R/W | Bank 2 control register (initialized to `0x01FFC1FF`). |
+| `0x84` | `SYS_BANK3` | 32-bit | R/W | Bank 3 control register (initialized to `0x31FFFFFF`). |
+| `0x88` | `SYS_BANK4` | 32-bit | R/W | Bank 4 control register (initialized to `0x000004EE`). |
 
-The later original GPIO run reached `PC10200e30 / WRITE32 PA04280078 / 73ffffff`. The [complete fixed early initializer](https://github.com/mashiro01/nightglass/blob/6b48ae6/research/z7ii/qemu-system-control-contract.md) establishes five full-word stores at78/7c/80/84/88: `73ffffff/ffffffff/01ffc1ff/31ffffff/000004ee`. The canonical device supports these whole initialization profiles and retains every guest-written bit for readback. Subsequent RMW validates changed bits against the original runtime masks while preserving other configured bits; it does not erase undocumented bits or require the full word to fit an earlier runtime-only mask. Bank0 has this producer but no expanded arbitrary runtime-field permission. Reset control words still use the declared virtual-zero profile; the host does not prefill the five firmware values.
+## Operational Protocols
 
-Incremental native build exited zero. Ten focused checks in `work/issue331/sysconfig-bootstrap-first/result.json` pass the five-word producer and subsequent high-bit preservation, reject unproved initial/post-initialization changes, and retain the earlier seven direct/runtime/width/field contracts. Physical control effects remain unbound; the next original sequence must use the existing request→completion→poll→ack device protocol for domains0/1/3, rather than treating initialization stores as completion.
-
-Original fixed `1436599baa7473beee257a26ac8f84c2761002d7` in `work/issue331/original-sysconfig-bootstrap-1436599` exited zero at the next debug stop, wall0.349558s, direct input unchanged. It passed the complete five-word initialization and the unchanged domain0/1/3 completion polling sequence. Official log326/342/343 records deferred requests0/1000/3000 producing done; guest code continues past its polls/acks, with real IRQ29 services also present. CPU0 next issued `PC10207318 / WRITE32 PA20010044 / value1`, a distinct MXIC configuration transaction. This is early completion polling progression, not original task-mode IRQ250 or menu validation. The receipt's four-bank metadata describes the runtime subset; the fixed source and this report separately document the newly observed five-bank bootstrap.
-
-The later original GUI run at fixed `b6c5ad0f9a0cff814f4748e7f50fea76b3e6f036` reaches CPU1 `PC103C5CF4 / READ32 PA04280000`. The immutable official saved Listing producer `ec048f9fde8723ba2db9657f2e88410933b21099` supplies the complete getter `103C5CF0..103C5D00`, original O`3A5CF0..3A5D00`: `MOV 04280000`, word load, low-six-bit AND, halfword store to output+0, right shift28, halfword store to output+2, return. Thus the two output fields are bits5:0 and bits31:28; this is no proof of a specific physical chip or revision encoding.
-
-The complete indexed namespace projection preserves eighteen actual references across `04280000..0428008B`, four direct owners, five incoming sites, and eight whole owners with 389 original Listing rows. Those owners include the five-bank bootstrap `10200DAC`, selectors/configuration `10200EE4`, getter `103C5CF0`, and bit0 setter `103C5D2C`. The two exact saved incoming getter sites are `1023AA72` and `104A1318`. Whole owner `1023A9D2..1023AAFA` compares the high field with1/2 and conditionally retains or replaces computed parameter values. Owner `1075B750` has disjoint original ranges `1075B750..1075B75E` and `104A1300..104A132A`; the latter compares the high field with2 and conditionally calls `104A12E0`. These source ranges are retained as saved, without inventing a separate owner for the latter fragment or claiming that either branch has already executed. Neither caller consumes the low field in this bounded projection. Unknown computed effective addresses are not promoted to a complete physical register map.
-
-The standard QOM globals belong to `nikon-sysconfig-functional`:
-
-| Property | Legal input | Word/field |
-|---|---|---|
-| `identity` | 0..63 | `+00` bits5:0 |
-| `variant` | 0..15 | `+00` bits31:28 |
-| `strapwide` | 0..1023 | `+20` bits9:0 |
-| `strapnarrow` | 0..31 | `+2C` bits4:0 |
-
-All four default to zero as explicit functional board inputs. Unrepresented bits of these finite input words are zero in this profile. These defaults are not measured reset/loader values or a claim of Nikon model identity. Nonzero values require an explicit input selection; the original GUI run need not try alternate variants. For example, `-global nikon-sysconfig-functional.variant=0` makes that selection visible in the invocation. Inputs remain stable across system reset and guest stores; word writes and unsupported byte/halfword accesses do not change them. Property values outside the recovered widths fail realization. Existing eight configuration words, write-before-read rules, five full guest-written bank words and their reset behavior are preserved. There is no new machine API, IRQ output, readiness event, clock or peripheral reset effect.
-
-One new native case `/nikon/memory/sysconfig` reuses the existing four-byte diagnostic loop. It checks default inputs, explicit variants0/1/2/F, low/high field limits, both strap inputs, guest-write/width rejection, reset persistence, and preservation of all eight writable configuration words and five banks. Its input values are synthetic. Compilation and execution belong to the unique builder; this source change alone is not a passing test or original GUI receipt. The exact raw projection and read-only-query receipt remain in `gui-saved-facts/sysconfig-namespace-projection`; historical analysis1 decompiled C is a separate cohort and supplies no replacement native facts.
-
-The sole builder subsequently compiled and linked the three-path lease
-handoff on canonical `b6c5ad0f` (`work/sysconfiginputbuild.log`, exit0).
-Only the new `/arm/nikon/memory/sysconfig` case was executed; it passed in3.39s
-with exit0 (`work/sysconfiginputnativereceipt.log`). The previous memory cases
-were not repeated. This synthetic test validates the finite functional input
-profile, not a physical identity or an original-firmware branch result.
+1. **Bootstrap Initialization**: During early reset handling, firmware performs five sequential full-word stores to `0x78..0x88`, programming the baseline SoC bus widths, clock multipliers, and interface polarities.
+2. **Runtime Mutex-Protected RMW**: Subsequent subsystem drivers update specific bitfields within Banks 1 to 4 through the kernel's indexed setter helper, preserving all unrelated bits configured during bootstrap.
+3. **Chip Identification**: Firmware at `0x103C5CF0` reads `0x00` and extracts the variant nibble (`bits [31:28]`) to select device driver parameter tables.

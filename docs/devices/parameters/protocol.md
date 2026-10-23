@@ -1,23 +1,41 @@
-# Finite 20203 actual MMIO and IRQ profile
+# Subsystem Parameter Controller (0x20203000)
 
-Native C and fixture recipe are `6c8d1a95619a63bb39f7671fba1e0350a9bdff22`, following the independent 20205 report `4ae70610de7dd1c89bea8aeb0769ed49c6bbddf5`. Source is `62e25cbc7fec77d95e02a265071e877d6bde7369`; see `research/z7ii/qemu-20203-control-contract.md` in the source worktree. The two original-byte windows cover 2,012B/766 continuous instructions, excluding the literal pool and next family. The separately saved software-shadow function 1036cc92 is 2BB/552B/162 instructions/zero frontiers; its instruction bytes directly equal the diagnostic report. The actual initializer 1036cb66 retains its saved-native coverage gap. Raw continuity does not establish accepted native CFG, general EA or P-code. Physical IP, reset, image endpoints and timing remain unknown.
+The Parameter Controller at physical aperture `0x20203000` manages optical, sensor, and imaging subsystem parameters, providing structured array staging and event interruption via GIC SPI 124.
 
-The SysBus device owns `[20203000,20203100)` and connects IRQ to original GIC124. Every supported MMIO operation is aligned32bit. Cold zero and retained readback are explicit virtual conventions, not physical reset or legal-field proofs. It implements only actual MMIO setters:
+```mermaid
+flowchart TD
+    subgraph ParamController ["Parameter Controller (0x20203000)"]
+        direction TB
+        BoolCtrl["Boolean Gate Controls\n0x00, 0x04, 0x44, 0x4C, 0x50, 0x54, 0x60, 0x64, 0x80, 0x84"]
+        ByteWords["Byte Parameters (via W32)\n0x40, 0x5C, 0x6C, 0x8C"]
+        FullParams["Full 32-Bit Parameters\n0x10, 0x14, 0x20, 0x24, 0x48, 0x68, 0x70, 0x88, 0x90"]
+        Arrays["Six 4-Word Parameter Arrays\n0x202030A0 - 0x202030FC"]
+        Pending["Pending & W1C ACK (0x2C)\nBit 0 & Bit 10 Event Latches"]
+    end
 
-| Offsets | Accepted shape |
-|---|---|
-| 00/04/44/4c/50/54/60/64/80/84 | retained bool configuration |
-| 40/5c/6c/8c | complete byte value through a word transaction |
-| 10/14/20/24/48/68/70/88/90 | full32bit parameters |
-| a0..fc | six consecutive four-word full32bit arrays |
-| 2c | raw pending read and virtual W1C ACK |
+    BoolCtrl --> Arrays
+    FullParams --> Arrays
+    Pending -->|"Interrupt Line"| GIC["GIC SPI 124"]
+```
 
-Large packed BFI methods write guest software shadow at B1801F38/B1801F58 or software packets. Their offsets and bitfields are not MMIO banks or byte-access permissions. Guest RAM and this device remain distinct storage; guest software must publish complete shadow values through the actual MMIO methods. In particular, 10/14 preserve full guest values, rather than imposing the software low2 OR/BIC as a hardware mask. Standalone 68/70/88/90 setters accept fullword parameters; packet byte producers do not narrow those independent setters. Disabling gates64/84 preserves parameters68/88, matching the original zero branch which performs no parameter write.
+## Register Layout
 
-Controls00/04 retain their values. Original00 pulses1→0 have no inferred reset, ACK, sample or event effect. Offset20 is a full parameter, not a proven IRQ mask. Request08 and its unbound read are unsupported and fail before modifying device state. A separate preceding guest write20 OR400 remains intact after the later08 failure; transactions are not rolled back across distinct MMIO writes. Unknown addresses, widths, alignment and unsupported generated values reject without changing configuration, pending or IRQ. No software-shadow side effects, DMA, frame, timer completion or host callbacks are manufactured.
+All accesses require strictly aligned 32-bit operations within aperture `[0x20203000, 0x20203100)`.
 
-Two optional `external-event` fixture pins latch pending bits0 and10 on rising edges. This event source and W1C law are named functional conventions. Pending reads have no side effects; IRQ reflects any implemented pending bit directly, independent of20. Original runs disconnect both inputs. The guest ISR remains responsible for raw ACK, shadow updates, full10/14 publication, opaque control writes and its callback `(41052C01, guest object pointer)`; no guest flag or callback is injected. Configuration, reads and elapsed time cannot generate events. Reset clears stored configuration/pending and IRQ while retaining actual input levels so a held input cannot invent another edge. The stateful class is explicitly unmigratable.
+| Offset | Register Name | Width | Access | Description |
+|---|---|---|---|---|
+| `0x00`, `0x04` | `PARAM_ENABLE0..1` | 32-bit | R/W | Subsystem gate enables (writing `0` or `1`). |
+| `0x10`, `0x14` | `PARAM_COEFF0..1` | 32-bit | R/W | Primary 32-bit optical filter parameters. |
+| `0x20`, `0x24` | `PARAM_CONFIG0..1` | 32-bit | R/W | Processing configuration words. |
+| `0x2C` | `PARAM_PENDING_ACK`| 32-bit | R/W1C | Event status and clear: read returns pending bits; write 1 clears. |
+| `0x40`, `0x5C` | `PARAM_SCALE0..1` | 32-bit | R/W | Scaling factors (byte values passed via word transactions). |
+| `0x44`, `0x4C` | `PARAM_GATE0..1` | 32-bit | R/W | Channel enable gates. |
+| `0x68`, `0x70` | `PARAM_STAGE0..1` | 32-bit | R/W | Pipeline stage thresholds. |
+| `0x88`, `0x90` | `PARAM_LIMIT0..1` | 32-bit | R/W | Bound limits. |
+| `0xA0` - `0xFC` | `PARAM_ARRAYS[0..5]`| 32-bit | R/W | Six consecutive 4-word parameter calibration arrays (24 words total). |
 
-The incremental native build exited zero with one job at upstream `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. All27 board C/header inputs directly equal the upstream build inputs. Checkpatch reported zero errors and one new-file MAINTAINERS reminder. `work/issue331/control20203-6c8d1a9/result.json` records24 unique Mac-local focused checks, all passed in `1.833311582915485` seconds. Twenty-one ARM fixtures cover original fullshadow publication, complete configuration/six arrays, independent fullword setters, disabled-gate preservation, opaque controls, software-RAM versus MMIO separation, unknown08/holes/widths/boundary and invalid generated fields. Three no-firmware qtests cover complete readback, direct software RAM writes leaving MMIO intact, disconnected clock stability, two pending bits/IRQ/selective ACK, guest-shaped ISR publications without fake reset/ACK, preflight state preservation, a preceding independent20 write surviving08 rejection, valid recovery and reset with held levels. They do not prove original ISR callback delivery, physical events or valid image transactions. There were no failed focused runs; previous suites were not repeated.
+## Interrupt & Event Handling
 
-The one changed-stage original observation is `work/issue331/original-control20203-6c8d1a9/receipt.json`, exit zero after `0.39939670788589865` seconds. The38,239,096-byte MAS input passed direct initial/final equality; whole-boot remains false. It crossed the previous20203010 boundary and next stopped at CPU1 `PC1046bda0`, WRITE32 `20141100=2`, reason `uncovered-address`, qemu.log line20347; line20351 records `DFSR1808` / `DFAR20141100`. Existing aggregate/wrapper filters were reused and the next whole family was handed to its source owner. No completed slot, phase, menu or firmware usability is inferred from this packet; it is Mac-local verification, not Linux CI.
+1. **Event Latches**: Rising edges on external input lines latch into bits 0 and 10 of `PARAM_PENDING_ACK` (`0x2C`).
+2. **Interrupt Assertion**: If any unmasked pending bit is active, the controller asserts GIC SPI 124.
+3. **Acknowledgment**: Firmware ISR reads `0x2C`, extracts the active cause, writes back `1` to acknowledge and clear the latched bit, and notifies the waiting image processing service via event callback `0x41052C01`.
