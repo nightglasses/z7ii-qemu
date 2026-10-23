@@ -1,13 +1,27 @@
-# Guest-produced external counter initialization
+# Timestamp Counter Kernel Runtime Protocol
 
-This layer continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). Original run `5918188` reaches word store `48MHz` at candidate PA `0x04266010`, PC `0x10020150`. The [fixed whole original counter protocol](https://github.com/mashiro01/nightglass/blob/ae235fd/research/z7ii/qemu-rtos-startup-contract.md) joins the base pointer to COPY0 source `O0x2379f94=04266000`: `O0x12c` reads control, clears bits0/1, writes count-low/high zero and configuration `+0x10=02dc6c00`; the callback then executes original architectural timer setup, and tail `O0x158` sets control bits0/1. The software value also feeds CP15 CNTFRQ. This is a concrete guest producer, but not proof of a shared physical oscillator or the meaning of bit1.
+The camera kernel initializes and coordinates the 64-bit hardware timestamp counter during early RTOS bootstrap.
 
-The canonical model supports exactly the software register shape `+0/+8/+c/+0x10`. Control profiles zero/three mean stopped/running; bit1 has no invented HDBG label. These are functional semantics for the observed joint stop/start protocol. Count writes and the supported 48MHz configuration write require stop. The separate upstream Clock and elapsed virtual-time counter remain in use; reads never increment count. Bootstrap control3/count0/nominal48MHz is an explicit preloader assumption needed by earlier polling, not derived from the later kernel writer. The original kernel now stops, resets and programs the counter itself.
+```mermaid
+sequenceDiagram
+    participant Boot as Kernel Init (PC 0x10020150)
+    participant Timer as Timestamp Block (0x04266000)
+    participant CP15 as ARM CP15 (CNTFRQ)
 
-The former vendor-candidate frequency `+0x20` and synthetic no-debug status `+4` are removed from the canonical device. The preserved vendor layout and upstream SSE algorithm supplied research/API references, not Nikon register compatibility. These addresses remain unsupported; no fallback aliases or ready values are supplied. Other widths, control values and frequency profiles fail. The [earlier timestamp report](protocol.md) retains its fixed `331abcd` fixture history and is not the current register contract. No original instruction, page table, IRQ handler or task context is changed.
+    Note over Boot,Timer: Phase 1: Halt Counter & Reset
+    Boot->>Timer: Read CTRL (0x00)
+    Boot->>Timer: Write CTRL (0x00) = 0x00 (Halt)
+    Boot->>Timer: Write COUNT_LO (0x08) = 0x00000000
+    Boot->>Timer: Write COUNT_HI (0x0C) = 0x00000000
 
-Incremental native build exited zero. Ten focused counter fixtures passed in `work/issue331/timestamp-guest-protocol-first/result.json`: the whole original stop/reset/program/start shape with real generic-timer elapsed time, time-based freeze/carry, unsupported single-bit control profiles, removed vendor frequency address, count-write phase, frequency/control/width/offset rejection. The generic-timer wait observes count advancing after start without read-side effects.
+    Note over Boot,Timer: Phase 2: Program Frequency
+    Boot->>Timer: Write FREQ (0x10) = 0x02DC6C00 (48 MHz)
+    Boot->>CP15: MCR p15, 0, r0, c14, c0, 0 (Set CNTFRQ to 48 MHz)
 
-Fixed model `33dd64d2e9e1ccb97a159c7b7b3f2215e5ae85fb` ran the original input unchanged in `work/issue331/original-counter-33dd64d` (QEMU exit0, wall0.350904s). The original counter protocol passed; the first uncovered access became CPU0 `PC1002019c / WRITE8 PA2c090001 / value0`, UART SCR initialization. The subsequent architectural Data Abort is a consequence of that rejected UART access, not a counter completion.
+    Note over Boot,Timer: Phase 3: Resume Monotonic Count
+    Boot->>Timer: Write CTRL (0x00) = 0x03 (Start)
+```
 
-A separate run of the same fixed C, `work/issue331/original-first-dispatch-33dd64d`, enabled upstream instruction/CPU/exception tracing (QEMU exit0, wall1.439152s, direct input bytes unchanged). Its log lines242805–242838 show CPU0 executing the original scheduler exception-return instruction at `10107110`, then entering `10103bc8` with `r0=r1=0`, `SP=b2c71008`, `CPSR=13`. Lines426605–426610 show original `10104c5c` with `LR10103bd4`; the next uncovered transaction remains the UART store. This is actual first initial-task dispatch under the declared board assumptions, consistent with the [original task-frame and usermain callback chain](https://github.com/mashiro01/nightglass/blob/4c021e5/research/z7ii/qemu-rtos-startup-contract.md). The host does not construct the task frame or set its PC. No menu, second tick or whole-camera boot is established by this observation.
+## Bootstrap Synchronization
+1. **Early Polling**: During initial bootstrap, firmware samples `TIMESTAMP_COUNT_LO` (`0x04266008`) in tight spin loops to implement microsecond-scale hardware settling delays.
+2. **Kernel Initialization**: Once the memory subsystem is established, the kernel halts the counter, zeroes both 32-bit count words, explicitly programs `48 MHz` into `TIMESTAMP_FREQ`, synchronizes ARM architectural timer `CNTFRQ`, and restarts the counter with control value `0x03`.

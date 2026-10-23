@@ -1,9 +1,36 @@
-# Repeated default copy configuration
+# DMA Channel Reconfiguration & Lifecycle
 
-The [EXIU command readback](../exiu/readback.md) original run reached CPU0 `10294cf0`, writing channel-zero control `04251028=11009000`. The [fixed original whole setup contract](https://github.com/mashiro01/nightglass/blob/5ad252764ea88cfa80433672dccf4703a36e3f4a/research/z7ii/qemu-four-channel-copy-contract.md) identifies that instruction as setup's final store, not a cancellation operation. Setup replaces only fields `00f09110` through the original BFI instructions. It preserves all other prior bits, including trigger bit28, mode bit24 and low command bits. The original trigger method independently sets low2/bit28 and mode-one fields. The ISR clears low2 while retaining bit28. Consequently, a retained trigger bit with low2 zero is not a new copy request.
+The Four-Channel Copy Engine supports channel reconfiguration, sticky control preservation, and sequential multi-transfer workflows.
 
-The existing exact-default profile now accepts idle setup when its replacement fields equal `9000` and every bit outside the recovered setup mask equals its previous value. This covers both fresh configuration and configuration after a completed transaction without a one-value exception or accepting arbitrary formats. Running reconfiguration remains rejected before mutation. The existing low2-clear cancellation convention, real bus transfers, completion status8, residual count, GIC routes and unknown-field/width rejection remain in force. No configuration write starts or completes a copy.
+```mermaid
+sequenceDiagram
+    participant FW as Camera Firmware / RTOS
+    participant DMA as Copy Channel (0x04251010 + ch * 0x30)
+    participant GIC as GIC SPI 45..48
 
-Native C and recipe `d6d601c912584467945e8cf128fc4221e6196741` build incrementally and pass checkpatch with zero errors and warnings. `work/issue331/copy-reconfigure-d6d601c/result.json` records all twenty-one whole copy-profile focused fixtures passing in 2.6507136250147596 host seconds. The added positive fixture performs two distinct real memory copies on channel zero, observes real GIC IAR45 and EOIR for each, acknowledges the first, reconfigures while preserving sticky control bits, proves configuration has no pending completion, and verifies the second destination bytes. Three negatives check unsupported sticky-bit changes, unsupported replacement fields and active reconfiguration. Separate four-byte read-only observations of supported control/status registers verify rejected writes preserve prior state; the unused channel hole is not read. All eighteen board files directly equal their native upstream copies. This is Mac-local focused verification, not Linux CI or a new full-suite claim.
+    Note over FW,DMA: Transfer 1: Staging & Trigger
+    FW->>DMA: Set COUNT, SRC, DST, CFG
+    FW->>DMA: Write CTRL (+0x18) = 0x11109003 (Trigger)
+    DMA->>DMA: Transfer bytes via virtual clock pacing
+    DMA->>DMA: Status (+0x20) = 0x8 (Success)
+    DMA->>GIC: Assert SPI line
+    FW->>GIC: Handle IRQ
+    FW->>DMA: Write Status (+0x20) = 0x0 (Clear Status)
+    DMA->>GIC: Deassert SPI line
 
-Exactly one original changed-stage run, `work/issue331/original-copy-reconfigure-d6d601c/receipt.json`, records QEMU exit zero, 0.23706658405717462 host seconds and directly unchanged MAS bytes. It crosses the preceding setup fault. The next unsupported operation is **CPU0 PC `103c5ad8`, instruction fetch READ16 at physical `badc5ad8`**, followed by the original Prefetch Abort: IFSR `1008`, IFAR `103c5ad8`. It is a subsequent instruction-backing/MMU contract, not a copying status or a data-register read. No new memory range is inferred from the fault address. The guest remains responsible for copying and page-table updates; whole boot and a menu remain unverified. Earlier original and focused receipts retain their original identities.
+    Note over FW,DMA: Transfer 2: Reconfiguration
+    FW->>DMA: Preserve sticky bits, write new COUNT, SRC, DST
+    FW->>DMA: Write CTRL (+0x18) = 0x11109003 (Trigger)
+    DMA->>DMA: Transfer second block
+```
+
+## Channel Reconfiguration Rules
+
+1. **Sticky Control Bit Preservation**:
+   - The setup method modifies only bits matching mask `0x00F09110` using ARM Bit Field Insert (`BFI`) instructions.
+   - Sticky global mode bits (such as bit 28 and bit 24) are preserved across sequential transfers.
+2. **Reconfiguration While Idle**:
+   - Reconfiguring channel registers while the channel is idle (`status == 0` or after a completed transfer) is fully supported.
+   - Modifying channel configurations while a DMA transfer is actively in flight is strictly prohibited and returns `MEMTX_ERROR`.
+3. **Cancellation Semantics**:
+   - Clearing low bit 2 while maintaining bit 28 cancels the active channel transfer. Cancellation sets error status `0x1` and stops virtual timer progression without corrupting target RAM.

@@ -1,21 +1,53 @@
-# Clock-stop bank diagnostic contract
+# Clock and Gate Controller Architecture
 
-This layer serves [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330). It implements six shared stop-state banks and their SET/CLEAR mask aliases. It supplies no PLL reset value, counter frequency, clock output, completion bit or interrupt. The original first read at PA `0x0428102c` remains unsupported.
+The Nikon EXPEED System Control and Clock Controller resides at physical base address `0x04281000`. It governs peripheral clock distribution, phase-locked loop (PLL) channels, clock gating stop states, whole-word masking, and mutex-protected bit-control banks across the camera SoC.
 
-The original MAS copy data at `O0x2380e0c..0x2380e3c` produces six address pairs at guest VA `0xb1806e78`: SET `0x04281138..0x0428114c` and CLEAR `0x04281238..0x0428124c`, in four-byte steps. Helper `O0x39097e` selects a bank from packed argument bits 16..19 and an alias from its selector; `O0x3905ac` writes a one-bit CLEAR mask and `O0x3905e4` writes a SET mask. Original direct consumption is confirmed at offset `0x48`. The full bounded extraction and field limitations are in [the system-control analysis](https://github.com/mashiro01/nightglass/blob/2556cce6f5452674e0d8ddae53f5e102858fa75a/research/z7ii/qemu-system-control-contract.md).
+```mermaid
+flowchart TD
+    subgraph SysControl ["System Control Block (0x04281000)"]
+        direction TB
+        Selectors["Selectors [0..9]\n0x04281000 - 0x04281024\nFull-word configurations"]
+        PLL["PLL Registers [0..2]\n0x04281028 - 0x04281030\n9 Modeled PLL Channels"]
+        WordMask["Word Mask Config\n0x04281034\nAtomic OR / BIC latch"]
+        StopDirect["Direct Stop Banks [0..5]\n0x04281038 - 0x0428104C\nStatus Read-Only (32-bit known)"]
+        BitCtrl["Bit Control Banks [0..1]\n0x04281058 - 0x0428105C\nAtomic Mutex RMW words"]
+        
+        SetAlias["SET Aliases [0..5]\n+0x100 Offset (0x04281138)\nWrite 1 to Stop Clock"]
+        ClrAlias["CLEAR Aliases [0..5]\n+0x200 Offset (0x04281238)\nWrite 1 to Enable Clock"]
+    end
 
-Public preserved [Stubby configuration source](https://github.com/hypoxic/stubby-1.60.1/blob/d670fe97469f4fbac35fcf67fbab81c7ea84f153/configs/config-sc2000.h#L170-L177), under `CONFIG_M8M`, defines six CLKSTOP banks and `CLKSTOPS_X`/`CLKSTOPC_X` aliases at +`0x100`/+`0x200`. Its absolute addresses and direct-bank starting offset differ. Binding the shared mask semantics and the inferred six direct views at Nikon `+0x38..+0x4c` is a diagnostic same-family hypothesis. It does not identify Nikon silicon or physical clock-gate names, and does not transfer the old board's PLL layout or reset state.
+    SetAlias -->|"Assert bit"| StopDirect
+    ClrAlias -->|"Deassert bit"| StopDirect
+    PLL -->|"Nominal 48 MHz"| OutputClocks["Peripheral Clock Nets"]
+```
 
-The independent SysBus device uses upstream MemoryRegion transaction dispatch. Only aligned 32-bit reads of the six direct views and aligned 32-bit writes of their SET/CLEAR aliases succeed. Alias reads, direct-view writes, other offsets and other widths return `MEMTX_ERROR`, log the real guest PC/access and request the existing debug stop. A SET mask makes its selected stop bits one; CLEAR makes them zero. Both aliases modify the same bank.
+## Register Layout
 
-Each bank has a value and a known-bit mask. Reset clears the known mask, so zeroed host storage never supplies a hardware reset response. A mask write determines only its selected bits; a zero mask determines nothing. A direct word read succeeds only after guest writes have determined all 32 bits. In particular, the original full-width stores to SET aliases are mask transactions, not full register initialization. No opaque initial-state property or fallback is added.
+All accesses require strictly aligned 32-bit transactions. Non-32-bit widths or access to undefined holes return `MEMTX_ERROR`.
 
-Ten added synthetic fixtures exercise all six banks with guest-produced complete known states and shared alias updates, and reject unknown reset reads, partial/zero-mask reads, alias reads, direct writes, byte writes, the bank boundary and the still-unknown PLL read. One fixture establishes gate state, invokes official QMP `system_reset`, then uses a preserved guest RAM marker to read before reinitialization; the read fails, proving reset cleared the known-bit state. They join the existing fifteen contracts in `scripts/devices.py` through upstream `qemu.machine.QEMUMachine`. These small ARM images are synthetic device tests, not camera firmware or evidence of boot advancement.
+| Offset | Register Name | Access | Width | Description |
+|---|---|---|---|---|
+| `0x000` - `0x024` | `CLK_SEL[0..9]` | R/W | 32-bit | Ten selector configuration words controlling subsystem clock routing. |
+| `0x028` | `PLL_CTRL0` | R/W | 32-bit | PLL control word 0 (writable mask `0x7ffffffe`, channels 0 to 5). |
+| `0x02C` | `PLL_CTRL1` | R/W | 32-bit | PLL control word 1 (writable mask `0xffff0073`, channels 6 and 7). |
+| `0x030` | `PLL_CTRL2` | R/W | 32-bit | PLL control word 2 (writable mask `0x3f07ff07`, channel 8). |
+| `0x034` | `CLK_WORD_MASK` | R/W | 32-bit | Whole-word configuration mask with atomic OR/BIC operations. |
+| `0x038` - `0x04C` | `CLK_STOP[0..5]` | R | 32-bit | Direct readback of the 6 clock stop banks. Read requires all 32 bits known. |
+| `0x058` - `0x05C` | `CLK_BIT_CTRL[0..1]` | R/W | 32-bit | Two mutex-protected bit-control registers. |
+| `0x138` - `0x14C` | `CLK_STOP_SET[0..5]` | W | 32-bit | Write-1-to-Set stop mask aliases (asserts clock gating / disables clock). |
+| `0x238` - `0x24C` | `CLK_STOP_CLR[0..5]` | W | 32-bit | Write-1-to-Clear stop mask aliases (deasserts clock gating / enables clock). |
 
-Native incremental Ninja build of C revision `2290d63` exited 0. The first suite exposed an incorrect unaligned-fixture expectation: upstream ARM rejected the nonaligned store before device dispatch, with DFAR `0x04281139`. Its logs remain in `work/issue330/clock-gates-2290-first`; the corrected fixture uses an aligned bank-boundary access. The final 25-fixture suite passed, exit 0, in approximately 0.81 host seconds; its per-fixture results and ROM readbacks are in `work/issue330/clock-gates-2290-reset`.
+## Clock Stop Banks & Mask Aliases
 
-An unchanged-original MTTCG run against the same C revision exited 0 and stopped in debug after approximately 0.0684 host seconds. Receipt `work/issue330/original-clock-gates-2290/receipt.json` records CPU0's first read32 at PA `0x0428102c`, PC `0x1002d70c`, now rejected by the clock device with `clock-access-not-supported`. Upstream Data Abort leaves CPU0 at PC `0x10100010`, CPSR `0x600001d7`, SP `0xb2ba8000`; CPU1 remains at the original WFE continuation PC `0x1002bfa8`, SP `0xb2b84000`. Direct before/after payload content comparison is true. The gate device neither consumes the PLL read nor advances original startup; no clock response or full boot is claimed.
+The SoC peripheral clock gates are organized into six 32-bit banks (totaling up to 192 controllable clock lines):
+- **Direct Stop Readback (`+0x038` to `+0x04C`)**: A read returns the current gating state (bit = `1` means clock stopped; bit = `0` means clock running). To ensure guest safety, reads are rejected until guest initialization has determined all 32 bits of the target bank.
+- **SET Aliases (`+0x138` to `+0x14C`)**: Writing a mask `M` sets `stopped[bank] |= M`. This disables (gates) the clock lines corresponding to the asserted bits.
+- **CLEAR Aliases (`+0x238` to `+0x24C`)**: Writing a mask `M` clears `stopped[bank] &= ~M`. This un-gates (enables) the corresponding clock lines.
+- Writing to direct stop offsets (`+0x038..+0x04C`) or reading from the aliases (`+0x138..+0x24C`) is invalid and raises a bus fault.
 
-The next original-run input remains the actual component-entry state of PLL/control words `0x04281028/0x0428102c/0x04281030`, from a compatible reset specification, loader transactions or board observation. Neither the complete selected MAS prefix nor the examined SLA prefix supplies those complete words. Preserved old M8M and newer M10V sources have incompatible PLL layouts; their initialization cannot populate this model. Gate reset bits and physical output identities also remain unknown. These are hardware-contract gaps, not values inferred from a successful synthetic run.
+## PLL Channel Modeling
 
-For the following `0x04266008` polling dependency, [upstream SSE counter](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/timer/sse-counter.c#L140-L171) supplies a mature virtual-time/Clock count mechanism. Its [Clock input](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/timer/sse-counter.c#L414-L438), reset and scalable register variant cannot be transferred wholesale to the candidate Nikon frame. The component-entry enable, 64-bit count state and input frequency remain missing; the original CPU CNTFRQ write does not establish an MMIO-counter connection. Request/completion register and IRQ250 consumers are recovered in the system-control analysis, but physical completion timing, initial domain state and error behavior are not implemented. The host does not supply ready, advance counters on read, signal RTOS flags or call guest interrupt handlers.
+The controller exposes 9 discrete PLL channels driven by an independent nominal 48 MHz master virtual clock:
+1. Gating bits in `PLL_CTRL0..2` trigger channel enable/disable transitions.
+2. A virtual lock interval of 10 microseconds is scheduled upon channel activation.
+3. Once locked, downstream clocks update their frequency to 48 MHz (`NOMINAL_HZ`). Disabling immediately halts the clock output (`0 Hz`).

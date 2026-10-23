@@ -1,13 +1,43 @@
-# Independent virtual timestamp counter
+# 64-Bit System Timestamp Counter
 
-This is the fixed `331abcd` research and fixture stage. The current canonical register contract is [runtime.md](runtime.md); its original +10 producer supersedes the vendor-candidate +20/status mapping described here. Earlier receipts remain unchanged.
+The Nikon System Timestamp Counter at physical base `0x04266000` provides a monotonically advancing 64-bit microsecond timebase driven by a nominal 48 MHz clock.
 
-This layer advances [system control and clock startup devices](https://github.com/mashiro01/nightglass/issues/330), implementing the `PA04266000 + 8` incrementing counter interface utilized by original MAS `O1e0de6`. Address placement and family IP association are functional model hypotheses. The original CNTFRQ=48MHz writer does not establish that this external counter shares the identical physical clock; the model provisions an independent nominal 48MHz QEMU Clock.
+```mermaid
+stateDiagram-v2
+    [*] --> Stopped: Reset (Default)
+    
+    Stopped --> Running: Write 0x03 to CTRL (0x00)
+    Running --> Stopped: Write 0x00 to CTRL (0x00)
 
-Related preserved source [`_timestamp.h:119..124`](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/MILB_Header/include/Arm/_timestamp.h#L119-L124) defines CNTCR `+0`, CNTSR `+4`, CNTCVL/U `+8/+c`, and CNTFID0 `+20`. Its hardware board address differs and cannot substitute for Nikon register specifications. Counter progression adopts the time epoch and `clock_ns_to_ticks` algorithm from pinned upstream [`SSECounter`](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/timer/sse-counter.c#L140-L172), directly invoking the [Clock API](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/hw/core/clock.h) and QEMU virtual time. Reading does not advance the count; halting guest virtual time halts counter progression. Upstream SSE scaling registers and broad read-zero/write-ignore semantics are omitted.
+    state Stopped {
+        [*] --> Idle
+        Idle --> UpdateCount: Write COUNT_LO (0x08) / COUNT_HI (0x0C)
+        Idle --> UpdateFreq: Write FREQ (0x10) = 48 MHz
+        UpdateCount --> Idle
+        UpdateFreq --> Idle
+    }
 
-Virtual reset sets CNTCR.EN=1, count=0, and an independent Clock=48MHz. When software clears EN, the current count is latched; re-enabling resumes from that value. Disabled state permits independent writes to the low and high 32-bit words; writing to the count while enabled fails. CNTCR only supports bits EN and HDBG; without external Halt-on-Debug wiring, CNTSR.DBGH reads zero as upstream specifies. CNTFID0 only admits reads of this nominal frequency profile and writebacks of 48MHz in the disabled state; other frequencies, control bits, access widths, offsets, and writes in read-only states are rejected.
+    state Running {
+        [*] --> Ticking: Advanced via 48 MHz virtual clock
+        Ticking --> Ticking: clock_ns_to_ticks()
+    }
+```
 
-The temporary stack aperture is mapped to exact `[04008ea8, 04008f00)` (88 bytes): original wrapper PUSH8, SDI callee PUSH40, training callee PUSH40, with polling leaf routines issuing no PUSH. Original native instruction contracts originate from research [194c71e](https://github.com/mashiro01/nightglass/blob/194c71e/research/z7ii/qemu-rtos-startup-contract.md). Out-of-bounds accesses fail; RAM is not expanded by arbitrary pages or DDR capacities.
+## Register Layout
 
-Incremental native compilation exited zero; 52 synthetic contracts in `work/issue330/timestamp-functional-first/result.json` passed. A counter fixture has the guest poll until the delta reaches 4800, disables the counter, waits via the architectural timer, and verifies count retention. It further initialises the lower word near rollover to assert 32-bit carry propagation, validates the nominal frequency, and asserts refusal on unsupported controls, widths, offsets, and enabled writes. Physical arrival of original code at this counter remains unrecorded; original execution stops prior at SDI reset. Tests do not prove RTOS dispatch, UI menus, real clock hardware, DDR training health, or EXPEED performance.
+All accesses require strictly aligned 32-bit transactions. Access to non-32-bit widths or undefined holes returns `MEMTX_ERROR`.
+
+| Offset | Register Name | Width | Access | Description |
+|---|---|---|---|---|
+| `0x00` | `TIMESTAMP_CTRL` | 32-bit | R/W | Control register: `0x03` = running, `0x00` = stopped. |
+| `0x08` | `TIMESTAMP_COUNT_LO` | 32-bit | R/W | Lower 32 bits of 64-bit tick counter. Writable only when stopped. |
+| `0x0C` | `TIMESTAMP_COUNT_HI` | 32-bit | R/W | Upper 32 bits of 64-bit tick counter. Writable only when stopped. |
+| `0x10` | `TIMESTAMP_FREQ` | 32-bit | R/W | Nominal counter frequency in Hz (`0x02DC6C00` = 48,000,000 Hz). |
+
+## Architectural Behavior
+
+1. **Virtual Time Epoch**: Counter progression uses QEMU virtual time:
+   $$\text{ticks} = \text{ticks}_{\text{then}} + \text{clock\_ns\_to\_ticks}(\Delta t_{\text{ns}})$$
+2. **Read Invariance**: Reading the counter registers (`0x08` or `0x0C`) never mutates internal state or advances ticks. Halting the virtual machine freezes counter progression.
+3. **Carry Propagation**: Upper 32 bits reflect natural overflow carry from the lower word.
+4. **Configuration Safety**: Frequency and counter values can only be updated while the counter is stopped (`CTRL != 3`). Writes attempted while running are rejected with `MEMTX_ERROR`.

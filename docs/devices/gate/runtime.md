@@ -1,15 +1,34 @@
-# Finite 2010 runtime configuration
+# Control2010 Runtime Packed Configuration
 
-Sourcea4086d13f06237988102ecdcccb270f31015456e extends the same2010 contract after the observed stop confirmation. The prior native66ae original actually returned to10388828 and then failed reading20100030 at103BD786. The new source classifies that read as configuration RMW, not a data/status request. Saved10389720 is52B22instructions/5BB/0frontier; the adjacent original diagnostic collection is1026B396instructions with four metadata records. Their different source acceptance/coverage boundaries remain explicit.
+The Control2010 controller maintains a bank of sparse 32-bit registers for packed subsystem parameters, filter coefficients, and input aperture routing.
 
-The same sparse aligned32 device stores30/34 as full32 opaque words, because the whole original API ORs an arbitrary32bit argument or clearsbit0. Additional complete packet-generated configuration is F4/108 mask000FFF00, F8/FC/100/104 and120/124/128/12C maskFFFFFFF0, and10C maskFF0FFF00. These are generated field unions, not physical legal-bit specifications. Full packet bytes overlap; no guessed4bit clamp is applied. Cold0 and retained readback remain named assumptions, with no event/data effects. The two input00words at2000/2100 also independently preserve high28bits with low4=0/1; no image or pending source is attached to this configuration.
+```mermaid
+flowchart TD
+    subgraph ConfigRegisters ["Control2010 Parameter Bank (0x20100000)"]
+        R30["Opaque Word 0 (0x30)\nBit 0: Clear/Assert\nFull 32-bit RMW"]
+        R34["Opaque Word 1 (0x34)\nFull 32-bit RMW"]
+        PackedF["Packed Field Group 0\n0xF4, 0x108 (Mask: 0x000FFF00)"]
+        PackedW["Packed Field Group 1\n0xF8..0x104, 0x120..0x12C (Mask: 0xFFFFFFF0)"]
+        PackedB["Packed Field Group 2\n0x10C (Mask: 0xFF0FFF00)"]
+        InApertures["Input Apertures\n0x2000, 0x2100 (Bits [3:0]: Mode 0/1)"]
+    end
+```
 
-Readonly38/3C/40/44 and140/144 still lack producers and remain unsupported. Indexed D7C2's eight sampled pointers do not establish a guest index bound; known shared physical words retain their existing interpretation. D9D8's full target domain and DA1E's picked backend/selector/13word transaction are not recovered, so no arbitrary RAM or completion is added. Gaps, invalid widths/fields and unknown activation reject without changing prior configuration or stop state.
+## Register Layout
 
-Three new qtests cover both fullword RMW selections, every packed field including overlapping byte 10C, no IRQ/time-driven change, illegal inputs/holes/readonly providers and reset. Necessary affected input-mode negatives use unsupported 2, since observed 0/1 configuration is now implemented.
+All accesses require aligned 32-bit operations.
 
-Native and fixture revision `a5bcb8816c7d03f4e99890b0d156ec2dcc0357be` passed one incremental j1 build and six affected/new checks in 1.368 seconds. The three new runtime qtests and three changed input-mode negatives are listed in `work/issue378/control2010-runtime-a5bcb88/result.json`. No unchanged whole suite was repeated.
+| Offset | Register Name | Width | Legal Mask | Description |
+|---|---|---|---|---|
+| `0x030` | `GATE_CFG_WORD0` | 32-bit | `0xFFFFFFFF` | Opaque 32-bit configuration word. Firmware performs bitwise OR/BIC operations. |
+| `0x034` | `GATE_CFG_WORD1` | 32-bit | `0xFFFFFFFF` | Opaque 32-bit configuration word. |
+| `0x0F4`, `0x108` | `GATE_PACKED_A` | 32-bit | `0x000FFF00` | Subsystem filter coefficients. |
+| `0x0F8` - `0x104` | `GATE_PACKED_B` | 32-bit | `0xFFFFFFF0` | Channel parameter arrays. |
+| `0x10C` | `GATE_PACKED_C` | 32-bit | `0xFF0FFF00` | Overlapping configuration word. |
+| `0x120` - `0x12C` | `GATE_PACKED_D` | 32-bit | `0xFFFFFFF0` | Channel parameter arrays. |
+| `0x2000`, `0x2100` | `GATE_IN_APERTURE`| 32-bit | `0xFFFFFFF1` | Input selector ports (bits [3:0] support mode values `0` and `1`). |
 
-The single changed original observation is preserved in `work/issue378/original-control2010-runtime-a5bcb88/`. The first stop-confirmation wait returned to original PC 10388828. A later generic wait recorded task B2C33368, flag object B2C568E8, ID 01000088, requested pattern 2, mode 1, current pattern 0 and output pointer B51BB540. A second real setter entered 10104848 from business LR 10388C29. GDB then stopped at kernel 101111C4 before its pattern store, with R0=2 and R4=B2C568E8; its observer failed with `Cannot access memory at address 0x18a` before the pattern command list ran. No selected-waiter/release observation was captured, and no retained uncovered access or Data/PrefetchAbort was logged. This error belongs to the observer; it does not establish a guest hardware failure.
-
-No continue followed the observer error. Both CPUs remained stopped until QEMU was terminated before GDB quit. The original 38,239,096 payload bytes, all 30 model/header inputs and their upstream native copies compared directly equal before and after. Host interruption was requested 5.003 seconds after the initial continue; guest running duration is unknown because debugger stops are included. Whole boot and menu remain unverified. Earlier receipts are unchanged.
+### Protocol Rules
+- **State Preservation**: Writing to any packed register preserves unrelated fields outside the legal mask.
+- **Access Restrictions**: Offsets outside the specified aperture or non-32-bit accesses trigger `MEMTX_ERROR`.
+- **Reset**: Device reset initializes all configuration and packed parameter registers to `0x00000000`.

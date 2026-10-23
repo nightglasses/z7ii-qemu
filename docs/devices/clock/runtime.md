@@ -1,9 +1,33 @@
-# Runtime two-bank system-control requests
+# Two-Bank Bit-Control Registers
 
-This layer continues [QEMU startup and device contracts](https://github.com/mashiro01/nightglass/issues/331). The [fixed original-byte two-bank contract](https://github.com/mashiro01/nightglass/blob/8408218/research/z7ii/qemu-system-control-contract.md) and `qemu_clock_bitcontrol_evidence.py` verify the full76-byte native setter/wrappers and seventeen direct callers. CPU1's original word read at `PC103b092c / PA04281058` occurs inside the complete mutex-protected RMW setter `O390914..960`, not a frequency getter. Its bank selection uses the encoded input's bits16..19, choosing `04281058` for zero or `0428105c` for nonzero; the bit request is `1 << (encoded & ff)`. The original flag chooses OR/set or BIC/clear, with matching lock/unlock and set/clear wrappers. The bounded seventeen direct wrapper callers use indices0/1/2/6/28/29/30 and bank zero; that observed subset does not identify physical register roles or prove bank-one hardware wiring.
+The system control controller provides two dedicated 32-bit registers for atomic bitwise modification at physical addresses `0x04281058` (Bank 0) and `0x0428105c` (Bank 1).
 
-The canonical board supplies two finite word control states, reset to zero as an explicit functional assumption. Reads and original guest word RMW preserve each bank's independent state; reset clears both. No frequency, PLL-lock, completion, clock-gate alias or IRQ effect is inferred from these words. The model covers the recovered software request/readback interface; physical side effects remain unbound. Other offsets, byte widths and speculative `+100/+200` aliases fail. This is part of the existing system-control device and its explicit unmigratable state, not an opaque register-injection interface or a second model route.
+```mermaid
+sequenceDiagram
+    participant Guest as Guest OS (Core 1)
+    participant Mutex as OS Mutex (B1CF1130)
+    participant Reg as Clock Bit-Control (0x04281058/5C)
 
-Native incremental build exited zero at C `50714df572186b2e36ddbc3abeb11397efb941c8`. Five focused fixtures passed in `work/issue331/clock-bitcontrol-focused-first/result.json`: set/preserve/clear across bank zero, independent bank one, reset plus genuine second guest entry, and width/hole/alias rejection. Bank-one and higher-bit synthetic requests validate the declared functional word interface; they are not observations of Nikon hardware consumers. This is a focused check of this layer, not a rerun of earlier firmware or the complete synthetic suite.
+    Guest->>Mutex: Acquire Mutex
+    Guest->>Reg: Read current 32-bit value
+    alt Set Flag (Flag == 1)
+        Guest->>Guest: new_val = old_val | (1 << bit_index)
+    else Clear Flag (Flag == 0)
+        Guest->>Guest: new_val = old_val & ~(1 << bit_index)
+    end
+    Guest->>Reg: Write 32-bit new_val
+    Guest->>Mutex: Release Mutex
+```
 
-Original `work/issue331/original-bitcontrol-50714df/receipt.json` then advances past the CPU1 control request, with full fixed C revision recorded, QEMU exit zero, payload direct comparison unchanged and host wall time0.224194 seconds. Its new first stop is CPU1 PC `10242ff6`, word write `2c0a0060 ← 1`, an uncovered peripheral whose complete producer/consumer contract is the next task. The raw log preserves the actual access and ensuing architectural exception. PKGB phase completion and a menu remain unverified; no host event flag or task callback is supplied.
+## Hardware Specification
+
+| Offset | Physical Address | Register Name | Description |
+|---|---|---|---|
+| `0x058` | `0x04281058` | `CLK_BIT_CTRL0` | Bit-control bank 0 (selected when encoded input bits [19:16] == 0) |
+| `0x05c` | `0x0428105c` | `CLK_BIT_CTRL1` | Bit-control bank 1 (selected when encoded input bits [19:16] != 0) |
+
+### Access Rules
+- **Access Width**: Strictly aligned 32-bit read and write. Sub-word accesses or unaligned offsets trigger `MEMTX_ERROR`.
+- **State Retention**: Each bank retains its 32-bit state independently. State is preserved across software read-modify-write sequences.
+- **Reset Behavior**: Device reset clears both registers to `0x00000000`.
+- **Side Effects**: Bit modifications update internal control state without generating spurious interrupts or modifying unrelated clock gating aliases.

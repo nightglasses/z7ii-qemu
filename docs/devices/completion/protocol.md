@@ -1,23 +1,49 @@
-# Deferred completion and IRQ diagnostic contract
+# Deferred Completion Controller
 
-This is the historical strict-stage report for fixed C revision `299e002`. Its unknown-reset and submit prerequisites describe that preserved stage. The current canonical functional reset is documented in [protocol.md](../../startup/protocol.md); this report does not describe the current reset profile.
+The Deferred Completion Controller at physical address `0x04287000` manages asynchronous domain transitions, power-state requests, and event completions, notifying the CPU via GIC IRQ 250 (SPI 218).
 
-The current complete three-bit domain interface, source boundary and native test handoff are documented in [runtime.md](runtime.md). The historical domains0/1/3 below are the observed caller subset at this fixed stage.
+```mermaid
+sequenceDiagram
+    participant Guest as Camera Firmware / RTOS
+    participant Comp as Completion Block (0x04287000)
+    participant BH as QEMU Bottom-Half (BH)
+    participant GIC as GIC-400 (SPI 218 / IRQ 250)
 
-This layer serves [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330) and [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). It implements a bounded request, deferred completion, IRQ and acknowledgement cycle at the candidate physical base `0x04287000`. It supplies no clock/PLL initial values and does not advance the original firmware past its first PLL read.
+    Note over Guest,Comp: Phase 1: Request Staging
+    Guest->>Comp: Write 0x00 (Request: Domain 0..7, Start/Stop bit 8)
+    Guest->>Comp: Write 0x08 = 0x01 (Enable IRQ Notification)
 
-The [fixed original-byte analysis](https://github.com/mashiro01/nightglass/blob/f5dd32b202a2fe8008acf9be74de4a200fc37955/research/z7ii/qemu-system-control-contract.md) records the early full request store at `+0`, command `0xa1` at `+0x10`, polling of `+4 bit0` and acknowledgement by writing one. Runtime consumers update request bit8 from start/stop, select a domain in bits12..14, enable notification with `+8=1`, clear a real RTOS event flag, submit and wait. Selected callers establish domains 0, 1 and 3; domain4 bypasses hardware. Register-field roles are software-derived diagnostic hypotheses, not recovered silicon specifications or physical power-domain names. The preserved M10V PMU has conflicting offsets and commands and is not reused as this device.
+    Note over Guest,Comp: Phase 2: Command Strobe
+    Guest->>Comp: Write 0x10 = 0xA1 (Submit Command)
+    Comp->>BH: Schedule Async Bottom-Half Task
 
-The original IRQ250 path registers a public gateway and Thumb handler `0x103865a9`; the original GIC enable code sets ISENABLER7 bit26. The handler writes one to `+4` and signals the actual kernel event flag. The board connects one upstream SysBus IRQ to A15MPCore SPI input `250-32=218`. GIC targets, priorities, registration, handler execution, event flags and task scheduling stay guest responsibilities. The device neither calls a guest handler nor alters a kernel flag.
+    Note over BH,GIC: Phase 3: Deferred Transition
+    BH->>Comp: Apply selected domain state
+    BH->>Comp: Assert Done bit (0x04 bit 0)
+    BH->>GIC: Raise SPI 218 (IRQ 250)
 
-Only aligned word access is supported. Request stores accept domains 0/1/3, start/stop bit8, and the observed mode profiles 0/`0x10`; other fields or domains fail explicitly without declaring them invalid in the real IP. IRQ-enable stores accept 0 or 1. Command reads, unknown offsets, unsupported widths/values and concurrent mutations while a transaction is pending fail. Reset leaves request, IRQ-enable and done state unknown; it cancels a pending callback and withdraws its modeled IRQ. No readable reset zero is supplied.
+    Note over Guest,Comp: Phase 4: Acknowledgment
+    GIC->>Guest: Trigger IRQ 250 Exception
+    Guest->>Comp: Write 0x04 = 0x01 (W1C Clear Done)
+    Comp->>GIC: Deassert SPI 218
+    Guest->>GIC: End of Interrupt (EOI)
+```
 
-Command `0xa1` requires both request and IRQ-enable to have been written by the guest. It creates a pending transaction and a known, incomplete status. The [official QEMU bottom-half scheduling API](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/util/async.c#L235-L253) subsequently applies the selected domain's start/stop bit, marks that bit known, produces done and raises IRQ only when the guest enabled it. Writing one to `+4` clears done and withdraws the level through [upstream IRQ delivery](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/core/irq.c#L29-L37); the guest must still EOI its real GIC interrupt. Reads never schedule work or manufacture ready. Deferral to a QEMU bottom half is a functional timing assumption, not a measured hardware latency; it does not guarantee the guest will observe the pending interval.
+## Register Layout
 
-Status `+0xc` remains rejected: selected requests determine only individual domain bits, and neither the initial remaining domains nor the other status fields have a trusted producer. The internal applied/known masks are logged at the deferred transition, not returned as a fabricated complete status word. Poll/IRQ done readback is the narrow binary functional profile 0/1 inferred from the consumer/ack cycle; additional done/error bits are unimplemented. Early original polling does not initialize `+8`, so even with the PLL/counter dependencies supplied it would expose an unknown-submit-state failure rather than assume IRQ reset disabled.
+All accesses require aligned 32-bit operations.
 
-Synthetic fixtures exercise a real upstream GIC IRQ250 IAR/active/EOI path, polling with IRQ explicitly disabled, reset rejection, missing initialization, unsupported domain/fields/commands/widths and rejection of incomplete domain status. They reuse the existing `qemu.machine.QEMUMachine` harness and small ARM words, not recovered firmware.
+| Offset | Register Name | Width | Access | Description |
+|---|---|---|---|---|
+| `0x00` | `COMP_REQ` | 32-bit | R/W | Staged request word. Bits [14:12] select domain (0..7); bit 8 indicates start/stop; bits [7:4] select mode. |
+| `0x04` | `COMP_STATUS` | 32-bit | R/W1C | Status and acknowledge. Bit 0 indicates completion done. Write 1 to clear. |
+| `0x08` | `COMP_IRQ_EN` | 32-bit | R/W | Interrupt notification enable (`0` = polling only, `1` = raise IRQ 250). |
+| `0x0C` | `COMP_DOMAIN_STAT` | 32-bit | R | Domain applied state vector. |
+| `0x10` | `COMP_CMD` | 32-bit | W | Command submission port. Writing `0xA1` initiates the deferred transition. |
 
-Native incremental Ninja build of C revision `299e002` exited 0. The initial 40-fixture suite passed in `work/issue330/completion-start-stop/result.json`; the final 42-fixture suite passed in `work/issue330/completion-submit-guards/result.json`, with separate submit failures for known request/unknown IRQ enable and known IRQ enable/unknown request. The IRQ fixture observes IAR=250 and active bit26, then W1C clears device done and EOI clears GIC active; a subsequent IAR returns 1023. It also submits start then stop and checks the deferred transition logs change the selected domain's applied state while retaining its known bit. The polling fixture explicitly disables notification and verifies GIC pending bit26 remains zero. QMP `system_reset` preserves a guest RAM marker and the subsequent guest read rejects the reset IRQ-enable state. ROM readbacks match every input fixture. The first uncommitted compile attempt identified a missing explicit upstream IRQ header; adding `hw/core/irq.h` resolved it, without changing APIs.
+## Protocol & Operational Rules
 
-The new unchanged-original MTTCG receipt `work/issue330/original-completion-299e/receipt.json` records exit 0, approximately 0.0701 host seconds and a true direct before/after payload content comparison. CPU0 still rejects read32 PA `0x0428102c` at PC `0x1002d70c`, then enters upstream Data Abort at PC `0x10100010`, CPSR `0x600001d7`, SP `0xb2ba8000`. CPU1 remains at WFE continuation PC `0x1002bfa8`, SP `0xb2b84000`. Original execution has not reached this completion device, RTOS first dispatch or GUI. No whole-boot result is inferred from the synthetic device cycle.
+1. **Submission Prerequisite**: Both `COMP_REQ` (`+0x00`) and `COMP_IRQ_EN` (`+0x08`) must be initialized prior to issuing command `0xA1`.
+2. **Asynchronous Execution**: Writing `0xA1` schedules a QEMU bottom-half (`BH`). The bottom half transitions the domain's applied state, sets bit 0 in `COMP_STATUS`, and raises SPI 218 if notification was enabled.
+3. **W1C Acknowledgment**: Firmware writes `1` to `+0x04` to clear the done status and lower the interrupt line.
+4. **Domain Isolation**: An independent instance of the completion controller is mapped in the SLA domain's private address space at `0x04287000` to prevent cross-domain state corruption.

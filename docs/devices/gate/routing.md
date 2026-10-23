@@ -1,13 +1,63 @@
-# 2010 finite event gate and stop lifecycle
+# Control2010 Event Gate and Inflow Routing
 
-Native C and fixture recipe are `0698596d25cd9670075e21cda48911e92c063500`, after the independent 2016 report `695afa70ed2f5d1ae2549197e44ce3c2b1d46e5b`. Source is `e8738c4ad6eb985a781b9ff4bf48e939ff80a964`, the runtime section of `research/z7ii/qemu-2010-control-contract.md` in the source worktree. This source reuses the previously recovered collection; no new payload/native analysis was needed. The complete D03A six-instruction method reads global04, clears low2, ORs1 and writes it back. It has no packet, DMA source/size, delay, status poll, IRQ wait or completion producer. D4B2 independently writes complete0. D4BA asserts three still-unexplained pulses20a4/2620/2660 before writing08=0; that entire cancel/control candidate remains unsupported.
+The Control2010 Gate controller at physical address `0x20100000` provides an inflow admission barrier and interrupt routing across three 32-bit pending event domains (96 channels total).
 
-The existing finite configuration/table, three mask/raw domains and GIC102 device now uses04 low2 as a named virtual event gate. Value1 enables admission of new rising fixture input edges and pending participation in IRQ; value0 drops new edges, preserves pending/masks/configuration and suppresses IRQ. Reopening recomputes already-latched pending but never creates an event, frame, timer completion or data. All96 provider levels are tracked even while disabled, so held-high or disabled-era edges are not replayed on enable. Mask1-enable and W1C ACK continue to operate independently while stopped. These laws describe this functional profile, not proven physical pipeline semantics.
+```mermaid
+flowchart TD
+    subgraph ExternalInflow ["96 External Provider Lines"]
+        D0["Domain 0 Lines [0..31]"]
+        D1["Domain 1 Lines [32..63]"]
+        D2["Domain 2 Lines [64..95]"]
+    end
 
-Read/RMW and full0 stop share one retained04 word. Nonzero writes must preserve all existing high30bits; low2=2/3 or high-field mutations reject before modifying gate, fields, pending, mask or IRQ. Cold reset0 remains an explicit assumption, rather than permission to configure unidentified high fields. Unknown pulse assertions and input/parameter/table activations remain rejected. This change does not infer any linkage from global04 to physical frame handling, source data or prospective2000/2100 input selectors. Reset clears gate/config/masks/pending and output while retaining actual provider levels; enabling after reset does not synthesize an edge. Original-run event inputs stay disconnected and no guest callback, flag, ready state or memory is supplied.
+    subgraph AdmissionGate ["Global Gate (0x20100004)"]
+        GateCtrl{"Gate Bit 0\n0 = Closed\n1 = Open"}
+    end
 
-Only the existing2010 C, device fixture script and future original-run assumptions/filter changed. Obsolete fixture expectation that04=1 must fail was replaced by04=2; affected pending/preflight fixtures now explicitly enable the gate. Historical native/receipt files remain unchanged. The new caller filter10201a12+36 was used only in this changed-stage original observation, not an extra old-model replay.
+    subgraph BankedDomains ["Three Banked Status & Mask Domains"]
+        direction TB
+        subgraph Dom0 ["Domain 0 (Bits 0..31)"]
+            M0["Mask (0x08)"]
+            R0["Raw Pending (0x14)"]
+            A0["W1C ACK (0x20)"]
+        end
+        subgraph Dom1 ["Domain 1 (Bits 32..63)"]
+            M1["Mask (0x0C)"]
+            R1["Raw Pending (0x18)\nBit 0: Stop Confirmation"]
+            A1["W1C ACK (0x24)"]
+        end
+        subgraph Dom2 ["Domain 2 (Bits 64..95)"]
+            M2["Mask (0x10)"]
+            R2["Raw Pending (0x1C)"]
+            A2["W1C ACK (0x28)"]
+        end
+    end
 
-The one-job incremental native build exited zero at upstream `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`; all29 board C/header inputs directly equal upstream build inputs. Final checkpatch reported zero errors and zero warnings. `work/issue331/control2010-gate-0698596/result.json` records19 unique Mac-local affected checks, all passed in `1.7319477909477428` seconds. Fourteen ARM fixtures cover the original RMW enable, stop preserving configuration, reopen without ready, strict widths, modes2/3, unidentified high fields and unsupported cancel pulses. Three new qtests cover stopped-edge dropping and held-level tracking, preserved pending/masks and independent ACK across close/reopen, preflight retaining complete state and reset/recovery. Two affected existing qtests verify three-domain mask/ACK and full-state preflight under an explicitly enabled gate. These are necessary changed-behavior regressions, not a repeat of the historical20-check whole2010 packet or any whole suite. All tests passed on the first focused run; virtual IRQ output checks do not establish original ISR delivery or physical external sources.
+    ExternalInflow --> GateCtrl
+    GateCtrl -->|"Admitted if Open"| BankedDomains
+    Dom0 -->|"Masked Output"| Aggregator["IRQ Aggregator"]
+    Dom1 -->|"Masked Output"| Aggregator
+    Dom2 -->|"Masked Output"| Aggregator
+    Aggregator -->|"Single Wire"| GIC["GIC SPI 102"]
+```
 
-The one changed-stage original observation is `work/issue331/original-control2010-gate-0698596/receipt.json`. It ended with `bounded_observation_timeout`, exit0 after `5.129526625038125` seconds at the existing observation bound. The38,239,096-byte MAS input passed direct initial/final equality; whole-boot remains false. The retained qemu.log contains no uncovered/unsupported transaction, Data/Prefetch Abort or DFSR/DFAR marker. This only describes the retained bounded observation. Final CPU0 PC is10107094, CPU1 PC10107074, both with ordinary LR10104d48; their actual wait/caller/state cause was handed to the RTOS source owner. No kernel-idle success, completed phase, peer readiness, menu or usable firmware is inferred. The deadline was not lengthened and the unchanged model was not replayed to wait longer. This packet is Mac-local verification, not Linux CI.
+## Global Admission Gate (`0x20100004`)
+
+- **Bit 0**: Master event inflow gate.
+  - `0`: Gate closed. New external rising edges are dropped. Existing pending state and active mask settings are preserved.
+  - `1`: Gate open. External input edges are admitted into the three raw pending domains.
+- **Provider Tracking**: The controller monitors all 96 external provider line levels continuously, even when the gate is closed. Lines held active during closure do not synthesize spurious edges upon reopening.
+
+## Banked Domain Register Map
+
+All registers require strictly aligned 32-bit accesses.
+
+| Domain | Mask Register | Raw Pending Register | W1C Acknowledge Register |
+|---|---|---|---|
+| **Domain 0** (Channels 0..31) | `0x08` | `0x14` | `0x20` |
+| **Domain 1** (Channels 32..63) | `0x0C` | `0x18` (Bit 0 = Stop Done) | `0x24` |
+| **Domain 2** (Channels 64..95) | `0x10` | `0x1C` | `0x28` |
+
+### Acknowledgment Protocol
+- Firmware ISR reads the raw status register (`0x14`, `0x18`, or `0x1C`) and writes back `1` to the corresponding bit in the W1C ACK register (`0x20`, `0x24`, or `0x28`) to clear the pending flag.
+- The GIC SPI 102 line remains asserted as long as any unmasked pending bit in any of the three domains remains active.

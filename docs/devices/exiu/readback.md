@@ -1,9 +1,24 @@
-# EXIU clear-command lifecycle
+# EXIU Command Port and Readback Semantics
 
-The [four observed allocations](../../runtime/allocations.md) stage's unchanged original run stopped at CPU1 `10385f80`, reading `0426f010`. The [fixed whole EXIU contract](https://github.com/mashiro01/nightglass/blob/a8eab09141c91289f472244ac5e577916b6225ab/research/z7ii/qemu-exiu-contract.md) recovers the complete enable method: read the clear register, OR the object's own external-input bit, write the clear register, unmask that bit and enable its real GIC route. The fixed Socionext driver also uses a volatile read/OR/write to this command port; the Linux driver uses direct W1C writes. Neither source establishes the physical readback value.
+The EXIU clear register at offset `0x10` (`0x0426F010`) functions as an atomic command strobe port with specific readback semantics.
 
-The named virtual profile consumes clear strobes synchronously on their write transaction. Reads of the separate command port consequently return deasserted zero; they neither acknowledge pending requests nor sample inputs, produce an IRQ, return pending/mask state or retain the previous command word. A write clears only selected edge latches. An asserted level immediately reasserts its request, as before. Input transitions, masks, pending status, sixteen original GPIO/GIC routes, reset and all unsupported widths/bits/source commands retain the whole controller's existing behavior. This is an explicit functional command-port convention, not a measured hardware reset/readback property or a general zero response to unknown registers.
+```mermaid
+sequenceDiagram
+    participant FW as Camera Firmware
+    participant Reg as EXIU Clear Port (0x0426F010)
+    participant Latch as Internal Channel Latch
 
-Native C `e4e4b5cf77b91f33c191fd4ef05089dfd71be563` built incrementally with zero exit and checkpatch zero errors/warnings. The unchanged fixture recipe is recorded at the same normal Git ref. All sixteen EXIU focused fixtures pass in `work/issue331/exiu-clear-e4e4b5c/result.json` in 1.2525878750020638 host seconds, with all eighteen board files directly equal to their native upstream sources. Added checks exercise two simultaneous edge requests, read-without-ack, selective guest read/OR/write acknowledgement, a zero command preserving the other request, an asserted level surviving that sequence, and byte-read rejection. Existing fixtures cover reset, all routes, real GIC IAR/EOI, masking, polarity, width/channel errors and unsupported software-source/status operations. The earlier `ab5f665` focused result remains separate; its two checkpatch comment-style warnings were corrected before this final native checkpoint.
+    Note over FW,Reg: Firmware Enable/Clear Pattern
+    FW->>Reg: Read 0x0426F010
+    Reg-->>FW: Returns 0x00000000 (Deasserted)
+    FW->>FW: val = readback | (1 << channel)
+    FW->>Reg: Write 0x0426F010 (val)
+    Reg->>Latch: Clear selected edge latch
+    Note over FW,Latch: GIC SPI line lowers if level is inactive
+```
 
-Exactly one changed-stage original run at that final native C, `work/issue331/original-exiu-clear-e4e4b5c/receipt.json`, exits zero after 0.24620070797391236 host seconds and records the original payload directly unchanged. It crosses the old clear-register read fault and reaches **CPU0 PC `10294cf0`, WRITE32 `04251028=11009000`**, rejected by the four-channel copy profile. This is the next controller's setup/reconfiguration dependency, not a command-port readiness result. That run proves neither a physical EXIU edge nor completion of the current PKGB phase, peer handshake, whole camera boot or menu. No previous allocation, capture or full-suite receipt is re-labeled.
+## Protocol Specifications
+
+1. **Synchronous Consumption**: Clear commands take effect immediately upon write transaction execution.
+2. **Read Port Behavior**: Reads of the command port return deasserted zero (`0x0000`). This matches the Socionext Milbeaut and Linux sni-exiu driver implementations, ensuring that read-modify-write patterns execute predictably without re-clearing unrelated channels.
+3. **Level Persistence**: For channels configured in level-sensitive mode (`EXIU_MODE = 0`), if the underlying GPIO pin remains asserted, the interrupt request line re-asserts immediately following the write transaction.

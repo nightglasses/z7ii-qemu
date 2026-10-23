@@ -1,21 +1,48 @@
-# Five-route shared IRQ and finite configuration input
+# Signal Interrupt Aggregation and External Configuration
 
-Native C and fixture recipe are **5ffcb6d3048319c8193fe49beb7249612b17559e**, following the fixed clock/private-class packet **ad4644947a854b53d0467b951a63196aaeb81562**. Source research is `nightglass` **fe97dba5059a95bfc4a97a4f1559d6a54216e447**, `research/z7ii/qemu-five-route-signal-control-contract.md`, with the IRQ extractor introduced at **6c5d7b9c4026ad7e9bde1ce563403b67b39c8631**. Its new 212-byte/75-instruction three-body evidence is anchored original Thumb code with typed literals; saved function/basic-block coverage gaps remain explicit. It does not become a new accepted native disassembly. The earlier ten saved bodies/856 bytes/319 instructions remain the sampling/configuration source.
+The Five-Route Signal Controller combines five route outputs through an OR-gate into GIC SPI 237 and provides an auxiliary configuration aperture at `0x28000000`.
 
-The new original common ISR reads pending at `2b000008`, writes the same word back to clear it, dispatches rising/falling pair arguments through the five software callback slots, and has original registration for **GIC237**. Pair order is `(0,1),(2,3),(8,9),(6,7),(4,5)`. The initializer writes `28000000=0xf`, then `2b000004=0x3c`, then enables IRQ237 through the guest GIC API. These are software protocol facts; physical IP identity remains unknown.
+```mermaid
+sequenceDiagram
+    participant HW as External Pin
+    participant Sig as Signal Controller (0x2B000000)
+    participant Or as OR_IRQ Logic
+    participant GIC as GIC-400 (SPI 237)
+    participant CPU as Cortex-A7 Common ISR
 
-Source correction **594e882bf3e387082a5a8a13dd5593aefe5123d9** distinguishes that producer-selector order from the ISR callback array: ISR pairs4/5 dispatch element3, and6/7 element4, while producer selectors3/4 configure6/7 and4/5 respectively. The software relation between these two original permutations remains unbound. The model preserves physical pending bits and original sampling selectors; it neither reorders guest callback storage nor calls those callbacks. Shared OR_IRQ aggregation is independent of that software indexing gap.
+    HW->>Sig: Pin edge transition
+    Sig->>Sig: Debounce passes, set pending bit
+    Sig->>Or: Assert route line
+    Or->>GIC: Assert SPI 237
+    GIC->>CPU: Trigger IRQ 237 exception
+    CPU->>Sig: Read 0x2B000008 (read pending)
+    CPU->>Sig: Write 0x2B000008 (W1C ACK)
+    Sig->>Or: Deassert route line
+    Or->>GIC: Lower SPI 237
+    CPU->>GIC: End of Interrupt (EOI)
+```
 
-The seven sampler words retain the prior complete input/gate/debounce/reset model. Pending now has aligned 32-bit read access as well as W1C writes. Reads expose the unfiltered ten private pending bits, preserve state and never sample an input or clear an interrupt. This read meaning is an explicit functional convention; original read/writeback establishes access and ACK use, not mask-filter polarity. Masks select each retained pair's output contribution. Official QEMU **OR_IRQ**, configured for five lines, combines the five SysBus outputs before a single connection to the mature GIC's IRQ237 input. Clearing one route cannot lower the shared wire while another masked-in route remains pending. Sampling/configuration still does not call guest callbacks or write guest flags; original ISR code performs those actions.
+## Hardware Architecture
 
-The separate aperture **[28000000,28000004)** is a named opaque configuration input. Only aligned 32-bit writes are accepted. The full guest value is retained, with virtual reset zero. Reads, other widths and neighboring addresses fail. This original consumer is not bound to a physical 280 IP, security/forwarding gate, ACK, clock, completion or IRQ producer. Its retained value has no event side effects. It is a distinct MemoryRegion on the sampler class, with dedicated access handlers; it does not widen the seven-word sampling window. Snapshot/migration remains explicitly unmigratable.
+### GIC SPI 237 Aggregation
+- Five distinct pending outputs from the sampling engine connect to a 5-input `OR_IRQ` device.
+- The output of the `OR_IRQ` feeds GIC SPI 237 (GIC interrupt ID `237 + 32 = 269`).
+- Clearing one route's pending bit does not lower SPI 237 if any other route remains asserted. Only when all active masked routes are cleared does the interrupt line deassert.
 
-The five external qdev inputs remain disconnected/low at cold start. Reset retains live provider levels, cancels debounce timers and clears controller pending/configuration. All prior named assumptions remain: zero configuration, zero-held reset, one-enabled gate/mask, raw-low/filtered-high status, W1C edge latch and a separate nominal 1 MHz debounce clock with 1/2/4/8 ticks. No physical external signal or GIC event is invented by the new initializer writes. Adjacent `2b001000`, distinct `2b100000`/`2b200000`, and all undisclosed 280 words remain unsupported.
+### Opaque Configuration Aperture (`0x28000000`)
+- **Physical Range**: `[0x28000000, 0x28000004)` (4 bytes).
+- **Access Rule**: Aligned 32-bit writes only. Reads or sub-word accesses return `MEMTX_ERROR`.
+- **Boot Sequence**: Camera boot code in both MAS and SLA domains writes `0x0000000F` to `0x28000000` during initialization before enabling GIC SPI 237.
+- **Side Effects**: The written value is latched; it produces no spontaneous interrupt or clock transition.
 
-## Fixed validation
+## SLA & MAS ISR Callback Dispatching
 
-Incremental native build against upstream **4fc49f46dc95d4a27de2509e7fceb2931e91faeb** passed; final checkpatch has **0 errors/0 warnings**. Logs are `work/issue331/signal-irq-5ffcb6d-build.log` and `signal-irq-5ffcb6d-checkpatch.log`. Earlier intermediate comment-format warnings remain in their own logs. All 19 current C/header inputs directly match the upstream build copies; no payload hash substitutes for byte comparison.
+The camera OS maintains 5 callback slots mapped to physical edge cause pairs:
 
-`work/issue331/signal-irq-5ffcb6d/result.json` records **27/27 focused checks**, **1.7459200830198824 s** host wall time, on macOS. Twenty ARM fixtures cover the seven original words, pending cold read, all pulse/configuration permutations, strict field/width/direction/neighbor rejection, original and full-value opaque writes, and rejection of opaque reads/byte/halfword/adjacent accesses. Seven official qtest fixtures drive real qdev inputs and virtual Clock deadlines. The new aggregate lifecycle checks all five simultaneous masked pending bits, non-destructive reads, selective ACK retaining the shared IRQ until the last route clears, original ISR-style read/writeback ACK, both edges, no-event opaque writes, deferred debounce, reset cancellation and aggregate lowering. The previous six external-input/debounce/shared-gate fixtures also pass. These seven qtest cases execute no firmware; their input edges and aggregate output are synthetic validation, not original external events or a guest IAR/EOIR observation. The actual GIC237 connection is board wiring backed by original registration. Fixture names are unique and the recipe matches the frozen commit. The obsolete unsupported-pending-read case was replaced, not retained as a compatibility path. No unrelated full smoke or unchanged original stage was rerun or relabeled.
-
-One changed-stage original run is `work/issue331/original-signal-irq-5ffcb6d/receipt.json`: native **5ffcb6d3048319c8193fe49beb7249612b17559e**, exit 0, **0.22970937506761402 s** host wall time, and unchanged 38,239,096-byte MAS payload under direct initial/final content comparison. The receipt contains the complete new assumptions and trace filter. It crosses the former `CPU1 PC1051669a / WRITE32 PA28000000=0xf` stop. Its next first uncovered access is `qemu.log:18528`: **CPU1 PC10242cbc, READ32 PA2402000c**, followed by **DFSR1008 / DFAR2402000c** at line18532. This is a new hardware-family dependency, not evidence for a zero reply or an adjacent wide mapping. The run does not prove an external five-route edge, guest IRQ237 handling, phase completion, physical 280 identity or menu. `whole_boot_verified` remains false. Old 77cf/400 receipts preserve their original narrower scope and are not modified.
+| Cause Pair | Physical Bits | Assigned Callback Slot | Event Argument |
+|---|---|---|---|
+| Pair 0 | Bits 0 / 1 | Slot 0 | `0x41090001` |
+| Pair 1 | Bits 2 / 3 | Slot 1 | `0x41090001` |
+| Pair 2 | Bits 4 / 5 | Slot 3 | `0x41090001` |
+| Pair 3 | Bits 6 / 7 | Slot 4 | `0x41090001` |
+| Pair 4 | Bits 8 / 9 | Slot 2 | `0x41090001` |

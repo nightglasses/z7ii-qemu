@@ -1,15 +1,35 @@
-# 2010 stop request and original event acknowledgement
+# Control2010 Stop Request and Event Confirmation
 
-The original business wait is now observed: native GDB at10104A14 read the source-proven16B wrapper frame with rawLR103610F5 and savedbusinessLR10388829, identifying CALL10388824 in savedwhole103887FE. That method writes20100004=0 before waiting for F0bit2. The actual F0wordB18094F0 is ID01000088, with requestedpattern2/mode1/timeout−1, CBpattern0 and taskstate2. The retained observation is `work/issue378/original-event-business-0b5ed9a/receipt.json`; it does not prove any physical hardware producer.
+The Control2010 stop lifecycle allows the camera firmware to gracefully halt peripheral event inflows and synchronize background processing via an asynchronous internal confirmation interrupt.
 
-RTOS sourcef6190f6b9cd9dd9af69a1650d000f4629fd3cea5 and whole2010 source74c083da3c0df7aeed89a52a6898bd0959d78e7f prove the guest delivery chain: pending18.bit0→ISR103BCE38→callbackR1bit0 through service146objectB1801D70+4→savedcallback10388C18→guest eventsetF0bit2. The callback ignores encodedR0 for this test. Three raw banks are read and same-word ACKed by the original ISR; the first maskword is0C. Registration in first88C3A remains an original-byte candidate, whereas the callback/wait/kernel bodies have saved source. No host writes an eventflag, task, callback or guest return value.
+```mermaid
+sequenceDiagram
+    participant App as Firmware Coordinator
+    participant Gate as Gate Controller (0x20100000)
+    participant Timer as 20 µs Virtual Drain Timer
+    participant ISR as Gate ISR (0x103BCE38)
+    participant Kernel as RTOS Event Flag (F0.bit2)
 
-The virtual profile accepts every legal04=0 write as a stop request, including already-stopped state; prior04=1 was not observed and is not a prerequisite. A single outstanding request coalesces further zero writes while draining or while its confirmation is latched. A QEMU virtual-clock timer represents a nominal20us control drain and then latches pending18.bit0. There is no frame, image/data generation or external event. Its masked internal IRQ remains deliverable when the external inflow gate is stopped, because suppressing all IRQ at04=0 contradicts this original stop/wait lifecycle. Physical completion meaning, latency, mask polarity and reset state remain explicit functional assumptions.
+    Note over App,Gate: 1. Initiate Peripheral Stop
+    App->>Gate: Write 0x20100004 = 0x00 (Close Inflow Gate)
+    Gate->>Timer: Schedule 20 µs Control Drain
+    App->>Kernel: Block wait on Event Flag (ID 0x01000088, mask 0x02)
 
-Opening04=1 cancels an unfinished drain but preserves already latched pending. W1C18.bit0 clears its internal confirmation; a subsequent zero request may then complete again. Masking retains pending and only suppresses IRQ. Other raw banks and external pending survive stop and ACK independently; stopped external edges are not admitted. Reset cancels the timer and clears the cold virtual state without emitting confirmation. Illegal controls, widths, unknown pulse/cancel operations and configuration errors reject before altering state or the outstanding timer. Other configuration retains the prior finite contract.
+    Note over Timer,ISR: 2. Internal Confirmation Assertion
+    Timer->>Gate: Drain expired, set Raw Domain 1 Bit 0 (0x18.bit0)
+    Gate->>Gate: Check Mask (0x0C bit 0 is unmasked)
+    Gate->>ISR: Assert GIC SPI 102 Interrupt
+    
+    Note over ISR,Kernel: 3. Service & Task Unblock
+    ISR->>Gate: Read 0x18 (confirm bit 0)
+    ISR->>Gate: Write 0x24 = 0x01 (W1C ACK)
+    ISR->>Kernel: Call event setter (Sets F0.bit2)
+    Kernel->>App: Wake Coordinator Task (Wait returns success)
+```
 
-Five new no-firmware qtests exercise already-idle/repeated requests and exact timer boundary, mask/ACK delivery, reopen/reset cancellation, transactional rejection while draining, and independence from all three external pending domains. Those and three affected prior gate qtests all passed at native/recipe66ae6f00fd91887d796ece6cc5a5bd55542953f5 in1.469200542s. The one j1 incremental build exited0; its log is `work/issue378/control2010-stop-incremental-build.log`, and scoped validation is `work/issue378/control2010-stop-66ae6f0/result.json`. No full suite was repeated.
+## Hardware Stop Lifecycle
 
-One changed-original observation at `work/issue378/original-control2010-stop-66ae6f0/receipt.json` records IRQ102raise/IAR on CPU1/deassert (qemu.log20934/20943/20957), originalcallback10388C18, nativeGDB eventsetter10104848(ID88,mask2,ordinaryLR10388C29), then actual postwait10388828(R0=1). The event arrived before queued blocking, so no genericmake_wait/selectedqueuewake/release point was observed; there is no claim that a queued waiter was released. The old stop/wait obstruction was crossed by the guest's own normal event API. Original38,239,096B and all30native/current/upstream C/header files compared directly equal before/after.
-
-The next first failure is READ32 20100030 at103BD786, with DataAbort1008/DFAR20100030. NativeGDB already reported SIGTRAP at10103610 before the later operator interrupt; the run is not described as an exact5s guest duration. Its new whole data/status consumer requires source recovery, rather than a constant word or host event. Whole boot/menu and module completion remain unproved. Earlier failures and observations retain their own identities.
+1. **Stop Initiation**: Writing `0` to `0x20100004` closes the external event inflow gate and initiates an internal 20 µs virtual drain timer.
+2. **Coalescing**: If firmware writes `0` again while a drain is actively pending, the request coalesces without resetting the timer.
+3. **Confirmation Latch**: Upon drain expiration, the controller latches bit 0 in raw domain 1 (`0x20100018`). Unlike external events, this internal confirmation is **not** blocked by the gate closure, ensuring that the firmware receives the completion event.
+4. **Reopening**: Writing `1` to `0x20100004` while a drain is pending cancels the unfinished drain timer while preserving any already-latched confirmation flags.

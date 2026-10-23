@@ -1,15 +1,29 @@
-# Independent clock-controller word-mask configuration
+# Word-Mask Configuration Register
 
-Native C and fixture recipe **400563108067d1725bb2c820c4eb4d2da2449fb6** add the complete `04281034` word-mask configuration contract to the existing PLL/selector/stop controller. This is an independent retained 32-bit configuration word, rather than a frequency getter or a read-zero exception. The source is `nightglass` **7c88c989b0bc7c715b5f0fa5129fb1a395a4c196**, `research/z7ii/qemu-system-control-contract.md`, section `+34 Whole-word mask control request`.
+The word-mask register at offset `0x034` (`0x04281034`) provides whole-word configuration masking for peripheral sub-blocks.
 
-The source helper validates 46 original bytes/20 instructions in disjoint ranges O3908cc..3908ea, O390904..390912 and shared return O390838..39083a, excluding intervening literal data. The current saved function/BB provider does not cover the actual method entry/read; this is an actual-PC-anchored continuous original-byte diagnostic contract, not newly accepted saved-native coverage. The actual previous stop independently anchors `CPU1 PC103b08e2 READ32 PA04281034`.
+```mermaid
+flowchart TD
+    In["Caller Mask (R1) & Flag (R2)"] --> CheckMask{"Mask == 0xFFFFFFFF?"}
+    CheckMask -->|"Yes"| EarlyRet["Return 0 (No MMIO Operation)"]
+    CheckMask -->|"No"| Lock["Acquire OS Mutex B1CF1130"]
+    Lock --> Read["Read current 32-bit word from 0x04281034"]
+    Read --> CheckFlag{"Flag Non-Zero?"}
+    CheckFlag -->|"Yes (Clear)"| BIC["new = old & ~mask"]
+    CheckFlag -->|"No (Set)"| OR["new = old | mask"]
+    BIC --> Write["Write new 32-bit word to 0x04281034"]
+    OR --> Write
+    Write --> Unlock["Release OS Mutex & Return"]
+```
 
-The guest method saves entry r1 as mask and r2 as flag. Mask `ffffffff` follows an original early return0 without any MMIO; it is not a write-all command. Other masks acquire original mutex B1CF1130, read this word, compute `old & ~mask` for nonzero flag or `old | mask` for zero flag, then store the complete result at the same offset and unlock through guest code. The prior original stop's mask20000000/flag0 is an OR-bit29 request. Its ABT LR was fault-plus-eight and is not used as an upper caller address.
+## Hardware Specification
 
-The complete register reset0 and acceptance of all 32 configuration bits are named **functional assumptions**. Physical writable fields and effects are unknown. The model stores the actual guest result and returns that state on subsequent aligned word reads. It neither derives frequency nor changes PLL locks, stop words, ready, IRQ or an event from this configuration. This does not claim that the physical word lacks other effects. It is distinct from +58/+5c indexed bit-control banks and +38..4c stop banks; synthetic set/clear aliases +134/+234 are unsupported. Unknown widths/alignment remain transaction errors. Existing unmigratable VMState continues to block snapshot/migration of this controller.
+| Offset | Physical Address | Register Name | Width | Access | Default |
+|---|---|---|---|---|---|
+| `0x034` | `0x04281034` | `CLK_WORD_MASK` | 32-bit | R/W | `0x00000000` |
 
-One incremental native build succeeded against pinned upstream **4fc49f46dc95d4a27de2509e7fceb2931e91faeb**, with all19 board C/header files directly equal to the upstream build inputs. Upstream checkpatch reports **0 errors/0 warnings** in `work/issue331/clock-wordmask-4005631-checkpatch.log`. The unchanged prior whole-smoke and original stages were not repeated or relabeled.
-
-`work/issue331/clock-wordmask-4005631/result.json` records **9/9 focused checks** on exact native/fixture400563: five existing indexed-bank RMW/reset/width/hole/no-alias regressions and four new word-mask checks. These cover the actual bit29 OR followed by another mask and BIC while retaining other bits, no alias into +58 or stop +38, a real second guest entry after board reset, unsupported width, and unsupported command alias. These are executing synthetic ARM contracts, not physical clock measurements or original whole-method/caller proof.
-
-One changed-stage original run, `work/issue331/original-clock-wordmask-4005631/receipt.json`, retains native400563, the complete actual command/assumptions, exit0 and direct complete MAS payload equality. It crosses the previous +34 read stop. The next first unsupported access is `qemu.log:18449`: **CPU1 PC1051669a WRITE32 PA28000000 = f**, followed by **DFSR1808 / DFAR28000000** at line18453. This is a separate device-family request, not another register in the clock block. There is no claim of menu, complete phase success, physical frequency, all word-mask methods or hardware identity. `whole_boot_verified` remains false.
+### Protocol Rules
+- **Access Constraint**: Aligned 32-bit transactions only. Unaligned or sub-word operations return `MEMTX_ERROR`.
+- **Atomic Modification**: Firmware encapsulates read-modify-write sequences within an OS mutex (`0xb1cf1130`). When flag is non-zero, the mask is cleared via bit-clear (`BIC`); when flag is zero, the mask is asserted via bitwise OR.
+- **Independence**: `CLK_WORD_MASK` is independent of the stop banks (`+0x038..+0x04c`) and bit-control registers (`+0x058..+0x05c`). SET/CLEAR aliases do not affect this register.
+- **Reset**: System reset clears the configuration word to `0x00000000`.

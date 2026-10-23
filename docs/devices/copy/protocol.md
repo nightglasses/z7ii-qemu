@@ -1,53 +1,61 @@
-# Four-channel original default byte-copy profile
+# Four-Channel Memory Copy Engine
 
-Code `a9a4b7c9a36dfdf490422e3a0e536a7c4ade8354` implements the finite controller at PA04251000, four channel windows at+10+n*30hex, with GIC IRQ45..48. The [fixed original source contract](https://github.com/mashiro01/nightglass/blob/a4e287c86c52ad914f96bbc5b3850821cb5b5cbe/research/z7ii/qemu-four-channel-copy-contract.md) joins the ordinary copy caller's destination/source/byte-length to the request packet, default configuration and guest IRQ/callback/wait sequence. Its saved-native roots and anchored raw handlers retain their separate coverage limits. There is no matched physical controller identity. This device is separate from the twelve-channel timing controller and both HDMAC banks.
+The Nikon Four-Channel Memory Copy Engine at `0x04251000` provides high-throughput direct memory access (DMA) transfers across system RAM, ROMD images, and domain-private memory spaces, generating per-channel completion interrupts via GIC SPI 45 through 48.
 
-## Supported interface and explicit virtual assumptions
+```mermaid
+flowchart TD
+    subgraph GlobalCtrl ["Global Control (0x04251000)"]
+        GC["Global Reg (0x04251000)\nBit 28: Enable / Cancel\nBit 24: Mode\nBit 20: Selector"]
+    end
 
-Aligned32-bit accesses implement the original count−1, source, destination, two configuration words, auxiliary configuration, request/control and low4 pending status. Local+1c, channel holes and other widths reject. Default ordinary copy requires configuration30f00/30f00, auxiliary0 and mode1 request11109003; all six data/configuration words must first be written by the guest. Fixed-source fill, other formats and transformations reject before changing their registers. The two-bit field3 is an original supported profile value; it is not interpreted as an eight-byte beat size.
+    subgraph Channels ["4 Independent DMA Channels (0x04251010 + ch * 0x30)"]
+        direction TB
+        ChRegs["Channel Registers:\n+0x00: Byte Count (Count - 1)\n+0x04: Source Address (RAM/ROMD)\n+0x08: Destination Address (RAM)\n+0x0C / +0x10: Config (0x30F00)\n+0x18: Control & Trigger (0x11109003)"]
+        ChTimer["Virtual Clock Timer (48 MHz)\nAbsolute Deadline Pacing"]
+        ChDMA["AddressSpace DMA Engine\nDirect Range Preflight"]
+        ChStat["Status & ACK (+0x20)\nBit 3: Success (8)\nBit 0: Error / Cancel (1)"]
+    end
 
-The virtual profile starts with zero registers, no configured fields, global disabled and no pending work. The physical roles and effects of all three original global bits28/20/24 remain unknown. This virtual profile explicitly uses bit28 as enable/cancel: clearing it cancels outstanding channels even if other selectors remain set. The original finite bit20/24 RMW selectors share this word and retain their configured values: the named virtual profile treats them as configuration inputs, with local requests still producing copies and completion. It does not claim that those fields have no effect in hardware. Changing them never submits a transfer, invents status or emits an IRQ; all other global bits reject. A local control write clearing both active bits cancels that channel; active configuration changes reject. Cancellation produces virtual error status1, never success8. Reset cancels timers and clears configuration, progress and IRQs.
+    subgraph Memory ["Target Address Space"]
+        Src["Source Range (RAM or ROMD)"]
+        Dst["Destination Range (Writable RAM)"]
+    end
 
-Each channel retains independent progress, a request start time and a QEMUTimer. The nominal independent48MHz upstream Clock assigns each byte an absolute virtual deadline, `start + clock_ticks_to_ns(bytes) + 1ns`. Normal callbacks are spaced by up to64KiB of progress; a late callback commits all bytes whose absolute deadlines have passed, using bounded4KiB DMA transactions. The next event uses the original start time rather than the callback's current time, so host scheduling delays cannot accumulate into transfer duration. A single virtual-clock jump past the final deadline performs the whole actual copy before success/IRQ. Submission itself never copies or completes the request. This is a virtual byte throughput convention, not a measured peripheral rate or EXPEED performance.
+    GlobalCtrl --> Channels
+    ChRegs --> ChTimer
+    ChTimer --> ChDMA
+    ChDMA -->|"Read Chunks"| Src
+    ChDMA -->|"Write Chunks"| Dst
+    ChDMA --> ChStat
+    ChStat -->|"4 Dedicated SPIs"| GIC["GIC SPI 45..48"]
+```
 
-Actual copies use pinned QEMU [dma_memory_read/write](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/system/dma.h#L146-L173). Each callback checks the remaining source and destination ranges against the selected address space: readable RAM/ROMD sources are accepted and destinations require writable RAM. ROMD reads use ordinary read attributes after that direct-backing check; writes use normal-memory-only attributes. Device/MMIO copies are outside the supported scope. Unknown source/target produces virtual error status1. There is no zero source or clipping to an available backing. CPU and DMA see the same physical memory, and simultaneous channels retain separate deadlines, progress, pending state and IRQs.
+## Register Layout
 
-The standard QEMU `memory` MemoryRegion link selects the controller's DMA address space before realization. An unset link selects system memory for the MAS board. A private SLA controller links its own domain root, so range validation and every DMA read/write resolve the same private backing even when another domain uses the same numerical address. The device creates/destroys its AddressSpace through realize/unrealize; unrealize resets all four channels and cancels every timer before destroying that space. No private request consults the global address space. Readable ROMD sources, writable-RAM destination restrictions, status/error, W0C, IRQ and virtual timing semantics are unchanged.
+All accesses require aligned 32-bit operations.
 
-Range validation uses a MemoryListener bound to this exact AddressSpace. It records every effective flat-view section's start/end and direct-read/writable-RAM qualification, including readonly permissions inherited from aliases and containers. Validation walks actual section intervals under RCU and requires complete coverage of the remaining request before any DMA transaction. ROMD sections and aliases shorter than their backing are bounded by their effective mapped extent; MMIO and holes reject without reading them or modifying the target. Topology, readonly and ROMD mode changes refresh the listener; deletion matches the old section interval without reclassifying its MemoryRegion after a mode change. No lookup ascends through a root into another address space. Every realization allocates a fresh AddressSpace; unrealize cancels timers, unregisters the listener and releases its ranges before `address_space_destroy_free` retires the AddressSpace through QEMU's deferred lifecycle. Embedded address-space storage is not reused while retirement callbacks remain pending.
+### Global Control (`0x04251000`)
+- **Bit 28**: Master enable / cancel. Writing 0 immediately halts all active channel timers and sets status to cancellation (`status = 1`).
+- **Bits 24 & 20**: Global transfer modes and routing configuration.
 
-The same section-span function bounds both preflight and every actual DMA transaction, in addition to the4KiB buffer limit. This matters for legal adjacent mappings: an ordinary ROMD read is not automatically capped by QEMU to a short alias's end, so one unbounded transaction could read hidden bytes from that alias's original backing instead of translating the neighboring RAM or different ROMD. Transfers split at each actual source/destination section boundary and concatenate the independently mapped bytes. They never read hidden backing beyond an effective mapping.
+### Channel Register Window (`0x04251010 + channel * 0x30`)
 
-SLA original Listing `10066FCC..1006714A` independently binds the same nine-register channel geometry at `04251010+channel*30hex`, four36-byte registry records at `C1005C48`, register pointers at `C1005BB8`, and IRQ45..48. Its initializer, configuration, mode1 trigger and ISR clear-to-zero sequence match the supported frontend. This is source protocol evidence; private address-space support does not establish an original SLA runtime-copy outcome or add alternate formats.
+| Offset | Register Name | Access | Width | Description |
+|---|---|---|---|---|
+| `+0x00` | `DMA_COUNT` | R/W | 32-bit | Transfer byte count minus one (`len - 1`). Reads return remaining residual bytes. |
+| `+0x04` | `DMA_SRC` | R/W | 32-bit | Source physical address (must resolve to direct RAM or ROMD). Advances with transfer. |
+| `+0x08` | `DMA_DST` | R/W | 32-bit | Destination physical address (must resolve to writable RAM). Advances with transfer. |
+| `+0x0C` | `DMA_SRC_CFG` | R/W | 32-bit | Source stride and transfer configuration (standard: `0x00030F00`). |
+| `+0x10` | `DMA_DST_CFG` | R/W | 32-bit | Destination stride and transfer configuration (standard: `0x00030F00`). |
+| `+0x14` | `DMA_AUX_CFG` | R/W | 32-bit | Auxiliary configuration register (standard: `0x00000000`). |
+| `+0x18` | `DMA_CTRL` | R/W | 32-bit | Channel control & trigger. Writing `0x11109003` initiates mode 1 transfer. |
+| `+0x20` | `DMA_STATUS` | R/W0C | 32-bit | Status & ACK: Bit 3 = Success (`0x8`), Bit 0 = Error/Cancel (`0x1`). Clear by writing 0. |
 
-Only a fully successful transfer produces status8, informed by the original waiter's exact success comparison. Source and destination advance by accepted bytes. The count snapshot is explicitly modeled as max(remaining−1,0); physical residual encoding remains unknown. Progress commits after each successful chunk; an error can retain bus side effects within its failing chunk, as allowed by the upstream bus result. Status1 is a named bus-error/cancellation convention, not a recovered physical error bit. Guest clear-to-zero acknowledgement removes pending state; the original status and local control RMW paths remain responsible for clearing it. IRQ is generated from pending status and the original configuration bit15. The host never calls a guest ISR or sets an event flag. State is explicitly unmigratable.
+## Transfer Pipeline & Virtual Timing
 
-The machine's `/machine/copy` QOM object exposes read-only host diagnostics: `virtual-clock-ns` and `channel0`..`channel3` properties suffixed `-start-ns`, `-total-bytes`, `-remaining-bytes`, `-next-deadline-ns` and `-running`. The next deadline comes from the actual pending QEMUTimer; it is zero after completion, cancellation or reset. Start/total retain the last request until reset, and remaining retains its actual residual after cancellation/error. Reading these properties neither advances virtual time nor updates the device. QMP stop followed by qom-get permits a stable virtual-clock/progress/deadline snapshot; host wall time is not a substitute. These diagnostics add no guest MMIO or configurable hardware behavior.
-
-## Actual validation and preserved first prefix
-
-Incremental native builds of code7696bde and exact current codea9a4b7c exited0. `work/issue331/copy-7696bde/result.json` preserves15 focused synthetic PASS. `work/issue331/copy-a9a4b7c/result.json` records17 focused PASS on the changed global profile: seven-byte and unaligned copies with exact tail boundaries, multiple chunks, independent first/last channels, real GIC IRQ48/IAR/EOI, global cancellation, second-entry reset, causal source/destination/MMIO errors, fixed-pattern rejection, missing initialization, address overflow, hole and width rejection, selector retention without submission and unknown-global rejection. These synthetic transfers are not original-firmware runtime-copy evidence.
-
-Those receipts validate the historical256-byte callback implementation. The subsequent absolute-deadline implementation changes callback pacing and adds native C qtest cases under `/nikon/copy/`: one-step3MiB/8MiB copies with independent patterned contents and W0C IRQ acknowledgement, exact64KiB partial progress followed by cancellation, four simultaneous channels with distinct data/deadlines/IRQs, and a3MiB ROMD source with ROMD-destination and unmapped-source errors. They use the existing native fixture and real board memory/GIC inputs. Native compile/run evidence for this implementation must be recorded separately; the historical receipts do not validate it.
-
-`work/issue331/original-copy-7696bde/{receipt.json,qemu.log}` binds that full code ref, pinned QEMU4fc49f46 v11.1.2, explicit copy assumptions, full original payload direct equality true, exit0,0.192964250s host observation and wholebootfalse. The guest passed the previous first read at04251000. The new first unsupported transaction is CPU1 **PC10294cfc WRITE32 PA04251000=11000000**, the same controller's global bit24 setter. Its original Data Abort is retained. This prefix does not establish a guest runtime copy, the whole role1 constructor, valid NV data or a menu. Prior timing/Audio/NV receipts remain unchanged.
-
-The next `work/issue331/original-copy-a9a4b7c/{receipt.json,qemu.log}` binds the current full code ref, pinned QEMU, complete updated assumptions, original payload equality true, exit0,0.189984792s host observation and wholebootfalse. CPU1 has passed the previous selector write and is observed at outer constructor102006a4 (log6683–6688), after the third inner callback; the whole constructor/phase is not yet verified. The new first uncovered transaction is **CPU0 PC103e0ad2 READ32 PA12a3fffc** (7746), followed by DFSR1008/DFAR12a3fffc (7750). R0=b185e5a0/R1=12a3fffc/R2=4 describes the observed comparator call, not a proven valid record. Its whole external resource geometry and consumer are the next dependency.
-
-The earlier7696 trace also contains guest10101cc2 default copies. The RTOS [fixed source/actual join](https://github.com/mashiro01/nightglass/blob/acbe01f5b0d37cc1f2ee730e5fc9efaf22f6d639/research/z7ii/qemu-rtos-startup-contract.md) connects its real caller to independent startup initializer10101d40, not an inferred FF-read failure fallback. The original default-table loop and actual copies/processed flags do not establish valid NV data, a complete82-entry traversal or menus. No host default data is supplied.
-
-No original runtime-copy request is claimed from these two initialization runs. The original firmware, IRQ handlers, task contexts, MMU operations and O178 remain unchanged.
-
-## Issue397 class audit
-
-The [QEMU：Batch closure of DMA and audio startup protocols](https://github.com/mashiro01/nightglass/issues/397) checked the saved request, configuration, cancel, status and ISR consumers across all four channels. Their ordinary byte-copy lifecycle is already represented; this audit adds no copy behavior or new runtime validation. The fixed-source wrapper at original `103a3bf8` supplies an eight-byte scratch source at `04008fe0+channel*8` and a fixed-source configuration bit, but the saved contract does not bind repetition stride, partial-pattern or format semantics. Implementing it as ordinary byte copy or assigning an eight-byte beat would invent behavior. It remains future protocol work, with explicit rejection before mutation.
-
-The implemented profile depends on real readable RAM/ROMD, writable RAM, the declared nominal clock and GIC45..48. Missing external memory is a bus dependency, not a successful zero source. No saved producer connects copy completion to event/EXIU or frame completion. The historical first-prefix observations above remain unchanged and do not identify a current boot blocker.
-
-The added native `/nikon/sla/copy-private` fixture uses the existing five-component synthetic container. It checks131075 actual ROMD bytes copied into unaligned SLA RAM before success/IRQ, rejects a ROMD destination without changing contents, then relinks the controller to an independent file-backed MemoryRegion. A4099-byte copy between addresses absent from board memory must update that backend's actual bytes. Unrealizing a pending request must leave its destination unchanged and clear the timer/IRQ telemetry. The sole builder reported production14c compile/link PASS, the focused MAS large-jump PASS and fixture9e8574c focused private PASS (exit0, approximately0.8s), recorded in `copyprivatequalified.txt` and `copyprivatequalifiedreceipt.log`. This is synthetic protocol validation, not original SLA execution evidence.
-
-The initial private fixture failure was an assertion type error: QEMU's `ldl_le_p` returns a signed integer, which the hex comparison sign-extended. The builder's raw scalar response was `00000000abcdef01` and bulk response began `01efcdab`, proving intact little-endian bytes. Fixture9e8574c casts to `uint32_t` before comparison and retains the scalar source check and all full-byte assertions. No ROM contents or production DMA behavior changed to satisfy that assertion.
-
-The subsequent ROMD boundary audit found a real preflight regression: pinned QEMU `system/physmem.c` caps the translated span to its section only for RAM; a ROMD region is initialized as I/O with direct ROMD reads and is not RAM. The old leaf-only `address_space_translate` loop could therefore accept a request starting in ROMD and extending into MMIO or a hole. Ordinary source attributes required for ROMD would then permit a side-effecting MMIO read. The all-section listener above closes that whole range class before DMA, preserving ROMD reads without admitting MMIO. The new focused native `/nikon/copy/romd-boundary` tests a17-byte ROMD block and a5-byte alias into its larger backing, each ending inside a DMA beat beside side-effecting MMIO, then a live mapped-hole change. Each rejected request must retain the full residual/source and leave all destination bytes and side-effect counters unchanged. It also checks exact valid ROMD contents, readonly alias/container rejection and permission changes, and ROMD mode changes. The sole builder compiled/linked production80d7441 and fixture3d5fda2, then the official native test passed (exit0,0.63s, one case) in `work/copyromdfullreceipt.log`; canonical integration is5f504d113fd4da29f7faf443c585e60039c257ea. Earlier qualified groups were not repeated. This receipt validates the synthetic boundary correction, not an original-firmware transfer or full boot.
-
-That first receipt covers illegal-adjacency rejection and the listed valid single-section reads; it does not validate legal adjacency across a short ROMD alias. A subsequent source audit found that actual DMA chunks still needed the section bound despite correct whole-request preflight. The extended focused case now maps distinct patterned RAM and then distinct ROMD directly after the5-byte alias. An8-byte copy starting two bytes into the alias must concatenate its final3 mapped bytes with5 bytes from the actual neighbor, succeed with exact residual/source snapshots and preserve the destination tail. Hidden bytes in the original17-byte backing deliberately differ. All earlier MMIO/hole rejection assertions remain unchanged. Compilation and execution of this extension are pending the sole builder.
+1. **Preflight Extent Validation**: Before initiating DMA, the engine verifies that the entire source range exists as readable RAM or ROMD, and the destination range exists as writable RAM. Invalid targets trigger error `status = 1` without writing any bytes.
+2. **Deterministic Virtual Deadlines**: Transfer duration is paced by a nominal 48 MHz virtual Clock:
+   $$\text{deadline} = \text{start\_time} + \text{clock\_ticks\_to\_ns}(\text{bytes}) + 1\,\text{ns}$$
+   Callbacks commit in 64 KiB chunks, preventing host scheduling jitter from affecting guest-observed throughput.
+3. **Completion & Interruption**: Upon reaching the terminal deadline, the engine sets status `0x8` and raises the channel's dedicated GIC interrupt (SPI 45 for Ch 0, SPI 46 for Ch 1, SPI 47 for Ch 2, SPI 48 for Ch 3).
+4. **W0C Acknowledgment**: Firmware clears the status by writing `0` to `+0x20`.
