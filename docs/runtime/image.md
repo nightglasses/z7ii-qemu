@@ -6,6 +6,13 @@ The finite model processes the guest's inline geometry and alpha image, then
 publishes ordinary IRQ129. It does not substitute a host icon or publish a
 final display frame.
 
+The later normal-GUI [initialized image model](../devices/transfer/image.md)
+adds full224/472 initialization, explicit validated target selection and
+temporary paint-mode preservation. Original execution completes that pair and
+seven176/336 continuations through IRQ129. The older warning-path receipts
+below retain their own scope; the [current frontier](../validation/frontier.md)
+records the next840/1040-byte rejection.
+
 ## Original operands and producer
 
 All code and buffer addresses in this section are MAS VAs. Full original
@@ -53,7 +60,9 @@ Z7II silicon interpolation precision.
 The exact44/84-word command family retains all fixed headers, state, ending
 and padding. Variable fields are the affine path/sampling matrices, five
 bounded integer coordinate words, matching nonzero opaque operand, matched
-class1 key, equal source extents, source address and opaque paint. Only this
+class1 key, equal source extents, source address and opaque paint. The initialized
+extension also permits an explicit RAM target; retained images must match the
+successfully established target. Fixed record7 path commands remain separate. Only this
 five-segment closed inline H/V path family and A8 source with dimensions1..256 are
 accepted. Perspective/singular/nonfinite transforms, unsupported types/modes,
 nonopaque source paint and incomplete packets remain errors. The later

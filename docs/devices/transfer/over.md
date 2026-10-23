@@ -2,8 +2,10 @@
 
 The normal GUI path's 176/368-byte pair now completes through original IRQ129.
 It fills a bounded indirect rectangle with semitransparent black, then retains
-the record7 context for subsequent path/image work. The next unchanged-firmware
-rejection is a separate 224/472-byte pair; no GUI first frame is established.
+the record7 context for subsequent path/image work. At that checkpoint, the next
+unchanged-firmware rejection is a separate224/472-byte pair. The later
+[image context model](image.md) crosses it; see the [current frontier](../../validation/frontier.md).
+No GUI first frame is established.
 
 ## Observed data and producer
 

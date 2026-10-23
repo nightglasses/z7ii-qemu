@@ -131,8 +131,11 @@ the 2120/2368-byte, ten-rectangle batch without its earlier initialization
 prefix. The [RGBA SRC_OVER model](docs/devices/transfer/over.md) then completes
 the 176/368-byte indirect rectangle with paint `cc000000`, including subsequent
 path/image compositing over nonopaque destinations. All 16 transfer unit cases
-pass. Original execution receives IRQ129 for five more pairs before rejecting
-a 224/472-byte pair with `transfer-rectangle-count-not-supported`.
+pass at that checkpoint. The later [image context model](docs/devices/transfer/image.md)
+corrects the shared-prefix misclassification, accepts full image initialization
+and retains the actual target across image continuations. All17 transfer unit
+cases pass. Original execution completes224/472 and seven176/336 pairs through
+IRQ129, then rejects840/1040 bytes with `transfer-path-batch-count-not-supported`.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is

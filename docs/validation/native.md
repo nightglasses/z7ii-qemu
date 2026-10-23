@@ -1,5 +1,18 @@
 # Native GUI integration
 
+The [image context extension](../devices/transfer/image.md) passes all17
+transfer unit cases in0.99s after native reds for full initialization and
+retained temporary mode14. Its40 variants cover the actual geometry/sampler,
+all four temporary modes, validated target selection including0, retained
+matching/foreign/failed/reset context, fixed-record7 path rejection, whole
+pixels/guards, strict initialization/body fields, ranges/aliases, backed4GiB
+crossing, deferred inputs, immutable commands and cancellation. Independent
+read-only review finds no concrete defect. Separate original execution completes
+224/472 plus seven176/336 pairs through original IRQ129; the first isolated
+image changes578 pixels and matches a whole-target independent reference.
+The next840/1040-byte pair rejects with `transfer-path-batch-count-not-supported`.
+GUI readiness remains zero. Receipts: `work/runs/guiimage-20261023/`.
+
 The [RGBA SRC_OVER extension](../devices/transfer/over.md) passes all16 transfer
 unit cases in1.21s after the new valid submission fails against the old model.
 Its35 variant types include64 source/destination alpha pairs, independent full
@@ -8,8 +21,9 @@ continuation, alias boundaries, immutable capture, late indirect changes and
 reset/unrealize/map-loss cancellation. Existing path/A8 image cases also cover
 nonopaque targets. Independent read-only review found no concrete defect.
 Separate unchanged execution crosses five more graphics pairs through original
-IRQ129 and next rejects224/472 bytes with `transfer-rectangle-count-not-supported`.
-GUI readiness remains zero. Receipts: `work/runs/rgbaover-20261023/`.
+IRQ129 and, at that RGBA-only checkpoint, next rejects224/472 bytes with
+`transfer-rectangle-count-not-supported`. That snapshot's GUI readiness remains
+zero. Receipts: `work/runs/rgbaover-20261023/`.
 
 The [rectangle context continuation](../devices/transfer/continuation.md)
 passes the complete 15-case `nikon_transfer_unit` batch after the new valid

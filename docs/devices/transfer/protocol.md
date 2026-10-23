@@ -11,11 +11,15 @@ state only after successful pixel execution.
 
 The [RGBA SRC_OVER extension](over.md) validates the next 176/368-byte
 indirect rectangle and implements paint `cc000000` over the observed transparent
-target, plus shared path/image destination-alpha handling. All16 transfer unit
-cases pass. Original IRQ129 follows five further pairs, ending with224/376.
+target, plus shared path/image destination-alpha handling. Original IRQ129
+follows five further pairs, ending with224/376. The later
+[image context model](image.md) recognizes224/472 as fully initialized A8
+sampling, retaining a validated target and accepting the complete temporary
+paint-mode combinations before final mode0e. All17 transfer unit cases pass.
+Original execution completes224/472 plus seven176/336 pairs through IRQ129.
 The next CPU1 WRITE32 PA `201810e0=1`, original PC `106ee3c6`, rejects with
-`transfer-rectangle-count-not-supported` on complete224/472-byte buffers at
-`bd0dff90/bd15ff90`. The next state/operand family needs producer analysis.
+`transfer-path-batch-count-not-supported` on complete840/1040-byte buffers at
+`bd0e0540/bd160aa0`. The next state/operand family needs producer analysis.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 
@@ -520,6 +524,11 @@ Only the known inline five-segment path, affine matrices, opaque paint,
 matched class1 keys and nonzero echoed operands are supported. Other image
 formats, modes, perspective, indirect geometry in this family and nonopaque
 source paint stay explicit errors. Destination alpha0..255 is supported.
+The later [initialized image extension](image.md) also validates the full
+224/472 initialization and retains the explicit target rather than a record7
+boolean. Retained176/336 images require that target; fixed record7 path batches
+still require `c175d600`. Temporary paint modes8/10/12/14 are accepted before
+the final mode0e write; unknown bits and final-mode changes remain errors.
 
 `nikon_transfer_image_parse` validates the entire target, command and image
 ranges/overlaps and effective backing aliases. At deferred execution it reads

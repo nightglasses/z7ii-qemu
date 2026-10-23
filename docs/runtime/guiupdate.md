@@ -55,10 +55,14 @@ the next 2120/2368-byte pair and receives original IRQ129. All 15 transfer unit
 cases pass. The [RGBA SRC_OVER extension](../devices/transfer/over.md) now
 validates the next indirect rectangle and paint `cc000000`, including shared
 path/image composition over its nonopaque target. All16 transfer unit cases
-pass. Original IRQ129 follows five further pairs through224/376 bytes. The
-current CPU1 original PC `106ee3c6` writes PA `201810e0=1` and rejects a
-224/472-byte pair with `transfer-rectangle-count-not-supported`; its producer
-and state/operand semantics remain open.
+pass at that checkpoint. Original IRQ129 follows five further pairs through
+224/376 bytes. The later [image context model](../devices/transfer/image.md)
+recognizes full image initialization and preserves the explicit target and
+source-backed temporary mode combinations. All17 transfer cases pass. Original
+execution completes224/472 and seven176/336 pairs through IRQ129. The current
+CPU1 original PC `106ee3c6` writes PA `201810e0=1` and rejects an840/1040-byte
+pair with `transfer-path-batch-count-not-supported`; its producer and state/
+operand semantics remain open.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.
