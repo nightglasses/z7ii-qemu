@@ -9,7 +9,7 @@ receipt is named.
 Current priority: defer VR boot work for the first GUI frame. The observed
 ready-bit probe changes SPI4 pacing without activating the measured display
 points. This is a bounded negative result, not a complete VR protocol
-qualification. The [VR execution note](../startup/vr-domain.md) records the
+qualification. The [VR execution note](../startup/vrdomain.md) records the
 current source, retired probes and conditions for returning to this branch.
 
 Related: [devices/spi/protocol.md](../devices/spi/protocol.md) (device contract
@@ -673,7 +673,7 @@ exactly `3201 * 262 = 838662` bytes - the size the update note gives for the
 complete VR upload stream - so that component is the VR payload in update-record
 form. Its body can be extracted for the standalone RX profile, but the stream
 omits the resident interval needed to run it past startup. The
-[VR execution note](../startup/vr-domain.md) records that boundary; the device-side
+[VR execution note](../startup/vrdomain.md) records that boundary; the device-side
 meanings of these commands remain unresolved.
 
 ### Channel attribution for all fourteen call sites (verified)

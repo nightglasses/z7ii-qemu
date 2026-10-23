@@ -566,7 +566,7 @@ should send it a command.
 
 ### Earlier baseline used for the F091 investigation
 
-On 2026-10-21 the [VR investigation](../startup/vr-domain.md) was deferred for
+On 2026-10-21 the [VR investigation](../startup/vrdomain.md) was deferred for
 the GUI objective. Its original resident-slot stop remains explicit. The
 experimental SPI4 ready-bit peer changes pacing without activating the measured
 display points; that does not qualify the complete VR protocol or rule out a

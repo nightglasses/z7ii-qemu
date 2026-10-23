@@ -111,7 +111,7 @@ export default defineConfig({
             text: 'Component Execution Domains',
             items: [
               { text: 'Five-Component Overview', link: '/startup/components' },
-              { text: 'CPU & Board Parameters', link: '/startup/cpu_board' },
+              { text: 'CPU & Board Parameters', link: '/startup/cpuboard' },
               { text: 'MEMC Initialization', link: '/startup/memc' },
               { text: 'MAS Domain Boot', link: '/startup/mas' },
               { text: 'SLA Domain Boot', link: '/startup/sla' },
@@ -120,7 +120,7 @@ export default defineConfig({
               { text: 'EX Component Profile', link: '/startup/ex' },
               { text: 'EX SysTick Dispatch', link: '/startup/exsystick' },
               { text: 'VR Component Protocol', link: '/startup/vr' },
-              { text: 'VR Domain Boundaries', link: '/startup/vr-domain' },
+              { text: 'VR Domain Boundaries', link: '/startup/vrdomain' },
               { text: 'NDS32 System Execution', link: '/startup/system' },
               { text: 'Private Peripherals Hypothesis', link: '/startup/peripherals' },
               { text: 'NOR Flash Startup', link: '/startup/nor' },
@@ -298,8 +298,8 @@ export default defineConfig({
               { text: 'Guest PTE & DMA Contract', link: '/runtime/pte' },
               { text: 'Virtual Mode Stacks', link: '/runtime/stacks' },
               { text: 'MAS Scheduler Affinity', link: '/runtime/scheduler' },
-              { text: 'Region Translation Table', link: '/runtime/region-table' },
-              { text: 'Selector-One Download Arena', link: '/runtime/selector-one-download' },
+              { text: 'Region Translation Table', link: '/runtime/regiontable' },
+              { text: 'Selector-One Download Arena', link: '/runtime/selectoronedownload' },
             ]
           },
           {
@@ -337,12 +337,12 @@ export default defineConfig({
             text: '0x50200000 Address Investigation',
             collapsed: true,
             items: [
-              { text: '0x50200000 Ownership Boundary', link: '/runtime/502-owner-boundary' },
-              { text: '0x50200000 Provider Boundary', link: '/runtime/502-provider-boundary' },
-              { text: '0x50200000 Runtime Consumer', link: '/runtime/502-runtime-consumer' },
-              { text: 'object+0x30 Consumer Boundary', link: '/runtime/502-object-consumer' },
-              { text: 'object+0x30 Static Consumer Receipt', link: '/runtime/502-object-consumer-static' },
-              { text: 'object+0x30 Runtime Reader', link: '/runtime/502-object30-runtime' },
+              { text: '0x50200000 Ownership Boundary', link: '/runtime/arena502' },
+              { text: '0x50200000 Provider Boundary', link: '/runtime/arena502' },
+              { text: '0x50200000 Runtime Consumer', link: '/runtime/arena502' },
+              { text: 'object+0x30 Consumer Boundary', link: '/runtime/arena502' },
+              { text: 'object+0x30 Static Consumer Receipt', link: '/runtime/arena502' },
+              { text: 'object+0x30 Runtime Reader', link: '/runtime/arena502' },
             ]
           }
         ],
@@ -392,7 +392,7 @@ export default defineConfig({
               { text: 'Provider Layer Verification', link: '/validation/providers' },
               { text: 'Controller & Input Layers', link: '/validation/layers' },
               { text: 'Reset, Timer & Analog Runtime', link: '/validation/runtime' },
-              { text: 'Memory Pressure Tests', link: '/tests/pressure' },
+              { text: 'Memory Pressure Tests', link: '/validation/pressure' },
             ]
           }
         ],
@@ -409,7 +409,7 @@ export default defineConfig({
               { text: 'Provider Layer Verification', link: '/validation/providers' },
               { text: 'Controller & Input Layers', link: '/validation/layers' },
               { text: 'Reset, Timer & Analog Runtime', link: '/validation/runtime' },
-              { text: 'Memory Pressure Tests', link: '/tests/pressure' },
+              { text: 'Memory Pressure Tests', link: '/validation/pressure' },
             ]
           }
         ]

@@ -77,7 +77,7 @@ flowchart TD
 CPU0 creates and starts the initial task. CPU1 may remain in a scheduler or
 wait boundary before joining a role task; an empty successor is not a missing
 ready producer. CPU choices, reset state and board values remain classified
-in the [CPU evidence matrix](startup/cpu_board.md). This is a functional TCG
+in the [CPU evidence matrix](startup/cpuboard.md). This is a functional TCG
 model, not a model of cache latency, branch prediction or silicon pipelines.
 
 ## Memory and DMA ownership
