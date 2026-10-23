@@ -2,8 +2,9 @@
 
 Later continuation: the [inline rectangle family](../transfer/rectangles.md)
 crosses the856/1088-byte graphics rejection recorded below and receives
-original IRQ129. The current next stop is a host QEMU RAM/IOTLB alignment
-assertion. This document retains its Audio-only receipts and final snapshots.
+original IRQ129. The subsequent [RAM fix](../../startup/ram.md) crosses the
+host IOTLB assertion and next reaches a ten-rectangle graphics continuation.
+This document retains its Audio-only receipts and final snapshots.
 
 The finite Audio profile now exposes both paired observation getters used by
 the original driver. The normal continuation passes the input getter and next

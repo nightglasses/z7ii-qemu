@@ -6,6 +6,7 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/cutils.h"
+#include "exec/target_page.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
 #include "hw/core/irq.h" /* IWYU pragma: keep */
@@ -150,6 +151,11 @@ typedef struct Z7IINorSlot {
     hwaddr base;
 } Z7IINorSlot;
 
+typedef struct Z7IIRAM {
+    MemoryRegion backing;
+    MemoryRegion view;
+} Z7IIRAM;
+
 struct Z7IIMachineState {
     MachineState parent_obj;
     ARMCPU cpu[Z7II_MAX_CPUS];
@@ -180,20 +186,20 @@ struct Z7IIMachineState {
     Z7IINorSlot nv_slot[5];
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
-    MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
-    MemoryRegion resource57_record0;
-    MemoryRegion resource57_record1;
-    MemoryRegion resource57_record7;
-    MemoryRegion lcd_composition;
-    MemoryRegion display_buffers;
-    MemoryRegion kind40_buffer;
-    MemoryRegion row_storage;
+    Z7IIRAM storage[ARRAY_SIZE(z7ii_storage)];
+    Z7IIRAM resource57_record0;
+    Z7IIRAM resource57_record1;
+    Z7IIRAM resource57_record7;
+    Z7IIRAM lcd_composition;
+    Z7IIRAM display_buffers;
+    Z7IIRAM kind40_buffer;
+    Z7IIRAM row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
-    MemoryRegion download;
+    Z7IIRAM download;
     /* Selector-one packed download arena; independent from selector zero. */
-    MemoryRegion selector_one_download;
-    MemoryRegion temporary_stack;
-    MemoryRegion early_release;
+    Z7IIRAM selector_one_download;
+    Z7IIRAM temporary_stack;
+    Z7IIRAM early_release;
     MemoryRegion shim_mas[NIKON_BOOT_SHIM_MAS_VIEW_COUNT];
     MemoryRegion peer_window;
     DeviceState *memc;
@@ -519,12 +525,18 @@ static void z7ii_reset(void *opaque)
     }
 }
 
-static void z7ii_ram(MemoryRegion *mr, const char *name,
+static void z7ii_ram(Z7IIRAM *ram, const char *name,
                      hwaddr base, uint64_t size)
 {
+    hwaddr offset = base & (qemu_target_page_size() - 1);
+    g_autofree char *backing_name = g_strdup_printf("%s.storage", name);
+
     /* Migratable board RAM uses NULL; its owner must not be a MachineState. */
-    memory_region_init_ram(mr, NULL, name, size, &error_fatal);
-    memory_region_add_subregion(get_system_memory(), base, mr);
+    memory_region_init_ram(&ram->backing, NULL, backing_name, size + offset,
+                           &error_fatal);
+    /* Match physical and RAM page offsets without mapping the prefix. */
+    memory_region_init_alias(&ram->view, NULL, name, &ram->backing, offset, size);
+    memory_region_add_subregion(get_system_memory(), base, &ram->view);
 }
 
 static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
@@ -987,7 +999,7 @@ static void z7ii_init(MachineState *machine)
     }
     mxic = sysbus_create_simple(TYPE_NIKON_MXIC, 0x20016000, NULL);
     for (i = 0; i < ARRAY_SIZE(z7ii_storage); i++) {
-        nikon_mxic_attach_ram(mxic, &s->storage[i], z7ii_storage[i].base);
+        nikon_mxic_attach_ram(mxic, &s->storage[i].view, z7ii_storage[i].base);
     }
 
     s->num_cpus = machine->smp.cpus;

@@ -1,5 +1,11 @@
 # Complete software storage profile
 
+The [MAS RAM backing alignment fix](../startup/ram.md) preserves all physical
+intervals below using exact aliases into private, offset-adjusted RAM backing.
+It resolves the original resource57 record0 host TLB assertion without mapping
+padding or changing guest allocation boundaries. Real TCG and bus accesses
+share the same cells, including after reset and MXIC decoder changes.
+
 The additional exact [kind40 allocation](kind40.md) at
 `[62059800,62221800)` is backed separately. Its original VA conversion and
 section PTE are verified; the surrounding address class remains uncovered.

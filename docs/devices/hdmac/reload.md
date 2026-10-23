@@ -5,7 +5,8 @@ crosses the54/58 getter recorded below. The first rejection at that checkpoint i
 graphics submission PA201810e0=1 with transfer-stream-truncated. This
 document retains its reload-only receipts and scope. The later
 [rectangle model](../transfer/rectangles.md) crosses that graphics rejection
-and next reaches the host RAM/IOTLB alignment assertion.
+and the subsequent [RAM fix](../../startup/ram.md) crosses its host IOTLB
+assertion to reach the next ten-rectangle graphics continuation.
 
 The normal GUI continuation programs three reload flags in the audio input
 descriptors. The complete eight-combination family is now supported, across

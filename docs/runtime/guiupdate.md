@@ -44,16 +44,18 @@ explicit last-observed/packing hypotheses. All22 applicable native cases pass.
 The next first MMIO rejection at that Audio-only checkpoint is CPU1 MAS`106ee3c6`, WRITE32
 PA`201810e0=1`, reason`transfer-stream-truncated`. The paired graphics
 submitter is106ee04a; complete856/1088-byte buffers are captured at
-PAbd0dff90/bd15ff90. The current dispatch falls through to LUT length checks;
+PAbd0dff90/bd15ff90. That dispatch fell through to LUT length checks;
 the [inline rectangle model](../devices/transfer/rectangles.md) now executes
 that family with14 transfer unit cases passing. Original IRQ129 follows its
-856/1088 START and further clear generation runs. The current measured stop
-is host QEMU's RAM/IOTLB page-alignment assertion in tlb_set_page_full,
-cputlb.c:1080. The failing physical page remains to be bound. The final GDB
-snapshot did not run after host abort; prior GUI gate/pending3/display-ready0
-values are not relabeled as current final state. Selectors5/6 have no input
-sample producer; no actual audio beat or completion is claimed.
-The healthy UART peer rejects no protocol request before host termination.
+856/1088 START and further clear generation runs. The [RAM backing fix](../startup/ram.md)
+resolves the following host TLB assertion at PA `bed661c8` in resource57 record0
+without changing physical bounds; all 43 applicable native cases pass.
+The current stop is the next 2120/2368-byte graphics submission: ten rectangles
+with keys `10005..1000e` omit the earlier initialization prefix. CPU0 original
+PC `106ee3c6` writes PA `201810e0=1` and the parser rejects this continuation.
+The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
+BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
+beat or completion is claimed. The healthy UART peer rejects no protocol request.
 Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
 erased-TEMP failure path, recorded separately below. GUI first frame and

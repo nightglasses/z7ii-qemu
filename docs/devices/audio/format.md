@@ -7,7 +7,8 @@ input enable plus the initializer return sequence. The subsequent
 rejects graphics submission PA201810e0=1. The receipts in this
 document retain their earlier scope; actual input samples remain unverified.
 The later [rectangle model](../transfer/rectangles.md) crosses that graphics
-rejection and next reaches the host RAM/IOTLB alignment assertion.
+rejection; the subsequent [RAM fix](../../startup/ram.md) crosses its host
+IOTLB assertion and next reaches a ten-rectangle graphics continuation.
 
 The normal GUI continuation reaches microphone initialization, not an output
 sample transfer. The old profile rejected its legal AUMD fields. This model

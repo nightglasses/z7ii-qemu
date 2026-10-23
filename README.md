@@ -123,8 +123,12 @@ The [inline rectangle model](docs/devices/transfer/rectangles.md) now handles
 that856/1088-byte family, including variable counts/colors, SRC alpha clearing,
 key wrap and strict RAM/alias boundaries. All14 transfer unit cases pass.
 Unchanged original execution submits the four rectangles and receives IRQ129.
-The next measured stop is a host QEMU RAM/IOTLB page-alignment assertion;
-the aborted run supplies no final guest readiness snapshot or GUI first frame.
+The [RAM backing fix](docs/startup/ram.md) resolves the subsequent host IOTLB
+assertion in resource57 record0 while preserving exact physical boundaries;
+all 43 applicable memory/transfer native cases pass. Original execution now
+reaches a 2120/2368-byte, ten-rectangle continuation without the earlier
+initialization prefix. It is rejected by the current graphics parser; GUI
+gate/pending3/display-ready remain zero and no GUI first frame is established.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is
 claimed from accepted request admission.

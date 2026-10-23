@@ -58,6 +58,101 @@ static void memory_quit(MemoryTest *t)
     g_free(t->image);
 }
 
+static void memory_constant(GArray *code, unsigned reg, uint32_t value)
+{
+    uint32_t low = value & 0xffff, high = value >> 16;
+    uint32_t words[] = {
+        0xe3000000 | (low & 0xf000) << 4 | reg << 12 | (low & 0xfff),
+        0xe3400000 | (high & 0xf000) << 4 | reg << 12 | (high & 0xfff),
+    };
+
+    g_array_append_vals(code, words, ARRAY_SIZE(words));
+}
+
+static void test_cpu_ram(void)
+{
+    /*
+     * Partial pages, interior pages and exact last words of every RAM slot.
+     * BED661C8 is the original GUI's failing physical access.
+     */
+    static const uint32_t addresses[] = {
+        0xb1800000, 0xb5effffc, 0xb5f00000, 0xb7cffffc,
+        0xb7d00000, 0xba9ffffc, 0xbaa00000, 0xbb2ffffc,
+        0xbb300000, 0xbc0ffffc, 0xbc100000, 0xbd1ffffc,
+        0xbec5f200, 0xbec5f400, 0xbed661c8, 0xbf10f1fc,
+        0xbf10f200, 0xbf10f400, 0xbf3095fc,
+        0xbf309600, 0xbf309800, 0xbf7b95fc,
+        0xc175d600, 0xc175d800, 0xc1c0d5fc,
+        0xcb4a7000, 0xcc63affc, 0x62059800, 0x62059c00, 0x622217fc,
+        0x50300000, 0x5063fffc, 0xb0d00000, 0xb10ffffc,
+        0xb0900000, 0xb0cffffc, 0x04008ea8, 0x04008efc, 0x04008ffc,
+    };
+    const uint32_t observations = 0xb1801000;
+    const uint32_t done = observations + 8 * ARRAY_SIZE(addresses);
+    g_autoptr(GArray) code = g_array_new(false, false, sizeof(uint32_t));
+    g_autofree uint32_t *little = NULL;
+    MemoryTest t = { 0 };
+    int fd;
+
+    memory_constant(code, 3, observations);
+    for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+        uint32_t words[] = {
+            0xe5902000,                       /* ldr r2, [r0] */
+            0xe5832000 | (i * 8),             /* record bus-produced value */
+            0xe5801000,                       /* str r1, [r0] */
+            0xe5902000,                       /* ldr r2, [r0] */
+            0xe5832000 | (i * 8 + 4),         /* record CPU-produced value */
+        };
+
+        memory_constant(code, 0, addresses[i]);
+        memory_constant(code, 1, 0x5a000000 + i);
+        g_array_append_vals(code, words, ARRAY_SIZE(words));
+    }
+    memory_constant(code, 0, done);
+    {
+        const uint32_t finish[] = { 0xe3a01001, 0xe5801000, 0xeafffffe };
+
+        g_array_append_vals(code, finish, ARRAY_SIZE(finish));
+    }
+    little = g_new(uint32_t, code->len);
+    for (unsigned i = 0; i < code->len; i++) {
+        little[i] = cpu_to_le32(g_array_index(code, uint32_t, i));
+    }
+    fd = g_file_open_tmp("nikon-memory-cpu-XXXXXX", &t.image, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(write(fd, little, code->len * 4), ==, code->len * 4);
+    close(fd);
+    t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
+                        "-display none -serial none -accel tcg,thread=single -S",
+                        t.image);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        int64_t deadline;
+
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        qtest_writel(t.qts, done, 0);
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            qtest_writel(t.qts, addresses[i], 0xa5000000 + phase * 0x100 + i);
+        }
+        qtest_qmp_assert_success(t.qts, "{'execute':'cont'}");
+        deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+        while (!qtest_readl(t.qts, done)) {
+            g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+            g_usleep(1000);
+        }
+        qtest_qmp_assert_success(t.qts, "{'execute':'stop'}");
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, observations + i * 8), ==,
+                            0xa5000000 + phase * 0x100 + i);
+            g_assert_cmphex(qtest_readl(t.qts, observations + i * 8 + 4), ==,
+                            0x5a000000 + i);
+            g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==, 0x5a000000 + i);
+        }
+    }
+    memory_quit(&t);
+}
+
 static const uint64_t class_bounds[][2] = {
     { 0xb1800000, 0xb5f00000 },
     { 0xb5f00000, 0xb7d00000 },
@@ -1013,6 +1108,7 @@ int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/memory/storage-profile", test_storage_profile);
+    qtest_add_func("/nikon/memory/cpu-ram", test_cpu_ram);
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
     qtest_add_func("/nikon/memory/row-storage", test_row_storage);
     qtest_add_data_func("/nikon/memory/descriptor11-input",

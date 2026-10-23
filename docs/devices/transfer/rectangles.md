@@ -3,9 +3,11 @@
 The normal GUI path's 856/1088-byte submission contains four integer rectangle
 clears. The new finite model handles the whole self-contained batch family,
 including variable count, coordinates, colors, target and sequential keys.
-The unchanged original now receives IRQ 129 for this submission. Its next stop
-is a host QEMU TLB assertion, not another reported graphics-command rejection.
-No final guest snapshot or GUI first frame is established after that assertion.
+The unchanged original now receives IRQ 129 for this submission. The later
+[RAM backing fix](../../startup/ram.md) resolves the host TLB assertion recorded
+below. The current graphics frontier is a 2120/2368-byte continuation containing
+ten rectangles without this family's initialization prefix. No GUI first frame
+is established.
 
 ## Direct evidence
 
@@ -105,15 +107,13 @@ generation is observed. The peer reports no protocol rejection before QEMU
 terminates. Then host QEMU aborts in `accel/tcg/cputlb.c:1080`,
 `tlb_set_page_full`, on `!(iotlb & ~TARGET_PAGE_MASK)`.
 
-This is the next measured stop: a host RAM/IOTLB page-alignment invariant,
-not a guest MMIO error or evidence of a rendered GUI frame. Source inspection
-identifies unaligned board RAM mappings as a candidate: z7ii_ram currently
-allocates page-aligned RAM backing and directly maps exact non-page-aligned
-slots. The specific failing physical address/MemoryRegion is not yet captured;
-host-debugger launch attempts did not yield a stopped assertion frame. The
-next investigation must bind that address and preserve exact slot boundaries
-while correcting CPU-visible backing alignment. No firmware or QEMU upstream
-source was changed, and no assertion was disabled.
+This rectangle-only run's next stop was a host RAM/IOTLB page-alignment
+invariant. The subsequent [RAM investigation](../../startup/ram.md) binds the
+access to original PC `10634fbe`, VA `38f661c8`, PA `bed661c8` in
+`z7ii.resource57-record0`. It confirms and fixes the board backing offset while
+preserving exact physical boundaries. Those later receipts supersede the
+unbound-address hypothesis; no firmware or QEMU upstream source was changed,
+and no assertion was disabled.
 
 Receipts remain in `work/runs/graphicscommands-20261023/`: red/producer runs,
 source projections, `native-red.log`, `native-final.log`, final trace/stderr,

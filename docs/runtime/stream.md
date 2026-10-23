@@ -2,8 +2,9 @@
 
 The later normal path's self-contained856/1088-byte inline rectangle family
 is implemented separately in [rectangles](../devices/transfer/rectangles.md).
-Original execution now receives its IRQ129 and next reaches a host RAM/IOTLB
-alignment assertion. The older captures and profiles below retain their scope.
+Original execution receives its IRQ129. The later [RAM fix](../startup/ram.md)
+crosses the following host assertion and reaches the next ten-rectangle context
+continuation. The older captures and profiles below retain their scope.
 
 The 232-byte setup and 416-byte draw captured in
 `work/runs/descriptorfunctional-20261022/` describe the existing finite RGBA
