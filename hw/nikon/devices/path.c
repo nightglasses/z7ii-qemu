@@ -1,4 +1,4 @@
-/* C1.70 MOVE/LINE/QUAD/CLOSE and relative H/V with affine path filling.
+/* C1.70 MOVE/LINE/QUAD/CLOSE and relative H/V with affine fill and stroke.
  * Cairo supplies rasterization; no host font or text participates.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -30,7 +30,8 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
                      const uint8_t *segments,
                      unsigned segment_count, const uint32_t *coordinates,
                      unsigned coordinate_count, const uint32_t matrix[9],
-                     bool nonzero, const char **reason)
+                     bool nonzero, const NikonPathStroke *stroke,
+                     const char **reason)
 {
     double m[9], points[NIKON_PATH_MAX_COORDINATES];
     double x = 0, y = 0, u = 0, v = 0;
@@ -56,6 +57,13 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
     if (m[2] != 0 || m[5] != 0 || m[8] != 1 ||
         m[0] * m[4] - m[1] * m[3] == 0) {
         *reason = "transfer-path-transform-not-supported";
+        return false;
+    }
+    if (stroke && (!isfinite(stroke->radius) || stroke->radius < 0 ||
+                   stroke->radius > 4096 || !isfinite(stroke->extent) ||
+                   stroke->extent < 0 || stroke->extent > 4096 ||
+                   stroke->cap > 2 || stroke->join > 2)) {
+        *reason = "transfer-path-stroke-not-supported";
         return false;
     }
     for (unsigned i = 0; i < coordinate_count; i++) {
@@ -101,7 +109,7 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
             goto out;
         }
         if (at + operands > coordinate_count ||
-            (segments[i] == 2 ? open : !open)) {
+            (segments[i] == 2 ? open && !stroke : !open)) {
             *reason = "transfer-path-topology-not-supported";
             goto out;
         }
@@ -158,12 +166,32 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
         }
         at += operands;
     }
-    if (open || at != coordinate_count) {
+    if ((open && !stroke) || at != coordinate_count) {
         *reason = "transfer-path-topology-not-supported";
         goto out;
     }
     if (cr) {
-        cairo_fill(cr);
+        if (stroke) {
+            static const cairo_line_cap_t caps[] = {
+                CAIRO_LINE_CAP_BUTT, CAIRO_LINE_CAP_ROUND, CAIRO_LINE_CAP_SQUARE,
+            };
+            static const cairo_line_join_t joins[] = {
+                CAIRO_LINE_JOIN_MITER, CAIRO_LINE_JOIN_ROUND, CAIRO_LINE_JOIN_BEVEL,
+            };
+            cairo_matrix_t transform;
+
+            /* The path is in device space; the pen still scales in user space. */
+            cairo_matrix_init(&transform, m[0], m[1], m[3], m[4], m[6], m[7]);
+            cairo_set_matrix(cr, &transform);
+            cairo_set_line_width(cr, 2.0 * stroke->radius);
+            cairo_set_line_cap(cr, caps[stroke->cap]);
+            cairo_set_line_join(cr, joins[stroke->join]);
+            cairo_set_miter_limit(cr, stroke->radius ?
+                hypot(stroke->radius, stroke->extent) / stroke->radius : 1);
+            cairo_stroke(cr);
+        } else {
+            cairo_fill(cr);
+        }
         cairo_surface_flush(surface);
         if (cairo_status(cr) != CAIRO_STATUS_SUCCESS ||
             cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {

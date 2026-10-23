@@ -59,10 +59,15 @@ pass at that checkpoint. Original IRQ129 follows five further pairs through
 224/376 bytes. The later [image context model](../devices/transfer/image.md)
 recognizes full image initialization and preserves the explicit target and
 source-backed temporary mode combinations. All17 transfer cases pass. Original
-execution completes224/472 and seven176/336 pairs through IRQ129. The current
-CPU1 original PC `106ee3c6` writes PA `201810e0=1` and rejects an840/1040-byte
-pair with `transfer-path-batch-count-not-supported`; its producer and state/
-operand semantics remain open.
+execution completes224/472 and seven176/336 pairs through IRQ129. The later
+[mixed path model](../devices/transfer/stroke.md) handles the next fill/stroke
+family, with all19 transfer cases passing. Original MTTCG submission boundaries
+differ after the fix: mixed280/352 and1680/2072 packets complete, followed by
+more path/image/conversion jobs. Exact840/1040 grammar has native coverage.
+The current original PC `106ee3c6` writes PA `201810e0=1` and rejects a new
+856/1088-byte pair with `transfer-rectangle-program-not-supported`. Its first
+setup matrix differs from the current identity restriction; the following
+matrix is identity. Producer/transient-state semantics remain open.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

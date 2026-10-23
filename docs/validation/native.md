@@ -1,5 +1,18 @@
 # Native GUI integration
 
+The [mixed fill/stroke model](../devices/transfer/stroke.md) passes all19
+transfer subtests in1.23s after a valid mixed packet fails against the old
+parser. Its36 packet variants cover counts through256 operations, wrapped
+keys, ordered full pixels/guards, nonuniform scale, zero width, context,
+field/data/alias boundaries, backed4GiB crossing and deferred cancellation.
+A separate mask case covers all nine cap/join combinations, open contours,
+analytic butt/square bounds, round caps, corner styles and miter truncation.
+Independent review's cap/join coverage concern is resolved. Separate original
+MTTCG runs complete mixed280/352 and1680/2072 packets and later graphics work,
+then reject a new856/1088-byte rectangle matrix state. Exact840/1040 acceptance
+is synthetic; post-fix original batch boundaries differ. GUI readiness remains
+zero. Receipts: `work/runs/guipaths-20261023/`.
+
 The [image context extension](../devices/transfer/image.md) passes all17
 transfer unit cases in0.99s after native reds for full initialization and
 retained temporary mode14. Its40 variants cover the actual geometry/sampler,
@@ -10,8 +23,9 @@ crossing, deferred inputs, immutable commands and cancellation. Independent
 read-only review finds no concrete defect. Separate original execution completes
 224/472 plus seven176/336 pairs through original IRQ129; the first isolated
 image changes578 pixels and matches a whole-target independent reference.
-The next840/1040-byte pair rejects with `transfer-path-batch-count-not-supported`.
-GUI readiness remains zero. Receipts: `work/runs/guiimage-20261023/`.
+At that image-only checkpoint, the next840/1040-byte pair rejects with
+`transfer-path-batch-count-not-supported`. That snapshot's GUI readiness remains
+zero. Receipts: `work/runs/guiimage-20261023/`.
 
 The [RGBA SRC_OVER extension](../devices/transfer/over.md) passes all16 transfer
 unit cases in1.21s after the new valid submission fails against the old model.

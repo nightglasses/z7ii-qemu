@@ -17,9 +17,14 @@ follows five further pairs, ending with224/376. The later
 sampling, retaining a validated target and accepting the complete temporary
 paint-mode combinations before final mode0e. All17 transfer unit cases pass.
 Original execution completes224/472 plus seven176/336 pairs through IRQ129.
-The next CPU1 WRITE32 PA `201810e0=1`, original PC `106ee3c6`, rejects with
-`transfer-path-batch-count-not-supported` on complete840/1040-byte buffers at
-`bd0e0540/bd160aa0`. The next state/operand family needs producer analysis.
+The later [mixed path model](stroke.md) recognizes840/1040 as three fill/stroke
+pairs. All19 transfer cases pass, covering object-space strokes, all cap/join
+styles and target-matched context. Original MTTCG runs now submit mixed280/352
+and1680/2072 packets and advance through later graphics work; they do not replay
+the exact840/1040 packet boundary. The next WRITE32 PA `201810e0=1`, original
+PC `106ee3c6`, rejects with `transfer-rectangle-program-not-supported` on a new
+856/1088-byte pair at `bd0dff90/bd15ff90`. Its first matrix write differs from
+the current clear profile. The next state/operand family needs producer analysis.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 
@@ -462,9 +467,12 @@ target-memory y, nonzero winding from registera5 bit8 and black SRC_OVER.
 The131 paths correspond to six ROM strings warning that the battery cannot
 communicate with the camera; they are not a normal ready screen.
 
-The packet profile accepts1..256 paths, each exactly41 setup words and55 draw
-words, one final two-word ending and zero alignment padding where needed.
-All fixed fields retain their observed values: format0/target `c175d600`,
+The full-fill profile uses41 setup words and55 draw words per path, one final
+two-word ending and zero alignment padding where needed. The later
+[mixed extension](stroke.md) also accepts29/31-word solid strokes inheriting the
+latest matrix/count inside the batch, with at most256 total operations and
+source-backed `fffe → 1` key wrap. Target must match the initialized720×480
+profile; it is no longer restricted to `c175d600`. Fixed fields retain format0,
 state108, mode8 and blend selector1. Paint may be any opaque packed RGBA;
 operand `00040102` selects nonzero and `00040002` selects even-odd fill.
 Count/descriptors, matrix, DMA operands and matched sequential keys vary.
@@ -526,8 +534,9 @@ formats, modes, perspective, indirect geometry in this family and nonopaque
 source paint stay explicit errors. Destination alpha0..255 is supported.
 The later [initialized image extension](image.md) also validates the full
 224/472 initialization and retains the explicit target rather than a record7
-boolean. Retained176/336 images require that target; fixed record7 path batches
-still require `c175d600`. Temporary paint modes8/10/12/14 are accepted before
+boolean. Retained176/336 images require that target; the later
+[mixed path model](stroke.md) also requires target-matched path context.
+Temporary paint modes8/10/12/14 are accepted before
 the final mode0e write; unknown bits and final-mode changes remain errors.
 
 `nikon_transfer_image_parse` validates the entire target, command and image

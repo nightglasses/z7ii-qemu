@@ -134,8 +134,13 @@ path/image compositing over nonopaque destinations. All 16 transfer unit cases
 pass at that checkpoint. The later [image context model](docs/devices/transfer/image.md)
 corrects the shared-prefix misclassification, accepts full image initialization
 and retains the actual target across image continuations. All17 transfer unit
-cases pass. Original execution completes224/472 and seven176/336 pairs through
-IRQ129, then rejects840/1040 bytes with `transfer-path-batch-count-not-supported`.
+cases pass at that checkpoint. The [mixed path model](docs/devices/transfer/stroke.md)
+then supports bounded fill/stroke batches, target-matched context, object-space
+stroke widths and all nine cap/join combinations. All19 transfer unit cases
+pass. Original execution completes mixed280/352 and1680/2072 packets plus later
+graphics work, then rejects a new856/1088-byte rectangle batch with
+`transfer-rectangle-program-not-supported`. Post-fix MTTCG batching differs
+from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
 The earlier432/616-byte
 pair belongs to the erased-TEMP failure continuation. No GUI first frame is

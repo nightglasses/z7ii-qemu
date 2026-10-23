@@ -11,7 +11,7 @@ adds full224/472 initialization, explicit validated target selection and
 temporary paint-mode preservation. Original execution completes that pair and
 seven176/336 continuations through IRQ129. The older warning-path receipts
 below retain their own scope; the [current frontier](../validation/frontier.md)
-records the next840/1040-byte rejection.
+records later progress through the [mixed path model](../devices/transfer/stroke.md).
 
 ## Original operands and producer
 
@@ -62,7 +62,8 @@ and padding. Variable fields are the affine path/sampling matrices, five
 bounded integer coordinate words, matching nonzero opaque operand, matched
 class1 key, equal source extents, source address and opaque paint. The initialized
 extension also permits an explicit RAM target; retained images must match the
-successfully established target. Fixed record7 path commands remain separate. Only this
+successfully established target. The later mixed path model also uses this
+target-matched profile. Only this
 five-segment closed inline H/V path family and A8 source with dimensions1..256 are
 accepted. Perspective/singular/nonfinite transforms, unsupported types/modes,
 nonopaque source paint and incomplete packets remain errors. The later

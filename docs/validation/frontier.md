@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; 840/1040-byte graphics frontier
+## Normal display request accepted; rectangle matrix state frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -110,14 +110,22 @@ the actual target and accepts the source-backed temporary mode combinations.
 All17 transfer unit cases pass. Original execution completes that pair and
 seven176/336 image continuations through IRQ129. The first isolated image's
 whole target matches an independent reference, changing578 pixels.
-The current rejection is CPU1 PC `106ee3c6`, WRITE32 PA `201810e0=1`,
-`transfer-path-batch-count-not-supported`, on complete840/1040-byte buffers at
-PA `bd0e0540/bd160aa0`. Its producer/state/operand family remains to be joined.
+The later [mixed path model](../devices/transfer/stroke.md) recognizes840/1040
+as three fill/stroke pairs with inherited matrices. All19 transfer cases pass,
+including all nine cap/join styles and native exact three-pair grammar. Original
+MTTCG runs regroup that work into mixed280/352 and1680/2072 packets, followed by
+984/1328 fill paths and further images/conversions through IRQ129. The matched
+run records29 completions from the first mixed packet; no byte-identical
+post-fix840/1040 replay is claimed. The current rejection is PC `106ee3c6`,
+WRITE32 PA `201810e0=1`, `transfer-rectangle-program-not-supported`, on a new
+856/1088-byte pair at PA `bd0dff90/bd15ff90`. Its first matrix write differs
+from the current identity restriction; the next matrix write is identity.
+The producer and transient-state interpretation remain to be joined.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `guiimage-20261023`; `rgbaover-20261023`,
+Latest receipts are in `guipaths-20261023`; `guiimage-20261023`, `rgbaover-20261023`,
 `rectanglecontinuation-20261023`,
 `ramalignment-20261023`,
 `graphicscommands-20261023`,

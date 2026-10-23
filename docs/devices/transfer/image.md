@@ -1,8 +1,10 @@
 # Initialized A8 image context
 
 The normal GUI path now completes the 224/472-byte pair and seven subsequent
-176/336-byte image pairs through original IRQ129. The next rejection is a
-separate840/1040-byte path submission. GUI first frame remains unverified.
+176/336-byte image pairs through original IRQ129. At that checkpoint the next
+rejection is840/1040; the later [mixed path model](stroke.md) handles that
+family. See the [current frontier](../../validation/frontier.md). GUI first
+frame remains unverified.
 
 ## Observed commands and producer
 
@@ -61,8 +63,9 @@ limits. Unknown formats, states and unsafe operands remain errors.
 
 The retained context records the successful target address, instead of a
 record7-only boolean. Retained image commands must match it; full initialization
-may select a different independently validated target. Fixed record7 path
-batches still require target `c175d600`. No-context uses a value outside the
+may select a different independently validated target. The later
+[mixed path model](stroke.md) also validates paths against that target.
+No-context uses a value outside the
 32-bit address domain, preserving legal target0. ACK retains context; rejection,
 execution failure, reset, unrealize or a different successful program clears
 or replaces it. Context and IRQ publish only after output execution succeeds.

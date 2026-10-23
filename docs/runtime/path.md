@@ -148,9 +148,11 @@ normal ready-state acceptance is supplied by this static research.
 
 ## Implemented bounded execution
 
-The integrated model now accepts the captured protocol family with1..256
-paths,41 setup words and55 draw words per path plus exact ending/alignment.
-It requires the previously completed720x480 context, fixed target/format/state,
+The integrated full-fill model accepts41 setup words and55 draw words per
+path plus exact ending/alignment. The later [mixed extension](../devices/transfer/stroke.md)
+also accepts29/31-word solid strokes with within-batch matrix/count inheritance,
+all nine cap/join combinations and at most256 total operations. It requires
+the previously completed720x480 context and matching target, fixed format/state,
 opaque SRC_OVER, either nonzero or even-odd selector, echoed opaque operands
 and sequential keys. Relative horizontal07 and vertical09 segments consume
 one scalar each in object space, then apply the affine transform. Other
