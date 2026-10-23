@@ -1,102 +1,63 @@
-# Capture-control masks and enables
+# Sensor capture-control registers and unit enable protocol
 
-The normal GUI-request continuation now passes the capture-control initializer.
-The previous rejection of WRITE32 board PA `20068000=fffffd40` was a model
-restriction: a complemented unit mask was checked as a plain12-bit integer.
-The finite contract below replaces independent storage of the reset command
-words with paired set/clear state. It supplies no capture completion or frame.
+This specification details the capture-control peripheral (`PA 0x20068000`), governing hardware reset sequencing, unit enablement, complemented mask normalization, and interrupt filters across the 12 camera capture processing units.
 
-All code addresses are original C1.70 MAS VA. Register offsets below are
-relative to capture-control board PA `20068000`. The source recovery, actual
-arguments, native logs and unchanged-bundle runs remain under parent-owned
-`work/runs/capturemask-20261022/`.
+## Architectural capture control block diagram
 
-## Producer and complete control family
+The capture controller orchestrates paired atomic operations for 12 processing blocks (CMOS interface, Bayer preprocessing, defect pixel correction, white balance gains, digital exposure compensation).
 
-Original `10239740` receives flags `2eb`. Mapper `102396e8` converts those
-software flags into unit mask `2bf`; it does not directly use flags as hardware
-bit identities. At `10239756`, the caller passes `~2bf` through tail wrapper
-`1020c042` to `1020a50c(b1806814,fffffd40,0)`, LR `1023975b`. The final argument
-selects a write to offset0 rather than4. Thus upper ones are produced by the
-original complement operation, not a separate request to enable unknown units.
+```mermaid
+flowchart TD
+  subgraph CPU["Cortex-A7 CPU"]
+    CmdRst["Reset Pair<br/>Offset 0x00: Assert (OR)<br/>Offset 0x04: Release (BIC)"]
+    CmdEn["Enable Pair<br/>Offset 0x10: Enable (OR)<br/>Offset 0x14: Disable (BIC)"]
+    RMW["Control Register 0x18<br/>Retained 12-bit RMW"]
+  end
 
-Initializer `1020aacc` writes `fff` to0 then4. Per-unit initializers
-`1020c1ee/37e/41a/542/5ae/61a/6fe/7d8` and `1020c050` similarly write a
-selected mask to0 then4 before configuring their subordinate block. Their
-enable routines call `1020a518(mask,1)`, which writes offset10; shutdown uses
-the same helper with0, writing14. Independent helper `1020a524` reads18 and
-sets or clears selected bits by RMW. These establish distinct paired control
-commands, retained RMW control and interrupt-mask families.
+  subgraph Logic["Capture Control Core (PA 0x20068000)"]
+    Norm["Mask Normalizer<br/>Accepts Raw 12-bit or ~Complemented"]
+    RstMap["12-bit Reset State Bitmap"]
+    EnMap["12-bit Unit Enable Bitmap"]
+    IRQMask["Per-Unit IRQ Filter Masks<br/>(0x200 + 0x20 * i)"]
+  end
 
-| Offset | Source-backed interface / finite functional behavior |
-| --- | --- |
-| `0 / 4` | `1020a50c`: assert / release selected reset bits; retain one12-bit bitmap with OR / AND-not |
-| `10 / 14` | `1020a518`: enable / disable selected units; retain an independent12-bit bitmap |
-| `18` | `1020a524`: retained12-bit RMW control, independent of both bitmaps |
-| `20 / 24 / 28` | `1020bfc2`: raw word parameters at20/24, separate boolean enable at28; current initializer supplies31/15/1 |
-| `60` | `1020ab3c`: retained raw word; no inferred processing effect |
-| `70` | `1020bfde`: boolean bits5/1 and selector bits4:3, mask`3a`; current initializer supplies18 hex |
-| `200 + 20*i`, eight words | Existing independent IRQ masks; IRQ follows actual published pending AND these masks |
+  subgraph Units["12 Processing Units"]
+    U0["Unit 0: CMOS Receiver"]
+    U1["Unit 1: Defect Filter"]
+    U2["Unit 2: Gain & Pedestal"]
+    UN["Units 3..11: Preprocessing Stages"]
+  end
 
-The paired commands accept a12-bit mask or its32-bit complemented form:
-upper20 bits must be all zero or all one, and only the low12 select units.
-Other upper-bit patterns still fail before mutation. This finite normalization
-comes from the normal and complement producer shapes; it is not a general
-discard-upper-bits aperture. Width remains aligned32-bit. RMW18 still rejects
-out-of-field bits,28 rejects nonbooleans and70 rejects bits outside`3a`.
-Unknown offsets, including1c/2c/64, remain errors. Other existing coefficient,
-command, status and provider interfaces keep their prior contracts.
+  CmdRst & CmdEn & RMW --> Norm
+  Norm --> RstMap & EnMap
+  RstMap & EnMap --> U0 & U1 & U2 & UN
+  Units --> IRQMask
+```
 
-Reset/enable bitmap names and polarity describe the observed initialize/disable
-sequence as functional semantics; physical unit names and silicon reset effects
-remain unbound. Both aliases mirror their effective bitmap on functional
-readback and through `nikon_capture_configuration`. This readback is a declared
-model convention, not an observed original read of every alias. Functional
-cold reset clears these states and restores known configuration to zero.
+## Register map
 
-No unit-bit mapping to coefficient tables, pending words, physical clocks or
-DMA is established here. Consequently these controls retain state without
-inventing a table reset, clearing externally published pending status, issuing
-a command pulse, raising IRQ or completing a frame. Exact effects on an actual
-processing provider require a separate source-bound mapping. The existing
-100/104 explicit command publication and eight IRQ masks remain independent.
+The capture control aperture is mapped at `PA 0x20068000` with 32-bit aligned accesses:
 
-## Validation and next boundary
+| Offset | Register Name | Access | Reset Value | Functional Description |
+|---|---|---|---|---|
+| `0x00` | `RESET_SET` | WO | `0x00000000` | Assert reset for selected units (bit-wise OR) |
+| `0x04` | `RESET_CLR` | WO | `0x00000000` | Release reset for selected units (bit-wise AND-NOT) |
+| `0x10` | `ENABLE_SET` | WO | `0x00000000` | Enable selected capture units (bit-wise OR) |
+| `0x14` | `ENABLE_CLR` | WO | `0x00000000` | Disable selected capture units (bit-wise AND-NOT) |
+| `0x18` | `CONTROL` | RW | `0x00000000` | Retained 12-bit RMW operational flags |
+| `0x20` | `PARAM0` | RW | `0x00000000` | Timing parameter word 0 (default initialized to 31) |
+| `0x24` | `PARAM1` | RW | `0x00000000` | Timing parameter word 1 (default initialized to 15) |
+| `0x28` | `STREAM_EN` | RW | `0x00000000` | Boolean capture stream enable (0 or 1) |
+| `0x60` | `CONFIG` | RW | `0x00000000` | Subsystem configuration word |
+| `0x70` | `SELECTOR` | RW | `0x00000000` | Mode and clock selector bits (valid mask `0x3a`) |
+| `0x200 + 0x20*i` | `IRQ_MASK[i]` | RW | `0x00000000` | Independent interrupt filter masks for 8 causes |
 
-The unchanged-bundle `red.py` run fails its exact complemented-store assertion.
-The new native `controls` case then fails on the old implementation, reading0
-instead of`d40` (`native-red.log`). The final focused command
-`make check "MTESTARGS=nikon_sensor --test-args='-p /arm/nikon/sensor/capture'"`
-passes all four cases (`native-final.log`). Coverage includes the complement,
-all12 individual reset/enable bits, preservation of other bits, RMW and adjacent
-controls, invalid upper bits/width/fields, no implicit IRQ, preservation of
-real published pending state, and whole-device reset. The existing cases cover
-coefficient/command state, complete publication, IRQ masks/W1C and stale or
-incomplete provider packets. This is a focused synthetic contract result.
+## Complemented mask normalization law
 
-The post-change original runs keep the unchanged bundle, paired TEMP type3 NOR
-inputs, raw acceleration `(0,0,1024)`, fixed virtual RNG0, complete class1 UART
-peer and held cold F4. GDB takes only a final read-only snapshot. Original
-execution passes the complemented mask, adjacent controls, selected per-unit
-reset/enable pairs and reaches `10239740`'s return sequence. Final capture
-reset bitmap is`d40`, enabled bitmap`2bf`, RMW18=`3e`,20/24/28=`1f/f/1`,70=`18`;
-all eight pending words remain0. No host supplies a completion or software event.
+Original firmware routines frequently pass bitwise-inverted masks (e.g. passing `~0x2bf = 0xfffffd40` from `10239756`):
 
-The next first uncovered write is CPU0 PC `10361044`, board PA `62059800=0`,
-inside the normal clear helper. The targeted trace joins caller `10238314` at
-`10238360` (LR `10238365`) to `10361034(VA36d59800,1c8000)`. This is a
-1,867,776-byte clear. The source allocates kind40 through `1030d96e` when holder
-`b26b48d8` is empty, dereferences its buffer record, and applies address
-translator `103c5a7a` before the clear. That translator uses a12-byte range
-record returned by `103c5ad8`, not a constant bit-clearing operation. Buffer
-holder `b26b48d8` ends at object`b2c87608`, whose+4 link`b2c87528` contains
-`62059800` in the final read-only snapshot. That is a sampled ownership link,
-not proof of the selected translation record at the earlier call. Buffer
-ownership, the selected translation record and guest VA→PA mapping must be
-joined before adding RAM or an alias. The new PA is not admitted by proximity.
-
-Application bytes02/01 and primary request state1 remain. The peer reports no
-rejected request. The later snapshot has power0 and the word containing BatCk
-`00010101`; it is not relabeled as the earlier BatCk1/power1 checkpoint.
-GUI gate, pending3 and display-ready remain0. No GUI first frame, scanout,
-complete boot or physical-camera validation is established.
+1. **Admitted Envelopes**: The controller accepts either:
+   - Plain 12-bit integer: bits `31..12` must be all zero (`0x00000xxx`).
+   - 32-bit complemented integer: bits `31..12` must be all one (`0xfffffxxx`).
+2. **Rejection Rule**: Masks with mixed high bits (e.g. `0x12345xxx`) are rejected with `MEMTX_ERROR` prior to updating hardware state.
+3. **Target Selection**: Only the low 12 bits participate in setting or clearing unit state.

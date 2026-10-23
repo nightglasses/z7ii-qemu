@@ -1,19 +1,65 @@
-# Finite 2010 control and configuration
+# Gate control and event router protocol (control2010)
 
-Native/fixture revision is `ad3f3e418810589f2092b16982a1cb5a64ded684`, on SYS report `c0fb86944ddc73628193151cf7e4df0812fa7850`. The source contract is `3410320a372d30ede5de2d1c96d179c3052e9061`, inheriting `06da030448a81d0ec2b62a0d2c575391b3215ea1`, at the source worktree's `research/z7ii/qemu-2010-control-contract.md`. Its typed diagnostic scope is 2,248 bytes/906 Thumb instructions, two literal pools excluded, with 80 configuration addresses, 15 mask/event pairs and 13 SYS indices. The actual initializer `103bcfac` has no saved enclosing native function; those continuous diagnostic bytes are not promoted to native/P-code acceptance. Later methods beyond `103bd75c`, indirect callbacks and physical event producers remain incompletely recovered. The additional saved `103bde3e` dispatcher is 19BB/150B/58 instructions and only calls guest software handlers; the model never dispatches them itself.
+This specification defines the hardware contract, register mapping, and stop lifecycle state machine for the Nikon multi-domain event gate controller (`gate.c`), mapped at `PA 0x20100000` and connected to GIC IRQ 102.
 
-The maintained implementation `hw/nikon/devices/gate.c` implements an aligned-word finite interface inside `[20100000,20102928)`, wired through the official SysBus IRQ to GIC102. Internal holes reject reads/writes rather than defaulting to zero. The initializer's control00=0 and deasserted global08 are accepted without clearing other configuration or pending state. Global04 read supports the original RMW interface: low two bits0/1 close/open the explicit external-event gate. Closing schedules one nominal20us virtual stop acknowledgment at raw18.bit0; reopening cancels an unfinished stop. This existing functional drain convention does not establish physical timing or produce input data. Other unbound global reads reject.
+## Hardware architecture and stop lifecycle
 
-Three full32 masks at0c/10/14 and three raw pending words at18/1c/20 are independent. The explicit virtual convention is mask1 enables the corresponding raw pending bit and IRQ is the OR of all three masked words. Writing a raw pending word is W1C, clearing only that domain; reading never acknowledges or creates events. The original guest ISR performs its own read/writeback and callbacks. There is no host eventflag, callback, frame, or ready injection.
+The gate controller arbitrates external event lines, applies multi-word mask filters, and coordinates the hardware stop/drain handshake required during subsystem shutdown.
 
-The optional `pending-bit` qdev fixture input has 96 lines: index `32*word+bit` is a rising edge for that raw pending bit when the external-event gate is open. This is a named bit-level test interface, not recovered physical event wiring or an identity for unknown ISR events. Falling levels do not clear pending; held-high input cannot reassert an acknowledged bit. Board reset clears configuration, masks, pending and an unfinished stop, but retains provider levels to avoid inventing a new edge. Original runs leave every external input disconnected. Configuration/readback and elapsed time alone create no pending; the separately commanded virtual stop acknowledgment is the sole internal producer. It uses mask0c.bit0 even after the external gate closes and is retired by W1C18.bit0.
+```mermaid
+stateDiagram-v2
+  [*] --> Idle: Hardware Reset
+  Idle --> Active: Software sets Control=1 & GateOpen (0x04 := 1)
+  
+  state Active {
+    [*] --> AdmittingEvents
+    AdmittingEvents --> EventPending: External Event Edge Triggered
+    EventPending --> IRQAsserted: Raw Bit & Mask Bit != 0
+    IRQAsserted --> AdmittingEvents: Guest W1C write to Raw Register
+  }
 
-Finite retained configuration covers input groups2000/2100 at00/04/08/10/14/18, two separate 64-word maps2200/2300, groups2600/2640 at00/04/08/0c/10/18, parameter2684/2690, seven words2820..2838, thirty words2880..28f4 and ten words2900..2924. Source-generated value shapes constrain this profile without claiming physical reserved bits. Input00 preserves full high configuration bits for dynamic RMW and accepts low-nibble0/1 as retained input configuration. Input04 retains full32 because SOURCE11 method94640 clears bit0 and ORs an unclamped word; its packet setter's14-bit shape is not a valid bound for that RMW. Input08 is byte and18 halfword. Groups2600/2640 use masksffff/full/full/ff/ffff00ff/ff. Maps,2684,2880 and2900 retain full words. Six2820 words retain full values because the original setter uses whole bytes despite its getter extracting only2/2/4-bit fields; the final2838 word and2690 are limited toffff. All configuration readback and cold zero are virtual retention conventions, not fresh input data.
+  Active --> Stopping: Software requests Stop (0x04 := 0)
+  state Stopping {
+    [*] --> DrainPending: Close External Admission
+    DrainPending --> StopAckScheduled: 20us Virtual Timer Armed
+    StopAckScheduled --> StopAckFired: Assert Raw[0].Bit0 & IRQ102
+  }
 
-Input20a4 and configuration2620/2660 accept deassert0; pulse assert1 has no recovered safe reset effects and rejects before changing any state. Global/input activation,2680/2800 submit, unbound data/monitor offsets200/220..2ac/1b4..1bc, and the unbounded2040 indexed data source reject. No image processing, table-commit completion or hardware reset behavior is inferred. Separately referenced24010000..10c00 storage is not created by this class.
+  Stopping --> Idle: Guest acknowledges Stop via W1C (0x18 := 1)
+```
 
-Incremental build exited zero at upstream `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`, adding only this layer's source/registration and board/header changes. All 22 board C/header files directly equal the built upstream inputs. Checkpatch reported zero errors and one new-file MAINTAINERS reminder; the preliminary line-length warning was corrected before native freeze/build. The model and tests are unmigratable like the existing diagnostic board.
+## Register map
 
-`work/issue331/control2010-ad3f3e4/result.json` records 20 unique Mac-local checks, all passed in `1.7536078329430893` seconds. Seventeen ARM fixtures cover inactive initialization, every finite configuration/table word, full32 masks, strict unknown activation/pulses/submit/data/holes/widths and aperture boundaries. Three no-firmware qtests check all retained fields, deasserted controls and one-second disconnected stability; raw pending in all three domains, independent masks/ACK, IRQ retention until the last domain clears, full high mask bits, reset and held-level behavior; and invalid activations/fields/direct-bus widths/alignment/reads preserving the complete configuration/mask/pending pre-state. Valid writes and ACK still work after rejected requests. These tests observe real MMIO storage and the device IRQ output, not an original GIC acknowledgement or callback result. There were no failed focused runs in this stage, and no old FILL/SYS/full suite was repeated.
+The device occupies aperture `[0x20100000, 0x20102928)`. Accesses must be 32-bit aligned; accesses to unmapped holes or unaligned offsets return `MEMTX_ERROR`.
 
-One changed-stage original run is `work/issue331/original-control2010-ad3f3e4/receipt.json`: exit zero, `0.4758677500067279` seconds, initial/final direct equality of the 38,239,096-byte MAS input, and whole-boot false. It crossed the previous20100000 boundary and next stopped at CPU1 `PC10369ace`, WRITE32 `2038000c=1`, reason `uncovered-address`. `qemu.log` line19135 is the access and line19139 records `DFSR1808`, `DFAR2038000c`. This next family has been handed to the source owner. It does not demonstrate completed input processing, external events, slot6, a whole phase or a menu. Physical IP identity and real reset/event wiring remain unknown; this is Mac-local evidence, not Linux CI.
+| Offset | Register Name | Access | Reset | Functional Description |
+|---|---|---|---|---|
+| `0x00` | `CTRL` | RW | `0x00000000` | Master controller enable and operational mode |
+| `0x04` | `GATE` | RW | `0x00000000` | External event admission gate: bit 0 close, bit 1 open |
+| `0x08` | `GLOBAL_RESET` | RW | `0x00000000` | Global deassert and controller reset release |
+| `0x0c` | `MASK0` | RW | `0x00000000` | Domain 0 interrupt enable mask (32 bits) |
+| `0x10` | `MASK1` | RW | `0x00000000` | Domain 1 interrupt enable mask (32 bits) |
+| `0x14` | `MASK2` | RW | `0x00000000` | Domain 2 interrupt enable mask (32 bits) |
+| `0x18` | `RAW0` | R/W1C | `0x00000000` | Domain 0 raw pending status / Write-1-to-Clear |
+| `0x1c` | `RAW1` | R/W1C | `0x00000000` | Domain 1 raw pending status / Write-1-to-Clear |
+| `0x20` | `RAW2` | R/W1C | `0x00000000` | Domain 2 raw pending status / Write-1-to-Clear |
+| `0x2000..0x2118` | `INPUT_GRP` | RW | `0x00000000` | Input stage configuration and parameter channels |
+| `0x2200..0x23fc` | `MAP_TABLE` | RW | `0x00000000` | Two 64-word event routing and mapping tables |
+| `0x2600..0x2690` | `STAGE_PARAM` | RW | `0x00000000` | Staging parameters and masked timing registers |
+| `0x2820..0x2924` | `CHANNEL_CFG` | RW | `0x00000000` | Configuration words for downstream hardware consumers |
+
+## Interrupt generation law
+
+Interrupt request line **IRQ 102** is the logical OR of all three masked status domains:
+
+$$\text{IRQ}_{102} = \bigvee_{i=0}^{2} (\text{RAW}_i \land \text{MASK}_i) \neq 0$$
+
+- **W1C Clearance**: Writing a bit `1` to `RAW_i` clears that specific pending bit. Writing `0` leaves pending state unchanged.
+- **Reading**: Reads of `RAW_i` return the unfiltered current status without side effects.
+
+## Stop handshake lifecycle
+
+1. **Initiation**: Guest software executes RMW writing `0x04 := 0` to close the external event gate.
+2. **Admission Gating**: External event transitions are immediately rejected and cannot assert new pending bits.
+3. **Internal Stop Acknowledgment**: A virtual timer schedules completion after a nominal 20 microseconds, setting `RAW0[0]` (bit 0).
+4. **Service Callback Execution**: Mask `MASK0[0]` admits IRQ 102 to the GIC; the guest ISR at `0x103bce38` handles the stop confirmation, allowing synchronization waits to complete cleanly.

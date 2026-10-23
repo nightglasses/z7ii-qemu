@@ -1,23 +1,59 @@
-# Dual-bank SDI, PHY, and DDR functional model
+# Dual-bank SDI, PHY, and DDR memory controller protocol
 
-This layer continues [Original RTOS boot dependencies](https://github.com/mashiro01/nightglass/issues/331), resuming from the original `857ce78` first stop point: `PC10024c9c / WRITE32 PA20023000=1`. Public source references from [`m8m-regs.h`](https://github.com/hypoxic/stubby-1.60.1/blob/d670fe97469f4fbac35fcf67fbab81c7ea84f153/src/m8m-regs.h#L4-L84) provide dual-bank base addresses, PHY/DDR reset/request/flag sequences, and DDRL timing groups compatible with original instructions; the release/init/training/W1C sequence in [`m8m-ddr.c`](https://github.com/hypoxic/stubby-1.60.1/blob/d670fe97469f4fbac35fcf67fbab81c7ea84f153/src/m8m-ddr.c#L90-L209) supports the identical-IP hypothesis. This does not constitute identification of the entire Nikon SoC or physical reset values.
+This specification details the register interface, five-stage hardware calibration training sequence, and port arbitration contracts for the dual-bank SDI / DDR controller (`sdi.c`), mapped at `PA 0x20020000` (MAS domain) and `PA 0x20040000` (SLA domain).
 
-The fully preserved native CALL closure for MAS wrapper `394` spans 94 basic blocks and 5564 bytes; read-only results from Ghidra `Instruction.getPcode` and `SymbolicPropogator.flowConstants` are frozen at [6a6b721](https://github.com/mashiro01/nightglass/blob/6a6b721/research/z7ii/qemu-rtos-startup-contract.md). Newly added SLA evidence includes the reconstructed `sla.S` from `1076d278`, covering functions `1002361c`, `10023d10`, `10024cb8`, `100253a0`, and training helpers `10024588`, `100248f8`, `10025c1c`, `10025f8c`. The current implementation removes per-value whitelisting, preserving 110 named words across 38 groups: TOP/rank, clock, PHY AC, DDR MR/geometry/AC/refresh/ZQ/command, arbitration, port, DDRL wait/impedance/manual lane delay/search window/eye/pattern. Offsets outside these groups are rejected; the aperture cannot be treated as general RAM.
+## Architectural calibration and initialization flow
 
-`hw/nikon/devices/sdi.c` instantiates two independent SysBus instances, mapped to MAS/SLA PA bases `20020000` and `20040000` respectively. Only aligned little-endian 32-bit accesses are supported. PHY initialization mandates full PHY/clock/DDRL configuration, TOP/PHY release, and non-zero `RANKSEL` matching the two rank-enable fields of TOP `+10c`. DDR initialization requires completed PHY init, DDR release, complete DDR configuration, non-zero geometry/ZQ/command, and three equivalent 256MiB-aligned address boundaries. Mode 0..4 training requires prior DDR init, prior W1C clearance, and strictly sequential execution. All five training modes must succeed before arbitration is permitted; fifteen ports and the final interface require completed arbitration and applied release/configuration/clocks. Unacknowledged pending/done states, incomplete configuration, reserved bits, and unknown offsets/widths/commands return `MEMTX_ERROR`.
+The DDR subsystem coordinates physical PHY layer configuration, DRAM timing initialization, iterative delay training across individual data lanes, and multi-port bus arbitration.
 
-Initial reset values: TOP and sub-block resets are asserted; named configuration words reset to zero with configuration-complete flags false; done/pending flags reset to zero. This represents a functional reset model. Asserting reset cancels timers and states within the block and dependent units; PHY/DDR reset clears training results; arbitration reset preserves training while aborting all downstream units. Release operations generate no completion event. Valid requests trigger a block-level completion via QEMU virtual timer after a nominal 10 microseconds, modeling functional timing rather than physical silicon propagation. Reads have no side effects; writing 1 clears the corresponding flag. Writing while pending results in failure; W1C on an already cleared flag is valid. The final poll in original SLA training helpers targets E300 followed by an ACK to CC30; the model retains the E300 completion without injecting the ACK on behalf of the guest.
+```mermaid
+flowchart TD
+  Reset["Controller Reset Asserted<br/>(TOP & Sub-block Resets)"] --> PHYInit["PHY Configuration & Clock Setup<br/>(RANKSEL & DDRL Parameters)"]
+  PHYInit --> DDRInit["DDR Architecture Setup<br/>(MR Registers, Refresh, Geometry, ZQ)"]
+  
+  subgraph Training["Five-Stage Hardware Lane Training"]
+    Mode0["Mode 0: Write-Leveling (WL)<br/>Search Window Calibration"]
+    Mode1["Mode 1: Gate Training<br/>Gate & Synchronizer Delay Setup"]
+    Mode2["Mode 2: Read Phase Training<br/>Multi-Lane Phase Alignment"]
+    Mode3["Mode 3: Read Eye Search<br/>Per-Lane Eye Opening (RDE)"]
+    Mode4["Mode 4: Write Eye Search<br/>Per-Lane Eye Opening (WDE)"]
+    Mode0 --> Mode1 --> Mode2 --> Mode3 --> Mode4
+  end
 
-Training results employ an explicit functional backend hypothesis: applied manual write-delays per lane act as stable calibration targets; programmed WL search intervals in mode 0 must encompass this target, or `TRAINERR.WL_ERR=4` is raised. Modes 3/4 require per-lane eye-control enablement and non-zero search parameters, raising RDE/WDE errors otherwise. Modes 1/2 utilize fully applied gate/synchronizer configurations. `TRAINERR` belongs exclusively to the currently completed training; reads during new pending requests, configuration mutation, or after PHY/DDR reset are blocked. Failures still generate authentic done/W1C events and the five-mode sequence proceeds; after all five complete, the window may be reprogrammed and retried from mode 0. Full success across all groups is required to enable arbitration. Results are not hardcoded from firmware success paths: consumable error/retry branches arise from actual configuration and timers. This backend does not simulate electrical eye diagrams, silicon health, or physical memory bus traffic.
+  DDRInit --> Training
+  Training --> Arbitrate["Arbitration Enable (+0x4000)<br/>Fifteen Bus Ports Configuration"]
+  Arbitrate --> Ready["Memory Interface Active<br/>Wide RAM Accesses Permitted"]
+```
 
-The SLA selector is GPIO `PA0428202c & 0x4` (bit 2). Clearing selects `1002361c(0,1)` / `10023d10(1)`, followed by bank selector 2; setting selects `10024cb8(0,1)` / `100253a0(1)`, followed by selector 2. A non-zero r0 branch in initialization skips cold PHY configuration but performs DDR reinit; both families preserve existing configuration and verify application. The primary family configures rank1/TOP101, DDR `3504=2030100`, and `3508/350c/3514=40000000`; the alternate family configures rank3/TOP303, DDR `3504=2030101`, and three `30000000` boundaries. Both families execute identical five-mode training sequences and three candidate WL window sweeps rather than introducing fixed stop values. Helper `10020920(statusPA, 1, 02625a00)` polls flags up to 40,000,000 iterations; this limit is a software counter, not an IRQ, clock, or host timeout.
+## Memory aperture mapping
 
-None of the four source groups contains DMA transfer commands, transfer payloads, or IRQ-enable programming. The current model introduces no peer, IRQ wiring, or DMA completions; execution paths consume local request/flag/W1C/TRAINERR states. Named packed timing/geometry/pattern fields preserve the guest's full 32-bit words without inferring reserved masks when physical layouts remain unconfirmed; defined clock/rank/lane/eye fields are validated against functional masks. Finite RAM remains defined by independent copy/stack machine contracts; successful SDI setup does not automatically establish wide RAM regions. Unknown hardware IRQ enables, runtime traffic, and PHY result-data addresses require complete producer/consumer receipts.
+Each SDI controller instance occupies a dedicated 64 KiB MMIO window:
 
-Physical MTTCG execution of source `07342da` is recorded in `work/issue331/original-sdi-07342da/receipt.json`: exit code 0, host wall time 0.832005 s, 38,239,096 bytes verified identical. The guest traverses both banks with 24 requests and virtual completions each (48 total); the subsequent first blockage is `CPU0 PC1002bdd8 / WRITE32 PA20016020 / value60000000`. A Data Abort subsequently settles at PC10100010/SPb2ba8000 while CPU1 remains in early wait at PC1002bfa8/SPb2b84000. No RTOS dispatch, SMP unblock, or menu completion is asserted. Host wall time does not reflect EXPEED performance.
+| Domain | Base Address | End Address | Bus Master | Interrupt / Notification |
+|---|---|---|---|---|
+| **MAS SDI Bank** | `0x20020000` | `0x2002ffff` | Cortex-A7 Dual Core (CPU0/1) | Virtual Timer Done Flag |
+| **SLA SDI Bank** | `0x20040000` | `0x2004ffff` | Cortex-A7 SLA Subsystem | Virtual Timer Done Flag |
 
-The earlier `14d3ada` receipt `original-sdi-14d3ada-first` is preserved: port 6 rejection was caused by extending the 8c00 configuration range erroneously into 9400, encompassing the next port's configuration. Commit `07342da` normalized configuration prerequisites against actual port boundaries without injecting success values or bypassing the guest. The asymmetric behavior where bank 1 polls E300 but ACKs CC30 is also preserved without clearing E300 on behalf of the guest.
+### Register group layout
+- `+0x0000..+0x0fff`: Master TOP configuration, clock multipliers, and rank selectors (`RANKSEL`).
+- `+0x1000..+0x1fff`: Physical layer (PHY) timing parameters and auto-calibration delay lines.
+- `+0x2000..+0x2fff`: DDR core control registers (Mode Registers `MR0..MR4`, geometry, ZQ calibration).
+- `+0x3000..+0x3fff`: Five-mode training request registers and lane error status (`TRAINERR`).
+- `+0x4000..+0x4fff`: 15-port memory bus arbitration and transaction priority crossbar.
 
-The 62 synthetic contracts in legacy `work/issue331/sdi-functional-smoke-reset/result.json` belong to historical per-value model validation and do not serve as receipts for the new family implementation. Native C qtest `tests/qtest/nikon/sdi.c` establishes single/dual rank initialization across two banks from independent MAS/SLA source configurations, covering five training modes, fifteen ports, and the final interface. It exercises 9999 ns incomplete vs 10000 ns completed timing, configuration readback, five-mode retry on failure, rank/boundary mismatch rejection, sequence/width rejection, pending configuration/ACK refusal, and DDR/arbitration reset cancellation. Compilation and execution are owned by a single builder.
+## Training modes and error semantics
 
-Review correction: asserting arbitration reset at `+0x4000` also cancels every downstream port/final timer and clears their reset, completion, and applied states; PHY/DDR training results are retained. Deterministic synthetic fixtures verify reset prior to port timer expiration and following port completion. These represent device reset checks, not a new original-firmware run.
+Iterative training requires strict sequential progression from Mode 0 to Mode 4:
+
+| Mode | Target Operation | Required Applied Parameters | Error Condition & Flag |
+|---|---|---|---|
+| **Mode 0** | Write-Leveling (WL) | Programmed WL search window | Target delay out of window → `TRAINERR.WL_ERR = 4` |
+| **Mode 1** | Gate Delay | Applied gate/synchronizer delays | Incomplete synchronizer setup → Gate fault |
+| **Mode 2** | Read Phase | Applied phase alignment masks | Deserializer unlock → Phase fault |
+| **Mode 3** | Read Eye (RDE) | Per-lane eye control enable & non-zero span | Zero search parameters → `TRAINERR.RDE_ERR` |
+| **Mode 4** | Write Eye (WDE) | Per-lane eye control enable & non-zero span | Zero search parameters → `TRAINERR.WDE_ERR` |
+
+### Deterministic functional timing
+1. **Request Progression**: Writing a command request arms a QEMU virtual timer that signals hardware completion after a nominal 10 microseconds.
+2. **Write-1-to-Clear (W1C)**: Completion flags must be acknowledged by explicit guest W1C stores before initiating the subsequent training stage.
+3. **Reset Cancellation**: Asserting arbitration reset at `+0x4000` cancels active downstream port timers and clears applied states, while retaining completed PHY/DDR calibration results.

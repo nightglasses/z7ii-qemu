@@ -1,20 +1,71 @@
-# Twelve-port masked GPIO and boot selectors
+# Twelve-port masked GPIO and pad multiplexer protocol
 
-The later [explicit pad input](input.md) completes external-level publication
-for these same finite pads. Original runs still attach no external provider;
-the historical native checks and boot observations below are unchanged.
-The [source-qualified additional descriptor and packed configuration family](mux.md)
-adds finite register state beyond the twelve ordinary ports, with its separate
-reset/readback assumptions and no added pad or IRQ drive.
+This specification details the register architecture, upper-halfword write masking, and electrical pad simulation model for the 12-port GPIO controller (`gpio.c`), mapped at `PA 0x04282000`.
 
-This stage continues [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). The [fixed original whole GPIO contract](https://github.com/mashiro01/nightglass/blob/b4957f9/research/z7ii/qemu-gpio-contract.md) follows original `O1e0ee4..1e0f68` and COPY0's12×20-byte table: the guest writes twelve PDR words at `04282000+i*4` with upper maskffff, then DDR/EPCR/PUDER/PUDCR at +100/+200/+300/+400. Runtime setters independently produce `(1<<(pin+16))|(value<<pin)` and readers extract the selected low bit. All60 original table words are guest stores; the model does not prefill that table.
+## Architectural block diagram
 
-The [Socionext authored field definitions](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/include/dd_top.h) at lines334–353 identify GPIO/function EPCR0/1, input/output DDR0/1, low/high PDR0/1 and pull enable/direction. The [manufacturer Linux driver submission](https://lkml.iu.edu/2111.3/02896.html) by Taichi Sugaya, Socionext (2021-11-25, Message-ID1637834276-10466-2-git-send-email-sugaya.taichi@socionext.com) independently uses upper16 masked PDR writes and the same polarity. It is a submitted driver, not a current mainline implementation. Its20×8pin layout and offsets differ; only the compatible field protocol is reused. Nikon's twelve boot ports and software16-bit words are independently observed, not an imported M10V chip identity.
+The controller provides 12 ports (0 through 11), each controlling 16 physical pins. Each pin can be independently configured for general-purpose output, input with pull-up/down resistors, or alternate hardware peripheral routing feeding the External Interrupt Unit (EXIU).
 
-The finite model supplies twelve16-pin ports with an output latch, direction, function select and pull state. PDR writes change only selected latch bits; reads combine GPIO outputs with modeled input-pad levels. GPIO outputs require DDR1 and EPCR0. Unconnected input/alternate-function pads follow enabled up/down pulls; otherwise they use a declared stable-low virtual input. No key/sensor matrix or alternate peripheral signal is fabricated. All fields reset to zero as an explicit virtual profile, without manufacturer-reset claims. Four configuration banks accept only low16bits. PDR read-high16 is zero as a virtual read profile; its physical behavior is unknown. Unknown port/bank holes, widths and high configuration bits fail; no arbitrary GPIO bank is added.
+```mermaid
+flowchart LR
+  subgraph CPU["Cortex-A7 CPU"]
+    PDR["PDR Write<br/>(Upper 16-bit Mask | Lower 16-bit Data)"]
+    DDR["Direction Register (DDR)"]
+    EPCR["Function Select (EPCR)"]
+    PUD["Pull Configuration (PUDER/PUDCR)"]
+  end
 
-The original post-loop RMW selector fields at separate sysconfig34/38 are supported with virtual reset zero and only observed masks `f0000000/00ff0000`. This preserves guest selectors without guessing peripheral clock/output effects. It does not make undefined indexed-helper ranges legal.
+  subgraph Logic["Pin Resolution Logic (per Pin)"]
+    Latch["Output Latch"]
+    Mux["Pad Multiplexer"]
+    Pull["Pull-Up / Pull-Down Network"]
+  end
 
-Incremental native build exited zero. Seven focused checks in `work/issue331/gpio-first/result.json` passed: all twelve ports through five-bank configuration/readback, direction/function/pull interaction and masked preservation, original-shaped boot selector RMW, unsupported port, bank hole, byte width and high configuration bits. Migration/snapshot is rejected. These are software-interface tests with synthetic data, not physical inputs or menu validation; original execution is recorded separately.
+  subgraph IO["External Interface"]
+    Pad["Physical Pad Level<br/>(qdev external-level)"]
+    EXIU["EXIU External Interrupts<br/>(IRQ 65..80)"]
+  end
 
-Original fixed `d7c6c0b8b7bf9db7b903db6b02cad9ea6dbbb00e` in `work/issue331/original-gpio-d7c6c0b` exited zero after debug stop, wall0.345697s, direct input unchanged. It passed the original GPIO initialization and boot-selector RMW. CPU0 next issued `PC10200e30 / WRITE32 PA04280078 / value73ffffff`, the distinct system-configuration control-bank bootstrap producer. That early producer is not covered by the previous runtime-only four-bank mask contract; its full initialization group must be recovered and modeled without treating this one write as arbitrary register permission. No original key event, alternate-function pad signal or menu is established here.
+  PDR --> Latch
+  Latch & DDR & EPCR --> Mux
+  Mux --> Pad
+  Pad & Pull --> EXIU
+  Pad -->|"Readback"| PDR
+```
+
+## Register bank memory mapping
+
+The controller is partitioned into five distinct register banks with stride offsets:
+
+| Bank Name | Base Address Offset | Stride | Access | Description |
+|---|---|---|---|---|
+| **`PDR`** | `0x04282000 + (port × 4)` | 4 bytes | RW | Port Data Register (Masked 32-bit atomic write) |
+| **`DDR`** | `0x04282100 + (port × 4)` | 4 bytes | RW | Data Direction Register (0 = Input, 1 = Output) |
+| **`EPCR`** | `0x04282200 + (port × 4)` | 4 bytes | RW | Extended Port Control (0 = GPIO, 1 = Alternate Function) |
+| **`PUDER`** | `0x04282300 + (port × 4)` | 4 bytes | RW | Pull-Up/Down Enable (0 = Disabled, 1 = Enabled) |
+| **`PUDCR`** | `0x04282400 + (port × 4)` | 4 bytes | RW | Pull-Up/Down Polarity (0 = Pull-Down, 1 = Pull-Up) |
+
+## Upper-halfword masked write protocol
+
+To support atomic bit modification without read-modify-write race conditions, writes to the `PDR` register use an upper-halfword bitmask:
+
+$$\text{Bit } i \text{ updated if and only if: } \text{Value}[i + 16] = 1$$
+$$\text{NewLatch}[i] = (\text{Value}[i + 16] \land \text{Value}[i]) \lor (\neg \text{Value}[i + 16] \land \text{OldLatch}[i])$$
+
+Software writes:
+```c
+/* Atomically set pin 3 of port 6 without affecting other pins */
+writel(0x04282018, (1 << (3 + 16)) | (1 << 3));
+```
+
+## Pad resolution and readback law
+
+Reads from `PDR` return the active resolved electrical levels on the physical pads:
+
+1. **Output Mode (`DDR = 1`, `EPCR = 0`)**: The pin exposes the internal output latch value.
+2. **Driven Input Mode**: If an external provider publishes an explicit level via the `external-level` interface, that driven level takes precedence over internal pulls.
+3. **Floating Input Mode**: When no external provider is attached, the level is determined by the pull configuration:
+   - If `PUDER = 1` and `PUDCR = 1`: Resolved as high (`1`).
+   - If `PUDER = 1` and `PUDCR = 0`: Resolved as low (`0`).
+   - If `PUDER = 0`: Defaults to stable virtual low (`0`).
+4. **EXIU Interrupt Forwarding**: Resolved pad levels are propagated directly to the External Interrupt Unit (`exiu.c`), triggering GIC interrupts 65..80 based on configured polarity and edge detection rules.

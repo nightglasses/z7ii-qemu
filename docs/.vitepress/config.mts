@@ -97,11 +97,8 @@ export default defineConfig({
             items: [
               { text: 'MAS First Diagnostic Run', link: '/startup/first' },
               { text: 'Boot Shim Contract', link: '/startup/bootshim' },
-              { text: 'Reset Lifecycle', link: '/startup/reset' },
               { text: 'Dual-Core SMP & Clock Blockage', link: '/startup/smp' },
               { text: 'Bundle Abort Receipt', link: '/startup/bundleabort' },
-              { text: 'Loader Protocol', link: '/startup/loader' },
-              { text: 'Panic Handlers', link: '/startup/panic' },
               { text: 'Display Route Init', link: '/startup/display' },
               { text: 'Protocol Principles', link: '/startup/protocol' },
               { text: 'Relocation Storage', link: '/startup/relocation' },
@@ -113,7 +110,6 @@ export default defineConfig({
               { text: 'Five-Component Overview', link: '/startup/components' },
               { text: 'CPU & Board Parameters', link: '/startup/cpuboard' },
               { text: 'MEMC Initialization', link: '/startup/memc' },
-              { text: 'MAS Domain Boot', link: '/startup/mas' },
               { text: 'SLA Domain Boot', link: '/startup/sla' },
               { text: 'SLA ROM Read', link: '/startup/romread' },
               { text: 'SLA Exception Vectors', link: '/startup/vectors' },
@@ -123,7 +119,6 @@ export default defineConfig({
               { text: 'VR Domain Boundaries', link: '/startup/vrdomain' },
               { text: 'NDS32 System Execution', link: '/startup/system' },
               { text: 'Private Peripherals Hypothesis', link: '/startup/peripherals' },
-              { text: 'NOR Flash Startup', link: '/startup/nor' },
             ]
           }
         ],
