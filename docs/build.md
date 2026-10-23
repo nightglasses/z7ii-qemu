@@ -1,10 +1,10 @@
-# 原生构建和依赖
+# Native build and dependencies
 
-`qemu` 是官方 [qemu/qemu](https://github.com/qemu/qemu) 的 Git submodule，固定在 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`（`v11.1.2`）。官方许可证、Git 历史和嵌套 ROM submodule 都属于上游；本仓库不复制官方源码，不维护另一个 QEMU fork。
+`qemu` is an official Git submodule of [qemu/qemu](https://github.com/qemu/qemu), pinned to `4fc49f46dc95d4a27de2509e7fceb2931e91faeb` (`v11.1.2`). The official license, Git history, and nested ROM submodules belong upstream; this repository neither duplicates official sources nor maintains a separate QEMU fork.
 
-它直接位于根 `qemu/`，不增加中间依赖目录。模拟器需要 QEMU 的 CPU/TCG、QOM、总线、IRQ、计时器与原生 executable 实现参与链接，因此依赖包括官方源码，不能只保留头文件。本项目源码只在根 `hw/nikon`、`include/hw/nikon`、`tests/*/nikon` 和 `tools/nikon`，不得写进官方树。CMake 在生成源图之前检查官方 checkout 的 tracked 内容干净，并拒绝在依赖内发现自有 Nikon 目录；失败直接中止，不修改依赖或回退旧路径。
+The submodule resides directly at the root `qemu/` without intermediate dependency directories. The emulator requires QEMU's CPU/TCG, QOM, SysBus, IRQ, timers, and native executable implementations during linking; therefore, dependencies include official sources rather than mere header files. Project source code belongs exclusively to root `hw/nikon`, `include/hw/nikon`, `tests/*/nikon`, and `tools/nikon`, and must not be written into the upstream tree. Before generating the native source graph, CMake verifies that the tracked contents of the official checkout remain clean, and rejects any custom Nikon directory inside the dependency. Build configuration aborts immediately upon violation, without altering dependencies or falling back to legacy paths.
 
-初始化 checkout 后执行：
+After initializing the checkout, execute:
 
 ```sh
 git submodule update --init --recursive
@@ -13,17 +13,17 @@ make check
 make bench
 ```
 
-需要 CMake 3.24 或更新版本，以及 QEMU 官方的 C 编译器、Make、Meson/Ninja、pkg-config、GLib、pixman、Cairo 1.16+ 和官方构建 Python 依赖。Nikon Z7II 的有限路径模块通过 Meson 显式链接 Cairo，只用 image/A8 coverage，不调用宿主字体；本次使用已安装的 Cairo 1.18.6，无依赖安装。使用默认编译器，或用 QEMU 官方 configure 参数指定交叉工具链；构建和测试没有本项目的 Python 调度器。
+Prerequisites include CMake 3.24 or newer, the official C compiler, Make, Meson/Ninja, pkg-config, GLib, pixman, Cairo 1.16+, and official Python build dependencies. Finite paths for the Nikon Z7II explicitly link Cairo via Meson, consuming only image/A8 coverage without invoking host font systems; Cairo 1.18.6 is verified without extra dependency installations. Use the default compiler or pass cross-toolchain parameters to QEMU's official configure script; build and test flows do not employ any custom Python runner.
 
-`hw/nikon`、`include/hw/nikon`、`tests/qtest/nikon`、`tests/unit/nikon` 和 `tools/nikon` 是本仓库维护的普通源码。CMake 在 ignored `work/config/source` 创建原生源图：文件指向这两个 checkout，目录本身可写，Meson wraps 的下载不会修改 submodule。`hw/Kconfig`、`hw/meson.build`、`tests/qtest/meson.build`、`tests/unit/meson.build` 添加 Nikon 的原生入口；没有 patch、拷贝覆盖或兼容路径。
+`hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, `tests/unit/nikon`, and `tools/nikon` are ordinary source trees maintained in this repository. CMake constructs a native source graph in ignored `work/config/source`: files link to both checkouts, the directory itself is writable, and Meson wrap downloads do not mutate the submodule. `hw/Kconfig`, `hw/meson.build`, `tests/qtest/meson.build`, and `tests/unit/meson.build` add native entry points for Nikon; there are no patches, copy overrides, or compatibility paths.
 
-原版 VR 使用 RXv2 的 EXTB 控制寄存器，固定官方 RX 目标尚无此能力。全部 CPU 增量集中在 `cmake/rx.cmake`：生成 `target/rx/cpu.c`、`cpu.h`、`helper.c`、`translate.c`，为原生 RX 类型添加显式 `has-extb` profile、复位值、异常向量基址和原生 TCG 控制寄存器读写。生成内容与已实际编译的 `4751c8b` CPU 文件逐字节相同；源接缝必须在固定上游唯一匹配，否则配置直接失败。官方 submodule 保持干净，CPU 源单元由其正常 RX Meson 图编译，未另建 CPU 或通过外部 object 覆盖符号。
+The original VR component utilizes the EXTB control register of RXv2, which the pinned upstream RX target lacks. All CPU increments are consolidated in `cmake/rx.cmake`: generating `target/rx/cpu.c`, `cpu.h`, `helper.c`, and `translate.c`, adding explicit `has-extb` profile flags, reset values, exception vector base addresses, and native TCG control register access to native RX types. Generated contents match compiled `4751c8b` CPU files byte-for-byte; source seams must uniquely match the pinned upstream checkout, or configuration fails immediately. The official submodule remains clean, and CPU source units compile through its standard RX Meson graph without creating separate CPUs or overriding symbols via external objects.
 
-根 Makefile 调用 CMake 配置这个源图，随后使用 QEMU 官方 configure 和 Make/Meson/Ninja。`make check` 运行 Nikon 的原生 C qtest suite，`make bench` 运行同一套原生性能 fixture。上游 executable 和本仓库设备在同一原生构建中链接，不通过 DSO 私有 ABI 或 TCG 插件注入设备。
+The root Makefile invokes CMake to configure this source graph, followed by QEMU's official configure, Make, Meson, and Ninja. `make check` executes Nikon's native C qtest suite, and `make bench` executes the identical native performance fixtures. Upstream executables and repository devices link within the same native build, without injecting devices via private DSO ABIs or TCG plugins.
 
-`BUILD_DIR` 指定 QEMU 输出目录，`CONFIG_DIR` 指定 CMake 配置目录，`CONFIGURE_FLAGS` 接受官方 configure 参数。更改编译选项或增加源文件后执行 `make configure`。现有源码编辑由原生 Ninja 依赖管理。
+`BUILD_DIR` designates the QEMU output directory, `CONFIG_DIR` designates the CMake configuration directory, and `CONFIGURE_FLAGS` accepts official configure arguments. Execute `make configure` after modifying compilation flags or introducing source files. Existing source edits are managed by native Ninja dependencies.
 
-使用上游已有的 `MTESTARGS` 选择新测试，不另建测试运行器。完整首次构建仍执行 `make configure`、`make -j8`；新增 USIO 和 VR 测试可执行：
+Select new tests using upstream's existing `MTESTARGS` rather than inventing an ad-hoc test runner. Full initial builds still invoke `make configure` and `make -j8`; newly added USIO and VR tests can be executed via:
 
 ```sh
 make check MTESTARGS='nikon_usio nikon_vr'
@@ -31,8 +31,8 @@ make check MTESTARGS='nikon_battery_unit'
 make check MTESTARGS='nikon --test-args="-p /arm/nikon/transfer/planes"'
 ```
 
-`MTESTARGS` 由递归 Make 原样传给 QEMU 官方生成的测试目标；无参数的 `make check` 执行完整 Nikon suite。首次迁移 source-view 工程的实际构建由唯一 builder 完成，源码一致不冒充已完成新构建。
+`MTESTARGS` is passed verbatim by recursive Make to QEMU's officially generated test targets; invoking `make check` without parameters runs the entire Nikon test suite. The physical build of the initial source-view migration is executed by a single builder; matching source code does not substitute for a completed native build.
 
-`tools/nikon` 的宿主工具由同一 Meson 图编译并复用 `qemuutil`；入口在现有 `pyvenv` 子目录之后注册，即使上游 `--disable-tools` 也保留本项目工具。默认电池工具路径为 `work/build/qemu/tools/nikon/nikon-battery`，接口与验收边界见 [batterytool.md](runtime/batterytool.md)。工具不放进官方 submodule，不另设编译或测试脚本。
+Host tools under `tools/nikon` compile through the same Meson graph and reuse `qemuutil`; their entry points register after the existing `pyvenv` subdirectory, preserving project tools even when upstream `--disable-tools` is specified. The default battery tool binary path is `work/build/qemu/tools/nikon/nikon-battery`; its interface and acceptance boundaries are documented in [batterytool.md](runtime/batterytool.md). Tools are not placed in the official submodule, and do not introduce separate compilation or test scripts.
 
-设备改动通过本仓库正常 PR 合并。上游依赖更新独立更新 gitlink，并记录新版本；不要修改或提交 submodule 工作树。当前迁移完整承接 `f44817e` 已编译 ARM/RX、loader、VR 精确 storage/offset alias、generic access、USIO 和 paired transfer planes，以及 26 个新增 case 的实际 PASS（之前 20 + USIO 4 + planes 1 + RX 1）。后续 `528446c` 文档收据同时同步。原版运行和完整 GUI 结果仍需对应实际运行记录，依赖迁移不冒充启动完成。
+Device changes merge via normal PRs in this repository. Upstream dependency updates independently advance gitlinks with recorded release versions; do not modify or commit within the submodule worktree. The current migration fully incorporates compiled ARM/RX, loader, VR precise storage/offset alias, generic access, USIO, paired transfer planes from `f44817e`, along with 26 newly added PASS receipts (20 prior + 4 USIO + 1 planes + 1 RX). Subsequent `528446c` documentation receipts are synchronized concurrently. Original execution and complete GUI results continue to require corresponding runtime records; dependency migration does not assert completed boot.

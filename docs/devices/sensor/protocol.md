@@ -1,6 +1,6 @@
 # External CMOS frame input and readout
 
-This device adds an executable frame endpoint to the [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326). It reads an explicitly supplied byte file through official QIOChannelFile and writes its bytes through the actual physical-memory DMA bus. It supplies exposure, readout, completion and error lifecycle outputs. It does not identify a physical sensor, invent a controller register map or connect an unbound guest interrupt.
+This device adds an executable frame endpoint to the [Run original Z7II QEMU machine and recover boot device dependencies](https://github.com/mashiro01/nightglass/issues/326). It reads an explicitly supplied byte file through official QIOChannelFile and writes its bytes through the actual physical-memory DMA bus. It supplies exposure, readout, completion and error lifecycle outputs. It does not identify a physical sensor, invent a controller register map or connect an unbound guest interrupt.
 
 ## Current source boundary
 

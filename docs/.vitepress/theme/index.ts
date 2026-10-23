@@ -1,0 +1,66 @@
+import DefaultTheme from 'vitepress/theme'
+import './custom.css'
+import { inBrowser } from 'vitepress'
+
+export default {
+  extends: DefaultTheme,
+  enhanceApp({ app, router }) {
+    if (inBrowser) {
+      const initPeleZoom = async () => {
+        try {
+          const { enableZoom } = await import('pele')
+
+          document.querySelectorAll('.pele-container').forEach((container) => {
+            if (container.getAttribute('data-zoom-initialized')) return
+            container.setAttribute('data-zoom-initialized', 'true')
+
+            // Enable smooth wheel zoom and drag panning
+            enableZoom(container as HTMLElement, {
+              always: true,
+              maxScale: 6,
+            })
+
+            // Add Fullscreen toggle button to the zoom toolbar
+            const toolbar = container.querySelector('.pele-zoom')
+            if (toolbar && !toolbar.querySelector('.pele-zoom-fs')) {
+              const fsBtn = document.createElement('button')
+              fsBtn.type = 'button'
+              fsBtn.className = 'pele-zoom-fs'
+              fsBtn.title = 'Toggle Fullscreen (or press ESC to exit)'
+              fsBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`
+              fsBtn.addEventListener('click', (e) => {
+                e.stopPropagation()
+                const isFs = container.classList.toggle('is-fullscreen')
+                document.body.classList.toggle('has-diagram-fullscreen', isFs)
+              })
+              toolbar.appendChild(fsBtn)
+            }
+          })
+        } catch (e) {
+          console.warn('Pele interactive zoom initialization error:', e)
+        }
+      }
+
+      router.onAfterRouteChanged = () => {
+        setTimeout(initPeleZoom, 150)
+      }
+
+      if (typeof window !== 'undefined') {
+        window.addEventListener('DOMContentLoaded', () => {
+          setTimeout(initPeleZoom, 150)
+        })
+        setTimeout(initPeleZoom, 250)
+
+        // Press Escape to exit fullscreen diagram mode
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            document.querySelectorAll('.pele-container.is-fullscreen').forEach((c) => {
+              c.classList.remove('is-fullscreen')
+            })
+            document.body.classList.remove('has-diagram-fullscreen')
+          }
+        })
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
-# 模型与运行证据规范
+# Model and execution evidence discipline
 
-- 每项区分直接观察、已验证、推断和假设。地址注明组件、域、O/VA/PA；每个未知指出下一项需要的证据。
-- 公开实现引用固定源码和原作者资料；用户帖子没有可运行源码时保留这个事实，不将截图当构建或完整启动收据。
-- 原始运行记录留在 `work/`，文档只保留关键停点、寄存器/设备事件和模型范围。
-- 维护文件名不使用连字符，优先一个清楚单词；按设备、启动、运行时或输入分目录，不用冗长下划线名代替。设备文档目录对应源码单词名；历史实际 argv、固定源码引用及 ignored 收据保留原身份，当前链接指向现行路径。
-- RTOS 源码匹配、板级模拟、重建代码对照相互提供证据，不互相替代验收。
+- Distinguish every item between direct observation, verified, inferred, and hypothesis. Addresses must specify component, domain, and O/VA/PA; every unknown identifies the next required evidence.
+- Public implementations reference pinned source code and primary author materials. When community forum posts lack runnable source code, preserve this fact; do not treat screenshots as build or complete boot receipts.
+- Raw execution logs remain in `work/`; documentation retains only critical stop points, register/device events, and modeled boundaries.
+- Maintained filenames avoid hyphens, preferring a single clear word; organize into directories by device, startup, runtime, or input, without lengthy underscore names. Device document directories match source word names; historical argv, pinned source references, and ignored receipts retain original identities, while active links point to current paths.
+- RTOS source matching, board-level emulation, and reconstruction code cross-reference provide mutual evidence; they do not substitute for one another in acceptance.

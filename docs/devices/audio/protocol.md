@@ -1,6 +1,6 @@
 # Dual Audio I/F and per-beat HDMAC requests
 
-This stage addresses [QEMU 原版启动与最小设备模型](https://github.com/mashiro01/nightglass/issues/331). Initial code `180d7e49f0b934cda8ad16c0a7964e84e7af3aed` adds the two-channel Audio I/F at `2c080000` and GPIO request inputs on the existing HDMAC. The review correction below is exact code `752783a6a4a6fba2eb7b9bcc4c03e93f604f48a0`. It keeps original instructions, task dispatch, IRQ handlers and data transfers in the guest.
+This stage addresses [QEMU original boot and minimal device model](https://github.com/mashiro01/nightglass/issues/331). Initial code `180d7e49f0b934cda8ad16c0a7964e84e7af3aed` adds the two-channel Audio I/F at `2c080000` and GPIO request inputs on the existing HDMAC. The review correction below is exact code `752783a6a4a6fba2eb7b9bcc4c03e93f604f48a0`. It keeps original instructions, task dispatch, IRQ handlers and data transfers in the guest.
 
 ## Source and model contract
 
@@ -36,6 +36,6 @@ The next work follows the actual alternate record aperture and the whole12-chann
 
 ## Issue397 class audit and HDMAC lifecycle
 
-The [QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397) checked the complete saved initialization, reset, PIO, FIFO/status, IRQ mask/W0C, divider and logical-DMA consumers. These existing paths retain their real occupancy and bus semantics. The HDMAC lifecycle extension now makes explicit PB and global DH holds compose with output DREQ: a clock-driven sink may free a stage, but a held channel cannot accept the next DMA beat until every gate is released. The new synthetic native test content exercises that real connection; it has not been compiled or run by this implementation task. No Audio C behavior or original run is added here.
+The [QEMU: Batch closure of DMA and audio startup protocols](https://github.com/mashiro01/nightglass/issues/397) checked the complete saved initialization, reset, PIO, FIFO/status, IRQ mask/W0C, divider and logical-DMA consumers. These existing paths retain their real occupancy and bus semantics. The HDMAC lifecycle extension now makes explicit PB and global DH holds compose with output DREQ: a clock-driven sink may free a stage, but a held channel cannot accept the next DMA beat until every gate is released. The new synthetic native test content exercises that real connection; it has not been compiled or run by this implementation task. No Audio C behavior or original run is added here.
 
 Input selector5 remains disconnected because samples and an input clock are external inputs absent from the package. The saved sample-count setters at AUDMA2CTL/+44/+48 do not bind a complete terminal counter/IRQ protocol; getters at+54..60 also lack a bound producer. Stereo/packing/loopback and sample-count operation are future protocol work, not additional device instances or successful transfers. No saved producer joins Audio/HDMAC to event/EXIU or proves frame completion. The bound output selectors3/7 and GIC167/168 are preserved; no guessed signal wiring is introduced.

@@ -1,6 +1,6 @@
 # EXIU pad interrupt functional model
 
-This stage continues [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326). Code `bbbf191aa179578174492a21b6d02be4a45deba9` built natively against QEMU `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`; thirteen focused synthetic checks passed. The unchanged MAS passed the preceding EXIU initializer stop and next stopped at CPU1 `PC102dc38a / READ32 PA2c020000`. Neither a valid NV header nor a menu is established.
+This stage continues [Run original Z7II QEMU machine and recover boot device dependencies](https://github.com/mashiro01/nightglass/issues/326). Code `bbbf191aa179578174492a21b6d02be4a45deba9` built natively against QEMU `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`; thirteen focused synthetic checks passed. The unchanged MAS passed the preceding EXIU initializer stop and next stopped at CPU1 `PC102dc38a / READ32 PA2c020000`. Neither a valid NV header nor a menu is established.
 
 The original bounded protocol is fixed in [EXIU research, 715d941](https://github.com/mashiro01/nightglass/blob/715d941/research/z7ii/qemu-exiu-contract.md). Its 672 bytes/278 continuous Thumb instructions include registration, initializer, configuration, common ISR and sixteen wrappers. Saved native coverage is only 0/166 registration bytes, 0/14 initializer bytes and 310/492 runtime bytes; other sections remain original-byte candidates anchored by actual access or data, not fully recovered native functions.
 

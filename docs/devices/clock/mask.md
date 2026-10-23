@@ -1,6 +1,6 @@
 # Independent clock-controller word-mask configuration
 
-Native C and fixture recipe **400563108067d1725bb2c820c4eb4d2da2449fb6** add the complete `04281034` word-mask configuration contract to the existing PLL/selector/stop controller. This is an independent retained 32-bit configuration word, rather than a frequency getter or a read-zero exception. The source is `nightglass` **7c88c989b0bc7c715b5f0fa5129fb1a395a4c196**, `research/z7ii/qemu-system-control-contract.md`, section `+34 整word mask控制请求`.
+Native C and fixture recipe **400563108067d1725bb2c820c4eb4d2da2449fb6** add the complete `04281034` word-mask configuration contract to the existing PLL/selector/stop controller. This is an independent retained 32-bit configuration word, rather than a frequency getter or a read-zero exception. The source is `nightglass` **7c88c989b0bc7c715b5f0fa5129fb1a395a4c196**, `research/z7ii/qemu-system-control-contract.md`, section `+34 Whole-word mask control request`.
 
 The source helper validates 46 original bytes/20 instructions in disjoint ranges O3908cc..3908ea, O390904..390912 and shared return O390838..39083a, excluding intervening literal data. The current saved function/BB provider does not cover the actual method entry/read; this is an actual-PC-anchored continuous original-byte diagnostic contract, not newly accepted saved-native coverage. The actual previous stop independently anchors `CPU1 PC103b08e2 READ32 PA04281034`.
 
