@@ -9,8 +9,8 @@
  *
  * Geometry and pixel format are the transfer device's documented RGBA program
  * (1024x688 RGBA8888 with six inactive rows at the top), not a recovered panel
- * specification.  A frame is converted and published only when the sampled
- * content changes, so an idle guest costs one strided read per period.
+ * specification.  Every visible pixel is converted and compared on each tick;
+ * only a changed frame is published.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -27,8 +27,6 @@
 #include "ui/console.h"
 #include "ui/qemu-pixman.h" /* IWYU pragma: keep */
 
-#define PANEL_SAMPLE_STRIDE 1024u
-
 static const GraphicHwOps nikon_panel_graphics;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPanelState, NIKON_PANEL)
@@ -44,7 +42,6 @@ struct NikonPanelState {
     QemuConsole *console;
     uint32_t *frame;
     uint32_t *previous;
-    uint64_t sample_hash;
     bool have_frame;
 };
 
@@ -60,20 +57,6 @@ void nikon_panel_convert_rgba8888(uint32_t *dst, const uint8_t *src,
         dst[i] = ((uint32_t)p[3] << 24) | ((uint32_t)p[0] << 16) |
                  ((uint32_t)p[1] << 8) | (uint32_t)p[2];
     }
-}
-
-static uint64_t nikon_panel_sample(const uint8_t *data, size_t bytes)
-{
-    uint64_t hash = 0xcbf29ce484222325ULL;
-    size_t offset;
-
-    for (offset = 0; offset + 4 <= bytes; offset += 4 * PANEL_SAMPLE_STRIDE) {
-        uint32_t word;
-
-        memcpy(&word, data + offset, sizeof(word));
-        hash = (hash ^ word) * 0x100000001b3ULL;
-    }
-    return hash;
 }
 
 static void nikon_panel_publish(NikonPanelState *s, unsigned width,
@@ -111,7 +94,6 @@ static void nikon_panel_tick(void *opaque)
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     hwaddr size;
     uint8_t *guest;
-    uint64_t hash;
     unsigned rows;
 
     rows = s->height;
@@ -127,12 +109,9 @@ static void nikon_panel_tick(void *opaque)
         goto reschedule;
     }
     if (size == (hwaddr)rows * s->width * 4) {
-        hash = nikon_panel_sample(guest, size);
-        if (hash != s->sample_hash || !s->have_frame) {
-            s->sample_hash = hash;
+        nikon_panel_convert_rgba8888(s->frame, guest, (size_t)rows * s->width);
+        if (!s->have_frame || memcmp(s->previous, s->frame, size)) {
             s->have_frame = true;
-            nikon_panel_convert_rgba8888(s->frame, guest, (size_t)rows *
-                                         s->width);
             memcpy(s->previous, s->frame, size);
             nikon_panel_publish(s, s->width, rows);
         }
@@ -189,10 +168,15 @@ static void nikon_panel_unrealize(DeviceState *dev)
         timer_free(s->timer);
         s->timer = NULL;
     }
+    if (s->console) {
+        qemu_graphic_console_close(s->console);
+        s->console = NULL;
+    }
     g_free(s->frame);
     g_free(s->previous);
     s->frame = NULL;
     s->previous = NULL;
+    s->have_frame = false;
 }
 
 static const Property nikon_panel_properties[] = {
