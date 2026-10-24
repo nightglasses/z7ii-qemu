@@ -66,9 +66,14 @@ now passes this guard through the original loader. In the unchanged
 `capturebanks-20261024/neutral` run, packed version150 returns0 at
 `102d7254` and property6433 is empty. The later unchanged
 `capturegroup-20261024/green` run confirms those results after crossing the
-[PA`2006b800` configuration group](../devices/capturegroup/protocol.md). It now stops
-at PC`10208e14`, READ32 PA`2006bb70`, consuming the old result packet before
-the group's shared commit/run. This closes the ID68 condition for the declared cold
+[PA`2006b800` configuration group](../devices/capturegroup/protocol.md). It stops
+at PC`10208e14`, READ32 PA`2006bb70`. The subsequent
+`captureresults-20261024/green` run uses the explicit eight-word cold-empty
+result assumption, invalidated at group commit/effective run. Its first force1
+getter returns, commit/run executes, and the new first uncovered access is
+PC`102090bc`, WRITE32 PA`20069514=6`; guard0/property6433 empty is confirmed.
+No post-submit result or numeric physical cold value is qualified by that run.
+This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.
 

@@ -39,10 +39,12 @@ now removes ID54 through the original IRQ/callback/event path in a normal
 cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
 and [two service banks](docs/devices/capture/banks.md) cover their source-selected
 fields. The [capture configuration group](docs/devices/capturegroup/protocol.md) adds144
-identified words, with all30 Sensor cases passing. With the same generated
-cold-neutral input, unchanged execution crosses PA`2006b800` and now stops
-at PC`10208e14`, reading PA`2006bb70` before shared commit/run. The old-result
-packet's producer and cold state remain unresolved. QMP is debug/stopped before a
+identified words. Its eight-word cold-empty result profile is an explicit
+functional hypothesis, invalidated as a whole at commit/effective run; no
+post-submit result is supplied. All31 Sensor cases pass. With the same generated
+cold-neutral input, unchanged execution consumes the initial snapshot, reaches
+unit20 commit/run and now stops at PC`102090bc`, writing PA`20069514=6`.
+The actual result producer and physical values remain unresolved. QMP is debug/stopped before a
 console exists in this run; normal-menu startup and later mode coverage remain
 unverified. Zero-valued metadata is a bounded functional assumption, not
 physical calibration or a universal block-disable setting.

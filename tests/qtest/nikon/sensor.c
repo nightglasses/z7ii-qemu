@@ -962,6 +962,83 @@ static void test_capture_banks(void)
     qtest_quit(q);
 }
 
+static const uint32_t capture_group_results[] = {
+    0x2006bb70, 0x2006bb74, 0x2006bb78, 0x2006bc78,
+    0x2006bd78, 0x2006bb7c, 0x2006bc7c, 0x2006bd7c,
+};
+
+static void capture_group_result_packet(QTestState *q, bool cold)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+
+        if (cold) {
+            g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+            /* qtest's zero-filled error buffer cannot prove a readable zero. */
+            g_assert_null(strstr(reply, "Cannot access memory"));
+            g_assert_cmphex(qtest_readl(q, address), ==, 0);
+        } else {
+            endpoint_read_error(q, address);
+        }
+    }
+}
+
+static void test_capture_group_results(void)
+{
+    QTestState *q = capture_start(NULL);
+
+    capture_group_result_packet(q, true);
+    qtest_writel(q, 0x2006bb44, 0x5a);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        qtest_writel(q, capture_group_results[i], UINT32_MAX);
+    }
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE + 0x100, 2);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 1);
+    qtest_writel(q, CAPTURE_BASE + 8, 1); /* Another effective unit. */
+    capture_group_result_packet(q, true);
+    qtest_writeb(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x100); /* Reserved unit, rejected. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20); /* Not enabled. */
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20); /* Held in unit reset. */
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE + 4, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    capture_group_result_packet(q, false);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0x20);
+    qtest_writel(q, CAPTURE_BASE, 0x20);
+    qtest_writel(q, 0x2006bb44, 0x5a);
+    qtest_clock_step(q, 1000000);
+    capture_group_result_packet(q, false);
+    for (unsigned port = 0; port < 2; port++) {
+        qtest_system_reset(q);
+        capture_group_result_packet(q, true);
+        qtest_writel(q, CAPTURE_BASE + 0x100 + 4 * port, 0x12);
+        capture_group_result_packet(q, false);
+        qtest_writel(q, CAPTURE_BASE + 0x100 + 4 * port, 0);
+        qtest_clock_step(q, 1000000);
+        capture_group_result_packet(q, false);
+    }
+    qtest_system_reset(q);
+    capture_group_result_packet(q, true);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+        g_autofree char *byte = qtest_hmp(q, "xp /1bx 0x%08x", address);
+        g_autofree char *halfword = qtest_hmp(q, "xp /1hx 0x%08x", address);
+
+        g_assert_nonnull(strstr(byte, "Cannot access memory"));
+        g_assert_nonnull(strstr(halfword, "Cannot access memory"));
+        endpoint_read_error(q, address + 1);
+    }
+    qtest_quit(q);
+}
+
 static void test_capture_group(void)
 {
     static const struct {
@@ -1031,6 +1108,10 @@ static void test_capture_group(void)
         }
     }
     g_assert_cmpuint(count, ==, 144);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        known[(capture_group_results[i] - base) / 4] = true;
+    }
+    capture_group_result_packet(q, true);
     for (unsigned i = 0; i < 8; i++) {
         expected[0x234 / 4 + i] = 0x1200 + i;
         qtest_writel(q, base + 0x234 + i * 4, expected[0x234 / 4 + i]);
@@ -2041,6 +2122,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/capture/packet", test_capture_packet);
     qtest_add_func("/nikon/sensor/capture/banks", test_capture_banks);
     qtest_add_func("/nikon/sensor/capture/group", test_capture_group);
+    qtest_add_func("/nikon/sensor/capture/group-results",
+                   test_capture_group_results);
     qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
     qtest_add_func("/nikon/sensor/capture/endpoint-globals",
                     test_capture_endpoint_globals);
