@@ -1,5 +1,15 @@
 # Native GUI integration
 
+The [temporary conversion mode correction](../devices/transfer/mode.md) passes
+all20 transfer subtests in1.38s after the new scaled mode2 case fails against
+the old model. The three conversion cases have29/30/32 variants,23 new,
+covering0/2/4/6 before exact final2, odd/high/solid bits, headers/early trigger,
+immutable capture, independent full-plane color/sampler references, mapping
+loss and cancellation. Separate original execution completes nine newly
+accepted2→2 conversions and84 IRQ129 entries from the first one through later
+work, then rejects216/344 A8 with extra cached-state prefixes. GUI readiness
+remains0. Receipts: `work/runs/convertpaint-20261023/`.
+
 The [paint-state correction](../devices/transfer/paint.md) passes all20 transfer
 subtests in0.81s after two actual native reds: optional01848004=0 grammar, then
 clear-to-path context retention. The mixed case now has51 variants, including

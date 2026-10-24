@@ -2164,7 +2164,8 @@ static void test_rgba_yuv(void)
 {
     enum { W = 1024, H = 682, PLANE = W * H, INPUT = W * 688 * 4,
            SLOT = 0x4b0000 };
-    enum { SUCCESS, SHORT, HEADER, GEOMETRY, SAMPLE, LUT, SECONDARY, FORMAT,
+    enum { SUCCESS, TEMP2, TEMP4, TEMP6, TEMP_ODD, TEMP_HEADER, EARLY_DRAW,
+           SHORT, HEADER, GEOMETRY, SAMPLE, LUT, SECONDARY, FORMAT,
            MODE, KEY, OPERAND, DELTA, OVERFLOW, SOURCE_RANGE, SOURCE_OVERLAP,
            COMMAND_OVERLAP, SOURCE_ALIAS, PLANE_ALIAS, PARTIAL_ALPHA,
            DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
@@ -2204,7 +2205,7 @@ static void test_rgba_yuv(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned test = SUCCESS; test < CASES; test++) {
-        bool complete = test == SUCCESS || test == DATA_CHANGE;
+        bool complete = test <= TEMP6 || test == DATA_CHANGE;
         bool accepted = complete || test == PARTIAL_ALPHA || test == MAP_LOSS ||
                         test == RESET || test == CANCEL;
         unsigned draw_bytes = 1736;
@@ -2222,6 +2223,11 @@ static void test_rgba_yuv(void)
         }
         build_convert_program(data, data + 0x1000);
         switch (test) {
+        case TEMP2: case TEMP4: case TEMP6:
+            stl_le_p(data + 0x1000 + 74 * 4, 2 * (test - TEMP2 + 1)); break;
+        case TEMP_ODD: stl_le_p(data + 0x1000 + 74 * 4, 1); break;
+        case TEMP_HEADER: stl_le_p(data + 0x1000 + 73 * 4, 0x0184f004); break;
+        case EARLY_DRAW: stl_le_p(data + 0x1000 + 73 * 4, 0x01a61004); break;
         case SHORT: draw_bytes -= 8; break;
         case HEADER: data[0] ^= 1; break;
         case GEOMETRY: stl_le_p(data + 51 * 4, 681); break;
@@ -2305,7 +2311,9 @@ static void test_scaled_yuva(void)
 {
     enum { W = 1024, H = 682, PLANE = W * H, INPUT = 720 * 480 * 4,
            SLOT = 0x4b0000 };
-    enum { SUCCESS, SHORT, TRANSFORM, SAMPLE, SOURCE_SIZE, FORMAT, FILTER,
+    enum { SUCCESS, TEMP2, TEMP4, TEMP6, IMMUTABLE,
+           TEMP_ODD, TEMP_SOLID, TEMP_HIGH, TEMP_HEADER, EARLY_DRAW, FINAL_MODE,
+           SHORT, TRANSFORM, SAMPLE, SOURCE_SIZE, FORMAT, FILTER,
            LUT, GEOMETRY, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS, PLANE_ALIAS,
            DATA_CHANGE, EDGE_KEEP, EDGE_COLOR, MAP_LOSS, RESET, CANCEL, CASES };
     static const uint32_t rgba[] = {
@@ -2344,7 +2352,7 @@ static void test_scaled_yuva(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned test = SUCCESS; test < CASES; test++) {
-        bool complete = test == SUCCESS || test == DATA_CHANGE ||
+        bool complete = test <= IMMUTABLE || test == DATA_CHANGE ||
                         test == EDGE_KEEP || test == EDGE_COLOR;
         bool accepted = complete || test == MAP_LOSS || test == RESET ||
                         test == CANCEL;
@@ -2385,7 +2393,20 @@ static void test_scaled_yuva(void)
         stl_le_p(data + 0x1000 + 409 * 4, 0x955000);
         stl_le_p(data + 0x1000 + 417 * 4, 7);
         stl_le_p(data + 0x1000 + 419 * 4, 7);
+        if (test == IMMUTABLE || test == DATA_CHANGE ||
+            test == MAP_LOSS || test == RESET ||
+            test == CANCEL) {
+            stl_le_p(data + 0x1000 + 74 * 4, 6);
+        }
         switch (test) {
+        case TEMP2: case TEMP4: case TEMP6:
+            stl_le_p(data + 0x1000 + 74 * 4, 2 * (test - TEMP2 + 1)); break;
+        case TEMP_ODD: stl_le_p(data + 0x1000 + 74 * 4, 1); break;
+        case TEMP_SOLID: stl_le_p(data + 0x1000 + 74 * 4, 8); break;
+        case TEMP_HIGH: stl_le_p(data + 0x1000 + 74 * 4, 0x100); break;
+        case TEMP_HEADER: stl_le_p(data + 0x1000 + 73 * 4, 0x0184f004); break;
+        case EARLY_DRAW: stl_le_p(data + 0x1000 + 73 * 4, 0x01a61004); break;
+        case FINAL_MODE: stl_le_p(data + 0x1000 + 92 * 4, 6); break;
         case SHORT: draw_bytes -= 8; break;
         case TRANSFORM: stl_le_p(data + 13 * 4, 0x3f800000); break;
         case SAMPLE: stl_le_p(data + 0x1000 + 54 * 4, 0x3f0000); break;
@@ -2410,6 +2431,11 @@ static void test_scaled_yuva(void)
         g_assert_cmpint(submit_rgba(&f, 224, draw_bytes), ==,
                         accepted ? MEMTX_OK : MEMTX_ERROR);
         g_assert_false(f.level);
+        g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+        if (test == IMMUTABLE) {
+            memset(data, 0xff, 224);
+            memset(data + 0x1000, 0xff, 1736);
+        }
         if (test == DATA_CHANGE) {
             stl_le_p(source + 4 * (479 * 720), rgba[2]);
         } else if (test == MAP_LOSS) {
@@ -2511,7 +2537,8 @@ static void test_yuva_over(void)
 {
     enum { W = 1024, H = 682, PLANE = W * H, INPUT = 720 * 480 * 4,
            SLOT = 0x4b0000 };
-    enum { SUCCESS, REPEAT, COLD, RESET_INIT, FAILED_INIT, OTHER_INIT,
+    enum { SUCCESS, TEMP2, TEMP4, TEMP6, TEMP_ODD, TEMP_HEADER, EARLY_DRAW,
+           FINAL_MODE, REPEAT, COLD, RESET_INIT, FAILED_INIT, OTHER_INIT,
            CANCELED_INIT, REJECTED, SHORT, BLEND, FORMAT, SAMPLER, LUT,
            PARTIAL_WRITE, KEY, OPAQUE, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS,
            PLANE_ALIAS, DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
@@ -2549,7 +2576,7 @@ static void test_yuva_over(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned test = SUCCESS; test < CASES; test++) {
-        bool complete = test == SUCCESS || test == REPEAT || test == DATA_CHANGE;
+        bool complete = test <= TEMP6 || test == REPEAT || test == DATA_CHANGE;
         bool accepted = complete || test == MAP_LOSS || test == RESET ||
                         test == CANCEL;
         unsigned draw_bytes = 1552;
@@ -2601,6 +2628,12 @@ static void test_yuva_over(void)
         }
         build_scaled_program(data, data + 0x1000, true);
         switch (test) {
+        case TEMP2: case TEMP4: case TEMP6:
+            stl_le_p(data + 0x1000 + 29 * 4, 2 * (test - TEMP2 + 1)); break;
+        case TEMP_ODD: stl_le_p(data + 0x1000 + 29 * 4, 1); break;
+        case TEMP_HEADER: stl_le_p(data + 0x1000 + 28 * 4, 0x0184f004); break;
+        case EARLY_DRAW: stl_le_p(data + 0x1000 + 28 * 4, 0x01a61004); break;
+        case FINAL_MODE: stl_le_p(data + 0x1000 + 47 * 4, 6); break;
         case SHORT: draw_bytes -= 8; break;
         case BLEND: stl_le_p(data + 0x1000 + 27 * 4, 0); break;
         case FORMAT: stl_le_p(data + 0x1000 + 360 * 4, 0x105); break;

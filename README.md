@@ -144,7 +144,11 @@ subtests passing. Original execution completes a late1280/1560-byte six-clear
 batch. The [paint-state correction](docs/devices/transfer/paint.md) then accepts
 optional color-transform disable writes and retains that clear's shared RGBA
 context. All20 transfer subtests pass; original execution completes three840/1048
-packets and later work, then rejects a224/1736 YUVA107 temporary-mode variation.
+packets and later work. The [temporary conversion mode model](docs/devices/transfer/mode.md)
+then accepts the producer's four inherited modes before final mode2 in all
+three conversion/composite forms. All20 transfer subtests pass. Original
+execution completes nine newly accepted YUVA107 conversions and later work,
+then rejects a216/344-byte A8 image with additional cached-state prefixes.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.

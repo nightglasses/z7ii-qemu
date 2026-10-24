@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; YUVA107 temporary paint mode frontier
+## Normal display request accepted; retained A8 image prefix frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -131,12 +131,24 @@ and successful clear execution now retains the shared target/format/clip
 profile. All20 transfer subtests pass in0.81s, including two actual native reds.
 Original execution completes three840/1048 packets plus later paths/images/
 conversions, recording26 IRQ129 entries from the first one to the next error.
-The current rejection is CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's next rejection is CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-convert-program-not-supported`, on224/1736 at bd0dff90/bd15ff90.
 The only differing fixed field of the scaled107 profile is draw word74,
 temporary01841004 payload2 instead of0; later final mode remains2. Source is
-bf309600, output planes cb82b000/cb980000. The temporary state's producer and
-operand admission remain the next investigation. GUI readiness remains0.
+bf309600, output planes cb82b000/cb980000. The
+[temporary mode correction](../devices/transfer/mode.md) joins106b4b28→1068b8ae→
+10646062, then10645c86 replacing the same low byte before the sole draw
+trigger. The finite105/107/SRC_OVER family accepts inherited0/2/4/6 while
+retaining exact final mode2 and all intervening headers. All20 transfer
+subtests pass in1.38s. Original execution completes nine newly accepted2→2
+conversions and84 IRQ129 entries from the first one through later graphics.
+The current first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
+`transfer-stream-truncated`, on216/344 at bd0e0490/bd1605b0. Setup has an extra
+full cached matrix before a44-word inline image body; draw has01848004=0
+before the84-word A8 body. Active matrix(1,-1,1), translation(616,44), path38x36,
+source b97ac500/40x48, target bec5f200 and modes8/0e are captured operands.
+Its complete prefix/producer/overwrite grammar remains the next investigation.
+GUI readiness remains0; a fixture or completion is not a GUI first frame.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.

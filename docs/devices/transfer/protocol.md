@@ -28,10 +28,13 @@ completes a late1280/1560-byte six-clear batch through IRQ129. The
 [paint-state correction](paint.md) then accepts the optional01848004=0
 color-transform disable at each full path seam and preserves the shared
 target/format/clip profile after clears. All20 transfer subtests pass. Original
-execution completes three840/1048 packets and later work; the next CPU0
-PC106ee3c6 WRITE32 PA201810e0=1 rejects224/1736 with
-`transfer-convert-program-not-supported`: draw word74 is temporary mode2,
-where the existing107 profile requires0 before final mode2.
+execution completes three840/1048 packets and later work. The
+[temporary conversion mode model](mode.md) accepts0/2/4/6 before the exact
+final mode2 across105/107 initialization and107 SRC_OVER. All20 transfer
+subtests pass. Original execution completes nine formerly rejected2→2
+conversions and later graphics work. The next CPU1 PC106ee3c6 WRITE32
+PA201810e0=1 rejects216/344 with `transfer-stream-truncated`: an A8 image
+has additional cached matrix and color-transform-disable prefixes.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 

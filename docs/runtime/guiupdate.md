@@ -71,10 +71,16 @@ completes a late1280/1560-byte six-clear batch and its zero output through
 IRQ129. The [paint-state correction](../devices/transfer/paint.md) then joins
 01848004=0 to the glyph dirty-state flush and retains the clear's shared RGBA
 profile. All20 transfer subtests pass. Original execution completes three840/1048
-packets and later graphics work. The current CPU0 PC106ee3c6 writes
+packets and later graphics work. That run's next CPU0 PC106ee3c6 writes
 PA201810e0=1 and rejects224/1736 with `transfer-convert-program-not-supported`:
 its temporary low-byte paint mode is2 before final2, while the existing107
-profile requires temporary0. The producer/overwrite semantics remain open.
+profile requires temporary0. The [temporary mode correction](../devices/transfer/mode.md)
+joins the old-mode preserving helper and the final setter before the sole draw
+trigger, admitting0/2/4/6 in all three conversion/composite forms. All20
+transfer subtests pass. Original execution then completes nine2→2 conversions
+and later work. The current CPU1 PC106ee3c6 WRITE32 PA201810e0=1 rejects
+216/344 with `transfer-stream-truncated`, an A8 image carrying extra cached
+matrix and color-transform-disable prefixes.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

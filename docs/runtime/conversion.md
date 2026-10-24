@@ -9,6 +9,12 @@ continuation now completes too. The following bounded original run has no
 graphics rejection or MAS data abort; the manager returns from warning
 worker4 to worker0 with GUI readiness still unarmed.
 
+Later normal-GUI execution also exercises an inherited temporary paint mode2.
+The [mode overwrite model](../devices/transfer/mode.md) now accepts all four
+source-backed0/2/4/6 combinations before exact final2 in both initialized
+profiles and retained SRC_OVER. All20 transfer native subtests pass; the
+[current frontier](../validation/frontier.md) records later original progress.
+
 ## Original command contract
 
 All code/buffer addresses below are MAS VAs. Raw56/434-word commands are in
@@ -56,7 +62,9 @@ Accepting the captured table state does not implement arbitrary LUT programs.
 `nikon_transfer_convert_parse` accepts exactly56/434 words and the captured
 geometry, sampler, format and table configuration. Variable fields are source
 and destination addresses, matched class1 key and echoed nonzero opaque
-operand. This profile initializes its complete state and does not depend on
+operand, plus the overwritten temporary mode0/2/4/6 at draw word74. Exact final
+mode2 and both mode-write headers remain checked. This profile initializes its
+complete state and does not depend on
 the previous720x480 context. Completion invalidates that different context.
 
 All command/source/output spans must be directly backed, contiguous and

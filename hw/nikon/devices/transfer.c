@@ -1457,6 +1457,13 @@ static bool nikon_transfer_convert_fields(const uint32_t *words, bool setup,
         if (i < start) {
             continue;
         }
+        /* 10646062 preserves mode 0..3 before 10645c86 replaces it. */
+        if (!setup && i == 74) {
+            if (le32_to_cpu(words[i - start]) & ~6U) {
+                return false;
+            }
+            continue;
+        }
         if ((setup && (i == 37 || i == 54)) ||
             (!setup && (i == 70 || i == 407 || i == 409 || i == 421 ||
                         i == 428))) {

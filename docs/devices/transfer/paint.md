@@ -4,8 +4,9 @@ The normal GUI's840/1048-byte mixed fill/stroke packet now completes through
 original IRQ129. The model recognizes the optional color-transform disable
 write at each full path's dirty-state seam and preserves the shared RGBA
 profile after successful rectangle clears. All20 transfer native subtests pass.
-The next original boundary is a224/1736-byte YUVA107 conversion with temporary
-paint mode2; GUI first frame remains unverified.
+That run's next original boundary is a224/1736-byte YUVA107 conversion with
+temporary paint mode2, subsequently handled by the [mode overwrite model](mode.md).
+GUI first frame remains unverified.
 
 ## Direct facts and producer chain
 
@@ -109,14 +110,14 @@ entries from the first new mixed packet until the next rejection. Byte lengths
 and completions are actual trace joins; no host-rendered UI or injected event,
 PC, readiness or firmware return is used.
 
-The next first error is CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's next first error is CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-convert-program-not-supported`. Its complete224/1736 buffers are
 bd0dff90/bd15ff90. The scaled107 fixed-field comparison has exactly one
 non-operand difference: draw word74, the01841004 payload, is2 instead of0;
 later draw word92 is the known final mode2. Source is bf309600 and output
 planes are cb82b000/cb980000. Those addresses are operand observations; their
-admission and the earlier mode's overwrite/producer semantics remain the next
-investigation. Matrix, scaled geometry and fixed LUT fields match the existing
+admission and the earlier mode's overwrite/producer semantics are joined by the
+later [mode analysis](mode.md). Matrix, scaled geometry and fixed LUT fields match the existing
 profile; the new rejection is not attributed to them.
 
 Final GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02
