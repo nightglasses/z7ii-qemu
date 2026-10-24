@@ -42,6 +42,39 @@ two properties can be supplied together. Neither property replays its input
 on reset. Missing, short and oversized files are rejected; omitted spans remain
 erased. The guest still validates the footer and publishes records itself.
 
+## Descriptor32 module-bank input
+
+`descriptor32-input=FILE` accepts exactly `0x180000` bytes (1536 KiB) and
+installs them at MAS PA `[0x13e80000,0x14000000)`. This is the existing external
+NOR slot shared by descriptor31 and descriptor32: both descriptors name the
+same physical bytes, so this option does not create an independent bank or
+shadow copy. The preceding covered NOR slot ends at PA `0x13e40000`; the gap
+before this slot and PA `0x14000000` remain uncovered.
+
+Omission leaves the shared slot erased FF. Empty, short, oversized and
+unreadable files fail machine creation. The option can be combined with the
+descriptor11/12/17/18 inputs and uses their existing one-time input installer.
+Normal NOR command programming and sector erasure modify that same backing;
+reset preserves those changes and does not replay any input file. No module,
+code or download RAM, resource callback, loader result, status, event or IRQ
+is initialized by this property. The original firmware must select and parse
+the input and copy any module data itself.
+
+The file is opaque external data, not a claim of valid factory contents or a
+recovered module-bank format. Repository fixtures use synthetic bytes only;
+original input files remain outside Git. The native `nikon_memory` cases
+`descriptor32-input` and `descriptor32-rejection` cover the full slot,
+co-configuration, bounds, cold RAM, shared NOR programming/erasure and reset
+persistence, and invalid input files. These are input-contract fixtures,
+not unchanged-firmware loader or complete-boot evidence.
+
+Parent old-model red records the missing property; the complete native
+`nikon_memory` batch then passes28 subtests in8.65s. Receipts are
+`work/runs/moduleinput-20261024/native-module-red.log` and
+`native-memory-green.log`. The separate [original loader investigation](module.md)
+records raw COPY/fill semantics, successful structural-input loading and
+the still-unrecovered semantic resource80 body.
+
 ## Acceleration configuration and calibration
 
 The original manifest copies resource21 from descriptor17 offset`a400`,256 bytes,
