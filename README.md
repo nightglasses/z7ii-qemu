@@ -46,9 +46,11 @@ now retains141 source-written words, including both complete packets and the
 shared128-word table; all32 Sensor cases pass. With the same generated
 cold-neutral input, unchanged execution consumes the initial snapshot, reaches
 unit20 and unit200 commit/run. The [interpolation pool](docs/runtime/interpolation.md)
-now backs the complete source-declared15MiB kind74 range; all29 memory cases
-pass. Original record writes cross PC`10404398`/PA`c33ab400`; another task
-then stops at PC`1024ffda`, READ16 PA`5d170000`, in a grid-sample consumer.
+now backs the complete source-declared15MiB kind74 range. The subsequent
+[grid pool](docs/runtime/grid.md) covers all six kind18 units; all30 memory
+cases pass. Original code crosses the grid read using explicitly assumed
+cold-zero RAM, then stops at PC`10208e14`, READ32 PA`2006bb70`, on the force0
+incremental path after commit/run. Statistics DMA remains unimplemented.
 The actual result producer and physical values remain unresolved. QMP is debug/stopped before a
 console exists in this run; normal-menu startup and later mode coverage remain
 unverified. Zero-valued metadata is a bounded functional assumption, not

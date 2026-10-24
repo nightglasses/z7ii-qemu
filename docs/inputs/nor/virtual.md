@@ -164,3 +164,12 @@ In `interpolationmemory-20261024/verified`, the same six COPY ranges compare,
 guard0/property6433 empty persists, and firmware writes its own records.
 Another task first rejects READ16 PA`5d170000` at PC`1024ffda`; there is still
 no console, complete record-generation receipt or qualified post-submit result.
+
+The [grid storage model](../../runtime/grid.md) subsequently supplies kind18's
+complete pool while preserving this input. Its zero initial bytes are a board
+RAM assumption, not NOR sample data or statistics DMA. In unchanged
+`gridstorage-20261024/verified`, all six COPY ranges still compare and
+guard0/property6433 empty persists. Original grid processing returns; the next
+first rejection is CPU0 PC`10208e14`, READ32 PA`2006bb70`, from the force0
+incremental getter after commit/run. Post-submit results remain unknown and
+no display console exists.

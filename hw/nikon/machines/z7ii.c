@@ -96,6 +96,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_KIND40_SIZE 0x1c8000ULL
 #define Z7II_INTERPOLATION_BASE 0xc24cb400ULL
 #define Z7II_INTERPOLATION_SIZE 0xf00000ULL
+#define Z7II_GRID_BASE 0x5d170000ULL
+#define Z7II_GRID_SIZE 0x6c000ULL
 #define Z7II_ROW_STORAGE_BASE 0x50300000ULL
 #define Z7II_ROW_STORAGE_SIZE 0x340000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
@@ -199,6 +201,7 @@ struct Z7IIMachineState {
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
     Z7IIRAM interpolation_pool;
+    Z7IIRAM grid_pool;
     Z7IIRAM row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     Z7IIRAM download;
@@ -957,6 +960,15 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->interpolation_pool, "z7ii.interpolation-pool",
              Z7II_INTERPOLATION_BASE, Z7II_INTERPOLATION_SIZE);
     /*
+     * ROM table11982938[18] selects row119832f0: six 12000-byte units
+     * at PA5D170000. Original102cd692/1030ac6e publish the descriptors;
+     * 1024feb6 reads the first unit through an identity guest mapping.
+     * Back the whole declared pool with the same cold-zero RAM convention.
+     * This supplies storage, not samples or completion from the separate
+     * endpoint1 statistics path; no producer or status is inferred here.
+     */
+    z7ii_ram(&s->grid_pool, "z7ii.grid-pool", Z7II_GRID_BASE, Z7II_GRID_SIZE);
+    /*
      * Resource11/12 destinations from 10248468; full loader extents at
      * 118d0930/118d09d0. Original code supplies all contents from NOR.
      */
@@ -1545,6 +1557,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record1-base=0xbf10f200 bytes=0x1fa400 cold-zero; "
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
+                 "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",

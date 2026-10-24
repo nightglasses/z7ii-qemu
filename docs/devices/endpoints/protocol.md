@@ -120,6 +120,13 @@ start/stop/commit traffic remains at the separate capture-control interface:
 switching uses `1020bfaa(8)`. Those consumers do not turn retained endpoint
 or global words into new hardware events.
 
+The later [kind18 grid investigation](../../runtime/grid.md) connects the
+original endpoint1 address sets at`2006a550/560` to PA`5d170000`, with stride
+`12000` at`2006a580`, six allocated units and normal shared commit/run.
+This establishes the configured output's ownership; it does not recover the
+statistics arithmetic or add DMA/completion to this configuration device.
+The separate board RAM's cold-zero convention is not endpoint-produced data.
+
 ## Native validation scope
 
 The new `/arm/nikon/sensor/capture/endpoints` fixture has a scoped old-model

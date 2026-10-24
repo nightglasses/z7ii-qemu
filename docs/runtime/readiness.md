@@ -83,6 +83,13 @@ and backs its complete source-declared range. Original record writes now
 succeed, before another task first rejects READ16 PA`5d170000` at PC`1024ffda`.
 The final snapshot still has guard0/property6433 empty and no display console;
 completion of all interpolation records is not established.
+The subsequent [grid pool](grid.md) supplies kind18's exact six-unit storage,
+with cold-zero RAM explicitly assumed and statistics DMA still absent.
+Unchanged `gridstorage-20261024/verified` crosses the grid consumer and again
+records guard0/property6433 empty. The next rejection is CPU0 PC`10208e14`,
+READ32 PA`2006bb70`, on the force0 incremental path after commit/run has
+invalidated the cold-empty packet. There is still no display console or
+qualified capture-result producer.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.
