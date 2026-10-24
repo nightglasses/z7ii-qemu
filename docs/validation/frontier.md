@@ -103,6 +103,27 @@ commit/run has invalidated the cold-empty result packet; no later result
 producer is invented. QMP is debug/stopped with no display console. This
 qualifies storage continuation, not captured statistics or normal GUI output.
 
+The subsequent [post-submit group investigation](../devices/capturegroup/protocol.md#post-submit-investigation-incremental-caller-and-provider)
+identifies the actual upstream service call`103250f2:10325714 -> 10233570`.
+Mode2 at VA`b1887d75` and root VA`b2cb5100` word+270=1 select
+`10232154 -> 1023b00e(flags2eb) -> 1023aed8`. Flag40 and pointer-array slot4
+then call`10239dc6(force0)` before this operation's commit. Unequal result
+byte1 only preserves the previous ba2c selection; the function still
+returns1. The actual blocker is the unsupported result read before that
+comparison, not a slot mismatch or a polling wait.
+
+Kind23 supplies the fivec00-byte units at PA`[5d4b5000,5d4b8c00)` and the
+three configured bases at offsets0/80/d0; the requested bb44 byte comes
+from software descriptor+8. Its slot/index meaning remains unestablished.
+These facts do not establish result values
+or their update trigger. Unit20 is enabled/running, but its registered
+software event callback does not produce the packet and the device has no
+bound result producer. No model extension is justified by those observations.
+Unchanged `groupresults-20261024/origin` again compares all six COPY ranges,
+records guard0/property6433 empty, and stops at the same READ32
+PA`2006bb70`, CPU0 PC`10208e14`, with no console. No cold-zero restoration,
+requested-slot echo or later startup progress is claimed.
+
 ## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual
