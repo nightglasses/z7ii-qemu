@@ -2,7 +2,7 @@
 
 This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. With the declared functional inputs, unchanged firmware now publishes an error-GUI frame through the bank display; normal-menu startup remains unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -12,7 +12,7 @@ component or software-domain profiles and do not claim a complete camera boot.
 
 | Machine type | Domain and CPU | Current role | Status |
 |---|---|---|---|
-| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Primary development target; original firmware has not reached a verified GUI first frame |
+| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Original error-GUI frame with functional inputs; normal menu and complete boot unverified |
 | `nikonsla` | SLA software domain, Cortex-A7 | Standalone decoded SLA loading and private peripheral contracts | Supported standalone profile; not a complete camera board |
 | `nikonex` | EX component, Cortex-M4 | Independent EX firmware and device contract tests | Supported component profile |
 | `nikonvr` | VR software profile, RX62N | Independent RX software and peripheral tests | Supported software profile |
@@ -21,6 +21,13 @@ New Nikon bodies or component domains should add a named machine under
 `hw/nikon/machines` and a focused qtest before they are described as supported.
 
 ## Firmware input modes
+
+The [current readiness investigation](docs/runtime/readiness.md#current-normal-input-observation)
+shows why ready0 does not mean no output. The bank YYUV+A8 correction passes
+all14 image subtests and the original20-second run publishes `display` head1.
+The remaining error68 originates in resource80's zero version field after an
+external descriptor32 validation failure. Resource31's erased timing parameter
+is a separate input limitation. Earlier checkpoints below retain their own scope.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
@@ -181,19 +188,14 @@ dispatch `410a1805/status9`, callback `1039578c`, waiter return `1039a408`
 and the guest stop; result40 is1 and pending0. This verifies original software
 acceptance of the functional timer profile, not physical terminal semantics.
 Its long delay comes from resource31's erased parameter42 (`ffffffff * 500`);
-the normal value remains unknown and is not overridden. Manager is
-current3/target5/mode1/state2, BatCk1, with GUI gate/pending3/display-ready0.
-The next investigation is software readiness; a GUI first frame remains unverified.
-MTTCG batching differs
-from the earlier840/1040 capture; exact three-pair grammar is native-tested.
-GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
-The earlier432/616-byte
-pair belongs to the erased-TEMP failure continuation. No GUI first frame is
-claimed from accepted request admission.
-The earlier [readiness trace](docs/runtime/readiness.md), without the peer,
-observes selector1 skipping the selector34 gate; GUI mode entry reaches its
-return with gate0 and pending3=0.
-Final scanout and a GUI first frame remain unverified.
+the [normal input value](docs/inputs/nor/descriptor.md#resource31-timing-parameters)
+remains unrecovered. The later [readiness investigation](docs/runtime/readiness.md)
+checks the actual bank console: ready0 still permits an original error-GUI
+frame. A source-bound YYUV+A8 correction fixes its colors and passes14 native
+image cases. The next input frontier is resource80/descriptor32: validation
+returns0, leaving the packed version0 that produces ID68. Normal-menu startup,
+visible-area geometry and physical scanout remain unverified. The earlier
+432/616-byte pair belongs to the erased-TEMP failure continuation.
 
 The [wire-only battery tool](docs/runtime/batterytool.md) is built as
 `work/build/qemu/tools/nikon/nikon-battery` by the normal source graph, with

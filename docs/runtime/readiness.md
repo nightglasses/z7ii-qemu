@@ -1,7 +1,96 @@
 # GUI readiness gate
 
-This page records the earlier cold-F4 execution without the healthy battery
-peer. With the complete peer, BatCk becomes1 but the GUI stays idle; the
+## Current normal-input observation
+
+The earlier gate investigation below is historical. The normal-input runs in
+`work/runs/readinessnormal-20261023/` now establish a guest error-GUI frame
+despite gate/pending3/display-ready all0. Those words gate particular software
+routes; they are not universal prerequisites for the ordinary bank output.
+The [bank YUVA profile](../devices/banks/image.md#format17-yuva-provider)
+records native validation and the separate original-frame receipt.
+
+The20-second `run` trace uses unchanged firmware, the existing declared NOR
+inputs, healthy9600-baud battery peer, reproducible RNG and held cold F4. No
+debugger pause occurs during its transactions. The first policy packet has
+flags `00010208`, lacks bit1 and returns29/reason `6ac`. The next packet has
+flags `4020001e`, power1 and previous6, but selector1 fails comparison34 at
+`104382e4`; it returns29/reason `6ec`. Configuration290 is0 but its guard is
+not executed. No missing asynchronous writer of that byte is established.
+Both observed mode1 entries read gate0 at `1054045e` and return normally;
+the GUI exits between them. Their action8 reason is `631`, distinct from the
+older battery-warning reason `640`. The input selector comes through the
+alternate `1053c506(0)` path; its physical-control identity is unverified.
+
+Gate producer `10630d0a` and its identified caller `10438324` still have the
+guards recorded below. A separate ready producer `104d7f16`, via `10637b72`,
+is called by `104bdb42` for request `0403001a` with payload word0=1 and by
+`1062f120` for high event `80000000` plus pending3. The former belongs to the
+previously identified F091/PTP route; it is not an internal cold-start request.
+Pending3's identified setter remains inside the skipped gate block. Neither
+ready-producing route executes in these bounded normal-input traces.
+
+## Conditional software display operation
+
+`flow` joins `104a94fe(8)` to `105801fc(2,104be419)` and event20 on
+`b181a5b4`. Owner `1058002c` ORs `b181a57c` into `b181a570` and calls the
+real callback `05040005`. This is a software mask handshake. Operation10
+would call `1058020c` and post event40 to clear those bits, but all three
+observed calls instead take the guard at `104a956c` with R0=1.
+
+The bounded original instructions resolve a shared tail omitted by the
+decompiler: `105b5104` scans property6433's ID list for62..68;
+`105b545e` returns true when that scan succeeds and persistent setting274
+is0. The actual list is `[68,54]`, count2, trailing word1, with setting274=0.
+ID68 is therefore the concrete reason operation10 does not post event40.
+The final software masks are `a56c=0,a570=2,a574=0,a578=0,a57c=2,a580=0`
+(all MAS VA `b181xxxx`). This blocks that mask-clearing route, while the
+independent bank path demonstrably publishes a frame. Lower-level event200
+is not an operation number accepted by `104a94fe`, whose domain is0..15.
+
+## Error68 producer and next input boundary
+
+The original `origin`, `fault` and `version` traces join:
+
+`10305dac -> 102d7238 -> 1026c26a -> 1026c1d4(400) ->
+04200181(state14) -> 10394d06 -> 10394cac -> 1035ed5c(68,0,1)`.
+
+`10394d06` maps state14 through table MAS VA `118f9338` to ID68/category10hex.
+Property6433 installation is deduplicated by `1035ed5c`. ID54 is added later
+through `10395ac0(3)` with flag1/category20hex; it is outside the62..68 guard.
+The trace supplies the actual error400 call with LR `1026c2a3`, rather than
+inferring it from the final error list.
+
+`10305dac` reads a version-like packed value
+`(payload[be014] << 4) | (payload[be015] >> 4)`. It returns400hex below150hex,
+200hex when the upper part differs from15hex, and0 otherwise. Runtime takes
+the below150 branch with value0. These bytes are resource80 RAM, not an MMIO
+version register: initializer `1026d5e6` calls `103a47a2(80)`, then thunks
+`102d6e8a -> 102fe120` install the pointer at `b18a77a0`. Its actual base is
+`b7d00000`, so both checked bytes at `b7dbe014/15` are0.
+
+The original registry row VA `123f93c4` and live28-byte row at
+`b185eb70 + 80*28` identify resource80, span16e000 and descriptor32. The
+existing [NOR geometry](../../tests/nor.json) gives descriptors31/32 the same
+physical `[13e80000,14000000)` slot; descriptor32 has max length16e000 and
+different flags from31. That slot is currently erased and has no declared
+input. The `slot80` trace observes `103a4b0e -> 103c048a(80,118d0850,8,phase)`
+for phases3/8/4/5/6; every call returns0 from `102a80a8` at `103c04f2` and
+exits before the copy/publication branches. The independent `footer80` trace
+records `103e0ac2(b185e59c,13fffffc,4)`, LR `102a8773`: the expected bytes
+are ENDM (`454e444d`), while the slot footer is `ffffffff`. The footer uses
+the physical span180000, not used length16e000. Thus failed marker validation
+leaves the allocated resource80 body unwritten; zero is not a valid loaded
+module version. Manifest row2 (offsetbe000,length6000,phase8) contains the
+checked bytes at+14/+15. The decoding path and a usable whole input remain
+the next source boundary; changing only the footer or version bytes
+would conceal other missing tables. No input, version, status or error list
+was substituted. The byte interpretation as a module version and physical
+device identity remain qualified inferences.
+
+## Historical cold-F4 investigation
+
+The following records the earlier cold-F4 execution without the healthy battery
+peer. In that earlier complete-peer baseline, BatCk becomes1 but the GUI stays idle; the
 current [ordinary GUI investigation](guiupdate.md) joins the battery-warning
 trigger and follows the unissued ordinary request. These are distinct execution
 paths.

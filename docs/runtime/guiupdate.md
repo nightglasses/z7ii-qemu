@@ -1,5 +1,14 @@
 # Ordinary GUI input and update route
 
+The later [normal-input readiness trace](readiness.md#current-normal-input-observation)
+establishes an original error-GUI frame through the actual bank head1 while
+gate/pending3/display-ready remain0. ID68 suppresses software operation10;
+its producer is resource80's zero packed version after external descriptor32
+validation returns0. The bank YYUV+A8 correction passes14 image subtests and
+fixes the error frame's colors. Main geometry/cropping and normal-menu startup
+remain unresolved. The chronological checkpoints below retain their original
+scope and are superseded by that current receipt on the no-frame question.
+
 The original normal display request is now accepted with the healthy battery
 peer, explicit acceleration/TEMP records and stable raw acceleration input.
 `103f2540` returns0, application state2 is retained and the primary request
@@ -117,9 +126,12 @@ and explicit two-path RGBA targets pass25 transfer cases. Final `validated`
 original execution continues for110 host seconds without uncovered access,
 completes the1232/1416 batch, and reaches channel4's original
 `410a1805/status9 -> 1039578c -> 1039a408(R0=1)` callback/waiter chain.
-The guest stops the channel normally; result40=1 and pending0. Snapshot
-resource31 field288=`ffffffff`, scaled by500 to`fffffe0c`, explains the long
-request without establishing a normal input value. Manager is
+The guest stops the channel normally; result40=1 and pending0.
+Resource31's complete phase2 body is erased in the declared descriptor17 input.
+Getter42 consumes field288=`ffffffff` and multiplies by500 modulo32 bits,
+producing `fffffe0c` and explaining the long request. No compatible normal
+value has been recovered; the [input contract](../inputs/nor/descriptor.md#resource31-timing-parameters)
+is unchanged. Manager is
 current3/target5/mode1/state2, application01/03, primary0, BatCk1 and GUI
 gate/pending3/display-ready0. This is an active bounded continuation, not
 proof of a blocked GUI task or a first frame. Selectors5/6 have no input sample
@@ -135,7 +147,8 @@ The bounded GUI trace additionally joins worker3 main `1053d2fa` to
 the display operation via `105801fc(2,104be419)`/event bit20 at `b181a5b4`,
 then waits on primary GUI bit4000 at `104a96e4`, timeout1000. A longer run
 observes the real `104be418(05040005)` callback, which sets4000 through
-`10634088`; execution continues to `104a94fe(10)` and later request200.
+`10634088`; execution continues to `104a94fe(10)` and a later lower-level
+event200. That event is not operation200 in the0..15 API.
 The earlier8-host-second trace's unreturned wait was a window boundary,
 not a permanent missing event. The first optional stack snapshot failed on
 an unmapped sampled SP; the corrected read-only snapshot succeeds.

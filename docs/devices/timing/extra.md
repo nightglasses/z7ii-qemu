@@ -32,12 +32,15 @@ at `b186832c`, finally calling `10371a3c` to stop the timer. The captured raw
 delay is preserved: with divider50 and the nominal3GHz clock it requires about
 71.35 virtual seconds. No clamp, instant expiry or guest arithmetic correction
 is introduced. The field producer is `102cb648 -> 103a47a2(31) -> 103bfaa2
--> 102486f6`: it selects the payload of directory resource31. The later
-`integration` read-only snapshot confirms pointer `b7f55900`, raw field
-`ffffffff` and scaled result `fffffe0c`. Thus an erased parameter supplies
-the large requested delay. Its normal value and complete resource31 contract
-remain unestablished; the model does not replace the input. `102cb65e(42)`
-is a parameter getter, not a clock read.
+-> 102486f6`. Initializer `102e9bf0` invokes it after stopping three timing
+channels. It installs the resource payload without a body check or default
+selection; selector42 directly reads payload+288 and multiplies by500.
+The integration snapshot confirms MAS VA pointer `b7f55900`, raw `ffffffff`
+and scaled `fffffe0c`. The declared descriptor17 input's complete phase2
+resource31 body is erased; its source range and cross-model limits are recorded
+in the [input contract](../../inputs/nor/descriptor.md#resource31-timing-parameters).
+No normal raw value has been recovered or substituted. `102cb65e(42)` is a
+parameter getter, not a clock read.
 
 Low ISR `1036ea8a` reads Achannel+10 and writes the value back. Higher
 dispatcher `10371672` maps events `410a1801..0c` to channels0..11;

@@ -87,6 +87,27 @@ boundary. Neither candidate is silently selected or embedded in QEMU. See
 [guiupdate](../../runtime/guiupdate.md) for accepted-request observations and
 the remaining board-selection/factory-calibration limits.
 
+## Resource31 timing parameters
+
+C1.70 manifest row at MAS VA `118d0af0` copies descriptor17 file offsets
+`[b900,c778)`, length `e78`, during phase2. Directory row VA `123f8e68`
+declares span `1c00`; that span is not the manifest copy length. The declared
+`descriptor17-temp3.bin` input leaves the entire3704-byte copied body erased.
+
+`102cb648` installs the resource31 payload pointer at MAS VA `b1868ae4`.
+Selector42 of `102cb65e` reads payload+288(decimal,120hex) and multiplies by500
+modulo32 bits. This field is at descriptor offset `ba20`; its erased `ffffffff`
+therefore produces `fffffe0c`. Neither installation nor this getter validates
+the body or selects substitute defaults. A valid ENDM footer permits copying
+the erased body; it does not establish normal parameter values.
+
+Z6II C1.70 has the same manifest/directory geometry, without a recovered
+record body. Z7 C3.80 has a different resource31 span and a different
+selector42 operation; no compatible normal value or ROM-default body has
+been identified. The input remains unchanged. The finite timing model allows
+this request to expire and its original waiter returns; this unknown parameter
+does not prevent the later observed error-GUI frame.
+
 ## Cross-model functional display seed
 
 Static comparison with an operator-supplied Z7 C3.80 MAS payload identifies
