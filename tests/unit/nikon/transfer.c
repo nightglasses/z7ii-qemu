@@ -1091,7 +1091,7 @@ static void test_rgba_clear_profile(bool single)
             break;
         case TARGET_FIELD:
             stl_le_p(command_data + 0x1000 + 33 * 4,
-                     single ? target + slot - extent + 8 : target + 4);
+                     target + slot - extent + 8);
             break;
         case INITIAL_UNKNOWN:
             stl_le_p(command_data + 0x1000 + 25 * 4, 0x18);
@@ -3578,6 +3578,173 @@ static void test_rgba_targets(void)
     }
 }
 
+static void test_rgba_pair_target(uint32_t target)
+{
+    enum { EXTENT = 1024 * 688 * 4, TOP = 6 * 1024 * 4 };
+    enum { SUCCESS, REPEAT, CAPTURED, CONTEXT, ALIGN, OVERFLOW, UNBACKED,
+           SHORT, READONLY, PARTIAL_READONLY, TOP_READONLY, RAW_TOP, COORD_ALIAS,
+           COMMAND_ALIAS, MAP_LOSS, INPUT_LOSS, PATH_CHANGE, RESET,
+           CANCEL, CASES };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface, alias, command_alias, readonly;
+    MemoryRegion *root = get_system_memory();
+    unsigned prefix = target ? 4 : 0, guards = EXTENT + prefix + 4;
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-pair[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.pair-command", 0x3000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+        "test.pair-surface", guards, 0, &error_abort);
+    memory_region_add_subregion(root, target - prefix, &surface);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.pair-alias",
+                            &surface, prefix + 0x100, 32);
+    memory_region_add_subregion(root, 0x500000, &alias);
+    memory_region_init_alias(&command_alias, OBJECT(f.dev),
+        "test.pair-command-alias", &surface, prefix + 0x1000, 0x3000);
+    memory_region_init_alias(&readonly, OBJECT(f.dev), "test.pair-readonly",
+                            &surface, prefix + EXTENT - 4, 4);
+    memory_region_set_readonly(&readonly, true);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        bool complete = test <= CONTEXT;
+        bool accepted = complete || test >= MAP_LOSS;
+        g_autofree uint8_t *before = NULL;
+        g_autofree uint8_t *expected = NULL;
+
+        g_test_message("RGBA pair target %08x case %u", target, test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x3000);
+        if (test == CONTEXT) {
+            build_rgba_program(data, data + 0x1000, 0x402100, 0x402000, true);
+            stl_le_p(data + 0x1000 + 33 * 4, target);
+            memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+            path_floats(data + 0x2100,
+                        (float[]) { 0, 0, 720, 480, -720 }, 5);
+            g_assert_cmpint(submit_rgba(&f, 176, 368), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        memset(pixels, 0xa5, guards);
+        build_rgba_program(data, data + 0x1000, 0x402100, 0x402000, false);
+        stl_le_p(data + 0x1000 + 33 * 4, target);
+        memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+        path_floats(data + 0x2100,
+                    (float[]) { 0, 6, 1024, 682, -1024 }, 5);
+        switch (test) {
+        case ALIGN: stl_le_p(data + 0x1000 + 33 * 4, target + 1); break;
+        case OVERFLOW:
+            stl_le_p(data + 0x1000 + 33 * 4, UINT32_MAX - EXTENT + 5);
+            break;
+        case UNBACKED: stl_le_p(data + 0x1000 + 33 * 4, 0x700000); break;
+        case SHORT: stl_le_p(data + 0x1000 + 33 * 4, target + 8); break;
+        case READONLY: memory_region_set_readonly(&surface, true); break;
+        case PARTIAL_READONLY:
+        case TOP_READONLY:
+            memory_region_add_subregion_overlap(root, (uint64_t)target +
+                (test == TOP_READONLY ? 0x100 : EXTENT - 4), &readonly, 1);
+            break;
+        case RAW_TOP:
+            memcpy(pixels + prefix + 0x100,
+                   (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+            stl_le_p(data + 26 * 4, target + 0x100);
+            break;
+        case COORD_ALIAS:
+            memcpy(pixels + prefix + 0x100, data + 0x2100, 20);
+            stl_le_p(data + 22 * 4, 0x500000);
+            break;
+        case COMMAND_ALIAS:
+            memcpy(pixels + prefix + 0x1000, data, 0x3000);
+            memory_region_del_subregion(root, &commands);
+            memory_region_add_subregion(root, 0x400000, &command_alias);
+            break;
+        default: break;
+        }
+        before = g_memdup2(pixels, guards);
+        expected = g_memdup2(pixels, guards);
+        for (unsigned y = 6; y < 688; y++) {
+            for (unsigned x = 0; x < 1024; x++) {
+                stl_le_p(expected + prefix + (y * 1024 + x) * 4, 0xff000000);
+            }
+        }
+        g_assert_cmpint(submit_rgba(&f, 232, 416), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        g_assert_cmpmem(pixels, guards, before, guards);
+        if (test == COMMAND_ALIAS) {
+            memory_region_del_subregion(root, &command_alias);
+            memory_region_add_subregion(root, 0x400000, &commands);
+        } else if (test == PARTIAL_READONLY || test == TOP_READONLY) {
+            memory_region_del_subregion(root, &readonly);
+        } else if (test == CAPTURED) {
+            memset(data, 0xff, 232);
+            memset(data + 0x1000, 0xff, 416);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == INPUT_LOSS) {
+            memory_region_del_subregion(root, &commands);
+        } else if (test == PATH_CHANGE) {
+            data[0x2001] = 5;
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        if (test == INPUT_LOSS) {
+            memory_region_add_subregion(root, 0x400000, &commands);
+        }
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels, guards, complete ? expected : before, guards);
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == REPEAT) {
+                g_assert_cmpint(submit_rgba(&f, 232, 416), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpmem(pixels, guards, expected, guards);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+        }
+        if (test == SUCCESS || test == CONTEXT || test == MAP_LOSS ||
+            test == RESET) {
+            build_rgba_gray_program(data, data + 0x1000);
+            stl_le_p(data + 0x1000 + 13 * 4, target);
+            path_floats(data + 0x2100,
+                        (float[]) { 96, 86, 528, 308, -528 }, 5);
+            g_assert_cmpint(submit_rgba(&f, 168, 232), ==, MEMTX_ERROR);
+            advance();
+            g_assert_false(f.level);
+            g_assert_cmpmem(pixels, guards, complete ? expected : before, guards);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
+static void test_rgba_pair_targets(void)
+{
+    static const uint32_t targets[] = { 0xbec5f200, 0, 0x800004, 0xffd50000 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(targets); i++) {
+        test_rgba_pair_target(targets[i]);
+    }
+}
+
 static void build_initialized_image(uint8_t *setup, uint8_t *draw,
                                      uint32_t target)
 {
@@ -4740,6 +4907,7 @@ int main(int argc, char **argv)
                     test_rectangle_continuation);
     g_test_add_func("/nikon/transfer/rgba-over", test_rgba_over);
     g_test_add_func("/nikon/transfer/rgba-targets", test_rgba_targets);
+    g_test_add_func("/nikon/transfer/rgba-pair-targets", test_rgba_pair_targets);
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
     g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
