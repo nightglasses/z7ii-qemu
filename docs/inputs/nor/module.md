@@ -6,6 +6,11 @@ the inspected path has no decompression, decryption or variable-length decoder.
 The complete semantic resource80 body has not been recovered. A successful
 outer marker check alone does not establish usable Sensor configuration.
 
+A separate [explicit cold-neutral profile](virtual.md) now defines the
+inspected mode11/subtype3 readsets as finite synthetic input. Its original
+loader comparison, guard return0 and ID68-free checkpoint qualify that bounded
+path, without claiming recovered factory semantics for the complete body.
+
 All firmware code/data addresses below are C1.70 MAS VAs. The explicit NOR
 property uses the existing physical mapping; resource80's observed RAM base
 is MAS VA `b7d00000`. Source projections and parent execution receipts are in
@@ -141,6 +146,16 @@ become148=35190,156=4096,160=1000; the separate timer-packet readback is
 as the zero-table diagnostic. This validates a bounded input/arithmetic
 relation, not the remaining capture/program/calibration table semantics.
 
+The subsequent named profile also covers the observed selector4 timer record
+at`3230` and the extra script/length list at`cda20/cdae0`. Selector3 and4 use
+different144-byte record arrays and have no universal temporal order. In
+`neutral`, selector4 produces q130/count35319 first, then selector3 replaces
+them with q0/count35189. The independent calibration pointer is non-NULL at
+`50300000`; its selected208-byte block at`5054bf20` is zero in the existing
+declared resource11 storage. The descriptor32 generator does not supply or
+rewrite that dependency. This new receipt supersedes the earlier assumption
+that only a single timer record or a NULL-clearing path needed consideration.
+
 The explicit `15/00` version-declaration diagnostic passes the guard and
 removes ID68 at that checkpoint. With the
 [capture packet model](../../devices/sensor/packet.md), unchanged execution
@@ -152,7 +167,7 @@ The local inventory covers Z7II and Z6II C1.70 five-component bundles and
 the Z7 C3.80 four-component bundle, with component CRC checks and direct
 payload comparison. A version/length-table shape search produces false
 matches in ordinary property descriptors and callback/integer tables.
-No complete body has qualified as a usable input. Unresolved weak matches
+No recovered factory body has qualified as a usable input. Unresolved weak matches
 remain unknown; this is not proof that every ROM encoding or layout lacks
 the data.
 
@@ -163,9 +178,9 @@ reuse here. The inspected [Z8 capture preparation](https://github.com/RdWing/z8-
 similarly marks its selector inputs as experimental and unrecovered record
 coefficients; it does not establish a compatible resource80 input.
 
-Continued functional modeling can define a virtual Sensor program, but first
-needs the selected program lengths/bytes, their device transitions/readback,
-remaining header fields, and the consumers of the large ranges0..be000,
-c4000..cd9c0 andcf920..16d270. A real camera is not established as a necessary
-next dependency. Empty tables plus a passing version would bypass these
-unresolved contracts rather than demonstrate their functionality.
+The cold-neutral profile closes the selected lengths, control fields and
+timing arithmetic for the inspected cold path. Its zero-length scripts are
+explicit source-supported no-ops; its other zero parameters remain named
+functional assumptions. Consumers outside that path, physical metadata and
+later modes remain unqualified. New paths require their own source and
+runtime checks. A real camera is not established as a necessary next dependency.

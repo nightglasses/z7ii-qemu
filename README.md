@@ -28,15 +28,21 @@ corrections pass15 image subtests; the original20-second run publishes the
 complete1024x682 error GUI on `display` head1. The
 [descriptor32 input/loader contract](docs/inputs/nor/module.md) now passes28
 memory subtests and original segmented COPY verification with a diagnostic
-structural input. A usable resource80 body remains unrecovered, so ID68 and
-normal-menu startup remain unresolved. The [CComp GPIO peer](docs/devices/ccomp/protocol.md)
+structural input. A factory resource80 body remains unrecovered. The explicit
+[cold-neutral input](docs/inputs/nor/virtual.md) now defines the inspected cold
+readsets and nonzero timing: its native generator passes4 cases, original
+loading compares all six COPY ranges and the original version guard returns0,
+with no ID68 at the new checkpoint. The [CComp GPIO peer](docs/devices/ccomp/protocol.md)
 now removes ID54 through the original IRQ/callback/event path in a normal
 20-second run (3 handshake and5 GPIO cases pass). The separate
 [capture parameter packet](docs/devices/sensor/packet.md) passes all26 Sensor
 cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
-then passes all28 Sensor cases and advances the explicitly diagnostic
-version-declaration run to PA`2006be00`; that incomplete body is not a normal
-Sensor input.
+and [two service banks](docs/devices/capture/banks.md) pass all29 Sensor cases.
+With the generated cold-neutral input, unchanged execution now reaches the
+separate PA`2006b800` configuration family. QMP is debug/stopped before a
+console exists in this run; normal-menu startup and later mode coverage remain
+unverified. Zero-valued metadata is a bounded functional assumption, not
+physical calibration or a universal block-disable setting.
 Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.
 
