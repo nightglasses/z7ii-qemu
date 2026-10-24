@@ -43,10 +43,17 @@ while the historical profile requires c175d600. The[initialized target model](ta
 now validates the explicit target span and retains it only after successful
 output. All22 transfer subtests pass. Original execution completes that
 record0 job and two subsequent jobs; an isolated before/IRQ snapshot verifies
-the active pixels and untouched slot tail. The current first rejection is
+the active pixels and untouched slot tail. That run's first rejection is
 224/1648 YUVA107 at the same START store: temporary01841004=0 differs from
 the clear profile's8, before the unchanged final8 write. Application01/03
 and primary request0 remain the final state.
+The[clear mode model](clearmode.md) now accepts temporary0/8 before exact
+final8 in both105/107 clears. All22 transfer subtests pass in1.67s. Original
+execution completes that0→8 job and147 IRQ129 entries through later graphics.
+The current first uncovered access is CPU0 PC1036e9a8, WRITE32 PA2c011538=1,
+`timing-access-or-feature-not-supported`, bankB channel4 extra-feature enable.
+Its last176/1552 graphics submission completed; it is not another transfer
+rejection.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 
@@ -228,7 +235,9 @@ The accepted setup is an identity-transformed filled rectangle with path
 register65=`100`, extent1024x688, signed integer coordinates `(0,6)`, width1024
 and height682. The draw must retain the captured command order, masks,
 matrix/color-conversion state, clip `(0..1023,0..687)`, source-blend state,
-mode8, zero clear color, output format`105`, extent1024x688 and draw trigger.
+final mode8, zero clear color, output format`105`, extent1024x688 and draw trigger.
+The earlier01841004 at draw65/66 may carry0/8 because the same low byte is
+fully replaced at388/389 before drawing; see[clearmode.md](clearmode.md).
 The setup/draw path key must agree. Both table upload headers and locations
 are fixed, and all256/32 table entries must be unsigned12-bit values. Those
 values are otherwise ignored because this accepted mode never samples the

@@ -1681,7 +1681,9 @@ static MemTxResult submit_clear(TransferFixture *f, unsigned draw_bytes)
 static void test_yuv_clear(void)
 {
     enum { PLANE = 1024 * 682, OFFSET = 0x100000, SIZE = 0x300000 };
-    enum { VALID_105, VALID_107, HEADER, TRUNCATED, FORMAT_FIRST,
+    enum { VALID_105, VALID_107, TEMP_105, TEMP_107, IMMUTABLE_105, IMMUTABLE_107,
+           TEMP_ODD, TEMP_IMAGE, TEMP_SOLID_IMAGE, TEMP_HIGH, TEMP_UPPER,
+           TEMP_HEADER, EARLY_DRAW, FINAL_HEADER, HEADER, TRUNCATED, FORMAT_FIRST,
            FORMAT_SECOND, PACKED_ALPHA, GEOMETRY, COLOR, MODE, KEY, LUT,
            OVERFLOW, OVERFLOW_107, OVERLAP_105, DELTA_105, OVERLAP_107,
            DELTA_107, MMIO, STREAM_OVERLAP, STREAM_OVERLAP_107, BLEND,
@@ -1710,8 +1712,9 @@ static void test_yuv_clear(void)
 
     for (unsigned test = 0; test < CASES; test++) {
         unsigned length = NIKON_TRANSFER_CLEAR_DRAW_BYTES;
-        bool complete = test == VALID_105 || test == VALID_107;
-        bool profile107 = test == VALID_107 || test == OVERFLOW_107 ||
+        bool complete = test <= IMMUTABLE_107;
+        bool profile107 = test == VALID_107 || test == TEMP_107 ||
+                          test == IMMUTABLE_107 || test == OVERFLOW_107 ||
                           test == OVERLAP_107 || test == DELTA_107 ||
                           test == STREAM_OVERLAP_107 || test >= RESET;
         bool accepted = complete || test >= RESET;
@@ -1724,7 +1727,35 @@ static void test_yuv_clear(void)
         memset(data, 0xa5, SIZE);
         build_clear_program(data, data + 0x1000, format, 0x500000,
                             0x500000 + primary);
+        if ((test >= TEMP_105 && test <= IMMUTABLE_107) || test >= RESET) {
+            stl_le_p(data + 0x1000 + 66 * 4, 0);
+        }
         switch (test) {
+        case TEMP_ODD:
+            stl_le_p(data + 0x1000 + 66 * 4, 1);
+            break;
+        case TEMP_IMAGE:
+            stl_le_p(data + 0x1000 + 66 * 4, 2);
+            break;
+        case TEMP_SOLID_IMAGE:
+            stl_le_p(data + 0x1000 + 66 * 4, 14);
+            break;
+        case TEMP_HIGH:
+            stl_le_p(data + 0x1000 + 66 * 4, 0x100);
+            break;
+        case TEMP_UPPER:
+            stl_le_p(data + 0x1000 + 66 * 4, 0x01000000);
+            break;
+        case TEMP_HEADER:
+            stl_le_p(data + 0x1000 + 65 * 4, 0x01842004);
+            break;
+        case EARLY_DRAW:
+            stl_le_p(data + 0x1000 + 65 * 4, 0x01a61004);
+            stl_le_p(data + 0x1000 + 66 * 4, 1);
+            break;
+        case FINAL_HEADER:
+            stl_le_p(data + 0x1000 + 388 * 4, 0x01842004);
+            break;
         case HEADER:
             stl_le_p(data + 0x1000 + 71 * 4, 0x0188f7f4);
             break;
@@ -1808,7 +1839,10 @@ static void test_yuv_clear(void)
         for (unsigned i = 0; i < primary + PLANE; i++) {
             g_assert_cmphex(data[OFFSET + i], ==, 0xa5);
         }
-        if (test == RESET) {
+        if (test == IMMUTABLE_105 || test == IMMUTABLE_107) {
+            stl_le_p(data + 0x1000 + 66 * 4, 0xffffffff);
+            stl_le_p(draw + 66 * 4, 0xffffffff);
+        } else if (test == RESET) {
             device_cold_reset(f.dev);
         } else if (test == UNREALIZE) {
             qdev_unrealize(f.dev);

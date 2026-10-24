@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; YUVA107 clear mode frontier
+## Normal display request accepted; timing extra-feature frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -168,19 +168,27 @@ record7 coverage. Normal original execution completes that176/368 and later
 comparison verifies all345600 active record0 pixels become opaque black,
 with336004 changed pixels and the whole slot tail unchanged. The normal run's
 later record0 snapshot is all zero; it is not an isolated post-job image.
-The current first rejection remains CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's first rejection remains CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-stream-program-not-supported`, now on224/1648 at bd0dff90/bd15ff90.
 It is a format107 clear into cb4a7000/cb5fc000, allocation1024x688 and an
 inline1024x682 rectangle starting at y6. The only fixed-field difference is
 temporary draw word66,01841004=0 instead of8; final word389 still writes8.
-That producer/overwrite contract is the next investigation. Application01/03,
-primary0, BatCk00010001 and GUI gate/pending3/display-ready0 remain the final
-snapshot. A fixture or completion is not a GUI first frame.
+The[clear mode contract](../devices/transfer/clearmode.md) now joins1068bd90's
+10645c86(0) preserving the old solid flag and10646062(1) forcing final8. Both
+105/107 profiles accept temporary0/8 with all active state still checked.
+All22 transfer subtests pass in1.67s, including the40-variant clear case.
+Original execution completes the0→8 clear and147 IRQ129 entries through later
+graphics. The current first uncovered access is CPU0 PC1036e9a8, WRITE32 PA
+2c011538=1, `timing-access-or-feature-not-supported`: bankB channel4 +38
+extra-feature enable. Its producer/configuration/result semantics need the
+next investigation. The last176/1552 graphics pair completed normally.
+Application01/03, primary0, BatCk00010001 and GUI gate/pending3/display-ready0
+remain the final snapshot. A fixture or completion is not a GUI first frame.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `singletarget-20261023`; `imageprefix-20261023`,
+Latest receipts are in `clearmode-20261023`; `singletarget-20261023`, `imageprefix-20261023`,
 `convertpaint-20261023`, `paintmask-20261023`, `matrixoverwrite-20261023`,
 `guipaths-20261023`, `guiimage-20261023`, `rgbaover-20261023`,
 `rectanglecontinuation-20261023`,

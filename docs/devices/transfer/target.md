@@ -123,8 +123,8 @@ The next first error is again CPU0 PC `106ee3c6`, WRITE32 PA `201810e0=1`,
 1024x682 rows starting at y6, and planes `cb4a7000/cb5fc000`. Comparison with
 the existing clear family, respecting its dynamic fields and LUTs, finds
 only draw word66 differs: temporary `01841004=0` instead of8; final word389
-still writes8 before drawing. Its producer/overwrite semantics need the
-next investigation; the packet remains rejected.
+still writes8 before drawing. That checkpoint leaves the packet rejected;
+the later[clear mode model](clearmode.md) traces both writers and crosses it.
 
 Receipts: `work/runs/singletarget-20261023/`, including original baseline and
 ownership probe, source projections, native red/focused/final batch, final

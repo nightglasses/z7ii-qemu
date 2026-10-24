@@ -93,6 +93,14 @@ completes the record0 rectangle and two subsequent jobs, then rejects224/1648
 YUVA107 at temporary01841004=0 before final8. An isolated read-only before/IRQ
 comparison verifies all active record0 pixels and the unchanged slot tail.
 Application remains01/03, primary0 and GUI readiness0.
+The[clear mode correction](../devices/transfer/clearmode.md) joins1068bd90's
+old-solid preserving write and its later forced-solid setter. Both105/107
+clear profiles now accept temporary0/8 before final8;22 transfer subtests pass.
+Original execution completes that clear and147 IRQ129 entries through later
+graphics. The first new diagnostic is CPU0 PC1036e9a8, WRITE32 PA2c011538=1,
+`timing-access-or-feature-not-supported`, bankB channel4 extra-feature enable.
+The final176/1552 graphics pair completes normally. Application01/03, primary0
+and GUI readiness0 remain the final snapshot.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

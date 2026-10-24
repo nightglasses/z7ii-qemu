@@ -159,7 +159,11 @@ the explicit validated720x480 RGBA target, with22 transfer subtests passing.
 Original execution completes that record0 rectangle and two subsequent jobs;
 a separate read-only before/IRQ comparison verifies all active pixels and
 the unchanged slot tail. The next224/1648 YUVA107 clear rejects at temporary
-mode0 before final8, while its historical profile requires temporary8.
+mode0 before final8, while its historical profile requires temporary8. The
+[clear mode model](docs/devices/transfer/clearmode.md) now covers temporary0/8
+in both105/107 clears;22 transfer subtests pass. Original execution completes
+that clear and147 IRQ129 entries through later graphics, then encounters
+timing channel4 extra-feature enable at PA2c011538. GUI readiness remains0.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.

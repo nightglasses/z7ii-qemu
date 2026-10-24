@@ -658,6 +658,10 @@ static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
                       i == 399))) {
             continue;
         }
+        /* 1068bd90 preserves solid at66, then replaces it with8 at389. */
+        if (draw && i == 66 && (value == 0 || value == 8)) {
+            continue;
+        }
         if (draw && ((i >= 72 && i < 328) || (i >= 340 && i < 372))) {
             if (value > 0xfff) {
                 return false;

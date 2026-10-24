@@ -1,5 +1,14 @@
 # Native GUI integration
 
+The[clear temporary-mode model](../devices/transfer/clearmode.md) passes all22
+transfer subtests in1.67s after a native temporary0 red. Its clear fixture
+has40 variants,12 new: both105/1070/8 cases, full planes/guards, state/header/
+early-draw rejection, immutable capture and temporary0 cancellation/map-loss
+boundaries. Separate normal original execution completes the0→8 clear and
+147 IRQ129 entries through later graphics, then encounters timing channel4
+extra-feature enable at PA2c011538. Its last176/1552 graphics job completed;
+GUI readiness remains0. Receipts: `work/runs/clearmode-20261023/`.
+
 The[initialized SRC_OVER target model](../devices/transfer/target.md) passes
 all22 transfer subtests in1.12s after a native record0 red. Reused tests cover
 49 variants at each of five targets, including0 and an exact4GiB endpoint;
