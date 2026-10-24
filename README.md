@@ -23,11 +23,14 @@ New Nikon bodies or component domains should add a named machine under
 ## Firmware input modes
 
 The [current readiness investigation](docs/runtime/readiness.md#current-normal-input-observation)
-shows why ready0 does not mean no output. The bank YYUV+A8 correction passes
-all14 image subtests and the original20-second run publishes `display` head1.
-The remaining error68 originates in resource80's zero version field after an
-external descriptor32 validation failure. Resource31's erased timing parameter
-is a separate input limitation. Earlier checkpoints below retain their own scope.
+shows why ready0 does not mean no output. The bank YYUV+A8 and visible-area
+corrections pass15 image subtests; the original20-second run publishes the
+complete1024x682 error GUI on `display` head1. The
+[descriptor32 input/loader contract](docs/inputs/nor/module.md) now passes28
+memory subtests and original segmented COPY verification with a diagnostic
+structural input. A usable resource80 body remains unrecovered, so ID68 and
+normal-menu startup remain unresolved. Resource31's erased timing parameter
+is a separate input limitation. Earlier checkpoints below retain their scope.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
@@ -51,7 +54,10 @@ or full GPU precision does not block functional implementation. Raw `-bios`
 remains the isolated MAS input mode.
 
 Persistent parameter data can be supplied separately through the explicit
-[`descriptor17-input` / `descriptor18-input` properties](docs/inputs/nor/descriptor.md). A
+[`descriptor17-input` / `descriptor18-input` properties](docs/inputs/nor/descriptor.md).
+The resource80 module-bank input uses the separate full-slot
+[`descriptor32-input`](docs/inputs/nor/descriptor.md#descriptor32-module-bank-input).
+A
 [constructed functional profile](docs/inputs/nor/functional.md) uses unchanged
 firmware to parse a hypothetical virtual-camera configuration; recovering a
 physical factory image is a separate fidelity objective. The current experiment
@@ -191,10 +197,12 @@ Its long delay comes from resource31's erased parameter42 (`ffffffff * 500`);
 the [normal input value](docs/inputs/nor/descriptor.md#resource31-timing-parameters)
 remains unrecovered. The later [readiness investigation](docs/runtime/readiness.md)
 checks the actual bank console: ready0 still permits an original error-GUI
-frame. A source-bound YYUV+A8 correction fixes its colors and passes14 native
-image cases. The next input frontier is resource80/descriptor32: validation
-returns0, leaving the packed version0 that produces ID68. Normal-menu startup,
-visible-area geometry and physical scanout remain unverified. The earlier
+frame. The source-bound YYUV+A8 and visible-area corrections pass15 native
+image cases. The next frontier is the resource80 body: the erased default
+fails descriptor32 validation, while the diagnostic structural input copies
+normally but retains version0/ID68. Normal-menu startup and physical scanout
+remain unverified. Visible dimensions come from1328/132c rather than the1308
+timing counts. The earlier
 432/616-byte pair belongs to the erased-TEMP failure continuation.
 
 The [wire-only battery tool](docs/runtime/batterytool.md) is built as

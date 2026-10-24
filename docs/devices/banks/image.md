@@ -27,7 +27,7 @@ this object receipt does not establish a submitted frame.
 | C3C2/C4C0 | Unit0 config0200, packed geometry0204/0600, scalar0240/0250/0604 |
 | C62C/C68A | Unit0 numeric config0400 and scalar0404/0408 |
 | C6CA/C8EA | Unit0 packet0430..0478, omitting0454, and inverse getter |
-| CA80/CBE4 | Main single-halfword1204, packed14-bit geometry1308, distinct timing/control1400 |
+| CA80/CBE4 | Main single-halfword1204, packed14-bit timing1308, visible height1328/width132c, distinct timing/control1400 |
 | C1DA/C296 | Coefficients at selector addresses04a0/04d0/1490/14f0 or port2840/3840 |
 | D6E8 family | Port layout2200, dimensions2204, coordinate2208, four two-bit lane selectors2210 |
 | D48A/D568 | Ten dimensions2400..2424; first primary2440, further primary2480..24a0; secondary24c0..24e4; byte strides2500..2524/2540..2564; positions2580..25a4; enable25c0 |
@@ -87,7 +87,8 @@ completed; initialization alone cannot report a running frame producer.
 
 ## Functional image laws
 
-Main start requires nonzero1308 geometry and arms status1. Each virtual frame
+Main start requires nonzero visible width132c/height1328 within the allocation
+budget and arms status1. Each virtual frame
 boundary snapshots the live supported packet and validates every enabled
 provider. A transaction with no enabled layer completes status and IRQ but
 creates neither a console nor host pixels. This is the bounded command100
@@ -100,7 +101,7 @@ publishes only a complete image. Successful publication reports active3;
 scanout continues until pause/stop. This follows the original live setter
 chains DD988A→DD354→D6E8→95EC→DD2A8→D48A/C354 and D942A→DD20E→D0D2,
 which update layers/bitmaps without another BF0C master start. The boundary
-and timer use a named nominal48MHz pixel service rate. This is not measured
+and timer use a named nominal48MHz service rate over the visible pixels. This is not measured
 EXPEED speed, sensor cadence or vblank. An armed device may await real input;
 absent providers and software ready3 writes cannot produce a frame. Invalid
 live input preserves the previous complete surface while later updates can
@@ -185,8 +186,50 @@ normal-RAM row validation and DMA, with no resource-address whitelist or
 invented output DMA. All enabled layers finish before publication; a bad
 later provider preserves the previous surface and supplies no new completion.
 Live updates, cancellation, reset and cadence retain their existing contract.
-The 1024x682 layer does not justify changing the submitted 780x780 main
-geometry. Its relationship to the physical visible area remains unverified.
+At this checkpoint the decoder preserved the old interpretation of1308 as
+780x780 output. The following source analysis separates it from the original
+visible-area fields; a layer extent alone is not the output-size authority.
+
+## Main visible area and timing
+
+`10448f92` calls `10448e20` with a rear/EVF selection derived from the original
+request; the rear branch calls `10448d12(packet,0)` before `1046ca80` at
+`10448efa`. That producer writes packet+22/+24 as780/780, packet+32 as1155,
+and packet+46/+48 as682/1024. The setter serializes these distinct fields to
+main1308,130c,1328 and132c respectively. Its inverse `1046cbe4` reconstructs
+the same offsets. The visible fields are unsigned halfwords loaded without a
+14-bit mask, unlike1308; their accepted write masks are therefore `ffff`.
+The fixed rear producer does not read resource24/25/27 to choose these values.
+Those resources and their qualified input bodies remain unchanged.
+
+An independent consumer, `104dae5a -> 104dd5ae -> 1046ca80`, copies one of
+18 fixed56-byte ROM profiles from MAS VA `1079ed90`. Their1308 pairs include
+525/525 with1328/132c=480/720;625/625 with576/720;750/750 with720/1280;
+1125/1125 with1080/1920; and2250/2250 with2160/3840. Two rows instead have
+562/563 while still declaring1080/1920. This rules out interpreting1308's
+two fields as horizontal and vertical visible dimensions. Its role as a
+pair of vertical timing counts is a strong inference; exact physical field,
+blanking and cadence semantics remain unverified.130c carries a separate
+timing scalar, including1155 in the fixed rear profile.
+
+The normal20-host-second original run's read-only `geometry.json` in
+`work/runs/moduleinput-20261024/` observes unit1 main1308=`030c030c`,
+130c=`483`,1310/1314=`3`,1318=`707`,131c=`60`,1320/1324=`0`,
+1328=`2aa` and132c=`400`. Together with the setter/producer and the distinct
+port viewport, this supports the finite rule: compose the output at the
+explicit132c width and1328 height, while retaining1308 and the other timing
+words separately. It neither guesses a maximum layer extent nor substitutes
+1024 for a known address or timing value.
+
+All console allocation, start validation and nominal pixel-service budgeting
+use the explicit visible extent. Missing, zero or over-budget visible fields
+cannot publish or complete. Live visible changes retain the existing frame
+boundary, clip the independently sized port canvas through Pixman, and publish
+only after every enabled provider succeeds. Unknown upper bits reject before
+changing the retained visible field. Reset clears both fields; pause cancels
+pending publication. There is no fallback to the former1308 layout. The
+48MHz service law remains a functional convention and does not derive a
+physical refresh rate from the recovered timing counts.
 
 After actual composition the bank lazily creates a QEMU graphic console and
 publishes the exact Pixman image. An empty transaction supplies completion but
@@ -279,3 +322,25 @@ debugger pause. QMP published `display` head1 at780x780; head0 had no console.
 This establishes an original error-GUI frame under the finite input/device
 profiles, not a normal menu, complete boot or physical-camera color receipt.
 No firmware bytes, guest readiness fields or guest pixels were injected.
+
+The visible-area fixture programs the source-shaped1308=`030c030c` alongside
+1328=682/132c=1024, and compares every output pixel, including columns780..1023.
+All earlier image fixtures now supply their explicit visible fields. The
+new case also checks a live512x342 output clipping a1024x682 port canvas,
+high-bit write rejection, missing/zero/over-budget extents preserving the
+complete prior surface without IRQ, recovery, pause and reset. The parent's
+old-model `native-visible-red.log` in `work/runs/moduleinput-20261024/`
+rejects the expected1024x682 PPM length2095120 against the old780x780 length
+1825215. That synthetic red is separate from the original register snapshot
+and from any subsequent corrected original-run frame.
+
+The parent whole-image batch passes all15 subtests in4.61s
+(`moduleinput-20261024/native-image-green.log`). The separate `visible`
+unchanged-firmware run retains the same normal inputs and20 host seconds:
+QMP `display` head1 now publishes1024x682, with the complete guest error
+dialog and right-side icons in `visible-head1.ppm`. It adds no descriptor32
+input and retains the resource80 error. This verifies the corrected visible
+extent, not normal-menu startup or a physical refresh-rate measurement.
+The shared sensor-to-display fixture also programs its explicit8x8 visible
+fields; `/arm/nikon/sensor/display-buffer` passes in0.79s in the separate
+`nikon_sensor` executable (`native-display-buffer-green.log`).

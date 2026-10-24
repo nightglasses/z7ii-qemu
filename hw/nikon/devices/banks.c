@@ -110,6 +110,7 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
         break;
     case 0x240: case 0x250: case 0x424: case 0x1204:
     case 0x130c: case 0x1314: case 0x1318: case 0x131c:
+    case 0x1328: case 0x132c:
         *mask = 0xffff;
         break;
     case 0x204: case 0x600:
@@ -158,7 +159,7 @@ static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
     case 0x260:
     case 0x500: case 0x2880: case 0x3880: case 0x120c:
     case 0x41c: case 0x420: case 0x1c00: case 0x1c04: case 0x1c08:
-    case 0x1320: case 0x1324: case 0x1328: case 0x132c: case 0x1330:
+    case 0x1320: case 0x1324: case 0x1330:
     case 0x1480: case 0x1620:
         *mask = UINT32_MAX;
         break;
@@ -226,9 +227,8 @@ static bool nikon_banks_ram(hwaddr base, uint64_t bytes)
 
 static void nikon_banks_schedule(NikonDualEventBanksRegion *r)
 {
-    uint32_t geometry = r->parent->config[r->index][0x1308 / 4];
-    uint64_t pixels = (uint64_t)(geometry & 0x3fff) *
-                      ((geometry >> 16) & 0x3fff);
+    uint32_t *packet = r->parent->config[r->index];
+    uint64_t pixels = (uint64_t)packet[0x132c / 4] * packet[0x1328 / 4];
 
     if (pixels && pixels <= FRAME_PIXELS) {
         r->period = MAX(1, (pixels * NANOSECONDS_PER_SECOND +
@@ -508,7 +508,6 @@ static void nikon_banks_frame(void *opaque)
     NikonDualEventBanksRegion *r = opaque;
     NikonDualEventBanksState *s = r->parent;
     uint32_t *packet = r->packet;
-    uint32_t geometry;
     unsigned width, height;
     pixman_image_t *output;
     unsigned port;
@@ -519,9 +518,9 @@ static void nikon_banks_frame(void *opaque)
     }
     /* Live setters have no master restart. Snapshot at each frame boundary. */
     memcpy(packet, s->config[r->index], sizeof(r->packet));
-    geometry = packet[0x1308 / 4];
-    width = geometry & 0x3fff;
-    height = (geometry >> 16) & 0x3fff;
+    /* CA80 writes visible height/width separately from the 1308 timing pair. */
+    width = packet[0x132c / 4];
+    height = packet[0x1328 / 4];
     if (!width || !height || (uint64_t)width * height > FRAME_PIXELS) {
         goto error;
     }
@@ -762,9 +761,9 @@ static MemTxResult nikon_dual_event_banks_write(void *opaque, hwaddr offset,
             if (offset == 0x1200) {
                 unsigned command = value & 3;
                 if (command == 1) {
-                    uint32_t geometry = s->config[r->index][0x1308 / 4];
-                    uint64_t pixels = (uint64_t)(geometry & 0x3fff) *
-                                      ((geometry >> 16) & 0x3fff);
+                    uint32_t *packet = s->config[r->index];
+                    uint64_t pixels = (uint64_t)packet[0x132c / 4] *
+                                      packet[0x1328 / 4];
                     bool running = r->active &&
                         (s->config[r->index][offset / 4] & 3) == 3;
 

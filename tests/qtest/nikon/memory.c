@@ -991,6 +991,119 @@ static void test_descriptor18_rejection(void)
     g_unsetenv("NIKON_DESCRIPTOR18_FIXTURE");
 }
 
+static void test_descriptor32_input(void)
+{
+    const uint32_t base = 0x13e80000;
+    const size_t size = 0x180000;
+    const unsigned ids[] = { 11, 12, 17, 18, 32 };
+    const size_t sizes[] = { 0x260000, 0xe0000, 0x20000, 0xa0000, 0x180000 };
+    const uint32_t bases[] = {
+        0x12a80000, 0x12ce0000, 0x132c0000, 0x132e0000, 0x13e80000,
+    };
+    g_autofree uint8_t *input = g_malloc(sizes[0]);
+    g_autofree uint8_t *actual = g_malloc(size);
+    g_auto(GStrv) paths = g_new0(char *, ARRAY_SIZE(ids) + 1);
+    g_autoptr(GString) machine = g_string_new(",mas-boot-prefix=erased");
+    MemoryTest t = memory_init_machine(machine->str, "");
+
+    /* The shared descriptor31/32 physical span is still erased by default. */
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==, 0xffff);
+    memory_quit(&t);
+    for (size_t i = 0; i < sizes[0]; i++) {
+        input[i] = (i * 37 + (i >> 9) * 11 + 0x39) & 0xff;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        int fd = g_file_open_tmp("nikon-descriptor-pair-XXXXXX", &paths[i],
+                                 NULL);
+
+        g_assert_cmpint(fd, >=, 0);
+        close(fd);
+        g_assert_true(g_file_set_contents(paths[i], (char *)input, sizes[i],
+                                          NULL));
+        g_string_append_printf(machine, ",descriptor%u-input=%s", ids[i],
+                                paths[i]);
+    }
+    t = memory_init_machine(machine->str, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    qtest_memread(t.qts, base, actual, size);
+    g_assert_cmpmem(actual, size, input, size);
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        g_assert_cmphex(qtest_readw(t.qts, bases[i]), ==, lduw_le_p(input));
+        g_assert_cmphex(qtest_readw(t.qts, bases[i] + sizes[i] - 2), ==,
+                        lduw_le_p(input + sizes[i] - 2));
+    }
+    /* Exact NOR boundaries do not turn adjacent physical holes into cells. */
+    g_assert_cmphex(qtest_readw(t.qts, base - 2), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, base + size), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, 0x13e3fffe), ==, 0xffff);
+    /* Installation is not the module loader and does not prefill cold RAM. */
+    g_assert_cmphex(qtest_readl(t.qts, 0xb7d00000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0xbaa00000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0d00000), ==, 0);
+
+    /* Command state and array bytes use the existing shared NOR domain. */
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base, 0x00ff);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base + size - 2, 0xff00);
+    nor_unlock(t.qts, 0x80);
+    qtest_writew(t.qts, 0x10000aaa, 0xaa);
+    qtest_writew(t.qts, 0x10000554, 0x55);
+    qtest_writew(t.qts, base + 0x20000, 0x30);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, lduw_le_p(input) & 0x00ff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==,
+                    lduw_le_p(input + size - 2) & 0xff00);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x20000), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x3fffe), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x40000), ==,
+                    lduw_le_p(input + 0x40000));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==, lduw_le_p(input));
+    g_assert_cmphex(qtest_readl(t.qts, 0xb7d00000), ==, 0);
+    memory_quit(&t);
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        unlink(paths[i]);
+    }
+}
+
+static void test_descriptor32_rejection(void)
+{
+    const size_t size = 0x180000;
+    g_autofree uint8_t *input = g_malloc0(size + 1);
+    g_autofree char *path = NULL;
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(
+            ",descriptor32-input=%s", g_getenv("NIKON_DESCRIPTOR32_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-descriptor32-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_DESCRIPTOR32_FIXTURE", path, true);
+    for (unsigned i = 0; i < 3; i++) {
+        const size_t lengths[] = { 0, size - 1, size + 1 };
+
+        g_assert_true(g_file_set_contents(path, (char *)input, lengths[i],
+                                          NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(
+            "*descriptor32 input must contain exactly 1536 KiB*");
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor32 input*");
+    g_unsetenv("NIKON_DESCRIPTOR32_FIXTURE");
+}
+
 static void test_sysconfig_profile(void)
 {
     const uint32_t base = 0x04280000;
@@ -1143,6 +1256,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/descriptor18-input", test_descriptor18_input);
     qtest_add_func("/nikon/memory/descriptor18-rejection",
                    test_descriptor18_rejection);
+    qtest_add_func("/nikon/memory/descriptor32-input", test_descriptor32_input);
+    qtest_add_func("/nikon/memory/descriptor32-rejection",
+                   test_descriptor32_rejection);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
     qtest_add_func("/nikon/memory/sysconfig-controls", test_sysconfig_controls);
     return g_test_run();

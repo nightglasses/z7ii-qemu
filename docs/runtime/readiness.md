@@ -8,6 +8,9 @@ despite gate/pending3/display-ready all0. Those words gate particular software
 routes; they are not universal prerequisites for the ordinary bank output.
 The [bank YUVA profile](../devices/banks/image.md#format17-yuva-provider)
 records native validation and the separate original-frame receipt.
+The later visible-area correction uses the source's132c/1328 dimensions;
+`moduleinput-20261024/visible` now publishes the complete1024x682 dialog.
+The earlier780x780 screenshot was clipped by a model geometry error.
 
 The20-second `run` trace uses unchanged firmware, the existing declared NOR
 inputs, healthy9600-baud battery peer, reproducible RNG and held cold F4. No
@@ -72,7 +75,7 @@ The original registry row VA `123f93c4` and live28-byte row at
 `b185eb70 + 80*28` identify resource80, span16e000 and descriptor32. The
 existing [NOR geometry](../../tests/nor.json) gives descriptors31/32 the same
 physical `[13e80000,14000000)` slot; descriptor32 has max length16e000 and
-different flags from31. That slot is currently erased and has no declared
+different flags from31. In that baseline the slot is erased, without a declared
 input. The `slot80` trace observes `103a4b0e -> 103c048a(80,118d0850,8,phase)`
 for phases3/8/4/5/6; every call returns0 from `102a80a8` at `103c04f2` and
 exits before the copy/publication branches. The independent `footer80` trace
@@ -81,10 +84,14 @@ are ENDM (`454e444d`), while the slot footer is `ffffffff`. The footer uses
 the physical span180000, not used length16e000. Thus failed marker validation
 leaves the allocated resource80 body unwritten; zero is not a valid loaded
 module version. Manifest row2 (offsetbe000,length6000,phase8) contains the
-checked bytes at+14/+15. The decoding path and a usable whole input remain
-the next source boundary; changing only the footer or version bytes
-would conceal other missing tables. No input, version, status or error list
-was substituted. The byte interpretation as a module version and physical
+checked bytes at+14/+15. The subsequent [module-bank contract](../inputs/nor/module.md)
+closes the raw COPY/fill path and verifies all six COPY ranges through the
+original loader with an explicit synthetic structural slot. Its version stays0,
+ID68 persists and no normal module body has qualified. The consumers of the
+remaining table ranges are now the next source boundary; changing only the
+footer or version bytes
+would conceal other missing tables. In the erased-input baseline no input,
+version, status or error list was substituted. The byte interpretation as a module version and physical
 device identity remain qualified inferences.
 
 ## Historical cold-F4 investigation

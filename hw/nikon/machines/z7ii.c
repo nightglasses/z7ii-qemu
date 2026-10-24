@@ -110,6 +110,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
 #define Z7II_DESCRIPTOR18_BASE 0x132e0000ULL
 #define Z7II_DESCRIPTOR18_SIZE 0x000a0000ULL
+#define Z7II_DESCRIPTOR32_BASE 0x13e80000ULL
+#define Z7II_DESCRIPTOR32_SIZE 0x00180000ULL
 
 /* NOR command protocol state for the mapped flash device. */
 typedef enum Z7IINorReadMode {
@@ -171,6 +173,7 @@ struct Z7IIMachineState {
     char *descriptor12_input;
     char *descriptor17_input;
     char *descriptor18_input;
+    char *descriptor32_input;
     Z7IINorReadMode nor_read_mode;
     Z7IINorCommandStage nor_command_stage;
     hwaddr nor_buffer_sector;
@@ -871,6 +874,9 @@ static void z7ii_init(MachineState *machine)
         z7ii_load_descriptor_input(s, s->descriptor18_input, 18,
                                   Z7II_DESCRIPTOR18_BASE,
                                   Z7II_DESCRIPTOR18_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor32_input, 32,
+                                  Z7II_DESCRIPTOR32_BASE,
+                                  Z7II_DESCRIPTOR32_SIZE);
         s->nor_regions_ready = true;
     }
 
@@ -1580,6 +1586,27 @@ static void z7ii_set_descriptor18_input(Object *obj, const char *value,
     s->descriptor18_input = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_descriptor32_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor32_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor32_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor32-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor32_input);
+    s->descriptor32_input = g_strdup(value && *value ? value : NULL);
+}
+
 static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
 {
     const char *value = Z7II_MACHINE(obj)->sla_boot_prefix;
@@ -1652,6 +1679,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->descriptor12_input);
     g_free(s->descriptor17_input);
     g_free(s->descriptor18_input);
+    g_free(s->descriptor32_input);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
@@ -1695,6 +1723,12 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_descriptor18_input);
     object_class_property_set_description(oc, "descriptor18-input",
         "Optional exact 640 KiB external NOR input at 0x132e0000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor32-input",
+                                  z7ii_get_descriptor32_input,
+                                  z7ii_set_descriptor32_input);
+    object_class_property_set_description(oc, "descriptor32-input",
+        "Optional exact 1536 KiB shared descriptor31/32 NOR input at 0x13e80000; "
         "omitted bytes remain erased");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);

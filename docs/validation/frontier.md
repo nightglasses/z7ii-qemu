@@ -6,8 +6,12 @@ The normal-input `readinessnormal-20261023/color` run publishes an actual
 guest error-GUI frame on QMP `display` head1. Head0 has no console. The
 [bank YYUV+A8 correction](../devices/banks/image.md#format17-yuva-provider)
 removes the earlier RGB565 stripes; native old-model red and all14 image
-subtests green are separate receipts. The780x780 main geometry is unchanged
-and clips part of the1024-wide layer; visible-area semantics remain unresolved.
+subtests green are separate receipts. The later
+[visible-area correction](../devices/banks/image.md#main-visible-area-and-timing)
+separates1308 timing counters from1328/132c height/width. The normal20-second
+`moduleinput-20261024/visible` run publishes the complete1024x682 guest error
+dialog and right-side icons;15 image subtests and the separate sensor-to-display
+integration case pass. No input was changed for this geometry correction.
 This is a first original error-GUI frame under the declared finite profiles,
 not a normal menu, complete boot or physical display qualification.
 
@@ -18,9 +22,15 @@ executed. A distinct software operation10 is suppressed because property6433
 contains ID68 and setting274 is0. ID68 comes from the resource80 packed
 version value0, which returns error400 and event04200181/state14.
 Resource80 is allocated at MAS VA `b7d00000`; its external descriptor32 slot
-has no valid input and original validation returns0 before copying. This
-loader/input chain is the next concrete frontier; no version byte or ready
-state is supplied to bypass it. Details and bounded receipts are in readiness.
+has no valid normal input and original validation returns0 before copying.
+The [descriptor32 contract](../inputs/nor/module.md) now establishes a raw
+six-range COPY/two-fill layout, without a compression layer. The full-slot
+input property passes28 memory subtests. A separate diagnostic structural
+slot passes original validation and all six COPY ranges compare byte-for-byte;
+phase9 fills are not exercised in that run. Its version remains0 and ID68
+persists. No complete body qualifies from the inspected local/same-family
+sources. Recovering or defining its consumer tables is the next concrete
+frontier; no ready state is supplied to bypass them.
 
 Resource31's normal parameter remains unrecovered. The declared descriptor17
 body is erased and its field288 scales by500 to `fffffe0c`; see the
