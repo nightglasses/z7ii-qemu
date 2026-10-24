@@ -1,4 +1,4 @@
-# Initialized SRC_OVER rectangle targets
+# Initialized RGBA rectangle targets
 
 The normal GUI's 176/368-byte indirect SRC_OVER rectangle now accepts an
 explicit, validated RGBA target, rather than a resource57 record7 address.
@@ -71,8 +71,9 @@ or resource-slot whitelist is introduced.
 The exact headers, all other state/zeros, identity matrix, geometry/clip,
 paired scratch value, key/endings, closed positive rectangle and existing
 paint/compositing limits stay checked. Initial mode0/8 remains allowed only
-before the mandatory final8. The older 232/416 two-path composition profile
-retains its existing target and geometry. This change does not generalize
+before the mandatory final8. At that checkpoint the older 232/416 two-path
+composition profile retained its existing target and geometry; the later
+finite extension below removes that address fingerprint. Neither change generalizes
 unobserved surface formats or command grammars.
 
 The finite inference is that equal explicit initialization has the same
@@ -131,3 +132,54 @@ ownership probe, source projections, native red/focused/final batch, final
 normal argv/traces/snapshot/streams and producer/IRQ joins. An intermediate
 green snapshot script read a stale baseline filename and failed; its trace
 is separately scoped, and the successful final run is the snapshot receipt.
+
+## Two-path target extension
+
+The 232/416-byte pair has the same `1a4` mask15 target write at draw word33.
+The `1064609a -> 106d57ac` source above takes that payload from the current
+allocation; neither helper branches on resource57 record5 or the previously
+observed PA `bf309600`. The complete initialization, 1024x688 RGBA extent,
+identity matrix, two matched scratch operands, path keys and endings remain
+fixed and independently checked. Only the target payload becomes an operand;
+the two-path geometry and opaque-black paint do not become generic paths.
+
+The whole `1024*688*4 = 2b0000`-byte allocation must be four-byte aligned,
+remain in the 32-bit PA domain, and resolve to one direct writable RAM span.
+All command, coordinate and segment extents must be disjoint from that whole
+allocation both as PAs and as resolved backing. This deliberately includes
+the first six rows even though output touches only rows6..687. Deferred
+execution revalidates mappings and indirect inputs against the captured
+command pair. Output starts at target+`6000`, writes 682 opaque-black rows
+and leaves the six preceding rows, trailing backing and guards unchanged.
+The existing context publication rule recognizes only 720x480 output;
+successful two-path output therefore clears any prior RGBA720 continuation
+context, and cannot establish one even at the same address.
+
+This is a source-backed functional inference: identical explicit initialization
+has the same meaning at another independently validated span. It does not
+establish a new buffer's firmware ownership, a physical GPU address rule or
+display identity. The original-startup observation remains the earlier
+`bf309600` execution; this proactive extension alone claims no new original
+startup progress and adds no memory, readiness or event injection.
+
+The native `/nikon/transfer/rgba-pair-targets` fixture has 76 variants across
+`bec5f200`, `0`, `800004` and `ffd50000`; the last complete extent ends
+exactly at 4GiB. Its first alternate target is the old-model red case.
+Coverage compares the complete mapped backing against an independent row
+reference, including top rows and guards, and checks repeat, immutable
+captured command bytes, alignment, 32-bit overflow, unbacked/short/read-only
+spans, a read-only fragment in either the top rows or final pixel, raw and
+backing aliases confined to top rows, late map/input loss, changed indirect
+path, reset and unrealize. A successful 720 initialization followed by the
+232/416 pair cannot authorize retained720 drawing. The historical clear
+fixture's target+4 rejection is replaced by a genuinely short-span target.
+Native run receipts and acceptance remain owned by the integration batch.
+
+The parent integration batch confirms the scoped red in
+`work/runs/timingextra-20261023/rgba-red.log`: the old model rejects the first
+valid alternate target at START with MEMTX_ERROR. With the final 76-variant
+fixture and target operand implementation, `make check
+MTESTARGS=nikon_transfer_unit` passes all 24 transfer subtests in 2.13s;
+the receipt is `work/runs/timingextra-20261023/rgba-green.log`. These are
+native synthetic protocol checks, not additional original-firmware startup
+or scanout evidence.

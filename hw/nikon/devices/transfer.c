@@ -46,7 +46,6 @@
     (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_Y)
 #define TRANSFER_RGBA_ACTIVE_BYTES \
     (4 * TRANSFER_RGBA_WIDTH * TRANSFER_RGBA_ACTIVE_HEIGHT)
-#define TRANSFER_RGBA_TARGET 0xbf309600U
 #define TRANSFER_RGBA_PATH_SEGMENT_BYTES 5U
 #define TRANSFER_RGBA_PATH_COORDINATE_BYTES 20U
 
@@ -439,7 +438,7 @@ static const NikonTransferField clear_draw_fields[] = {
 /*
  * The original sixth pair contains two indirect filled paths. Dynamic words
  * 22/26 select their shared coordinate/segment arrays; words34/48 are opaque
- * per-path operands repeated at draw words80/91. Everything else is fixed.
+ * per-path operands repeated at draw words80/91. Draw word33 is the target.
  */
 static const NikonTransferField rgba_setup_fields[] = {
     { 0, 0x00691004 }, { 1, 0x80 },
@@ -477,7 +476,7 @@ static const NikonTransferField rgba_draw_fields[] = {
     { 22, 0x01a04004 }, { 23, 0x00010000 },
     { 24, 0x01841004 }, { 26, 0x01842004 },
     { 28, 0x01a02004 }, { 30, 0x01a29004 },
-    { 32, 0x01a4f004 }, { 33, TRANSFER_RGBA_TARGET },
+    { 32, 0x01a4f004 },
     { 34, 0x01a51004 }, { 35, 1 }, { 36, 0x01a74004 },
     { 38, 0x01401004 }, { 40, 0x014df004 }, { 42, 0x014df004 },
     { 44, 0x00c0f00e }, { 45, 0x03ff0000 }, { 46, 0x02af0000 },
@@ -689,8 +688,8 @@ static bool nikon_transfer_rgba_fingerprint(const uint32_t *words,
             expected = fields[field++].value;
         }
         if ((!draw && (i == 22 || i == 26 || i == 34 || i == 48)) ||
-            (draw && (i == 80 || (!single && i == 91) ||
-                      (single && (i == 33 || i == 76))))) {
+            (draw && (i == 33 || i == 80 || (!single && i == 91) ||
+                      (single && i == 76)))) {
             continue;
         }
         /*
@@ -1193,7 +1192,7 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
     }
 
     /* 1064609a emits 1a4 from the current context's allocation object. */
-    target = single ? le32_to_cpu(draw[33]) : TRANSFER_RGBA_TARGET;
+    target = le32_to_cpu(draw[33]);
     target_bytes = single ? 4 * 720 * 480 : TRANSFER_RGBA_TARGET_BYTES;
     active_offset = single ? 0 : TRANSFER_RGBA_ACTIVE_OFFSET;
     if ((uint64_t)target + target_bytes > (1ULL << 32)) {
