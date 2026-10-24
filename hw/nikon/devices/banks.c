@@ -285,6 +285,18 @@ static uint32_t nikon_banks_pixel(const uint8_t *data, unsigned mode,
            ((green * alpha / 255) << 8) | (blue * alpha / 255);
 }
 
+/* Same limited-range BT.601 convention as the transfer107 producer. */
+static uint32_t nikon_banks_yuva(const uint8_t *pair, unsigned column)
+{
+    int y = MAX(0, pair[column & 1] - 16);
+    int u = pair[2] - 128, v = pair[3] - 128;
+    unsigned red = CLAMP((298 * y + 409 * v + 128) >> 8, 0, 255);
+    unsigned green = CLAMP((298 * y - 100 * u - 208 * v + 128) >> 8, 0, 255);
+    unsigned blue = CLAMP((298 * y + 516 * u + 128) >> 8, 0, 255);
+
+    return 0xff000000U | (red << 16) | (green << 8) | blue;
+}
+
 static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
                               pixman_image_t *output, unsigned port,
                               unsigned layer, unsigned out_width,
@@ -311,8 +323,11 @@ static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
     uint32_t *pixels;
     unsigned row_index, column, pitch;
     bool success = false;
+    bool yuva = mode == 6 && (control & 0x30000);
 
-    if (mode > 6 || !width || !height ||
+    if ((yuva && (control != 0x00030006 || lanes != 0x02000301 ||
+                  (width & 1) || (primary & 3) || (stride & 3))) ||
+        mode > 6 || !width || !height ||
         (uint64_t)width * height > FRAME_PIXELS ||
         x >= out_width || y >= out_height ||
         width > out_width - x || height > out_height - y ||
@@ -343,8 +358,9 @@ static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
             goto out;
         }
         for (column = 0; column < width; column++) {
-            uint32_t pixel = nikon_banks_pixel(row + column * bytes, mode,
-                                               control, lanes);
+            uint32_t pixel = yuva ?
+                nikon_banks_yuva(row + (column & ~1U) * 2, column) :
+                nikon_banks_pixel(row + column * bytes, mode, control, lanes);
             if (mode >= 5) {
                 unsigned opacity = mode == 5 ?
                     ((alpha[column / 2] >> ((column & 1) * 4)) & 15) * 17 :

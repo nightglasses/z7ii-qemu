@@ -1,6 +1,34 @@
 # Original-firmware startup frontier
 
-## Timing wait returned; GUI readiness frontier
+## Original error-GUI frame; external resource80 frontier
+
+The normal-input `readinessnormal-20261023/color` run publishes an actual
+guest error-GUI frame on QMP `display` head1. Head0 has no console. The
+[bank YYUV+A8 correction](../devices/banks/image.md#format17-yuva-provider)
+removes the earlier RGB565 stripes; native old-model red and all14 image
+subtests green are separate receipts. The780x780 main geometry is unchanged
+and clips part of the1024-wide layer; visible-area semantics remain unresolved.
+This is a first original error-GUI frame under the declared finite profiles,
+not a normal menu, complete boot or physical display qualification.
+
+The [readiness trace](../runtime/readiness.md#current-normal-input-observation)
+shows gate/pending3/display-ready0 are not universal display prerequisites.
+The actual gate rejection is selector1 versus34; setting290's guard is not
+executed. A distinct software operation10 is suppressed because property6433
+contains ID68 and setting274 is0. ID68 comes from the resource80 packed
+version value0, which returns error400 and event04200181/state14.
+Resource80 is allocated at MAS VA `b7d00000`; its external descriptor32 slot
+has no valid input and original validation returns0 before copying. This
+loader/input chain is the next concrete frontier; no version byte or ready
+state is supplied to bypass it. Details and bounded receipts are in readiness.
+
+Resource31's normal parameter remains unrecovered. The declared descriptor17
+body is erased and its field288 scales by500 to `fffffe0c`; see the
+[input contract](../inputs/nor/descriptor.md#resource31-timing-parameters).
+The original timer waiter nevertheless returns, so this unknown does not
+prevent the observed error-GUI frame.
+
+## Preceding timing-wait checkpoint
 
 The [finite timing extra model](../devices/timing/extra.md) now accepts the
 normal channel4 enable/configuration. Its five-channel interface is source-backed;
@@ -18,12 +46,12 @@ the guest clears its shared enable. Result40 is1, pending0. These are original
 software-consumption receipts under the functional assumptions, not physical
 terminal-bit/result qualification.
 
-The remaining checkpoint is software readiness: application01/03, primary0,
+That checkpoint's snapshot is application01/03, primary0,
 manager current3/target5/mode1/state2, BatCk1, and GUI gate/pending3/display-ready0.
-These snapshots do not identify a blocked task; no new MMIO rejection or GUI
-first frame is established. The long delay comes from directory resource31
-field288=`ffffffff`, scaled by500 to`fffffe0c`. Its normal value remains
-unknown and is not replaced. Receipts: `work/runs/timingextra-20261023/`
+These snapshots do not identify a blocked task; that run did not check the
+actual bank console. The long delay comes from erased resource31 field288,
+copied from the declared descriptor17 input and scaled by500 to `fffffe0c`.
+The input is unchanged. Receipts: `work/runs/timingextra-20261023/`
 (`final`, `integration`, then `validated`).
 
 The latest unchanged-bundle runs cross normal display-request admission with
