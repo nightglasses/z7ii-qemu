@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; mixed-path paint state frontier
+## Normal display request accepted; YUVA107 temporary paint mode frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -123,11 +123,20 @@ path latches. Both clear and initialized-image families now permit the unused
 first payload; active matrices remain checked. All20 transfer subtests pass.
 Original MTTCG groups the late clears into1280/1560 bytes, completes all six
 through IRQ129, and physical target reads confirm their zero output. Exact late
-856/1088 grammar is native-tested separately. The current rejection is CPU1
-PC `106ee3c6`, WRITE32 PA `201810e0=1`, `transfer-stream-truncated`, on840/1048
-at PA `bd0e0490/bd1605b0`. Setup has three fill/stroke pairs; draw adds
-`01848004=0` state. This is an unrecognized state/grammar boundary, not proof
-of missing guest bytes. Its producer/bit semantics remain to be joined.
+856/1088 grammar is native-tested separately. The [paint-state correction](../devices/transfer/paint.md)
+joins01848004=0 to the dirty0x20 flush in106b55a2, called by glyph producer
+1064c170. It disables the independent high-byte color transform, not the
+low-byte paint mode. The finite grammar accepts its optional full-path seam,
+and successful clear execution now retains the shared target/format/clip
+profile. All20 transfer subtests pass in0.81s, including two actual native reds.
+Original execution completes three840/1048 packets plus later paths/images/
+conversions, recording26 IRQ129 entries from the first one to the next error.
+The current rejection is CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
+`transfer-convert-program-not-supported`, on224/1736 at bd0dff90/bd15ff90.
+The only differing fixed field of the scaled107 profile is draw word74,
+temporary01841004 payload2 instead of0; later final mode remains2. Source is
+bf309600, output planes cb82b000/cb980000. The temporary state's producer and
+operand admission remain the next investigation. GUI readiness remains0.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.

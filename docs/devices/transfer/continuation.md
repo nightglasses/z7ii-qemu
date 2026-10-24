@@ -73,7 +73,10 @@ reset, unrealize or successful different graphics program invalidates it.
 Busy or pre-ACK metadata writes remain errors without cancelling an existing
 job. Queued work publishes neither context nor completion before actual
 execution. Immutable command capture and execution-time map rechecks are
-unchanged. The old record7 RGBA720/YUVA107 flags remain separate.
+unchanged. The later [shared-context correction](paint.md) also publishes the
+validated target as the720x480 RGBA profile used by paths/images; YUVA107 state
+remains separate. A different successful path can retain that shared profile
+while invalidating this clear family's expected key.
 
 The retained global-state interpretation is supported by the producer's cache
 and cursor behavior. The exact key continuity rule is a conservative software

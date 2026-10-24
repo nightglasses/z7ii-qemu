@@ -73,6 +73,9 @@ No-context uses a value outside the
 32-bit address domain, preserving legal target0. ACK retains context; rejection,
 execution failure, reset, unrealize or a different successful program clears
 or replaces it. Context and IRQ publish only after output execution succeeds.
+The later [shared-context correction](paint.md) also permits a successfully
+initialized or continued rectangle clear to establish this same RGBA profile;
+target matching and failure/reset invalidation still apply.
 
 The first image-only implementation crosses224/472, then finds temporary
 draw-body word29 changed from8 to14 in the next176/336 pair. `10646062`

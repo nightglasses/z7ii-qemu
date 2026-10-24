@@ -1,5 +1,15 @@
 # Native GUI integration
 
+The [paint-state correction](../devices/transfer/paint.md) passes all20 transfer
+subtests in0.81s after two actual native reds: optional01848004=0 grammar, then
+clear-to-path context retention. The mixed case now has51 variants, including
+per-fill disable writes through256 operations, malformed/late state, initial/
+retained clears, foreign/reset/failed contexts and deferred cancellation with
+whole output/guards. Separate original execution completes three840/1048
+packets and26 IRQ129 entries from the first one through later graphics work,
+then rejects224/1736 YUVA107 at temporary mode2 instead of the profile's0.
+GUI readiness remains0. Receipts: `work/runs/paintmask-20261023/`.
+
 The [matrix overwrite correction](../devices/transfer/overwrite.md) passes all20
 transfer subtests in0.70s after its new valid case fails against the old model.
 Its113 variants cover both rectangle and initialized-image overwritten matrices,

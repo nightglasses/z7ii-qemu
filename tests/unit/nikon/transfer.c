@@ -3741,10 +3741,14 @@ static void test_stroked_paths(void)
 {
     enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
     enum { SUCCESS, TWO, THREE, LIMIT, WRAP, ZERO_WIDTH, REPEAT, DATA_CHANGE,
+           MASKED, MASKED_ALL, MASKED_LIMIT, CLEAR_CONTINUE,
            COLD, FOREIGN, TOO_MANY, SHORT_SETUP, SHORT_DRAW, FIRST_STROKE,
            UNKNOWN, DASH, PHASE, NEGATIVE_WIDTH, NAN_WIDTH, INF_EXTENT,
            CAP, JOIN, STYLE_BITS, TYPE, COUNT, MATRIX, KEY, TARGET,
-           TARGET_END, SOURCE_RANGE, SOURCE_ALIAS, COMMAND_ALIAS, LATE_BAD,
+           TARGET_END, SOURCE_RANGE, SOURCE_ALIAS, COMMAND_ALIAS,
+           MASK_HEADER, MASK_ENABLED, MASK_BITS, MASK_LOWBITS, MASK_POSITION,
+           MASK_LATE_ENABLED, MASK_SHORT, MASK_TAIL,
+           CLEAR_FOREIGN, CLEAR_RESET, CLEAR_FAILED, LATE_BAD,
            MAP_LOSS, RESET, CANCEL, CASES };
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
     MemoryRegion commands, surface, alias, command_alias, high;
@@ -3774,12 +3778,15 @@ static void test_stroked_paths(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned test = SUCCESS; test < CASES; test++) {
-        unsigned count = test == TWO ? 2 : test == THREE ? 3 :
-                         test == LIMIT ? 128 : test == TOO_MANY ? 129 : 1;
+        unsigned count = test == TWO ? 2 :
+                         test == THREE || test == MASKED ||
+                         test == MASKED_ALL || test == MASK_LATE_ENABLED ? 3 :
+                         test == LIMIT || test == MASKED_LIMIT ? 128 :
+                         test == TOO_MANY ? 129 : 1;
         unsigned setup_bytes = count * 70 * 4;
         unsigned draw_bytes = (count * 86 + 2) * 4;
         uint32_t key = test == WRAP ? 0x1fffe : 0x10009;
-        bool complete = test <= DATA_CHANGE;
+        bool complete = test <= CLEAR_CONTINUE;
         bool accepted = complete || test >= LATE_BAD;
         g_autofree uint8_t *before = NULL;
         g_autofree uint8_t *expected = NULL;
@@ -3790,19 +3797,75 @@ static void test_stroked_paths(void)
         memset(data, 0, 0x60000);
         memset(pixels, 0xa5, GUARDS);
         if (test != COLD) {
-            build_initialized_image(data, data + 0x1000, 0xbec5f200);
-            g_assert_cmpint(submit_rgba(&f, 224, 472), ==, MEMTX_OK);
-            advance();
-            g_assert_true(f.level);
-            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == MASKED || test == CLEAR_CONTINUE ||
+                (test >= CLEAR_FOREIGN && test <= CLEAR_FAILED)) {
+                const InlineRectangle clear = { 0, 0, 720, 480, 0 };
+                unsigned setup, draw;
+
+                build_inline_rectangles(data, data + 0x20000, &clear, 1,
+                    0xbec5f200, true, 0x10001, &setup, &draw);
+                g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                    setup, draw, true), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                if (test == CLEAR_RESET) {
+                    device_cold_reset(f.dev);
+                } else if (test == CLEAR_FAILED) {
+                    stl_le_p(data + 13 * 4, 0x7fc00000);
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        setup, draw, true), ==, MEMTX_ERROR);
+                } else if (test == CLEAR_CONTINUE) {
+                    build_inline_rectangles(data, data + 0x20000, &clear, 1,
+                        0xbec5f200, false, 0x10002, &setup, &draw);
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        setup, draw, false), ==, MEMTX_OK);
+                    advance();
+                    g_assert_true(f.level);
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                }
+            } else {
+                build_initialized_image(data, data + 0x1000, 0xbec5f200);
+                g_assert_cmpint(submit_rgba(&f, 224, 472), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
         }
         for (unsigned i = 0; i < EXTENT / 4; i++) {
             stl_le_p(pixels + 4 + 4 * i, 0x80402010);
         }
         memset(data, 0, 0x60000);
-        build_stroked_paths(data, count, test == FOREIGN ? 0xc175d600 :
+        build_stroked_paths(data, count,
+                            test == FOREIGN || test == CLEAR_FOREIGN ?
+                            0xc175d600 :
                             test == TARGET_END ? 0xfff00004 : 0xbec5f200, key);
         stroke = data + 41 * 4;
+        if (test == MASKED || test == MASKED_ALL || test == MASKED_LIMIT ||
+            test == CLEAR_CONTINUE ||
+            test == REPEAT || test == DATA_CHANGE || test >= MASK_HEADER) {
+            unsigned writes = test == MASKED_ALL || test == MASKED_LIMIT ||
+                              test == MASK_LATE_ENABLED ? count : 1;
+
+            for (unsigned i = 0; i < writes; i++) {
+                unsigned at = i * 88 + (test == MASK_POSITION ? 26 : 24);
+                uint8_t *b = data + 0x20000 + at * 4;
+
+                memmove(b + 8, b, draw_bytes - at * 4);
+                stl_le_p(b, test == MASK_HEADER ? 0x01844004 : 0x01848004);
+                stl_le_p(b + 4, test == MASK_ENABLED ? 0x01000000 :
+                         test == MASK_BITS ? 0x02000000 :
+                         test == MASK_LOWBITS ? 1 :
+                         test == MASK_LATE_ENABLED && i == count - 1 ?
+                         0x01000000 : 0);
+                draw_bytes += 8;
+            }
+            if (test == MASK_SHORT) {
+                draw_bytes = 104;
+            } else if (test == MASK_TAIL) {
+                stl_le_p(data + 0x20000 + draw_bytes - 4, 2);
+            }
+        }
         switch (test) {
         case ZERO_WIDTH: stl_le_p(stroke + 11 * 4, 0); break;
         case SHORT_SETUP: setup_bytes -= 8; break;

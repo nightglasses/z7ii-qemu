@@ -68,9 +68,13 @@ The [matrix overwrite correction](../devices/transfer/overwrite.md) then joins
 the dirty-state flush and explicit clear matrix: the first full write is
 replaced before path latching. All20 transfer subtests pass. Original execution
 completes a late1280/1560-byte six-clear batch and its zero output through
-IRQ129. The current original PC `106ee3c6` writes PA `201810e0=1` and rejects
-840/1048 with `transfer-stream-truncated`; its mixed-path draw adds
-`01848004=0`, whose producer/bit semantics remain open.
+IRQ129. The [paint-state correction](../devices/transfer/paint.md) then joins
+01848004=0 to the glyph dirty-state flush and retains the clear's shared RGBA
+profile. All20 transfer subtests pass. Original execution completes three840/1048
+packets and later graphics work. The current CPU0 PC106ee3c6 writes
+PA201810e0=1 and rejects224/1736 with `transfer-convert-program-not-supported`:
+its temporary low-byte paint mode is2 before final2, while the existing107
+profile requires temporary0. The producer/overwrite semantics remain open.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

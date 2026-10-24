@@ -4,7 +4,8 @@ The late normal-GUI rectangle clear no longer rejects the cached matrix that
 its producer immediately replaces. The finite model now applies this overwrite
 rule to both rectangle records and initialized A8 images. All20 transfer native
 subtests pass. Unchanged original execution completes a six-rectangle packet
-and reaches a new840/1048-byte mixed-path state boundary. GUI first frame is
+and reaches a new840/1048-byte mixed-path state boundary, subsequently handled
+by the [paint-state/context correction](paint.md). GUI first frame is
 still unverified; see the [current frontier](../../validation/frontier.md).
 
 ## Source and command facts
@@ -103,14 +104,14 @@ START, original handler106ee3ca executes before the next submission. The final
 physical target read has zero in every pixel of all six areas. This is output
 evidence plus an original completion, not merely parser acceptance.
 
-The next first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's next first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-stream-truncated`, on840/1048-byte streams at bd0e0490/bd1605b0.
 Setup contains three41+29-word fill/stroke pairs with keys10007..1000c.
 Draw has an extra `01848004=0` before the first pair's repeated paint state;
-the current fixed55/31-word recognizer does not admit that state variation,
+the then-current fixed55/31-word recognizer does not admit that state variation,
 and dispatch falls through to LUT length validation. This diagnostic is not
-proof of missing guest bytes. The new state's producer and consumed bit
-semantics remain the next investigation; no meaning is inferred from zero alone.
+proof of missing guest bytes. The new state's producer and byte-mask
+semantics are joined by the later [paint-state analysis](paint.md).
 GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02,
 primary request11. Both processes remain alive until controlled cleanup;
 the UART peer records no protocol rejection.

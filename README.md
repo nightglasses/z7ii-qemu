@@ -141,7 +141,11 @@ pass. Original execution completes mixed280/352 and1680/2072 packets plus later
 graphics work. The [matrix overwrite correction](docs/devices/transfer/overwrite.md)
 then permits cached state fully replaced before latching, with all20 transfer
 subtests passing. Original execution completes a late1280/1560-byte six-clear
-batch and reaches a new840/1048-byte mixed-path state variation. MTTCG batching differs
+batch. The [paint-state correction](docs/devices/transfer/paint.md) then accepts
+optional color-transform disable writes and retains that clear's shared RGBA
+context. All20 transfer subtests pass; original execution completes three840/1048
+packets and later work, then rejects a224/1736 YUVA107 temporary-mode variation.
+MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
 The earlier432/616-byte

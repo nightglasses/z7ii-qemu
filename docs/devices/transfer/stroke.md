@@ -9,6 +9,12 @@ submission, now handled by the [matrix overwrite correction](overwrite.md).
 See the [current frontier](../../validation/frontier.md); first frame remains
 unverified.
 
+The later [paint-state correction](paint.md) accepts optional color-transform
+disable writes before full fill paint state and retains the shared RGBA context
+after clears. Original execution completes three840/1048 variants through
+IRQ129. The remaining55/31-word validation and inherited stroke grammar below
+stay unchanged.
+
 ## Observed data and producer
 
 Code addresses are unchanged C1.70 MAS VAs; command/data addresses are board PAs.

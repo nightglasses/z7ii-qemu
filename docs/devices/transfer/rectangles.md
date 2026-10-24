@@ -82,14 +82,14 @@ Exact integer half-open coverage and packed RGBA byte interpretation are
 functional conventions. Scratch slots are paired opaque operands: the model
 does not emulate physical GPU intermediate storage or expose invented scratch
 data. It does not implement a generic GPU command VM or a physical rasterizer.
-This self-contained profile does not establish the old c175d600 RGBA720 or
-YUVA107 continuation contexts; successful execution invalidates those scoped
-context flags instead of applying them to bec5f200.
+The later [shared-context correction](paint.md) establishes the validated clear
+target as the initialized720x480 RGBA profile, also used by paths and images.
+It does not apply that profile to a different target or establish YUVA107 state.
 
 The [continuation extension](continuation.md) now retains this family's own
-initialized profile and expected next key after successful execution. It is
-separate from those older scoped flags and supports omitted initialization
-only with a valid retained profile.
+initialized profile and expected next key after successful execution. This
+key tracks the clear-continuation grammar independently of that shared format/
+clip profile; omitted initialization still requires a valid retained clear key.
 
 ## Native validation and original continuation
 

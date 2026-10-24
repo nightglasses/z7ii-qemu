@@ -800,6 +800,7 @@ static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
         bool stroked = le32_to_cpu(a[0]) == 0x0004f004;
         unsigned aw = stroked ? 29 : 41, bw = stroked ? 31 : 55;
         uint32_t cd, sd, expected_key;
+        uint32_t draw_state[55];
         NikonPathStroke stroke;
 
         if (setup_bytes / 4 - sa == 1 && !a[0]) {
@@ -810,6 +811,17 @@ static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
             (stroked && !matrix)) {
             *reason = "transfer-path-batch-count-not-supported";
             return false;
+        }
+        if (!stroked && le32_to_cpu(b[24]) == 0x01848004) {
+            if (draw_bytes / 4 - da < bw + 2 || b[25]) {
+                *reason = "transfer-path-color-transform-not-supported";
+                return false;
+            }
+            /* Dirty mask 0x20 flushes the independent color-transform byte. */
+            memcpy(draw_state, b, 24 * sizeof(*b));
+            memcpy(draw_state + 24, b + 26, (bw - 24) * sizeof(*b));
+            b = draw_state;
+            bw += 2;
         }
         cd = le32_to_cpu(a[stroked ? 3 : 22]);
         sd = le32_to_cpu(a[stroked ? 7 : 26]);
@@ -1645,6 +1657,7 @@ static bool nikon_transfer_image_initial(const uint32_t *setup,
 
 static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
                                       uint32_t *next_key,
+                                      uint64_t *output,
                                       const char **reason)
 {
     struct {
@@ -1773,6 +1786,7 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
         address_space_unmap(&address_space_memory, destination, mapped,
                             true, mapped);
         *next_key = 0x10000 | ((key - 0x10001 + count) % 0xfffe + 1);
+        *output = target;
     }
     return true;
 }
@@ -1783,6 +1797,7 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
 {
     size_t draw_bytes;
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, NULL);
 
     /* Image and SRC-clear initialization share the same global prefix. */
     if (draw_bytes == 336 || draw_bytes == 472) {
@@ -1796,16 +1811,14 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
          le32_to_cpu(draw[48]) == 0x00a0f02e &&
          le32_to_cpu(draw[52]) == 0x01e002d0)) {
         program->kind = TRANSFER_PROGRAM_RECTANGLES;
-        return nikon_transfer_rectangles(s, false, NULL, reason);
+        return nikon_transfer_rectangles(s, false, NULL, NULL, reason);
     }
 
     if (draw_bytes == 1736 || draw_bytes == 1552) {
         program->kind = TRANSFER_PROGRAM_RGBA_YUV;
         return nikon_transfer_convert_parse(s, program, reason);
     }
-    if (draw_bytes >= 55 * 4 &&
-        (le32_to_cpu(draw[50]) == 0x40002 ||
-         le32_to_cpu(draw[50]) == 0x40102)) {
+    if (draw_bytes >= 55 * 4 && le32_to_cpu(setup[0]) == 0x005ef00e) {
         program->kind = TRANSFER_PROGRAM_PATH_FILL;
         return nikon_transfer_paths_parse(s, NULL, NULL, reason);
     }
@@ -2167,7 +2180,8 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s,
         return false;
     }
     if (parsed.kind == TRANSFER_PROGRAM_RECTANGLES) {
-        return nikon_transfer_rectangles(s, true, rectangle_key, reason);
+        return nikon_transfer_rectangles(s, true, rectangle_key,
+                                         rgba720_target, reason);
     }
     if (parsed.kind == TRANSFER_PROGRAM_RGBA_YUV) {
         if (!nikon_transfer_convert_execute(&parsed, reason)) {
