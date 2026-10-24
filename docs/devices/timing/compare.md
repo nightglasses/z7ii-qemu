@@ -35,14 +35,15 @@ and deasserts output without producing completion.
 
 Second-bank offsets24/28/2C retain enable, polarity, and comparator. Offset30
 returns the clock-derived phase, an explicit virtual result definition. Reads
-have no side effects. The extra feature at38 accepts disable zero, and3C retains
-its full configuration word. Nonzero extra activation, unused34, and result40
-remain unsupported. Invalid widths, geometry, boolean values, and unsupported
-activation are rejected before changing state.
+have no side effects. The [finite extra-feature model](extra.md) adds boolean
+enable38, full-word period budget3C and completed-period result40 across the
+same five channels. Its explicit terminal/result assumptions apply to basic
+and compare operation alike. Unused34 remains unsupported. Invalid widths,
+geometry, boolean values and unsupported combinations reject before mutation.
 
 The native C qtest in `tests/qtest/nikon/timer.c` covers waveform edges,
 pause/resume/disable, divided periodic IRQ, W1C, reset cancellation,
 all five feature geometries, and rejection preserving prior state. It uses a
 synthetic four-byte ARM loop and upstream libqtest; it does not execute firmware
-or establish physical timing. The current12-case focused result is qualified
-in [load.md](load.md); earlier pending/historical receipts retain their scope.
+or establish physical timing. The current20-case focused result is qualified
+in [extra.md](extra.md); earlier receipts retain their scope.

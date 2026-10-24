@@ -5,7 +5,9 @@
  * Periodic wrap, nominal 3GHz input, threshold bit0 and W1C remain functional
  * board conventions; no measured physical clock is claimed.
  * Channels0..4 also expose a nominal compare waveform and period bit4.
- * Extra feature activation remains unsupported; this is not a DMA engine.
+ * Channels0..4 additionally provide a finite period budget. Its result counter,
+ * terminal bit3 and stop behavior are functional conventions, not hardware
+ * measurements; the original single-shot wrapper programs a budget of one.
  * Shared B+4/B+8 supports a once-only initial count for a stopped basic
  * channel, independently of its divider.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -26,13 +28,14 @@ typedef struct NikonTimingChannel {
     QEMUTimer *timer;
     qemu_irq irq;
     uint32_t reset, control, divider, period, status, captured[2], compare;
-    uint32_t extra_config;
+    uint32_t extra_config, extra_result;
     uint64_t ticks;
     int64_t epoch;
     unsigned index;
     bool configured, running;
     bool capture_enabled, capture_level;
     bool compare_enabled, compare_polarity, compare_started;
+    bool extra_enabled;
 } NikonTimingChannel;
 
 struct NikonTimingState {
@@ -60,6 +63,11 @@ static uint64_t nikon_timing_ticks(NikonTimingChannel *c)
 static uint64_t nikon_timing_count(NikonTimingChannel *c)
 {
     return nikon_timing_ticks(c) / (c->divider + 1);
+}
+
+static bool nikon_timing_extra_armed(NikonTimingChannel *c)
+{
+    return c->extra_enabled && (c->control & 8);
 }
 
 static void nikon_timing_irq(NikonTimingChannel *c)
@@ -135,7 +143,9 @@ static void nikon_timing_update(NikonTimingChannel *c)
     bool enabled = !s->reset && s->master &&
                    (s->enabled & (1U << c->index)) && !c->reset &&
                    ((c->control & 1) || c->compare_enabled) &&
-                   c->configured;
+                   c->configured &&
+                   (!nikon_timing_extra_armed(c) ||
+                    c->extra_result < c->extra_config);
 
     if (c->running && !enabled) {
         c->ticks = nikon_timing_ticks(c);
@@ -172,7 +182,21 @@ static void nikon_timing_expire(void *opaque)
     c->status |= c->compare_enabled ? 0x10 : 1;
     c->ticks = ticks % (period * (c->divider + 1));
     c->epoch = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    nikon_timing_schedule(c);
+    if (nikon_timing_extra_armed(c)) {
+        uint64_t completed = MIN(count / period,
+                                c->extra_config - c->extra_result);
+
+        c->extra_result += completed;
+        if (c->extra_result == c->extra_config) {
+            c->status |= 8;
+            c->ticks = 0;
+            c->running = false;
+            timer_del(c->timer);
+        }
+    }
+    if (c->running) {
+        nikon_timing_schedule(c);
+    }
     nikon_timing_irq(c);
     nikon_timing_compare_output(c);
 }
@@ -187,7 +211,8 @@ static void nikon_timing_channel_reset(NikonTimingChannel *c)
     c->capture_enabled = false;
     c->compare_enabled = c->compare_polarity = c->compare_started = false;
     c->compare = 0;
-    c->extra_config = 0;
+    c->extra_config = c->extra_result = 0;
+    c->extra_enabled = false;
     c->captured[0] = c->captured[1] = 0;
     /* Reset changes controller state, never an external pad level. */
     nikon_timing_irq(c);
@@ -205,7 +230,7 @@ static bool nikon_timing_load(NikonTimingState *s, uint32_t mask)
     }
     c = &s->channel[ctz32(mask)];
     if (s->reset || c->reset || c->running || !c->configured ||
-        c->capture_enabled || c->compare_enabled ||
+        c->capture_enabled || c->compare_enabled || c->extra_enabled ||
         s->load_value > c->period) {
         return false;
     }
@@ -299,11 +324,21 @@ static MemTxResult nikon_timing_read_bank(NikonTimingState *s, unsigned bank,
             break;
         }
         break;
-    case 56: case 60:
+    case 56: case 60: case 64:
         if (!bank || c->index > 4) {
             goto error;
         }
-        *value = (offset & 0xff) == 56 ? 0 : c->extra_config;
+        switch (offset & 0xff) {
+        case 56:
+            *value = c->extra_enabled;
+            break;
+        case 60:
+            *value = c->extra_config;
+            break;
+        case 64:
+            *value = c->extra_result;
+            break;
+        }
         break;
     default:
         goto error;
@@ -355,7 +390,8 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
     c = &s->channel[(offset >> 8) - 1];
     switch (offset & 0xff) {
     case 0:
-        if (value & ~((!bank && (c->index == 5 || c->index == 6)) ? 7U : 1U)) {
+        if (value & ~(bank ? 1U : c->index <= 4 ? 9U :
+                      (c->index == 5 || c->index == 6) ? 7U : 1U)) {
             goto error;
         }
         if (bank) {
@@ -393,7 +429,8 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
             c->running = false;
             c->captured[0] = c->captured[1] = 0;
             c->compare_started = false;
-            c->status &= ~0x16U;
+            c->extra_result = 0;
+            c->status &= ~0x1eU;
             nikon_timing_irq(c);
             nikon_timing_compare_output(c);
         } else if (value) {
@@ -450,8 +487,12 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
         c->compare_started = false;
         break;
     case 56:
-        if (!bank || c->index > 4 || value) {
+        if (!bank || c->index > 4 || value > 1) {
             goto error;
+        }
+        c->extra_enabled = value;
+        if (value) {
+            c->extra_result = 0;
         }
         break;
     case 60:
@@ -459,6 +500,7 @@ static MemTxResult nikon_timing_write_bank(NikonTimingState *s, unsigned bank,
             goto error;
         }
         c->extra_config = value;
+        c->extra_result = 0;
         break;
     default:
         goto error;
@@ -552,6 +594,7 @@ static void nikon_timing_class_init(ObjectClass *oc, const void *data)
 
     dc->vmsd = &nikon_timing_vmstate;
     dc->user_creatable = false;
+    dc->unrealize = nikon_timing_reset;
     device_class_set_legacy_reset(dc, nikon_timing_reset);
 }
 

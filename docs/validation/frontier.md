@@ -1,6 +1,30 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; timing extra-feature frontier
+## Timing wait returned; GUI readiness frontier
+
+The [finite timing extra model](../devices/timing/extra.md) now accepts the
+normal channel4 enable/configuration. Its five-channel interface is source-backed;
+completed-period result, terminal bit3 and finite stopping are named functional
+assumptions. All20 timing subtests pass, including reset/unrealize cancellation.
+Parallel two-path targets and [per-record optional prefixes / shared720
+context](../devices/transfer/prefix.md) pass25 transfer subtests. The latter
+removes the rectangle-only cross-batch next-key condition: original A8 tasks
+legitimately consume shared keys7/8 before rectangle9. The final unchanged
+110-second `validated` run completes the formerly rejected1232/1416 pair,
+continues graphics and has no uncovered access; QMP is still running before
+the final read-only snapshot. Channel4 dispatches `410a1805/status9`, calls
+original `1039578c`, returns from the waiter at `1039a408` with R0=1, and
+the guest clears its shared enable. Result40 is1, pending0. These are original
+software-consumption receipts under the functional assumptions, not physical
+terminal-bit/result qualification.
+
+The remaining checkpoint is software readiness: application01/03, primary0,
+manager current3/target5/mode1/state2, BatCk1, and GUI gate/pending3/display-ready0.
+These snapshots do not identify a blocked task; no new MMIO rejection or GUI
+first frame is established. The long delay comes from directory resource31
+field288=`ffffffff`, scaled by500 to`fffffe0c`. Its normal value remains
+unknown and is not replaced. Receipts: `work/runs/timingextra-20261023/`
+(`final`, `integration`, then `validated`).
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57

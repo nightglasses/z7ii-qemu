@@ -107,8 +107,23 @@ panel subtests. Their final unchanged integration repeats the0→8 clear and147
 IRQ129 entries, with the same timing channel4 +38 first error and readiness0.
 The matrix combinations are preemptively native-tested; observer correctness
 does not advance guest conditions. Final receipts: `graphicsstate-20261023`.
-The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
-BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
+The later [timing extra model](../devices/timing/extra.md) passes20 timing
+subtests and accepts original channel4 enable/configuration. Its result counter,
+terminal bit3 and finite stop remain explicit functional assumptions. The
+initial `timingextra-20261023/final` and `integration` runs expose missing
+rectangle prefixes and an overstrict rectangle-only next-key guard. The
+[optional-prefix/shared-context correction](../devices/transfer/prefix.md)
+and explicit two-path RGBA targets pass25 transfer cases. Final `validated`
+original execution continues for110 host seconds without uncovered access,
+completes the1232/1416 batch, and reaches channel4's original
+`410a1805/status9 -> 1039578c -> 1039a408(R0=1)` callback/waiter chain.
+The guest stops the channel normally; result40=1 and pending0. Snapshot
+resource31 field288=`ffffffff`, scaled by500 to`fffffe0c`, explains the long
+request without establishing a normal input value. Manager is
+current3/target5/mode1/state2, application01/03, primary0, BatCk1 and GUI
+gate/pending3/display-ready0. This is an active bounded continuation, not
+proof of a blocked GUI task or a first frame. Selectors5/6 have no input sample
+producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.
 Hypothesized timing does not establish physical TG semantics.
 The earlier return4 and432/616-byte rendering rejection belong to the
