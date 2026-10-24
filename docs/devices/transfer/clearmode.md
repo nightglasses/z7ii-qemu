@@ -89,3 +89,10 @@ alive until controlled cleanup. This does not establish a GUI first frame.
 Receipts: `work/runs/clearmode-20261023/` (source projections, baseline-mode
 join, native red/green, final normal argv/trace/snapshot/streams, jobs and
 progress). The previous actual baseline streams remain in `singletarget-20261023`.
+
+The later integrated cached-matrix and panel-observer changes have23 transfer
+and3 panel native subtests passing. Final original receipts in
+`work/runs/graphicsstate-20261023/` repeat this0→8 job,147 IRQ129 entries,
+the same timing diagnostic and the same readiness snapshot. The new matrix
+combinations have synthetic coverage; no per-combination original execution
+or GUI first frame is inferred from them.

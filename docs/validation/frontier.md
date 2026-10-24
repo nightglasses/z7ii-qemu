@@ -184,11 +184,21 @@ extra-feature enable. Its producer/configuration/result semantics need the
 next investigation. The last176/1552 graphics pair completed normally.
 Application01/03, primary0, BatCk00010001 and GUI gate/pending3/display-ready0
 remain the final snapshot. A fixture or completion is not a GUI first frame.
+The final integration also contains the[preemptive YUV cached-matrix extension](../devices/transfer/overwrite.md)
+and[complete panel-frame comparison](../devices/panel/protocol.md), validated
+by23 transfer and3 panel subtests. The232 new matrix variants are native-only
+combinations; retained active matrices remain strict. Panel correction prevents
+missed observed pixel changes and supplies no guest readiness. Final original
+execution repeats the same0→8 clear,147 subsequent IRQ129 entries and the
+same timing first error with the same readiness snapshot. BankB channel4 +38
+must be investigated with its +3c configuration, +40 getter and control.bit3
+event semantics together; no enabled result/event binding is established.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `clearmode-20261023`; `singletarget-20261023`, `imageprefix-20261023`,
+Latest original receipts are in `graphicsstate-20261023`, native receipts in
+`clearmode-20261023`; `singletarget-20261023`, `imageprefix-20261023`,
 `convertpaint-20261023`, `paintmask-20261023`, `matrixoverwrite-20261023`,
 `guipaths-20261023`, `guiimage-20261023`, `rgbaover-20261023`,
 `rectanglecontinuation-20261023`,

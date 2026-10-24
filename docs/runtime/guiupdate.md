@@ -101,6 +101,12 @@ graphics. The first new diagnostic is CPU0 PC1036e9a8, WRITE32 PA2c011538=1,
 `timing-access-or-feature-not-supported`, bankB channel4 extra-feature enable.
 The final176/1552 graphics pair completes normally. Application01/03, primary0
 and GUI readiness0 remain the final snapshot.
+Parallel[source-backed YUV matrix combinations](../devices/transfer/overwrite.md)
+and[panel observation](../devices/panel/protocol.md) now pass23 transfer and3
+panel subtests. Their final unchanged integration repeats the0→8 clear and147
+IRQ129 entries, with the same timing channel4 +38 first error and readiness0.
+The matrix combinations are preemptively native-tested; observer correctness
+does not advance guest conditions. Final receipts: `graphicsstate-20261023`.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

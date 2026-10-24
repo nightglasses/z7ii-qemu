@@ -164,6 +164,13 @@ mode0 before final8, while its historical profile requires temporary8. The
 in both105/107 clears;22 transfer subtests pass. Original execution completes
 that clear and147 IRQ129 entries through later graphics, then encounters
 timing channel4 extra-feature enable at PA2c011538. GUI readiness remains0.
+Parallel work extends the[source-backed cached-matrix rule](docs/devices/transfer/overwrite.md)
+to initialized105/107 clears/converters, including232 native variants and
+strict retained active matrices. The transfer batch now passes23 subtests.
+The[panel observer](docs/devices/panel/protocol.md) now compares every visible
+pixel, fixing missed updates outside sampled row starts;3 panel subtests pass.
+Final unchanged integration again reaches the same timing boundary. The
+preemptive matrix cases and observer correction do not establish a GUI first frame.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.

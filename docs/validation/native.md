@@ -1,5 +1,18 @@
 # Native GUI integration
 
+Parallel graphics validation extends the[cached matrix contract](../devices/transfer/overwrite.md)
+to initialized105/107 clears and converters:232 new variants, with the full
+transfer batch passing23 subtests in1.95s after the old-model red. Retained
+active matrices remain checked. The[panel observer correction](../devices/panel/protocol.md)
+reproduces the missed internal pixel update, then passes3 subtests in0.51s
+for whole-frame updates and console/timer lifecycle. Its intermediate fixture
+API assertion and corrected final run are recorded separately. The final
+unchanged integration, with all three changes, repeats the0→8 clear and147
+IRQ129 entries before timing PA2c011538=1; GUI readiness remains0. Native
+receipts are in `clearmode-20261023`, final original receipts in
+`work/runs/graphicsstate-20261023/`. Preemptive raw matrix combinations have
+native coverage; the observer fixture does not claim guest progress.
+
 The[clear temporary-mode model](../devices/transfer/clearmode.md) passes all22
 transfer subtests in1.67s after a native temporary0 red. Its clear fixture
 has40 variants,12 new: both105/1070/8 cases, full planes/guards, state/header/
