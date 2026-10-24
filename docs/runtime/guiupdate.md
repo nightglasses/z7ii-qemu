@@ -84,9 +84,15 @@ matrix and color-transform-disable prefixes. The [image prefix model](../devices
 now supports those two prefixes independently and validates the unchanged image
 body. All21 transfer subtests pass. Original execution completes ten216/344
 jobs and later graphics, reaching application01/03 and primary request0.
-The current CPU0 PC106ee3c6 WRITE32 PA201810e0=1 rejects176/368 with
+That run's CPU0 PC106ee3c6 WRITE32 PA201810e0=1 rejects176/368 with
 `transfer-stream-program-not-supported`: single-clear target bec5f200 differs
-from the historical c175d600 restriction. GUI readiness remains0.
+from the historical c175d600 restriction. The[target contract](../devices/transfer/target.md)
+now joins that operand to the current allocation object and validates the
+complete output span. All22 transfer subtests pass. Original execution
+completes the record0 rectangle and two subsequent jobs, then rejects224/1648
+YUVA107 at temporary01841004=0 before final8. An isolated read-only before/IRQ
+comparison verifies all active record0 pixels and the unchanged slot tail.
+Application remains01/03, primary0 and GUI readiness0.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

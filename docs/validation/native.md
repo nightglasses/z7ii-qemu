@@ -1,5 +1,18 @@
 # Native GUI integration
 
+The[initialized SRC_OVER target model](../devices/transfer/target.md) passes
+all22 transfer subtests in1.12s after a native record0 red. Reused tests cover
+49 variants at each of five targets, including0 and an exact4GiB endpoint;
+the four new targets contribute196 variants. They compare independent full
+pixels/tails/guards, retained/replaced/foreign/failed context, whole-output
+range and alias boundaries, immutable capture and deferred cancellation.
+Separate normal original execution completes the record0 rectangle and two
+subsequent jobs, then rejects224/1648 YUVA107 at temporary mode0 before final8.
+A separately scoped debugger-paused original run verifies every active pixel
+at IRQ129 and an unchanged slot tail. Application01/03, primary0 and GUI
+readiness0 remain final snapshots, not first-frame evidence.
+Receipts: `work/runs/singletarget-20261023/`.
+
 The [retained image prefix model](../devices/transfer/prefix.md) passes all21
 transfer subtests in1.38s after a native216/344 red. Its77 variants cover both
 independent prefixes and all prior modes, unused raw matrix values, whole

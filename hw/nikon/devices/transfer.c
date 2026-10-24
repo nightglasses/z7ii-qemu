@@ -502,7 +502,7 @@ static const NikonTransferField rgba_draw_fields[] = {
     { 101, 0x00081004 }, { 102, 1 },
 };
 
-/* Captured 176/368-byte program: one full 720x480 rectangle, record7. */
+/* Initialized 176/368-byte program: one rectangle in an explicit RGBA target. */
 static const NikonTransferField rgba_single_setup_fields[] = {
     { 0, 0x00691004 }, { 1, 0x80 },
     { 2, 0x005ef00e }, { 3, 0x3f800000 },
@@ -534,7 +534,7 @@ static const NikonTransferField rgba_single_draw_fields[] = {
     { 22, 0x01a04004 }, { 23, 0x00010000 },
     { 24, 0x01841004 }, { 26, 0x01842004 },
     { 28, 0x01a02004 }, { 30, 0x01a29004 },
-    { 32, 0x01a4f004 }, { 33, 0xc175d600 },
+    { 32, 0x01a4f004 },
     { 34, 0x01a51004 }, { 35, 1 }, { 36, 0x01a74004 },
     { 38, 0x01401004 }, { 40, 0x014df004 }, { 42, 0x014df004 },
     { 44, 0x00c0f00e }, { 45, 0x02cf0000 }, { 46, 0x01df0000 },
@@ -685,7 +685,7 @@ static bool nikon_transfer_rgba_fingerprint(const uint32_t *words,
         }
         if ((!draw && (i == 22 || i == 26 || i == 34 || i == 48)) ||
             (draw && (i == 80 || (!single && i == 91) ||
-                      (single && i == 76)))) {
+                      (single && (i == 33 || i == 76))))) {
             continue;
         }
         /*
@@ -1187,9 +1187,14 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
         return false;
     }
 
-    target = single ? 0xc175d600 : TRANSFER_RGBA_TARGET;
+    /* 1064609a emits 1a4 from the current context's allocation object. */
+    target = single ? le32_to_cpu(draw[33]) : TRANSFER_RGBA_TARGET;
     target_bytes = single ? 4 * 720 * 480 : TRANSFER_RGBA_TARGET_BYTES;
     active_offset = single ? 0 : TRANSFER_RGBA_ACTIVE_OFFSET;
+    if ((uint64_t)target + target_bytes > (1ULL << 32)) {
+        *reason = "transfer-stream-range-overflow";
+        return false;
+    }
     input[0] = s->stream[0].source;
     input_bytes[0] = setup_bytes;
     input[1] = s->stream[1].source;
@@ -1216,7 +1221,8 @@ static bool nikon_transfer_rgba_parse(NikonTransferState *s,
             }
         }
     }
-    if (nikon_transfer_span(target, target_bytes, true) < target_bytes ||
+    if ((target & 3) ||
+        nikon_transfer_span(target, target_bytes, true) < target_bytes ||
         (input[3] & 3) ||
         !nikon_transfer_range(input[2], input_bytes[2], false) ||
         !nikon_transfer_range(input[3], input_bytes[3], false)) {

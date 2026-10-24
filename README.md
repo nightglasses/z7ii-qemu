@@ -154,6 +154,12 @@ independently, with all21 transfer subtests passing. Original execution complete
 ten prefixed images and later work, reaching a176/368 RGBA clear whose target
 bec5f200 differs from the old single-clear profile's c175d600 restriction.
 Application bytes are01/03 and primary request0 at that checkpoint.
+The [initialized target contract](docs/devices/transfer/target.md) now accepts
+the explicit validated720x480 RGBA target, with22 transfer subtests passing.
+Original execution completes that record0 rectangle and two subsequent jobs;
+a separate read-only before/IRQ comparison verifies all active pixels and
+the unchanged slot tail. The next224/1648 YUVA107 clear rejects at temporary
+mode0 before final8, while its historical profile requires temporary8.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.

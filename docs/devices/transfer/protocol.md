@@ -36,10 +36,17 @@ conversions and later graphics work. The [image prefix model](prefix.md)
 then supports independently optional cached matrix and color-transform-disable
 prefixes on retained A8 images, preserving target context and active-state
 checks. All21 transfer subtests pass, including the shared-header LUT boundary.
-Original execution completes ten216/344 jobs and later work. The next CPU0
+Original execution completes ten216/344 jobs and later work. That run's CPU0
 PC106ee3c6 WRITE32 PA201810e0=1 rejects176/368 with
 `transfer-stream-program-not-supported`: its single-clear target is bec5f200,
-while the historical profile requires c175d600.
+while the historical profile requires c175d600. The[initialized target model](target.md)
+now validates the explicit target span and retains it only after successful
+output. All22 transfer subtests pass. Original execution completes that
+record0 job and two subsequent jobs; an isolated before/IRQ snapshot verifies
+the active pixels and untouched slot tail. The current first rejection is
+224/1648 YUVA107 at the same START store: temporary01841004=0 differs from
+the clear profile's8, before the unchanged final8 write. Application01/03
+and primary request0 remain the final state.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 
@@ -403,19 +410,24 @@ finite single-path extension below.
 
 ### Finite720x480 single-path clear
 
-The model also accepts the captured176-byte setup/368-byte draw pair with
-format0 RGBA8888, extent720x480, clip719/479, mode8, paint `ff000000`, state108,
-one path key `10001` and one trigger. Target `c175d600` is fixed to resource57
-record7; its physical display identity is unestablished. The shared DMA/path
-validation requires segments `02 07 09 07 00` and float32 coordinates
-`(0,0,720,480,-720)`. The path operand at setup34 must be nonzero and echo at
+The model accepts the176-byte setup/368-byte draw pair with format0 RGBA8888,
+extent720x480, clip719/479, mode8, state108, one path key `10001` and one
+trigger. The initial capture uses paint `ff000000` and record7 target
+`c175d600`. The later[SRC_OVER extension](over.md) permits packed paint and
+a positive closed axis-aligned float rectangle, while the[target model](target.md)
+treats1a4 as an explicit operand: four-byte aligned, wholly within4GiB and
+fully backed by one direct writable RAM span. All inputs are checked for raw
+overlap and backing aliases with the whole output. Physical display identity
+remains unestablished. Segments stay `02 07 09 07 00`; the original coordinates
+are `(0,0,720,480,-720)`. The path operand at setup34 must be nonzero and echo at
 draw80. Draw91 is the fixed ending operand1, not a second dynamic path operand.
 All other headers, fields, ordering and zeros match this separate finite table.
 Initial draw25 is0/8, with draw60=8 still mandatory. Crossed profile lengths,
-other formats/geometry/clips/colors/targets, bad endings, unknown state and
+other formats/extent/clips, unsafe targets, bad endings, unknown state and
 invalid path/range/overlap reject without completion.
 
-The existing deferred RGBA executor writes `00 00 00 ff` to precisely
+At the original single-clear checkpoint, the deferred RGBA executor writes
+`00 00 00 ff` to precisely
 `[c175d600,c18aee00)`,151800 hex bytes, without a six-row offset. Resource57's
 record7 slot ends at `c1c0d600`; its remaining tail is untouched. Native
 fixtures compare every output byte, both guard regions and the full slot tail,
@@ -435,9 +447,10 @@ format/extent/clip initialization and uses the bounded continuation below.
 ### Finite gray continuation and retained context
 
 Successful completion of the full720x480 profile establishes a finite known
-context: format0, target `c175d600`, extent720x480, clip719/479 and its remaining
-fixed state. This is represented by one validity bit, not a generic register
-bank. Completion publishes it only after successful DMA execution; ACK and
+context: format0, the actual validated target, extent720x480, clip719/479 and
+its remaining fixed state. Retained work must match that target; the
+out-of-domain no-context sentinel preserves legal address0. Completion
+publishes it only after successful DMA execution; ACK and
 ordinary stream ownership changes retain it. Successful gray continuation
 retains it too. Reset/unrealize, rejected complete programs, execution failure
 or completion of the LUT/YUV/1024-wide profiles invalidate it. A canceled or

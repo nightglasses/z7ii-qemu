@@ -6,7 +6,9 @@ disable prefixes on the retained image body, using the existing rasterizer and
 sampler. All21 transfer native subtests pass. Original execution completes ten
 prefixed images and later work, then reaches a176/368-byte RGBA clear targeting
 bec5f200. Application bytes change to01/03 and primary request0, but GUI gate,
-pending3 and display-ready remain0; no GUI first frame is established.
+pending3 and display-ready remain0; no GUI first frame is established. The
+later[target model](target.md) crosses that176/368 record0 restriction; see
+the[current frontier](../../validation/frontier.md).
 
 ## Direct observations and upstream producers
 
@@ -125,8 +127,9 @@ Its indirect segments are02 07 09 07 00 and float32 coordinates
 The fixed-field comparison with the existing single-clear profile has one
 difference: draw target word33 is bec5f200 rather than the historical c175d600
 restriction. The existing temporary mode8 allowance already matches this job.
-Generalizing this target and the associated context/output contract needs the
-next producer/ownership validation; this packet is captured but not accepted.
+That checkpoint captured but did not accept the packet. The subsequent
+[producer/ownership validation](target.md) now generalizes the initialized
+target and verifies record0 output through the original IRQ.
 
 Receipts: `work/runs/imageprefix-20261023/`, including native red/prefix/
 dispatch-red/final logs; original baseline, unsuccessful green and final argv,

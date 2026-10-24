@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; single-clear target frontier
+## Normal display request accepted; YUVA107 clear mode frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -154,18 +154,35 @@ All21 transfer subtests pass in1.38s, including77 new-prefix variants and a
 shared-header LUT collision regression. Original execution completes ten216/344
 images and69 IRQ129 entries from the first one through later work. Its final
 application bytes are01/03, primary request0 and BatCk00010001; GUI gate,
-pending3 and display-ready remain0. The current first rejection is CPU0
+pending3 and display-ready remain0. That run's first rejection is CPU0
 PC106ee3c6, WRITE32 PA201810e0=1, `transfer-stream-program-not-supported`, on
 176/368 at bd0dff90/bd15ff90. Its indirect segments02/07/09/07/00 and float
 coordinates(0,0,720,480,-720) describe a full identity black SRC_OVER rectangle.
 The only fixed-field difference from the old single-clear profile is target
-word33: bec5f200 instead of c175d600. General target/context/output validation
-is the next investigation. A fixture or completion is not a GUI first frame.
+word33: bec5f200 instead of c175d600. The[target contract](../devices/transfer/target.md)
+now joins the operand to the current context's allocation object, admitting
+independently validated complete720x480 RGBA spans. All22 transfer subtests
+pass in1.12s, including196 variants at four new targets plus the existing
+record7 coverage. Normal original execution completes that176/368 and later
+232/416 and224/1648 jobs through IRQ129. An isolated read-only before/IRQ
+comparison verifies all345600 active record0 pixels become opaque black,
+with336004 changed pixels and the whole slot tail unchanged. The normal run's
+later record0 snapshot is all zero; it is not an isolated post-job image.
+The current first rejection remains CPU0 PC106ee3c6, WRITE32 PA201810e0=1,
+`transfer-stream-program-not-supported`, now on224/1648 at bd0dff90/bd15ff90.
+It is a format107 clear into cb4a7000/cb5fc000, allocation1024x688 and an
+inline1024x682 rectangle starting at y6. The only fixed-field difference is
+temporary draw word66,01841004=0 instead of8; final word389 still writes8.
+That producer/overwrite contract is the next investigation. Application01/03,
+primary0, BatCk00010001 and GUI gate/pending3/display-ready0 remain the final
+snapshot. A fixture or completion is not a GUI first frame.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.
 No2c/30 router execution is claimed; their contract is native-tested only.
-Latest receipts are in `guipaths-20261023`; `guiimage-20261023`, `rgbaover-20261023`,
+Latest receipts are in `singletarget-20261023`; `imageprefix-20261023`,
+`convertpaint-20261023`, `paintmask-20261023`, `matrixoverwrite-20261023`,
+`guipaths-20261023`, `guiimage-20261023`, `rgbaover-20261023`,
 `rectanglecontinuation-20261023`,
 `ramalignment-20261023`,
 `graphicscommands-20261023`,

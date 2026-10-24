@@ -7,6 +7,12 @@ unchanged-firmware rejection is a separate224/472-byte pair. The later
 [image context model](image.md) crosses it; see the [current frontier](../../validation/frontier.md).
 No GUI first frame is established.
 
+The later [target contract](target.md) removes the record7-only restriction
+from this fully initialized family. A validated explicit720x480 RGBA target
+may establish or replace context; retained commands must match it. Original
+record0 execution and an isolated whole-slot before/IRQ comparison now verify
+that extension. The observations and16-case receipt below retain their scope.
+
 ## Observed data and producer
 
 Code addresses are unchanged C1.70 MAS VAs; data addresses below are board PAs.
@@ -38,13 +44,14 @@ distinct from the inline SRC clear producer `1068bd90`.
 
 Only the existing single-path 176/368 family gains variable packed paint
 and a positive closed axis-aligned float rectangle. Exact command grammar,
-identity transform, target, format, full clip, matched keys, echoed operands,
+identity transform, format, full clip, matched keys, echoed operands,
 scratch fields and endings remain checked. The five segments remain fixed.
 Coordinates use the existing path validator's finite ±4096 input and ±8192
 transformed bounds; fractional, clipped and wholly offscreen rectangles are
 valid. Coordinate alignment, complete RAM extents, raw overlaps and effective
 backing aliases of all four inputs with the target are checked before DMA.
-The older 232/416 double-path shape and opaque black paint stay fixed.
+The older 232/416 double-path shape and opaque black paint stay fixed. The
+single-path target is now checked as described in[target.md](target.md).
 
 The shared rasterizer supplies Cairo A8 coverage. For source alpha As,
 coverage M and destination alpha Ad, define integer weights:

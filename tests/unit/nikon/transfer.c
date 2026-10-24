@@ -1090,7 +1090,8 @@ static void test_rgba_clear_profile(bool single)
             memcpy(surface_data + 4, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
             break;
         case TARGET_FIELD:
-            stl_le_p(command_data + 0x1000 + 33 * 4, target + 4);
+            stl_le_p(command_data + 0x1000 + 33 * 4,
+                     single ? target + slot - extent + 8 : target + 4);
             break;
         case INITIAL_UNKNOWN:
             stl_le_p(command_data + 0x1000 + 25 * 4, 0x18);
@@ -3285,21 +3286,25 @@ static uint32_t rgba_over_reference(uint32_t paint, uint32_t destination,
     return result;
 }
 
-static void test_rgba_over(void)
+static void test_rgba_over_target(uint32_t target)
 {
-    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
+    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4 };
     enum { SUCCESS, OPAQUE_DEST, PARTIAL_DEST, COLORED, ALPHA_GRID,
            ZERO_SOURCE, OPAQUE_SOURCE, FRACTIONAL, CLIPPED, OFFSCREEN,
-           REPEAT, CONTINUE, NAN_COORD, INF_COORD, BOUND, WIDTH_ZERO,
+           REPEAT, CONTINUE, PRIOR_CONTEXT, FULLSCREEN, NAN_COORD, INF_COORD,
+           BOUND, WIDTH_ZERO,
            HEIGHT_NEGATIVE, CLOSURE, SEGMENT, MATRIX, BLEND, FORMAT,
            GEOMETRY, CLIP, COORD_ALIGN, COORD_RANGE, RAW_OVERLAP,
-           COORD_ALIAS, COMMAND_ALIAS, READONLY, DATA_CHANGE, MAP_LOSS,
+           COORD_ALIAS, COMMAND_ALIAS, READONLY, TARGET_ALIGN, TARGET_OVERFLOW,
+           TARGET_RANGE, TARGET_SHORT, FOREIGN_CONTEXT, DATA_CHANGE, MAP_LOSS,
            PATH_CHANGE, RESET, CANCEL, CASES };
     static const unsigned alphas[] = { 0, 1, 51, 127, 128, 204, 254, 255 };
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
     MemoryRegion commands, surface, alias, command_alias;
     MemoryRegion *root = get_system_memory();
     uint8_t *data, *pixels;
+    unsigned prefix = target ? 4 : 0;
+    unsigned guards = target ? SLOT + 8 : EXTENT + 8;
 
     object_property_add_child(object_get_objects_root(), "transfer-over[*]",
                               OBJECT(f.dev));
@@ -3307,14 +3312,14 @@ static void test_rgba_over(void)
         "test.over-command", 0x20000, 0, &error_abort);
     memory_region_add_subregion(root, 0x400000, &commands);
     memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
-        "test.over-surface", GUARDS, 0, &error_abort);
-    memory_region_add_subregion(root, 0xc175d600 - 4, &surface);
+        "test.over-surface", guards, 0, &error_abort);
+    memory_region_add_subregion(root, target - prefix, &surface);
     memory_region_init_alias(&alias, OBJECT(f.dev), "test.over-alias",
-                            &surface, 4 + 0x10000, 32);
+                            &surface, prefix + 0x10000, 32);
     memory_region_add_subregion(root, 0x500000, &alias);
     memory_region_init_alias(&command_alias, OBJECT(f.dev),
                             "test.over-command-alias", &surface,
-                            4 + 0x20000, 0x20000);
+                            prefix + 0x20000, 0x20000);
     data = memory_region_get_ram_ptr(&commands);
     pixels = memory_region_get_ram_ptr(&surface);
     f.irq = qemu_allocate_irq(irq_level, &f, 0);
@@ -3326,16 +3331,29 @@ static void test_rgba_over(void)
         for (unsigned phase = 0; phase < phases; phase++) {
             float rectangle[] = { 91, 158, 537, 164, -537 };
             uint32_t paint = 0xcc000000;
-            bool complete = test <= CONTINUE || test == DATA_CHANGE;
+            bool complete = test <= FULLSCREEN || test == FOREIGN_CONTEXT ||
+                            test == DATA_CHANGE;
             bool accepted = complete || test >= MAP_LOSS;
             g_autofree uint8_t *before = NULL;
             g_autofree uint8_t *expected = NULL;
 
-            g_test_message("RGBA over case %u/%u", test, phase);
+            g_test_message("RGBA target %08x case %u/%u", target, test, phase);
             device_cold_reset(f.dev);
             memset(data, 0, 0x20000);
-            memset(pixels, 0xa5, GUARDS);
-            memset(pixels + 4, 0, EXTENT);
+            if (test == PRIOR_CONTEXT) {
+                build_rgba_program(data, data + 0x1000,
+                                   0x402100, 0x402000, true);
+                stl_le_p(data + 0x1000 + 33 * 4, target ? target - 4 : 4);
+                memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+                path_floats(data + 0x2100,
+                            (float[]) { 0, 0, 720, 480, -720 }, 5);
+                g_assert_cmpint(submit_rgba(&f, 176, 368), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+            memset(pixels, 0xa5, guards);
+            memset(pixels + prefix, 0, EXTENT);
             if (test == COLORED || test == FRACTIONAL || test == CLIPPED) {
                 paint = 0x80c08040;
             } else if (test == ALPHA_GRID) {
@@ -3351,6 +3369,9 @@ static void test_rgba_over(void)
                 memcpy(rectangle, (float[]) { -2, 478, 5, 4, -5 }, 20);
             } else if (test == OFFSCREEN) {
                 rectangle[0] = 800;
+            } else if (test == FULLSCREEN) {
+                memcpy(rectangle, (float[]) { 0, 0, 720, 480, -720 }, 20);
+                paint = 0xff000000;
             }
             for (unsigned p = 0; p < EXTENT / 4; p++) {
                 uint32_t background = 0;
@@ -3365,12 +3386,16 @@ static void test_rgba_over(void)
                     background = alphas[p % ARRAY_SIZE(alphas)] << 24 |
                                  (0x00e02040 ^ (p * 0x010305 & 0xffffff));
                 }
-                stl_le_p(pixels + 4 + p * 4, background);
+                stl_le_p(pixels + prefix + p * 4, background);
             }
             build_rgba_program(data, data + 0x1000, 0x402100, 0x402000, true);
             memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
             path_floats(data + 0x2100, rectangle, 5);
             stl_le_p(data + 0x1000 + 76 * 4, paint);
+            stl_le_p(data + 0x1000 + 33 * 4, target);
+            if (test == FULLSCREEN) {
+                stl_le_p(data + 0x1000 + 25 * 4, 8);
+            }
             switch (test) {
             case NAN_COORD: stl_le_p(data + 0x2100, 0x7fc00000); break;
             case INF_COORD: stl_le_p(data + 0x2104, 0x7f800000); break;
@@ -3390,20 +3415,30 @@ static void test_rgba_over(void)
                 memmove(data + 0x2101, data + 0x2100, 20);
                 stl_le_p(data + 22 * 4, 0x402101); break;
             case COORD_RANGE: stl_le_p(data + 22 * 4, 0x600000); break;
-            case RAW_OVERLAP: stl_le_p(data + 22 * 4, 0xc175d600); break;
+            case RAW_OVERLAP: stl_le_p(data + 22 * 4, target); break;
             case COORD_ALIAS:
-                memcpy(pixels + 4 + 0x10000, data + 0x2100, 20);
+                memcpy(pixels + prefix + 0x10000, data + 0x2100, 20);
                 stl_le_p(data + 22 * 4, 0x500000); break;
             case COMMAND_ALIAS:
-                memcpy(pixels + 4 + 0x20000, data, 0x20000);
+                memcpy(pixels + prefix + 0x20000, data, 0x20000);
                 memory_region_del_subregion(root, &commands);
                 memory_region_add_subregion(root, 0x400000, &command_alias);
                 break;
             case READONLY: memory_region_set_readonly(&surface, true); break;
+            case TARGET_ALIGN:
+                stl_le_p(data + 0x1000 + 33 * 4, target + 1); break;
+            case TARGET_OVERFLOW:
+                stl_le_p(data + 0x1000 + 33 * 4, UINT32_MAX - EXTENT + 5);
+                break;
+            case TARGET_RANGE:
+                stl_le_p(data + 0x1000 + 33 * 4, 0x700000); break;
+            case TARGET_SHORT:
+                stl_le_p(data + 0x1000 + 33 * 4, target + SLOT - EXTENT + 8);
+                break;
             default: break;
             }
-            before = g_memdup2(pixels, GUARDS);
-            expected = g_memdup2(pixels, GUARDS);
+            before = g_memdup2(pixels, guards);
+            expected = g_memdup2(pixels, guards);
             for (unsigned y = 0; y < 480; y++) {
                 for (unsigned x = 0; x < 720; x++) {
                     unsigned coverage = test == FRACTIONAL ?
@@ -3412,7 +3447,7 @@ static void test_rgba_over(void)
                         x >= rectangle[0] && x < rectangle[0] + rectangle[2] &&
                         y >= rectangle[1] && y < rectangle[1] + rectangle[3] ?
                         255 : 0;
-                    uint8_t *p = expected + 4 + (y * 720 + x) * 4;
+                    uint8_t *p = expected + prefix + (y * 720 + x) * 4;
 
                     stl_le_p(p, rgba_over_reference(paint, ldl_le_p(p), coverage));
                     if (test == REPEAT) {
@@ -3424,7 +3459,7 @@ static void test_rgba_over(void)
             g_assert_cmpint(submit_rgba(&f, 176, 368), ==,
                             accepted ? MEMTX_OK : MEMTX_ERROR);
             g_assert_false(f.level);
-            g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+            g_assert_cmpmem(pixels, guards, before, guards);
             if (test == COMMAND_ALIAS) {
                 memory_region_del_subregion(root, &command_alias);
                 memory_region_add_subregion(root, 0x400000, &commands);
@@ -3452,21 +3487,34 @@ static void test_rgba_over(void)
                     g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
                 }
             }
-            g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
-            if (test == CONTINUE) {
+            g_assert_cmpmem(pixels, guards, complete ? expected : before, guards);
+            if (test == CONTINUE || test == PRIOR_CONTEXT ||
+                test == FOREIGN_CONTEXT || test == PATH_CHANGE ||
+                test == MAP_LOSS || test == RESET) {
+                bool retained = test == CONTINUE || test == PRIOR_CONTEXT;
+
                 build_rgba_gray_program(data, data + 0x1000);
+                stl_le_p(data + 0x1000 + 13 * 4,
+                         test == FOREIGN_CONTEXT ? target + 4 : target);
                 path_floats(data + 0x2100,
                             (float[]) { 96, 86, 528, 308, -528 }, 5);
-                g_assert_cmpint(submit_rgba(&f, 168, 232), ==, MEMTX_OK);
+                g_assert_cmpint(submit_rgba(&f, 168, 232), ==,
+                                retained ? MEMTX_OK : MEMTX_ERROR);
                 advance();
-                g_assert_true(f.level);
-                for (unsigned y = 86; y < 394; y++) {
-                    for (unsigned x = 96; x < 624; x++) {
-                        stl_le_p(expected + 4 + (y * 720 + x) * 4, 0xffb4b4b4);
+                g_assert_cmpint(f.level, ==, retained);
+                if (retained) {
+                    for (unsigned y = 86; y < 394; y++) {
+                        for (unsigned x = 96; x < 624; x++) {
+                            stl_le_p(expected + prefix + (y * 720 + x) * 4,
+                                     0xffb4b4b4);
+                        }
                     }
                 }
-                g_assert_cmpmem(pixels, GUARDS, expected, GUARDS);
-                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                g_assert_cmpmem(pixels, guards, complete ? expected : before,
+                                guards);
+                if (retained) {
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                }
             }
         }
     }
@@ -3478,6 +3526,22 @@ static void test_rgba_over(void)
     object_unref(OBJECT(f.dev));
     drain_call_rcu();
     qemu_free_irq(f.irq);
+}
+
+static void test_rgba_over(void)
+{
+    test_rgba_over_target(0xc175d600);
+}
+
+static void test_rgba_targets(void)
+{
+    static const uint32_t targets[] = {
+        0xbec5f200, 0, 0x800004, 0xffeae800,
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(targets); i++) {
+        test_rgba_over_target(targets[i]);
+    }
 }
 
 static void build_initialized_image(uint8_t *setup, uint8_t *draw,
@@ -4494,6 +4558,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rectangle-continuation",
                     test_rectangle_continuation);
     g_test_add_func("/nikon/transfer/rgba-over", test_rgba_over);
+    g_test_add_func("/nikon/transfer/rgba-targets", test_rgba_targets);
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
     g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
