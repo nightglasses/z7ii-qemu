@@ -59,6 +59,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
   'components/exconfig.c',
   'devices/dispatcher.c',
+  'devices/ccomp.c',
   'devices/banks.c',
   'devices/panel.c',
   'peers/i2c.c',
