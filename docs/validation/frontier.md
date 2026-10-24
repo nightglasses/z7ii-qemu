@@ -86,6 +86,23 @@ threshold statistics. Source ownership/data remain unknown; no samples are
 fabricated. Record-generation completion is not established. QMP remains
 debug/stopped with no display console, so normal GUI output is still unverified.
 
+The [grid storage investigation](../runtime/grid.md) establishes kind18's
+six12000-hex units over PA`[5d170000,5d1dc000)`, identity guest mapping and
+the endpoint1 output route. Geometry comes from firmware ROM; samples are
+intended capture output, with statistics DMA still unimplemented. The model
+supplies the complete pool with explicit cold-zero RAM semantics. Old-model
+red is followed by all30 memory cases green, with all six units independently
+DMA-tested through reset and exact byte edges kept uncovered.
+
+Unchanged `gridstorage-20261024/verified` again compares all six COPY ranges,
+records guard0/property6433 empty and returns from`1024feb6` to`10253caa`.
+Original software computes mean0 and central low-threshold count140 from the
+assumed initial zeros. The next first error is CPU0 PC`10208e14`, READ32
+PA`2006bb70`, on `1023aed8 -> 10239dc6(force0,LR1023afb7)`. The earlier
+commit/run has invalidated the cold-empty result packet; no later result
+producer is invented. QMP is debug/stopped with no display console. This
+qualifies storage continuation, not captured statistics or normal GUI output.
+
 ## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual

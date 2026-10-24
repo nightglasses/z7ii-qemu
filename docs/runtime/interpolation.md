@@ -78,7 +78,10 @@ The first new rejection is CPU1 PC`1024ffda`, READ16 PA`5d170000`.
 `1024feb6` reads a descriptor-selected16-bit grid, expands samples into
 32-bit output words and computes threshold counts/mean over a central area.
 Its source pointer's producer, ownership, complete bounds and required data
-remain the next investigation; zero samples are not supplied by this change.
+were the next investigation at this checkpoint; zero samples were not supplied
+by this change. The later [grid pool model](grid.md) resolves storage and its
+configured endpoint route, while explicitly separating assumed cold RAM
+zeros from the still-unimplemented statistics DMA producer.
 QMP reports debug/stopped, with neither display head bound to a console.
 This is functional-input/model progress, not normal GUI output or complete
 boot. Raw source, traces, old-model failure, native batch and input comparison
