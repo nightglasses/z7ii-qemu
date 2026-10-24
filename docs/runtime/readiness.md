@@ -64,8 +64,11 @@ is not an operation number accepted by `104a94fe`, whose domain is0..15.
 The subsequent [cold-neutral resource80 profile](../inputs/nor/virtual.md)
 now passes this guard through the original loader. In the unchanged
 `capturebanks-20261024/neutral` run, packed version150 returns0 at
-`102d7254` and property6433 is empty before the next uncovered PA`2006b800`
-configuration write. This closes the ID68 condition for the declared cold
+`102d7254` and property6433 is empty. The later unchanged
+`capturegroup-20261024/green` run confirms those results after crossing the
+[PA`2006b800` configuration group](../devices/capturegroup/protocol.md). It now stops
+at PC`10208e14`, READ32 PA`2006bb70`, consuming the old result packet before
+the group's shared commit/run. This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.
 

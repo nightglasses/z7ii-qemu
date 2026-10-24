@@ -1134,6 +1134,13 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(banks), 1, 0x2006be00);
     }
     {
+        DeviceState *group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
+
+        object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
+    }
+    {
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
             [NIKON_READOUT_BUFFERS] = 0x20069800,
             [NIKON_READOUT_PARAMETERS] = 0x2006b000,

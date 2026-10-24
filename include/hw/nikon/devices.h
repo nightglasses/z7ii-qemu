@@ -18,6 +18,7 @@
 #define TYPE_NIKON_CCOMP "nikon-ccomp-functional"
 #define TYPE_NIKON_CAPTURE_ENDPOINTS "nikon-capture-endpoints-functional"
 #define TYPE_NIKON_CAPTURE_BANKS "nikon-capture-banks-functional"
+#define TYPE_NIKON_CAPTURE_GROUP "nikon-capture-group-functional"
 #define TYPE_NIKON_EXIU "nikon-exiu-functional"
 #define TYPE_NIKON_EX_RNG "nikon-ex-rng-functional"
 #define TYPE_NIKON_HDMAC "nikon-hdmac-functional"

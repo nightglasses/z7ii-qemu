@@ -962,6 +962,149 @@ static void test_capture_banks(void)
     qtest_quit(q);
 }
 
+static void test_capture_group(void)
+{
+    static const struct {
+        unsigned first, last, step;
+        uint32_t mask;
+    } fields[] = {
+        { 0, 4, 4, 0xff }, { 8, 0x18, 4, 0xffff },
+        { 0x1c, 0x1c, 4, 0xff }, { 0x20, 0x60, 0x20, 0xff },
+        { 0x24, 0x3c, 4, 0x7f }, { 0x44, 0x5c, 4, 0x7f },
+        { 0x64, 0x7c, 4, 0x7f }, { 0x80, 0x180, 4, 0xffff },
+        { 0x184, 0x184, 4, UINT32_MAX }, { 0x200, 0x20c, 4, 0xffff },
+        { 0x210, 0x210, 4, UINT32_MAX }, { 0x214, 0x228, 4, 0xff },
+        { 0x22c, 0x22c, 4, UINT32_MAX }, { 0x230, 0x230, 4, 1 },
+        { 0x234, 0x250, 4, 0xffff }, { 0x294, 0x294, 4, 0xffff },
+        { 0x298, 0x29c, 4, 0x7fffff }, { 0x2a0, 0x2a0, 4, UINT32_MAX },
+        { 0x2a4, 0x2ac, 4, 0xffff }, { 0x2b0, 0x2b8, 4, 0xff },
+        { 0x318, 0x318, 4, 0xff }, { 0x324, 0x324, 4, 0xff },
+        { 0x33c, 0x33c, 4, UINT32_MAX }, { 0x344, 0x34c, 4, 0xff },
+        { 0x350, 0x550, 0x100, UINT32_MAX },
+        { 0x360, 0x560, 0x100, UINT32_MAX },
+        { 0x380, 0x580, 0x100, UINT32_MAX },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x80000000, 0,
+    };
+    const uint32_t base = 0x2006b800;
+    uint32_t expected[0x584 / 4] = { 0 };
+    bool known[ARRAY_SIZE(expected)] = { false };
+    unsigned count = 0;
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, base, 0xff);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0xff);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 64);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            for (unsigned offset = fields[i].first; offset <= fields[i].last;
+                 offset += fields[i].step) {
+                unsigned word = offset / 4;
+                uint32_t value = (patterns[pass] ^ (offset * 0x01010101)) &
+                                 fields[i].mask;
+
+                if (!pass) {
+                    g_assert_false(known[word]);
+                    known[word] = true;
+                    count++;
+                }
+                expected[word] = value;
+                qtest_writel(q, base + offset, value);
+                g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, base + offset, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                    }
+                }
+            }
+        }
+        for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+            if (known[word]) {
+                g_assert_cmphex(qtest_readl(q, base + word * 4), ==,
+                                expected[word]);
+            }
+        }
+    }
+    g_assert_cmpuint(count, ==, 144);
+    for (unsigned i = 0; i < 8; i++) {
+        expected[0x234 / 4 + i] = 0x1200 + i;
+        qtest_writel(q, base + 0x234 + i * 4, expected[0x234 / 4 + i]);
+    }
+    qtest_writel(q, base + 0x230, 1);
+    qtest_writel(q, base + 0x230, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x234 + i * 4), ==, 0x1200 + i);
+    }
+    const uint32_t unsupported_masks[] = { 2, 3, 7 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(unsupported_masks); i++) {
+        qtest_writel(q, base + 0x230, unsupported_masks[i]);
+        g_assert_cmphex(qtest_readl(q, base + 0x230), ==, 0);
+    }
+    /* Opaque plane addresses are retained independently, without DMA. */
+    for (unsigned bank = 0; bank < 3; bank++) {
+        const unsigned offsets[] = { 0x350, 0x360, 0x380 };
+
+        for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+            unsigned offset = offsets[i] + bank * 0x100;
+            uint32_t value = RAM + 0x1000 + bank * 16 + i * 4;
+
+            qtest_writel(q, base + offset, value);
+            g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+        }
+    }
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (!known[word]) {
+            qtest_writel(q, base + word * 4, UINT32_MAX);
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_writeb(q, base, 0x5a);
+    qtest_writew(q, base, 0xa5);
+    qtest_writel(q, base + 1, UINT32_MAX);
+    g_assert_cmphex(qtest_readl(q, base), ==, expected[0]);
+    for (unsigned i = 0; i < 2; i++) {
+        g_autofree char *reply = qtest_hmp(q, "xp /1%cx 0x%08x",
+                                           i ? 'h' : 'b', base);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    endpoint_read_error(q, base + 1);
+    endpoint_read_error(q, base - 4);
+    endpoint_read_error(q, base + 0x584);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 64; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (known[word]) {
+            g_assert_cmphex(qtest_readl(q, base + word * 4), ==, 0);
+        } else {
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
 static void test_capture_endpoints(void)
 {
     static const struct {
@@ -1897,6 +2040,7 @@ int main(int argc, char **argv)
                     test_capture_configuration);
     qtest_add_func("/nikon/sensor/capture/packet", test_capture_packet);
     qtest_add_func("/nikon/sensor/capture/banks", test_capture_banks);
+    qtest_add_func("/nikon/sensor/capture/group", test_capture_group);
     qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
     qtest_add_func("/nikon/sensor/capture/endpoint-globals",
                     test_capture_endpoint_globals);
