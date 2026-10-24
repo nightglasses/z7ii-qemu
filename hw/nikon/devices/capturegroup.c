@@ -1,6 +1,6 @@
 /*
  * Finite capture-group parameters and opaque address retention.
- * The cold-empty result profile expires at commit/run, without completion.
+ * Automatic TG edges drive an explicit functional address-cursor profile.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -12,24 +12,79 @@
 #define CAPTURE_GROUP_WORDS (CAPTURE_GROUP_SIZE / 4)
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureGroupState, NIKON_CAPTURE_GROUP)
 
+static const hwaddr result_offsets[] = {
+    0x370, 0x374, 0x378, 0x478, 0x578, 0x37c, 0x47c, 0x57c,
+};
+
+/* Bank, initial unit, count-minus-one, three strides, two three-address sets. */
+static const hwaddr cursor_offsets[] = {
+    0x33c, 0x344, 0x348, 0x380, 0x480, 0x580,
+    0x350, 0x450, 0x550, 0x360, 0x460, 0x560,
+};
+
 struct NikonCaptureGroupState {
     SysBusDevice parent_obj;
     MemoryRegion memory;
     uint32_t configuration[CAPTURE_GROUP_WORDS];
     bool results_unknown;
     bool commit_selected[2];
+    uint32_t active[ARRAY_SIZE(cursor_offsets)];
+    uint32_t results[ARRAY_SIZE(result_offsets)];
+    uint16_t cursor_written;
+    unsigned cursor;
+    bool active_valid;
+    bool running;
+    bool started;
     bool reported_error;
 };
 
-static bool nikon_capture_group_result(hwaddr offset)
+static int nikon_capture_group_result(hwaddr offset)
 {
-    switch (offset) {
-    case 0x370: case 0x374: case 0x378: case 0x478: case 0x578:
-    case 0x37c: case 0x47c: case 0x57c:
-        return true;
-    default:
+    for (unsigned i = 0; i < ARRAY_SIZE(result_offsets); i++) {
+        if (offset == result_offsets[i]) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool nikon_capture_group_cursor_valid(NikonCaptureGroupState *s)
+{
+    const uint32_t *a = s->active;
+
+    if (s->cursor_written != (1u << ARRAY_SIZE(cursor_offsets)) - 1 ||
+        a[0] > 1 || a[1] > a[2]) {
         return false;
     }
+    for (unsigned i = 0; i < 6; i++) {
+        uint32_t stride = a[3 + i % 3];
+
+        if (!stride || (uint64_t)a[6 + i] + (uint64_t)a[2] * stride >
+                       UINT32_MAX) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void nikon_capture_group_automatic_rise(void *opaque, int index, int level)
+{
+    NikonCaptureGroupState *s = opaque;
+
+    if (!level || !s->running || !s->active_valid) {
+        return;
+    }
+    /* Functional phase: first edge selects start, later edges wrap by count. */
+    s->cursor = s->started ? (s->cursor + 1) % (s->active[2] + 1) :
+                            s->active[1];
+    s->started = true;
+    s->results[0] = s->active[0];
+    s->results[1] = s->cursor;
+    for (unsigned i = 0; i < 6; i++) {
+        s->results[2 + i] = s->active[6 + i] +
+                            s->cursor * s->active[3 + i % 3];
+    }
+    s->results_unknown = false;
 }
 
 static void nikon_capture_group_commit_selected(void *opaque, int index,
@@ -46,6 +101,11 @@ static void nikon_capture_group_commit(void *opaque, int index, int level)
 
     if (level && s->commit_selected[index]) {
         s->results_unknown = true;
+        s->started = false;
+        for (unsigned i = 0; i < ARRAY_SIZE(cursor_offsets); i++) {
+            s->active[i] = s->configuration[cursor_offsets[i] / 4];
+        }
+        s->active_valid = nikon_capture_group_cursor_valid(s);
     }
 }
 
@@ -53,7 +113,10 @@ static void nikon_capture_group_run(void *opaque, int index, int level)
 {
     NikonCaptureGroupState *s = opaque;
 
-    if (level) {
+    if (s->running != !!level) {
+        s->running = !!level;
+        s->started = false;
+        /* Stop/disable/reset cannot recover the cold-empty qualification. */
         s->results_unknown = true;
     }
 }
@@ -119,17 +182,19 @@ static MemTxResult nikon_capture_group_read(void *opaque, hwaddr offset,
 {
     NikonCaptureGroupState *s = opaque;
     uint32_t mask;
+    int result;
 
     *value = 0;
     if (size != 4 || (offset & 3)) {
         return nikon_capture_group_error(s, offset, size, false, 0);
     }
-    if (nikon_capture_group_result(offset)) {
-        /* Functional empty cold snapshot, never an applied/ready result.
-         * Commit/run expires this profile; no post-submit producer is bound.
-         */
-        return s->results_unknown ?
-            nikon_capture_group_error(s, offset, size, false, 0) : MEMTX_OK;
+    result = nikon_capture_group_result(offset);
+    if (result >= 0) {
+        if (s->results_unknown) {
+            return nikon_capture_group_error(s, offset, size, false, 0);
+        }
+        *value = s->results[result];
+        return MEMTX_OK;
     }
     if (!nikon_capture_group_mask(offset, &mask)) {
         return nikon_capture_group_error(s, offset, size, false, 0);
@@ -150,6 +215,12 @@ static MemTxResult nikon_capture_group_write(void *opaque, hwaddr offset,
         return nikon_capture_group_error(s, offset, size, true, value);
     }
     s->configuration[offset / 4] = value;
+    for (unsigned i = 0; i < ARRAY_SIZE(cursor_offsets); i++) {
+        if (offset == cursor_offsets[i]) {
+            s->cursor_written |= 1u << i;
+            break;
+        }
+    }
     return MEMTX_OK;
 }
 
@@ -167,6 +238,13 @@ static void nikon_capture_group_reset(DeviceState *dev)
 
     memset(s->configuration, 0, sizeof(s->configuration));
     memset(s->commit_selected, 0, sizeof(s->commit_selected));
+    memset(s->active, 0, sizeof(s->active));
+    memset(s->results, 0, sizeof(s->results));
+    s->cursor_written = 0;
+    s->cursor = 0;
+    s->active_valid = false;
+    s->running = false;
+    s->started = false;
     s->results_unknown = false;
     s->reported_error = false;
 }
@@ -182,6 +260,8 @@ static void nikon_capture_group_init(Object *obj)
                            "commit-selected", 2);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_commit, "commit", 2);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_run, "run", 1);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_automatic_rise,
+                           "automatic-rise", 1);
 }
 
 static const VMStateDescription nikon_capture_group_vmstate = {

@@ -124,6 +124,29 @@ records guard0/property6433 empty, and stops at the same READ32
 PA`2006bb70`, CPU0 PC`10208e14`, with no console. No cold-zero restoration,
 requested-slot echo or later startup progress is claimed.
 
+The later [active-cursor profile](../devices/capturegroup/protocol.md#finite-active-cursor-assumptions)
+uses new source evidence: kind23 descriptor+8 is a software unit index,
+resolved by`10299176` as base+(index%count)*unit. The actual caller is the
+VD-dispatched`10325ff6 -> 103250f2`. The finite functional model latches
+complete metadata at commit, then publishes/advances active target cursors
+only on existing automatic TG rising boundaries after effective run. It
+does not echo staging writes, recover cold zeros, perform DMA or produce a
+completion IRQ. Result ordering, common cursor, bank interpretation and
+first-edge phase are explicit assumptions. Native old-model red is followed
+by33 Sensor and23 SLA cases green, including asymmetric addresses/strides,
+nonzero start, wrap, staging isolation, forced-edge rejection and cancellation.
+
+Unchanged `groupcursor-20261024/cursor` crosses the old bb70 error and completes
+39 getters, including38 generated packets with indices0..4. All six COPY
+ranges compare, guard0/property6433 empty remains confirmed, and the same
+healthy UART peer reports no rejection. QMP remains running after20 host
+seconds without an uncovered access; neither head has a console. The separate
+`wait` observation confirms the same checks with33 completed getters.
+CMOS frame/readout request counts remain0, so this is progress under the
+active-address hypothesis, not captured data or normal GUI output. No new
+MMIO stop is identified; the next task is to localize the absent image-request
+condition. Gate/pending3/ready0 alone do not establish that condition.
+
 ## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual

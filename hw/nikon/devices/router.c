@@ -23,6 +23,7 @@ struct NikonPeripheralEventRouterState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
     qemu_irq irq[3];
+    qemu_irq automatic_rise;
     uint32_t config[0x330 / 4];
     uint32_t pending[3], levels[3];
     QEMUTimer *boundary_timer, *sync_timer, *aux_timer;
@@ -139,6 +140,10 @@ static void nikon_event_router_boundary(void *opaque)
 
     if (!nikon_event_router_clocked(s)) {
         return;
+    }
+    if (!s->high) {
+        /* Address generators see the automatic input before its guest IRQ. */
+        qemu_irq_pulse(s->automatic_rise);
     }
     nikon_event_router_drive(s, !s->high);
     s->boundary_deadline += s->high ? s->input_period_ns / 2 :
@@ -341,6 +346,8 @@ static void nikon_event_router_init(Object *obj)
     }
     qdev_init_gpio_in_named(DEVICE(obj), nikon_event_router_event,
                            "external-pending", 75);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->automatic_rise,
+                            "automatic-rise", 1);
 }
 
 static void nikon_event_router_realize(DeviceState *dev, Error **errp)

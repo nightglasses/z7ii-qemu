@@ -769,6 +769,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *bridge;
     DeviceState *readout;
     DeviceState *cmos;
+    DeviceState *router;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
@@ -1090,7 +1091,7 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(gic, 187 + i * 2 - 32));
     }
     {
-        DeviceState *router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
+        router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
 
         /* Functional virtual camera boundary input; not measured TG timing. */
         qdev_prop_set_uint32(router, "input-period-ns", 33333334);
@@ -1154,6 +1155,8 @@ static void z7ii_init(MachineState *machine)
         }
         qdev_connect_gpio_out_named(capture, "run-state", 5,
                                    qdev_get_gpio_in_named(group, "run", 0));
+        qdev_connect_gpio_out_named(router, "automatic-rise", 0,
+            qdev_get_gpio_in_named(group, "automatic-rise", 0));
     }
     {
         DeviceState *parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
