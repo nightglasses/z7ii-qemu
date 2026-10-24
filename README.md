@@ -40,8 +40,11 @@ cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
 and [two service banks](docs/devices/capture/banks.md) cover their source-selected
 fields. The [capture configuration group](docs/devices/capturegroup/protocol.md) adds144
 identified words. Its eight-word cold-empty result profile is an explicit
-functional hypothesis, invalidated as a whole at commit/effective run; no
-post-submit result is supplied. The [paired parameter family](docs/devices/captureparams/protocol.md)
+functional hypothesis, invalidated as a whole at commit/effective run. The
+later [active-cursor profile](docs/devices/capturegroup/protocol.md#finite-active-cursor-assumptions)
+publishes generated target addresses only on automatic TG rises after a
+complete commit/run; it does not echo staging writes or assert completion.
+The [paired parameter family](docs/devices/captureparams/protocol.md)
 now retains141 source-written words, including both complete packets and the
 shared128-word table; all32 Sensor cases pass. With the same generated
 cold-neutral input, unchanged execution consumes the initial snapshot, reaches
@@ -49,11 +52,13 @@ unit20 and unit200 commit/run. The [interpolation pool](docs/runtime/interpolati
 now backs the complete source-declared15MiB kind74 range. The subsequent
 [grid pool](docs/runtime/grid.md) covers all six kind18 units; all30 memory
 cases pass. Original code crosses the grid read using explicitly assumed
-cold-zero RAM, then stops at PC`10208e14`, READ32 PA`2006bb70`, on the force0
-incremental path after commit/run. Statistics DMA remains unimplemented.
-The actual result producer and physical values remain unresolved. QMP is debug/stopped before a
-console exists in this run; normal-menu startup and later mode coverage remain
-unverified. Zero-valued metadata is a bounded functional assumption, not
+cold-zero RAM. Under the explicit cursor assumptions, the later original run
+crosses the post-submit bb70 read and completes39 getters with no new MMIO
+error in20 host seconds;33 Sensor and23 SLA cases pass. QMP remains running
+without a console, and CMOS/readout counts remain0. Statistics DMA and the
+next image-request condition remain unresolved. Physical result semantics,
+normal-menu startup and later mode coverage remain unverified. Zero-valued
+module metadata is a bounded functional assumption, not
 physical calibration or a universal block-disable setting.
 Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.

@@ -1,5 +1,13 @@
 # Finite router timing and requests
 
+The router also exposes a synchronous `automatic-rise` lifecycle pulse for
+the [functional capture-group cursor](../capturegroup/protocol.md#finite-active-cursor-assumptions).
+Only a clocked boundary timer's low-to-high transition pulses this output,
+before its existing raw44.bit7 IRQ publication. Forced levels, external
+pending publication, requests, ACK and resync itself do not pulse it. Resync
+may schedule a later automatic boundary through the existing clock gates.
+This output is not a physical pin, pixel completion or additional guest IRQ.
+
 The later [capture run/stop profile](../sensor/runstop.md) crosses this
 checkpoint's capture-control rejection and advances to audio PA2c08010c.
 The router-specific original observations below retain their earlier scope.

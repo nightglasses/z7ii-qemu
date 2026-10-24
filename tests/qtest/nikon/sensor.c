@@ -1181,6 +1181,144 @@ static void test_capture_group_results(void)
     qtest_quit(q);
 }
 
+static void capture_group_cursor_configure(QTestState *q)
+{
+    static const uint32_t offsets[] = {
+        0x33c, 0x344, 0x348, 0x380, 0x480, 0x580,
+        0x350, 0x450, 0x550, 0x360, 0x460, 0x560,
+    };
+    static const uint32_t values[] = {
+        1, 2, 3, 0x20, 0x30, 0x40,
+        0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+        qtest_writel(q, 0x2006b800 + offsets[i], values[i]);
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+}
+
+static void capture_group_cursor_packet(QTestState *q, const uint32_t *expected)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+        g_assert_cmphex(qtest_readl(q, address), ==, expected[i]);
+    }
+}
+
+static void test_capture_group_cursor(void)
+{
+    static const uint32_t first[] = {
+        1, 2, 0x41000040, 0x42000060, 0x43000080,
+        0x51000040, 0x52000060, 0x53000080,
+    };
+    static const uint32_t next[] = {
+        1, 3, 0x41000060, 0x42000090, 0x430000c0,
+        0x51000060, 0x52000090, 0x530000c0,
+    };
+    static const uint32_t wrapped[] = {
+        1, 0, 0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+    static const uint32_t bank0[] = {
+        0, 0, 0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+    QTestState *q = capture_start(NULL);
+
+    capture_group_cursor_configure(q);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false); /* TG disabled. */
+    qtest_writel(q, 0x20060070, 3); /* Forced high is not an automatic edge. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false);
+    qtest_writel(q, 0x20060070, 3);
+    capture_group_result_packet(q, false);
+
+    qtest_system_reset(q);
+    capture_group_cursor_configure(q);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666666);
+    capture_group_result_packet(q, false);
+    qtest_clock_step(q, 1);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, 0x2006bb44, 0); /* Staging cannot echo into BB74. */
+    qtest_writel(q, 0x2006bb50, 0xdeadbeef);
+    qtest_writel(q, 0x2006bb80, 0x10);
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 16666667); /* Falling edge. */
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 16666667);
+    capture_group_cursor_packet(q, next);
+    qtest_clock_step(q, 33333334);
+    capture_group_cursor_packet(q, wrapped);
+    qtest_writel(q, 0x2006bb50, 0x41000000);
+    qtest_writel(q, 0x2006bb80, 0x20);
+    qtest_writel(q, 0x2006bb3c, 0);
+    capture_group_cursor_packet(q, wrapped);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+    capture_group_result_packet(q, false);
+    qtest_clock_step(q, 33333334);
+    capture_group_cursor_packet(q, bank0); /* New start0/bank0 after commit. */
+    qtest_writel(q, 0x20060028, 1); /* Resync itself is not a cursor tick. */
+    capture_group_cursor_packet(q, bank0);
+
+    for (unsigned cancel = 0; cancel < 3; cancel++) {
+        static const unsigned controls[] = { 0xc, 0x14, 0 };
+
+        qtest_system_reset(q);
+        capture_group_cursor_configure(q);
+        qtest_writel(q, 0x20060010, 1);
+        qtest_clock_step(q, 16666667);
+        capture_group_cursor_packet(q, first);
+        qtest_writel(q, CAPTURE_BASE + controls[cancel], 0x20);
+        qtest_clock_step(q, 100000000);
+        capture_group_result_packet(q, false);
+    }
+
+    for (unsigned invalid = 0; invalid < 6; invalid++) {
+        static const uint32_t offsets[] = {
+            0x33c, 0x344, 0x348, 0x480, 0x350, 0x560,
+        };
+        static const uint32_t values[] = {
+            2, 4, 1, 0, 0xfffffff0, 0xfffffff0,
+        };
+
+        qtest_system_reset(q);
+        capture_group_cursor_configure(q);
+        qtest_writel(q, 0x2006b800 + offsets[invalid], values[invalid]);
+        qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+        qtest_writel(q, 0x20060010, 1);
+        qtest_clock_step(q, 100000000);
+        capture_group_result_packet(q, false);
+        /* Configuration retention remains independent of qualification. */
+        g_assert_cmphex(qtest_readl(q, 0x2006b800 + offsets[invalid]), ==,
+                       values[invalid]);
+    }
+
+    qtest_system_reset(q);
+    qtest_writel(q, 0x2006bb44, 2); /* Missing the other required fields. */
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false);
+
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
 static void test_capture_group(void)
 {
     static const struct {
@@ -2266,6 +2404,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/capture/group", test_capture_group);
     qtest_add_func("/nikon/sensor/capture/group-results",
                    test_capture_group_results);
+    qtest_add_func("/nikon/sensor/capture/group-cursor",
+                   test_capture_group_cursor);
     qtest_add_func("/nikon/sensor/capture/parameters", test_capture_parameters);
     qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
     qtest_add_func("/nikon/sensor/capture/endpoint-globals",

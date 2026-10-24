@@ -3,7 +3,7 @@
 The finite device retains144 source-identified configuration words at board
 PAs`[2006b800,2006bd84)`. Its one SysBus region is exactly584 hex bytes;
 all holes within that interval remain transaction errors. Eight read-only
-result words additionally have the bounded cold-empty profile below. There
+result words have the cold-empty and automatic-TG cursor profiles below. There
 is no source of capture readiness, frames, DMA, IRQs or completion events.
 
 ## Original producers and masks
@@ -149,30 +149,33 @@ There is no post-submit zero provider.
 | Event | Entire eight-word packet |
 |---|---|
 | Model device/system cold reset | Readable empty snapshot |
-| Configuration write, unrelated commit, rejected access or inhibited run | Preserve current qualification |
+| Configuration write, unrelated commit, rejected access or inhibited run | Preserve current qualification and published packet |
 | Either shared command100/104 containing mask10 | Synchronously become unknown |
 | Effective unit20 run after existing reset/enable gates | Synchronously become unknown |
-| Stop, disable, shared unit reset or subsequent configuration | Remain unknown once invalidated |
-| Aligned32-bit read | Return cold0 only while qualified; otherwise transaction error |
+| Stop, disable or shared unit reset | Cancel active cursor; never restore cold qualification |
+| Qualified automatic TG rise after commit/run | Publish the functional active-cursor packet described below |
+| Aligned32-bit read | Return the qualified cold/cursor packet; otherwise transaction error |
 | Write, wrong width or unaligned access | Transaction error without state mutation |
 
 Invalidation discards model knowledge; it does not claim physical registers
 clear or change at that instant. Using both possible triggers avoids assuming
 commit cannot update the packet. Only an explicit model cold reset opens a
-new empty epoch; shared reset00/04 does not invent a result reset law.
+new empty epoch; shared reset00/04 does not invent a result reset law. The
+later cursor profile qualifies a new non-cold packet without reopening that epoch.
 
 The machine wires shared command-data bit4 and command-publish for both ports
 to the group. Capture-control's synchronous `run-state[0..11]` outputs mirror
 effective run intent, and bit5 feeds the group. Those are functional lifecycle
 connections, not physical pins or GIC lines. Publication precedes return from
-the initiating MMIO transaction. No timer or result update is scheduled.
+the initiating MMIO transaction. The group owns no timer. Its later automatic
+TG input is wired separately from these lifecycle connections.
 
 The device has no IRQ, request output, frame input or DMA engine. Configuring
 this group does not trigger the shared stop fence as a normal data result.
 Readout admission and CMOS observation completion likewise have no recovered
 mapping to this result packet. A post-submit producer still needs the eight
-field meanings, identity latch rule and actual processing/update trigger.
-Until that contract exists, all eight post-submit reads reject together.
+field meanings and actual processing/update trigger to claim physical
+results. The finite cursor assumptions below are a separate contract.
 All201 other aligned holes, including b988 and ba54..ba90, remain errors.
 
 ## Validation and execution scope
@@ -292,7 +295,7 @@ allocation. They do not establish that bb70 is an active bank, bb74 is an
 applied slot, or the six result words equal base+slot*stride. Those proposed
 relationships, including their latching time, remain hypotheses.
 
-## Result update boundary: unresolved
+## Preceding result update boundary
 
 The current model has accepted both earlier group commits and effective
 unit20 run. At the later fault, capture-control run and enable readbacks are
@@ -313,7 +316,7 @@ returns zero at the matching eight addresses as an explicit idle/reset
 hypothesis. It contains no post-submit producer to reuse. It therefore does
 not justify extending this model's expired cold-empty snapshot.
 
-No post-submit model extension is accepted from this investigation. A finite
+No post-submit model extension was accepted from that investigation. A finite
 producer still needs independent evidence for the two byte fields and six
 word relationships, plus the boundary that publishes a coherent packet:
 configuration latch, commit, run admission or processing completion. A
@@ -330,3 +333,121 @@ native behavior in this investigation; the existing group-results fixture
 already covers sticky invalidation and rejection of identity mirroring.
 Raw projections, filtered traces, snapshots and comparison receipt remain
 under`work/runs/groupresults-20261024/`.
+
+## Software unit index and actual VD dispatch
+
+The subsequent `groupcursor-20261024` source audit establishes the byte's
+software meaning independently of the result comparison. `1023b78e` registers
+five kind23 units and calls`102cd9a0`. Its loop passes index i to`1030b804`
+at`102cd9e8`, then stores the same i at descriptor+8 at`102cd9ee`.
+`1030b804 -> 10298f1a -> 10299176` resolves the unit to
+`base + (i % count) * unit`, returning its unit size. The rebuild callback
+`102cd97c` reads descriptor+8 and resolves that index again. Multiple software
+descriptors can represent the same unit; this is not a unique descriptor ID.
+This upgrades the earlier unknown byte to a **software unit index**, not to
+an already-applied hardware slot or an arbitrary identity to echo.
+
+The actual outer caller`10325ff6` ends with the original diagnostic string
+`OnVd`. Dispatcher`10327976` receives event041a0001, then queues that callback
+with16 payload bytes through`10319d56`. The `vd` run observes the original
+chain`10397a18(04200141) -> backend flag -> 1022f318(04200001) ->
+10327976(041a0001) -> 10325ff6 -> 103250f2`. It dispatches22 VD notifications
+and executes two queued OnVd callbacks before the same bb70 error. The
+current descriptor's software index is1. CMOS frame count and all readout
+pipeline request/accepted/completed counters are0. A VD notification is
+therefore not evidence of pixel/statistics completion in this model.
+
+## Finite active-cursor assumptions
+
+This is an address-generator model, **not recovered physical register
+semantics, produced statistics, DMA completion or captured frames**. Its
+mechanism is anchored by the software unit-index formula, three providers
+with independent strides, two configured address sets and VD-driven service
+consumption. The following choices remain individually falsifiable assumptions:
+
+| Result PA | Functional interpretation | Assumed source |
+|---|---|---|
+| `2006bb70` low byte | Committed bank selector | Complete bb3c value0/1 |
+| `2006bb74` low byte | Current internal ring cursor | Initial bb44; subsequent automatic rises advance modulo bb48+1 |
+| `2006bb78/bc78/bd78` | Three set0 current addresses | Committed bb50/bc50/bd50 + cursor times corresponding bb80/bc80/bd80 |
+| `2006bb7c/bc7c/bd7c` | Three set1 current addresses | Committed bb60/bc60/bd60 + cursor times corresponding stride |
+
+The bank meaning is the weakest inference. Neither the original raw32 API
+nor the present identical address sets establish bank selection, set ordering
+or a shared cursor. The functional profile supports bank0/1 explicitly;
+other full bb3c values remain retained configuration but cannot qualify a
+result. It never silently masks an unsupported value to one bit. Initial
+phase (first rise selects start), shared cursor, six-word ordering and
+advancement on automatic TG rather than processing completion are assumptions.
+Future independent evidence can falsify them without changing firmware bytes.
+
+Every one of the12 metadata fields must have been explicitly written since
+model reset: bank/start/count-minus-one, three strides and six bases. Both
+selected shared commit ports atomically capture those staged values and expire
+the old result. Initial index must be less than count, all strides nonzero,
+and every base plus the maximum index times its stride must fit32 bits.
+Incomplete/unsupported/overflowing snapshots stay unknown. No neighboring
+fields, address apertures, bytes or upper bits gain acceptance from this profile.
+
+Run itself does not publish. Effective run enables the committed generator;
+only the existing router's **automatic** TG rising boundary publishes the
+first packet, at the configured start index. Later automatic rises advance
+modulo count and replace all eight words synchronously. Falling edges, forced
+high, repeated force writes, resync commands and pending/ACK operations do not
+advance it. The router pulses this lifecycle output before delivering its
+existing IRQ; it creates no additional guest cause. Resync can schedule a
+future automatic boundary but is not itself a cursor tick.
+
+Staging writes leave both the committed generator and readable packet intact.
+Thus changing bb44 does not make bb74 follow it; only a new commit can change
+the start configuration, and even that remains unreadable until an automatic
+rise. Commit during run starts a new epoch at the next rise. Duplicate run
+high leaves an existing epoch intact. Stop/reset/disable cancel progression
+and expire the packet; restart reuses the committed configuration only after
+a new automatic rise. Only whole-model reset restores cold-empty. There is
+no group timer, pixel input, DMA write, completion IRQ, guest flag write or
+guest callback invocation. These are active target addresses, not evidence
+that memory at those addresses has received data.
+
+## Cursor validation and original continuation
+
+The new `group-cursor` qtest fails against the old device on a real HMP
+transaction error at the expected first packet. Its asymmetric fixture uses
+two distinct address sets, three different strides, start2/count4 and bank1.
+Literal expected packets check first rise, falling-edge retention, advancement,
+wrap and a new commit through the other shared port. A staged start0 leaves
+the published cursor2 intact and the next cursor is3, independently disproving
+direct configuration echo. Separate cases cover TG-disabled/force-high,
+missing fields, invalid bank/start/count, zero stride, overflow in both sets,
+stop/disable/unit-reset cancellation, model reset and no capture pending/IRQ.
+All33 Sensor and23 SLA subtests pass in the scoped native batch. This checks
+the defined functional contract, not which hypothetical hardware mapping is true.
+
+Raw source, the old-model native red, final native log, immutable input
+comparisons and original execution records remain under
+`work/runs/groupcursor-20261024/`. The `vd` receipt describes the old model;
+the later `cursor` receipt describes this explicit hypothesis model. Passing
+force0 or reaching a later startup frontier cannot validate the unconsumed
+byte0/six address fields or the assumed cursor phase.
+
+In the unchanged20-host-second `cursor` run, all six loader COPY ranges
+compare with the same cold-neutral file, guard`10305dac` returns0 with
+packed150, and property6433 remains empty. The trace contains39 completed
+getters: one initial cold snapshot and38 non-cold packets. The latter report
+all five cursor indices0..4 and the expected six nonzero generated addresses;
+bb44 and cached software index remain0. Thus the original consumer can
+continue with a nonmatching running index; the profile does not force its
+comparison true. There is no new uncovered access in this window. QMP is
+running, the UART peer has no rejection, and neither display head has a console.
+
+The separate `wait` observation confirms six COPY comparisons and guard0/
+property6433 empty again, with33 completed getters and no uncovered access.
+One logged entry is replayed before any result read and is excluded from
+completed-call counts. The current software descriptor index is3 while
+bb44/cached index remain0. CMOS/readout counters are still0. Gate, pending3
+and display-ready are0; these are not universal display prerequisites and
+do not by themselves identify a blocked task. The new boundary is a running
+service without produced image data or a console, rather than another
+identified MMIO failure. The specific upstream condition preventing the
+next image request remains to be localized; these receipts do not establish
+normal GUI output, actual statistics or full boot.

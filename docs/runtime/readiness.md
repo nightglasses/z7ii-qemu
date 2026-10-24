@@ -90,6 +90,13 @@ records guard0/property6433 empty. The next rejection is CPU0 PC`10208e14`,
 READ32 PA`2006bb70`, on the force0 incremental path after commit/run has
 invalidated the cold-empty packet. There is still no display console or
 qualified capture-result producer.
+The later [functional active-cursor profile](../devices/capturegroup/protocol.md#finite-active-cursor-assumptions)
+crosses this post-submit read without restoring cold zeros or echoing the
+requested index. With the same cold-neutral input, two20-second observations
+remain running without an uncovered access, but have no console and no CMOS
+frame/readout request. Gate/pending3/ready remain0 in the read-only `wait`
+snapshot. Their values still do not identify the blocked upstream edge;
+that next image-request condition remains unlocalized.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.
