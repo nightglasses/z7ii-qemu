@@ -50,7 +50,7 @@ static void packet(QTestState *q, unsigned bank, unsigned mode)
 static void wait_completion(QTestState *q)
 {
     int64_t now = qtest_clock_step(q, 1);
-    int64_t deadline = now + 1000000;
+    int64_t deadline = now + 20000000;
     unsigned events = 0;
 
     while (!qtest_get_irq(q, 111 - 32)) {
@@ -60,9 +60,10 @@ static void wait_completion(QTestState *q)
     }
 }
 
-static char *pixels_head(QTestState *q, unsigned head)
+static char *pixels_extent(QTestState *q, unsigned head, unsigned width,
+                           unsigned height)
 {
-    const char *header = "P6\n8 8\n255\n";
+    g_autofree char *header = g_strdup_printf("P6\n%u %u\n255\n", width, height);
     g_autofree char *path = NULL;
     char *contents = NULL;
     gsize length;
@@ -77,11 +78,16 @@ static char *pixels_head(QTestState *q, unsigned head)
     g_assert_false(qdict_haskey(reply, "error"));
     qobject_unref(reply);
     g_assert_true(g_file_get_contents(path, &contents, &length, NULL));
-    g_assert_cmpuint(length, ==, strlen(header) + 64 * 3);
+    g_assert_cmpuint(length, ==, strlen(header) + width * height * 3);
     g_assert_true(g_str_has_prefix(contents, header));
-    memmove(contents, contents + strlen(header), 64 * 3);
+    memmove(contents, contents + strlen(header), width * height * 3);
     unlink(path);
     return contents;
+}
+
+static char *pixels_head(QTestState *q, unsigned head)
+{
+    return pixels_extent(q, head, 8, 8);
 }
 
 static char *pixels(QTestState *q)
@@ -525,6 +531,195 @@ static void test_crop(void)
     qtest_quit(q);
 }
 
+/* Independent known limited-range BT.601 vectors, including unequal Ys. */
+static const struct {
+    uint8_t pair[4];
+    uint8_t rgb[2][3];
+} yuva_colors[] = {
+    { { 16, 235, 128, 128 }, { { 0, 0, 0 }, { 255, 255, 255 } } },
+    { { 81, 81, 90, 240 }, { { 255, 0, 0 }, { 255, 0, 0 } } },
+    { { 145, 145, 54, 34 }, { { 0, 255, 1 }, { 0, 255, 1 } } },
+    { { 41, 41, 240, 110 }, { { 0, 0, 255 }, { 0, 0, 255 } } },
+};
+static const uint8_t yuva_opacity[] = { 0, 64, 128, 255 };
+
+static void yuva_data(QTestState *q, uint32_t primary, uint32_t secondary,
+                      unsigned width, unsigned height, unsigned stride,
+                      unsigned alpha_stride, bool white)
+{
+    g_autofree uint8_t *data = g_malloc(height * stride);
+    g_autofree uint8_t *alpha = g_malloc(height * alpha_stride);
+
+    memset(data, 0xa5, height * stride);
+    memset(alpha, 0x5a, height * alpha_stride);
+    for (unsigned y = 0; y < height; y++) {
+        for (unsigned x = 0; x < width; x += 2) {
+            unsigned color = (x / 2 + y) % ARRAY_SIZE(yuva_colors);
+
+            memcpy(data + y * stride + x * 2, white ?
+                   (uint8_t[]) { 235, 235, 128, 128 } :
+                   yuva_colors[color].pair, 4);
+            for (unsigned j = 0; j < 2; j++) {
+                alpha[y * alpha_stride + x + j] = white ? 255 :
+                    yuva_opacity[(x + j + y) % ARRAY_SIZE(yuva_opacity)];
+            }
+        }
+    }
+    qtest_memwrite(q, primary, data, height * stride);
+    qtest_memwrite(q, secondary, alpha, height * alpha_stride);
+}
+
+static void yuva_packet(QTestState *q, unsigned unit, unsigned port,
+                        unsigned layer, unsigned width, unsigned height,
+                        uint32_t primary, uint32_t secondary,
+                        unsigned stride, unsigned alpha_stride)
+{
+    uint32_t base = BANK + unit * 0x4000;
+    uint32_t block = base + 0x2000 + port * 0x1000;
+    uint32_t geometry = (height << 16) | width;
+
+    qtest_writel(q, base + 0x1100, 1);
+    qtest_writel(q, base + 0x1308, geometry);
+    qtest_writel(q, block + 0x100, 1);
+    qtest_writel(q, block + 0x200, 0x00030006);
+    qtest_writel(q, block + 0x204, geometry);
+    qtest_writel(q, block + 0x210, 0x02000301);
+    qtest_writel(q, block + 0x400 + layer * 4, geometry);
+    qtest_writel(q, block + (layer ? 0x47c + layer * 4 : 0x440), primary);
+    qtest_writel(q, block + 0x4c0 + layer * 4, secondary);
+    qtest_writel(q, block + 0x500 + layer * 4, stride);
+    qtest_writel(q, block + 0x540 + layer * 4, alpha_stride);
+    qtest_writel(q, block + 0x5c0, 1U << layer);
+}
+
+static void assert_yuva(const char *image, unsigned width, unsigned height)
+{
+    for (unsigned y = 0; y < height; y++) {
+        for (unsigned x = 0; x < width; x++) {
+            unsigned color = (x / 2 + y) % ARRAY_SIZE(yuva_colors);
+            unsigned alpha = yuva_opacity[(x + y) % ARRAY_SIZE(yuva_opacity)];
+
+            for (unsigned c = 0; c < 3; c++) {
+                unsigned rgb = yuva_colors[color].rgb[x & 1][c];
+
+                g_assert_cmpuint((uint8_t)image[(y * width + x) * 3 + c],
+                                ==, rgb * alpha / 255);
+            }
+        }
+    }
+}
+
+static void test_yuva(void)
+{
+    static const unsigned providers[][3] = {
+        { 0, 0, 0 }, { 0, 1, 9 }, { 1, 0, 1 }, { 1, 1, 4 },
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(providers); i++) {
+        QTestState *q = start();
+        unsigned unit = providers[i][0], port = providers[i][1];
+        uint32_t base = BANK + unit * 0x4000;
+        uint32_t block = base + 0x2000 + port * 0x1000;
+        unsigned layer = providers[i][2];
+        g_autofree char *image = NULL;
+
+        yuva_data(q, RAM, RAM + 0x4000, 8, 8, 24, 12, false);
+        yuva_packet(q, unit, port, layer, 8, 8, RAM, RAM + 0x4000, 24, 12);
+        qtest_writel(q, base + 0x1200, 1);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        wait_completion(q);
+        image = pixels_head(q, unit);
+        assert_yuva(image, 8, 8);
+        qtest_writel(q, base + 0x1214, FRAME_PENDING);
+        /* Live pointer changes use independent padded RAM without restart. */
+        yuva_data(q, RAM + 0x8000, RAM + 0xc000, 8, 8, 24, 12, true);
+        qtest_writel(q, block + (layer ? 0x47c + layer * 4 : 0x440),
+                     RAM + 0x8000);
+        qtest_writel(q, block + 0x4c0 + layer * 4, RAM + 0xc000);
+        wait_completion(q);
+        g_clear_pointer(&image, g_free);
+        image = pixels_head(q, unit);
+        assert_color(image, 255, 255, 255);
+        qtest_writel(q, base + 0x1214, FRAME_PENDING);
+        qtest_writel(q, base + 0x1200, 2);
+        yuva_data(q, RAM + 0x8000, RAM + 0xc000, 8, 8, 24, 12, false);
+        qtest_clock_step(q, 1000000);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        g_clear_pointer(&image, g_free);
+        image = pixels_head(q, unit);
+        assert_color(image, 255, 255, 255);
+        qtest_writel(q, base + 0x1200, 1);
+        qtest_system_reset(q);
+        qtest_clock_step(q, 1000000);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        g_assert_cmphex(qtest_readl(q, base + 0x1214), ==, 0);
+        qtest_quit(q);
+    }
+}
+
+static void test_yuva_fault(void)
+{
+    enum { LANE, CONTROL, ODD_WIDTH, PRIMARY_ALIGN, STRIDE_ALIGN,
+           SHORT_STRIDE, SHORT_ALPHA, PRIMARY_MMIO, SECONDARY_MMIO,
+           LAST_LAYER, CASES };
+    QTestState *q = start();
+    g_autofree char *image = NULL;
+
+    yuva_data(q, RAM, RAM + 0x4000, 8, 8, 24, 12, true);
+    yuva_packet(q, 0, 0, 0, 8, 8, RAM, RAM + 0x4000, 24, 12);
+    qtest_writel(q, BANK + 0x1200, 1);
+    wait_completion(q);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    for (unsigned test = LANE; test < CASES; test++) {
+        yuva_packet(q, 0, 0, 0, 8, 8, RAM, RAM + 0x4000, 24, 12);
+        switch (test) {
+        case LANE: qtest_writel(q, BANK + 0x2210, 0x02000300); break;
+        case CONTROL: qtest_writel(q, BANK + 0x2200, 0x00030016); break;
+        case ODD_WIDTH: qtest_writel(q, BANK + 0x2400, (8U << 16) | 7); break;
+        case PRIMARY_ALIGN: qtest_writel(q, BANK + 0x2440, RAM + 2); break;
+        case STRIDE_ALIGN: qtest_writel(q, BANK + 0x2500, 18); break;
+        case SHORT_STRIDE: qtest_writel(q, BANK + 0x2500, 12); break;
+        case SHORT_ALPHA: qtest_writel(q, BANK + 0x2540, 7); break;
+        case PRIMARY_MMIO: qtest_writel(q, BANK + 0x2440, BANK); break;
+        case SECONDARY_MMIO: qtest_writel(q, BANK + 0x24c0, BANK); break;
+        case LAST_LAYER:
+            qtest_writel(q, BANK + 0x2404, (8U << 16) | 8);
+            qtest_writel(q, BANK + 0x2480, BANK);
+            qtest_writel(q, BANK + 0x24c4, RAM + 0x4000);
+            qtest_writel(q, BANK + 0x2504, 24);
+            qtest_writel(q, BANK + 0x2544, 12);
+            qtest_writel(q, BANK + 0x25c0, 3);
+            break;
+        }
+        qtest_clock_step(q, 1000000);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 0);
+        g_clear_pointer(&image, g_free);
+        image = pixels(q);
+        assert_color(image, 255, 255, 255);
+    }
+    yuva_packet(q, 0, 0, 0, 8, 8, RAM, RAM + 0x4000, 24, 12);
+    wait_completion(q);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    qtest_quit(q);
+}
+
+static void test_yuva_frame(void)
+{
+    QTestState *q = start();
+    const unsigned width = 1024, height = 682, stride = 2048, alpha_stride = 1024;
+    const uint32_t primary = RAM + 0x20000, secondary = RAM + 0x200000;
+    g_autofree char *image = NULL;
+
+    yuva_data(q, primary, secondary, width, height, stride, alpha_stride, false);
+    yuva_packet(q, 1, 0, 0, width, height, primary, secondary, stride, alpha_stride);
+    qtest_writel(q, BANK + 0x4000 + 0x1200, 0x11);
+    wait_completion(q);
+    image = pixels_extent(q, 1, width, height);
+    assert_yuva(image, width, height);
+    qtest_quit(q);
+}
+
 void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
@@ -539,4 +734,7 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/tables", test_tables);
     qtest_add_func("/nikon/image/refresh", test_refresh);
     qtest_add_func("/nikon/image/crop", test_crop);
+    qtest_add_func("/nikon/image/yuva", test_yuva);
+    qtest_add_func("/nikon/image/yuva-fault", test_yuva_fault);
+    qtest_add_func("/nikon/image/yuva-frame", test_yuva_frame);
 }

@@ -3,7 +3,7 @@
 The existing dual-bank device implements guest RAM input, two ten-layer ports,
 42 graphic objects, retained packed tables, Pixman composition and QEMU console
 publication. It adds no overlapping MMIO device. Physical LCD/ISP identity and
-an original firmware frame remain unverified.
+an original GUI menu receipt remain unverified.
 
 Evidence is the saved ec048f native instruction/P-code index and the finite
 `qemu-rtos-startup/work/display/{bank,completion,registers}/` graphs. They contain
@@ -138,7 +138,8 @@ layer cannot publish an earlier partial frame. Failure and cancellation keep
 the last completed surface.
 
 Named virtual component profiles are layout0 lane-routed RGBA; layout1/4
-RGB565; layout2 ARGB1555; layout3 ARGB4444; layout5 RGB565+A4; layout6 RGB565+A8.
+RGB565; layout2 ARGB1555; layout3 ARGB4444; layout5 RGB565+A4; and the older
+layout6 RGB565+A8 convention outside the bounded YUVA profile below.
 Controlbit4 reverses byte order; controlbit28 selects layout0 alpha. Source
 proves footprints and lane selectors, **not packed component identities**.
 Pixman composes premultiplied layers in port/layer order. Actual enabled
@@ -146,6 +147,46 @@ object records then render clipped rectangles from their position and extent.
 Their three bytes use a named virtual RGB order. The two six-bit fields remain
 neutral retained values, not guessed alpha, rotation or format. These named
 conventions support functional output and need later source/hardware refinement.
+
+## Format17 YUVA provider
+
+The unchanged original run in `work/runs/readinessnormal-20261023/banks.json`
+submits unit1 port0 with control `00030006`, lanes `02000301`, a 1024x682
+layer, primary PA `cb4a7000`, secondary PA `cb5fc000`, and byte strides
+2048/1024. The same run's `banks-head1.ppm` contains the old decoder's stripes.
+These PAs are the earlier [transfer107 output](../transfer/clearmode.md),
+whose finite producer writes `[Y0,Y1,U,V]` per horizontal pair and separate
+per-pixel A8. Interpreting each two-byte primary word as RGB565 discards that
+pair structure and treats chroma bytes as unrelated RGB pixels.
+
+The saved original MAS source projections in that directory separate facts:
+`104dd354` maps software format17 to layout6; `104d94b6` and `104dda26`
+compute two primary bytes and one secondary byte per pixel, preserve their
+independent strides, and adjust cropped plane pointers. `1046d6e8` serializes
+the layout, control fields and four two-bit lane selectors into the port
+packet. The source and original packet identify a producer/consumer profile;
+they do not establish physical identities for every control flag, a generic
+layout6 format, or another lane permutation.
+
+The finite model consequently decodes only control `00030006` with lanes
+`02000301` as paired YYUV plus A8. Each pair shares U/V but has independent
+Y and alpha. Limited-range integer BT.601 conversion, clipping to RGB8,
+and alpha premultiplication use the same functional color convention as
+the existing transfer107 inverse; they are not measured hardware colorimetry
+or bit-exact GPU precision. Pixman retains the existing OVER composition.
+Two-pixel width, a four-byte primary pointer and a four-byte primary stride
+are conservative complete-pair boundaries. Unknown controls in the layout6
+bit16/17 family, different lanes, odd widths and incomplete pair alignment
+reject the whole frame instead of silently selecting RGB565. The earlier
+layout6 profile without those bits and the other layouts remain unchanged.
+
+This uses the existing unit/port/layer arrays, independent plane addresses,
+normal-RAM row validation and DMA, with no resource-address whitelist or
+invented output DMA. All enabled layers finish before publication; a bad
+later provider preserves the previous surface and supplies no new completion.
+Live updates, cancellation, reset and cadence retain their existing contract.
+The 1024x682 layer does not justify changing the submitted 780x780 main
+geometry. Its relationship to the physical visible area remains unverified.
 
 After actual composition the bank lazily creates a QEMU graphic console and
 publishes the exact Pixman image. An empty transaction supplies completion but
@@ -180,7 +221,7 @@ by name.
 
 ## Native validation
 
-`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Ten
+`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Existing
 no-TCG cases check exact PPM pixels and padded input; all seven layouts;
 cancellation preserving the surface; a bad final layer preserving the whole
 surface without IRQ; two ports/shared IRQ; independent register domains;
@@ -215,3 +256,26 @@ focused crop/ports/refresh checks exited0 in1.11/1.10/1.11s, respectively,
 recorded in `work/displaycropreceipt.log`, `work/displayportsreceipt.log` and
 `work/displayrefreshreceipt.log`. Processing's unchanged exact-byte,
 EOF and cancellation receipts are not rerun for this display change.
+
+The YUVA fixtures add independent tabulated black/white/red/green/blue
+vectors with unequal Ys and alpha0/64/128/255, multiple pairs and rows with
+padding, both units and ports and layers0/1/4/9, actual head pixels, live
+independent plane changes, pause/reset cancellation, and a full 1024x682
+frame in independently chosen RAM. Unknown lanes/control, odd width,
+unaligned pair pointer/stride, short color/alpha stride and MMIO planes
+must preserve the preceding complete surface without completion, followed
+by recovery. These synthetic fixtures do not themselves establish an
+additional original menu or physical scanout receipt.
+
+Parent native red (`native-yuva-red.log`) exercised the new fixture against
+the old decoder and failed its pixel assertion, 32 versus64. The complete
+image batch then passed all14 subtests in4.41s (`native-image-green.log`).
+Both receipts are in `work/runs/readinessnormal-20261023/`.
+
+The separate unchanged-firmware `color` run in that directory used the same
+declared inputs, healthy UART peer and20 host seconds without an in-transaction
+debugger pause. QMP published `display` head1 at780x780; head0 had no console.
+`color-head1.ppm` shows guest icons and the error dialog with corrected colors.
+This establishes an original error-GUI frame under the finite input/device
+profiles, not a normal menu, complete boot or physical-camera color receipt.
+No firmware bytes, guest readiness fields or guest pixels were injected.
