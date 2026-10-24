@@ -848,6 +848,255 @@ static void test_capture_packet(void)
     qtest_quit(q);
 }
 
+static void endpoint_read_error(QTestState *q, uint32_t address)
+{
+    g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+    /* HMP uses address_space_read and reports MEMTX_ERROR, unlike qtest readl. */
+    g_assert_nonnull(strstr(reply, "Cannot access memory"));
+}
+
+static void test_capture_endpoints(void)
+{
+    static const struct {
+        unsigned offset;
+        uint32_t mask;
+    } fields[] = {
+        { 0x14, UINT32_MAX }, { 0x18, 0xff }, { 0x24, 0xff }, { 0x3c, 7 },
+        { 0x40, UINT32_MAX }, { 0x44, 0xff }, { 0x48, 0xff }, { 0x4c, 0xff },
+        { 0x50, UINT32_MAX }, { 0x54, UINT32_MAX }, { 0x58, UINT32_MAX },
+        { 0x5c, UINT32_MAX }, { 0x60, UINT32_MAX }, { 0x64, UINT32_MAX },
+        { 0x68, UINT32_MAX }, { 0x6c, UINT32_MAX }, { 0x80, UINT32_MAX },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x01020304, 0x80000000, 0,
+    };
+    const uint32_t base = 0x2006a400;
+    uint32_t expected[10][ARRAY_SIZE(fields)] = { 0 };
+    QTestState *q = capture_start(NULL);
+
+    /* The full-word constructor is not a boolean or a whitelist for value3. */
+    qtest_writel(q, base + 0x14, 0x80000003);
+    g_assert_cmphex(qtest_readl(q, base + 0x14), ==, 0x80000003);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    qtest_writel(q, CAPTURE_BASE + 0x200, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x220, UINT32_MAX);
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+            bool extended = endpoint == 2 || endpoint == 3 ||
+                            endpoint == 4 || endpoint == 9;
+
+            for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+                unsigned offset = fields[i].offset;
+                uint32_t address = base + endpoint * 0x100 + offset;
+                uint32_t value = patterns[pass] ^ (endpoint * 0x01010000 + offset);
+                bool sparse = (offset >= 0x54 && offset <= 0x5c) ||
+                              (offset >= 0x64 && offset <= 0x6c);
+
+                if (sparse && !extended) {
+                    if (!pass) {
+                        qtest_writel(q, address, value);
+                        endpoint_read_error(q, address);
+                    }
+                    continue;
+                }
+                value &= fields[i].mask;
+                expected[endpoint][i] = value;
+                qtest_writel(q, address, value);
+                g_assert_cmphex(qtest_readl(q, address), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, address, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, address), ==, value);
+                    }
+                }
+            }
+        }
+        /* Later endpoints cannot alias earlier retained configurations. */
+        for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+            bool extended = endpoint == 2 || endpoint == 3 ||
+                            endpoint == 4 || endpoint == 9;
+
+            for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+                unsigned offset = fields[i].offset;
+
+                if (!extended && ((offset >= 0x54 && offset <= 0x5c) ||
+                                  (offset >= 0x64 && offset <= 0x6c))) {
+                    continue;
+                }
+                g_assert_cmphex(qtest_readl(q, base + endpoint * 0x100 + offset),
+                                ==, expected[endpoint][i]);
+            }
+        }
+    }
+    for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+        uint32_t address = base + endpoint * 0x100;
+
+        /* Reproduce the independent selector bits and the separate low bit. */
+        qtest_writel(q, address + 0x3c, 1);
+        for (unsigned selector = 0; selector < 4; selector++) {
+            uint32_t value = (qtest_readl(q, address + 0x3c) & ~6U) |
+                             (selector << 1);
+
+            qtest_writel(q, address + 0x3c, value);
+            g_assert_cmphex(qtest_readl(q, address + 0x3c), ==,
+                            1 | (selector << 1));
+            qtest_writel(q, address + 0x3c, value & ~1U);
+            g_assert_cmphex(qtest_readl(q, address + 0x3c), ==, selector << 1);
+            qtest_writel(q, address + 0x3c, value);
+        }
+        qtest_writeb(q, address + 0x14, 0xff);
+        qtest_writew(q, address + 0x14, 0xffff);
+        qtest_writel(q, address + 0x15, UINT32_MAX);
+        g_assert_cmphex(qtest_readl(q, address + 0x14), ==, expected[endpoint][0]);
+        qtest_writel(q, address + 0x1c, UINT32_MAX);
+        endpoint_read_error(q, address + 0x1c);
+        for (unsigned status = 0x70; status <= 0x7c; status += 4) {
+            qtest_writel(q, address + status, UINT32_MAX);
+            endpoint_read_error(q, address + status);
+        }
+    }
+    endpoint_read_error(q, base - 4);
+    endpoint_read_error(q, base + 0x984);
+    endpoint_read_error(q, base + 10 * 0x100 + 0x14);
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+        bool extended = endpoint == 2 || endpoint == 3 ||
+                        endpoint == 4 || endpoint == 9;
+
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            unsigned offset = fields[i].offset;
+
+            if (!extended && ((offset >= 0x54 && offset <= 0x5c) ||
+                              (offset >= 0x64 && offset <= 0x6c))) {
+                continue;
+            }
+            g_assert_cmphex(qtest_readl(q, base + endpoint * 0x100 + offset),
+                            ==, 0);
+        }
+        endpoint_read_error(q, base + endpoint * 0x100 + 0x70);
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_endpoint_globals(void)
+{
+    static const struct {
+        unsigned first, last, step;
+        uint32_t mask;
+    } fields[] = {
+        { 0x200, 0x200, 4, 0xffff00ff }, { 0x204, 0x204, 4, UINT32_MAX },
+        { 0x208, 0x210, 4, 0xffff }, { 0x214, 0x21c, 4, 0x0fffffff },
+        { 0x220, 0x220, 4, 0xffff }, { 0x224, 0x258, 4, 0x0fffffff },
+        { 0x25c, 0x25c, 4, 0xffffff }, { 0x260, 0x26c, 4, 0xffff },
+        { 0x270, 0x274, 4, 0x0fffffff }, { 0x278, 0x278, 4, 0xffff },
+        { 0x27c, 0x27c, 4, UINT32_MAX }, { 0x280, 0x280, 4, 0xff },
+        { 0x284, 0x284, 4, 0x03ffffff }, { 0x288, 0x288, 4, 0xffff },
+        { 0x28c, 0x28c, 4, 0x7fffffff }, { 0x290, 0x290, 4, 0xffff },
+        { 0x294, 0x2a0, 4, 0x03ffffff }, { 0x2a4, 0x2a4, 4, 0xffff },
+        { 0x2a8, 0x2b4, 4, 0x03ffffff }, { 0x2b8, 0x2b8, 4, 0xffff },
+        { 0x2bc, 0x304, 0x18, UINT32_MAX },
+        { 0x2c0, 0x308, 0x18, 0xffffff },
+        { 0x2c4, 0x30c, 0x18, 0xffff },
+        { 0x2c8, 0x310, 0x18, 0xffff },
+        { 0x2cc, 0x314, 0x18, 0x03ffffff },
+        { 0x2d0, 0x318, 0x18, 0xffff }, { 0x31c, 0x31c, 4, 0xff },
+        { 0x320, 0x358, 0x1c, UINT32_MAX },
+        { 0x324, 0x35c, 0x1c, 0xffff },
+        { 0x328, 0x360, 0x1c, 0xffff },
+        { 0x32c, 0x364, 0x1c, 0x03ffffff },
+        { 0x330, 0x368, 0x1c, 0xffff },
+        { 0x334, 0x36c, 0x1c, 0xffff },
+        { 0x338, 0x338, 4, 0x03ffffff },
+        { 0x354, 0x354, 4, 0x07ffffff },
+        { 0x370, 0x370, 4, 0x03ffffff },
+    };
+    static const uint32_t patterns[] = { UINT32_MAX, 0xa55a3cc3, 0x80000000, 0 };
+    const uint32_t base = 0x2006a000;
+    uint32_t expected[0x174 / 4];
+    bool covered[ARRAY_SIZE(expected)] = { false };
+    QTestState *q = capture_start(NULL);
+
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            for (unsigned offset = fields[i].first; offset <= fields[i].last;
+                 offset += fields[i].step) {
+                unsigned word = (offset - 0x200) / 4;
+                uint32_t value = (patterns[pass] ^ (offset * 0x01010101)) &
+                                 fields[i].mask;
+
+                if (!pass) {
+                    g_assert_false(covered[word]);
+                    covered[word] = true;
+                    g_assert_cmphex(qtest_readl(q, base + offset), ==, 0);
+                }
+                expected[word] = value;
+                qtest_writel(q, base + offset, value);
+                g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, base + offset, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                    }
+                }
+            }
+        }
+        for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+            g_assert_true(covered[word]);
+            g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==,
+                            expected[word]);
+        }
+    }
+    /* AF18 skips remaining stores when204 is zero; it does not clear them. */
+    qtest_writel(q, base + 0x204, 0);
+    expected[1] = 0;
+    for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==,
+                        expected[word]);
+    }
+    qtest_writeb(q, base + 0x200, 0xff);
+    qtest_writew(q, base + 0x200, 0xffff);
+    qtest_writel(q, base + 0x201, UINT32_MAX);
+    g_assert_cmphex(qtest_readl(q, base + 0x200), ==, expected[0]);
+    for (unsigned offset = 0x374; offset < 0x400; offset += 4) {
+        qtest_writel(q, base + offset, UINT32_MAX);
+        endpoint_read_error(q, base + offset);
+    }
+    endpoint_read_error(q, base + 0x1fc);
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==, 0);
+    }
+    endpoint_read_error(q, base + 0x3e0);
+    qtest_quit(q);
+}
+
 static void test_capture_controls(void)
 {
     QTestState *q = capture_start(NULL);
@@ -1541,6 +1790,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/capture/configuration",
                     test_capture_configuration);
     qtest_add_func("/nikon/sensor/capture/packet", test_capture_packet);
+    qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
+    qtest_add_func("/nikon/sensor/capture/endpoint-globals",
+                    test_capture_endpoint_globals);
     qtest_add_func("/nikon/sensor/capture/controls", test_capture_controls);
     qtest_add_func("/nikon/sensor/capture/runstop", test_capture_runstop);
     qtest_add_func("/nikon/sensor/capture/status", test_capture_status);

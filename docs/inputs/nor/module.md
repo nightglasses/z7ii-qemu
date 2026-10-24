@@ -134,6 +134,13 @@ counts are encoded minus1 asffff/ffffffff. Thus a virtual profile needs a
 nonzero divisor, positive derived counts and verification of the final encoded
 values; clearing the version guard cannot establish those constraints.
 
+An independent nonzero-timing hypothesis, `endpointscounts`, supplies
+row+2=4096, row+6=35190, row+11=1 and row+12=72. Original object fields
+become148=35190,156=4096,160=1000; the separate timer-packet readback is
+4095/35189 after minus1 encoding. It reaches the same next parameter bank
+as the zero-table diagnostic. This validates a bounded input/arithmetic
+relation, not the remaining capture/program/calibration table semantics.
+
 The explicit `15/00` version-declaration diagnostic passes the guard and
 removes ID68 at that checkpoint. With the
 [capture packet model](../../devices/sensor/packet.md), unchanged execution

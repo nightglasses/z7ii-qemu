@@ -33,8 +33,10 @@ normal-menu startup remain unresolved. The [CComp GPIO peer](docs/devices/ccomp/
 now removes ID54 through the original IRQ/callback/event path in a normal
 20-second run (3 handshake and5 GPIO cases pass). The separate
 [capture parameter packet](docs/devices/sensor/packet.md) passes all26 Sensor
-cases and advances an explicitly diagnostic version-declaration run to
-PA`2006a414`; that incomplete body is not a normal Sensor input.
+cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
+then passes all28 Sensor cases and advances the explicitly diagnostic
+version-declaration run to PA`2006be00`; that incomplete body is not a normal
+Sensor input.
 Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.
 

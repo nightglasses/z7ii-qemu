@@ -53,6 +53,15 @@ encodings offfff/ffffffff. Source-selected capture entries and script tables
 still need a coherent virtual-input contract; version acceptance alone does
 not supply it. Receipts: `work/runs/sensorprofile-20261024/`.
 
+The subsequent [endpoint/global parameter model](../devices/endpoints/protocol.md)
+covers93 global words plus134 words across ten endpoints, retaining source
+masks and sparse pointer boundaries. Separate endpoint/global native reds
+are followed by all28 Sensor cases green. With the same diagnostic input,
+`endpointsdiagnostic` first rejects CPU0 PC`10209efe`, WRITE32
+PA`2006be00=0`, in the next bank-selected ten-word parameter writer. QMP is
+debug/stopped before a console exists. Unknown status producers remain
+unimplemented; no completion or frame is inferred from configuration writes.
+
 Resource31's normal parameter remains unrecovered. The declared descriptor17
 body is erased and its field288 scales by500 to `fffffe0c`; see the
 [input contract](../inputs/nor/descriptor.md#resource31-timing-parameters).

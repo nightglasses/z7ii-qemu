@@ -1118,6 +1118,14 @@ static void z7ii_init(MachineState *machine)
         /* Original status/command interface; external publication is unbound. */
     }
     {
+        DeviceState *endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
+
+        object_property_add_child(OBJECT(machine), "capture-endpoints",
+                                  OBJECT(endpoints));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(endpoints), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(endpoints), 0, 0x2006a200);
+    }
+    {
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
             [NIKON_READOUT_BUFFERS] = 0x20069800,
             [NIKON_READOUT_PARAMETERS] = 0x2006b000,
