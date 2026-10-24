@@ -1130,6 +1130,14 @@ static void z7ii_init(MachineState *machine)
                                    qdev_get_gpio_in_named(group, "run", 0));
     }
     {
+        DeviceState *parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
+
+        object_property_add_child(OBJECT(machine), "capture-parameters",
+                                  OBJECT(parameters));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(parameters), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(parameters), 0, 0x20069500);
+    }
+    {
         DeviceState *endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
 
         object_property_add_child(OBJECT(machine), "capture-endpoints",

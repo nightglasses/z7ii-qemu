@@ -47,9 +47,26 @@ compares all six COPY ranges with guard0/property6433 empty. The first force1
 getter returns, ba30 becomes1, both mask10 commits execute and unit20 reaches
 `1020aafc`. Force1 does not consume the result numbers, so this receipt proves
 software continuation under the assumption, not the correctness of physical
-cold values or any post-submit result. The new first uncovered access is CPU0
+cold values or any post-submit result. That run's first uncovered access is CPU0
 PC`102090bc`, WRITE32 PA`20069514=6`, in the separate `102090a0` parameter
-writer through`1020c2d4`. QMP is debug/stopped before a display console exists.
+writer through`1020c2d4`.
+
+The [paired parameter family](../devices/captureparams/protocol.md) now covers
+141 source-written words: both five/six-word packets, two local controls and
+the shared128-word table. All51 holes, including eight unpublished result
+words, remain errors. Old-model red is followed by all32 Sensor cases green
+and a final scoped reset-readability check. There is no new result, frame,
+IRQ or DMA producer.
+
+In unchanged `captureparams-20261024/green`, the same cold-neutral input again
+compares across six COPY ranges, with guard0/property6433 empty. The six-word
+configuration is`6,05640000,03960000,0,0,0`; the128 words compare with actual
+ROM source`119b5ce4`. Original code sets952c.bit1, submits both shared command
+masks80, and reaches unit200 run through`1020c23c(1) -> 10208f72 -> 1020aafc`.
+The next first uncovered access is CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`.
+`10404354` is generating interpolation records through a packet destination
+pointer; its destination ownership and extent remain the next storage boundary.
+QMP is debug/stopped before a display console exists.
 This is bounded functional-input/model progress, not a new GUI frame, factory
 calibration, later-mode acceptance or complete boot.
 
