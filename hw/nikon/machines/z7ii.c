@@ -94,6 +94,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
 #define Z7II_KIND40_BASE 0x62059800ULL
 #define Z7II_KIND40_SIZE 0x1c8000ULL
+#define Z7II_INTERPOLATION_BASE 0xc24cb400ULL
+#define Z7II_INTERPOLATION_SIZE 0xf00000ULL
 #define Z7II_ROW_STORAGE_BASE 0x50300000ULL
 #define Z7II_ROW_STORAGE_SIZE 0x340000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
@@ -196,6 +198,7 @@ struct Z7IIMachineState {
     Z7IIRAM lcd_composition;
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
+    Z7IIRAM interpolation_pool;
     Z7IIRAM row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     Z7IIRAM download;
@@ -943,6 +946,17 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
              Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
     /*
+     * Initializer10306fb0 selects kind74 through ROM table11982938[74].
+     * Row11983548 declares base C24CB400, size F00000, 10000-byte units.
+     * Original102b64b0 acquires 19c80 bytes at C33AB400 and translates it
+     * to VA3D5AB400 for software interpolation-record producer10404354.
+     * Back the complete declared pool; cold zero is a functional-board
+     * assumption. The guest owns allocation, page tables and all records.
+     * Neither a physical VA alias nor adjacent RAM is added.
+     */
+    z7ii_ram(&s->interpolation_pool, "z7ii.interpolation-pool",
+             Z7II_INTERPOLATION_BASE, Z7II_INTERPOLATION_SIZE);
+    /*
      * Resource11/12 destinations from 10248468; full loader extents at
      * 118d0930/118d09d0. Original code supplies all contents from NOR.
      */
@@ -1530,6 +1544,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
                  "resource57-record1-base=0xbf10f200 bytes=0x1fa400 cold-zero; "
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
+                 "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",

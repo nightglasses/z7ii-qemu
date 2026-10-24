@@ -157,5 +157,10 @@ crosses that write without altering the input. In `captureparams-20261024/green`
 the six COPY ranges and guard/property results remain unchanged, the128-word
 table compares with the original ROM source, and unit200 commit/run executes.
 The first uncovered access is now CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`,
-in a software interpolation-record buffer whose storage ownership remains
-unrecovered. There is still no console or qualified post-submit result.
+in a software interpolation-record buffer. Its later
+[storage investigation](../../runtime/interpolation.md) establishes kind74's
+complete pool and supplies ordinary RAM with explicit cold-zero semantics.
+In `interpolationmemory-20261024/verified`, the same six COPY ranges compare,
+guard0/property6433 empty persists, and firmware writes its own records.
+Another task first rejects READ16 PA`5d170000` at PC`1024ffda`; there is still
+no console, complete record-generation receipt or qualified post-submit result.

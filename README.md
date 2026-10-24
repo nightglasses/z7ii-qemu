@@ -45,8 +45,10 @@ post-submit result is supplied. The [paired parameter family](docs/devices/captu
 now retains141 source-written words, including both complete packets and the
 shared128-word table; all32 Sensor cases pass. With the same generated
 cold-neutral input, unchanged execution consumes the initial snapshot, reaches
-unit20 and unit200 commit/run, and now stops on CPU1 at PC`10404398`, writing
-PA`c33ab400=100` in a software interpolation-record buffer.
+unit20 and unit200 commit/run. The [interpolation pool](docs/runtime/interpolation.md)
+now backs the complete source-declared15MiB kind74 range; all29 memory cases
+pass. Original record writes cross PC`10404398`/PA`c33ab400`; another task
+then stops at PC`1024ffda`, READ16 PA`5d170000`, in a grid-sample consumer.
 The actual result producer and physical values remain unresolved. QMP is debug/stopped before a
 console exists in this run; normal-menu startup and later mode coverage remain
 unverified. Zero-valued metadata is a bounded functional assumption, not

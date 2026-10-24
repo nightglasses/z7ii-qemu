@@ -78,6 +78,11 @@ that six-word write and reaches unit200 commit/run with the same cold-neutral
 input. Its first uncovered access is CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`,
 through a software interpolation-record destination. Guard0/property6433
 empty remains confirmed; QMP is debug/stopped before a console exists.
+The subsequent [kind74 pool correction](interpolation.md) preserves that input
+and backs its complete source-declared range. Original record writes now
+succeed, before another task first rejects READ16 PA`5d170000` at PC`1024ffda`.
+The final snapshot still has guard0/property6433 empty and no display console;
+completion of all interpolation records is not established.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.
