@@ -653,7 +653,8 @@ static bool nikon_transfer_clear_fingerprint(const uint32_t *words,
         if (field < field_count && fields[field].word == i) {
             expected = fields[field++].value;
         }
-        if ((!draw && i == 37) ||
+        /* The next complete 41..49 write replaces this cached matrix. */
+        if ((!draw && ((i >= 3 && i <= 11) || i == 37)) ||
             (draw && (i == 9 || i == 379 || i == 381 || i == 383 ||
                       i == 399))) {
             continue;
@@ -1479,6 +1480,10 @@ static bool nikon_transfer_convert_fields(const uint32_t *words, bool setup,
             expected = fields[field++].value;
         }
         if (i < start) {
+            continue;
+        }
+        /* Initialized packets replace all cached 41..49 values before latch. */
+        if (setup && !over && i >= 3 && i <= 11) {
             continue;
         }
         /* 10646062 preserves mode 0..3 before 10645c86 replaces it. */

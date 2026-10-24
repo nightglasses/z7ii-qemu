@@ -4554,6 +4554,153 @@ static void test_matrix_overwrite(void)
     }
 }
 
+static void test_yuv_matrix_overwrite(void)
+{
+    enum { PLANE = 1024 * 682, INPUT = 1024 * 688 * 4, SLOT = 0x4b0000 };
+    enum { BASE, RAW_GRID, REPEAT, IMMUTABLE, FIRST_HEADER, SECOND_HEADER,
+           ACTIVE_MATRIX, ACTIVE_NAN, EARLY_LATCH, SHORT_SETUP, SHORT_DRAW,
+           RETAINED_ACTIVE, MAP_LOSS, RESET, CANCEL, CASES };
+    static const uint32_t patterns[] = {
+        0x7fc00001, 0x7f800000, 0xffffffff, 0x01a61004,
+    };
+
+    for (unsigned profile = 0; profile < 4; profile++) {
+        bool convert = profile >= 2, yuva = profile & 1;
+        unsigned primary = PLANE * (yuva ? 2 : 1);
+        TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+        MemoryRegion commands, input, output;
+        MemoryRegion *root = get_system_memory();
+        uint8_t *data, *source, *target;
+
+        object_property_add_child(object_get_objects_root(), "transfer-yuv-matrix[*]",
+                                  OBJECT(f.dev));
+        memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+            "test.yuv-matrix-command", 0x4000, 0, &error_abort);
+        memory_region_add_subregion(root, 0x400000, &commands);
+        memory_region_init_ram_flags_nomigrate(&input, OBJECT(f.dev),
+            "test.yuv-matrix-input", INPUT, 0, &error_abort);
+        memory_region_add_subregion(root, 0x410000, &input);
+        memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+            "test.yuv-matrix-output", SLOT + 8, 0, &error_abort);
+        memory_region_add_subregion(root, 0x800000 - 4, &output);
+        data = memory_region_get_ram_ptr(&commands);
+        source = memory_region_get_ram_ptr(&input);
+        target = memory_region_get_ram_ptr(&output);
+        memset(source, 0, INPUT);
+        f.irq = qemu_allocate_irq(irq_level, &f, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+        g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+        for (unsigned test = BASE; test < CASES; test++) {
+            unsigned phases = test == RAW_GRID || test == RETAINED_ACTIVE ?
+                              9 * ARRAY_SIZE(patterns) : 1;
+
+            if (test == RETAINED_ACTIVE && profile != 3) {
+                continue;
+            }
+            for (unsigned phase = 0; phase < phases; phase++) {
+                unsigned setup_bytes = 224, draw_bytes = convert ? 1736 : 1648;
+                bool complete = test <= IMMUTABLE;
+                bool accepted = complete || test >= MAP_LOSS;
+                g_autofree uint8_t *before = NULL;
+                g_autofree uint8_t *expected = NULL;
+
+                g_test_message("yuv matrix profile%u case%u phase%u",
+                               profile, test, phase);
+                device_cold_reset(f.dev);
+                memset(data, 0, 0x4000);
+                memset(target, 0xa5, SLOT + 8);
+                if (convert && yuva) {
+                    memset(target + 4 + primary, 0, PLANE);
+                }
+                if (convert && yuva) {
+                    build_scaled_program(data, data + 0x1000, false);
+                } else if (convert) {
+                    build_convert_program(data, data + 0x1000);
+                } else {
+                    build_clear_program(data, data + 0x1000,
+                                        yuva ? 0x107 : 0x105,
+                                        0x800000, 0x800000 + primary);
+                }
+                if (test == RETAINED_ACTIVE) {
+                    g_assert_cmpint(submit_rgba(&f, 224, 1736), ==, MEMTX_OK);
+                    advance();
+                    g_assert_true(f.level);
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                    build_scaled_program(data, data + 0x1000, true);
+                    setup_bytes = 176;
+                    draw_bytes = 1552;
+                    stl_le_p(data + (1 + phase / ARRAY_SIZE(patterns)) * 4,
+                             patterns[phase % ARRAY_SIZE(patterns)]);
+                } else {
+                    memset(data + 3 * 4, 0, 9 * 4);
+                    if (test == RAW_GRID) {
+                        stl_le_p(data + (3 + phase / ARRAY_SIZE(patterns)) * 4,
+                                 patterns[phase % ARRAY_SIZE(patterns)]);
+                    }
+                }
+                switch (test) {
+                case FIRST_HEADER: stl_le_p(data + 2 * 4, 0x0041f03e); break;
+                case SECOND_HEADER: stl_le_p(data + 12 * 4, 0x0042f046); break;
+                case ACTIVE_MATRIX: stl_le_p(data + 13 * 4, 0x40000000); break;
+                case ACTIVE_NAN: stl_le_p(data + 21 * 4, 0x7fc00000); break;
+                case EARLY_LATCH: stl_le_p(data + 12 * 4, 0x0006f004); break;
+                case SHORT_SETUP: setup_bytes -= 8; break;
+                case SHORT_DRAW: draw_bytes -= 8; break;
+                default: break;
+                }
+                before = g_memdup2(target, SLOT + 8);
+                expected = g_memdup2(target, SLOT + 8);
+                if (yuva) {
+                    for (unsigned i = 0; i < primary; i += 4) {
+                        stl_le_p(expected + 4 + i, 0x80801010);
+                    }
+                    memset(expected + 4 + primary, 0, PLANE);
+                } else {
+                    memset(expected + 4, 16, PLANE);
+                    memset(expected + 4 + primary, 128, PLANE);
+                }
+                g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes), ==,
+                                accepted ? MEMTX_OK : MEMTX_ERROR);
+                g_assert_false(f.level);
+                g_assert_cmpmem(target, SLOT + 8, before, SLOT + 8);
+                if (test == IMMUTABLE) {
+                    memset(data, 0xff, setup_bytes);
+                    memset(data + 0x1000, 0xff, draw_bytes);
+                } else if (test == MAP_LOSS) {
+                    memory_region_set_readonly(&output, true);
+                } else if (test == RESET) {
+                    device_cold_reset(f.dev);
+                } else if (test == CANCEL) {
+                    qdev_unrealize(f.dev);
+                }
+                advance();
+                memory_region_set_readonly(&output, false);
+                g_assert_cmpint(f.level, ==, complete);
+                if (complete) {
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                    if (test == REPEAT) {
+                        g_assert_cmpint(submit_rgba(&f, setup_bytes, draw_bytes),
+                                        ==, MEMTX_OK);
+                        advance();
+                        g_assert_true(f.level);
+                        g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                    }
+                }
+                g_assert_cmpmem(target, SLOT + 8, complete ? expected : before,
+                                SLOT + 8);
+            }
+        }
+        memory_region_del_subregion(root, &output);
+        memory_region_del_subregion(root, &input);
+        memory_region_del_subregion(root, &commands);
+        drain_call_rcu();
+        object_unparent(OBJECT(f.dev));
+        object_unref(OBJECT(f.dev));
+        drain_call_rcu();
+        qemu_free_irq(f.irq);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -4598,6 +4745,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
     g_test_add_func("/nikon/transfer/stroke-mask", test_stroke_mask);
     g_test_add_func("/nikon/transfer/matrix-overwrite", test_matrix_overwrite);
+    g_test_add_func("/nikon/transfer/yuv-matrix-overwrite", test_yuv_matrix_overwrite);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
