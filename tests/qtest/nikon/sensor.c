@@ -856,6 +856,112 @@ static void endpoint_read_error(QTestState *q, uint32_t address)
     g_assert_nonnull(strstr(reply, "Cannot access memory"));
 }
 
+static void test_capture_banks(void)
+{
+    static const uint32_t bases[] = { 0x2006a000, 0x2006be00 };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x01020304, 0x80000000, 0,
+    };
+    static const char widths[] = { 'b', 'h' };
+    uint32_t expected[2][11];
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, bases[0], 0x1234);
+    g_assert_cmphex(qtest_readl(q, bases[0]), ==, 0x1234);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+            for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+                unsigned offset = word == 10 ? 0x40 : word * 4;
+                uint32_t mask = word < 8 ? 0xffff :
+                                word < 10 ? 0xff : UINT32_MAX;
+                uint32_t value = patterns[pass] ^ (bank * 0x01010000 + offset);
+
+                value &= mask;
+                expected[bank][word] = value;
+                qtest_writel(q, bases[bank] + offset, value);
+                g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==,
+                                value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(mask & (1U << bit))) {
+                        qtest_writel(q, bases[bank] + offset,
+                                     value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, bases[bank] + offset),
+                                        ==, value);
+                    }
+                }
+            }
+        }
+        /* Both regions retain separate data, including the unmasked40 word. */
+        for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+            for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+                unsigned offset = word == 10 ? 0x40 : word * 4;
+
+                g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==,
+                                expected[bank][word]);
+            }
+        }
+    }
+    for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+        uint32_t base = bases[bank];
+
+        qtest_writeb(q, base, 0xff);
+        qtest_writew(q, base, 0xffff);
+        qtest_writel(q, base + 1, UINT32_MAX);
+        g_assert_cmphex(qtest_readl(q, base), ==, expected[bank][0]);
+        for (unsigned i = 0; i < ARRAY_SIZE(widths); i++) {
+            g_autofree char *reply = qtest_hmp(q, "xp /1%cx 0x%08x",
+                                               widths[i], base);
+
+            g_assert_nonnull(strstr(reply, "Cannot access memory"));
+        }
+        endpoint_read_error(q, base + 1);
+        endpoint_read_error(q, base - 4);
+        for (unsigned offset = 0x28; offset <= 0x3c; offset += 4) {
+            qtest_writel(q, base + offset, UINT32_MAX);
+            endpoint_read_error(q, base + offset);
+        }
+        qtest_writel(q, base + 0x44, UINT32_MAX);
+        endpoint_read_error(q, base + 0x44);
+        for (unsigned offset = 0x100; offset <= 0x12c; offset += 4) {
+            qtest_writel(q, base + offset, UINT32_MAX);
+            endpoint_read_error(q, base + offset);
+        }
+        g_assert_cmphex(qtest_readl(q, base + 0x40), ==, expected[bank][10]);
+    }
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+        for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+            unsigned offset = word == 10 ? 0x40 : word * 4;
+
+            g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==, 0);
+        }
+        endpoint_read_error(q, bases[bank] + 0x28);
+        endpoint_read_error(q, bases[bank] + 0x44);
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
 static void test_capture_endpoints(void)
 {
     static const struct {
@@ -1790,6 +1896,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/capture/configuration",
                     test_capture_configuration);
     qtest_add_func("/nikon/sensor/capture/packet", test_capture_packet);
+    qtest_add_func("/nikon/sensor/capture/banks", test_capture_banks);
     qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
     qtest_add_func("/nikon/sensor/capture/endpoint-globals",
                     test_capture_endpoint_globals);

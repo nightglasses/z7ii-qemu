@@ -53,7 +53,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
   'devices/extimer.c', 'devices/expower.c', 'devices/exrng.c',
   'devices/input.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files(
-  'devices/sensor.c', 'devices/endpoints.c'))
+  'devices/sensor.c', 'devices/endpoints.c', 'devices/capture.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_CMOS', if_true: files('devices/cmos.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
