@@ -1,5 +1,10 @@
 # Twelve-channel functional timing controller
 
+Current extensions are the [divider/load contract](load.md),
+[capture](capture.md), [compare](compare.md) and [finite extra-feature
+budget](extra.md). The last supersedes the historical unsupported enable38/
+result40 boundary on channels0..4 and records its explicit functional assumptions.
+
 This document freezes the source1 checkpoint. The later [external capture extension](capture.md) separately records its interface, native checks and next original dependency; earlier receipts below keep their original scope.
 
 The current [divider/load contract](load.md) supersedes the historical opcode

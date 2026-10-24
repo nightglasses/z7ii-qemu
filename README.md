@@ -169,8 +169,21 @@ to initialized105/107 clears/converters, including232 native variants and
 strict retained active matrices. The transfer batch now passes23 subtests.
 The[panel observer](docs/devices/panel/protocol.md) now compares every visible
 pixel, fixing missed updates outside sampled row starts;3 panel subtests pass.
-Final unchanged integration again reaches the same timing boundary. The
-preemptive matrix cases and observer correction do not establish a GUI first frame.
+The [finite extra-feature model](docs/devices/timing/extra.md) now supports
+the source's five-channel enable/configuration/result interface and single-shot
+wrapper. Its period-budget result, terminal bit3 and stop are explicit functional
+assumptions. All20 timing subtests pass, including unrealize cancellation.
+Parallel explicit two-path RGBA targets and [per-record rectangle prefixes /
+shared context](docs/devices/transfer/prefix.md) pass25 transfer subtests.
+The final110-second unchanged run completes the formerly rejected1232/1416
+pair and continues without uncovered accesses. Channel4 reaches original
+dispatch `410a1805/status9`, callback `1039578c`, waiter return `1039a408`
+and the guest stop; result40 is1 and pending0. This verifies original software
+acceptance of the functional timer profile, not physical terminal semantics.
+Its long delay comes from resource31's erased parameter42 (`ffffffff * 500`);
+the normal value remains unknown and is not overridden. Manager is
+current3/target5/mode1/state2, BatCk1, with GUI gate/pending3/display-ready0.
+The next investigation is software readiness; a GUI first frame remains unverified.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
