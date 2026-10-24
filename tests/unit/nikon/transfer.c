@@ -2894,6 +2894,270 @@ static MemTxResult submit_inline_rectangles(TransferFixture *f, uint32_t source,
     return write_register(f, 0x10e0, 1);
 }
 
+static void build_rectangle_prefixes(uint8_t *setup, uint8_t *draw,
+                                     const InlineRectangle *rectangles,
+                                     unsigned count, uint32_t target,
+                                     uint32_t key, const uint8_t *prefixes,
+                                     unsigned *setup_bytes,
+                                     unsigned *draw_bytes)
+{
+    unsigned a = 0, b = 0;
+
+    build_inline_rectangles(setup, draw, rectangles, count, target, false, key,
+                            setup_bytes, draw_bytes);
+    for (unsigned i = 0; i < count; i++) {
+        unsigned skip = prefixes[i] & 1 ? 0 : 10;
+
+        memmove(setup + 4 * a, setup + 4 * (53 * i + skip), 4 * (53 - skip));
+        a += 53 - skip;
+        if (prefixes[i] & 2) {
+            memmove(draw + 4 * b, draw + 4 * (59 * i), 8);
+            b += 2;
+        }
+        memmove(draw + 4 * b, draw + 4 * (59 * i + 2), 57 * 4);
+        b += 57;
+    }
+    inline_pair(draw, &b, 0x00081004, 1);
+    if (a & 1) {
+        inline_word(setup, &a, 0);
+    }
+    if (b & 1) {
+        inline_word(draw, &b, 0);
+    }
+    *setup_bytes = 4 * a;
+    *draw_bytes = 4 * b;
+}
+
+static void test_rectangle_prefixes(void)
+{
+    enum { SLOT = 0x4b0000, GUARDS = SLOT + 8 };
+    enum { A8_CHAIN, NONE, MATRIX, COLOR, BOTH, MIXED, OBSERVED, MAXIMUM, RAW,
+           SKIP_KEY, REUSE_KEY, IMMUTABLE,
+           NO_CONTEXT, RESET_CONTEXT, FAILED_CONTEXT, YUV105_CONTEXT,
+           YUVA107_CONTEXT, ACTIVE_MATRIX,
+           FIRST_HEADER, SECOND_HEADER,
+           COLOR_VALUE, COLOR_MASK, DOUBLE_COLOR, ACTIVE_COLOR, MODE, EARLY_LATCH,
+           KEY, INNER_KEY, TARGET, SCRATCH, SHORT_SETUP, SHORT_DRAW,
+           SETUP_PAD, DRAW_PAD,
+           ENDING, SOURCE_ALIAS, LOSS, RESET, CANCEL, CASES };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, output, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-prefixes[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.rectangle-prefix-command", 0x40000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&output, OBJECT(f.dev),
+        "test.rectangle-prefix-output", GUARDS, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000, &output);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.rectangle-prefix-alias",
+                             &output, 4, SLOT);
+    memory_region_add_subregion(root, 0x1000000, &alias);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&output);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = A8_CHAIN; test < CASES; test++) {
+        InlineRectangle rectangles[NIKON_PATH_MAX_BATCH];
+        uint8_t prefixes[NIKON_PATH_MAX_BATCH];
+        unsigned count = test == MAXIMUM ? 256 :
+                         test == SETUP_PAD || test == DRAW_PAD ? 1 : 6;
+        unsigned setup_bytes, draw_bytes;
+        unsigned first_setup, first_draw;
+        uint32_t key = test == SKIP_KEY ? 0x10080 :
+                       test == REUSE_KEY ? 0x10001 : 0x10009;
+        uint32_t source = 0x400000;
+        bool complete = test <= IMMUTABLE;
+        bool accepted = complete || test >= LOSS;
+        g_autofree uint8_t *before = NULL;
+        g_autofree uint8_t *expected = NULL;
+        g_autofree uint8_t *setup_copy = NULL;
+        g_autofree uint8_t *draw_copy = NULL;
+
+        g_test_message("rectangle prefix case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x40000);
+        memset(pixels, 0xa5, GUARDS);
+        for (unsigned i = 0; i < 8; i++) {
+            rectangles[i] = (InlineRectangle) { i * 8, 2, 4, 4, 0xff123456 };
+        }
+        if (test != NO_CONTEXT) {
+            build_inline_rectangles(data, data + 0x20000, rectangles,
+                test == A8_CHAIN ? 6 : 8,
+                0x800004, true, 0x10001, &setup_bytes, &draw_bytes);
+            g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                      draw_bytes, true), ==,
+                            MEMTX_OK);
+            if (test == FAILED_CONTEXT) {
+                memory_region_set_readonly(&output, true);
+            }
+            advance();
+            memory_region_set_readonly(&output, false);
+            g_assert_cmpint(f.level, ==, test != FAILED_CONTEXT);
+            if (f.level) {
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+            if (test == RESET_CONTEXT) {
+                device_cold_reset(f.dev);
+            }
+        }
+        if (test == A8_CHAIN) {
+            for (unsigned i = 0; i < 2; i++) {
+                build_image_program(data, data + 0x20000);
+                stl_le_p(data + 42 * 4, 0x10007 + i);
+                stl_le_p(data + 0x20000 + 59 * 4, 0x800004);
+                stl_le_p(data + 0x20000 + 78 * 4, 0x10007 + i);
+                stl_le_p(data + 0x20000 + 29 * 4, i ? 14 : 8);
+                for (unsigned p = 0; p < 32; p++) {
+                    data[0x3000 + p] = (p * 67) & 255;
+                }
+                g_assert_cmpint(submit_inline_rectangles(&f, source, 176, 336,
+                                                          false), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+        } else if (test == YUV105_CONTEXT || test == YUVA107_CONTEXT) {
+            uint32_t format = test == YUV105_CONTEXT ? 0x105 : 0x107;
+            uint32_t primary = 1024 * 682 * (format == 0x107 ? 2 : 1);
+
+            build_clear_program(data, data + 0x20000, format,
+                                0x800004, 0x800004 + primary);
+            g_assert_cmpint(submit_inline_rectangles(&f, source, 224, 1648,
+                                                      true), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        for (unsigned i = 0; i < count; i++) {
+            rectangles[i] = (InlineRectangle) {
+                10 + i % 12, 20 + i % 8, 17, 9, 0x12345678U * (i + 1),
+            };
+            prefixes[i] = test >= NONE && test <= BOTH ? test - NONE :
+                          test == MIXED ? i % 4 :
+                          test == OBSERVED || test == A8_CHAIN ? (i ? 3 : 0) :
+                          test == MAXIMUM ? (i * 3) % 4 : 0;
+        }
+        if (test == OBSERVED) {
+            for (unsigned i = 0; i < count; i++) {
+                rectangles[i] = i == 0 ?
+                    (InlineRectangle) {136, 6, 112, 40, 0} : i == 1 ?
+                    (InlineRectangle) {594, 6, 100, 38, 0} :
+                    (InlineRectangle) {90, 402, 36, 36, 0};
+            }
+        }
+        if (test == RAW || test == FIRST_HEADER || test == SECOND_HEADER ||
+            test == EARLY_LATCH || test == SOURCE_ALIAS) {
+            prefixes[0] = 1;
+        } else if (test == COLOR_VALUE || test == COLOR_MASK ||
+                   test == DOUBLE_COLOR) {
+            prefixes[0] = 2;
+        }
+        build_rectangle_prefixes(data, data + 0x20000, rectangles, count,
+            0x800004, key, prefixes, &setup_bytes, &draw_bytes);
+        if (test == OBSERVED) {
+            g_assert_cmpuint(setup_bytes, ==, 1232);
+            g_assert_cmpuint(draw_bytes, ==, 1416);
+        }
+        first_setup = prefixes[0] & 1 ? 10 : 0;
+        first_draw = prefixes[0] & 2 ? 2 : 0;
+        switch (test) {
+        case RAW:
+            for (unsigned i = 0; i < 9; i++) {
+                stl_le_p(data + 4 * (i + 1),
+                         (uint32_t[]) {0x7fc00001, 0x7f800000,
+                                       0xffffffff, 0x01a61004}[i % 4]);
+            }
+            break;
+        case ACTIVE_MATRIX:
+            stl_le_p(data + 4 * (first_setup + 1), 0x40000000); break;
+        case FIRST_HEADER: stl_le_p(data, 0x0041f03e); break;
+        case SECOND_HEADER: stl_le_p(data + 40, 0x0042f046); break;
+        case COLOR_VALUE: stl_le_p(data + 0x20004, 0x01000000); break;
+        case COLOR_MASK: stl_le_p(data + 0x20000, 0x01841004); break;
+        case DOUBLE_COLOR:
+            memmove(data + 0x20008, data + 0x20000, draw_bytes);
+            stl_le_p(data + 0x20000, 0x01848004);
+            stl_le_p(data + 0x20004, 0);
+            draw_bytes += 8;
+            break;
+        case ACTIVE_COLOR:
+            stl_le_p(data + 0x20000 + 4 * (first_draw + 39), 0x01000000); break;
+        case MODE:
+            stl_le_p(data + 0x20000 + 4 * (first_draw + 37), 0); break;
+        case EARLY_LATCH: stl_le_p(data + 40, 0x0006f004); break;
+        case KEY: stl_le_p(data + 4 * (first_setup + 42), 0x10008); break;
+        case INNER_KEY:
+            stl_le_p(data + 4 * (43 + 42), 0x1000b);
+            stl_le_p(data + 0x20000 + 4 * (57 + 54), 0x1000b);
+            break;
+        case TARGET:
+            stl_le_p(data + 0x20000 + 4 * (57 + 31), 0x800008); break;
+        case SCRATCH: stl_le_p(data + 4 * (first_setup + 25), 0); break;
+        case SHORT_SETUP: setup_bytes -= 8; break;
+        case SHORT_DRAW: draw_bytes -= 8; break;
+        case SETUP_PAD: stl_le_p(data + setup_bytes - 4, 1); break;
+        case DRAW_PAD: stl_le_p(data + 0x20000 + draw_bytes - 4, 1); break;
+        case ENDING: stl_le_p(data + 0x20000 + draw_bytes - 4, 0); break;
+        case SOURCE_ALIAS:
+            source = 0x1000000;
+            memcpy(pixels + 4, data, setup_bytes);
+            break;
+        default: break;
+        }
+        before = g_memdup2(pixels, GUARDS);
+        expected = g_memdup2(pixels, GUARDS);
+        setup_copy = g_memdup2(data, setup_bytes);
+        draw_copy = g_memdup2(data + 0x20000, draw_bytes);
+        for (unsigned i = 0; i < count; i++) {
+            InlineRectangle *r = &rectangles[i];
+
+            for (unsigned y = r->y; y < r->y + r->height; y++) {
+                for (unsigned x = r->x; x < r->x + r->width; x++) {
+                    stl_le_p(expected + 4 + 4 * (720 * y + x), r->paint);
+                }
+            }
+        }
+        g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
+                                                 draw_bytes, false), ==,
+                        accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+        if (test == IMMUTABLE) {
+            memset(data, 0xff, 0x40000);
+        } else if (test == LOSS) {
+            memory_region_set_readonly(&output, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&output, false);
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
+        if (test != IMMUTABLE) {
+            g_assert_cmpmem(data, setup_bytes, setup_copy, setup_bytes);
+            g_assert_cmpmem(data + 0x20000, draw_bytes, draw_copy, draw_bytes);
+        }
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &output);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 static void test_inline_rectangles(void)
 {
     enum { W = 720, H = 480, BYTES = W * H * 4, SLOT = 0x4b0000 };
@@ -3081,7 +3345,7 @@ static void test_rectangle_continuation(void)
     enum { SLOT = 0x4b0000, GUARDS = SLOT + 8 };
     enum { SUCCESS, COLORED, OVERLAP, ONE, TWO, THREE, FIVE, MAXIMUM,
            TOO_MANY, WRAP, CHAIN, TARGET_CHANGE, NO_CONTEXT, RESET_CONTEXT,
-           LUT_CONTEXT, REJECT_CONTEXT, FAILED_EXEC_CONTEXT, WRONG_KEY, REPLAY,
+           LUT_CONTEXT, REJECT_CONTEXT, FAILED_EXEC_CONTEXT, KEY_ECHO, REPLAY,
            SETUP_PAD, DRAW_PAD, TRANSITION, LATE_FIELD, ENDING, SOURCE_ALIAS,
            LOSS, RESET, DATA_CHANGE, BEFORE_COMPLETE, BEFORE_ACK, CANCEL, CASES };
     const InlineRectangle seed[] = {
@@ -3195,13 +3459,14 @@ static void test_rectangle_continuation(void)
             }
         }
         build_inline_rectangles(data, data + 0x20000, rectangles, count, target,
-                                false, test == WRONG_KEY ? first_key + 1 :
-                                first_key, &setup_bytes, &draw_bytes);
+                                false, first_key, &setup_bytes, &draw_bytes);
         if (count == 10) {
             g_assert_cmpuint(setup_bytes, ==, 2120);
             g_assert_cmpuint(draw_bytes, ==, 2368);
         }
         switch (test) {
+        case KEY_ECHO: stl_le_p(data + 0x20000 + (2 + 54) * 4,
+                              first_key + 1); break;
         case SETUP_PAD: stl_le_p(data + setup_bytes - 4, 1); break;
         case DRAW_PAD: stl_le_p(data + 0x20000 + draw_bytes - 4, 1); break;
         case TRANSITION: stl_le_p(data + 0x20000 + 60 * 4, 1); break;
@@ -3258,11 +3523,14 @@ static void test_rectangle_continuation(void)
         if (test == REPLAY || test == LOSS || test == RESET) {
             g_assert_cmpint(submit_inline_rectangles(&f, source, setup_bytes,
                                                       draw_bytes, false), ==,
-                            MEMTX_ERROR);
+                            test == REPLAY ? MEMTX_OK : MEMTX_ERROR);
             advance();
-            g_assert_false(f.level);
+            g_assert_cmpint(f.level, ==, test == REPLAY);
             g_assert_cmpmem(pixels[0], GUARDS,
                             complete ? expected : before0, GUARDS);
+            if (f.level) {
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
         } else if (test == CHAIN) {
             /* Retain clip/format and next key across another odd batch. */
             for (unsigned i = 0; i < 3; i++) {
@@ -4905,6 +5173,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/inline-rectangles", test_inline_rectangles);
     g_test_add_func("/nikon/transfer/rectangle-continuation",
                     test_rectangle_continuation);
+    g_test_add_func("/nikon/transfer/rectangle-prefixes", test_rectangle_prefixes);
     g_test_add_func("/nikon/transfer/rgba-over", test_rgba_over);
     g_test_add_func("/nikon/transfer/rgba-targets", test_rgba_targets);
     g_test_add_func("/nikon/transfer/rgba-pair-targets", test_rgba_pair_targets);
