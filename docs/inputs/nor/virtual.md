@@ -135,3 +135,11 @@ debug/stopped, with no console yet. This validates the declared cold-path
 input through that frontier, not normal-menu output, later mode coverage,
 physical Sensor calibration or complete boot. Raw receipts, COPY comparison,
 guard result and timer traces remain in `work/runs/capturebanks-20261024/`.
+
+The later [capture-group model](../../devices/capturegroup/protocol.md) crosses that
+configuration write. With the same generated input, the unchanged
+`capturegroup-20261024/green` run again compares all six COPY ranges and
+records guard0/property6433 empty. Its first uncovered access is CPU0
+PC`10208e14`, READ32 PA`2006bb70`, in the old-result snapshot preceding
+unit20 commit/run. The input profile does not declare those hardware results.
+QMP remains debug/stopped before a console exists; the scope above is unchanged.

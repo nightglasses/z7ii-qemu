@@ -17,15 +17,24 @@ then selector3 at record`2c00` overwrites them with q0/count35189. Independent
 secondary input remains at`50300000`, with its selected208-byte block zero;
 the NULL-clearing branch is not the observed path.
 
-The [two service parameter banks](../devices/capture/banks.md) now retain
-both source-selected banks at PA`2006a000/2006be00`, with all29 Sensor native
-cases green after old-model red. Original execution crosses the former
-`2006be00` write. The first uncovered access is CPU0 PC`10208ea4`, WRITE32
-PA`2006b800=8`, in a separate request-flag40 configuration family. Its
-configuration and later result consumers have been identified, but unknown
-status producers remain a separate boundary. QMP is debug/stopped before a
-display console exists. This is bounded functional-input progress, not a new
-GUI frame, factory calibration, later-mode acceptance or complete boot.
+The [two service parameter banks](../devices/capture/banks.md) retain both
+source-selected banks at PA`2006a000/2006be00`. The subsequent
+[capture configuration group](../devices/capturegroup/protocol.md) covers144 identified
+words, complete source masks and independent opaque address fields, without
+DMA or result production. Old-model red is followed by all30 Sensor native
+cases green. The unchanged `capturegroup-20261024/green` run uses the same
+cold-neutral input, compares all six loader COPY ranges and again records
+guard0/property6433 empty. It crosses the former PA`2006b800=8` write and
+enters `10239dc6(b1887ef8,1) -> 1020c17a -> 10208e0a`.
+
+The first uncovered access is now CPU0 PC`10208e14`, READ32 PA`2006bb70`.
+Force1 bypasses a later identity comparison, but does not skip this old-result
+snapshot. Shared commit/run for unit20 follows that consumer; it has not yet
+executed. The eight result registers' cold values and update producer remain
+unrecovered, so the model does not supply zero or copy the requested identity
+to force progress. QMP is debug/stopped before a display console exists.
+This is bounded functional-input progress, not a new GUI frame, factory
+calibration, later-mode acceptance or complete boot.
 
 ## Earlier original error-GUI frame and module-input investigation
 
