@@ -83,6 +83,7 @@ static void test_cpu_ram(void)
         0xbf10f200, 0xbf10f400, 0xbf3095fc,
         0xbf309600, 0xbf309800, 0xbf7b95fc,
         0xc175d600, 0xc175d800, 0xc1c0d5fc,
+        0xc24cb400, 0xc24cc000, 0xc33ab400, 0xc33cb3fc,
         0xcb4a7000, 0xcc63affc, 0x62059800, 0x62059c00, 0x622217fc,
         0x50300000, 0x5063fffc, 0xb0d00000, 0xb10ffffc,
         0xb0900000, 0xb0cffffc, 0x04008ea8, 0x04008efc, 0x04008ffc,
@@ -475,6 +476,45 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_writel(qts, 0x04251028, 0x9000);
     qtest_writel(qts, 0x04251028, 0x11109003);
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_interpolation_pool(void)
+{
+    const uint32_t base = 0xc24cb400, end = 0xc33cb400;
+    const uint32_t record = 0xc33ab400, length = 0x19c80;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = { base, base + 0xc00, record, end - 4 };
+    const uint32_t holes[] = { base - 1, end, 0x3c6cb400, 0x3d5ab400 };
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x74000000 + i);
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x74000000 + i);
+    }
+    for (unsigned i = 0; i < length; i++) {
+        expected[i] = (i * 29 + (i >> 8) * 11 + 7) & 0xff;
+    }
+    qtest_memwrite(t.qts, source, expected, length);
+    prefix_copy(t.qts, source, record, length);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    qtest_memread(t.qts, record, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+
+    /* Exact pool edges and the logical view are not physical RAM aliases. */
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    qtest_memread(t.qts, record, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x74000000);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x74000003);
+    memory_quit(&t);
 }
 
 static void G_GNUC_UNUSED test_dynamic_load(void)
@@ -1223,6 +1263,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/storage-profile", test_storage_profile);
     qtest_add_func("/nikon/memory/cpu-ram", test_cpu_ram);
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
+    qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
     qtest_add_func("/nikon/memory/row-storage", test_row_storage);
     qtest_add_data_func("/nikon/memory/descriptor11-input",
                         GUINT_TO_POINTER(11), test_row_input);
