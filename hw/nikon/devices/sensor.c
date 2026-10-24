@@ -814,6 +814,7 @@ struct NikonCaptureControl {
     MemoryRegion packet_memory;
     qemu_irq irq[NIKON_CAPTURE_EVENTS];
     qemu_irq command_data[64], command_publish[2];
+    qemu_irq run_state[12];
     uint32_t configuration[CAPTURE_WORDS];
     bool known[CAPTURE_WORDS];
     uint32_t pending[CAPTURE_STATUS_WORDS];
@@ -987,6 +988,13 @@ static void nikon_capture_cancel(NikonCaptureControl *s, uint32_t units)
     }
 }
 
+static void nikon_capture_run_state(NikonCaptureControl *s)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(s->run_state); i++) {
+        qemu_set_irq(s->run_state[i], !!(s->configuration[8 / 4] & (1U << i)));
+    }
+}
+
 bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
                            const uint32_t *words, size_t count, Error **errp)
 {
@@ -1122,6 +1130,7 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         }
         /* Functional readback mirrors run state, not the last stop mask. */
         s->configuration[0xc / 4] = s->configuration[8 / 4];
+        nikon_capture_run_state(s);
         nikon_capture_shared(s);
         return MEMTX_OK;
     }
@@ -1149,6 +1158,7 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         s->known[first] = s->known[first + 1] = true;
         if (offset == 0 || offset == 0x14) {
             nikon_capture_cancel(s, bits);
+            nikon_capture_run_state(s);
             nikon_capture_shared(s);
         }
         return MEMTX_OK;
@@ -1225,6 +1235,7 @@ static void nikon_capture_reset(DeviceState *dev)
     s->event_levels = 0;
     s->reported_error = false;
     nikon_capture_cancel(s, 0xeff);
+    nikon_capture_run_state(s);
     for (i = 0; i < ARRAY_SIZE(s->command_data); i++) {
         qemu_set_irq(s->command_data[i], 0);
     }
@@ -1260,6 +1271,7 @@ static void nikon_capture_init(Object *obj)
                             NIKON_CAPTURE_EVENTS);
     qdev_init_gpio_out_named(DEVICE(s), s->command_data, "command-data", 64);
     qdev_init_gpio_out_named(DEVICE(s), s->command_publish, "command-publish", 2);
+    qdev_init_gpio_out_named(DEVICE(s), s->run_state, "run-state", 12);
 }
 
 static void nikon_capture_finalize(Object *obj)

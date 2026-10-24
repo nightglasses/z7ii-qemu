@@ -1,6 +1,6 @@
 /*
  * Finite capture-group parameters and opaque address retention.
- * Configuration alone produces no status, DMA, IRQ or completion.
+ * The cold-empty result profile expires at commit/run, without completion.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -16,8 +16,47 @@ struct NikonCaptureGroupState {
     SysBusDevice parent_obj;
     MemoryRegion memory;
     uint32_t configuration[CAPTURE_GROUP_WORDS];
+    bool results_unknown;
+    bool commit_selected[2];
     bool reported_error;
 };
+
+static bool nikon_capture_group_result(hwaddr offset)
+{
+    switch (offset) {
+    case 0x370: case 0x374: case 0x378: case 0x478: case 0x578:
+    case 0x37c: case 0x47c: case 0x57c:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void nikon_capture_group_commit_selected(void *opaque, int index,
+                                               int level)
+{
+    NikonCaptureGroupState *s = opaque;
+
+    s->commit_selected[index] = !!level;
+}
+
+static void nikon_capture_group_commit(void *opaque, int index, int level)
+{
+    NikonCaptureGroupState *s = opaque;
+
+    if (level && s->commit_selected[index]) {
+        s->results_unknown = true;
+    }
+}
+
+static void nikon_capture_group_run(void *opaque, int index, int level)
+{
+    NikonCaptureGroupState *s = opaque;
+
+    if (level) {
+        s->results_unknown = true;
+    }
+}
 
 static bool nikon_capture_group_mask(hwaddr offset, uint32_t *mask)
 {
@@ -82,8 +121,17 @@ static MemTxResult nikon_capture_group_read(void *opaque, hwaddr offset,
     uint32_t mask;
 
     *value = 0;
-    if (size != 4 || (offset & 3) ||
-        !nikon_capture_group_mask(offset, &mask)) {
+    if (size != 4 || (offset & 3)) {
+        return nikon_capture_group_error(s, offset, size, false, 0);
+    }
+    if (nikon_capture_group_result(offset)) {
+        /* Functional empty cold snapshot, never an applied/ready result.
+         * Commit/run expires this profile; no post-submit producer is bound.
+         */
+        return s->results_unknown ?
+            nikon_capture_group_error(s, offset, size, false, 0) : MEMTX_OK;
+    }
+    if (!nikon_capture_group_mask(offset, &mask)) {
         return nikon_capture_group_error(s, offset, size, false, 0);
     }
     *value = s->configuration[offset / 4];
@@ -118,6 +166,8 @@ static void nikon_capture_group_reset(DeviceState *dev)
     NikonCaptureGroupState *s = NIKON_CAPTURE_GROUP(dev);
 
     memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->commit_selected, 0, sizeof(s->commit_selected));
+    s->results_unknown = false;
     s->reported_error = false;
 }
 
@@ -128,6 +178,10 @@ static void nikon_capture_group_init(Object *obj)
     memory_region_init_io(&s->memory, obj, &nikon_capture_group_ops, s,
                           "nikon.capture-group", CAPTURE_GROUP_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_commit_selected,
+                           "commit-selected", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_commit, "commit", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_run, "run", 1);
 }
 
 static const VMStateDescription nikon_capture_group_vmstate = {

@@ -97,6 +97,9 @@ bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
                            const uint32_t *words, size_t count, Error **errp);
 bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
                                  uint32_t *value);
+/* Named run-state[0..11] mirrors effective08 intent after reset/enable gates.
+ * It is synchronous lifecycle information, never a completion publication.
+ */
 
 /* SDES Driver's three independently mapped regions, in this order. */
 enum NikonSdesRegion {

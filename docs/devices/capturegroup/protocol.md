@@ -2,9 +2,9 @@
 
 The finite device retains144 source-identified configuration words at board
 PAs`[2006b800,2006bd84)`. Its one SysBus region is exactly584 hex bytes;
-all holes and unknown result addresses within that interval remain transaction
-errors. This is a configuration contract, not a source of capture readiness,
-frames, DMA, IRQs or completion events.
+all holes within that interval remain transaction errors. Eight read-only
+result words additionally have the bounded cold-empty profile below. There
+is no source of capture readiness, frames, DMA, IRQs or completion events.
 
 ## Original producers and masks
 
@@ -80,7 +80,8 @@ the returned bb74 byte is not a producer of that byte. The model must not
 return a matching byte to force this caller forward.
 
 The full configuration branch is `1023abaa` with flag40 and a non-NULL
-pointer-array slot4. It configures shared unit20 through `1020c01a`, calls
+pointer-array slot4. It configures shared interrupt masks for unit20 through
+`1020c01a -> 1020ab7c`, calls
 `10239e36`, then calls `10239dc6` with force1. Force bypasses the identity
 comparison, but still reads the complete old result packet first. Only after
 that call returns does `1020c07e` submit mask10 to the shared command ports
@@ -89,7 +90,7 @@ at20068008. This last call is run, not reset. The incremental branch through
 `1023aed8` calls the same result consumer with force0 before its later shared
 commit. Neither path establishes a result producer at bb70..bd7c.
 
-## Unsupported results and state boundaries
+## Result consumers and control order: source facts
 
 All accesses must be aligned little-endian32-bit. Unknown widths, offsets
 and upper bits reject before mutation. Known configuration reads return the
@@ -97,27 +98,81 @@ last accepted value. Reset and unrealize clear that retained configuration
 under an explicit functional cold-zero/readback convention; physical reset
 values and universal physical register readability are unestablished.
 
-`10208e0a`/wrapper`1020c17a` consumes eight distinct32-bit registers:
-bb70/bb74 and the bb/bc/bd78/7c result words. It truncates the first two to
-bytes at output+0/+1, then stores the six full words at+4 through+24.
-Bd7c is read twice, including the return value; the source supplies no
-read-to-consume semantics. `10239dc6` uses only output byte1 for its identity
+`10208e0a`/wrapper`1020c17a` consumes the complete28-byte packet:
+
+| Board PA | Read width | Destination |
+|---|---|---|
+| `2006bb70` | 32-bit | Low byte to output+0 |
+| `2006bb74` | 32-bit | Low byte to output+1 |
+| `2006bb78/bc78/bd78` | 32-bit each | Full words to output+4/+8/+c |
+| `2006bb7c/bc7c/bd7c` | 32-bit each | Full words to output+10/+14/+18 |
+
+Raw instructions establish one read of each register: MAS`10208e44` loads
+bd7c once, and`10208e46` stores that loaded value. The preceding decompiler
+projection incorrectly printed two memory reads. The independently matched
+SLA getter`1009b3c2..1009b400` has the same packet and single-read sequence.
+Neither sequence proves read-to-consume semantics. In the recovered direct
+call graph, `10239dc6` uses only output byte1 for its identity
 comparison against MAS VA`b26b47cb`. The requested identity also reaches bb44,
 but a desired/applied identity relationship between bb44 and bb74 remains a
 hypothesis, not a recovered producer. Neither zero-valued requested identity
-nor force1 establishes zero hardware results. Their providers are unknown,
-so reads and writes there remain errors.
-The same applies to all other holes, including b988 and ba54..ba90. Zeroed
-host storage does not make those addresses readable.
+nor force1 establishes zero hardware results. Other packet words are not
+numerically consumed by this caller. Force1 still performs all reads before
+bypassing the comparison, so its success cannot validate their numeric values.
 
-The device has no timer, IRQ, request output, frame input or DMA engine.
-The separate shared capture-control unit`0x20` reset/enable/disable and commit
-paths retain their existing contracts. Configuring this group does not
-trigger that device's stop fence as a substitute for a normal data result.
+The narrow original `captureresults-20261024/red` trace confirms
+`1020c050 -> 1020a50c(unit20,0/1)` before configuration, followed by
+`1020a518(unit20,1)`. The former writes shared reset set/clear ports00/04;
+the latter writes enable port10. No group commit or unit20 run precedes the
+first force1 getter. `1020c01a` is mask configuration, not a result producer.
+The getter precedes both command writes100/104 with mask10 and run08 with
+unit20. Software alone does not distinguish result updates at configuration,
+commit or a subsequent processing boundary.
+
+No writer of the eight results or complete hardware result producer has been
+recovered. The direct getter graph remains
+`10239dc6 -> 1020c17a -> 10208e0a`; its known callers are full configuration
+`1023abaa` and incremental `1023aed8`. Lack of another static caller does
+not rule out dynamic callers. These facts bound a cold contract without
+recovering physical reset values or a post-run snapshot.
+
+## Cold-empty profile: functional assumptions
+
+The model defines an initially readable empty snapshot, with all eight words
+zero. This is an explicit functional cold-reset convention, supported by the
+read-before-first-submit caller contract, **not measured hardware values,
+applied identity, readiness or completed processing**. It is independent of
+the requested identity, the cold-neutral file and whether software uses force.
+There is no post-submit zero provider.
+
+| Event | Entire eight-word packet |
+|---|---|
+| Model device/system cold reset | Readable empty snapshot |
+| Configuration write, unrelated commit, rejected access or inhibited run | Preserve current qualification |
+| Either shared command100/104 containing mask10 | Synchronously become unknown |
+| Effective unit20 run after existing reset/enable gates | Synchronously become unknown |
+| Stop, disable, shared unit reset or subsequent configuration | Remain unknown once invalidated |
+| Aligned32-bit read | Return cold0 only while qualified; otherwise transaction error |
+| Write, wrong width or unaligned access | Transaction error without state mutation |
+
+Invalidation discards model knowledge; it does not claim physical registers
+clear or change at that instant. Using both possible triggers avoids assuming
+commit cannot update the packet. Only an explicit model cold reset opens a
+new empty epoch; shared reset00/04 does not invent a result reset law.
+
+The machine wires shared command-data bit4 and command-publish for both ports
+to the group. Capture-control's synchronous `run-state[0..11]` outputs mirror
+effective run intent, and bit5 feeds the group. Those are functional lifecycle
+connections, not physical pins or GIC lines. Publication precedes return from
+the initiating MMIO transaction. No timer or result update is scheduled.
+
+The device has no IRQ, request output, frame input or DMA engine. Configuring
+this group does not trigger the shared stop fence as a normal data result.
 Readout admission and CMOS observation completion likewise have no recovered
-mapping to this result packet. The next evidence needed is the packet's cold
-state and update trigger, including whether identity latches at configuration,
-shared commit or frame completion; none is inferred from those other events.
+mapping to this result packet. A post-submit producer still needs the eight
+field meanings, identity latch rule and actual processing/update trigger.
+Until that contract exists, all eight post-submit reads reject together.
+All201 other aligned holes, including b988 and ba54..ba90, remain errors.
 
 ## Validation and execution scope
 
@@ -157,3 +212,34 @@ head has a console. This crosses the configuration frontier under declared
 functional assumptions; it does not establish normal GUI output or complete
 boot. Raw source projections, trace, read-only snapshot and proof remain in
 `work/runs/capturegroup-20261024/`.
+
+## Cold-result validation and later frontier
+
+The new `/arm/nikon/sensor/capture/group-results` fixture first fails on the
+old model's actual HMP memory error at bb70 (`native-results-red.log`). After
+the profile and shared lifecycle wiring, all31 Sensor subtests pass in
+`native-results-green.log`. A final scoped case also checks an unrelated
+effective unit leaves the packet qualified. The fixture reads all eight
+words through HMP to distinguish readable zero from an error buffer; tests
+read-only/non-consuming cold reads, no identity mirroring, unrelated commands,
+invalid widths/masks, inhibited and effective run, both commit ports, sticky
+invalidation through stop/disable/shared reset/time advance, and model reset.
+The configuration fixture still covers144 writable fields and now201 holes.
+
+The unchanged20-host-second `captureresults-20261024/green` run supplies the
+same cold-neutral file. All six loader COPY ranges compare, the original
+guard returns0 with packed150, and property6433 is empty. The original
+force1 getter returns, then ba30 becomes1. Source execution reaches
+`1020c07e`, both shared commit accessors with mask10, and
+`10208c46 -> 1020aafc(unit20)`. The cold qualification has expired before
+run; no result is published and no post-submit values are asserted.
+
+The first uncovered access is CPU0 PC`102090bc`, WRITE32 PA`20069514=6`.
+Its separate six-word writer is `102090a0` through `1020c2d4`; source callers
+`1023994c/10239820` belong to the later flag200 branch through`1023c846`.
+QMP reports debug/stopped and neither display head has a console. This is
+original software progress **under the cold-empty assumption**. Force1 does
+not consume the result numbers, so the run does not validate their physical
+values or establish an actual result producer, normal GUI output or boot.
+Raw instruction/source projections, red/green trace and read-only snapshots
+remain in`work/runs/captureresults-20261024/`.

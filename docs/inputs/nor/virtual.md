@@ -143,3 +143,11 @@ records guard0/property6433 empty. Its first uncovered access is CPU0
 PC`10208e14`, READ32 PA`2006bb70`, in the old-result snapshot preceding
 unit20 commit/run. The input profile does not declare those hardware results.
 QMP remains debug/stopped before a console exists; the scope above is unchanged.
+
+In `captureresults-20261024/green`, the same input additionally crosses the
+initial result read under the separate device's explicit cold-empty assumption.
+All eight result words become unknown at group commit/effective run; the file
+does not supply them. Original code reaches mask10 commits and unit20 run,
+then first rejects CPU0 PC`102090bc`, WRITE32 PA`20069514=6`. Six COPY ranges
+still compare and the guard/property check is unchanged. There is no console
+or qualified post-submit result at this checkpoint.

@@ -1105,6 +1105,7 @@ static void z7ii_init(MachineState *machine)
     }
     {
         DeviceState *capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
+        DeviceState *group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
 
         object_property_add_child(OBJECT(machine), "capture-control",
                                   OBJECT(capture));
@@ -1116,6 +1117,17 @@ static void z7ii_init(MachineState *machine)
                                qdev_get_gpio_in(gic, 94 + i - 32));
         }
         /* Original status/command interface; external publication is unbound. */
+        object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
+        for (i = 0; i < 2; i++) {
+            qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 4,
+                qdev_get_gpio_in_named(group, "commit-selected", i));
+            qdev_connect_gpio_out_named(capture, "command-publish", i,
+                qdev_get_gpio_in_named(group, "commit", i));
+        }
+        qdev_connect_gpio_out_named(capture, "run-state", 5,
+                                   qdev_get_gpio_in_named(group, "run", 0));
     }
     {
         DeviceState *endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
@@ -1132,13 +1144,6 @@ static void z7ii_init(MachineState *machine)
         sysbus_realize_and_unref(SYS_BUS_DEVICE(banks), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(banks), 0, 0x2006a000);
         sysbus_mmio_map(SYS_BUS_DEVICE(banks), 1, 0x2006be00);
-    }
-    {
-        DeviceState *group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
-
-        object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
-        sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
     }
     {
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {

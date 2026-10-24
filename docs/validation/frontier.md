@@ -21,19 +21,36 @@ The [two service parameter banks](../devices/capture/banks.md) retain both
 source-selected banks at PA`2006a000/2006be00`. The subsequent
 [capture configuration group](../devices/capturegroup/protocol.md) covers144 identified
 words, complete source masks and independent opaque address fields, without
-DMA or result production. Old-model red is followed by all30 Sensor native
-cases green. The unchanged `capturegroup-20261024/green` run uses the same
+DMA or result production. Its original configuration-only model passes30
+Sensor cases. The unchanged `capturegroup-20261024/green` run uses the same
 cold-neutral input, compares all six loader COPY ranges and again records
 guard0/property6433 empty. It crosses the former PA`2006b800=8` write and
 enters `10239dc6(b1887ef8,1) -> 1020c17a -> 10208e0a`.
 
-The first uncovered access is now CPU0 PC`10208e14`, READ32 PA`2006bb70`.
+That run first rejects CPU0 PC`10208e14`, READ32 PA`2006bb70`.
 Force1 bypasses a later identity comparison, but does not skip this old-result
 snapshot. Shared commit/run for unit20 follows that consumer; it has not yet
 executed. The eight result registers' cold values and update producer remain
 unrecovered, so the model does not supply zero or copy the requested identity
-to force progress. QMP is debug/stopped before a display console exists.
-This is bounded functional-input progress, not a new GUI frame, factory
+to force progress in that configuration-only model.
+
+The later cold-empty profile defines a readable empty initial packet, with
+all eight words0 under an explicit functional assumption. Either group commit
+or effective unit20 run synchronously invalidates the entire packet; stop,
+disable and shared unit reset do not restore it. Post-submit reads remain
+errors, and there is no ready, result identity copy, frame, DMA or IRQ producer.
+Native old-model red is followed by all31 Sensor cases green, with the final
+scoped case also checking an unrelated effective unit.
+
+The unchanged `captureresults-20261024/green` run uses the same input and again
+compares all six COPY ranges with guard0/property6433 empty. The first force1
+getter returns, ba30 becomes1, both mask10 commits execute and unit20 reaches
+`1020aafc`. Force1 does not consume the result numbers, so this receipt proves
+software continuation under the assumption, not the correctness of physical
+cold values or any post-submit result. The new first uncovered access is CPU0
+PC`102090bc`, WRITE32 PA`20069514=6`, in the separate `102090a0` parameter
+writer through`1020c2d4`. QMP is debug/stopped before a display console exists.
+This is bounded functional-input/model progress, not a new GUI frame, factory
 calibration, later-mode acceptance or complete boot.
 
 ## Earlier original error-GUI frame and module-input investigation
