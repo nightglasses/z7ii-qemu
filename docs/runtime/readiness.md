@@ -61,6 +61,14 @@ is not an operation number accepted by `104a94fe`, whose domain is0..15.
 
 ## Error68 producer and next input boundary
 
+The subsequent [cold-neutral resource80 profile](../inputs/nor/virtual.md)
+now passes this guard through the original loader. In the unchanged
+`capturebanks-20261024/neutral` run, packed version150 returns0 at
+`102d7254` and property6433 is empty before the next uncovered PA`2006b800`
+configuration write. This closes the ID68 condition for the declared cold
+profile; it does not imply that the erased-input baseline below is valid,
+that the GUI gate changed, or that normal-menu output has been reached.
+
 The original `origin`, `fault` and `version` traces join:
 
 `10305dac -> 102d7238 -> 1026c26a -> 1026c1d4(400) ->

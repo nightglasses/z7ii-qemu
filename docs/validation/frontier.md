@@ -1,6 +1,33 @@
 # Original-firmware startup frontier
 
-## Original error-GUI frame; external resource80 frontier
+## Cold-neutral input and capture service frontier
+
+The explicit [cold-neutral resource80 input](../inputs/nor/virtual.md) now
+passes the original loader and version guard on the inspected mode11/subtype3
+path. The native `nikon-module` tool defines complete zero-valued readsets,
+no-op script lists, cleared source control fields and nonzero timing under
+named functional assumptions; its4 native cases pass. It supplies an external
+NOR file and does not patch loaded RAM or guest software results.
+
+The unchanged `capturebanks-20261024/neutral` run compares all six COPY ranges
+with that file; original `10305dac` returns0 at `102d7254` with packed version150.
+Property6433 is empty at the checkpoint, so ID68 is absent under this input.
+Both timer cases execute: selector4 at record`3230` produces q130/count35319,
+then selector3 at record`2c00` overwrites them with q0/count35189. Independent
+secondary input remains at`50300000`, with its selected208-byte block zero;
+the NULL-clearing branch is not the observed path.
+
+The [two service parameter banks](../devices/capture/banks.md) now retain
+both source-selected banks at PA`2006a000/2006be00`, with all29 Sensor native
+cases green after old-model red. Original execution crosses the former
+`2006be00` write. The first uncovered access is CPU0 PC`10208ea4`, WRITE32
+PA`2006b800=8`, in a separate request-flag40 configuration family. Its
+configuration and later result consumers have been identified, but unknown
+status producers remain a separate boundary. QMP is debug/stopped before a
+display console exists. This is bounded functional-input progress, not a new
+GUI frame, factory calibration, later-mode acceptance or complete boot.
+
+## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual
 guest error-GUI frame on QMP `display` head1. Head0 has no console. The
