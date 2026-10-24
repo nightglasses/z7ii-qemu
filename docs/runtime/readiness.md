@@ -73,6 +73,11 @@ result assumption, invalidated at group commit/effective run. Its first force1
 getter returns, commit/run executes, and the new first uncovered access is
 PC`102090bc`, WRITE32 PA`20069514=6`; guard0/property6433 empty is confirmed.
 No post-submit result or numeric physical cold value is qualified by that run.
+The later [parameter-family run](../devices/captureparams/protocol.md) crosses
+that six-word write and reaches unit200 commit/run with the same cold-neutral
+input. Its first uncovered access is CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`,
+through a software interpolation-record destination. Guard0/property6433
+empty remains confirmed; QMP is debug/stopped before a console exists.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.

@@ -151,3 +151,11 @@ does not supply them. Original code reaches mask10 commits and unit20 run,
 then first rejects CPU0 PC`102090bc`, WRITE32 PA`20069514=6`. Six COPY ranges
 still compare and the guard/property check is unchanged. There is no console
 or qualified post-submit result at this checkpoint.
+
+The later [paired-parameter model](../../devices/captureparams/protocol.md)
+crosses that write without altering the input. In `captureparams-20261024/green`,
+the six COPY ranges and guard/property results remain unchanged, the128-word
+table compares with the original ROM source, and unit200 commit/run executes.
+The first uncovered access is now CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`,
+in a software interpolation-record buffer whose storage ownership remains
+unrecovered. There is still no console or qualified post-submit result.
