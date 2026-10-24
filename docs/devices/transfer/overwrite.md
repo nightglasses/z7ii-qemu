@@ -75,6 +75,53 @@ path use; whether physical hardware diagnoses an unused payload eagerly is
 unmeasured. Active matrices keep all numeric checks. Pixel coverage/compositing
 precision remains the existing functional convention.
 
+## Initialized YUV clear and conversion families
+
+The same finite overwrite rule also applies to the initialized224/1648-byte
+YUV105/YUVA107 clears and224/1736-byte RGBA-to-YUV105/YUVA107 conversions.
+This is a source-backed extension of existing grammars, not evidence that a
+new original GUI submission has required every combination.
+
+The saved C1.70 source projections show106454b2 marking dirty bits through
+106b581c(context,65919,1), whose mode1 ORs the private+136 dirty word. A later
+mode2 call routes to106b55a2; dirty bit0 reads nine cached fixed values through
+private+984, converts them and emits the full setup-bank41..49 matrix. In
+these initialized grammars that write has header0041f046 at setup word2 and
+nine payload words3..11. The immediately following0041f046 at word12 writes
+the active matrix at13..21. There is no intervening command. The path latch
+6=1 is at42/43; the corresponding draw trigger occurs later in the draw
+stream. These word positions and full replacement are command/source facts.
+
+Only the unused words3..11 are unconstrained. Both matrix headers, the
+complete active matrix, setup/draw lengths, geometry, modes, conversion
+tables, targets, source/output ranges, overlap and backing-alias checks retain
+their existing finite validation. Clear profiles require the active identity
+matrix; initialized converters retain their existing YUV105 or scaled
+YUVA107 matrix. This is not a general last-write rule for arbitrary packets.
+
+The176/1552-byte retained SRC_OVER converter begins at logical setup word12:
+its first matrix is already active. It has no cached matrix prefix, and none
+of its nine active payload words become unconstrained. Its established
+YUVA107 context requirement is unchanged. The functional assumption about
+no eager numeric fault from a completely overwritten payload is the same as
+above; physical hardware behavior for unused NaN/Inf values is unmeasured.
+
+The `yuv-matrix-overwrite` native fixture defines232 variants. Its196 cases
+across the four initialized profiles cover each cached slot with four patterns
+(NaN, infinity, all bits set and a trigger-shaped word), zero cached matrices,
+repeat, immutable command capture, both headers, active matrix errors, early
+latch, truncated streams, mapping loss, reset and unrealize. It compares the
+entire output allocation and guards against independent transparent-black
+YUV/YUVA expectations. A further36 variants corrupt each active slot of the
+retained converter after successful initialization and must reject it. These
+are synthetic fixture requirements, separate from original GUI execution.
+
+The parent-run first cached-matrix case is red against the preceding model.
+With this extension and the independently validated clear-mode correction,
+the complete transfer batch passes23 subtests in1.95s. Receipts are
+`work/runs/clearmode-20261023/matrix-{red,green}.log`. This verifies the
+preemptive model combinations, not a new original-firmware frontier.
+
 ## Native and original validation
 
 The new matrix-overwrite fixture fails against the old model at its first
