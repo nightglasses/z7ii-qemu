@@ -1110,6 +1110,7 @@ static void z7ii_init(MachineState *machine)
                                   OBJECT(capture));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(capture), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(capture), 0, 0x20068000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(capture), 1, 0x20069d00);
         for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
             sysbus_connect_irq(SYS_BUS_DEVICE(capture), i,
                                qdev_get_gpio_in(gic, 94 + i - 32));
