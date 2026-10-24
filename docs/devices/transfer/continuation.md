@@ -60,42 +60,67 @@ record validator and deferred pixel executor handle both layouts; all
 transitions, matrices, segments, fields, padding and endings remain checked.
 Counts 1..256 use the existing functional work bound.
 
-The device retains one expected key only after successful execution and output
-unmapping. Nonzero key also marks the exact initialized 720×480 format/clip
-profile. Continuation requires this profile and the expected first key, then
-checks every paired key and its wrap. Paint and destination remain explicit
-operands; a changed target must independently satisfy the same complete RAM,
-alignment, 32-bit extent and command/backing-alias checks. Rectangles remain
-positive, fully in bounds and applied in order after whole-batch preflight.
+The device retains the shared720x480 RGBA format/clip profile only after
+successful execution and output unmapping. Continuation requires that known
+profile, then checks a legal first key, every paired key and the current
+batch's sequential wrap. The counter at private+184 is shared by the original
+rectangle, image and path producers; the model does not track a separate
+rectangle-only expected key. Paint and destination remain explicit operands;
+a changed target must independently satisfy the same complete RAM, alignment,
+32-bit extent and command/backing-alias checks. Rectangles remain positive,
+fully in bounds and applied in order after whole-batch preflight.
 
 IRQ ACK retains the profile. A rejected paired program, execution failure,
-reset, unrealize or successful different graphics program invalidates it.
+reset, unrealize or successful operation outside the known720 profile
+invalidates it. Supported720 paths and A8 images preserve that profile.
 Busy or pre-ACK metadata writes remain errors without cancelling an existing
 job. Queued work publishes neither context nor completion before actual
 execution. Immutable command capture and execution-time map rechecks are
-unchanged. The later [shared-context correction](paint.md) also publishes the
+unchanged. The later [shared-context correction](paint.md) publishes the
 validated target as the720x480 RGBA profile used by paths/images; YUVA107 state
-remains separate. A different successful path can retain that shared profile
-while invalidating this clear family's expected key.
+remains separate. The [per-record prefix analysis](prefix.md) subsequently
+removes the obsolete rectangle-only key state after directly observing A8
+keys7/8 between initialized rectangle keys1..6 and retained keys9..14.
 
 The retained global-state interpretation is supported by the producer's cache
-and cursor behavior. The exact key continuity rule is a conservative software
-family contract, not a claim about a physical GPU's acceptance of arbitrary
-keys. Integer half-open coverage, packed RGBA interpretation and opaque scratch
-handling retain the functional conventions documented for the initial family.
+and cursor behavior. Within one batch, contiguous keys remain a finite
+producer grammar. Across batches, a reused or skipped legal first key is
+accepted under an already known720 profile: no recovered hardware contract
+requires a rectangle-only next key. Integer half-open coverage, packed RGBA
+interpretation and opaque scratch handling retain the functional conventions
+documented for the initial family.
 No generic GPU VM, firmware callback, guest event or prefilled UI is added.
+
+The later shared-profile fixture directly covers initialized rectangle
+keys1..6, two successful A8 jobs consuming7/8 and retained rectangles starting
+at9. The corrected A8-chain red uses a reconstructed old-key contract with
+new prefix parsing retained; the final native implementation passes25
+transfer subtests in2.11s, including all39 prefix variants. The earlier
+`context-red.log` covered SKIP_KEY and omitted A8_CHAIN because of its then
+incorrect loop start; it is not A8-chain evidence. See[prefix receipts](prefix.md).
+
+The final unchanged-firmware run observes four1232/1416 STARTs, subsequent
+graphics and completion of a2976/3448 batch. It remains running with no
+uncovered access over110 host seconds. GUI gate/pending3/display-ready stay0;
+this bounded original continuation establishes neither full boot nor a GUI
+first frame. Native receipts and `validated*` original receipts are in
+`work/runs/timingextra-20261023/`.
 
 ## Validation and next stop
 
 The new native case fails against the old model at the first valid continuation
 with MEMTX_ERROR. After the fix, the complete `nikon_transfer_unit` batch passes
-all 15 cases. The new case has 31 variants covering the captured ten rectangles,
+all 15 cases. That historical case has 31 variants covering the captured ten rectangles,
 colors/alpha, overlapping order, counts 1/2/3/5/256 and rejected 257, cross-batch
 wrap, chained odd batches, target changes, missing/reset/failed/foreign context,
 wrong/replayed keys, padding, late malformed fields, command backing alias,
 immutable capture, map loss, reset, unrealize and busy/pre-ACK guards. Entire
 output allocations and guards are checked. Independent read-only review found
-no remaining concrete defect.
+no remaining concrete defect at that checkpoint. The then-conservative
+cross-batch wrong/replayed-key rejection was later contradicted by normal
+A8-to-rectangle execution. Current fixtures replace it with paired-key echo
+rejection and successful replay; cold/reset/failed/foreign profile rejection,
+internal sequence checks and output/lifetime boundaries remain enforced.
 
 The final unchanged-bundle MTTCG run retains the prior descriptor/TEMP, RNG 0,
 acceleration, cold F4 and normally paced healthy UART inputs. Trace shows
