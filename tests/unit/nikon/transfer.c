@@ -3468,7 +3468,7 @@ static void test_initialized_image(void)
            PRE_MODE1, PRE_MODE2, PRE_MODE3, DATA_CHANGE,
            COLD_RETAINED, COLD_ZERO, FOREIGN_RETAINED,
            RESET_RETAINED, FAILED_RETAINED,
-           FOREIGN_PATH, SHORT_SETUP, SHORT_DRAW, INIT_MODE, INIT_MATRIX,
+           FOREIGN_PATH, SHORT_SETUP, SHORT_DRAW, INIT_MODE, INIT_HEADER,
            INIT_CLIP, INIT_FORMAT, MATRIX, SAMPLE, FORMAT, MODE, PRE_MODE, KEY,
            TARGET_ALIGN, TARGET_RANGE, TARGET_END, SOURCE_RANGE, SOURCE_OVERLAP,
            SOURCE_ALIAS, COMMAND_ALIAS, READONLY, MAP_LOSS, INPUT_LOSS,
@@ -3569,7 +3569,7 @@ static void test_initialized_image(void)
         case SHORT_SETUP: setup_bytes -= 8; break;
         case SHORT_DRAW: draw_bytes -= 8; break;
         case INIT_MODE: stl_le_p(data + 4, 0x81); break;
-        case INIT_MATRIX: stl_le_p(data + 3 * 4, 0x40000000); break;
+        case INIT_HEADER: stl_le_p(data + 2 * 4, 0x0041f03e); break;
         case INIT_CLIP: stl_le_p(data + 0x1000 + 21 * 4, 718U << 16); break;
         case INIT_FORMAT: stl_le_p(data + 0x1000 + 9 * 4, 1); break;
         case MATRIX: stl_le_p(a + 4, 0x7fc00000); break;
@@ -3997,6 +3997,196 @@ static void test_stroke_mask(void)
     }
 }
 
+static void test_matrix_overwrite(void)
+{
+    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
+    enum { ZERO, AFFINE, PROJECTIVE, NONFINITE, RAW_GRID, COUNTS,
+           CONTINUE, REPEAT, IMMUTABLE, FIRST_HEADER, SECOND_HEADER,
+           FINAL_TRANSFORM, FINAL_NAN, FINAL_ZERO, EARLY_LATCH, SHORT_SETUP,
+           SHORT_DRAW, MAP_LOSS, RESET, CANCEL, CASES };
+    static const uint32_t patterns[] = {
+        0x7fc00001, 0x7f800000, 0xffffffff, 0x01a61004,
+    };
+
+    for (unsigned image = 0; image < 2; image++) {
+        TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+        MemoryRegion commands, surface;
+        MemoryRegion *root = get_system_memory();
+        InlineRectangle rectangles[256];
+        uint8_t *data, *pixels;
+
+        object_property_add_child(object_get_objects_root(), "transfer-matrix[*]",
+                                  OBJECT(f.dev));
+        memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+            "test.matrix-command", 0x60000, 0, &error_abort);
+        memory_region_add_subregion(root, 0x400000, &commands);
+        memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+            "test.matrix-surface", GUARDS, 0, &error_abort);
+        memory_region_add_subregion(root, 0x800000, &surface);
+        data = memory_region_get_ram_ptr(&commands);
+        pixels = memory_region_get_ram_ptr(&surface);
+        f.irq = qemu_allocate_irq(irq_level, &f, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+        g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+        for (unsigned test = ZERO; test < CASES; test++) {
+            unsigned phases = test == RAW_GRID ? 9 * ARRAY_SIZE(patterns) :
+                              test == COUNTS && !image ? 4 : 1;
+
+            for (unsigned phase = 0; phase < phases; phase++) {
+                unsigned count = test == COUNTS && !image ?
+                    (unsigned[]) { 1, 4, 6, 256 }[phase] : 4;
+                unsigned setup_bytes, draw_bytes;
+                bool complete = test <= IMMUTABLE;
+                bool accepted = complete || test >= MAP_LOSS;
+                g_autofree uint8_t *before = NULL;
+                g_autofree uint8_t *expected = NULL;
+
+                g_test_message("matrix family%u case%u phase%u", image, test, phase);
+                device_cold_reset(f.dev);
+                memset(data, 0, 0x60000);
+                memset(pixels, 0xa5, GUARDS);
+                for (unsigned p = 0; p < EXTENT / 4; p++) {
+                    stl_le_p(pixels + 4 + 4 * p, 0xff203040);
+                }
+                if (image) {
+                    build_initialized_image(data, data + 0x20000, 0x800004);
+                    stl_le_p(data + 0x20000 + (35 + 45) * 4, 0xff000000);
+                    for (unsigned p = 0; p < 32; p++) {
+                        data[0x3000 + p] = (p * 67) & 255;
+                    }
+                    setup_bytes = 224;
+                    draw_bytes = 472;
+                } else {
+                    for (unsigned i = 0; i < count; i++) {
+                        rectangles[i] = (InlineRectangle) {
+                            10 + (i % 4) * 16, 20 + (i / 4) * 2, 10, 1,
+                            0x80000000 | (i * 0x010305 & 0xffffff),
+                        };
+                    }
+                    build_inline_rectangles(data, data + 0x20000, rectangles,
+                        count, 0x800004, true, 0x10001,
+                        &setup_bytes, &draw_bytes);
+                }
+                for (unsigned i = 0; i < (image ? 1 : count); i++) {
+                    uint8_t *matrix = data + (2 + (image ? 0 : 53 * i)) * 4;
+
+                    memset(matrix + 4, 0, 9 * 4);
+                    if (test == AFFINE) {
+                        path_floats(matrix + 4,
+                            (float[]) { 0, 1, 0, -1, 0, 0, 500, -600, 1 }, 9);
+                    } else if (test == PROJECTIVE) {
+                        path_floats(matrix + 4,
+                            (float[]) { 1, 0, 2, 0, 1, 3, 0, 0, 0 }, 9);
+                    } else if (test == NONFINITE) {
+                        for (unsigned k = 0; k < 9; k++) {
+                            stl_le_p(matrix + (k + 1) * 4, patterns[k % 4]);
+                        }
+                    } else if (test == RAW_GRID) {
+                        stl_le_p(matrix + (phase / ARRAY_SIZE(patterns) + 1) * 4,
+                                 patterns[phase % ARRAY_SIZE(patterns)]);
+                    }
+                }
+                switch (test) {
+                case FIRST_HEADER: stl_le_p(data + 2 * 4, 0x0041f03e); break;
+                case SECOND_HEADER: stl_le_p(data + 12 * 4, 0x0042f046); break;
+                case FINAL_TRANSFORM:
+                    stl_le_p(data + (image ? 15 : 13) * 4,
+                             image ? 0x3f800000 : 0x40000000); break;
+                case FINAL_NAN: stl_le_p(data + 13 * 4, 0x7fc00000); break;
+                case FINAL_ZERO: stl_le_p(data + 21 * 4, 0); break;
+                case EARLY_LATCH: stl_le_p(data + 12 * 4, 0x0006f004); break;
+                case SHORT_SETUP: setup_bytes -= 8; break;
+                case SHORT_DRAW: draw_bytes -= 8; break;
+                default: break;
+                }
+                before = g_memdup2(pixels, GUARDS);
+                expected = g_memdup2(pixels, GUARDS);
+                if (image) {
+                    for (unsigned y = 20; y < 23; y++) {
+                        for (unsigned x = 10; x < 14; x++) {
+                            uint8_t *p = expected + 4 + 4 * (y * 720 + x);
+                            unsigned a = data[0x3000 + 8 * (y - 20) + x - 10];
+
+                            stl_le_p(p, rgba_over_reference(0xff000000,
+                                                            ldl_le_p(p), a));
+                        }
+                    }
+                } else {
+                    for (unsigned i = 0; i < count; i++) {
+                        InlineRectangle *r = &rectangles[i];
+
+                        for (unsigned x = r->x; x < r->x + r->width; x++) {
+                            stl_le_p(expected + 4 + 4 * (r->y * 720 + x), r->paint);
+                        }
+                    }
+                }
+                g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                    setup_bytes, draw_bytes, true), ==,
+                    accepted ? MEMTX_OK : MEMTX_ERROR);
+                g_assert_false(f.level);
+                g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+                if (test == IMMUTABLE) {
+                    memset(data, 0xff, setup_bytes);
+                    memset(data + 0x20000, 0xff, draw_bytes);
+                } else if (test == MAP_LOSS) {
+                    memory_region_set_readonly(&surface, true);
+                } else if (test == RESET) {
+                    device_cold_reset(f.dev);
+                } else if (test == CANCEL) {
+                    qdev_unrealize(f.dev);
+                }
+                advance();
+                memory_region_set_readonly(&surface, false);
+                g_assert_cmpint(f.level, ==, complete);
+                if (complete) {
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                }
+                if (test == CONTINUE || test == REPEAT) {
+                    if (image) {
+                        if (test == CONTINUE) {
+                            build_image_program(data, data + 0x20000);
+                            stl_le_p(data + 0x20000 + 59 * 4, 0x800004);
+                            stl_le_p(data + 0x20000 + 45 * 4, 0xff000000);
+                            setup_bytes = 176;
+                            draw_bytes = 336;
+                        }
+                        for (unsigned y = 20; y < 23; y++) {
+                            for (unsigned x = 10; x < 14; x++) {
+                                uint8_t *p = expected + 4 + 4 * (y * 720 + x);
+                                unsigned a = data[0x3000 + 8 * (y - 20) + x - 10];
+
+                                stl_le_p(p, rgba_over_reference(0xff000000,
+                                                                ldl_le_p(p), a));
+                            }
+                        }
+                    } else if (test == CONTINUE) {
+                        build_inline_rectangles(data, data + 0x20000, rectangles,
+                            count, 0x800004, false, 0x10001 + count,
+                            &setup_bytes, &draw_bytes);
+                        for (unsigned i = 0; i < count; i++) {
+                            memset(data + (53 * i + 1) * 4, 0xff, 9 * 4);
+                        }
+                    }
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        setup_bytes, draw_bytes, test == REPEAT), ==, MEMTX_OK);
+                    advance();
+                    g_assert_true(f.level);
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                }
+                g_assert_cmpmem(pixels, GUARDS, complete ? expected : before,
+                                GUARDS);
+            }
+        }
+        memory_region_del_subregion(root, &surface);
+        memory_region_del_subregion(root, &commands);
+        drain_call_rcu();
+        object_unparent(OBJECT(f.dev));
+        object_unref(OBJECT(f.dev));
+        drain_call_rcu();
+        qemu_free_irq(f.irq);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -4038,6 +4228,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
     g_test_add_func("/nikon/transfer/stroke-mask", test_stroke_mask);
+    g_test_add_func("/nikon/transfer/matrix-overwrite", test_matrix_overwrite);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

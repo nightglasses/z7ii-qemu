@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; rectangle matrix state frontier
+## Normal display request accepted; mixed-path paint state frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -116,11 +116,18 @@ including all nine cap/join styles and native exact three-pair grammar. Original
 MTTCG runs regroup that work into mixed280/352 and1680/2072 packets, followed by
 984/1328 fill paths and further images/conversions through IRQ129. The matched
 run records29 completions from the first mixed packet; no byte-identical
-post-fix840/1040 replay is claimed. The current rejection is PC `106ee3c6`,
-WRITE32 PA `201810e0=1`, `transfer-rectangle-program-not-supported`, on a new
-856/1088-byte pair at PA `bd0dff90/bd15ff90`. Its first matrix write differs
-from the current identity restriction; the next matrix write is identity.
-The producer and transient-state interpretation remain to be joined.
+post-fix840/1040 replay is claimed. The [matrix overwrite correction](../devices/transfer/overwrite.md)
+joins the dirty-state producer106b55a2 and rectangle producer1068bd90: two full
+writes address the same registers, and the second identity write precedes all
+path latches. Both clear and initialized-image families now permit the unused
+first payload; active matrices remain checked. All20 transfer subtests pass.
+Original MTTCG groups the late clears into1280/1560 bytes, completes all six
+through IRQ129, and physical target reads confirm their zero output. Exact late
+856/1088 grammar is native-tested separately. The current rejection is CPU1
+PC `106ee3c6`, WRITE32 PA `201810e0=1`, `transfer-stream-truncated`, on840/1048
+at PA `bd0e0490/bd1605b0`. Setup has three fill/stroke pairs; draw adds
+`01848004=0` state. This is an unrecognized state/grammar boundary, not proof
+of missing guest bytes. Its producer/bit semantics remain to be joined.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.

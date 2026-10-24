@@ -4,8 +4,10 @@ The 840/1040-byte submission contains three fill/stroke pairs. The finite model
 now handles this mixed grammar and the source-backed solid stroke styles,
 reusing Cairo coverage and existing RGBA compositing. Original execution
 advances through differently grouped mixed batches and subsequent graphics work.
-The next boundary is a new856/1088-byte rectangle submission; first frame
-remains unverified.
+The next boundary at that checkpoint was a new856/1088-byte rectangle
+submission, now handled by the [matrix overwrite correction](overwrite.md).
+See the [current frontier](../../validation/frontier.md); first frame remains
+unverified.
 
 ## Observed data and producer
 
@@ -107,12 +109,12 @@ completions from its first mixed packet to the next rejection. Synthetic
 three-pair coverage establishes840/1040 grammar acceptance separately; it is
 not described as a byte-identical original replay.
 
-The new first rejection is PC `106ee3c6`, WRITE32 PA `201810e0=1`,
+That run's new first rejection is PC `106ee3c6`, WRITE32 PA `201810e0=1`,
 `transfer-rectangle-program-not-supported`, complete856/1088 buffers at
 `bd0dff90/bd15ff90` (CPU1 in the matched run, CPU0 with extra glyph tracing).
 Its first setup matrix differs from the clear family's identity restriction;
-the next matrix write is identity. Whether that first write is transient state
-requires the next producer analysis. Equal byte lengths do not equate it with
+the next matrix write is identity. The later [producer analysis](overwrite.md)
+establishes that the first write is overwritten before use. Equal byte lengths do not equate it with
 the earlier accepted856/1088 packet.
 
 The descriptor/TEMP/resource12, RNG0, acceleration, cold F4 and healthy UART

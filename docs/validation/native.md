@@ -1,5 +1,15 @@
 # Native GUI integration
 
+The [matrix overwrite correction](../devices/transfer/overwrite.md) passes all20
+transfer subtests in0.70s after its new valid case fails against the old model.
+Its113 variants cover both rectangle and initialized-image overwritten matrices,
+all nine raw payload slots, active/header/latch boundaries, variable counts,
+continuation, immutable capture, full output/guards and cancellation. Separate
+unchanged original execution completes a late1280/1560 six-clear packet through
+IRQ129 with zero physical output in all six areas, then rejects840/1048 mixed
+paths with an extra `01848004=0` state write. GUI readiness remains0.
+Receipts: `work/runs/matrixoverwrite-20261023/`.
+
 The [mixed fill/stroke model](../devices/transfer/stroke.md) passes all19
 transfer subtests in1.23s after a valid mixed packet fails against the old
 parser. Its36 packet variants cover counts through256 operations, wrapped

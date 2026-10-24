@@ -11,7 +11,8 @@ adds full224/472 initialization, explicit validated target selection and
 temporary paint-mode preservation. Original execution completes that pair and
 seven176/336 continuations through IRQ129. The older warning-path receipts
 below retain their own scope; the [current frontier](../validation/frontier.md)
-records later progress through the [mixed path model](../devices/transfer/stroke.md).
+records later progress through the [mixed path model](../devices/transfer/stroke.md)
+and [complete matrix overwrite semantics](../devices/transfer/overwrite.md).
 
 ## Original operands and producer
 

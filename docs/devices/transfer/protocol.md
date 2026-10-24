@@ -21,10 +21,13 @@ The later [mixed path model](stroke.md) recognizes840/1040 as three fill/stroke
 pairs. All19 transfer cases pass, covering object-space strokes, all cap/join
 styles and target-matched context. Original MTTCG runs now submit mixed280/352
 and1680/2072 packets and advance through later graphics work; they do not replay
-the exact840/1040 packet boundary. The next WRITE32 PA `201810e0=1`, original
-PC `106ee3c6`, rejects with `transfer-rectangle-program-not-supported` on a new
-856/1088-byte pair at `bd0dff90/bd15ff90`. Its first matrix write differs from
-the current clear profile. The next state/operand family needs producer analysis.
+the exact840/1040 packet boundary. The [matrix overwrite correction](overwrite.md)
+then handles cached matrices fully replaced before path latching in both clear
+and initialized-image families; all20 transfer subtests pass. Original execution
+completes a late1280/1560-byte six-clear batch through IRQ129. The next WRITE32
+PA `201810e0=1`, PC `106ee3c6`, rejects840/1048 at `bd0e0490/bd1605b0` with
+`transfer-stream-truncated`: a mixed-path draw adds `01848004=0` state.
+That diagnostic comes from fallback length validation, not missing guest bytes.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 

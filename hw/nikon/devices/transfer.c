@@ -1635,23 +1635,12 @@ static bool nikon_transfer_rectangle_fields(const uint32_t *words,
 static bool nikon_transfer_image_initial(const uint32_t *setup,
                                          const uint32_t *draw)
 {
-    static const uint32_t identity[] = {
-        0x0041f046, 0x3f800000, 0, 0, 0, 0x3f800000, 0, 0, 0, 0x3f800000,
-    };
-
-    if (le32_to_cpu(setup[0]) != 0x00691004 ||
-        le32_to_cpu(setup[1]) != 0x80 ||
-        !nikon_transfer_rectangle_fields(draw, 35, rectangle_prefix_fields,
-            ARRAY_SIZE(rectangle_prefix_fields), 0)) {
-        return false;
-    }
-    /* The reset matrix is followed by an explicit image path matrix. */
-    for (unsigned i = 0; i < ARRAY_SIZE(identity); i++) {
-        if (le32_to_cpu(setup[2 + i]) != identity[i]) {
-            return false;
-        }
-    }
-    return true;
+    /* The body fully overwrites this matrix before its path latch. */
+    return le32_to_cpu(setup[0]) == 0x00691004 &&
+           le32_to_cpu(setup[1]) == 0x80 &&
+           le32_to_cpu(setup[2]) == 0x0041f046 &&
+           nikon_transfer_rectangle_fields(draw, 35, rectangle_prefix_fields,
+               ARRAY_SIZE(rectangle_prefix_fields), 0);
 }
 
 static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
@@ -1725,9 +1714,11 @@ static bool nikon_transfer_rectangles(NikonTransferState *s, bool execute,
         int32_t x = le32_to_cpu(a[46]), y = le32_to_cpu(a[47]);
         int32_t width = le32_to_cpu(a[48]), height = le32_to_cpu(a[49]);
 
+        /* 1068bd90 replaces the cached matrix before the path latch. */
         if (!nikon_transfer_rectangle_fields(a, 53, rectangle_setup_fields,
                 ARRAY_SIZE(rectangle_setup_fields),
-                (1ULL << 35) | (31ULL << 46) | (1ULL << 52)) ||
+                (0x1ffULL << 1) | (1ULL << 35) |
+                (31ULL << 46) | (1ULL << 52)) ||
             !nikon_transfer_rectangle_fields(b, 57, rectangle_draw_fields,
                 ARRAY_SIZE(rectangle_draw_fields),
                 (1ULL << 31) | (1ULL << 35) | (1ULL << 47) | (1ULL << 54)) ||

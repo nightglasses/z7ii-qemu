@@ -57,10 +57,13 @@ software reference is not Nikon physical-silicon documentation.
 
 The recognizer uses the self-contained initialization shape and 720x480
 geometry, not one hardcoded total length. All fixed headers, masks, state,
-transforms, segments, ending and padding must match the recovered family.
+active transform, segments, ending and padding must match the recovered family.
+The later [matrix overwrite correction](overwrite.md) permits any raw first
+matrix payload only when the next full matrix write replaces it before the
+path latch; the final rectangle matrix must still be identity.
 Count 1..256 uses the existing functional work bound. Coordinates and colors
 are operands; positive integer rectangles must lie fully inside the submitted
-720x480 context. Other transforms, geometry, formats and blending remain
+720x480 context. Other active transforms, geometry, formats and blending remain
 explicit errors. Guest clipping is upstream; malformed out-of-bounds commands
 are not silently clipped by the model.
 

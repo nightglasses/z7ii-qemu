@@ -42,13 +42,17 @@ emits format/geometry/clip; `106b55a2` flushes pending matrix state. The image
 producer emits its own path matrix through `106462b0`, f24 sampling through
 `106b41d2`, source extent/format through `106b4150`, and inline rectangle through
 `106b4064 → 10646324`. Both matrix writes address the same register range;
-the finite executor uses the explicit image matrix following identity.
+the finite executor uses the explicit image matrix following cached state.
+The [overwrite analysis](overwrite.md) later confirms that the unused first
+payload may differ from identity without affecting that path.
 
 ## Finite state combinations
 
 Image dispatch precedes the broader clear-prefix dispatch, but exact image
 validation remains mandatory. The initialized224/472 form checks the complete
-35-word global prefix, setup enable and first identity matrix. It then shares
+35-word global prefix, setup enable and first full matrix-write header. Its
+unused nine-word payload is fully overwritten before latching; the explicit
+final body matrix retains all numeric checks. It then shares
 the44/83-word body validator and existing rasterizer/sampler with the retained
 176/336 form, whose84th draw word must be zero padding. Geometry, clip, format,
 source type, inline segment grammar, echoed scratch operand, keys and endings

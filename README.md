@@ -138,8 +138,10 @@ cases pass at that checkpoint. The [mixed path model](docs/devices/transfer/stro
 then supports bounded fill/stroke batches, target-matched context, object-space
 stroke widths and all nine cap/join combinations. All19 transfer unit cases
 pass. Original execution completes mixed280/352 and1680/2072 packets plus later
-graphics work, then rejects a new856/1088-byte rectangle batch with
-`transfer-rectangle-program-not-supported`. Post-fix MTTCG batching differs
+graphics work. The [matrix overwrite correction](docs/devices/transfer/overwrite.md)
+then permits cached state fully replaced before latching, with all20 transfer
+subtests passing. Original execution completes a late1280/1560-byte six-clear
+batch and reaches a new840/1048-byte mixed-path state variation. MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.
 The earlier432/616-byte
