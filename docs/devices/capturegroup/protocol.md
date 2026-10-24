@@ -71,7 +71,8 @@ fields.
 `10239e36` prepares the group through the ordinary configuration wrappers
 and obtains three provider slots through`1030b730`, `1030b764` and`1030b7b4`.
 The two address sets and extra words at bb/bc/bd are independent retained
-payloads. Their physical memory meaning is unresolved, and the model neither
+payloads. The later provider investigation below identifies their software
+allocation, but not hardware result or DMA semantics. The model neither
 validates them as DMA destinations nor accesses the referenced RAM.
 
 `10239dc6` reads the existing result packet through`1020c17a`, conditionally
@@ -82,7 +83,7 @@ return a matching byte to force this caller forward.
 The full configuration branch is `1023abaa` with flag40 and a non-NULL
 pointer-array slot4. It configures shared interrupt masks for unit20 through
 `1020c01a -> 1020ab7c`, calls
-`10239e36`, then calls `10239dc6` with force1. Force bypasses the identity
+`10239e36`, then calls `10239dc6` with force1. Force bypasses the descriptor-byte
 comparison, but still reads the complete old result packet first. Only after
 that call returns does `1020c07e` submit mask10 to the shared command ports
 at20068100/104 and call `10208c46 -> 1020aafc` to request run for unit20
@@ -112,10 +113,10 @@ bd7c once, and`10208e46` stores that loaded value. The preceding decompiler
 projection incorrectly printed two memory reads. The independently matched
 SLA getter`1009b3c2..1009b400` has the same packet and single-read sequence.
 Neither sequence proves read-to-consume semantics. In the recovered direct
-call graph, `10239dc6` uses only output byte1 for its identity
-comparison against MAS VA`b26b47cb`. The requested identity also reaches bb44,
-but a desired/applied identity relationship between bb44 and bb74 remains a
-hypothesis, not a recovered producer. Neither zero-valued requested identity
+call graph, `10239dc6` uses only output byte1 for its descriptor-byte
+comparison against MAS VA`b26b47cb`. The requested byte also reaches bb44,
+but a desired/applied slot relationship between bb44 and bb74 remains a
+hypothesis, not a recovered producer. Neither a zero-valued requested byte
 nor force1 establishes zero hardware results. Other packet words are not
 numerically consumed by this caller. Force1 still performs all reads before
 bypassing the comparison, so its success cannot validate their numeric values.
@@ -243,3 +244,89 @@ not consume the result numbers, so the run does not validate their physical
 values or establish an actual result producer, normal GUI output or boot.
 Raw instruction/source projections, red/green trace and read-only snapshots
 remain in`work/runs/captureresults-20261024/`.
+
+## Post-submit investigation: incremental caller and provider
+
+The later unchanged `groupresults-20261024/origin` run reaches the same
+post-submit frontier as [grid storage](../../runtime/grid.md). Read-only
+snapshots and raw instruction traces establish this actual call chain;
+instruction addresses below are original MAS code addresses:
+
+`CaptureService.c:103250f2 -> 10325714 -> 10233570 -> 10232154 ->
+1023b00e -> 1023aed8 -> 10239dc6(force0) -> 10208e0a`.
+
+`103250f2` constructs a five-word service parameter on its stack and calls
+`10233570` with it. This is not an identified hardware completion callback.
+The mode getter`10235734` reads MAS VA`b1887d75`; its current value2 selects
+the incremental branch. The current root is VA`b2cb5100`, whose word at+270
+is1. That enables`10232154` to construct pointer array VA`b25f2388` and call
+`1023b00e` with flags2eb. Flag40 and non-NULL array slot4 reach
+`10239dc6(b1887ef8,0)` at actual call instruction`1023afb2`, LR`1023afb7`.
+This getter precedes this incremental operation's later`1020bfaa` commit;
+that not-yet-executed commit cannot have produced the values being read.
+Their association with a preceding operation is not established.
+
+Force0 is **not a polling wait or a failure return**. After all eight reads,
+`10239dc6` compares packet byte1 with VA`b26b47cb`. Equal or force1 updates
+ba2c and saved selection VA`b26b47d4`; unequal preserves both. Both branches
+write ba10, copy the saved selection into the object's descriptor+80, and
+return1. The present transaction error occurs before that comparison. There
+is no justification for returning a matching byte to make this path succeed.
+
+The requested byte has an identified software source:
+`10239e36` copies it from byte+8 of the descriptor at`*(object+4)` into
+VA`b26b47cb` and bb44. `1030b630` initializes descriptor+8 to0, but this
+scoped chain does not independently establish the byte's slot/index meaning.
+Separately,
+`1030b6a6` registers kind23 with unit sizec00 and requested unit count;
+`1030b730 -> 10298ef0 -> 1029915c` obtains its four-word provider
+`{base,total,unit,count}`. `1030b764` and`1030b7b4` copy that same provider,
+adding80 andd0 respectively to its base. `1030b630` also prepares descriptor
+addresses at those offsets; it does not populate MMIO results.
+
+The current kind23 handle is170000. Its five-unit provider covers
+PA`[5d4b5000,5d4b8c00)`. Both configured address sets contain
+`5d4b5000/5d4b5080/5d4b50d0`, all three strides arec00, bb44 is0 and bb48
+is4. These are observed configuration values and a source-defined software
+allocation. They do not establish that bb70 is an active bank, bb74 is an
+applied slot, or the six result words equal base+slot*stride. Those proposed
+relationships, including their latching time, remain hypotheses.
+
+## Result update boundary: unresolved
+
+The current model has accepted both earlier group commits and effective
+unit20 run. At the later fault, capture-control run and enable readbacks are
+both2bf, so unit20 is running and enabled; reset readback is0. Its eight
+pending words at PA`20068210 + 20*i` are0 in the final snapshot. That does
+not prove an earlier event never occurred or was never acknowledged.
+
+The scoped callback registration`1023954a -> 1020c034` binds mask20 to
+`10239436` (Thumb pointer`10239437`). Its raw body consumes shared event
+status and updates software event flags; it neither reads nor writes the
+group result packet. The device/machine source contains configuration
+retention and commit/run invalidation, with no bound result update, frame
+input or statistics DMA. Neither the callback nor effective run supplies
+an independently recovered eight-field producer or update boundary.
+
+The same-family [Z7 implementation at its inspected fixed revision](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-lab.c#L1758)
+returns zero at the matching eight addresses as an explicit idle/reset
+hypothesis. It contains no post-submit producer to reuse. It therefore does
+not justify extending this model's expired cold-empty snapshot.
+
+No post-submit model extension is accepted from this investigation. A finite
+producer still needs independent evidence for the two byte fields and six
+word relationships, plus the boundary that publishes a coherent packet:
+configuration latch, commit, run admission or processing completion. A
+matching source implementation, register description or original register
+record could distinguish these; making force0 continue would not. Stop,
+disable, shared reset and time advance continue to preserve unknown results.
+
+Both new original runs retain the same cold-neutral input and immutable
+firmware. The `origin` receipt compares all six loader COPY ranges, records
+guard0 with packed150 at`102d7254`, and keeps property6433 empty. Its first
+error is still CPU0 PC`10208e14`, READ32 PA`2006bb70`; QMP is debug/stopped
+and neither head has a console. There is no new startup frontier or new
+native behavior in this investigation; the existing group-results fixture
+already covers sticky invalidation and rejection of identity mirroring.
+Raw projections, filtered traces, snapshots and comparison receipt remain
+under`work/runs/groupresults-20261024/`.
