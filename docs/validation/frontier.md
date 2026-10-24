@@ -32,6 +32,27 @@ persists. No complete body qualifies from the inspected local/same-family
 sources. Recovering or defining its consumer tables is the next concrete
 frontier; no ready state is supplied to bypass them.
 
+The later normal20-second `sensorprofile-20261024/ccompnormal` run removes
+ID54 with the [finite CComp GPIO peer](../devices/ccomp/protocol.md). Its
+GPIO6[8] request and GPIO5[7] ACK traverse original EXIU0/GIC65 and callbacks;
+the original CSEQEV01 bit10 waiter returns1. Property6433 contains only ID68,
+QMP remains running and head1 retains the1024x682 error GUI. No descriptor32
+input is supplied. Three CComp and five GPIO native cases pass after old-model
+red; the service timing and complete-pulse rule are functional conventions.
+
+A separate version-compatibility declaration changes only the synthetic
+slot's version bytes to15/00. Original loading and guard acceptance remove
+ID68 at that diagnostic checkpoint, exposing new capture configuration.
+The [complete packet model](../devices/sensor/packet.md) accepts all129
+source-written words and passes all26 Sensor native cases. The later original
+`packetdiagnostic` run crosses PA`20069d00` and first rejects CPU0
+PC`1020b158`, WRITE32 PA`2006a414=3`. QMP is debug/stopped, with no console
+yet; this is not a normal GUI continuation. The remaining module timing table
+contains a zero divisor and produces zero counters followed by decrement
+encodings offfff/ffffffff. Source-selected capture entries and script tables
+still need a coherent virtual-input contract; version acceptance alone does
+not supply it. Receipts: `work/runs/sensorprofile-20261024/`.
+
 Resource31's normal parameter remains unrecovered. The declared descriptor17
 body is erased and its field288 scales by500 to `fffffe0c`; see the
 [input contract](../inputs/nor/descriptor.md#resource31-timing-parameters).
