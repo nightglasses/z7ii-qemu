@@ -229,12 +229,13 @@ static void test_kind40_buffer(void)
         g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==, 0);
         qtest_writel(t.qts, addresses[i], 0x40280000 + i);
     }
-    /* The logical view requires the guest MMU; adjacent bytes stay holes. */
+    /*
+     * The logical view requires the guest MMU; the upper neighbor is a hole.
+     * The lower neighbor now belongs to the separate kind39 readout pool.
+     */
     qtest_writel(t.qts, 0x36d59800, 0x12345678);
-    qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x12345678);
     g_assert_cmphex(qtest_readl(t.qts, 0x36d59800), ==, 0);
-    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
     g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
     for (unsigned phase = 0; phase < 2; phase++) {
         if (phase) {
@@ -554,6 +555,50 @@ static void test_grid_pool(void)
 
             g_assert_nonnull(strstr(reply, "Cannot access memory"));
         }
+    }
+    memory_quit(&t);
+}
+
+static void test_readout_pools(void)
+{
+    const uint32_t base = 0x61654800, unit = 0x201000;
+    const uint32_t source = 0xb1804000;
+    const uint32_t holes[] = { base - 1, 0x36354800, 0x36957800 };
+    uint8_t expected[4099], actual[4099];
+    MemoryTest t = memory_init("");
+
+    /*
+     * Three kind38 units, then two separate kind39 units, then kind40.
+     * Exercise first/last bytes, an interior page crossing and DMA backing.
+     */
+    for (unsigned slot = 0; slot < 5; slot++) {
+        uint32_t address = base + slot * unit;
+
+        g_assert_cmphex(qtest_readl(t.qts, address), ==, 0);
+        g_assert_cmphex(qtest_readl(t.qts, address + unit - 4), ==, 0);
+        qtest_writel(t.qts, address, 0x38270000 + slot);
+        qtest_writel(t.qts, address + unit - 4, 0x39270000 + slot);
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 37 + slot * 13;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, address + 0x17ff, sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, address + 0x17ff, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned slot = 0; slot < 5; slot++) {
+        g_assert_cmphex(qtest_readl(t.qts, base + slot * unit), ==,
+                        0x38270000 + slot);
+        g_assert_cmphex(qtest_readl(t.qts, base + (slot + 1) * unit - 4), ==,
+                        0x39270000 + slot);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
     }
     memory_quit(&t);
 }
@@ -1306,6 +1351,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
     qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
     qtest_add_func("/nikon/memory/grid-pool", test_grid_pool);
+    qtest_add_func("/nikon/memory/readout-pools", test_readout_pools);
     qtest_add_func("/nikon/memory/row-storage", test_row_storage);
     qtest_add_data_func("/nikon/memory/descriptor11-input",
                         GUINT_TO_POINTER(11), test_row_input);

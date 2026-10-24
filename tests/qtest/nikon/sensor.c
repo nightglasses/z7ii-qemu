@@ -2127,13 +2127,14 @@ static void test_readout_provider(void)
                      0);
     g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
 
-    /* An explicit provider can publish the source-backed ready observation;
-     * this updates only the proven control word and emits an observation
-     * pulse.  Completion remains a separate, explicit provider action. */
+    /*
+     * Provider readiness is an observation, not a host rewrite of the guest
+     * enable configuration. Completion remains a separate provider action.
+     */
     qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 1);
     qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 1);
-    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 1);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
                      0);
 

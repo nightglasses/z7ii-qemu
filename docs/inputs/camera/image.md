@@ -29,9 +29,10 @@ readoutpipeline.c  readout-request -> nikon_readout_request() +
 cmos.c        samples the image into the guest's destination buffer
 ```
 
-The guest still supplies geometry, Bayer order, packing, stride, destination and
-timing; the profile only replaces sensor bytes with image bytes.  Nothing in the
-guest is pre-set, acknowledged or completed by this profile.
+The guest supplies the descriptor and destination. The finite C1.70 mapping
+derives geometry from stride/span and supplies explicit two-byte encoding and
+timing assumptions. It samples the input through normal DMA and publishes
+completion only after the transfer; it does not preset guest software state.
 
 ## Measured behaviour (this model, unchanged firmware)
 
@@ -42,9 +43,14 @@ counters read:
 requests=0  accepted=0  completed=0  rejected=0  stale=0
 ```
 
-so a configured image alone changes nothing: the guest never programs the readout
-control, therefore no submission is made.  The image input is a prerequisite of
-the assisted path, not a trigger.
+That historical run proves only that the then-current marker-only model did
+not submit. It does not prove absence of guest descriptor configuration.
+The later cold-neutral [producer audit](../../runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join)
+observes33 descriptor builds and a unit2 commit/run. The current model connects
+that initial run and later markers to the same transport, and only actual
+DMA DONE produces the finite mode-selected capture cause. An image alone is
+still not a trigger. The finite profile supplies two-byte geometry, format
+and timing assumptions; physical Bayer/packing semantics remain unresolved.
 
 ## Generating a test image
 

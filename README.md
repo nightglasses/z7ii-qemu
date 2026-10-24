@@ -55,8 +55,16 @@ cases pass. Original code crosses the grid read using explicitly assumed
 cold-zero RAM. Under the explicit cursor assumptions, the later original run
 crosses the post-submit bb70 read and completes39 getters with no new MMIO
 error in20 host seconds;33 Sensor and23 SLA cases pass. QMP remains running
-without a console, and CMOS/readout counts remain0. Statistics DMA and the
-next image-request condition remain unresolved. Physical result semantics,
+without a console; CMOS/readout counts were still0 at that checkpoint.
+The later [readout producer join](docs/runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join)
+connects initial unit2 commit/run, immutable descriptors, actual primary DMA
+and mode-selected capture completion. It backs the complete kind38/39 pools.
+Two20-second cold-neutral runs now complete about1500–1650 functional
+transfers through the original IRQ/owner/marker loop, with no request rejection
+or console; all99 applicable CMOS/Sensor/memory/SLA cases pass. The separate
+owner data-consumer bit2/raw0.bit6 path remains unproduced. Statistics DMA,
+the secondary-plane producer and the normal display join remain unresolved.
+Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
 module metadata is a bounded functional assumption, not
 physical calibration or a universal block-disable setting.
@@ -77,7 +85,9 @@ A complete bundle installs the bounded loader contract and connects
 the MAS/SLA notification endpoints before either bridge is realized, and
 joins readout-control requests to the existing CMOS timing/DMA
 engine. That join validates the finite C1.70 mapping, writes only the submitted
-primary buffer and publishes generation-checked completion. An explicit
+primary buffer and publishes generation-checked capture causes after DMA.
+Initial unit2 run and the mode0/1 completion join are explicit functional
+hypotheses, grounded in original producer/consumer ordering. An explicit
 PGM/PPM source is used when configured; otherwise the bundle path selects
 the deterministic CMOS provider. It does not inject guest event objects, task
 state or a prefilled UI. Missing physical-camera evidence, exact Bayer fidelity
@@ -261,7 +271,7 @@ or ambiguous component input before any component becomes visible to a machine.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
 - CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source is available to the complete bundle and explicit fixtures. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
-- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The complete bundle joins a bounded readout mapping to CMOS primary-buffer DMA and generation-checked completion; capture/SDES and downstream ISP/display joins remain independent boundaries.
+- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The complete bundle joins unit2 run/marker requests to primary-buffer DMA and finite mode0/1 capture IRQ94 completion; other capture/SDES data paths and downstream ISP/display joins remain independent boundaries.
 - The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
 - The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
 - Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
@@ -289,6 +299,8 @@ flowchart TD
   Readout -->|"complete bundle only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
   Source["Explicit image or<br/>bundle deterministic input"] --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]
+  CMOS -->|"actual DMA DONE, mode0/1 profile"| CaptureIRQ["capture IRQ94 / original ISR"]
+  CaptureIRQ -->|"original owner / marker"| Readout
   MAS --> Graphics["Finite paired graphics LUT executor<br/>actual output, IRQ129, completed status58 read"]
   GraphicsRAM["Guest-selected graphics input RAM"] --> Graphics
   Graphics --> Output["Descriptor-selected output RAM"]
@@ -317,7 +329,8 @@ The readout join validates the primary destination, stride, span and the two
 accepted C1.70 format pairs before timed CMOS DMA. Secondary ranges are
 validated but not written. Busy requests, stale generations, cancellation and
 reset preserve ownership boundaries. This is a functional mapping, not a
-recovered sensor format, timing law, GIC route or CMOS-to-ISP/display path.
+recovered sensor format, timing law or CMOS-to-ISP/display path. IRQ94
+raw0.bit3/5 completion is an explicit functional join to an original consumer.
 
 Graphics stream counts 28/211 are 64-bit units, yielding full 224/1688-byte
 snapshots. The finite LUT executor validates the supported program family,

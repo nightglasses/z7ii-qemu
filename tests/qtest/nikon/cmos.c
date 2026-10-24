@@ -15,6 +15,7 @@
 #define READOUT_PARAMETERS 0x2006b000
 #define PIPELINE_PATH "/machine/readout-pipeline"
 #define READOUT_PATH "/machine/readout-control"
+#define CAPTURE 0x20068000
 
 static char *image;
 static char *source;
@@ -78,18 +79,25 @@ static char *functional_bundle(void)
 static QTestState *pipeline_start(char **bundle)
 {
     g_autofree char *quoted = NULL;
+    QTestState *q;
 
     *bundle = functional_bundle();
     quoted = g_shell_quote(*bundle);
-    return qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
+    q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s "
                        "-smp cpus=2,maxcpus=5 -nodefaults -display none",
                        quoted);
+    /* Marker-only fixtures start without a committed first descriptor. */
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    return q;
 }
 
 static void pipeline_configure(QTestState *q, uint32_t destination,
                                uint32_t stride, uint32_t span,
                                uint32_t format)
 {
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 0);
     qtest_writel(q, READOUT_PARAMETERS + 0x3e8, destination);
     qtest_writel(q, READOUT_PARAMETERS + 0x3ec, stride);
     qtest_writel(q, READOUT_PARAMETERS + 0x3f0, span);
@@ -338,6 +346,74 @@ static void test_pipeline_valid_and_silent(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+static void test_pipeline_run_completion(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    qtest_memset(q, RAM, 0xa5, 0x200);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_ALTERNATE);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 0);
+    qtest_writel(q, CAPTURE + 0x200, 8);
+    qtest_writel(q, CAPTURE + 0x100, 2);
+    qtest_writel(q, CAPTURE + 0x104, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3e8, RAM + 0x20000);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 1U << 16);
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x400), ==, 0);
+    qtest_writel(q, CAPTURE + 8, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    /* Staging changes cannot change the in-flight destination or IRQ mode. */
+    pipeline_configure(q, RAM + 0x20000, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 1U << 16);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 8);
+    qtest_writel(q, CAPTURE + 0x210, 8);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
+static void test_pipeline_unit_cancellation(void)
+{
+    static const unsigned cancel[] = { 0xc, 0, 0x14 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cancel); i++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle);
+
+        pipeline_configure(q, RAM, 0x100, 0x200,
+                           NIKON_READOUT_C170_FORMAT_PRIMARY);
+        qtest_memset(q, RAM, 0xa5, 0x200);
+        qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+        qtest_writel(q, CAPTURE + cancel[i], 2);
+        qtest_clock_step(q, 10000);
+        g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, READOUT_PATH,
+                                     "completion-generation"), ==, 0);
+        qtest_quit(q);
+        g_assert_cmpint(unlink(bundle), ==, 0);
+    }
+}
+
 static void test_pipeline_rejections(void)
 {
     g_autofree char *bundle = NULL;
@@ -363,6 +439,17 @@ static void test_pipeline_rejections(void)
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 4);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 0);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 5);
+    qtest_writel(q, READOUT_PARAMETERS + 0x3c0, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 2U << 16);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 6);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
                      ==, 0);
@@ -383,15 +470,15 @@ static void test_pipeline_backpressure_and_stale(void)
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 1);
     qtest_clock_step(q, 10000);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "stale"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "stale"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
-                     ==, 0);
+                     ==, 1);
 
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     qtest_clock_step(q, 10000);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
-                     ==, 3);
+                     ==, 2);
     qtest_quit(q);
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
@@ -453,6 +540,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/period", test_period);
     qtest_add_func("/nikon/cmos/pipeline/valid-silent",
                    test_pipeline_valid_and_silent);
+    qtest_add_func("/nikon/cmos/pipeline/run-completion",
+                   test_pipeline_run_completion);
+    qtest_add_func("/nikon/cmos/pipeline/unit-cancellation",
+                   test_pipeline_unit_cancellation);
     qtest_add_func("/nikon/cmos/pipeline/rejections",
                    test_pipeline_rejections);
     qtest_add_func("/nikon/cmos/pipeline/backpressure-stale",
