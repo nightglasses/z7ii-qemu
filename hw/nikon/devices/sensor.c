@@ -1322,18 +1322,34 @@ struct NikonReadoutControl {
     SysBusDevice parent_obj;
     NikonReadoutBank bank[NIKON_READOUT_REGIONS];
     uint32_t configuration[NIKON_READOUT_REGIONS][READOUT_WORDS];
+    uint32_t committed[READOUT_WORDS];
+    uint32_t submitted[READOUT_WORDS];
+    bool commit_selected[2];
+    bool committed_valid;
+    bool running;
+    bool request_valid;
+    bool provider_active;
+    uint8_t fields_written;
+    uint8_t committed_fields;
+    uint8_t submitted_fields;
     bool known[NIKON_READOUT_REGIONS][READOUT_WORDS];
     uint32_t observed[11];
     bool observed_known[11];
     qemu_irq request;
     qemu_irq ready;
     qemu_irq completion;
+    qemu_irq cancel;
     uint64_t requests;
     uint64_t generation;
     uint64_t ready_generation;
     uint64_t completion_generation;
     uint64_t provider_errors;
     bool reported_error;
+};
+
+/* Complete finite transport profile, including an explicitly written mode0. */
+static const unsigned nikon_readout_fields[] = {
+    0x394, 0x3c0, 0x3e8, 0x3ec, 0x3f0, 0x3f4, 0x3f8, 0x3fc,
 };
 
 /* Exact data words consumed by102092fa. Selector2 shares69870 with0. */
@@ -1432,13 +1448,13 @@ bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!request || !s->generation) {
+    if (!request || !s->request_valid) {
         return false;
     }
     request->generation = s->generation;
-    request->ready = s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4];
+    request->ready = s->submitted[0x3c0 / 4];
     request->completion_marker =
-        s->configuration[NIKON_READOUT_PARAMETERS][0x400 / 4];
+        s->submitted[0x400 / 4];
     return true;
 }
 
@@ -1448,19 +1464,33 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
     uint32_t destination, stride, span, secondary, secondary_stride, format;
+    unsigned mode;
 
-    if (!mapping || !generation || generation != s->generation ||
-        s->configuration[NIKON_READOUT_PARAMETERS][0x400 / 4] != 1) {
+    if (!mapping || !s->request_valid || !s->running ||
+        !generation || generation != s->generation) {
         error_setg(errp, "C1.70 readout request generation is stale");
         return false;
     }
-    destination = s->configuration[NIKON_READOUT_PARAMETERS][0x3e8 / 4];
-    stride = s->configuration[NIKON_READOUT_PARAMETERS][0x3ec / 4];
-    span = s->configuration[NIKON_READOUT_PARAMETERS][0x3f0 / 4];
-    secondary = s->configuration[NIKON_READOUT_PARAMETERS][0x3f4 / 4];
+    destination = s->submitted[0x3e8 / 4];
+    stride = s->submitted[0x3ec / 4];
+    span = s->submitted[0x3f0 / 4];
+    secondary = s->submitted[0x3f4 / 4];
     secondary_stride =
-        s->configuration[NIKON_READOUT_PARAMETERS][0x3f8 / 4];
-    format = s->configuration[NIKON_READOUT_PARAMETERS][0x3fc / 4];
+        s->submitted[0x3f8 / 4];
+    format = s->submitted[0x3fc / 4];
+
+    /*
+     * 1020a2ae packs B26B489E into394[23:16]. 102391b2 consumes
+     * raw0.bit3 in mode0 and bit5 in mode1. Their use after actual transport
+     * completion is an explicit functional profile, not a physical claim.
+     */
+    mode = (s->submitted[0x394 / 4] >> 16) & 0xff;
+
+    if (s->submitted_fields != 0xff ||
+        s->submitted[0x3c0 / 4] != 1 || mode > 1) {
+        error_setg(errp, "C1.70 functional readout enable/mode is unsupported");
+        return false;
+    }
 
     if (format != NIKON_READOUT_C170_FORMAT_PRIMARY &&
         format != NIKON_READOUT_C170_FORMAT_ALTERNATE) {
@@ -1487,6 +1517,7 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
     mapping->format = format;
     mapping->width = stride / 2;
     mapping->height = span / stride;
+    mapping->completion_cause = mode ? 0x20 : 8;
     return true;
 }
 
@@ -1494,12 +1525,11 @@ bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!generation || generation != s->generation) {
+    if (!s->request_valid || !generation || generation != s->generation) {
         return false;
     }
-    s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4] = 1;
-    s->known[NIKON_READOUT_PARAMETERS][0x3c0 / 4] = true;
     s->ready_generation = generation;
+    s->provider_active = true;
     qemu_set_irq(s->ready, 1);
     qemu_set_irq(s->ready, 0);
     return true;
@@ -1509,17 +1539,31 @@ bool nikon_readout_publish_completion(DeviceState *dev, uint64_t generation)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!generation || generation != s->generation ||
+    if (!s->request_valid || !generation || generation != s->generation ||
         s->ready_generation != generation) {
         return false;
     }
     s->completion_generation = generation;
-    /* No guest IRQ or status write is made: the completion consumer is not
-     * recovered yet.  This pulse is an observation boundary for the future
-     * source-backed provider and for focused qtests only. */
+    s->provider_active = false;
+    /*
+     * The bundle pipeline joins this observation to capture IRQ94 only
+     * after actual CMOS transport. This interface itself has no guest IRQ.
+     */
     qemu_set_irq(s->completion, 1);
     qemu_set_irq(s->completion, 0);
     return true;
+}
+
+void nikon_readout_release(DeviceState *dev, uint64_t generation)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+
+    if (generation == s->generation) {
+        s->provider_active = false;
+        s->request_valid = false;
+        s->ready_generation = 0;
+        s->completion_generation = 0;
+    }
 }
 
 static void nikon_readout_provider_ready(void *opaque, int n, int level)
@@ -1602,6 +1646,74 @@ static MemTxResult nikon_readout_read(void *opaque, hwaddr offset,
     return nikon_readout_error(bank, offset, size, false, 0);
 }
 
+static void nikon_readout_begin(NikonReadoutControl *s, const uint32_t *record,
+                                uint8_t fields)
+{
+    s->requests++;
+    /*
+     * A busy provider rejects another pulse without superseding its live
+     * descriptor. Staging remains available for a subsequent guest command.
+     */
+    if (s->provider_active) {
+        qemu_set_irq(s->request, 1);
+        qemu_set_irq(s->request, 0);
+        return;
+    }
+    memcpy(s->submitted, record, sizeof(s->submitted));
+    s->submitted_fields = fields;
+    s->generation++;
+    if (!s->generation) {
+        s->generation++;
+    }
+    s->request_valid = true;
+    s->ready_generation = s->submitted[0x3c0 / 4] == 1 ? s->generation : 0;
+    s->completion_generation = 0;
+    qemu_set_irq(s->request, 1);
+    qemu_set_irq(s->request, 0);
+}
+
+static void nikon_readout_commit_selected(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    s->commit_selected[n] = !!level;
+}
+
+static void nikon_readout_commit(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    if (level && s->commit_selected[n]) {
+        memcpy(s->committed, s->configuration[NIKON_READOUT_PARAMETERS],
+               sizeof(s->committed));
+        s->committed_valid = true;
+        s->committed_fields = s->fields_written;
+    }
+}
+
+static void nikon_readout_run(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    if (s->running == !!level) {
+        return;
+    }
+    s->running = !!level;
+    if (level) {
+        if (s->committed_valid) {
+            nikon_readout_begin(s, s->committed, s->committed_fields);
+        }
+    } else {
+        s->request_valid = false;
+        s->provider_active = false;
+        s->ready_generation = 0;
+        s->completion_generation = 0;
+        s->committed_valid = false;
+        qemu_set_irq(s->cancel, 1);
+        qemu_set_irq(s->cancel, 0);
+    }
+}
+
 static MemTxResult nikon_readout_write(void *opaque, hwaddr offset,
                                       uint64_t value, unsigned size,
                                       MemTxAttrs attrs)
@@ -1616,18 +1728,17 @@ static MemTxResult nikon_readout_write(void *opaque, hwaddr offset,
     }
     s->configuration[bank->region][offset / 4] = value;
     s->known[bank->region][offset / 4] = true;
-    if (bank->region == NIKON_READOUT_PARAMETERS && offset == 0x400 && value) {
-        s->generation++;
-        if (!s->generation) {
-            s->generation++;
+    if (bank->region == NIKON_READOUT_PARAMETERS) {
+        for (unsigned i = 0; i < ARRAY_SIZE(nikon_readout_fields); i++) {
+            if (offset == nikon_readout_fields[i]) {
+                s->fields_written |= 1u << i;
+                break;
+            }
         }
-        s->ready_generation =
-            s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4] == 1 ?
-            s->generation : 0;
-        s->completion_generation = 0;
-        s->requests++;
-        qemu_set_irq(s->request, 1);
-        qemu_set_irq(s->request, 0);
+    }
+    if (bank->region == NIKON_READOUT_PARAMETERS && offset == 0x400 && value) {
+        nikon_readout_begin(s, s->configuration[NIKON_READOUT_PARAMETERS],
+                           s->fields_written);
     }
     return MEMTX_OK;
 }
@@ -1647,6 +1758,18 @@ static void nikon_readout_reset(DeviceState *dev)
     uint32_t mask;
 
     memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->committed, 0, sizeof(s->committed));
+    memset(s->submitted, 0, sizeof(s->submitted));
+    memset(s->commit_selected, 0, sizeof(s->commit_selected));
+    s->committed_valid = false;
+    s->running = false;
+    s->request_valid = false;
+    s->provider_active = false;
+    s->fields_written = 0;
+    s->committed_fields = 0;
+    s->submitted_fields = 0;
+    qemu_set_irq(s->cancel, 1);
+    qemu_set_irq(s->cancel, 0);
     memset(s->known, 0, sizeof(s->known));
     memset(s->observed, 0, sizeof(s->observed));
     memset(s->observed_known, 0, sizeof(s->observed_known));
@@ -1684,6 +1807,11 @@ static void nikon_readout_init(Object *obj)
         sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->bank[i].memory);
     }
     qdev_init_gpio_out_named(DEVICE(s), &s->request, "readout-request", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->cancel, "readout-cancel", 1);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_commit_selected,
+                            "commit-selected", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_commit, "commit", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_run, "run", 1);
     qdev_init_gpio_out_named(DEVICE(s), &s->ready, "readout-ready", 1);
     qdev_init_gpio_out_named(DEVICE(s), &s->completion,
                              "readout-completion", 1);

@@ -1,8 +1,8 @@
 # MAS readout state ownership
 
 This note records the firmware-owned state that gates the C1.70 readout
-descriptor producer.  It is static evidence, not an unchanged-firmware boot
-receipt.  The source is the reconstructed MAS closure at
+descriptor producer. The initial sections describe historical static evidence;
+the final section updates the current cold-neutral runtime boundary. The initial source is the reconstructed MAS closure at
 `nightglass-firmware` commit
 `6c4ba4cf3226d69f8f62130cfdec6394a3aeb339`, under
 `src/mas_outer/mas_closure_10020000/`.  Every ROM address below therefore uses
@@ -188,13 +188,13 @@ lifecycle object is distinct from
 aggregate-state root `R`.  Static control flow establishes both paths but
 does not prove that unchanged firmware has naturally executed either entry.
 
-Separately, the firmware-local code-`0x281` path publishes owner event bit 29:
+Separately, the firmware-local code-`0x281` path publishes bit29 to a different
+event object. Original instructions establish the target as `b2aa1da8`,
+not this owner's `R+20=b26b38a8`:
 
 ```text
 0x10452976 -> 0x10452ab0 -> 0x1047b944 -> 0x10498a04
-    -> 0x103610cc(..., 0x20000000)
-    -> registered callback 0x10238d4a
-    -> 0x1023c610
+    -> 0x103610cc(0xb2aa1da8, 0x20000000)
 ```
 
 `0x1023c610` first consumes another owner phase word.  When that word is zero,
@@ -205,12 +205,12 @@ which calls `0x102cd1ce`, loads the returned object at `+0x0c`, then calls
 This establishes a firmware-owned state machine: session reset, lane/owner
 participation, a first entry that sets the lane-1 readout mask, can build the
 initial descriptor and advances the owner state, a later state-2 descriptor
-update path, then a separate firmware-local bit-29 callback that admits the
-final marker path.
+update path, then an owner bit29 callback that admits the final marker path.
+The same numeric bit on the other event object does not establish a join.
 It does not establish a natural runtime traversal of those phases.  CMOS
 completion must not be translated directly to code `0x281` or bit 29.
 
-## Recovered caller and current upstream boundary
+## Recovered special-mode caller and historical upstream boundary
 
 Read-only disassembly of the unchanged complete C1.70 payload recovers a
 direct Thumb call at `0x10326396` to `0x102347b6`.  The reconstructed closure
@@ -284,7 +284,7 @@ cold value is `1`.  Separate guest capture-control methods can publish the same
 `0x103976fc` can publish `0x04200001`.  Neither route authorizes a raw44 pulse
 or backend flag injection before the capture service lifecycle starts.
 
-## Enumeration boundary and next unknown
+## Historical enumeration boundary
 
 The writer audit covered every reconstructed literal in
 `[0xb26b3788, 0xb26b3988]`, not only direct references to `R`.  This is what
@@ -294,7 +294,7 @@ to all three setters, both mask clearers and the whole-state reset were then
 enumerated from the reconstructed assembly.  Static control flow was
 sufficient, so no runtime state write or active probe was used.
 
-The precise unresolved upstream edge is now the natural caller or owner input
+For that earlier observation, the unresolved edge was the natural caller or owner input
 that reaches `0x103f1244` and requests capture service start through
 `0x103299c6`.  A minimal passive probe should break at `0x103f1244`,
 `0x103299c6`, queued callback `0x10323ac2`, transition `0x10323198`,
@@ -308,3 +308,70 @@ QEMU must continue to leave `R + 0x38`, `R + 0x44`, code `0x281`, event bit 29
 and guest callbacks under firmware ownership.  Completion still needs a
 source-backed device pending -> GIC -> original ISR -> ACK -> original task
 consumer before unchanged-firmware progress can be claimed.
+
+## Current cold-neutral producer and completion join
+
+Original C1.70 observations in `work/runs/readoutrequest-20261024/origin`
+reach descriptor builder `1023869e`33 times and initial wrapper `10238876`
+once. `C[7]=0` selects regular OnVd `10325ff6`, not the special-mode
+`103263e8 -> 102347b6` branch. That absent special branch therefore does
+not block descriptor construction. Normal aggregate mask is `2eb`, lane
+participation is2, and the marker predicate is already true. `3c0=1` is
+written by the guest. Neither `1023c610` nor the `b400` marker accessor
+executes in this window; CMOS/readout requests remain0 in the old model.
+
+The initial path is `1023abaa` flag80/non-null vector slot5 → `10238876`
+→ `1023869e` → `1020c728`. The latter commits both shared ports with mask2
+then runs unit2. Later owner event bit29 dispatches `10238d4a -> 1023c610`,
+which updates a bank, conditionally writes `b400=1`, then commits mask2.
+Raw instructions confirm the marker accessor returns when `3c0!=1`; it
+does not wait in a loop. The earlier claim that host readiness was the
+missing condition came from an inaccurate closure projection.
+
+IRQ94 callback `102391b2`, registered by `1023954a`, is an actual producer
+of this owner's bit29. For event41072800 it accepts raw0.bit3 with software
+mode `b26b489e=0`, or raw0.bit5 with mode1, and then checks the aggregate
+predicate before calling `103606e4(R,20000000)`. Accessor `1020a2ae` packs
+that mode into `2006b394[23:16]`. The current runtime value is1. Other causes
+and the high-level code281 object must not be substituted for this route.
+
+The finite model explicitly assumes that initial effective unit2 run starts
+one committed descriptor, and that actual CMOS DMA DONE publishes the
+mode-selected hardware cause. It then uses the original mask/GIC/ISR/W1C
+and owner dispatch, without writing software events or state. Subsequent
+markers snapshot their own staging descriptor. Busy rejection preserves the
+in-flight generation; stop/reset/disable cancels it without a completion.
+
+The `model` unchanged run proves the first request now appears, but is
+rejected with `CMOS destination buffer is not writable RAM`: destination
+PA61654800, span8a200, stride4100. Source `1023cb62` allocates201000 bytes
+from kind38 into `b26b48d0`, and kind39 into `b26b48d4`; `1023869e` obtains
+their double-indirect descriptor pointers for primary/secondary storage.
+ROM11982938[38/39] points to rows11983440/58: base61654800,size603000,
+unit201000; and base61c57800,size402000,unit201000. All five mode override
+tables have NULL entries for both kinds. The complete pools are therefore
+PA `[61654800,61c57800)` and `[61c57800,62059800)`, immediately followed
+by the separately established kind40 pool. The machine backs exactly these
+two pools with shared RAM; cold zero is an explicit assumption, not supplied
+camera samples. There is no physical alias at their logical CPU addresses.
+
+Native old-model fixtures fail at first-run acceptance and at the first pool
+write. The final batch passes12 CMOS,33 Sensor,31 memory and23 SLA cases.
+Unchanged `pools` and `consumer`20-second runs accept1656/1512 requests and
+complete1655/1511, with no rejection. Counters are sequential QMP reads;
+they are not an atomic snapshot or a physical frame-rate measurement. All
+six COPY ranges compare, guard0/property6433 empty remains confirmed, and
+QMP stays running without uncovered accesses or a display console.
+
+`consumer` reads nonzero primary bytes and an untouched secondary prefix.
+It observes owner bit29 repeatedly and no owner bit2 (`4`); focused function
+`10238c40` is never entered. Raw0.bit6 (`40`) in `102391b2` increments
+`b1888164` and posts owner bit2; `10238d4a` drains that counter by invoking
+`10238c40`, which consumes four queues and can dispatch041a0002. The finite
+primary-completion profile does not produce that separate cause or the
+secondary plane. Global041a0002 occurs through other producers, so neither
+its presence nor absence identifies this owner path. Recovering the data
+producer for raw0.bit6 is the next readout boundary; its relationship to the
+remaining GUI condition still needs evidence. The AFHI/AFPX debug-file names
+in original `1023c67c` also caution against identifying these buffers as the
+main display image merely because the functional CMOS counter advances.

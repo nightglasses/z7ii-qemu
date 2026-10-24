@@ -147,6 +147,35 @@ active-address hypothesis, not captured data or normal GUI output. No new
 MMIO stop is identified; the next task is to localize the absent image-request
 condition. Gate/pending3/ready0 alone do not establish that condition.
 
+The subsequent [readout producer audit](../runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join)
+finds the missed initial path: `10238876 -> 1023869e -> 1020c728` commits
+mask2 then runs unit2 without a `b400` marker. The finite first-run/completion
+profile closes that gap, snapshots descriptors, preserves busy ownership and
+cancels on effective stop/reset/disable. Its first unchanged `model` run
+requests once and rejects DMA to unmapped PA61654800. Source allocation
+kind38/39 then establishes the complete adjacent three-/two-unit pools;
+both are backed with exact shared RAM and explicit cold-zero assumptions.
+
+Old-model native tests fail at first-run acceptance and readout-pool access;
+the final batch passes12 CMOS,33 Sensor,31 memory and23 SLA cases. Unchanged
+`readoutrequest-20261024/pools` records1656 accepted/1655 completed requests
+and no rejection in20 host seconds. A second `consumer` run records1512
+accepted/1511 completed; these QMP properties are sequential, not atomic.
+Both remain running with no uncovered access or console; all six COPY ranges,
+guard0 and empty property6433 remain confirmed. `consumer` reads nonzero
+primary DMA bytes and an untouched cold-zero secondary prefix.
+
+Original IRQ callback `102391b2`, owner `10238d4a` and marker consumer
+`1023c610` now execute. In the focused `consumer` trace the owner receives
+bit29 repeatedly but no bit2 (`4`), and `10238c40` is never entered. That
+data branch needs capture raw0.bit6 (`40`) to increment `b1888164` and post
+owner bit2. The model produces only actual mode1 primary-completion bit5,
+not that separate data cause or secondary samples. This is the next concrete
+readout-consumer boundary; its necessity for GUI and its actual data producer
+still need tracing. Other producers do send global event041a0002, so that
+event number alone is not proof of this owner branch. No normal-menu output
+or physical frame rate is claimed.
+
 ## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual

@@ -4,6 +4,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "qemu/log.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
@@ -18,7 +19,9 @@ struct NikonReadoutPipeline {
     SysBusDevice parent_obj;
     DeviceState *readout;
     DeviceState *cmos;
+    DeviceState *capture;
     uint64_t active_generation;
+    uint32_t completion_cause;
     uint64_t requests;
     uint64_t accepted;
     uint64_t completed;
@@ -44,9 +47,10 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
         return;
     }
     if (!nikon_readout_request(s->readout, &request) ||
-        request.completion_marker != 1 ||
         !nikon_readout_c170_mapping(s->readout, request.generation, &mapping,
                                     &err)) {
+        qemu_log_mask(LOG_GUEST_ERROR, "nikon readout request rejected: %s\n",
+                      err ? error_get_pretty(err) : "no owned generation");
         error_free(err);
         s->rejected++;
         return;
@@ -64,11 +68,17 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
         .readout_ns = 1,
     };
     if (!nikon_cmos_submit(s->cmos, &submission, &err)) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon readout generation %" PRIu64
+                      " destination=0x%08x span=0x%x rejected: %s\n",
+                      request.generation, mapping.destination, mapping.span,
+                      error_get_pretty(err));
         error_free(err);
         s->rejected++;
         return;
     }
     s->active_generation = request.generation;
+    s->completion_cause = mapping.completion_cause;
     if (!nikon_readout_publish_ready(s->readout, request.generation)) {
         s->active_generation = 0;
         s->stale++;
@@ -90,22 +100,42 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
     s->active_generation = 0;
     if (n == NIKON_CMOS_PIPELINE_DONE) {
         if (nikon_readout_publish_completion(s->readout, generation)) {
-            s->completed++;
+            uint32_t causes[] = { s->completion_cause, 0 };
+            Error *err = NULL;
+
+            if (nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
+                                      causes, ARRAY_SIZE(causes), &err)) {
+                s->completed++;
+            } else {
+                error_free(err);
+                s->stale++;
+            }
         } else {
             s->stale++;
         }
     } else {
+        nikon_readout_release(s->readout, generation);
         s->cancelled++;
+    }
+}
+
+static void nikon_readout_pipeline_cancel(void *opaque, int n, int level)
+{
+    NikonReadoutPipeline *s = opaque;
+
+    if (level && s->active_generation) {
+        nikon_cmos_cancel(s->cmos);
     }
 }
 
 static void nikon_readout_pipeline_reset(DeviceState *dev)
 {
     NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(dev);
-    bool active = s->active_generation != 0;
+    uint64_t generation = s->active_generation;
 
     s->active_generation = 0;
-    if (active) {
+    if (generation) {
+        nikon_readout_release(s->readout, generation);
         nikon_cmos_cancel(s->cmos);
     }
 }
@@ -116,8 +146,11 @@ static void nikon_readout_pipeline_realize(DeviceState *dev, Error **errp)
 
     if (!s->readout || !object_dynamic_cast(OBJECT(s->readout),
                                             TYPE_NIKON_READOUT_CONTROL) ||
-        !s->cmos || !object_dynamic_cast(OBJECT(s->cmos), TYPE_NIKON_CMOS)) {
-        error_setg(errp, "readout pipeline requires readout and CMOS links");
+        !s->cmos || !object_dynamic_cast(OBJECT(s->cmos), TYPE_NIKON_CMOS) ||
+        !s->capture || !object_dynamic_cast(OBJECT(s->capture),
+                                            TYPE_NIKON_CAPTURE_CONTROL)) {
+        error_setg(errp, "readout pipeline requires readout, CMOS and capture "
+                   "links");
     }
 }
 
@@ -127,6 +160,8 @@ static void nikon_readout_pipeline_init(Object *obj)
 
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_request,
                             "request", 1);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_cancel,
+                            "cancel", 1);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_event,
                             "cmos-event", NIKON_CMOS_PIPELINE_EVENTS);
     object_property_add_uint64_ptr(obj, "active-generation",
@@ -150,6 +185,8 @@ static const Property nikon_readout_pipeline_properties[] = {
                      TYPE_NIKON_READOUT_CONTROL, DeviceState *),
     DEFINE_PROP_LINK("cmos", NikonReadoutPipeline, cmos,
                      TYPE_NIKON_CMOS, DeviceState *),
+    DEFINE_PROP_LINK("capture", NikonReadoutPipeline, capture,
+                     TYPE_NIKON_CAPTURE_CONTROL, DeviceState *),
 };
 
 static const VMStateDescription nikon_readout_pipeline_vmstate = {

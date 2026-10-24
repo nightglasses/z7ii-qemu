@@ -11,6 +11,7 @@ config NIKON_Z7II
     depends on TCG && ARM
     select ARM_GIC
     select OR_IRQ
+    select SPLIT_IRQ
     select SSI
     select I2C
     select NIKON_MEMORY

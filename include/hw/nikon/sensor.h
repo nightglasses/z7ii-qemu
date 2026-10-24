@@ -32,8 +32,9 @@ enum NikonReadoutRegion {
     NIKON_READOUT_REGIONS,
 };
 
-/* One accepted guest completion-marker write.  The generation is a
- * monotonically increasing producer token; it is never a hardware address or
+/*
+ * One guest request (initial committed run or subsequent marker). Generation is
+ * a monotonically increasing producer token; it is never a hardware address or
  * a completion result.  Providers use it to reject stale observations.
  */
 typedef struct NikonReadoutRequest {
@@ -57,6 +58,7 @@ typedef struct NikonReadoutC170Mapping {
     uint32_t format;
     uint32_t width;
     uint32_t height;
+    uint32_t completion_cause;
 } NikonReadoutC170Mapping;
 
 bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
@@ -65,14 +67,18 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
 
 /* Actual query102092fa selects0..3 and reads4/2/4/2 words.  No default
  * provider, completion, IRQ, DMA or pixel data is produced by configuration.
- * An explicit command2006b400=1 creates a request generation and pulses
- * readout-request.  External providers may inspect that request and publish
+ * An explicit command2006b400=1, or the first effective unit2 run after a
+ * selected commit, creates a snapshotted request generation and pulses
+ * readout-request. Unit2 stop/reset/disable invalidates and cancels it.
+ * External providers may inspect that request and publish
  * ready/completion observations through the APIs below. The machine only
  * supplies a provider in the complete bundle composition.
  */
 bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request);
 bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation);
 bool nikon_readout_publish_completion(DeviceState *dev, uint64_t generation);
+/* Release provider ownership after cancellation; no completion is published. */
+void nikon_readout_release(DeviceState *dev, uint64_t generation);
 bool nikon_readout_publish(DeviceState *dev, unsigned selector,
                            const uint32_t *words, size_t count, Error **errp);
 bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion region,

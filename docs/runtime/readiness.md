@@ -96,7 +96,12 @@ requested index. With the same cold-neutral input, two20-second observations
 remain running without an uncovered access, but have no console and no CMOS
 frame/readout request. Gate/pending3/ready remain0 in the read-only `wait`
 snapshot. Their values still do not identify the blocked upstream edge;
-that next image-request condition remains unlocalized.
+that next image-request condition was still unlocalized at that checkpoint.
+The later [producer join](readoutstate.md#current-cold-neutral-producer-and-completion-join)
+finds the missing initial unit2 run request and closes its primary DMA/IRQ/
+owner-marker loop. Two cold-neutral runs now complete over1500 functional
+transfers each without a console. The separate raw0.bit6/owner-bit2 data
+consumer remains absent; its connection to GUI is not yet established.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.

@@ -148,15 +148,16 @@ and [#485](https://github.com/mashiro01/nightglass/issues/485) are unblocked.
 
 ```mermaid
 flowchart TD
-  Guest["Guest readout configuration<br/>and PA 0x2006b400 = 1"] --> Readout["readout-control<br/>owned request generation"]
+  Guest["Guest descriptor / unit2 commit+run<br/>or later PA 0x2006b400 = 1"] --> Readout["readout-control<br/>snapshotted request generation"]
   Readout -->|"complete bundle only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
   Image["Explicit PGM/PPM or<br/>opt-in deterministic source"] --> CMOS["CMOS timing / DMA engine"]
   Pipeline --> CMOS
   CMOS -->|"timed primary-buffer DMA"| RAM["Submitted writable guest RAM"]
-  Pipeline -->|"accepted generation ready"| Ready["readout ready at PA 0x2006b3c0"]
+  Pipeline -->|"accepted generation"| Ready["provider ownership observation"]
   CMOS -->|"done / error / cancel signals"| Pipeline
-  Pipeline -->|"current generation only"| Completion["Readout completion observation<br/>no inferred GIC line"]
-  Capture["capture-control / SDES<br/>independent finite contracts"] -. "capture-to-readout join unverified" .-> Readout
+  Pipeline -->|"actual DMA DONE, live generation"| Capture["capture IRQ94 raw0.bit3/5<br/>explicit mode0/1 functional profile"]
+  Capture --> ISR["Original ISR / owner event29"]
+  ISR --> Guest
 
   RAM -. "original producer join unverified" .-> Process["Processing endpoint PA 0x24070000<br/>accepts supplied complete buffers"]
   Supplied["Explicit complete input buffers"] --> Process
@@ -175,7 +176,9 @@ width is stride/2 and height is span/stride. The CMOS engine performs actual
 timed DMA. Busy requests are rejected, stale generations cannot complete,
 and cancellation/reset stop pending work. The raw MAS diagnostic path leaves
 this join disconnected. No physical pixel format, sensor timing, secondary-plane
-producer, GIC route or downstream ISP/display join is inferred. See the
+producer or downstream ISP/display join is inferred. The mode-selected
+IRQ94 completion is an explicit functional assumption tied to the original
+consumer, and is emitted only after actual DMA. See the
 [readout mapping](devices/readout/profile.json),
 [controller contract](devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
 and [pipeline fixtures](../tests/qtest/nikon/cmos.c).

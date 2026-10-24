@@ -19,23 +19,23 @@
   "derived_record": [
     {"offset":"0x00","width":"u8","expression":"1","status":"proven"},
     {"offset":"0x04","width":"u32","expression":"0xd00","status":"proven"},
-    {"offset":"0x08","width":"u32","expression":"width = byte(object+0x48) - byte(object+0x47) + 1; when byte(object+0x5a) != 0, effective_width = ubfx(width, 1, 7) + 1","status":"proven arithmetic; not a physical image width"},
+    {"offset":"0x08","width":"u32","expression":"0xd00 * effective_width; width = u8(byte(object+0x48) - byte(object+0x47) + 1); effective_width = width when byte(object+0x5a) == 0, otherwise (width >> 1) + (width & 1)","status":"proven arithmetic; not a physical image width"},
     {"offset":"0x0c","width":"u32","expression":"0xd00 * effective_width * height + 0xd00","status":"proven arithmetic; height = byte(object+0x4a) - byte(object+0x49) + 1"},
     {"offset":"0x10","width":"u32","expression":"0xd00","status":"proven"},
     {"offset":"0x14","width":"u16","expression":"existing record value consumed by the builder","status":"source read; semantic identity unknown"},
     {"offset":"0x18","width":"u32","expression":"selector-dependent base: selected, selected+0x13000, or selected+0x26000; exact branch is source-bound","status":"pointer arithmetic proven; physical buffer role unknown"},
     {"offset":"0x1c","width":"u32","expression":"0x1000","status":"proven"},
     {"offset":"0x20","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; functional primary destination at control+0x3e8"},
-    {"offset":"0x24","width":"u32","expression":"align256(0xff + 2 * u16(object+0x14))","status":"proven arithmetic; functional primary stride at control+0x3ec"},
+    {"offset":"0x24","width":"u32","expression":"(2 * u16(object+0x14) + 0xff) & 0xffffff00","status":"proven arithmetic; functional primary stride at control+0x3ec"},
     {"offset":"0x28","width":"u32","expression":"record+0x24 * byte(global+0xc0) * 2","status":"proven arithmetic; functional primary span at control+0x3f0"},
     {"offset":"0x2c","width":"u32","expression":"double-indirect pointer from the builder table","status":"pointer provenance proven; functional secondary destination at control+0x3f4"},
-    {"offset":"0x30","width":"u32","expression":"align256(0xff + floor(3 * u16(object+0x14) / 2))","status":"proven arithmetic; functional secondary stride at control+0x3f8"},
-    {"offset":"0x34","width":"u8","expression":"0x40 for selector byte zero, otherwise 1","status":"proven branch value; functional format pair at control+0x3fc"},
+    {"offset":"0x30","width":"u32","expression":"(((3 * u16(object+0x14)) >> 1) + 0xff) & 0xffffff00","status":"proven arithmetic; functional secondary stride at control+0x3f8"},
+    {"offset":"0x34","width":"u8","expression":"0x40 when byte(input+0x0c) is 0 or 0x0e, otherwise 1","status":"proven branch value; functional format pair at control+0x3fc"},
     {"offset":"0x35","width":"u8","expression":"same branch value as record+0x34","status":"proven branch value; functional format pair at control+0x3fc"}
   ],
   "functional_gui_mapping": {
     "scope": "explicit finite C1.70 functional mapping; not a physical-camera identity claim",
-    "request": "a write of 1 to 0x2006b400 owns the current readout generation",
+    "request": "initial effective unit2 run after selected mask2 commit snapshots the committed descriptor; subsequent 0x2006b400=1 snapshots staging; busy preserves the active generation",
     "primary_destination": "u32 at 0x2006b3e8",
     "primary_stride": "u32 at 0x2006b3ec; nonzero, 256-byte aligned, and even",
     "primary_span": "u32 at 0x2006b3f0; nonzero, at most 64 MiB, and exactly divisible by primary_stride",
@@ -44,8 +44,8 @@
     "accepted_formats": ["0x00400040", "0x00010001"],
     "functional_geometry": "two-byte samples; width = primary_stride / 2; height = primary_span / primary_stride",
     "producer": "the existing CMOS timing/DMA engine writes exactly primary_span bytes to submitted writable guest RAM",
-    "completion": "readout ready is published for the owned generation at start; the existing readout completion pulse is published only after CMOS completion",
-    "lifecycle": "busy requests are rejected; reset and CMOS cancel invalidate ownership and stop the timer; stale generations cannot publish completion",
+    "completion": "only actual DMA DONE publishes capture IRQ94 raw0.bit3 for mode0 or bit5 for mode1 (0x2006b394[23:16]); explicit functional hypothesis, original ISR owns the software event",
+    "lifecycle": "all eight consumed profile fields must be written; enable must equal1; mode must be0/1; busy preserves ownership; unit2 stop/reset/disable and CMOS cancel invalidate ownership and stop the timer",
     "source": "an explicit PGM/PPM image when configured, otherwise the deterministic functional CMOS provider"
   },
   "not_proven": [
@@ -54,7 +54,7 @@
     "physical Bayer order, bit depth, or packing",
     "physical meaning of the primary and secondary planes",
     "physical exposure, frame period, or line readout timing",
-    "a Nikon GIC line, guest callback, ISR invocation, display prefill, or physical CMOS-to-ISP edge"
+    "the physical meaning of the mode0/1 completion causes or physical CMOS-to-ISP edge"
   ],
   "qemu_boundary": {
     "action": "the bundle composition connects the bounded mapping to the CMOS engine; a machine without the bundle retains readout-control as a disconnected provider boundary",
@@ -68,7 +68,7 @@
       "claim the functional width or two-byte sample encoding as physical-camera semantics",
       "preload the control block or result windows",
       "write the secondary plane, event objects, callback addresses, ISR state, PC, task state, or an LCD",
-      "fabricate a GIC source or software success flag"
+      "publish completion without actual DMA, or write a software success flag"
     ],
     "next_evidence": "physical-camera traces may refine plane identity, pixel encoding, timing, and IRQ routing without changing the bounded functional profile label"
   }

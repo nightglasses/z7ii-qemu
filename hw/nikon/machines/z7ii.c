@@ -10,6 +10,7 @@
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
 #include "hw/core/irq.h" /* IWYU pragma: keep */
+#include "hw/core/split-irq.h"
 #include "hw/core/qdev.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
@@ -94,6 +95,10 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
 #define Z7II_KIND40_BASE 0x62059800ULL
 #define Z7II_KIND40_SIZE 0x1c8000ULL
+#define Z7II_READOUT_PRIMARY_BASE 0x61654800ULL
+#define Z7II_READOUT_PRIMARY_SIZE 0x603000ULL
+#define Z7II_READOUT_SECONDARY_BASE 0x61c57800ULL
+#define Z7II_READOUT_SECONDARY_SIZE 0x402000ULL
 #define Z7II_INTERPOLATION_BASE 0xc24cb400ULL
 #define Z7II_INTERPOLATION_SIZE 0xf00000ULL
 #define Z7II_GRID_BASE 0x5d170000ULL
@@ -200,6 +205,8 @@ struct Z7IIMachineState {
     Z7IIRAM lcd_composition;
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
+    Z7IIRAM readout_primary;
+    Z7IIRAM readout_secondary;
     Z7IIRAM interpolation_pool;
     Z7IIRAM grid_pool;
     Z7IIRAM row_storage;
@@ -768,6 +775,8 @@ static void z7ii_init(MachineState *machine)
     DeviceState *exiu;
     DeviceState *bridge;
     DeviceState *readout;
+    DeviceState *capture;
+    DeviceState *group;
     DeviceState *cmos;
     DeviceState *router;
     DeviceState *spi_ports[11];
@@ -950,6 +959,17 @@ static void z7ii_init(MachineState *machine)
     z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
              Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
     /*
+     * ROM11982938 kinds38/39 select11983440/58, with no mode overrides.
+     * 1023cb62 requests201000 bytes from each; 1023869e publishes their
+     * descriptor pointers as readout destinations. Back the complete three-
+     * and two-unit pools, not the enclosing conversion class. Cold zero is
+     * a functional assumption; normal CMOS DMA owns submitted frame bytes.
+     */
+    z7ii_ram(&s->readout_primary, "z7ii.readout-primary",
+             Z7II_READOUT_PRIMARY_BASE, Z7II_READOUT_PRIMARY_SIZE);
+    z7ii_ram(&s->readout_secondary, "z7ii.readout-secondary",
+             Z7II_READOUT_SECONDARY_BASE, Z7II_READOUT_SECONDARY_SIZE);
+    /*
      * Initializer10306fb0 selects kind74 through ROM table11982938[74].
      * Row11983548 declares base C24CB400, size F00000, 10000-byte units.
      * Original102b64b0 acquires 19c80 bytes at C33AB400 and translates it
@@ -1131,8 +1151,8 @@ static void z7ii_init(MachineState *machine)
         /* Guest configuration/commands; no default completion provider. */
     }
     {
-        DeviceState *capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
-        DeviceState *group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
+        capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
+        group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
 
         object_property_add_child(OBJECT(machine), "capture-control",
                                   OBJECT(capture));
@@ -1150,8 +1170,6 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < 2; i++) {
             qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 4,
                 qdev_get_gpio_in_named(group, "commit-selected", i));
-            qdev_connect_gpio_out_named(capture, "command-publish", i,
-                qdev_get_gpio_in_named(group, "commit", i));
         }
         qdev_connect_gpio_out_named(capture, "run-state", 5,
                                    qdev_get_gpio_in_named(group, "run", 0));
@@ -1195,6 +1213,23 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < NIKON_READOUT_REGIONS; i++) {
             sysbus_mmio_map(SYS_BUS_DEVICE(readout), i, addresses[i]);
         }
+        for (i = 0; i < 2; i++) {
+            DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(split, "num-lines", 2);
+            qdev_realize_and_unref(split, NULL, &error_fatal);
+            qdev_connect_gpio_out(split, 0,
+                qdev_get_gpio_in_named(group, "commit", i));
+            qdev_connect_gpio_out(split, 1,
+                qdev_get_gpio_in_named(readout, "commit", i));
+
+            qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 1,
+                qdev_get_gpio_in_named(readout, "commit-selected", i));
+            qdev_connect_gpio_out_named(capture, "command-publish", i,
+                                       qdev_get_gpio_in(split, 0));
+        }
+        qdev_connect_gpio_out_named(capture, "run-state", 1,
+                                   qdev_get_gpio_in_named(readout, "run", 0));
         /* Guest requests have no default provider, IRQ or pixel data source. */
     }
     {
@@ -1219,9 +1254,13 @@ static void z7ii_init(MachineState *machine)
                                  &error_fatal);
         object_property_set_link(OBJECT(pipeline), "cmos", OBJECT(cmos),
                                  &error_fatal);
+        object_property_set_link(OBJECT(pipeline), "capture", OBJECT(capture),
+                                 &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
         qdev_connect_gpio_out_named(readout, "readout-request", 0,
             qdev_get_gpio_in_named(pipeline, "request", 0));
+        qdev_connect_gpio_out_named(readout, "readout-cancel", 0,
+            qdev_get_gpio_in_named(pipeline, "cancel", 0));
         for (i = 0; i < NIKON_CMOS_PIPELINE_EVENTS; i++) {
             qdev_connect_gpio_out_named(cmos, "pipeline-event", i,
                 qdev_get_gpio_in_named(pipeline, "cmos-event", i));
@@ -1561,6 +1600,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
+                 "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
