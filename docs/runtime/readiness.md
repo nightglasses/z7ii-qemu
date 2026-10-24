@@ -12,6 +12,15 @@ The later visible-area correction uses the source's132c/1328 dimensions;
 `moduleinput-20261024/visible` now publishes the complete1024x682 dialog.
 The earlier780x780 screenshot was clipped by a model geometry error.
 
+The subsequent normal20-second `sensorprofile-20261024/ccompnormal` run
+adds the [finite CComp GPIO peer](../devices/ccomp/protocol.md), retaining
+all inputs and using no descriptor32 file. Original EXIU0/GIC65 callback
+`102422ec` dispatches state2 through the CComp task and original `10394b44`
+posts CSEQEV01 (`b186832c`) bit10. The wait returns1 at `1039a3c4`;
+`10395ac0` is not reached and ID54 disappears. Property6433 contains only
+ID68; QMP remains running with the complete1024x682 head1 error GUI. This
+separates the solved GPIO handshake from the module-input frontier below.
+
 The20-second `run` trace uses unchanged firmware, the existing declared NOR
 inputs, healthy9600-baud battery peer, reproducible RNG and held cold F4. No
 debugger pause occurs during its transactions. The first policy packet has
@@ -43,7 +52,7 @@ observed calls instead take the guard at `104a956c` with R0=1.
 The bounded original instructions resolve a shared tail omitted by the
 decompiler: `105b5104` scans property6433's ID list for62..68;
 `105b545e` returns true when that scan succeeds and persistent setting274
-is0. The actual list is `[68,54]`, count2, trailing word1, with setting274=0.
+is0. The earlier list is `[68,54]`, count2, trailing word1, with setting274=0.
 ID68 is therefore the concrete reason operation10 does not post event40.
 The final software masks are `a56c=0,a570=2,a574=0,a578=0,a57c=2,a580=0`
 (all MAS VA `b181xxxx`). This blocks that mask-clearing route, while the

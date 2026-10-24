@@ -29,7 +29,15 @@ complete1024x682 error GUI on `display` head1. The
 [descriptor32 input/loader contract](docs/inputs/nor/module.md) now passes28
 memory subtests and original segmented COPY verification with a diagnostic
 structural input. A usable resource80 body remains unrecovered, so ID68 and
-normal-menu startup remain unresolved. Resource31's erased timing parameter
+normal-menu startup remain unresolved. The [CComp GPIO peer](docs/devices/ccomp/protocol.md)
+now removes ID54 through the original IRQ/callback/event path in a normal
+20-second run (3 handshake and5 GPIO cases pass). The separate
+[capture parameter packet](docs/devices/sensor/packet.md) passes all26 Sensor
+cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
+then passes all28 Sensor cases and advances the explicitly diagnostic
+version-declaration run to PA`2006be00`; that incomplete body is not a normal
+Sensor input.
+Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.
 
 The combined Z7II run is the target for system-level startup. Use the

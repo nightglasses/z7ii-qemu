@@ -775,7 +775,9 @@ static const TypeInfo nikon_sdes_type = {
  * Data status has an explicit provider. Finite stop fences below do no DMA.
  */
 #define CAPTURE_SIZE 0x1180
-#define CAPTURE_WORDS (CAPTURE_SIZE / 4)
+#define CAPTURE_PACKET_BASE 0x1d00
+#define CAPTURE_PACKET_SIZE 0x204
+#define CAPTURE_WORDS ((CAPTURE_PACKET_BASE + CAPTURE_PACKET_SIZE) / 4)
 #define CAPTURE_STATUS_WORDS 8
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureControl, NIKON_CAPTURE_CONTROL)
 
@@ -809,6 +811,7 @@ typedef struct NikonCaptureStop {
 struct NikonCaptureControl {
     SysBusDevice parent_obj;
     MemoryRegion memory;
+    MemoryRegion packet_memory;
     qemu_irq irq[NIKON_CAPTURE_EVENTS];
     qemu_irq command_data[64], command_publish[2];
     uint32_t configuration[CAPTURE_WORDS];
@@ -828,6 +831,38 @@ static const unsigned nikon_capture_events[CAPTURE_STATUS_WORDS] = {
 static bool nikon_capture_config(unsigned offset, uint32_t *mask)
 {
     *mask = UINT32_MAX;
+    /* 102094aa/102093ec/10209578 store every word of this complete packet. */
+    if (offset >= CAPTURE_PACKET_BASE &&
+        offset < CAPTURE_PACKET_BASE + CAPTURE_PACKET_SIZE) {
+        unsigned word = offset - CAPTURE_PACKET_BASE;
+
+        if ((word >= 0xc && word <= 0x20) ||
+            (word >= 0x1dc && word <= 0x1e4)) {
+            *mask = 0xffff;
+        } else {
+            switch (word) {
+            case 0x08: case 0x1d8:
+                *mask = 0xfffff;
+                break;
+            case 0xcc: case 0x174: case 0x1e8:
+                *mask = 0xffffff;
+                break;
+            case 0x1d4:
+                *mask = 0xffff;
+                break;
+            case 0x1f8:
+                *mask = 0xffff00ff;
+                break;
+            case 0x1fc:
+                *mask = 0xff;
+                break;
+            case 0x200:
+                *mask = 0x11;
+                break;
+            }
+        }
+        return true;
+    }
     /* Complete original stores, not an enclosing peripheral aperture.
      * Six seven-word subtables at871c..87c0 fill the middle of this range.
      */
@@ -874,7 +909,7 @@ bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
     uint32_t mask;
 
-    if (!value || offset >= CAPTURE_SIZE || (offset & 3) ||
+    if (!value || offset >= CAPTURE_WORDS * 4 || (offset & 3) ||
         !nikon_capture_config(offset, &mask) || !s->known[offset / 4]) {
         return false;
     }
@@ -1149,6 +1184,30 @@ static const MemoryRegionOps nikon_capture_ops = {
                .unaligned = false },
 };
 
+static MemTxResult nikon_capture_packet_read(void *opaque, hwaddr offset,
+                                            uint64_t *value, unsigned size,
+                                            MemTxAttrs attrs)
+{
+    return nikon_capture_read(opaque, CAPTURE_PACKET_BASE + offset,
+                              value, size, attrs);
+}
+
+static MemTxResult nikon_capture_packet_write(void *opaque, hwaddr offset,
+                                             uint64_t value, unsigned size,
+                                             MemTxAttrs attrs)
+{
+    return nikon_capture_write(opaque, CAPTURE_PACKET_BASE + offset,
+                               value, size, attrs);
+}
+
+static const MemoryRegionOps nikon_capture_packet_ops = {
+    .read_with_attrs = nikon_capture_packet_read,
+    .write_with_attrs = nikon_capture_packet_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4,
+               .unaligned = false },
+};
+
 static void nikon_capture_reset(DeviceState *dev)
 {
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
@@ -1189,6 +1248,9 @@ static void nikon_capture_init(Object *obj)
     memory_region_init_io(&s->memory, obj, &nikon_capture_ops, s,
                           "nikon-capture-control", CAPTURE_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
+    memory_region_init_io(&s->packet_memory, obj, &nikon_capture_packet_ops, s,
+                          "nikon-capture-packet", CAPTURE_PACKET_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->packet_memory);
     for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
         sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq[i]);
     }

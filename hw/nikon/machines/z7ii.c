@@ -1110,11 +1110,20 @@ static void z7ii_init(MachineState *machine)
                                   OBJECT(capture));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(capture), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(capture), 0, 0x20068000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(capture), 1, 0x20069d00);
         for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
             sysbus_connect_irq(SYS_BUS_DEVICE(capture), i,
                                qdev_get_gpio_in(gic, 94 + i - 32));
         }
         /* Original status/command interface; external publication is unbound. */
+    }
+    {
+        DeviceState *endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
+
+        object_property_add_child(OBJECT(machine), "capture-endpoints",
+                                  OBJECT(endpoints));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(endpoints), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(endpoints), 0, 0x2006a200);
     }
     {
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
@@ -1267,6 +1276,17 @@ static void z7ii_init(MachineState *machine)
                                     qdev_get_gpio_in(exiu, i));
         sysbus_connect_irq(SYS_BUS_DEVICE(exiu), i,
                            qdev_get_gpio_in(gic, 65 + i - 32));
+    }
+    {
+        DeviceState *ccomp = qdev_new(TYPE_NIKON_CCOMP);
+
+        object_property_add_child(OBJECT(machine), "ccomp", OBJECT(ccomp));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(ccomp), &error_fatal);
+        /* Original pulse/ACK roles; service timing is a virtual board law. */
+        qdev_connect_gpio_out_named(gpio, "pad", 6 * 16 + 8,
+                                   qdev_get_gpio_in_named(ccomp, "request", 0));
+        qdev_connect_gpio_out_named(ccomp, "ack", 0,
+            qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 7));
     }
     for (i = 0; i < 11; i++) {
         DeviceState *spi = qdev_new(TYPE_NIKON_SPI);

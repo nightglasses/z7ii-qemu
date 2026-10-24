@@ -110,6 +110,44 @@ common header or a proof that every conditional branch executes. They narrow
 the next virtual-profile work to real cold consumers and demonstrate why
 version acceptance cannot qualify an otherwise empty timing/program body.
 
+The later `sensorprofile-20261024` traces resolve the actual cold selectors:
+object `b18a769c` has mode11 and subtype3; `102fef74(11)` returns7.
+Group0 selects variant1 (`bf080`), group1 variant0 (`bf280`), and group2
+variant8 (`c04b0`); the latter still uses the shared length table `c13b0`.
+Group3 consumes `c04b7 & e0`, while groups3/4 construct packets from the
+object. These are observed cold consumers, not mode0 defaults.
+
+Independent selector `10300564` installs the64-byte record17 at`4e40`.
+`103009a8` subsequently selects128-byte capture entries through a ROM table;
+the actual `10300660` inputs are offsets`64c0` (j41) and`6540` (j42).
+That consumer reads at most byte125. Its initial a4=1 call installs fields
+at entry82/84/86; the later a4=0 call preserves those packet fields. These
+capture entries must not be confused with the separate timer-record source
+passed to`102ffc5a`, whose three13-byte substructures at+32/+80/+128
+require at least141 readable bytes. Both diagnostic traces observe its R0
+as`b7d02c00`, closing that separate source at resource80 offset`2c00`.
+
+The actual timing row is`be2b0`. In the `timingdiagnostic` run its+2 halfword
+is0; helper`10304b4e` returns499, and the original case7 arithmetic divides
+by that zero field and produces0 without a CPU trap. The subsequent zero
+counts are encoded minus1 asffff/ffffffff. Thus a virtual profile needs a
+nonzero divisor, positive derived counts and verification of the final encoded
+values; clearing the version guard cannot establish those constraints.
+
+An independent nonzero-timing hypothesis, `endpointscounts`, supplies
+row+2=4096, row+6=35190, row+11=1 and row+12=72. Original object fields
+become148=35190,156=4096,160=1000; the separate timer-packet readback is
+4095/35189 after minus1 encoding. It reaches the same next parameter bank
+as the zero-table diagnostic. This validates a bounded input/arithmetic
+relation, not the remaining capture/program/calibration table semantics.
+
+The explicit `15/00` version-declaration diagnostic passes the guard and
+removes ID68 at that checkpoint. With the
+[capture packet model](../../devices/sensor/packet.md), unchanged execution
+continues to the next uncovered PA`2006a414`. It is debug/stopped before a
+display console exists. This experiment isolates the guard's effect; it does
+not qualify its otherwise incomplete body as a normal virtual-camera input.
+
 The local inventory covers Z7II and Z6II C1.70 five-component bundles and
 the Z7 C3.80 four-component bundle, with component CRC checks and direct
 payload comparison. A version/length-table shape search produces false
