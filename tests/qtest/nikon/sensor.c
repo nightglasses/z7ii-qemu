@@ -280,6 +280,8 @@ static void display_packet(QTestState *q)
 
     qtest_writel(q, DISPLAY_BANK + 0x1100, 1);
     qtest_writel(q, DISPLAY_BANK + 0x1308, (8U << 16) | 8);
+    qtest_writel(q, DISPLAY_BANK + 0x1328, 8);
+    qtest_writel(q, DISPLAY_BANK + 0x132c, 8);
     qtest_writel(q, DISPLAY_BANK + 0x1c00, 0);
     qtest_writel(q, DISPLAY_BANK + 0x1c04, 0);
     qtest_writel(q, DISPLAY_BANK + 0x2100, 1);

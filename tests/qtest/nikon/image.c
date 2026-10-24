@@ -32,6 +32,8 @@ static void packet(QTestState *q, unsigned bank, unsigned mode)
 
     qtest_writel(q, base + 0x1100, 1);
     qtest_writel(q, base + 0x1308, (8U << 16) | 8);
+    qtest_writel(q, base + 0x1328, 8);
+    qtest_writel(q, base + 0x132c, 8);
     qtest_writel(q, base + 0x1c00, 0);
     qtest_writel(q, base + 0x1c04, 0);
     qtest_writel(q, base + 0x2100, 1);
@@ -153,6 +155,8 @@ static void test_empty(void)
     qtest_writel(q, BANK + 0x1100, 1);
     qtest_writel(q, BANK + 0x1210, 0x0011f1f1);
     qtest_writel(q, BANK + 0x1308, (682U << 16) | 1024);
+    qtest_writel(q, BANK + 0x1328, 682);
+    qtest_writel(q, BANK + 0x132c, 1024);
     qtest_writel(q, BANK + 0x2100, 0x11);
     qtest_writel(q, BANK + 0x2200, 0x00030006);
     qtest_writel(q, BANK + 0x2204, (682U << 16) | 1024);
@@ -325,6 +329,8 @@ static void test_domains(void)
         qtest_writel(q, base + 0x204, (8U << 16) | 8);
         qtest_writel(q, base + 0x1204, 11);
         qtest_writel(q, base + 0x1308, (8U << 16) | 8);
+        qtest_writel(q, base + 0x1328, 8);
+        qtest_writel(q, base + 0x132c, 8);
         g_assert_cmphex(qtest_readl(q, base + 0x200), ==, 1);
         g_assert_cmphex(qtest_readl(q, base + 0x1200), ==, 0);
         g_assert_cmphex(qtest_readl(q, base + 0x1204), ==, 11);
@@ -580,6 +586,8 @@ static void yuva_packet(QTestState *q, unsigned unit, unsigned port,
 
     qtest_writel(q, base + 0x1100, 1);
     qtest_writel(q, base + 0x1308, geometry);
+    qtest_writel(q, base + 0x1328, height);
+    qtest_writel(q, base + 0x132c, width);
     qtest_writel(q, block + 0x100, 1);
     qtest_writel(q, block + 0x200, 0x00030006);
     qtest_writel(q, block + 0x204, geometry);
@@ -720,6 +728,81 @@ static void test_yuva_frame(void)
     qtest_quit(q);
 }
 
+static void test_visible_area(void)
+{
+    QTestState *q = start();
+    const uint32_t base = BANK + 0x4000;
+    const uint32_t primary = RAM + 0x20000, secondary = RAM + 0x200000;
+    const uint32_t invalid[][2] = { { 0, 342 }, { 512, 0 }, { 4097, 4097 } };
+    g_autofree char *image = NULL;
+    g_autofree char *before = NULL;
+
+    yuva_data(q, primary, secondary, 1024, 682, 2048, 1024, false);
+    yuva_packet(q, 1, 0, 0, 1024, 682, primary, secondary, 2048, 1024);
+    /* 10448d12's rear-display packet has separate timing and visible fields. */
+    qtest_writel(q, base + 0x1308, 0x030c030c);
+    qtest_writel(q, base + 0x130c, 1155);
+    qtest_writel(q, base + 0x1310, 3);
+    qtest_writel(q, base + 0x1314, 3);
+    qtest_writel(q, base + 0x1318, 0x0707);
+    qtest_writel(q, base + 0x131c, 96);
+    qtest_writel(q, base + 0x1200, 0x11);
+    wait_completion(q);
+    image = pixels_extent(q, 1, 1024, 682);
+    assert_yuva(image, 1024, 682);
+    qtest_writel(q, base + 0x1214, FRAME_PENDING);
+    /* The live visible output clips a larger port canvas without resizing it. */
+    qtest_writel(q, base + 0x1328, 342);
+    qtest_writel(q, base + 0x132c, 512);
+    wait_completion(q);
+    before = pixels_extent(q, 1, 512, 342);
+    assert_yuva(before, 512, 342);
+    qtest_writel(q, base + 0x1214, FRAME_PENDING);
+    /* CA80 serializes these as complete unsigned halfwords. */
+    qtest_writel(q, base + 0x132c, 0x10000);
+    qtest_writel(q, base + 0x1328, 0x10000);
+    g_assert_cmphex(qtest_readl(q, base + 0x132c), ==, 512);
+    g_assert_cmphex(qtest_readl(q, base + 0x1328), ==, 342);
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+        qtest_writel(q, base + 0x132c, invalid[i][0]);
+        qtest_writel(q, base + 0x1328, invalid[i][1]);
+        qtest_clock_step(q, 20000000);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        g_assert_cmphex(qtest_readl(q, base + 0x1214), ==, 0);
+        g_clear_pointer(&image, g_free);
+        image = pixels_extent(q, 1, 512, 342);
+        g_assert_cmpmem(image, 512 * 342 * 3, before, 512 * 342 * 3);
+    }
+    qtest_writel(q, base + 0x132c, 512);
+    qtest_writel(q, base + 0x1328, 342);
+    wait_completion(q);
+    qtest_writel(q, base + 0x1214, FRAME_PENDING);
+    qtest_writel(q, base + 0x1200, 2);
+    qtest_writel(q, base + 0x132c, 256);
+    qtest_writel(q, base + 0x1328, 128);
+    qtest_clock_step(q, 20000000);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    g_clear_pointer(&image, g_free);
+    image = pixels_extent(q, 1, 512, 342);
+    g_assert_cmpmem(image, 512 * 342 * 3, before, 512 * 342 * 3);
+    qtest_writel(q, base + 0x1200, 1);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 20000000);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    g_assert_cmphex(qtest_readl(q, base + 0x132c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x1328), ==, 0);
+    /* A cold timing packet alone cannot authorize a visible transaction. */
+    yuva_packet(q, 1, 0, 0, 1024, 682, primary, secondary, 2048, 1024);
+    qtest_writel(q, base + 0x1308, 0x030c030c);
+    qtest_writel(q, base + 0x132c, 0);
+    qtest_writel(q, base + 0x1328, 0);
+    qtest_writel(q, base + 0x1200, 0x11);
+    qtest_clock_step(q, 20000000);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    g_assert_cmphex(qtest_readl(q, base + 0x1214), ==, 0);
+    qtest_quit(q);
+}
+
 void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
@@ -737,4 +820,5 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/yuva", test_yuva);
     qtest_add_func("/nikon/image/yuva-fault", test_yuva_fault);
     qtest_add_func("/nikon/image/yuva-frame", test_yuva_frame);
+    qtest_add_func("/nikon/image/visible-area", test_visible_area);
 }
