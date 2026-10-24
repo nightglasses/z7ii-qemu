@@ -7,7 +7,8 @@ requiring the final low-byte state and every intervening command unchanged.
 This applies to initialized YUV105, initialized YUVA107 and retained YUVA107
 SRC_OVER. All20 native transfer subtests pass. Unchanged original execution
 completes nine such mode2 conversions and later graphics work, then reaches
-a216/344-byte A8 image prefix boundary. GUI first frame remains unverified.
+a216/344-byte A8 image prefix boundary, subsequently handled by the
+[prefix extension](prefix.md). GUI first frame remains unverified.
 
 ## Observed original sequence
 
@@ -102,7 +103,7 @@ accepted2→2 conversion through later paths/images/conversions/composites to
 the next error. No firmware byte, PC, software event, readiness or return value
 is injected. Batch boundaries and operands remain actual-run observations.
 
-The next first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's next first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-stream-truncated`, on216/344-byte streams at bd0e0490/bd1605b0.
 The setup has an extra complete cached41..49 matrix write before the existing
 44-word inline image body; draw has an extra01848004=0 before the84-word
@@ -110,8 +111,8 @@ image body. Active matrix diagonal(1,-1,1), translation(616,44), inline
 coordinates(0,0,38,36,-38), A8 source b97ac500 with extent40x48, target
 bec5f200 and paintff000000 suggest the existing image operation with additional
 dirty state. Temporary/final modes are8/0e, key10007. This prefix/overwrite
-interpretation needs the next complete producer/grammar join; equal body shape
-alone is not acceptance evidence. The truncation message comes from fallback
+interpretation is joined by the later[prefix analysis](prefix.md); equal body
+shape alone is not acceptance evidence. The truncation message comes from fallback
 length validation, not proof of missing guest bytes.
 
 Final GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02

@@ -1,5 +1,16 @@
 # Native GUI integration
 
+The [retained image prefix model](../devices/transfer/prefix.md) passes all21
+transfer subtests in1.38s after a native216/344 red. Its77 variants cover both
+independent prefixes and all prior modes, unused raw matrix values, whole
+output/guards, context/active-state/command boundaries, prefix-source overlap,
+immutable capture and cancellation. An initial original integration exposes
+a shared-header LUT dispatch collision; its new native guard is red, then
+passes with bounded image dispatch. The final original run completes ten216/344
+images and69 IRQ129 entries from the first one through later work, then rejects
+176/368 at the single-clear target restriction. Application01/03, primary0 and
+GUI readiness0 are final snapshots. Receipts: `work/runs/imageprefix-20261023/`.
+
 The [temporary conversion mode correction](../devices/transfer/mode.md) passes
 all20 transfer subtests in1.38s after the new scaled mode2 case fails against
 the old model. The three conversion cases have29/30/32 variants,23 new,

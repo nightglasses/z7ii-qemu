@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Normal display request accepted; retained A8 image prefix frontier
+## Normal display request accepted; single-clear target frontier
 
 The latest unchanged-bundle runs cross normal display-request admission with
 healthy battery data, explicit descriptor17 resource19/21, descriptor18 resource57
@@ -142,13 +142,25 @@ trigger. The finite105/107/SRC_OVER family accepts inherited0/2/4/6 while
 retaining exact final mode2 and all intervening headers. All20 transfer
 subtests pass in1.38s. Original execution completes nine newly accepted2→2
 conversions and84 IRQ129 entries from the first one through later graphics.
-The current first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
+That run's next first rejection is CPU1 PC106ee3c6, WRITE32 PA201810e0=1,
 `transfer-stream-truncated`, on216/344 at bd0e0490/bd1605b0. Setup has an extra
 full cached matrix before a44-word inline image body; draw has01848004=0
 before the84-word A8 body. Active matrix(1,-1,1), translation(616,44), path38x36,
 source b97ac500/40x48, target bec5f200 and modes8/0e are captured operands.
-Its complete prefix/producer/overwrite grammar remains the next investigation.
-GUI readiness remains0; a fixture or completion is not a GUI first frame.
+The [image prefix model](../devices/transfer/prefix.md) joins the wrapper's dirty
+flush, the image's replacement matrix and later latch/draw. Both optional
+prefixes are now handled independently; active state and context remain checked.
+All21 transfer subtests pass in1.38s, including77 new-prefix variants and a
+shared-header LUT collision regression. Original execution completes ten216/344
+images and69 IRQ129 entries from the first one through later work. Its final
+application bytes are01/03, primary request0 and BatCk00010001; GUI gate,
+pending3 and display-ready remain0. The current first rejection is CPU0
+PC106ee3c6, WRITE32 PA201810e0=1, `transfer-stream-program-not-supported`, on
+176/368 at bd0dff90/bd15ff90. Its indirect segments02/07/09/07/00 and float
+coordinates(0,0,720,480,-720) describe a full identity black SRC_OVER rectangle.
+The only fixed-field difference from the old single-clear profile is target
+word33: bec5f200 instead of c175d600. General target/context/output validation
+is the next investigation. A fixture or completion is not a GUI first frame.
 Input sample transfer, audio completion and GUI first frame remain unverified.
 The capture notification mappings have native coverage only in this run;
 the observed0c is followed by disable14 before its queued fence completes.

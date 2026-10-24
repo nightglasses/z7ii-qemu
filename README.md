@@ -148,7 +148,12 @@ packets and later work. The [temporary conversion mode model](docs/devices/trans
 then accepts the producer's four inherited modes before final mode2 in all
 three conversion/composite forms. All20 transfer subtests pass. Original
 execution completes nine newly accepted YUVA107 conversions and later work,
-then rejects a216/344-byte A8 image with additional cached-state prefixes.
+then reaches a216/344-byte A8 image with cached-state prefixes. The
+[image prefix model](docs/devices/transfer/prefix.md) covers both prefixes
+independently, with all21 transfer subtests passing. Original execution completes
+ten prefixed images and later work, reaching a176/368 RGBA clear whose target
+bec5f200 differs from the old single-clear profile's c175d600 restriction.
+Application bytes are01/03 and primary request0 at that checkpoint.
 MTTCG batching differs
 from the earlier840/1040 capture; exact three-pair grammar is native-tested.
 GUI gate/pending3/display-ready remain zero; no GUI first frame is established.

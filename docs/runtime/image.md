@@ -13,6 +13,9 @@ seven176/336 continuations through IRQ129. The older warning-path receipts
 below retain their own scope; the [current frontier](../validation/frontier.md)
 records later progress through the [mixed path model](../devices/transfer/stroke.md)
 and [complete matrix overwrite semantics](../devices/transfer/overwrite.md).
+The later [retained prefix extension](../devices/transfer/prefix.md) handles
+independent dirty matrix/color-disable writes before this same A8 body, keeping
+the target-matched initialized profile and active-state validation mandatory.
 
 ## Original operands and producer
 

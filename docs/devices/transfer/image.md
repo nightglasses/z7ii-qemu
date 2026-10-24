@@ -6,6 +6,11 @@ rejection is840/1040; the later [mixed path model](stroke.md) handles that
 family. See the [current frontier](../../validation/frontier.md). GUI first
 frame remains unverified.
 
+The later [retained-prefix extension](prefix.md) supports independently optional
+cached matrix and color-transform-disable prefixes:176/336,216/336,176/344 and
+216/344 share the same retained body and target context. All21 transfer subtests
+pass; original execution completes ten216/344 jobs and later graphics work.
+
 ## Observed commands and producer
 
 Code addresses are unchanged C1.70 MAS VAs; buffers below are board PAs.
@@ -54,7 +59,9 @@ validation remains mandatory. The initialized224/472 form checks the complete
 unused nine-word payload is fully overwritten before latching; the explicit
 final body matrix retains all numeric checks. It then shares
 the44/83-word body validator and existing rasterizer/sampler with the retained
-176/336 form, whose84th draw word must be zero padding. Geometry, clip, format,
+44/84-word body, whose84th draw word must be zero padding. The optional retained
+prefixes are validated separately as described in[prefix.md](prefix.md).
+Geometry, clip, format,
 source type, inline segment grammar, echoed scratch operand, keys and endings
 remain checked. No generic command VM or permissive register store is added.
 

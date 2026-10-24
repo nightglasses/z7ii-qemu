@@ -2902,6 +2902,8 @@ static void test_inline_rectangles(void)
      * Its32x32 geometry must still dispatch to the real LUT renderer. */
     build_lut_program(data, data + 0x20000, 0x410000, 0x800000);
     stl_le_p(data + 0x20000 + 33 * 4, 0x01a11004);
+    /* The original LUT also shares the initialized image's f24 body header. */
+    stl_le_p(data + 0x20000 + 35 * 4, 0x010c7046);
     g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, 224, 1688, true), ==,
                     MEMTX_OK);
     advance();
@@ -3492,6 +3494,177 @@ static void build_initialized_image(uint8_t *setup, uint8_t *draw,
     memcpy(setup + 12 * 4, image_setup, sizeof(image_setup));
     memcpy(draw + 35 * 4, image_draw, sizeof(image_draw) - 4);
     stl_le_p(draw + (35 + 59) * 4, target);
+}
+
+static void test_image_prefixes(void)
+{
+    enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
+    enum { SUCCESS, RAW_GRID, REPEAT, IMMUTABLE, CLEAR_CONTEXT, COLD, FOREIGN,
+           RESET_CONTEXT, FAILED_CONTEXT, MATRIX_HEADER, COLOR_HEADER,
+           COLOR_ENABLE, COLOR_BITS, ACTIVE_MATRIX, SAMPLE, MODE, TEMP_MODE,
+           KEY, EARLY_LATCH, SETUP_SHORT, DRAW_SHORT, PADDING, SOURCE_PREFIX,
+           MAP_LOSS, INPUT_LOSS, RESET, CANCEL, CASES };
+    static const uint32_t raw[] = {
+        0x7fc00001, 0x7f800000, 0xffffffff, 0x01a61004,
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-prefix[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.prefix-command", 0x60000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+        "test.prefix-surface", GUARDS, 0, &error_abort);
+    memory_region_add_subregion(root, 0x800000, &surface);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned phases = test == SUCCESS ? 16 : test == RAW_GRID ? 36 : 1;
+
+        for (unsigned phase = 0; phase < phases; phase++) {
+            unsigned prefixes = test == SUCCESS ? (3 + phase / 4) % 4 : 3;
+            unsigned sp = prefixes & 1 ? 10 : 0;
+            unsigned dp = prefixes & 2 ? 2 : 0;
+            unsigned setup_bytes = 176 + sp * 4, draw_bytes = 336 + dp * 4;
+            bool complete = test <= CLEAR_CONTEXT;
+            bool accepted = complete || test >= MAP_LOSS;
+            uint8_t *a = data + sp * 4;
+            uint8_t *b = data + 0x20000 + dp * 4;
+            g_autofree uint8_t *before = NULL;
+            g_autofree uint8_t *expected = NULL;
+
+            g_test_message("image prefix case%u phase%u", test, phase);
+            device_cold_reset(f.dev);
+            memset(data, 0, 0x60000);
+            memset(pixels, 0xa5, GUARDS);
+            if (test != COLD) {
+                if (test == CLEAR_CONTEXT) {
+                    const InlineRectangle clear = { 0, 0, 720, 480, 0 };
+                    unsigned as, bs;
+
+                    build_inline_rectangles(data, data + 0x20000, &clear, 1,
+                        0x800004, true, 0x10001, &as, &bs);
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        as, bs, true), ==, MEMTX_OK);
+                } else {
+                    build_initialized_image(data, data + 0x20000,
+                        test == FOREIGN ? 0x800008 : 0x800004);
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        224, 472, true), ==, MEMTX_OK);
+                }
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                if (test == RESET_CONTEXT) {
+                    device_cold_reset(f.dev);
+                } else if (test == FAILED_CONTEXT) {
+                    stl_le_p(data + 0x20000 + (35 + 49) * 4, 15);
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        224, 472, true), ==, MEMTX_ERROR);
+                }
+            }
+            memset(data, 0, 0x60000);
+            memset(pixels, 0xa5, GUARDS);
+            for (unsigned i = 0; i < EXTENT / 4; i++) {
+                stl_le_p(pixels + 4 + i * 4, 0x80402010);
+            }
+            build_image_program(a, b);
+            stl_le_p(b + 59 * 4, 0x800004);
+            stl_le_p(b + 45 * 4, 0xff000000);
+            stl_le_p(b + 29 * 4, 8 | (2 * (phase % 4)));
+            if (sp) {
+                stl_le_p(data, 0x0041f046);
+                memset(data + 4, test == RAW_GRID ? 0 : 0xff, 36);
+            }
+            if (test == RAW_GRID) {
+                stl_le_p(data + (phase / 4 + 1) * 4, raw[phase % 4]);
+            }
+            if (dp) {
+                stl_le_p(data + 0x20000, 0x01848004);
+            }
+            for (unsigned i = 0; i < 32; i++) {
+                data[0x3000 + i] = (i * 67) & 255;
+            }
+            switch (test) {
+            case MATRIX_HEADER: stl_le_p(data, 0x0041f03e); break;
+            case COLOR_HEADER: stl_le_p(data + 0x20000, 0x01844004); break;
+            case COLOR_ENABLE: stl_le_p(data + 0x20000 + 4, 0x01000000); break;
+            case COLOR_BITS: stl_le_p(data + 0x20000 + 4, 1); break;
+            case ACTIVE_MATRIX: stl_le_p(a + 4, 0x7fc00000); break;
+            case SAMPLE: stl_le_p(b + 4, 0x01000000); break;
+            case MODE: stl_le_p(b + 49 * 4, 15); break;
+            case TEMP_MODE: stl_le_p(b + 29 * 4, 9); break;
+            case KEY: stl_le_p(b + 78 * 4, 0x10002); break;
+            case EARLY_LATCH: stl_le_p(a, 0x0006f004); break;
+            case SETUP_SHORT: setup_bytes -= 8; break;
+            case DRAW_SHORT: draw_bytes -= 8; break;
+            case PADDING: stl_le_p(b + 83 * 4, 1); break;
+            case SOURCE_PREFIX: stl_le_p(b + 25 * 4, 0x400000); break;
+            default: break;
+            }
+            before = g_memdup2(pixels, GUARDS);
+            expected = g_memdup2(pixels, GUARDS);
+            for (unsigned pass = 0; pass < (test == REPEAT ? 2 : 1); pass++) {
+                for (unsigned y = 20; y < 23; y++) {
+                    for (unsigned x = 10; x < 14; x++) {
+                        uint8_t *p = expected + 4 + 4 * (y * 720 + x);
+                        unsigned alpha = data[0x3000 + 8 * (y - 20) + x - 10];
+
+                        stl_le_p(p, rgba_over_reference(0xff000000,
+                                                       ldl_le_p(p), alpha));
+                    }
+                }
+            }
+            g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                setup_bytes, draw_bytes, false), ==,
+                accepted ? MEMTX_OK : MEMTX_ERROR);
+            g_assert_false(f.level);
+            g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+            if (test == IMMUTABLE) {
+                memset(data, 0xff, setup_bytes);
+                memset(data + 0x20000, 0xff, draw_bytes);
+            } else if (test == MAP_LOSS) {
+                memory_region_set_readonly(&surface, true);
+            } else if (test == INPUT_LOSS) {
+                memory_region_del_subregion(root, &commands);
+            } else if (test == RESET) {
+                device_cold_reset(f.dev);
+            } else if (test == CANCEL) {
+                qdev_unrealize(f.dev);
+            }
+            advance();
+            memory_region_set_readonly(&surface, false);
+            if (test == INPUT_LOSS) {
+                memory_region_add_subregion(root, 0x400000, &commands);
+            }
+            g_assert_cmpint(f.level, ==, complete);
+            if (complete) {
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                if (test == REPEAT) {
+                    g_assert_cmpint(submit_inline_rectangles(&f, 0x400000,
+                        setup_bytes, draw_bytes, false), ==, MEMTX_OK);
+                    advance();
+                    g_assert_true(f.level);
+                    g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                }
+            }
+            g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
+        }
+    }
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
 }
 
 static void test_initialized_image(void)
@@ -4322,6 +4495,7 @@ int main(int argc, char **argv)
                     test_rectangle_continuation);
     g_test_add_func("/nikon/transfer/rgba-over", test_rgba_over);
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
+    g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
     g_test_add_func("/nikon/transfer/stroke-mask", test_stroke_mask);
     g_test_add_func("/nikon/transfer/matrix-overwrite", test_matrix_overwrite);

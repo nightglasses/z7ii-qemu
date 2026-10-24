@@ -78,9 +78,15 @@ profile requires temporary0. The [temporary mode correction](../devices/transfer
 joins the old-mode preserving helper and the final setter before the sole draw
 trigger, admitting0/2/4/6 in all three conversion/composite forms. All20
 transfer subtests pass. Original execution then completes nine2→2 conversions
-and later work. The current CPU1 PC106ee3c6 WRITE32 PA201810e0=1 rejects
+and later work. That run's next CPU1 PC106ee3c6 WRITE32 PA201810e0=1 rejects
 216/344 with `transfer-stream-truncated`, an A8 image carrying extra cached
-matrix and color-transform-disable prefixes.
+matrix and color-transform-disable prefixes. The [image prefix model](../devices/transfer/prefix.md)
+now supports those two prefixes independently and validates the unchanged image
+body. All21 transfer subtests pass. Original execution completes ten216/344
+jobs and later graphics, reaching application01/03 and primary request0.
+The current CPU0 PC106ee3c6 WRITE32 PA201810e0=1 rejects176/368 with
+`transfer-stream-program-not-supported`: single-clear target bec5f200 differs
+from the historical c175d600 restriction. GUI readiness remains0.
 The final GDB snapshot completes with GUI gate/pending3/display-ready zero and
 BatCk `00010001`. Selectors5/6 have no input sample producer; no actual audio
 beat or completion is claimed. The healthy UART peer rejects no protocol request.

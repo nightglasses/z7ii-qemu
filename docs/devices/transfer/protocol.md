@@ -32,9 +32,14 @@ execution completes three840/1048 packets and later work. The
 [temporary conversion mode model](mode.md) accepts0/2/4/6 before the exact
 final mode2 across105/107 initialization and107 SRC_OVER. All20 transfer
 subtests pass. Original execution completes nine formerly rejected2→2
-conversions and later graphics work. The next CPU1 PC106ee3c6 WRITE32
-PA201810e0=1 rejects216/344 with `transfer-stream-truncated`: an A8 image
-has additional cached matrix and color-transform-disable prefixes.
+conversions and later graphics work. The [image prefix model](prefix.md)
+then supports independently optional cached matrix and color-transform-disable
+prefixes on retained A8 images, preserving target context and active-state
+checks. All21 transfer subtests pass, including the shared-header LUT boundary.
+Original execution completes ten216/344 jobs and later work. The next CPU0
+PC106ee3c6 WRITE32 PA201810e0=1 rejects176/368 with
+`transfer-stream-program-not-supported`: its single-clear target is bec5f200,
+while the historical profile requires c175d600.
 GUI readiness is zero and no first frame is claimed. The analysis below
 records earlier checkpoint receipts.
 

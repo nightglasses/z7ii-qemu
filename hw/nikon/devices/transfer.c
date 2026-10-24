@@ -1024,9 +1024,23 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
         }
         setup += 12;
         draw += 35;
+    } else {
+        if (setup_bytes == 216 && le32_to_cpu(setup[0]) == 0x0041f046) {
+            /* The image body replaces all nine cached values before latching. */
+            setup += 10;
+        } else if (setup_bytes != 176) {
+            *reason = "transfer-image-prefix-not-supported";
+            return false;
+        }
+        if (draw_bytes == 344 && le32_to_cpu(draw[0]) == 0x01848004 &&
+            !draw[1]) {
+            draw += 2;
+        } else if (draw_bytes != 336) {
+            *reason = "transfer-image-prefix-not-supported";
+            return false;
+        }
     }
-    if ((!initial && (setup_bytes != 176 || draw_bytes != 336)) ||
-        !nikon_transfer_image_fields(setup, true, 44) ||
+    if (!nikon_transfer_image_fields(setup, true, 44) ||
         !nikon_transfer_image_fields(draw, false, initial ? 83 : 84)) {
         *reason = "transfer-image-program-not-supported";
         return false;
@@ -1806,8 +1820,17 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
     const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, NULL);
 
+    /* Retained conversions also begin with an f24 sampling matrix. */
+    if (draw_bytes == 1736 || draw_bytes == 1552) {
+        program->kind = TRANSFER_PROGRAM_RGBA_YUV;
+        return nikon_transfer_convert_parse(s, program, reason);
+    }
     /* Image and SRC-clear initialization share the same global prefix. */
-    if (draw_bytes == 336 || draw_bytes == 472) {
+    if (draw_bytes == 472 ||
+        (draw_bytes <= (84 + 2) * sizeof(*draw) &&
+         (le32_to_cpu(draw[0]) == 0x010c7046 ||
+          (draw_bytes >= 12 && le32_to_cpu(draw[0]) == 0x01848004 &&
+           le32_to_cpu(draw[2]) == 0x010c7046)))) {
         program->kind = TRANSFER_PROGRAM_IMAGE_FILL;
         return nikon_transfer_image_parse(s, NULL, NULL, reason);
     }
@@ -1821,10 +1844,6 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
         return nikon_transfer_rectangles(s, false, NULL, NULL, reason);
     }
 
-    if (draw_bytes == 1736 || draw_bytes == 1552) {
-        program->kind = TRANSFER_PROGRAM_RGBA_YUV;
-        return nikon_transfer_convert_parse(s, program, reason);
-    }
     if (draw_bytes >= 55 * 4 && le32_to_cpu(setup[0]) == 0x005ef00e) {
         program->kind = TRANSFER_PROGRAM_PATH_FILL;
         return nikon_transfer_paths_parse(s, NULL, NULL, reason);
