@@ -62,8 +62,10 @@ records an outstanding submit only. Unknown activation, pulses and monitor/data
 remain strict errors:20A4/2620/2660 assert1,2680, global00=1 and E74/E94 are not
 assigned fabricated operating effects. The model cannot claim
 successful execution of a whole compound method that reaches one of those
-unsupported operations. External storage at24010000 belongs outside this
-class. The adjacent95408 family uses literal24073400 and is separate.
+unsupported operations. The later MAS [command contract](commands.md) adds
+source-bounded import, LUT and24010000 workspace storage to the shared class;
+its native SLA fixture is not original SLA processing evidence. The adjacent
+95408 family uses literal24073400 and is separate.
 
 ## Functional conventions and proof limits
 

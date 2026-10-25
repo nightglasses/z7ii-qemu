@@ -3,9 +3,9 @@
 C1.70 MAS declares sixteen type0 resource slots. The finite event-gate model
 now retains complete thirteen-word packets and makes each committed slot busy.
 It does not retire a slot on elapsed time, configuration, W1C or the separate
-stop acknowledgment. The observed processing graph still stops at a downstream
-command-buffer port before data processing; a normal completion/release cycle
-has not been demonstrated. See the [receipt](/evidence/imagerequest/slots.json)
+stop acknowledgment. The historical command-buffer stop below is superseded
+by the [processing command contract](commands.md); a normal completion/release
+cycle has not been demonstrated. See the [receipt](/evidence/imagerequest/slots.json)
 and [current startup frontier](../../validation/frontier.md).
 
 ## Original producers and consumers
@@ -95,7 +95,7 @@ a type0 slot reusable still needs to be connected to the real graph processor.
 There is no guessed callback, raw bit or guest-memory update for that missing
 edge.
 
-The unchanged-firmware continuation now submits slot1, then stops in graph
+The baseline unchanged-firmware continuation submitted slot1, then stopped in graph
 node1, type4/resource37: callback `103bdc72 ->103bded0` writes PA `20100814=1`
 before deasserting that command-buffer reset and supplying the payload pointer
 at `20100810`. The eleven-node graph is
@@ -117,7 +117,7 @@ busy transitions, immutable ownership, elapsed time, stop/W1C independence,
 reset cancellation and negative slot/width/bit/hole boundaries. This is a
 synthetic gate-contract fixture, not an original SLA boot or a processed frame.
 
-The final unchanged-firmware continuation uses the same bounded resource35,
+The historical slot-stage unchanged-firmware continuation uses the same bounded resource35,
 cold-neutral resource80, quadrant input, healthy paced battery peer and five-CPU
 MTTCG profile as its baseline. The60-host-second window has no debugger pause;
 QMP observations are followed by a read-only debugger snapshot. It completes128

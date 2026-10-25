@@ -1,6 +1,38 @@
 # Original-firmware startup frontier
 
-## Current: graph command-buffer reset at PA `20100814`
+## Current: paired-bank parameter packet at PA `203800a8`
+
+The [processing command contract](../devices/gate/commands.md) now imports
+the current graph's seven logical-register layouts across27 source-selected
+ports. It includes isolated reset/import, complete RAM-only DMA validation,
+type10 auxiliary words, eight paired endpoints and six CPU-populated LUT banks.
+The separate workspace initialization bit is an explicit functional hypothesis;
+it does not report processing completion. Actual processor activation remains
+an error, with no invented input dependency or automatic terminal event.
+
+The [command receipt](/evidence/imagerequest/commands.json) records25 passing
+native subtests and a fresh unchanged60-host-second region/cold-neutral run.
+Original code imports eight packets totaling269 words, populates its input
+buffer map and submits type0 slots1/2. Both slots remain busy. Original terminal
+callbacks and software release paths are located, but the real pixel operation,
+result DMA and hardware slot-retirement condition are still unmodeled.
+
+The first uncovered transaction is CPU1 PC `1036a2ee`, WRITE32 board PA
+`203800a8=4`, before processing activation. Original setter `1036a2ac` writes
+an eight-field parameter group selected by the object's bank byte; `a8`
+receives payload byte2. The shared paired-event device presently rejects that
+field. The next boundary is this complete parameter group and its consumer,
+not a justification to complete the already imported graph.
+
+The run completes128 main acquisitions and436 statistics jobs, with zero
+rejections and zero statistics cancellations. Error property6433 is empty,
+GUI readiness/information remain zero and neither display head has a console.
+QMP is debug/stopped. No debugger pauses occur in the observation window;
+sequential QMP and read-only GDB observations are not atomic. Separate failed
+observer/CPU-trace diagnostics remain qualified in the receipt. Normal GUI
+startup and a completed processing-slot reuse cycle remain unverified.
+
+## Previous: graph command-buffer reset at PA `20100814`
 
 The [type0 parameter-slot contract](../devices/gate/slots.md) now covers all
 sixteen source-declared slots: complete thirteen-word packets, selector2c,

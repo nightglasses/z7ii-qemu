@@ -2035,6 +2035,16 @@
       }
     ]
   },
+  "devices/gate/commands.md": {
+    "records": [
+      {
+        "run": "processingcommands",
+        "title": "Graph command import and terminal ownership boundary",
+        "href": "/evidence/imagerequest/commands.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/mxic/protocol.md": {
     "records": []
   },

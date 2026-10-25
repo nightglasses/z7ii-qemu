@@ -522,6 +522,8 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         /* SOURCE11 943ce/944ac: original SLA control and physical IRQ102. */
         sysbus_connect_irq(SYS_BUS_DEVICE(gate), 0,
                            qdev_get_gpio_in(gic, 102 - 32));
+        sla_map(s, gate, 1, 0x24000000);
+        sla_map(s, gate, 2, 0x24010000);
         /* No pending-bit provider or data/submission backend is connected. */
     }
     {

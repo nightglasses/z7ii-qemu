@@ -1470,8 +1470,13 @@ static void z7ii_init(MachineState *machine)
     }
     sysbus_create_simple(TYPE_NIKON_STAGED_CONFIGURATION, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
-    sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
-                         qdev_get_gpio_in(gic, 102 - 32));
+    {
+        DeviceState *gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE,
+                             0x20100000, qdev_get_gpio_in(gic, 102 - 32));
+
+        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
+    }
     sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
                          qdev_get_gpio_in(gic, 158 - 32));
     /* IRQ229 belongs to a software callback registration, not a proven wire. */

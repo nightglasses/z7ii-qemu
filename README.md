@@ -117,9 +117,12 @@ The complete [processing scratch arenas](docs/runtime/storage.md#processing-scra
 also support the original allocator's two block families; the latest72
 memory/sensor cases pass. The [sixteen type0 parameter slots](docs/devices/gate/slots.md)
 now retain complete packets and submitted busy ownership; all23 applicable SLA
-subtests pass. Unchanged firmware with the same region/cold-neutral inputs
-crosses the `20102044` query, submits slot1, and stops at downstream command-buffer
-reset PA `20100814`. Slot1 remains busy; no processing completion is invented.
+subtests pass. The [processing command contract](docs/devices/gate/commands.md)
+adds seven layouts across27 ports, six CPU-written LUT banks and paired
+configuration;25 decoder/SLA subtests pass. Unchanged firmware with the same
+region/cold-neutral inputs imports eight packets totaling269 words, submits
+slots1/2 and stops at paired-bank parameter PA `203800a8`. Both slots remain
+busy; actual processing activation is unsupported and no completion is invented.
 The error property is empty and neither display head has a console. The earlier ID63 error
 frame is separately archived; normal live view remains incomplete. The
 [current frontier](docs/validation/frontier.md) distinguishes these results

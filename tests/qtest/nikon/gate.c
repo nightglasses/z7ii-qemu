@@ -2,9 +2,173 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/bswap.h"
+#include "qobject/qdict.h"
 #include "libqtest.h"
 
 void nikon_gate_test(QTestState *q, const char *path, uint64_t base);
+
+static uint64_t gate_property(QTestState *q, const char *path, const char *name)
+{
+    QDict *response = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                               "{'path':%s,'property':%s}}", path, name);
+    uint64_t value = qdict_get_int(response, "return");
+
+    qobject_unref(response);
+    return value;
+}
+
+static size_t gate_program(unsigned kind, uint8_t *data)
+{
+    static const struct {
+        unsigned kind, count;
+        unsigned offset[8], words[8];
+    } programs[] = {
+        { 4, 2, { 4, 0x10 }, { 2, 16 } },
+        { 7, 6, { 0, 0x64, 0x80, 0xc0, 0x100, 0x22c },
+                 { 22, 5, 10, 10, 10, 5 } },
+        { 10, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
+        { 11, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
+        { 12, 8, { 0, 0x20, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0 },
+                  { 7, 2, 6, 6, 6, 6, 6, 5 } },
+        { 15, 2, { 0, 0x10 }, { 3, 14 } },
+        { 17, 4, { 0, 0x20, 0x60, 0x80 }, { 2, 15, 5, 7 } },
+    };
+    unsigned p, b, j;
+    size_t cursor = 0;
+
+    for (p = 0; p < ARRAY_SIZE(programs); p++) {
+        if (programs[p].kind != kind) {
+            continue;
+        }
+        for (b = 0; b < programs[p].count; b++) {
+            unsigned words = programs[p].words[b];
+
+            stl_le_p(data + cursor, programs[p].offset[b] | (words << 16) |
+                (b + 1 == programs[p].count ? 0x01000000 : 0x11000000));
+            for (j = 1; j < words; j++) {
+                stl_le_p(data + cursor + j * 4, 0x80000000 + cursor + j);
+            }
+            cursor += words * 4;
+        }
+        return cursor;
+    }
+    g_assert_not_reached();
+}
+
+static void gate_commands(QTestState *q, const char *path, uint64_t base)
+{
+    static const struct { unsigned offset, kind; } engines[] = {
+        { 0x800, 4 }, { 0x820, 4 }, { 0x840, 4 }, { 0x880, 7 },
+        { 0x940, 10 }, { 0x960, 10 }, { 0x980, 10 }, { 0x9a0, 10 },
+        { 0x9c0, 10 }, { 0x9e0, 10 }, { 0xa00, 17 }, { 0xa20, 17 },
+        { 0xa40, 12 }, { 0xb60, 17 }, { 0xb80, 17 }, { 0xba0, 10 },
+        { 0xbc0, 10 }, { 0xd00, 15 }, { 0xd20, 15 }, { 0xd40, 11 },
+        { 0xd60, 11 }, { 0xd80, 11 }, { 0xda0, 11 }, { 0xdc0, 11 },
+        { 0xde0, 11 }, { 0xe00, 11 }, { 0xe20, 11 },
+    };
+    const uint32_t source = 0xc1004000;
+    uint64_t words = 0;
+    unsigned i, j;
+
+    for (i = 0; i < ARRAY_SIZE(engines); i++) {
+        uint64_t port = base + engines[i].offset;
+        uint8_t data[248];
+        size_t length = gate_program(engines[i].kind, data);
+
+        qtest_memwrite(q, source, data, length);
+        qtest_writel(q, port + 0x10, source); /* No reset pair yet. */
+        g_assert_cmphex(qtest_readl(q, port + 0x10), ==, 0);
+        if (engines[i].kind == 10) {
+            qtest_writel(q, port + 8, 0x12340000 + i);
+            qtest_writel(q, port + 0xc, source + 0x1000);
+        }
+        qtest_writel(q, port + 0x14, 1);
+        qtest_writel(q, port + 0x10, source); /* Held reset rejects. */
+        qtest_writel(q, port + 0x14, 0);
+        if (engines[i].kind == 10) {
+            g_assert_cmphex(qtest_readl(q, port + 8), ==, 0x12340000 + i);
+            g_assert_cmphex(qtest_readl(q, port + 0xc), ==, source + 0x1000);
+        }
+        qtest_writel(q, port + 0x10, source + 1);
+        qtest_writel(q, port + 0x10, 0);
+        qtest_writel(q, port + 0x10, 0x20100000); /* No MMIO source DMA. */
+        qtest_writel(q, port + 0x10, 0xffffffff);
+        qtest_writel(q, port + 0x10, source);
+        words += length / 4;
+        g_assert_cmphex(qtest_readl(q, port + 0x10), ==, source);
+        g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i + 1);
+        g_assert_cmpuint(gate_property(q, path, "loaded-words"), ==, words);
+        g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
+                        (1U << (i + 1)) - 1);
+        qtest_writel(q, port, 1); /* Unimplemented execution rejects. */
+        qtest_clock_step(q, 100000);
+        g_assert_cmphex(qtest_readl(q, port), ==, 0);
+        g_assert_cmphex(qtest_readl(q, port + 0x10), ==, source);
+        g_assert_false(qtest_get_irq(q, 0));
+        for (j = 0; j < 3; j++) {
+            g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * j), ==, 0);
+        }
+    }
+    /* Rejected late commands retain every already configured engine. */
+    qtest_writel(q, base + 0x810, source);
+    g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i);
+    qtest_writel(q, base + 0x814, 1);
+    g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
+                    ((1U << i) - 1) & ~1U);
+    qtest_writel(q, base + 0x814, 0);
+    {
+        uint8_t data[72];
+
+        gate_program(4, data);
+        qtest_memwrite(q, source, data, sizeof(data));
+    }
+    qtest_writel(q, source + 8, 0x11100010); /* Missing terminator. */
+    qtest_writel(q, base + 0x810, source);
+    g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i);
+    g_assert_cmphex(qtest_readl(q, base + 0x810), ==, 0);
+    for (i = 0; i < 8; i++) {
+        uint64_t pair = base + 0x4000 + i * 0x10;
+
+        qtest_writel(q, pair, 0x773);
+        qtest_writel(q, pair + 4, 0x3fff7fff);
+        qtest_writel(q, pair, 0x800);
+        qtest_writel(q, pair + 4, 0x8000);
+        g_assert_cmphex(qtest_readl(q, pair), ==, 0x773);
+        g_assert_cmphex(qtest_readl(q, pair + 4), ==, 0x3fff7fff);
+    }
+    for (i = 0; i < 0x6000 / 4; i++) {
+        uint32_t value = (i * 17) & 0xffff;
+
+        qtest_writel(q, 0x24000000 + i * 4, value);
+        g_assert_cmphex(qtest_readl(q, 0x24000000 + i * 4), ==, value);
+    }
+    qtest_writel(q, 0x24000000, 0x10000);
+    qtest_writew(q, 0x24000000, 0xff);
+    g_assert_cmphex(qtest_readl(q, 0x24000000), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0);
+    for (i = 0; i < 0x1000 / 4; i++) {
+        qtest_writel(q, 0x24010000 + 4 * i, 0xa8000000 + i);
+        g_assert_cmphex(qtest_readl(q, 0x24010000 + 4 * i), ==, 0xa8000000 + i);
+        g_assert_cmphex(qtest_readl(q, base + 0x148), ==,
+                        i + 1 == 0x1000 / 4 ? 0x100 : 0);
+    }
+    qtest_writel(q, 0x24010000, 0);
+    qtest_writel(q, base + 0xa54, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0x100);
+    for (i = 0; i < 3; i++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * i), ==, 0);
+    }
+    qtest_system_reset(q);
+    g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, 0);
+    g_assert_cmphex(gate_property(q, path, "configured-mask"), ==, 0);
+    for (i = 0; i < ARRAY_SIZE(engines); i++) {
+        g_assert_cmphex(qtest_readl(q, base + engines[i].offset + 0x10), ==, 0);
+    }
+    g_assert_cmphex(qtest_readl(q, 0x24005ffc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x24010ffc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0);
+}
 
 void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
 {
@@ -29,6 +193,23 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     unsigned i, j, group;
 
     qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    /*
+     * Resource37 command reset must be a real state transition, not a
+     * discarded write or a fabricated processing completion.
+     */
+    qtest_writel(q, base + 0x814, 1);
+    {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          base + 0x814);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+        g_assert_cmphex(qtest_readl(q, base + 0x814), ==, 1);
+    }
+    qtest_writel(q, base + 0x814, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x814), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_system_reset(q);
+    gate_commands(q, path, base);
     /* All sixteen type0 slots are idle before a parameter submission. */
     for (i = 0; i < 16; i++) {
         g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,

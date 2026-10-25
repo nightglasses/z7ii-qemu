@@ -23,6 +23,12 @@ test('nikon_module_unit', fixture, env: test_env,
   depends: nikon_module_tool, protocol: 'tap', timeout: 30,
   suite: ['unit', 'nikon'])
 
+fixture = executable('nikon_gatepacket_unit',
+  files('gatepacket.c', '../../../hw/nikon/devices/gatepacket.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gatepacket_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',
