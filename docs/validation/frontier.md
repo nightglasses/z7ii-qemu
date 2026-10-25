@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Current: output DMA, remaining group work and first display enable
+## Current: independent main-input acquisition and first display enable
 
 The [finite grayscale stream](../devices/capturework/protocol.md)
 now performs unit1 identity forwarding, unit2 geometry sampling and paired
@@ -17,11 +17,44 @@ resumes succeed, but caches1/2, the information notification and both display
 consoles remain absent. The [stream receipt](/evidence/imagerequest/stream.json)
 separates source facts, model assumptions and original observations.
 
-The next boundary is group kind23 payload processing plus the normal
-FECLCTRK admission/queue transition. The existing group model only advances
-addresses; its payload layout and operation are still unbound. Paired numeric
-getters remain unsupported and unobserved, rather than receiving fabricated
-values. No completion is borrowed from another stage.
+The [payload audit](../devices/capturegroup/protocol.md#payload-consumers-and-wire-records)
+recovers three wire formats (40/24/32 bytes), their conditional consumers and
+packed 12/23/29-bit fields; their generating arithmetic remains unresolved.
+The existing group model only advances addresses. Two new 25-host-second
+breakpoint windows still bypass FECLCTRK before payload consumption: all
+28/27 selected roots retain mode0, metadata byte10132=0 and latchdc8=0.
+The retirement comparison is not reached. A group completion is therefore
+not established as the producer of the currently missing admission condition.
+Another 25-second `firstread` probe observes OnVd's normal state4 submission:
+`10233cf6` sets `dd8=1` and queues a root, but neither its `041a0003` branch
+nor FE worker8 runs. Its requested/active mask is `0xb`, excluding group and
+paired work; final reset is0 and run/enable are `0x1d`. The immediate boundary
+is this first-read processing and completion lifecycle, with unit2
+requesting 8288 by58 input and2072 by58 output rather than the continuous-stream
+profile. A separate 25-second control without in-window GDB attachment reaches
+the same pending request, with367 input DMAs and366 statistics jobs and no
+reported rejection/cancellation. This is an
+instrumented execution boundary, not normal GUI output.
+
+The source now connects mode1's normal first-read completion to raw3.bit7,
+owner80 and `1023c57a`: switch endpoint1's address set, then stop and emit
+`041a0003` after its next completion. The
+[finite ring model](../devices/statistics/protocol.md#endpoint-ring-completion-and-first-read-mode)
+publishes that cause only at the committed endpoint1 ring tail after all
+output DMA succeeds; address selection and ring-end timing are explicit
+functional hypotheses. Native red→green and93 applicable cases pass. Original
+55-second tracing confirms owner80 consumption, but no first-read notification
+or FECLCTRK. A corrected120-second control without live GDB still stops at380
+input DMAs/379 statistics jobs and no console.
+
+The current missing connection is independent main-image acquisition.
+First-read run1d intentionally clears auxiliary readout bit1 while retaining
+main-input bit0. The current provider only acquires CMOS frames for auxiliary
+requests, whose stop also invalidates the shared input generation. It cannot
+supply the first read's255 new inputs after that normal mode switch. Group40
+is excluded from this request and cannot repair that source lifetime. Group
+generating arithmetic and paired numeric getters remain unresolved; no guest
+flag, frame or completion is fabricated to replace the missing acquisition.
 
 ## Earlier frontier observations
 

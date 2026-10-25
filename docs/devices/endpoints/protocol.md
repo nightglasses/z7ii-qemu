@@ -51,8 +51,12 @@ flag. `1023c57a` toggles a software-record byte, invokes `1020c8be` to
 reconfigure, writes that low bit through `1020c8f0`, then calls
 `1020bfaa(8)` at the existing capture-control command address `20068100`.
 This sequence suggests parameter selection but does not prove a physical
-bank identity or justify a new completion event. The new device retains all
-three bits independently and performs no action on their transitions.
+bank identity. This parameter device retains all three bits independently
+and performs no action on their transitions. The separate
+[statistics coordinator](../statistics/protocol.md#endpoint-ring-completion-and-first-read-mode)
+uses bit0 as an explicit finite address-set hypothesis and publishes a ring
+notification only after successful owned DMA; configuration alone cannot
+justify that event.
 
 `1020b1b0` performs aligned32-bit MMIO reads at70/74/78/7c. It narrows
 the first two results to bytes in its software output buffer and retains the

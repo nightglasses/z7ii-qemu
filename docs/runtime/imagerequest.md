@@ -410,7 +410,10 @@ the **software descriptor's**98hex bytes at+14, not the unit payload.
 record; the following hook `102cec72` is an original `BX LR`. The enqueue
 path `102cd9a0` and group setup `10239e36` also do not access payload bytes.
 Neither input-table direction nor image-output direction follows from those
-constructors. The current cursor model generates addresses only.
+constructors alone. The later [payload consumer audit](../devices/capturegroup/protocol.md#payload-consumers-and-wire-records)
+recovers conditional readers for 40/24-byte record pairs and 32-byte grid cells,
+after a descriptor copy into the software input ring. Their generating
+arithmetic remains unknown; the current cursor model generates addresses only.
 
 Both final physical reads find all bytes of PA `[5d4b5000,5d4b8c00)` zero.
 The `flow` snapshot still has kind23 handle170000; `input` has handle0, so its
@@ -481,7 +484,7 @@ physical pixel-event definitions.
 |---|---|---|
 | Raw word 0 bit 0 -> owner `1` | `10238d4a -> b188816c(041a000f,0) ->1022f318` | Shared tail `1022f526 ->1022f37c` sets mask `4` on FE wait object `b1887d9c`. This is the previously unresolved half of the OnVd mask `5` AND wait, not a direct FECLCTRK submission or cache1/2 publication. |
 | Raw word 0 bit 7 -> owner `10` | `10238d4a ->1023c6ec -> b1888168(041a0001,root)` when lane flag bit0 selects the queue path | `1022e2e0` posts `10000`, dispatched to `1022ff20`. This is **not** worker bit `8` and does not directly call `10230368`. Other `1023c6ec` branches can send `041a0004` instead. |
-| FE worker bit `8` | Producer not closed by this audit | `1023162c ->10230368` consumes queue `b25eebc4`; only a nonempty root reaches its stop/callback path and sets synchronization latch `b1887dc8=1`. No row above establishes the producer of this bit. |
+| FE worker bit `8` | Later source audit: `041a0003 ->1022e2e0`, only when `b1887dd8 != 0`; otherwise the handler posts `20000` | `1023162c ->10230368` consumes queue `b25eebc4`; only a nonempty root reaches its stop/callback path and sets synchronization latch `b1887dc8=1`. Group raw3.bit0 does not supply this notification. |
 
 The worker-`20` path through `10235944` belongs instead to notification
 `04400044` with argument low byte `21`. It clears auxiliary `80` participation
@@ -609,10 +612,13 @@ addresses and cursor metadata do not establish processing: descriptor
 construction clears152 bytes of metadata, not the C00-hex payload. The current
 `1030b630 ->102cec72` hook is a no-op; the inspected force0 getter consumes
 only the index comparison, not numeric payload contents. No independently
-recovered packet layout/arithmetic permits treating the three addresses as
-completed data. The remaining evidence needed is the actual payload consumer
-or a same-architecture producer defining those fields and the source-to-output
-operation. Neither an all-zero payload, a matching index, nor a completed
+recovered generating arithmetic permits treating the three addresses as
+completed data. The subsequent [wire-record audit](../devices/capturegroup/protocol.md#payload-consumers-and-wire-records)
+identifies the payload readers and formats, while leaving the source-to-output
+operation open. It also observes the normal first-read queue submission with
+software mask `0xb`, excluding group and paired work; that transaction's
+processing/completion remains a separate current boundary.
+Neither an all-zero payload, a matching index, nor a completed
 paired stream qualifies group's raw3.bit0. It is not emitted by this change.
 
 ## Acquisition on the normal input clock

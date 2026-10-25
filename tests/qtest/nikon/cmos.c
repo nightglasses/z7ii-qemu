@@ -993,6 +993,67 @@ static void test_statistics_stage_completion(void)
     unlink(bundle);
 }
 
+static void test_statistics_ring_completion(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_irq_intercept_out_named(q, "/machine/capture-control", "sysbus-irq");
+    statistics_configure(q);
+    qtest_writel(q, CAPTURE + 0x260, 0x80);
+    /* Two remaining slots in the three-slot endpoint1 ring. */
+    for (unsigned i = 0; i < 2; i++) {
+        statistics_input(q, NULL);
+        statistics_rise(q);
+        qtest_clock_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
+        qtest_clock_step(q, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80,
+                        ==, i ? 0x80 : 0);
+        g_assert_cmphex(qtest_readl(q, RAM + 0x111000 + i * 0x1000),
+                        !=, 0xa5a5a5a5);
+        qtest_writel(q, CAPTURE + 0x210, 0x40);
+    }
+    g_assert_true(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    qtest_writel(q, CAPTURE + 0x270, 0x80);
+    g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+
+    /* The original mode1 consumer selects bank1 and a fixed destination. */
+    qtest_writel(q, 0x2006a53c, 1);
+    qtest_writel(q, 0x2006a560, RAM + 0x200000);
+    qtest_writel(q, 0x2006a580, 0);
+    qtest_writel(q, 0x2006a544, 0);
+    qtest_writel(q, 0x2006a548, 0);
+    qtest_memset(q, RAM + 0x200000, 0xa5, 0x1000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x200000), !=, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0x80);
+
+    qtest_writel(q, CAPTURE + 0x270, 0x80);
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_writel(q, CAPTURE + 0xc, 0x10);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
+    qtest_writel(q, CAPTURE + 8, 0x10);
+    qtest_writel(q, 0x2006a560, 0x10020000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 static void test_statistics_transaction(void)
 {
     g_autofree char *bundle = NULL;
@@ -1236,7 +1297,7 @@ static void test_statistics_boundaries(void)
             }
         }
         if (c == 0) {
-            qtest_writel(q, 0x2006ad3c, 2);
+            qtest_writel(q, 0x2006ad3c, 1);
         }
         qtest_writel(q, CAPTURE + 0x100, 8);
         statistics_input(q, NULL);
@@ -1601,6 +1662,8 @@ int main(int argc, char **argv)
                    test_statistics_transaction);
     qtest_add_func("/nikon/cmos/statistics/stage-completion",
                    test_statistics_stage_completion);
+    qtest_add_func("/nikon/cmos/statistics/ring-completion",
+                   test_statistics_ring_completion);
     qtest_add_func("/nikon/cmos/statistics/saturation",
                    test_statistics_saturation);
     qtest_add_func("/nikon/cmos/statistics/lifecycle",

@@ -3,7 +3,8 @@
 `statistics.c` supplies a complete-bundle-only functional processing profile.
 It connects original unit16 commit/run, ten configured output routes,
 completed CMOS input bytes, numerical result sinks, capture raw0.bit6 and
-its own processing-stage completion raw3.bit5.
+its own processing-stage completion raw3.bit5 and endpoint1 ring completion
+raw3.bit7.
 It does not write software roots, queues, event objects, callbacks or GUI
 pixels. Addresses below are board PAs, code/data symbols are original MAS
 VAs, offsets/masks are hexadecimal, and dimensions/C indices are decimal.
@@ -46,7 +47,7 @@ second processing job.
 `1023c998 -> 1023a6c6/1023a07e -> 1020c802` programs the output family,
 commits mask8 through the shared100/104 ports, then starts unit10 hex.
 `1023a63c` supplies two address sets, initial slot, count-minus1 and stride.
-`1020b16a` stores the bank parameter in endpoint3c bits2:1 independently of
+`1020b16a` stores a two-bit parameter in endpoint3c bits2:1 independently of
 bit0; `1020b1da` stores the two address sets. The current normal family has
 four equal pointers within each sparse address set at endpoints2/3/4/9.
 Unequal pointers describe an unimplemented layout, not extra buffers to fill.
@@ -94,7 +95,7 @@ capture event `41072802`; raw word3 bit5 marks processed unit8 at
 word indices are zero-based and masks/addresses hexadecimal.
 
 **Functional completion hypothesis:** after every required DMA and numerical
-result publication succeeds, publish only raw3.bit5 through the existing
+result publication succeeds, publish raw3.bit5 through the existing
 capture device's third event (IRQ96), in addition to raw0.bit6/IRQ94. This
 joins actual work to its source-associated stage consumer; physical completion
 granularity remains unverified. The immutable input/configuration revision,
@@ -110,6 +111,54 @@ and original-firmware consumption:734 completed processing jobs correspond to
 `end` window. The full05b00000 fence still times out because this stage alone
 does not satisfy the other requested causes. This is an observed ISR join,
 not GUI startup or proof of a complete physical processing pipeline.
+
+## Endpoint ring completion and first-read mode
+
+**Source facts:** the same `10239480` callback independently maps raw3.bit7
+to owner event80. `10238d4a` consumes that event through
+`1023c57a(1, b26b44cc)`, where the second argument is the endpoint1 software
+record. With lane flags at VA `b26b38cc` containing4 and mode byte at VA
+`b1888147` equal to1, its first invocation toggles the record's byte1,
+clears its word at+28, rewrites the endpoint through `1020c8be/c8f0`, and
+commits8. Those stores select endpoint3c bit0 and set endpoint80 to0. Its
+second invocation stops the selected capture units through `10238680` and
+calls the registered callback with `041a0003`. That callback can post FE
+worker8 when the first-read latch is set. None of these software actions is
+performed by the host model.
+
+`1023a6c6` supplies the mode from its input byte2 and the count from its second
+argument. `1023a63c` writes count-minus1, initial slot0, both address sets and
+the allocation stride. The observed first-read configuration has mode1,
+count255 and endpoint1 stride12000. The per-frame raw0.bit6 consumer explicitly
+skips unit8 retirement in mode1; its mode2 path instead decrements the software
+count. Producing more ordinary frame notifications cannot substitute for the
+mode1 completion route.
+
+**Finite functional hypothesis:** endpoint3c bit0 selects one of the two
+address sets. Bits2:1 values0/1 retain the same bounded grayscale address
+formula; values2/3 remain unsupported. A zero stride addresses the same
+buffer on successive jobs, as required by the original mode1 reconfiguration.
+A nonzero stride must fit the entire output. Only after all required DMAs and
+numerical results succeed, the job whose endpoint1 cursor equals its committed
+count-minus1 also publishes raw3.bit7. Other endpoint completion bits and
+physical bank timing are not inferred. This corrects the earlier profile's
+use of bits2:1 as the address-set selector.
+
+The event uses the owned job configuration and cursor, independent of staging,
+IRQ masks and guest wait state. A new commit alone publishes nothing. The
+existing W1C/mask behavior applies independently to raw3.bit5/bit7 and raw0.bit6.
+Invalid geometry, failed DMA, stop/disable/reset cancellation and absent input
+produce no ring notification. Source callback behavior supports the association;
+the ring-end timing remains a functional hypothesis rather than physical-camera
+evidence.
+
+The native ring fixture fails on the preceding implementation at the second
+remaining slot: expected raw3.bit7=1, observed0 after successful DMA. With the
+finite model it checks a silent non-tail slot, completion latency, actual
+destination writes, IRQ/W1C, low-bit address-set selection with zero stride,
+cancellation, ROM rejection and reset. The applicable native batch passes
+28 CMOS,33 sensor and32 memory cases. Original execution remains separately
+reported in the [payload receipt](/evidence/capturegroup/payload.json).
 
 ## Explicit functional assumptions
 
@@ -149,8 +198,8 @@ measured functions of input bytes, not fixed identity/zero/success values.
 Selected commits snapshot endpoint/global configuration. The two commit
 ports do not independently enqueue jobs. An unchanged snapshot does not
 rewind rings. A changed snapshot initializes each cursor from44; successful
-jobs advance once modulo48+1, using80 as unit stride and3c bits2:1 as the
-selected address set0/1. Bit0 remains independent. There is no second TG
+jobs advance once modulo48+1, using80 as unit stride and3c bit0 as the
+selected address set0/1 under the finite hypothesis above. There is no second TG
 cursor added on top of the committed initial slot.
 
 A job owns immutable configuration, input, cursor and running-bank masks.
@@ -172,6 +221,7 @@ completion, even if earlier RAM writes occurred.
 
 Only after every required DMA succeeds are the bank/scalar packages replaced
 and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
+The endpoint1 ring tail additionally publishes raw3.bit7.
 Published packages
 survive staging, commit and stop until a new successful replacement or reset.
 While raw6 is pending, a new TG is backpressured. Once software ACKs it,

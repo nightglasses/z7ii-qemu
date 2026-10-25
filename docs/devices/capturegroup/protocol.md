@@ -451,3 +451,188 @@ service without produced image data or a console, rather than another
 identified MMIO failure. The specific upstream condition preventing the
 next image request remains to be localized; these receipts do not establish
 normal GUI output, actual statistics or full boot.
+
+## Payload consumers and wire records
+
+The subsequent C1.70 source audit recovers three packed record formats. It
+does **not** recover their pixel-to-statistic arithmetic. The existing device
+therefore remains an address generator; no payload DMA or completion is added.
+The [payload receipt](/evidence/capturegroup/payload.json) separates these source
+facts from bounded cold-neutral executions at baseline `68b2696e`.
+All offsets in this section are hexadecimal unless explicitly stated otherwise;
+code addresses are MAS VA, payload allocation addresses are board PA, and words
+are little endian.
+
+`1023b050` copies the upstream `102aa02a` parameter packet into the 172-byte
+(decimal) kind23 descriptor. Descriptor `+20/+24/+28` (decimal) hold the three
+payload pointers, at provider offsets `0/80/d0`. The descriptor also carries
+region geometry, count, enables and a saved selection. Its metadata is not the
+payload. In particular, `1030b630` clears descriptor storage, not these outputs.
+
+The consumer chain is conditional:
+
+`10235afe -> 1021f424 -> 103a5bd8` copies the descriptor into an eight-entry
+software input ring at VA `b217b7f8`, stride `d18`. Within each input record,
+the descriptor starts at `+14`; the payload pointers are consequently at
+`+28/+2c/+30`. A null group descriptor or metadata word `+16` (decimal) equal
+to 1 suppresses this descriptor copy. `1021e130` subsequently calls
+`103dd76c` only if the first payload pointer is nonzero. The deferred worker
+`103dcbfa -> 102ab7fa -> 102a9c54` reaches the actual record readers.
+This identifies an AF-associated software consumer; it is not evidence that
+the current execution has admitted this work.
+
+| Provider region | Reader and admission | Wire footprint |
+| --- | --- | --- |
+| `base+0` | `102a9bd6`, descriptor word `+68` nonzero and both first/second pointers nonzero | `0x28` bytes per record |
+| `base+80` | Same call; count is descriptor byte `+6c` | `0x18` bytes per record, final word not read by this helper |
+| `base+d0` | `102a9b20`, descriptor word `+80` nonzero | `0x20` bytes per grid cell; packed input cells are contiguous |
+
+The first and third readers unpack a common prefix from input words `W0/W1`:
+`P = W0 & fff`, `S = (W0 >> 12) | ((W1 & 7) << 20)`, and `T = W1 >> 3`.
+These are a 12-bit field, a 23-bit field and a 29-bit field. Their arithmetic
+meaning is unresolved; naming them mean, luminance, contrast or pixel count
+would exceed this evidence.
+
+| Wire field | `0x28`-byte record: compact output offset | `0x20`-byte grid record: compact output offset |
+| --- | --- | --- |
+| `P / S / T` | `14` (u16) / `1c` (u32) / `20` (u32) | `10` (u16) / `18` (u32) / `1c` (u32) |
+| u32 at `+08/+0c/+10/+18` | `00/04/10/0c` | `00/04/0c/08` |
+| u16 at `+14/+1c` | `1a/18` | `14/12` |
+| u32 at `+20`; u16 at `+24` | `08`; `16` | Outside this wire record |
+
+Compact offsets above are relative to the first helper's destination `+4`
+or the grid cell's destination `+ac`, respectively. Unlisted input bytes are
+not read by these two helpers. They are not thereby
+defined as padding or zero. The `0x18`-byte companion record reads five u32
+fields at `+0/+4/+8/+c/+10`, placing them at companion output offsets
+`0/4/10/c/8`; its last four bytes remain unclassified. That companion output
+starts at destination `+28`. The helper advances its two output pointers by
+`0x24` and `0x14` independently; a general interleaved pair layout does not follow
+from this, and only count1 is observed. No endianness conversion
+or image-format conversion appears in these copy/unpack helpers.
+
+The grid reader walks rows and columns from the selected table returned by
+`103cbab2`, using table counts plus one. Its compact output has a fixed
+nine-cell row stride (`0x120` bytes), independent of the packed input stride.
+It also selects the largest `P`, retaining the first strictly greater value,
+and stores the maximum and its index. This operation does not establish the
+meaning or generating filter of `P`.
+
+The live table's first two variants both contain decimal
+`{8,8,270,88,246,82,0,0}`. This bounds their wire grid to `9*9*32=2592`
+bytes, ending at provider offset `af0`, within the `c00` unit. The selected
+root snapshots have descriptor enable/count `1/1`, hence the first two
+readers need `40/24` bytes, rather than the full `0x80/0x50` gaps between bases.
+Their saved-selection word is 0 in all 27 samples, so those samples do not
+qualify the third reader. A table supporting different geometry is not proof
+that its control profile or statistics computation is implemented.
+
+### Completion and calculation admission remain distinct
+
+Source callback `10239436` handles raw3 bit0 by setting software processed
+bit `40` at VA `b26b38c4` and stage event `01000000` at VA `b188814c`.
+Its separate raw0 bit27 branch drains a stop mask. The callback does not
+decode payloads, publish GUI caches or set the FE synchronization latch.
+A future functional processor must own qualified input, perform the complete
+declared operation and DMA all required records before raising raw3 bit0.
+Commit, TG address advancement and another stage's completion cannot qualify it.
+
+The `payload` probe records one shared callback invocation with raw0
+`10000000` and raw3 equal to 0. Raw0 bit28 is neither group's bit27 stop
+condition nor its raw3 bit0 completion. Counting callback entries alone would
+incorrectly imply group progress; neither group branch qualifies in this sample.
+
+The old-cycle fence `1023b00e -> 10238974` still ignores its return before
+configuration submission. A separate retirement path `102389dc` compares
+processed bits against `requested & ffffff4f`, and can wait/drain if they differ;
+this comparison could be sensitive to missing group work. Neither retirement
+entry nor its comparison executes in the 25-host-second `retire` observation.
+It does not explain the selected-root admission failures in that window.
+
+In that same observation, all 28 selected roots at `102314e6` have mode byte
+VA `b1887d72=0`, metadata byte `+10132` (decimal) equal to 0 and synchronization
+latch VA `b1887dc8=0`. `102313ea` therefore bypasses `10235afe` before either
+descriptor copy or payload processing. The 25-second `payload` probe records
+27 such roots and no entry to `103a5bd8`, `102a9c54` or `10235afe`.
+This is not a consumer rejecting a malformed group record.
+
+Two upstream routes are now explicit. `103197fc`, called by configuration
+builder `10322886`, writes metadata byte `+10132=1` when VA `b1868b1e` is
+nonzero. `10324960` can set that service flag when its prior value is 0 and
+CaptureService state VA `b1868af1` equals 12. Separately, notification
+`041a0003` in `1022e2e0` posts FE worker bit8 only when VA `b1887dd8` is
+nonzero; otherwise it posts `20000`. Its `10230368` consumer still requires
+a queued root at VA `b25eebc4` before setting `b1887dc8`. The direct
+`041a0002` notification used by the mode0 skip branch does not match a handled
+case in its registered callback `10321a4c`. These are software conditions,
+not permission to change the mode or flags from the host.
+
+A further 25-host-second `firstread` breakpoint window observes the normal
+queue producer. OnVd `10325ff6`, in CaptureService state4 with VA `b1868b50=0`,
+allocates its first root and calls `10233cf6` at `103260fc`. That function
+sets `b1887dd8=1`, enqueues the root at `b25eebc4`, then calls
+`10235c84` and conditionally `10232040`. The window records one first-submit
+entry, one FE initialization and two `10232040` entries (one earlier in state2,
+one after this state4 submission). No `041a0003` handler branch or worker8
+entry is observed. Final `b1887dd8` is 1, with one root still on that queue.
+This does not reproduce a later FE reinitialization clearing the request.
+
+The submitted first-read software masks at VA `b1887dcc/b1887dd0` become
+`b/b`. The final selected/active capture masks at VA `b26b38bc/b26b38c0` are
+also `b/b`: they exclude group `40` and paired `200`. Capture-control readbacks
+are reset0 at PA `20068000`, run `1d` at PA `20068008` and enable `1d` at
+PA `20068010`; all eight raw words are zero. Thus group
+completion is not an outstanding stage of this observed transaction. Its
+remaining boundary is the first-read processing and completion lifecycle
+and the normal notification producer, not a group payload being rejected.
+The retained unit2 packet also requests 8288 columns by 58 rows, unlike the
+earlier continuous stream profile; its output geometry is 2072 by 58. The
+existing combined stream operation
+requires paired run and cannot establish work completion for this different
+request. The units are running, enabled and out of reset; run intent alone
+does not explain or qualify the missing completion. The continuous-stream
+contract alone cannot supply this first-read profile.
+
+A separate 25-host-second `control` observation uses the same inputs with no
+GDB attachment or pause during the UART transaction window. Its final read-only
+snapshot independently finds CaptureService state4, counter `b1868b50=54`,
+`dd8=1`, one root on the FE read queue, software masks `b/b`, reset0 and
+run/enable `1d`. QMP records 367 completed input DMAs and 366 statistics jobs,
+with zero reported rejections/cancellations; both heads still lack a console.
+This reproduces the pending first-read state without in-window breakpoints.
+It does not prove a complete first-read result or long-term runtime stability.
+
+The [statistics mode1 consumer](../statistics/protocol.md#endpoint-ring-completion-and-first-read-mode)
+now closes the normal notification chain: raw3.bit7 posts owner80, whose
+`1023c57a` consumer switches endpoint1's address set on its first invocation
+and stops capture/emits `041a0003` on the second. It requires lane flag4 and
+VA `b1888147=1`, both present in these final snapshots. A finite ring-end
+notification is now tied to actual successful DMA, with bit0 address-set
+selection and the zero-stride second address set supported as explicit
+functional hypotheses. Group wire arithmetic is unchanged.
+
+In a 55-host-second unchanged-firmware run of that model, the original owner
+dispatcher consumes event80 in62 traced entries (including combined masks),
+but no `041a0003` entry, FE worker8 or FECLCTRK entry appears. The count is a
+bounded trace observation, not a one-to-one hardware IRQ count. There are378
+input DMAs and377 statistics jobs. The blanket debug-script renaming made three
+readout-control QOM queries invalid in this window; their error replies are
+excluded from evidence. The corrected 120-second guest-error-only control
+records381 requests,380 completed input DMAs and379 statistics jobs, no reported
+rejection/cancellation in statistics, no console, and the same pending first
+read. Its snapshot is read-only after the transaction window; no live GDB
+attachment supplies progress.
+
+The remaining source/model disconnect is specific: capture-control effective
+run bit1 owns auxiliary readout, but bit0 owns main input. The first-read run
+mask1d retains bit0 and clears bit1. Board wiring sends bit1 to readout's
+`run` input; `nikon_readout_run` cancels its owned request on that transition,
+and `nikon_readout_pipeline_cancel` invalidates the shared input generation.
+The current pipeline only submits CMOS work for an auxiliary readout request.
+The final main-input and statistics units are running, but no independent
+main-image acquisition producer exists. Additional elapsed host time cannot
+turn the retired auxiliary generation into the255 fresh inputs this first
+read requests. The normal main-input acquisition/processing connection is the
+next finite contract, rather than another group completion or a changed guest
+counter. No complete group algorithm, first-read completion, normal GUI console
+or physical-camera behavior is claimed here.

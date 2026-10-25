@@ -1,6 +1,6 @@
 /*
  * Capture unit16: explicit finite grayscale statistics/DMA profile.
- * Geometry is source-backed; arithmetic/input association are hypotheses.
+ * Geometry is source-backed; arithmetic/input/ring timing are hypotheses.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -95,11 +95,11 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
             endpoint(w, n, 0x24)) {
             return false;
         }
-        bank = endpoint(w, n, 0x3c) >> 1;
+        bank = endpoint(w, n, 0x3c) & 1;
         count = endpoint(w, n, 0x48) + 1;
         stride = endpoint(w, n, 0x80);
-        if (bank > 1 || endpoint(w, n, 0x44) >= count ||
-            s->job_cursor[n] >= count || !stride) {
+        if ((endpoint(w, n, 0x3c) >> 1) > 1 ||
+            endpoint(w, n, 0x44) >= count || s->job_cursor[n] >= count) {
             return false;
         }
         base = endpoint(w, n, 0x50 + bank * 0x10);
@@ -127,7 +127,7 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
         uint64_t address = (uint64_t)base + (uint64_t)s->job_cursor[n] * stride;
 
         if (!out[n].width || !out[n].height || out[n].height > 4096 ||
-            bytes > stride || bytes > 0x1000000 ||
+            (stride && bytes > stride) || bytes > 0x1000000 ||
             !statistics_ram(address, bytes)) {
             return false;
         }
@@ -247,6 +247,11 @@ static void statistics_complete(void *opaque)
     uint32_t causes[2] = { 0x40, 0 };
     uint32_t stage[2] = { 0x20, 0 };
 
+    /* Mode1's source consumer switches endpoint1 after its ring completes. */
+    if (out[1].bytes &&
+        s->job_cursor[1] == endpoint(s->job, 1, 0x48)) {
+        stage[0] |= 0x80;
+    }
     /* sw8 configures these outputs; its fence follows this job's real work. */
     nikon_capture_publish(s->capture, NIKON_CAPTURE_THIRD_EVENT,
                           stage, 2, &error_abort);

@@ -2037,6 +2037,12 @@
   "devices/capturegroup/protocol.md": {
     "records": [
       {
+        "run": "groupwork",
+        "title": "Packed group records and conditional FE calculation admission",
+        "href": "/evidence/capturegroup/payload.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "capturegroup",
         "title": "capturegroup/green-proof.json",
         "href": "/evidence/capturegroup/green-proof.json",
