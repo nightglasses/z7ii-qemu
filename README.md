@@ -121,8 +121,11 @@ subtests pass. The [processing command contract](docs/devices/gate/commands.md)
 adds seven layouts across27 ports, six CPU-written LUT banks and paired
 configuration;25 decoder/SLA subtests pass. Unchanged firmware with the same
 region/cold-neutral inputs imports eight packets totaling269 words, submits
-slots1/2 and stops at paired-bank parameter PA `203800a8`. Both slots remain
-busy; actual processing activation is unsupported and no completion is invented.
+slots1/2. The complete [paired-bank packet](docs/devices/pairs/parameters.md)
+now crosses PA `203800a8`; all23 SLA subtests pass. Original execution submits
+another slot8 and stops at type5 processing-command reset PA `20100e74`.
+Slots1/2/8 remain busy; actual processing activation is unsupported and no
+completion is invented.
 The error property is empty and neither display head has a console. The earlier ID63 error
 frame is separately archived; normal live view remains incomplete. The
 [current frontier](docs/validation/frontier.md) distinguishes these results

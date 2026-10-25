@@ -1281,6 +1281,16 @@
   "devices/pairs/sla.md": {
     "records": []
   },
+  "devices/pairs/parameters.md": {
+    "records": [
+      {
+        "run": "pairedparameters",
+        "title": "Eight-field packet retention and configuration-only consumption",
+        "href": "/evidence/imagerequest/parameters.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/pairs/protocol.md": {
     "records": []
   },

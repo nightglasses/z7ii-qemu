@@ -85,7 +85,11 @@ static bool nikon_paired_event_banks_config(hwaddr offset, unsigned bank)
     }
     switch (offset) {
     case 0: case 4: case 0xc: case 0x20: case 0x84: case 0x88: case 0x8c:
-    case 0xac: case 0xf0: case 0x67c:
+    /*
+     * MAS1036a2ac / SLA10096d20 write the full eight-field packet;
+     * a8 retains byte2 without a modeled completion side effect.
+     */
+    case 0xa8: case 0xac: case 0xf0: case 0x67c:
         return true;
     case 0xd0: case 0xb0:
         return bank == 0;

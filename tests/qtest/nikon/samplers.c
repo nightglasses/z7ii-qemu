@@ -51,9 +51,44 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
         0x42c0, 0x49e8, 0x49f0, 0x4d0c, 0x4d14, 0x512c,
         0x5134, 0x5a54, 0x5a5c, 0x5b64, 0x5c00, 0x5dfc,
     };
+    /* 1036a2ac / 10096d20 setter order, including the complete byte2 domain. */
+    static const unsigned packet[] = {
+        0x88, 0x94, 0x98, 0x9c, 0xa0, 0xa8, 0x8c, 0x84,
+    };
+    static const unsigned holes[] = { 0x80, 0x90, 0xa4, 0xb4 };
     unsigned i;
 
     qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          first + 0xa8);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+    }
+    for (i = 0; i < ARRAY_SIZE(packet); i++) {
+        retained(q, first, packet[i], 0xa5000000 | packet[i]);
+        retained(q, second, packet[i], 0x5a000000 | packet[i]);
+    }
+    for (i = 0; i <= UINT8_MAX; i++) {
+        retained(q, first, 0xa8, i);
+        retained(q, second, 0xa8, UINT8_MAX - i);
+        g_assert_cmphex(qtest_readl(q, first + 0xa8), ==, i);
+    }
+    /* Bad widths/alignment and adjacent holes cannot change the packet. */
+    for (i = 0; i < ARRAY_SIZE(packet); i++) {
+        retained(q, first, packet[i], 0xa5000000 | packet[i]);
+        qtest_writeb(q, first + packet[i], 0);
+        qtest_writew(q, first + packet[i], 0);
+        qtest_writel(q, first + packet[i] + 1, 0);
+        g_assert_cmphex(qtest_readl(q, first + packet[i]), ==,
+                        0xa5000000 | packet[i]);
+    }
+    for (i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          first + holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
     retained(q, first, 0xc, 1);
     retained(q, second, 0xc, 1);
     retained(q, first, 0, 3);
@@ -77,6 +112,13 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 8);
     g_assert_false(qtest_get_irq(q, 0));
     g_assert_true(qtest_get_irq(q, 1));
+    /* Updating either packet does not acknowledge an existing event. */
+    for (i = 0; i < ARRAY_SIZE(packet); i++) {
+        retained(q, first, packet[i], i);
+        retained(q, second, packet[i], UINT32_MAX - i);
+    }
+    g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 8);
+    g_assert_cmphex(qtest_readl(q, second + 0x24), ==, 0x80000000);
     retained(q, first, 0xe8, 0);
     g_assert_true(qtest_get_irq(q, 0));
     qtest_writel(q, first + 0x24, 8);
@@ -87,6 +129,10 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
     qtest_set_irq_in(q, path, "pending-bit", 3, 1);
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 0);
     qtest_system_reset(q);
+    for (i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmphex(qtest_readl(q, first + packet[i]), ==, 0);
+        g_assert_cmphex(qtest_readl(q, second + packet[i]), ==, 0);
+    }
     g_assert_cmphex(qtest_readl(q, first + 0x5dfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, second + 0x5dfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 0);

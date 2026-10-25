@@ -1,0 +1,69 @@
+{
+  "scope": "Complete eight-field paired-bank configuration packet and its software start/wait separation; not an image operation or complete GUI startup",
+  "dependency_baseline": "a2ce28aa",
+  "source_facts": {
+    "component": "Original C1.70 MAS and independently matched C1.70 SLA. Code/software VA; board registers PA. Hexadecimal addresses, decimal counts/types/resources/software offsets",
+    "setter": "MAS1036a2ac / SLA10096d20: bank20380000+(object.byte4<<18),8 aligned DWORD stores from first16 bytes",
+    "fields_in_order": [
+      {"offset":"88","payload_offset_decimal":0,"source_bits":8},
+      {"offset":"94","payload_offset_decimal":4,"source_bits":16},
+      {"offset":"98","payload_offset_decimal":6,"source_bits":16},
+      {"offset":"9c","payload_offset_decimal":8,"source_bits":16},
+      {"offset":"a0","payload_offset_decimal":1,"source_bits":8},
+      {"offset":"a8","payload_offset_decimal":2,"source_bits":8},
+      {"offset":"8c","payload_offset_decimal":10,"source_bits":8},
+      {"offset":"84","payload_offset_decimal":12,"source_bits":32}
+    ],
+    "producer": "102e49fe obtains the first pointer in the software job configuration;102e5826 configures the complete68-byte block only when non-null.102c0a5c/102bfeda bind backing pointers;102bf33c may choose the caller block at context860;102c0c82 initializes a default first group;102c009a is another constructor. Non-default format/geometry meaning remains unresolved",
+    "software_conditions": "102e5168/102e505c distinguish42190801 configure+run from42190802 configure+record-state+software-callback. Other requests require configured state;102e49fe optionally initializes clocks/reset, selects non-null packets and sets e4 from job204&&208",
+    "later_consumption": "102e4f5a/102e4724->10369faa writes selected bank10=1 then08=1;102e451e waits original worker events. Configuration alone does not satisfy this path",
+    "next_unit": "Resource tables map type5/resource35 to backend20100e60, callback103bddea; selects SYS54 for35/SYS55 for sibling then103bded0 reset/import. This resource ID is distinct from NOR resource35"
+  },
+  "model": {
+    "implemented": "One missing configuration address a8 completes the existing8-field group in both physical banks; all seven other addresses already retained",
+    "finite_conventions": "Full32 retention as existing SOURCE11 contract; aligned little-endian32 only; cold zero/readback/whole reset empty state are explicit hypotheses",
+    "side_effects": "No DMA, frame/result, completion, pending, IRQ, callback, guest state or slot release from packet writes or elapsed time. Existing pending/mask and other bank preserved",
+    "strict_boundary": "Adjacent80/90/a4/b4 holes, wrong widths/alignment and unmodeled request/result paths remain errors. No guessed multi-store rollback; earlier valid CPU stores persist",
+    "limits": "Source packet widths do not establish physical legal masks, format equations or pixel extent.84=1 is not interpreted as a DMA address. Actual08/10 processing remains unsupported"
+  },
+  "native": {
+    "red": "Old device HMP READ32 at203800a8 returns Cannot access memory; focused regression aborts",
+    "green": {"SLA_subtests":23,"failures":0},
+    "coverage": "Both banks/all8 fields;256 source-byte2 values/full32 retention; width/alignment/hole rejection preserves fields; disconnected elapsed-time stability; independent pending/mask/IRQ preservation; whole reset"
+  },
+  "original_execution": {
+    "profile": "Unchanged firmware, bounded NOR resource35 descriptor17/cold-neutral resource80, quadrant scene, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "bank0_values_in_setter_order":["0","0","400","309","3","4","3","1"],
+    "bank1_values_in_setter_order":["0","0","0","0","0","0","0","0"],
+    "paired_raw_pending":["0","0"],
+    "paired_masks":["ffffff71","0"],
+    "loaded_packets":8,
+    "loaded_words":269,
+    "configured_mask_decimal":8527113,
+    "slot_busy":[0,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0],
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":2,
+    "statistics_completed":434,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "error_property6433":"All280 bytes zero",
+    "GUI_readiness":0,
+    "information_records":"Both464-hex-byte records zero",
+    "uncovered":"CPU1 PC103bdedc WRITE32 PA20100e74=1, event-gate-access-or-command-not-supported",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a QemuConsole",
+    "battery_peer_rejections":[]
+  },
+  "separate_diagnostic": {
+    "instrument": "Original firmware/profile with CPU/nochain trace restricted to worker/configurator/setter entries; separate60-host-second observation, not the normal-run counters",
+    "observed_route": "102e5168 ->102e49fe via original callsite102e523a (configuration-only42190802 branch) ->102e5826 ->1036a2ac",
+    "arguments": "Device object VA b1801edc, software configuration VA b238d484, core payload VA b3c7b97c. Original code supplies all; host writes none",
+    "limit": "Entry/callsite traces establish dispatch and pointer provenance, not complete physical format/arithmetic semantics or successful data processing"
+  },
+  "observer_limits": "Sequential QMP then read-only GDB after window; counters and fields are not atomic or physical rates. Normal and CPU-trace runs are kept separate. Original image bytes unchanged, no PC/task/event or framebuffer modifications",
+  "review_scope": "Independent review passed MAS field mapping, code/tests, native red/green, normal snapshot and diagnostic route. The SLA comparison was obtained in an earlier successful local MCP response; both subsequent reviewer/author SLA rereads failed with a local MCP transport error, so no successful independent SLA reread is claimed",
+  "omissions": "Factory code/disassembly, firmware arrays, raw traces and debugger/build output remain ignored. No real-camera status/timing, completed paired processing, slot reuse or normal GUI frame claim"
+}

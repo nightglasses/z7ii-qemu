@@ -1,6 +1,37 @@
 # Original-firmware startup frontier
 
-## Current: paired-bank parameter packet at PA `203800a8`
+## Current: type5 processing command reset at PA `20100e74`
+
+The [paired-bank packet contract](../devices/pairs/parameters.md) now retains
+the complete eight-field group containing PA `203800a8` in both banks. MAS and
+SLA setters agree on the entire field mapping. The added byte2 member follows
+the existing full-word configuration convention; adjacent holes and unmodeled
+requests/results remain errors. There is no configuration-triggered processing,
+event, busy retirement or inferred pixel arithmetic.
+
+All23 SLA subtests pass after a regression that failed the old `a8` read.
+The [packet receipt](/evidence/imagerequest/parameters.json) records the same
+unchanged60-host-second region/cold-neutral profile: bank0 retains all eight
+values, bank1 stays zero and both raw pending words remain zero. Original code
+now additionally submits slot8; slots1/2/8 remain busy. A separate bounded CPU
+trace identifies the original configuration-only `42190802` worker branch;
+this observation is distinct from the normal run's counts.
+
+The first uncovered transaction is CPU1 PC `103bdedc`, WRITE32 board PA
+`20100e74=1`. Original resource tables identify processing type5/resource35 at
+backend `20100e60`; callback `103bddea ->103bded0` requests its reset before
+payload import. This is a processing resource ID, distinct from NOR resource35
+used by the input profile. The next boundary is that whole unit's command and
+data contract, not a reason to release already submitted type0 slots.
+
+The normal run records128 main acquisitions,434 statistics jobs, no rejections
+and no statistics cancellations; main acquisition has two cancellations. The
+previous graph still has eight imported packets/269 words. Error property6433
+and both GUI information records remain zero. QMP is debug/stopped; neither
+display head has a console. There are no debugger pauses inside the window.
+Normal GUI publication and completed processing-slot reuse remain unverified.
+
+## Previous: paired-bank parameter packet at PA `203800a8`
 
 The [processing command contract](../devices/gate/commands.md) now imports
 the current graph's seven logical-register layouts across27 source-selected

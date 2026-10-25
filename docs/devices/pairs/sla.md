@@ -28,6 +28,12 @@ writes both banks' `0C=1`, `00=04=3`, releases the clock and enables the IRQs.
 `100965CC` / `100968C0` also write mask `E8=FFFFFF71`; `F0` receives `8E` or
 `FC400`. The mask inhibits delivery, not raw pending retention.
 
+The [eight-field packet](parameters.md) independently matches SLA `10096d20`
+to MAS `1036a2ac`. It adds the omitted `a8` member in both banks; the other
+seven members already belong to this retained configuration profile. Neither
+the original load widths nor one observed value establish physical legal-bit
+masks or a completion producer.
+
 `10096CBA..100994C2` supplies the scalar, packed packet and word-array setters.
 The old model accepted only exact initial profile values and stopped at `680`.
 The shared model now retains the complete source-proved configuration words,

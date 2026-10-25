@@ -4,7 +4,9 @@ C1.70 MAS type4/resource37 submits a 72-byte logical-register packet through
 PA `20100810`, after pulsing `20100814`. The functional model imports the
 complete current graph's seven packet shapes, its paired endpoint configuration
 and CPU-written lookup tables. Original execution crosses this boundary and
-imports eight packets before stopping in the separate paired-event banks.
+imports eight packets before stopping in the separate paired-event banks at
+the command-import checkpoint. The later [paired parameter contract](../pairs/parameters.md)
+crosses that historical stop; its startup observation is reported separately.
 Actual pixel processing, terminal completion and type0 slot retirement remain
 unsupported. See the [execution receipt](/evidence/imagerequest/commands.json)
 and [startup frontier](../../validation/frontier.md).
