@@ -56,6 +56,15 @@ uint64_t nikon_cmos_submit(DeviceState *dev,
                            const NikonCmosSubmission *submission, Error **errp);
 bool nikon_cmos_completed(DeviceState *dev, uint64_t generation);
 
+/* Explicit internal LE16 stream, without a guest RAM destination. It uses the
+ * same provider, chunk timer and generation ownership as DMA submissions.
+ * Dimensions are the finite normalized frontend output, not physical Bayer.
+ */
+uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
+                            Error **errp);
+bool nikon_cmos_copy_frame(DeviceState *dev, uint64_t generation,
+                           uint8_t *data, size_t size);
+
 /* Cancellation is a guest command; no physical sensor pin or IRQ number is
  * assigned here.  A machine may wire the single SysBus IRQ if a source-bound
  * consumer is recovered later. */

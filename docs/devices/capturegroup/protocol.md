@@ -636,3 +636,9 @@ read requests. The normal main-input acquisition/processing connection is the
 next finite contract, rather than another group completion or a changed guest
 counter. No complete group algorithm, first-read completion, normal GUI console
 or physical-camera behavior is claimed here.
+
+The subsequent [independent acquisition model](../sensor/protocol.md#independent-main-acquisition)
+closes that missing input lifetime and supports mode1's masked per-frame flow.
+Its final cold-neutral window acquires985 main frames while auxiliary readout
+is stopped. The next rejection is the active kind32 output's uncovered RAM,
+not group payload decoding. Group arithmetic remains outside that change.

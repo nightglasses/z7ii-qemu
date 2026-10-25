@@ -97,6 +97,8 @@ struct NikonCmosState {
     uint32_t image_width, image_height, image_channels;
     bool reported_error;
     bool fixture_provider;
+    uint8_t *stream_data;
+    size_t stream_size;
 };
 
 static bool nikon_cmos_token(const uint8_t *data, gsize size, gsize *offset,
@@ -393,7 +395,10 @@ static void nikon_cmos_step(void *opaque)
         bytes[i] = nikon_cmos_sample(s, x, s->row, channel);
     }
     attrs.memory = true;
-    if (!nikon_cmos_writable(destination, count) ||
+    if (s->stream_data) {
+        memcpy(s->stream_data + (size_t)s->row * s->active.stride + s->column,
+               bytes, count);
+    } else if (!nikon_cmos_writable(destination, count) ||
         dma_memory_write(&address_space_memory, destination, bytes, count,
                          attrs) != MEMTX_OK) {
         nikon_cmos_fail(s);
@@ -419,7 +424,7 @@ static void nikon_cmos_step(void *opaque)
     }
 }
 
-static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
+static bool nikon_cmos_prepare(NikonCmosState *s, bool stream, Error **errp)
 {
     NikonCmosConfig *c = &s->configuration;
     uint64_t output_width, output_height, row_bytes, span, total;
@@ -465,7 +470,7 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
         error_setg(errp, "CMOS stride span exceeds the address space");
         return false;
     }
-    for (i = 0; i < c->buffer_count; i++) {
+    for (i = 0; !stream && i < c->buffer_count; i++) {
         if (c->destination[i] > UINT32_MAX - span ||
             !nikon_cmos_writable(c->destination[i], span)) {
             error_setg(errp, "CMOS destination buffer is not writable RAM");
@@ -482,7 +487,7 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     return true;
 }
 
-static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
+static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
 {
     int64_t now;
 
@@ -494,7 +499,7 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
         error_setg(errp, "CMOS frame transport is busy");
         return false;
     }
-    if (!nikon_cmos_prepare(s, errp)) {
+    if (!nikon_cmos_prepare(s, stream, errp)) {
         return false;
     }
     now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
@@ -508,6 +513,11 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
     }
     timer_del(s->timer);
     s->active = s->configuration;
+    g_clear_pointer(&s->stream_data, g_free);
+    s->stream_size = stream ? (size_t)s->active.stride * s->output_height : 0;
+    if (stream) {
+        s->stream_data = g_malloc0(s->stream_size);
+    }
     s->row = s->column = 0;
     if (!++s->generation) {
         s->generation++;
@@ -544,7 +554,7 @@ uint64_t nikon_cmos_submit(DeviceState *dev,
     config.exposure_ns = submission->exposure_ns;
     config.readout_ns = submission->readout_ns;
     s->configuration = config;
-    if (!nikon_cmos_begin(s, errp)) {
+    if (!nikon_cmos_begin(s, false, errp)) {
         s->configuration = previous;
         return 0;
     }
@@ -559,11 +569,49 @@ bool nikon_cmos_completed(DeviceState *dev, uint64_t generation)
            s->phase == NIKON_CMOS_DONE;
 }
 
+uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
+                            Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+    NikonCmosConfig previous = s->configuration;
+
+    if (!width || !height || (uint64_t)width * height > 4 * 1024 * 1024) {
+        error_setg(errp, "CMOS internal stream geometry is unsupported");
+        return 0;
+    }
+    s->configuration = (NikonCmosConfig) {
+        .width = width, .height = height,
+        .crop_width = width, .crop_height = height,
+        .scale_x = 1U << 16, .scale_y = 1U << 16,
+        .format = NIKON_CMOS_FORMAT_FUNCTIONAL_C170,
+        .bytes_per_pixel = 2, .stride = width * 2, .buffer_count = 1,
+        .exposure_ns = 1, .readout_ns = 1,
+    };
+    if (!nikon_cmos_begin(s, true, errp)) {
+        s->configuration = previous;
+        return 0;
+    }
+    return s->generation;
+}
+
+bool nikon_cmos_copy_frame(DeviceState *dev, uint64_t generation,
+                           uint8_t *data, size_t size)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    if (!nikon_cmos_completed(dev, generation) || !s->stream_data ||
+        !data || size != s->stream_size) {
+        return false;
+    }
+    memcpy(data, s->stream_data, size);
+    return true;
+}
+
 static void nikon_cmos_start(NikonCmosState *s)
 {
     Error *err = NULL;
 
-    if (!nikon_cmos_begin(s, &err)) {
+    if (!nikon_cmos_begin(s, false, &err)) {
         error_free(err);
         nikon_cmos_fail(s);
     }
@@ -761,6 +809,8 @@ static void nikon_cmos_reset(DeviceState *dev)
     s->next_frame_time = 0;
     memset(s->unknown, 0, sizeof(s->unknown));
     s->frame_count = 0;
+    g_clear_pointer(&s->stream_data, g_free);
+    s->stream_size = 0;
     s->reported_error = false;
     nikon_cmos_irq(s);
 }
@@ -799,6 +849,7 @@ static void nikon_cmos_finalize(Object *obj)
     timer_free(s->timer);
     g_free(s->image_path);
     g_free(s->image_data);
+    g_free(s->stream_data);
 }
 
 static const VMStateDescription nikon_cmos_vmstate = {

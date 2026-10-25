@@ -797,6 +797,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *readout;
     DeviceState *capture;
     DeviceState *work = NULL;
+    DeviceState *pipeline = NULL;
     DeviceState *parameters;
     DeviceState *group;
     DeviceState *cmos;
@@ -1190,6 +1191,9 @@ static void z7ii_init(MachineState *machine)
         if (s->bundle) {
             statistics = qdev_new(TYPE_NIKON_STATISTICS);
             work = qdev_new(TYPE_NIKON_CAPTURE_WORK);
+            pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
+            object_property_add_child(OBJECT(machine), "readout-pipeline",
+                                      OBJECT(pipeline));
             object_property_add_child(OBJECT(machine), "capture-processing",
                                       OBJECT(work));
             object_property_add_child(OBJECT(machine), "capture-statistics",
@@ -1280,7 +1284,7 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < 2; i++) {
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
-            qdev_prop_set_uint16(split, "num-lines", statistics ? 4 : 2);
+            qdev_prop_set_uint16(split, "num-lines", statistics ? 5 : 2);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "commit", i));
@@ -1295,11 +1299,25 @@ static void z7ii_init(MachineState *machine)
                     qdev_get_gpio_in_named(statistics, "commit-selected", i));
                 qdev_connect_gpio_out(split, 3,
                     qdev_get_gpio_in_named(work, "commit", i));
+                qdev_connect_gpio_out(split, 4,
+                    qdev_get_gpio_in_named(pipeline, "commit", i));
                 for (unsigned j = 0; j < ARRAY_SIZE(work_bits); j++) {
+                    qemu_irq target = qdev_get_gpio_in_named(work,
+                        "commit-selected", i * 3 + j);
+
+                    if (j < 2) {
+                        DeviceState *select = qdev_new(TYPE_SPLIT_IRQ);
+
+                        qdev_prop_set_uint16(select, "num-lines", 2);
+                        qdev_realize_and_unref(select, NULL, &error_fatal);
+                        qdev_connect_gpio_out(select, 0, target);
+                        qdev_connect_gpio_out(select, 1,
+                            qdev_get_gpio_in_named(pipeline,
+                                "commit-selected", i * 2 + j));
+                        target = qdev_get_gpio_in(select, 0);
+                    }
                     qdev_connect_gpio_out_named(capture, "command-data",
-                        i * 32 + work_bits[j],
-                        qdev_get_gpio_in_named(work, "commit-selected",
-                                               i * 3 + j));
+                        i * 32 + work_bits[j], target);
                 }
             }
 
@@ -1326,11 +1344,6 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
     }
     if (s->bundle) {
-        DeviceState *pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
-        DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
-
-        object_property_add_child(OBJECT(machine), "readout-pipeline",
-                                  OBJECT(pipeline));
         object_property_set_link(OBJECT(pipeline), "readout", OBJECT(readout),
                                  &error_fatal);
         object_property_set_link(OBJECT(pipeline), "cmos", OBJECT(cmos),
@@ -1341,19 +1354,23 @@ static void z7ii_init(MachineState *machine)
         /* One input boundary clocks transport admission and processing. */
         qdev_connect_gpio_out(input_split, 2,
             qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
-        qdev_prop_set_uint16(split, "num-lines", 2);
-        qdev_realize_and_unref(split, NULL, &error_fatal);
-        qdev_connect_gpio_out_named(capture, "run-state", 0,
-                                   qdev_get_gpio_in(split, 0));
-        qdev_connect_gpio_out(split, 0,
-            qdev_get_gpio_in_named(pipeline, "input-run", 0));
-        qdev_connect_gpio_out(split, 1,
-            qdev_get_gpio_in_named(work, "run", 0));
-        for (unsigned i = 1; i < 4; i++) {
+        for (unsigned i = 0; i < 4; i++) {
             static const unsigned bits[] = { 0, 2, 3, 9 };
+            qemu_irq target = qdev_get_gpio_in_named(work, "run", i);
+
+            if (i < 3) {
+                DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+                qdev_prop_set_uint16(split, "num-lines", 2);
+                qdev_realize_and_unref(split, NULL, &error_fatal);
+                qdev_connect_gpio_out(split, 0, target);
+                qdev_connect_gpio_out(split, 1,
+                    qdev_get_gpio_in_named(pipeline, "input-run", i));
+                target = qdev_get_gpio_in(split, 0);
+            }
 
             qdev_connect_gpio_out_named(capture, "run-state", bits[i],
-                qdev_get_gpio_in_named(work, "run", i));
+                                       target);
         }
         object_property_set_link(OBJECT(work), "capture", OBJECT(capture),
                                  &error_fatal);

@@ -18,6 +18,10 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonReadoutPipeline, NIKON_READOUT_PIPELINE)
 
+typedef struct MainGeometry {
+    uint32_t rows, columns, output_rows, output_columns, enable;
+} MainGeometry;
+
 struct NikonReadoutPipeline {
     SysBusDevice parent_obj;
     DeviceState *readout;
@@ -40,6 +44,11 @@ struct NikonReadoutPipeline {
     NikonReadoutC170Mapping mapping;
     NikonCaptureInput input;
     uint8_t *input_data;
+    bool main_selected[4], main_valid[2], main_running[3], input_main;
+    uint32_t correction, main_width, main_height;
+    MainGeometry geometry;
+    uint64_t main_token, input_generation;
+    uint64_t main_completed, main_rejected, main_cancelled;
 };
 
 bool nikon_readout_pipeline_input(DeviceState *dev, NikonCaptureInput *input)
@@ -48,6 +57,105 @@ bool nikon_readout_pipeline_input(DeviceState *dev, NikonCaptureInput *input)
 
     *input = s->input;
     return input->generation != 0;
+}
+
+static void main_input_cancel(NikonReadoutPipeline *s)
+{
+    if (s->main_token) {
+        nikon_cmos_cancel(s->cmos);
+        s->main_token = 0;
+    }
+    if (s->input_main) {
+        s->input.generation = 0;
+    }
+}
+
+static void main_input_select(void *opaque, int n, int level)
+{
+    NIKON_READOUT_PIPELINE(opaque)->main_selected[n] = !!level;
+}
+
+static void main_input_commit(void *opaque, int n, int level)
+{
+    NikonReadoutPipeline *s = opaque;
+    bool changed = false;
+
+    if (!level) {
+        return;
+    }
+    if (s->main_selected[2 * n]) {
+        uint32_t correction = 0;
+
+        nikon_capture_configuration(s->capture, 0x500, &correction);
+        changed |= !s->main_valid[0] || s->correction != correction;
+        s->correction = correction;
+        s->main_valid[0] = true;
+    }
+    if (s->main_selected[2 * n + 1]) {
+        MainGeometry g = { 0 };
+
+        nikon_capture_configuration(s->capture, 0x1d00, &g.rows);
+        nikon_capture_configuration(s->capture, 0x1d04, &g.columns);
+        nikon_capture_configuration(s->capture, 0x1e78, &g.output_rows);
+        nikon_capture_configuration(s->capture, 0x1e7c, &g.output_columns);
+        nikon_capture_configuration(s->capture, 0x1f00, &g.enable);
+        changed |= !s->main_valid[1] || memcmp(&s->geometry, &g, sizeof(g));
+        s->geometry = g;
+        s->main_valid[1] = true;
+    }
+    if (changed) {
+        main_input_cancel(s);
+    }
+}
+
+static void main_input_run(void *opaque, int n, int level)
+{
+    NikonReadoutPipeline *s = opaque;
+
+    s->main_running[n] = !!level;
+    if (!level) {
+        main_input_cancel(s);
+    }
+    if (!n) {
+        s->input_run = !!level;
+        if (!level) {
+            s->input_sync = false;
+        }
+    }
+}
+
+static void main_input_begin(NikonReadoutPipeline *s)
+{
+    const MainGeometry *g = &s->geometry;
+    Error *err = NULL;
+    uint32_t width = g->output_columns >> 16;
+    uint32_t height = g->output_rows >> 16;
+
+    if (!s->main_running[0] || !s->main_running[1] || !s->main_running[2] ||
+        !s->main_valid[0] || !s->main_valid[1] ||
+        nikon_capture_data_pending(s->capture)) {
+        return;
+    }
+    if (s->correction || g->enable != 0x11 ||
+        ((g->rows | g->columns | g->output_rows | g->output_columns) & 0xffff) ||
+        !width || !height || width > 4096 || height > 4096 ||
+        g->output_rows > g->rows || g->output_columns > g->columns ||
+        (uint64_t)width * height > 4 * 1024 * 1024) {
+        s->main_rejected++;
+        qemu_log_mask(LOG_GUEST_ERROR, "nikon main input profile unsupported\n");
+        return;
+    }
+    /* Finite inline identity/geometry stream; no invented raw RAM buffer. */
+    s->main_token = nikon_cmos_acquire(s->cmos, width, height, &err);
+    if (!s->main_token) {
+        s->main_rejected++;
+        qemu_log_mask(LOG_GUEST_ERROR, "nikon main input rejected: %s\n",
+                      error_get_pretty(err));
+        error_free(err);
+        return;
+    }
+    s->main_width = width;
+    s->main_height = height;
 }
 
 static void nikon_readout_pipeline_request(void *opaque, int n, int level)
@@ -99,7 +207,11 @@ static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
     Error *err = NULL;
 
     s->input_high = !!level;
-    if (!rising || !s->active_generation || s->submitted) {
+    if (!rising || s->submitted || s->main_token) {
+        return;
+    }
+    if (!s->active_generation) {
+        main_input_begin(s);
         return;
     }
     /*
@@ -135,14 +247,41 @@ static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
     s->submitted = true;
 }
 
-static void nikon_readout_pipeline_input_run(void *opaque, int n, int level)
+static void main_input_event(NikonReadoutPipeline *s, unsigned event)
 {
-    NikonReadoutPipeline *s = opaque;
+    size_t size = (size_t)s->main_width * s->main_height * 2;
+    uint32_t causes[] = { 1, 0 };
+    uint64_t token = s->main_token;
+    g_autofree uint8_t *data = NULL;
 
-    s->input_run = !!level;
-    if (!level) {
-        s->input_sync = false;
+    if (event == NIKON_CMOS_PIPELINE_DONE &&
+        !nikon_cmos_completed(s->cmos, token)) {
+        s->stale++;
+        return;
     }
+    s->main_token = 0;
+    if (event != NIKON_CMOS_PIPELINE_DONE) {
+        s->main_cancelled += event == NIKON_CMOS_PIPELINE_CANCEL;
+        s->main_rejected += event == NIKON_CMOS_PIPELINE_ERROR;
+        return;
+    }
+    data = g_malloc(size);
+    if (!nikon_cmos_copy_frame(s->cmos, token, data, size)) {
+        s->main_rejected++;
+        return;
+    }
+    g_free(s->input_data);
+    s->input_data = g_steal_pointer(&data);
+    s->input = (NikonCaptureInput) {
+        .generation = ++s->input_generation,
+        .width = s->main_width, .height = s->main_height,
+        .stride = s->main_width * 2, .data = s->input_data, .synchronized = true,
+    };
+    s->input_main = true;
+    nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
+                          causes, ARRAY_SIZE(causes), &error_abort);
+    s->main_completed++;
+    s->input_notifications++;
 }
 
 static void nikon_readout_pipeline_event(void *opaque, int n, int level)
@@ -151,7 +290,14 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
     uint64_t generation;
     bool input_sync;
 
-    if (!level || !s->active_generation || !s->submitted) {
+    if (!level) {
+        return;
+    }
+    if (s->main_token) {
+        main_input_event(s, n);
+        return;
+    }
+    if (!s->active_generation || !s->submitted) {
         return;
     }
     if (n == NIKON_CMOS_PIPELINE_DONE &&
@@ -173,42 +319,47 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
         if (dma_memory_read(&address_space_memory, m->destination, data,
                             m->span, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             g_free(data);
-            s->input.generation = 0;
+            if (!s->input_main) {
+                s->input.generation = 0;
+            }
             nikon_readout_release(s->readout, generation);
             s->rejected++;
             return;
         }
+        if (!nikon_readout_publish_completion(s->readout, generation)) {
+            g_free(data);
+            s->stale++;
+            return;
+        }
         g_free(s->input_data);
         s->input_data = data;
+        s->input_main = false;
         s->input = (NikonCaptureInput) {
-            .generation = generation, .width = m->width, .height = m->height,
+            .generation = ++s->input_generation,
+            .width = m->width, .height = m->height,
             .stride = m->stride, .data = data,
             .synchronized = input_sync,
         };
-        if (nikon_readout_publish_completion(s->readout, generation)) {
-            /* Functional shared-acquisition hypothesis: an active input stage
-             * consumes this delivered generation. Raw0.bit0 reaches the FE
-             * synchronization flag4, not a frontend-processing completion.
-             */
-            uint32_t causes[] = {
-                s->completion_cause | (input_sync ? 1U : 0), 0,
-            };
-            Error *err = NULL;
+        /* Shared acquisition remains qualified by actual auxiliary DMA.
+         * Independent main acquisition uses the same input namespace.
+         */
+        uint32_t causes[] = {
+            s->completion_cause | (input_sync ? 1U : 0), 0,
+        };
+        Error *err = NULL;
 
-            if (nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
-                                      causes, ARRAY_SIZE(causes), &err)) {
-                s->completed++;
-                s->input_notifications += input_sync;
-            } else {
-                error_free(err);
-                s->stale++;
-            }
+        if (nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
+                                  causes, ARRAY_SIZE(causes), &err)) {
+            s->completed++;
+            s->input_notifications += input_sync;
         } else {
-            s->input.generation = 0;
+            error_free(err);
             s->stale++;
         }
     } else {
-        s->input.generation = 0;
+        if (!s->input_main) {
+            s->input.generation = 0;
+        }
         nikon_readout_release(s->readout, generation);
         s->cancelled++;
     }
@@ -227,7 +378,9 @@ static void nikon_readout_pipeline_cancel(void *opaque, int n, int level)
     }
     if (level) {
         s->input_sync = false;
-        s->input.generation = 0;
+        if (!s->input_main) {
+            s->input.generation = 0;
+        }
     }
 }
 
@@ -235,12 +388,17 @@ static void nikon_readout_pipeline_reset(DeviceState *dev)
 {
     NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(dev);
     uint64_t generation = s->active_generation;
-    bool submitted = s->submitted;
+    bool submitted = s->submitted || s->main_token;
 
     s->active_generation = 0;
     s->cmos_generation = 0;
     s->submitted = false;
     s->input_sync = false;
+    s->main_token = s->input_generation = 0;
+    s->input_main = s->input_run = false;
+    memset(s->main_selected, 0, sizeof(s->main_selected));
+    memset(s->main_valid, 0, sizeof(s->main_valid));
+    memset(s->main_running, 0, sizeof(s->main_running));
     s->input = (NikonCaptureInput) { 0 };
     g_clear_pointer(&s->input_data, g_free);
     if (generation) {
@@ -277,8 +435,9 @@ static void nikon_readout_pipeline_init(Object *obj)
                             "cmos-event", NIKON_CMOS_PIPELINE_EVENTS);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_input_rise,
                             "automatic-rise", 1);
-    qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_input_run,
-                            "input-run", 1);
+    qdev_init_gpio_in_named(DEVICE(obj), main_input_run, "input-run", 3);
+    qdev_init_gpio_in_named(DEVICE(obj), main_input_select, "commit-selected", 4);
+    qdev_init_gpio_in_named(DEVICE(obj), main_input_commit, "commit", 2);
     object_property_add_uint64_ptr(obj, "active-generation",
                                    &s->active_generation, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "requests", &s->requests,
@@ -295,6 +454,12 @@ static void nikon_readout_pipeline_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "input-notifications",
                                    &s->input_notifications, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "main-completed", &s->main_completed,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "main-rejected", &s->main_rejected,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "main-cancelled", &s->main_cancelled,
+                                   OBJ_PROP_FLAG_READ);
 }
 
 static const Property nikon_readout_pipeline_properties[] = {

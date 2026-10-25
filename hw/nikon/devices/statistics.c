@@ -72,6 +72,10 @@ static bool statistics_ram(uint64_t address, uint64_t bytes)
 
         if (!span || !memory_region_is_ram(mr) ||
             !memory_access_is_direct(mr, true, MEMTXATTRS_UNSPECIFIED)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "nikon statistics output PA=0x%08" PRIx64
+                          " bytes=0x%" PRIx64 " region=%s is not writable RAM\n",
+                          address, bytes, memory_region_name(mr));
             return false;
         }
         address += span;
@@ -83,11 +87,20 @@ static bool statistics_ram(uint64_t address, uint64_t bytes)
 static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
 {
     const uint32_t *w = s->job;
+    bool any = false;
 
     for (unsigned n = 0; n < 10; n++) {
         uint32_t packed, bank, base, stride, count, bpp;
 
         if (!endpoint(w, n, 0x14)) {
+            continue;
+        }
+        unsigned dimensions = n <= 4 ? (n ? 0x2d0 + (n - 1) * 0x18 : 0x278) :
+                              n < 8 ? 0x338 : n == 8 ? 0x354 : 0x370;
+
+        packed = global(w, dimensions);
+        /* Mode1 clears output extents without erasing retained DMA routes. */
+        if (!packed) {
             continue;
         }
         if (endpoint(w, n, 0x14) != 3 || endpoint(w, n, 0x18) != 1 ||
@@ -111,13 +124,11 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
             }
         }
         if (n <= 4) {
-            packed = global(w, n ? 0x2d0 + (n - 1) * 0x18 : 0x278);
             out[n].width = packed & 0xff;
             out[n].height = (packed >> 8) & 0xff;
         } else {
             unsigned shift = n == 8 ? 11 : 10;
 
-            packed = global(w, n < 8 ? 0x338 : n == 8 ? 0x354 : 0x370);
             out[n].width = packed & ((1u << shift) - 1);
             out[n].height = packed >> shift;
         }
@@ -133,6 +144,7 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
         }
         out[n].address = address;
         out[n].bytes = bytes;
+        any = true;
         for (unsigned i = 0; i < n; i++) {
             if (out[i].bytes &&
                 address < (uint64_t)out[i].address + out[i].bytes &&
@@ -141,7 +153,7 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
             }
         }
     }
-    return out[0].bytes && out[1].bytes;
+    return any;
 }
 
 static uint64_t box(const uint64_t *integral, unsigned pitch,

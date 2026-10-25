@@ -998,7 +998,10 @@ static void nikon_capture_run_state(NikonCaptureControl *s)
 
 bool nikon_capture_data_pending(DeviceState *dev)
 {
-    return NIKON_CAPTURE_CONTROL(dev)->pending[0] & 0x40;
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+
+    /* Mode1 masks per-frame raw6 and consumes endpoint ring completion. */
+    return s->pending[0] & s->configuration[0x200 / 4] & 0x40;
 }
 
 bool nikon_capture_front_pending(DeviceState *dev)

@@ -1929,6 +1929,12 @@
   "devices/sensor/protocol.md": {
     "records": [
       {
+        "run": "maininput",
+        "title": "Independent main acquisition, masked stream and channel ownership",
+        "href": "/evidence/imagerequest/acquisition.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "guicoordination",
         "title": "OnVd waits, input admission and first-enable notification",
         "href": "/evidence/imagerequest/coordination.json",

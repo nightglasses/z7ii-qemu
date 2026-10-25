@@ -1,6 +1,41 @@
 # Original-firmware startup frontier
 
-## Current: independent main-input acquisition and first display enable
+## Current: kind32 output backing after main acquisition
+
+The [independent main-input profile](../devices/sensor/protocol.md#independent-main-acquisition)
+now acquires fresh scene-dependent gray frames after auxiliary readout stops.
+It snapshots main/geometry commits, uses the existing TG and CMOS engine,
+retains separate channel ownership and publishes input status only after real
+sampling completes. Normal mode1 masks per-frame notifications; masked status
+does not block its endpoint ring. Completely zero output extents disable those
+outputs while preserving their retained routes; incomplete dimensions and an
+all-disabled job still reject. Pixel reduction and those finite output/timing
+laws remain explicit functional hypotheses.
+
+Native red→green covers absent main input, masked-frame stalls, cross-channel
+cancellation and partial outputs. The applicable97-case batch and final32-case
+CMOS extension pass. In a60-host-second unchanged-firmware cold-neutral run,
+1325 independent main frames complete with no main rejection/cancellation.
+The final45-second profile completes985 main frames after290 auxiliary DMAs;
+main acquisition therefore continues across the normal run1d transition.
+
+The next rejected work is statistics endpoint1's PA `5df45400`, span300,
+resolving to `z7ii.uncovered`. The original `1030ad70` constructor selects
+kind32 rather than ordinary kind18 when requested count exceeds6; its unit
+stride is12000 and total size is stride times count. The runtime kind32 base
+at MAS VA `b26b4bd0` matches this destination. The complete kind32 allocation,
+backing and address conversion must be established together; a single-address
+mapping or enclosing DDR aperture is not added. All required active output
+DMAs must succeed before the model can publish statistics/ring completion.
+
+The [acquisition receipt](/evidence/imagerequest/acquisition.json) separates
+source facts, finite hypotheses, native verdicts and original execution.
+CaptureService remains4 with the first read pending, information storage is
+zero, GUI readiness is0 and both display heads lack a console. Group40 remains
+excluded from this request. No first-read completion, FECLCTRK admission or
+normal GUI output is claimed.
+
+## Previous output and first-read boundaries
 
 The [finite grayscale stream](../devices/capturework/protocol.md)
 now performs unit1 identity forwarding, unit2 geometry sampling and paired
@@ -47,11 +82,12 @@ functional hypotheses. Native red→green and93 applicable cases pass. Original
 or FECLCTRK. A corrected120-second control without live GDB still stops at380
 input DMAs/379 statistics jobs and no console.
 
-The current missing connection is independent main-image acquisition.
+That audit identified the missing independent main-image acquisition.
 First-read run1d intentionally clears auxiliary readout bit1 while retaining
-main-input bit0. The current provider only acquires CMOS frames for auxiliary
-requests, whose stop also invalidates the shared input generation. It cannot
-supply the first read's255 new inputs after that normal mode switch. Group40
+main-input bit0. The preceding provider only acquired CMOS frames for auxiliary
+requests, whose stop also invalidated the shared input generation. It could not
+supply the first read's255 new inputs after that normal mode switch. The
+independent profile above closes that input lifetime. Group40
 is excluded from this request and cannot repair that source lifetime. Group
 generating arithmetic and paired numeric getters remain unresolved; no guest
 flag, frame or completion is fabricated to replace the missing acquisition.

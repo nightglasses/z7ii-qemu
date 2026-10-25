@@ -110,7 +110,7 @@ running, produce required endpoint data and both result families, then
 publish raw0.bit6 once through existing capture pending/IRQ/W1C. Duplicate
 commit ports must not duplicate work; failed DMA, cancellation, stop, reset
 and stale jobs must not publish completion. The later statistics profile
-implements this contract, including raw6 pending/W1C backpressure. Empty
+implements this contract, including enabled raw6 pending/W1C backpressure. Empty
 software queues may discard a completed frame; result reads therefore must
 not gate the next job. Returning arbitrary results
 or attaching bit6 to every auxiliary completion would retire requests

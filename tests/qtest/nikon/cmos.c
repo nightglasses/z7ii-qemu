@@ -889,6 +889,7 @@ static void statistics_configure(QTestState *q)
     qtest_writel(q, CAPTURE + 8, 0xd2);
     qtest_writel(q, CAPTURE + 0x100, 8);
     qtest_writel(q, CAPTURE + 0x104, 8);
+    qtest_writel(q, CAPTURE + 0x200, 0x40);
 }
 
 static void statistics_input(QTestState *q, uint8_t *bytes)
@@ -1049,6 +1050,235 @@ static void test_statistics_ring_completion(void)
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
     qtest_system_reset(q);
     qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void main_input_rise(QTestState *q)
+{
+    qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 0);
+    qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 1);
+}
+
+static void main_input_configure(QTestState *q)
+{
+    qtest_writel(q, CAPTURE + 0x1d00, 4 << 16);
+    qtest_writel(q, CAPTURE + 0x1d04, 256 << 16);
+    qtest_writel(q, CAPTURE + 0x1e78, 4 << 16);
+    qtest_writel(q, CAPTURE + 0x1e7c, 128 << 16);
+    qtest_writel(q, CAPTURE + 0x1f00, 0x11);
+    qtest_writel(q, CAPTURE + 0x100, 5);
+    qtest_writel(q, CAPTURE + 0xc, 0xc2);
+    qtest_writel(q, CAPTURE + 0x14, 0xc2);
+    qtest_writel(q, CAPTURE + 0x10, 0x1d);
+    qtest_writel(q, CAPTURE + 8, 0x1d);
+}
+
+static void test_main_input(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", source);
+    statistics_configure(q);
+    main_input_configure(q);
+    qtest_memset(q, RAM, 0xa5, 0x400);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    /* Main run1d has no auxiliary request; it still owns a new scene frame. */
+    g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 1);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 0);
+    /* Cancelling an in-flight auxiliary DMA preserves the delivered main frame. */
+    pipeline_configure(q, RAM, 256, 1024, NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    pipeline_request(q);
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
+    statistics_rise(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    static const unsigned expected[] = { 0, 64 * 257, 128 * 257, 65535 };
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmpuint(qtest_readl(q, 0x2006a3e0 + 4 * i), ==, expected[i]);
+    }
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_main_input_lifecycle(void)
+{
+    static const unsigned units[] = { 1, 4, 8 };
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    main_input_configure(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
+    main_input_rise(q);
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 1);
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
+    /* An auxiliary request may queue, but cancelling it cannot cancel main. */
+    pipeline_configure(q, RAM, 256, 1024, NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-cancelled"), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
+    qtest_writel(q, CAPTURE + 0x210, 1);
+    main_input_rise(q);
+    /* Equal commits preserve work; staging alone does not change this frame. */
+    qtest_writel(q, CAPTURE + 0x104, 5);
+    qtest_writel(q, CAPTURE + 0x1e7c, 64 << 16);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
+    qtest_writel(q, CAPTURE + 0x210, 1);
+    main_input_rise(q);
+    qtest_writel(q, CAPTURE + 0x100, 5);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-cancelled"), ==, 1);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(units); i++) {
+        main_input_rise(q);
+        qtest_writel(q, CAPTURE + 0xc, units[i]);
+        qtest_clock_step(q, 10000);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
+        qtest_writel(q, CAPTURE + 8, units[i]);
+    }
+    main_input_rise(q);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
+    main_input_configure(q);
+    qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 0);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 4);
+    /* Queue auxiliary behind main; its DMA starts only on the next fresh TG. */
+    main_input_rise(q);
+    pipeline_configure(q, RAM, 256, 1024, NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 5);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
+    pipeline_input(q);
+    /* Main stop while auxiliary DMA is active must leave that DMA owned. */
+    qtest_writel(q, CAPTURE + 0xc, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_main_input_boundaries(void)
+{
+    static const uint32_t bad[][2] = {
+        { 0x1d00, 1 | (4 << 16) },  /* nonzero source origin */
+        { 0x1e7c, 0 },             /* empty output */
+        { 0x1e7c, 512 << 16 },     /* expansion */
+        { 0x1f00, 0 },             /* disabled geometry */
+        { 0x500, 1 },              /* unknown correction arithmetic */
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(bad); i++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle);
+
+        main_input_configure(q);
+        qtest_writel(q, CAPTURE + bad[i][0], bad[i][1]);
+        qtest_writel(q, CAPTURE + 0x100, 5);
+        main_input_rise(q);
+        qtest_clock_step(q, 10000);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-rejected"), ==, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    main_input_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-rejected"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_main_input_masked_stream(void)
+{
+    static const unsigned dimensions[] = {
+        0x278, 0x2d0, 0x2e8, 0x300, 0x318, 0x338, 0x354, 0x370,
+    };
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    statistics_configure(q);
+    /* Mode1 disables these output geometries but retains endpoint routes. */
+    qtest_writel(q, 0x2006a278, 0);
+    qtest_writel(q, 0x2006a354, 0);
+    qtest_writel(q, 0x2006a370, 0);
+    qtest_writel(q, 0x2006a450, 0x10020000);
+    qtest_writel(q, 0x2006a544, 0);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    main_input_configure(q);
+    /* First-read mode1 has ring completion, without per-frame data ACKs. */
+    qtest_writel(q, CAPTURE + 0x200, 0);
+    qtest_writel(q, CAPTURE + 0x260, 0x80);
+    for (unsigned i = 0; i < 3; i++) {
+        main_input_rise(q);
+        qtest_clock_step(q, 10000);
+        statistics_rise(q);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                     "completed"), ==, i + 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80,
+                        ==, i == 2 ? 0x80 : 0);
+    }
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x41, ==, 0x41);
+    qtest_writel(q, CAPTURE + 0x270, 0xa0);
+    for (unsigned i = 0; i < ARRAY_SIZE(dimensions); i++) {
+        qtest_writel(q, 0x2006a000 + dimensions[i], 0);
+    }
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    statistics_rise(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 3);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "rejected"), ==, 1);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     qtest_quit(q);
     unlink(bundle);
@@ -1280,7 +1510,7 @@ static void test_statistics_boundaries(void)
         { 0x2006ad80, 1 },          /* undersized slot */
         { 0x2006ad50, RAM + 0x100000 }, /* output overlap */
         { 0x2006ad3c, 6 },          /* unknown bank mode */
-        { 0x2006a278, 0 },          /* empty geometry */
+        { 0x2006a278, 4 },          /* incomplete geometry */
     };
 
     for (unsigned c = 0; c < ARRAY_SIZE(bad); c++) {
@@ -1664,6 +1894,13 @@ int main(int argc, char **argv)
                    test_statistics_stage_completion);
     qtest_add_func("/nikon/cmos/statistics/ring-completion",
                    test_statistics_ring_completion);
+    qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
+    qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
+                   test_main_input_lifecycle);
+    qtest_add_func("/nikon/cmos/pipeline/main-boundaries",
+                   test_main_input_boundaries);
+    qtest_add_func("/nikon/cmos/pipeline/main-masked-stream",
+                   test_main_input_masked_stream);
     qtest_add_func("/nikon/cmos/statistics/saturation",
                    test_statistics_saturation);
     qtest_add_func("/nikon/cmos/statistics/lifecycle",

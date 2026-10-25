@@ -143,8 +143,10 @@ edge sees the previous completed input; the new transfer finishes afterwards.
 The engine retains1ns exposure and1ns per bounded DMA chunk, not per frame;
 this is a deterministic quantum, not physical sensor bandwidth.
 
-Unit2 stop/reset/disable releases a waiting generation or cancels its active
-CMOS timer. Reset clears ownership/input data, preserves the externally driven
+Auxiliary physical unit2 stop/reset/disable releases its waiting generation or
+cancels the CMOS timer only when that auxiliary transfer owns it. It does not
+cancel independent main acquisition or invalidate a delivered main frame.
+Machine reset clears ownership/input data, preserves the externally driven
 input level, and does not cancel unrelated CMOS work for a merely waiting
 request. Cancellation and errors produce no completion. A request counted as
 accepted/reserved may later fail CMOS admission checks at the input boundary;
@@ -201,3 +203,101 @@ no-input, busy/stale, DMA-error and statistics cases also pass. The
 records original ISR delivery and successful FE synchronization separately.
 Neither those observations nor this shared virtual input identify the physical
 main stream, unit1/2 pixel operations, their result buffers or complete GUI boot.
+
+### Independent main acquisition
+
+The first-read transition exposes a separate input lifetime. Its original
+run mask becomes1d, retaining main input bit0 and frontend bits2/3 while
+clearing auxiliary readout bit1. The preceding provider only acquired frames
+for auxiliary requests. Auxiliary stop invalidated the shared generation,
+leaving the main-input and statistics units running without a producer.
+The [source and execution receipt](/evidence/imagerequest/acquisition.json)
+separates that baseline, native regressions and the finite continuation.
+
+Code/data addresses here are original C1.70 MAS VAs; register addresses are
+board PAs, with masks/offsets hexadecimal and dimensions/counts decimal.
+
+**Source facts:** `1023abaa` selects `1023aafe` for software unit1.
+`1023aafe` independently installs its callback mask and calls `1020c444`;
+the latter selects shared commit1 and `102097cc` enables the corresponding
+capture unit. `1023a9d2 ->1020c3ec/c3fa` programs the frontend geometry and
+uses `1020c3c0` for commit4. The retained packet at PA `20069d00/04`
+contains input extent/origin fields, `20069e78/7c` the output fields and
+`20069f00` the geometry control. This is separate from the auxiliary
+`2006b3c8` request descriptor and its physical unit2 lifecycle.
+
+The observed first read requests 8288 by58 input and2072 by58 output,
+zero origins, correction control `20068500=0` and geometry control11.
+Its event mask `20068200=10000020` excludes raw0.bit0 and bit6. The
+`1023abaa` mask builder toggles bit6 for the mode1 statistics record.
+Mode1's source consumer uses endpoint1 ring completion rather than per-frame
+retirement. A masked raw status is retained by the capture controller, but
+cannot be a requirement for a guest ACK that this mode does not request.
+
+**Finite functional hypothesis:** on a fresh automatic TG rising edge,
+committed correction0 and zero-origin, non-expanding geometry define an
+internal LE16 gray stream at the frontend output dimensions. Both commit
+ports snapshot only their selected main/geometry groups. All three effective
+run gates1/4/8 must be active. Width/height are bounded to4096 and the frame
+to4M samples; unknown correction arithmetic, disabled geometry, nonzero
+origins and expansion are rejected. The externally selected PGM/PPM scene
+and existing normalized sampling supply pixels. A fixture provider remains
+explicit. No implicit scene is supplied when the provider is unbound.
+
+This direct normalized stream simplifies the inline identity/geometry stages;
+it is not a physical Bayer/readout reconstruction. The same CMOS engine,
+provider-generation token, exposure timer and row-bounded4096-byte chunks
+produce its bytes into an owned internal buffer. It does not allocate an
+invented raw guest RAM aperture or prefill a GUI surface. Only a real DONE
+for that token copies a completed frame into the processing input namespace
+and publishes raw0.bit0. A premature DONE leaves the active job intact.
+Statistics and paired processing retain their own configured DMA/result and
+completion requirements; acquisition emits none of their completion causes.
+
+The single engine is not preempted. An accepted auxiliary request may wait
+behind an in-flight main frame; the next fresh TG serves that request before
+another main frame. Earlier/busy/repeated-high edges create no credits.
+Main and auxiliary deliveries use one monotonic input-generation namespace,
+and each processing job copies its selected input. Masked main notifications
+coalesce in retained status without stopping acquisition. A pending **enabled**
+raw6 data notification still backpressures acquisition/statistics; a masked
+raw6 does not block mode1's ring completion. Mask changes do not themselves
+produce a frame, numerical result or completion.
+
+Changed selected configuration or a falling main/geometry run gate cancels
+only active main ownership. Equal commits and staging preserve the active
+frame. Auxiliary stop cancels only its own pending/active request; it cannot
+invalidate a main frame already delivered to the shared input. A failed
+auxiliary snapshot/completion also cannot replace that frame. Reset clears
+ownership, configuration validity and input data, preserving the external TG
+level: a repeated high after reset is not a new rising edge. No callback,
+guest event object, queue, latch, program counter or guest counter is modified
+by the host to complete the transaction.
+
+Native red cases establish three independent faults: main-only run1d
+produces zero frames instead of one; a masked stream cannot finish its
+configured endpoint ring; and cancelling an active auxiliary DMA loses a
+previously delivered main frame before statistics can consume it. The focused
+fixtures check actual scene-dependent scalar/output bytes, no auxiliary
+request or raw RAM write for main acquisition, cross-channel arbitration and
+cancellation, equal/changed commits, staging, each run gate, reset and fresh
+edges, missing provider and unsupported geometry/correction. These are finite
+device tests, separately from original-firmware startup.
+
+The applicable batch passes32 CMOS,33 sensor and32 memory cases. In a final
+45-host-second unchanged-firmware cold-neutral window,985 independent main
+frames complete with no main rejection/cancellation, after290 auxiliary DMAs.
+Acquisition therefore survives the auxiliary stop. Statistics completes290
+earlier jobs and rejects984 later jobs at the sequential QMP sampling point.
+Its first active endpoint now rejects PA `5df45400`, span300, because the
+resolved region is `z7ii.uncovered`, rather than rejecting the disabled
+outputs. The diagnostic remains explicit and publishes no result/completion.
+
+Source `1030ad70` selects ordinary kind18 for up to6 requested units, but
+kind32 above6, with stride12000 and total size `12000 * count`. The final
+kind32 base table VA `b26b4bd0` contains `5df45400`, matching endpoint1's
+committed address and the root descriptor. Its complete backing/allocation
+and address conversion are the next boundary; this change does not map a
+single failing address or extend the surrounding DDR class. The first read
+remains pending, information storage remains zero and both heads lack a
+console. These observations do not establish FECLCTRK admission or GUI boot.

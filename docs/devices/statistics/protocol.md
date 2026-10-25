@@ -20,13 +20,13 @@ the device does not invoke the guest consumer itself.
 
 ```mermaid
 flowchart TD
-  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, eligible TG,<br/>fresh input, no pending raw6?"}
+  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, eligible TG,<br/>fresh input, no enabled pending raw6?"}
   CMOS["Successfully completed CMOS bytes"] -. "immutable functional input association" .-> Input["Retained input generation"]
   Input --> Eligible
   Eligible -->|"yes"| Job["Own config revision, input, cursors<br/>and running-bank mask"]
   Job --> Validate{"All output layouts, RAM extents<br/>and overlap checks valid?"}
   Validate -->|"no"| Reject["Reject job; publish no completion"]
-  Validate -->|"yes"| DMA["1ms virtual latency<br/>Ten configured output DMAs"]
+  Validate -->|"yes"| DMA["1ms virtual latency<br/>All active output DMAs"]
   DMA -->|"Every required DMA succeeds"| Results["Replace running-bank 12-word results<br/>and four global scalars; advance owned rings"]
   DMA -->|"Transfer failure"| Reject
   Results --> Raw["Set capture raw0.bit6<br/>Existing IRQ94 / W1C path"]
@@ -35,7 +35,8 @@ flowchart TD
   Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel ownership and timer<br/>No completion for the cancelled job"]
 ```
 
-While raw6 is pending, the next job is backpressured. ACK permits a later job
+While raw6 is pending and enabled in the capture mask, the next job is
+backpressured. ACK permits a later job
 even if software did not read the preceding results; empty queues can discard
 a completed frame.
 The diagram follows the data-consumer IRQ94 route. The separate stage-fence
@@ -68,6 +69,21 @@ The earlier audit's30x18 inference is superseded. The pool constructors
 establish RGB-family plane displacements12000/24000 for kind19, and
 5a00/b400 for kind20; each endpoint still receives its own programmed base.
 No enclosing DDR class is mapped or written.
+
+The independent main-input continuation encounters a different mode1 packet:
+the packed extents for endpoints0/8/9 are zero while their endpoint routes
+remain configured. Endpoint1 instead requests30 by12, with the large-count
+kind32 destination. **Finite partial-output hypothesis:** a completely zero
+packed extent disables that output without touching its old RAM; one zero
+dimension with a nonzero other dimension is malformed and rejects the job.
+At least one output must perform actual DMA before numerical results or a
+completion can be published. Other active outputs still undergo every route,
+extent, RAM and overlap check. A disabled endpoint1 cannot produce ring bit7.
+This replaces the previous requirement that endpoints0 and1 both be present.
+The masked-stream fixture retains a ROM route for disabled endpoint0, completes
+three real frames through the remaining outputs and rejects a later all-disabled
+job without publishing another completion. Unknown addresses are not mapped
+or treated as zero data by this output-selection rule.
 
 `10209f4a` reads the twelve bank results as four
 `{signed24,unsigned29,unsigned17}` triples, reordered by original software.
@@ -224,12 +240,20 @@ and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
 The endpoint1 ring tail additionally publishes raw3.bit7.
 Published packages
 survive staging, commit and stop until a new successful replacement or reset.
-While raw6 is pending, a new TG is backpressured. Once software ACKs it,
+While enabled raw6 is pending, a new TG is backpressured. Once software ACKs it,
 a new input/TG may replace unread values: an empty software queue may discard
 a completed frame. No historical event is replayed to a later root. Read
 masks are read-only QOM diagnostics and never qualification for another job.
 An asynchronous consumer can see newer values; multiple MMIO reads are not
 claimed to constitute an atomic historical-frame transaction.
+
+The later [independent main acquisition](../sensor/protocol.md#independent-main-acquisition)
+closes a mode1 distinction: its original mask10000020 excludes raw0.bit6,
+and its consumer uses endpoint1 ring completion. Masked raw6 remains retained
+status but does not backpressure new jobs. Tests using per-frame ACKs explicitly
+enable bit6; the main masked-stream fixture completes three real frames and
+the ring without ACKing either raw0.bit0 or bit6. This changes neither W1C nor
+the capture IRQ mask law, and does not synthesize a ring completion from a mask.
 
 ## Separate software image-request condition
 

@@ -659,6 +659,16 @@ input/transport coordination, not complete runtime stability or normal GUI
 startup. Native validation separately passes17 CMOS,33 Sensor and1 readout-unit
 case, including a new input-boundary fixture that fails on the old model.
 
+The later [independent main profile](../devices/sensor/protocol.md#independent-main-acquisition)
+separates main input from that auxiliary request lifetime. After the first-read
+run1d transition disables auxiliary readout, committed main/geometry state and
+fresh TG still acquire a normalized frame through the same CMOS engine. Its
+channel-owned cancellation, masked-stream flow and active-output selection are
+finite hypotheses with native regressions. The
+[current receipt](/evidence/imagerequest/acquisition.json) observes continuous
+main frames and the next kind32 output-backing boundary; it does not establish
+first-read completion or published GUI information.
+
 ## Additional first-enable producers
 
 Phase18 is not the only source-defined enable route. Initial mode entry
