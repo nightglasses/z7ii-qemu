@@ -83,10 +83,13 @@ consumer and request retirement execute, with all four queues empty at the
 checkpoint. There is still no display console. The separate conditional
 image request requires service state9, while this run remains in state2.
 The [normal image request audit](docs/runtime/imagerequest.md) identifies
-the separate information/activation producers: observed image jobs fail a
-period/phase check before publication, and display targets remain disabled.
-The upstream job-selection phase and first activation trigger remain unresolved;
-AF6/state9 is not established as their normal prerequisite.
+the separate information/activation producers: an earlier task cancels eligible
+jobs while two computed-input caches are unpublished; surviving jobs fail the
+image cadence check. The focused service callback queue is full of OnVd work,
+delaying or rejecting the required state transition. First-enable notification
+and selection guards are traced, but no enabled target or console is observed.
+Timing experiments have not validated a correction, and AF6/state9 is not
+established as the normal prerequisite.
 Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
 module metadata is a bounded functional assumption, not
