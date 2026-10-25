@@ -10,6 +10,13 @@ under ignored `work/handbook/`. Local page links and Mermaid/Pele diagrams
 must build successfully; a successful site build does not validate firmware
 execution or replace the native checks below.
 
+The [documentation standards](writing.md) define the review requirements.
+`docs:build` runs the Node documentation-rule tests before VitePress. The same
+build rejects missing navigation entries, orphan evidence-page entries, missing
+or repeated attachments, forbidden article presentation and broken page targets.
+Review changed anchors and rendered diagrams separately; these checks do not
+validate decompilation claims or firmware behavior.
+
 The site's palette adapts Microsoft's
 [VS Code Dark 2026 theme](https://github.com/microsoft/vscode/blob/86db3b69224f75a786f815684bc96fc0eb5d9300/extensions/theme-defaults/themes/2026-dark.json).
 Its Microsoft copyright and [MIT license](/theme-license.txt) are retained in

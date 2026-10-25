@@ -6,13 +6,13 @@ startup uses the [cold-neutral input](../inputs/nor/virtual.md); the
 supersede the checkpoints below. The slot3/event branch described here is
 not established as a universal prerequisite for all GUI output.
 
-Current held-input follow-up: normal F4 held before initial EX sampling now
+Held-input checkpoint: normal F4 held before initial EX sampling
 crosses main mode5, selects mode1 and starts GUI worker3/mode1, with BatCk
 still2. Channel9's finite shared initial-count load now reaches the original
 timer callback with status1. Fill engine0's720x480 zero fill to `bf309600`
 now completes through the original callback and waiter; GUI gate and pending3
 are still0 in the bounded follow-up. See the
-[joined policy/input trace](policy.md). There is no verified GUI first frame.
+[joined policy/input trace](policy.md). That checkpoint establishes no GUI first frame.
 
 Released-input checkpoint: the full battery warning is now composited
 into the actual1024x682 YUVA target through original IRQ129. The following

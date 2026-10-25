@@ -2,7 +2,10 @@
 
 This note records the firmware-owned state that gates the C1.70 readout
 descriptor producer. The initial sections describe historical static evidence;
-the final section updates the current cold-neutral runtime boundary. The initial source is the reconstructed MAS closure at
+the final section records the cold-neutral unit2 producer/completion join.
+The [statistics contract](../devices/statistics/protocol.md) and
+[image request audit](imagerequest.md) describe subsequent processing and
+publication boundaries. The initial source is the reconstructed MAS closure at
 `nightglass-firmware` commit
 `6c4ba4cf3226d69f8f62130cfdec6394a3aeb339`, under
 `src/mas_outer/mas_closure_10020000/`.  Every ROM address below therefore uses

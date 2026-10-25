@@ -1,8 +1,10 @@
 # GUI readiness gate
 
-## Current normal-input observation
+## Error-GUI input observations
 
-The earlier gate investigation below is historical. The normal-input runs in
+This article preserves gate investigations under several earlier input profiles;
+the [startup frontier](../validation/frontier.md) owns current boot status.
+The error-GUI runs in
 `run readinessnormal/` now establish a guest error-GUI frame
 despite gate/pending3/display-ready all0. Those words gate particular software
 routes; they are not universal prerequisites for the ordinary bank output.

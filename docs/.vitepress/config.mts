@@ -1,8 +1,22 @@
 import { defineConfig } from 'vitepress'
 import { render as renderPele } from 'pele'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import evidence from './evidence.json'
+import { checkContent, checkSite } from './checks.mjs'
+
+const guideSidebar = [{
+  text: 'System Architecture',
+  items: [
+    { text: 'Architecture Overview', link: '/architecture' },
+    { text: 'CPU Topologies', link: '/architecture/cpu' },
+    { text: 'EXPEED 6 Family', link: '/architecture/expeed6' },
+    { text: 'Native Build & Dependencies', link: '/build' },
+    { text: 'Machine & Device Layout', link: '/layout' },
+    { text: 'Documentation Standards', link: '/writing' },
+    { text: 'Evidence Discipline', link: '/AGENTS' },
+  ],
+}]
 
 export default defineConfig({
     title: 'Nikon Z7II Emulation Handbook',
@@ -12,13 +26,8 @@ export default defineConfig({
     outDir: '../work/handbook/dist',
     cacheDir: '../work/handbook/cache',
     buildEnd: (site) => {
-      for (const page of Object.values(evidence)) {
-        for (const record of page.records) {
-          if (!existsSync(resolve(site.srcDir, 'public', record.href.slice(1)))) {
-            throw new Error(`Missing published evidence: ${record.href}`)
-          }
-        }
-      }
+      checkSite({ srcDir: site.srcDir, pages: site.pages,
+        themeConfig: site.site.themeConfig, evidence })
       copyFileSync(resolve(site.srcDir, 'refmap/REFS.tsv'), resolve(site.outDir, 'refmap/REFS.tsv'))
       copyFileSync(resolve(site.srcDir, '.vitepress/theme/LICENSE.txt'), resolve(site.outDir, 'theme-license.txt'))
     },
@@ -27,19 +36,7 @@ export default defineConfig({
       lineNumbers: true,
       config: (md) => {
         md.core.ruler.before('normalize', 'public-handbook', (state) => {
-          const path = state.env.relativePath
-          if (/\p{Script=Han}/u.test(state.src)) {
-            throw new Error(`Public handbook page must be English: ${path}`)
-          }
-          if (/\bissue[\s#_-]*\d+\b|github\.com\/[^\s)]+\/issues\//i.test(state.src)) {
-            throw new Error(`Document the technical topic instead of a work ticket: ${path}`)
-          }
-          if (/\b20\d{2}-[01]\d-[0-3]\d\b|\b2026[01]\d[0-3]\d\b/.test(state.src)) {
-            throw new Error(`Qualify the article by source revision and input profile: ${path}`)
-          }
-          if (/work\/(?:runs|issue\d+|research|docsfix|ida|gui|validation)\//.test(state.src)) {
-            throw new Error(`Embed or publish the evidence instead of citing a private capture: ${path}`)
-          }
+          checkContent(state.src, state.env.relativePath)
         })
         const defaultFence = md.renderer.rules.fence!
         md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -69,58 +66,11 @@ export default defineConfig({
         { text: 'Validation', link: '/validation/budgets' },
       ],
       sidebar: {
-        '/architecture': [
-          {
-            text: 'System Architecture',
-            items: [
-              { text: 'Architecture Overview', link: '/architecture' },
-              { text: 'CPU Topologies', link: '/architecture/cpu' },
-              { text: 'EXPEED 6 Family', link: '/architecture/expeed6' },
-              { text: 'Native Build & Dependencies', link: '/build' },
-              { text: 'Machine & Device Layout', link: '/layout' },
-              { text: 'Evidence Discipline', link: '/AGENTS' },
-            ]
-          }
-        ],
-        '/build': [
-          {
-            text: 'System Architecture',
-            items: [
-              { text: 'Architecture Overview', link: '/architecture' },
-              { text: 'CPU Topologies', link: '/architecture/cpu' },
-              { text: 'EXPEED 6 Family', link: '/architecture/expeed6' },
-              { text: 'Native Build & Dependencies', link: '/build' },
-              { text: 'Machine & Device Layout', link: '/layout' },
-              { text: 'Evidence Discipline', link: '/AGENTS' },
-            ]
-          }
-        ],
-        '/layout': [
-          {
-            text: 'System Architecture',
-            items: [
-              { text: 'Architecture Overview', link: '/architecture' },
-              { text: 'CPU Topologies', link: '/architecture/cpu' },
-              { text: 'EXPEED 6 Family', link: '/architecture/expeed6' },
-              { text: 'Native Build & Dependencies', link: '/build' },
-              { text: 'Machine & Device Layout', link: '/layout' },
-              { text: 'Evidence Discipline', link: '/AGENTS' },
-            ]
-          }
-        ],
-        '/AGENTS': [
-          {
-            text: 'System Architecture',
-            items: [
-              { text: 'Architecture Overview', link: '/architecture' },
-              { text: 'CPU Topologies', link: '/architecture/cpu' },
-              { text: 'EXPEED 6 Family', link: '/architecture/expeed6' },
-              { text: 'Native Build & Dependencies', link: '/build' },
-              { text: 'Machine & Device Layout', link: '/layout' },
-              { text: 'Evidence Discipline', link: '/AGENTS' },
-            ]
-          }
-        ],
+        '/architecture': guideSidebar,
+        '/build': guideSidebar,
+        '/layout': guideSidebar,
+        '/writing': guideSidebar,
+        '/AGENTS': guideSidebar,
         '/startup/': [
           {
             text: 'Startup Sequence & Reset',

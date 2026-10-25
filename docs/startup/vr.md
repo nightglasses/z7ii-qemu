@@ -1,17 +1,22 @@
 # VR RX peripheral protocol
 
 The `nikonvr` CPU profile uses existing RX TCG and EXTB. Its chip part number
-has not been proved. Register names and bit positions are checked against the
+has not been proved. The historical register-field comparison used the
 [official Renesas RX Driver Package](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx64m/register_access/ccrx/iodefine.h),
-used as a pinned protocol reference. That reference is a register protocol reference; it is
+linked here as an unversioned background reference. That register layout is
 not evidence that Nikon used an RX64M. SYSTEM and RTC are separate devices.
 
 The observed RSPI1 address `d0140`, three-bit ADADC and sampling registers at
-`890e0` are additionally checked against the
+`890e0` were additionally compared against the
 [official RX65N register header](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx65n/register_access/ccrx/iodefine.h),
-used as a pinned protocol reference. This matches peripheral capabilities and still does
+linked here as an unversioned background reference. This matches peripheral capabilities and still does
 not identify the Nikon part. MTU3a extended clock selection is described in
 tables 24.7–24.9 of the [Renesas RX65N/RX651 hardware manual](https://www.renesas.com/en/document/mah/rx65n-group-rx651-group-users-manual-hardware).
+
+These moving header URLs do not pin the revisions used for the historical
+comparison. They support background navigation, not an independently
+reproducible source binding. The manual URL likewise does not identify the
+edition used; no new vendor-source verification is claimed here.
 
 The original bootstrap at `fff001f8` initializes PORT/MPC and at `fff005bd`
 initializes CMT, MTU, SCI1/5, eight DMA channels, DTC and ADC. The final ICU

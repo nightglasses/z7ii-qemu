@@ -1,6 +1,8 @@
 # First diagnostic execution of original Z7II C1.70 MAS
 
-Recorded startup scope: [unchanged-firmware startup](/startup/first).
+Recorded scope: the first raw-MAS diagnostic profile, with the machine and
+upstream revisions below. The [startup frontier](../validation/frontier.md)
+records later complete-bundle progress.
 Original MAS executed and stopped on its first unsupported write. Complete boot,
 arrival at `O0x178` and reconstruction comparison were not established.
 This page records the bounded diagnostic run and the next device contract.
@@ -10,6 +12,10 @@ Machine commit: `4f9ccc6c9b5b66a02aace86a9a6c0dd77953db0a`; upstream:
 `11.1.2 / v11.1.2-dirty`, including local machine integration. The integration
 owner built and ran it on macOS ARM; this investigation inspected that run
 rather than executing another one.
+
+The unversioned research-repository links below are background navigation.
+They do not pin the source snapshots used for this historical comparison;
+the fixed machine/upstream revisions qualify the execution result separately.
 
 The input was the extracted `02_eg1840_mas_01700.payload.bin`, 38,239,096
 bytes. Direct comparison found its content unchanged. This is a MAS component

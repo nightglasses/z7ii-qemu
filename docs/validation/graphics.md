@@ -17,7 +17,7 @@ integration case pass. No input was changed for this geometry correction.
 This is a first original error-GUI frame under the declared finite profiles,
 not a normal menu, complete boot or physical display qualification.
 
-The [readiness trace](../runtime/readiness.md#current-normal-input-observation)
+The [readiness trace](../runtime/readiness.md#error-gui-input-observations)
 shows gate/pending3/display-ready0 are not universal display prerequisites.
 The actual gate rejection is selector1 versus34; setting290's guard is not
 executed. A distinct software operation10 is suppressed because property6433

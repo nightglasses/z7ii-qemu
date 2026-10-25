@@ -1,11 +1,16 @@
 # Descriptor17 publication and the panel-table boundary
 
-Scope: the current multi-thread baseline rejects the erased
+Scope: the recorded multi-thread, erased-input profile rejects the
 descriptor17 footer before copying or publishing its records. This explains
 the failed resource wait upstream of the [worker exit](handoff.md). A separate
 run with the existing, explicitly supplied Z7 cross-model seed publishes the
 display resources and installs the rear-panel table, then encounters the
 already-known invalid ID34 input boundary. It does not complete startup.
+
+These are historical input qualifications. The later
+[functional descriptor17 input](../inputs/nor/functional.md) and
+[startup frontier](../validation/frontier.md) supersede this stop; this article
+preserves the original loader/publication diagnosis.
 
 All addresses below are C1.70 **MAS domain VA**, including external NOR views.
 The firmware bundle and device implementation are unchanged. The seed run is

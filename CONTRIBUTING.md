@@ -1,5 +1,6 @@
 # Contribution workflow
 
+- Public articles follow the [documentation standards](docs/writing.md). Task links belong in contribution metadata; the handbook explains technical subjects and evidence.
 - Scheduling issues live in mashiro01/nightglass. PRs here reference the full issue URL; do not create duplicate task ledgers.
 - Use isolated branches/worktrees with explicit ownership. Do not undo collaborators' changes. The parent owns scheduling, focused validation, pushes and PRs. Merge reviewed, locally validated changes promptly without waiting for CI; preserve commit history.
 - Start each task from the current integration baseline on codex/<feature>, one reviewable goal per branch. State dependency baselines, delete integrated task branches and do not use old feature branches as the mainline.

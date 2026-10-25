@@ -1,5 +1,6 @@
 # Model and execution evidence discipline
 
+- Follow the [documentation standards](writing.md) for article structure, claim qualification, references, diagrams and acceptance. Keep that page as the canonical editorial standard; this file records additional model/evidence constraints.
 - Distinguish every item between direct observation, verified, inferred, and hypothesis. Addresses must specify component, domain, and O/VA/PA; every unknown identifies the next required evidence.
 - Public implementations reference pinned source code and primary author materials. When community forum posts lack runnable source code, preserve this fact; do not treat screenshots as build or complete boot receipts.
 - Public documentation is English and self-contained. Embed critical observations and source/assumption boundaries in the page; do not cite private capture paths as reader-accessible evidence.

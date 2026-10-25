@@ -63,6 +63,8 @@ string named NVMe. The original debug strings identify `NvmExpressBlockIo.c`,
 available in [TianoCore EDK II](https://github.com/tianocore/edk2/tree/master/MdeModulePkg/Bus/Pci/NvmExpressDxe).
 The observation does not establish an exact EDK II version or equivalence of
 every original instruction to the current upstream source.
+The moving EDK II link is background navigation, not a fixed source binding
+for the recovered guest driver.
 
 Original initialization caller `104d4e8a` calls `1052fa12` at `104d5010`.
 The PCI I/O object lives at controller offset `10`: methods `+0/+4` are BAR

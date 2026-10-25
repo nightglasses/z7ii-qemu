@@ -6,7 +6,7 @@ It is a measurement log, not a reconstruction: every number below was either
 read out of the original image at the stated address or observed in a run whose
 receipt is named.
 
-Current priority: defer VR boot work for the first GUI frame. The observed
+The bounded VR probe below did not establish a GUI dependency. The observed
 ready-bit probe changes SPI4 pacing without activating the measured display
 points. This is a bounded negative result, not a complete VR protocol
 qualification. The [VR execution note](../startup/vrdomain.md) records the

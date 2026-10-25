@@ -38,6 +38,9 @@ assumptions and execution evidence together. For a new investigation, read
 the [current frontier](/validation/frontier), then follow the corresponding
 device contract and input profile.
 
+For contributions and review, follow the [documentation standards](/writing).
+They define article scope, evidence, notation, diagrams and validation.
+
 ### Current GUI startup boundary
 
 The [cold-neutral resource80 input](/inputs/nor/virtual) passes the original

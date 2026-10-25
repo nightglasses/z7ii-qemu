@@ -1,10 +1,12 @@
 # Worker exit and the rear-panel resource
 
-Scope: on the current multi-thread baseline, manager state 3
+Scope: on the recorded multi-thread, erased-descriptor17 profile, manager state 3
 waits for **worker 0** to finish exiting before starting worker 4 in mode
 `0x15`. Its stop event arrives. Worker 0 then waits for a rear-display
 configuration request whose handler takes a data abort through a null panel
-table. The generic worker exit acknowledgement has not been reached.
+table. That observation does not reach the generic worker exit acknowledgement.
+The [current startup frontier](../validation/frontier.md) uses different declared
+inputs and supersedes this historical stop as a boot-status summary.
 
 All code, data and exception addresses below are C1.70 **MAS domain VA**.
 These are unchanged-firmware software observations, not a physical-camera

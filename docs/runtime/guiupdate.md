@@ -7,7 +7,7 @@ the traced image-information-to-record92 route remain unobserved. The observed
 image tasks fail a specific period/phase admission before submission. AF6's state9 route has separate
 guards and is not established as the missing normal GUI request.
 
-The later [normal-input readiness trace](readiness.md#current-normal-input-observation)
+The later [normal-input readiness trace](readiness.md#error-gui-input-observations)
 establishes an original error-GUI frame through the actual bank head1 while
 gate/pending3/display-ready remain0. ID68 suppresses software operation10;
 its producer is resource80's zero packed version after external descriptor32

@@ -1,7 +1,7 @@
 # BatCk delivery and the execution profile
 
-Scope: battery-result publication is reproduced on the current
-source-graph build and unchanged complete bundle with multi-thread TCG. It is
+Scope: the recorded source-graph build reproduces battery-result publication
+with the unchanged complete bundle and multi-thread TCG. It is
 not a missing frontend implementation on that baseline. The earlier
 single-thread `icount` investigation found a real wait in that execution
 profile, but overstated it as the general startup frontier.

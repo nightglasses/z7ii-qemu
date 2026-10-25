@@ -1,5 +1,9 @@
 # Guest kernel copy and per-core virtual mode stacks
 
+This page preserves the fixed native revisions and copy/stack observations
+below. Its unversioned MAS-analysis link is background navigation, not an
+immutable source snapshot or a claim about current startup progress.
+
 This layer continues [RTOS and multicore startup](/startup/smp). The original [MAS runtime producer](https://github.com/mashiro01/nightglass/blob/main/research/z7ii/mas-runtime.md) records usermain `O1e0046 → O348290`: source VA `10100000`, destination `bab00000`, copy length `21538`. The board adds exactly `[bab00000,bab21538)` as cold RAM, attached to the existing finite MXIC DDR decode. It does not copy bytes on the host or change a guest PTE, VBAR, PC or cache state. RAM outside the exact copy extent remains unsupported.
 
 The later original `O348150` call receives `(10100000,bab00000,100000)`. Its recovered body updates a one-MiB short-descriptor section mapping, preserving existing PTE attributes and performing guest cache/TLB maintenance. The third argument is the mapping interval, not a proven additional RAM allocation or one-MiB copy. The firmware must execute that routine itself; the board's exact destination backing does not fabricate a physical alias for the remaining section. The source body and CP15 interpretation are being retained by the RTOS startup research line; this report does not infer a complete physical loader state from that call.
