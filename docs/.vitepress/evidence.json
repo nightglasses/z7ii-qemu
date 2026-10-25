@@ -2067,6 +2067,12 @@
         "kind": "Execution observation"
       },
       {
+        "run": "grouplatch",
+        "title": "Published result retention, actual-boundary replacement and clear-memory continuation",
+        "href": "/evidence/imagerequest/latch.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "capturegroup",
         "title": "capturegroup/green-proof.json",
         "href": "/evidence/capturegroup/green-proof.json",

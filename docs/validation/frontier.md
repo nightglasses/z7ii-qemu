@@ -1,6 +1,38 @@
 # Original-firmware startup frontier
 
-## Current: capture-group result lifecycle after sequence stop
+## Current: original clear at PA `625219bc`
+
+The [published-result latch](../devices/capturegroup/protocol.md#published-result-lifecycle)
+separates actual automatic-TG results from later generator configuration and
+run/stop changes. Only a valid automatic boundary can replace the eight-word
+packet; commands preserve a prior publication without restoring cold zeros or
+echoing a requested cursor. Retention across lifecycle changes is an explicit
+functional hypothesis, not a physical reset specification.
+
+The [latch receipt](/evidence/imagerequest/latch.json) records a native red on
+the preceding expiration rule, then37 sensor and33 memory cases passing.
+The unchanged-firmware continuation with the same explicit region/cold-neutral
+inputs crosses the `2006bb70` getter. Its60-host-second run records128 main
+acquisitions,428 statistics jobs and no statistics rejection/cancellation.
+The error list remains empty. Counts are sequential observations, not
+throughput comparisons with the preceding run.
+
+The first uncovered transaction is CPU1 PC `10361058`, WRITE32 board PA
+`625219bc=0`, inside the original zero-fill helper. The later read-only
+snapshot reports DFAR VA `372219bc`, with `r6=37221800`. This identifies an
+address translation and an unbacked write, but not yet the allocation owner,
+declared extent or clear length. The helper has already transformed its
+length register; the sampled `r1=80000000` must not be treated as its original
+requested length. Recover the upstream allocation and complete clear request
+before backing any additional storage. Existing RAM boundaries and original
+firmware bytes remain unchanged.
+
+QMP is debug/stopped, both heads lack a console, GUI readiness/information
+remain zero and one root request is queued with pending `40001`. Passing the
+getter does not establish the physical bank/cursor mapping, completed normal
+GUI startup or stable live view.
+
+## Previous: capture-group result lifecycle after sequence stop
 
 The [global sequence model](../devices/sensor/protocol.md#global-sequence-start-and-stop)
 executes all eleven channel start/stop masks and preserves each pending stop's

@@ -26,7 +26,11 @@ struct NikonCaptureGroupState {
     SysBusDevice parent_obj;
     MemoryRegion memory;
     uint32_t configuration[CAPTURE_GROUP_WORDS];
-    bool results_unknown;
+    enum {
+        GROUP_RESULT_COLD,
+        GROUP_RESULT_UNKNOWN,
+        GROUP_RESULT_PUBLISHED,
+    } result_state;
     bool commit_selected[2];
     uint32_t active[ARRAY_SIZE(cursor_offsets)];
     uint32_t results[ARRAY_SIZE(result_offsets)];
@@ -84,7 +88,7 @@ static void nikon_capture_group_automatic_rise(void *opaque, int index, int leve
         s->results[2 + i] = s->active[6 + i] +
                             s->cursor * s->active[3 + i % 3];
     }
-    s->results_unknown = false;
+    s->result_state = GROUP_RESULT_PUBLISHED;
 }
 
 static void nikon_capture_group_commit_selected(void *opaque, int index,
@@ -100,7 +104,13 @@ static void nikon_capture_group_commit(void *opaque, int index, int level)
     NikonCaptureGroupState *s = opaque;
 
     if (level && s->commit_selected[index]) {
-        s->results_unknown = true;
+        /* Commands change the generator, not the last published packet.
+         * 1023aed8 ->10239dc6(force0) reads it before the next shared commit.
+         * Latch retention is a functional hypothesis, not a fresh result.
+         */
+        if (s->result_state == GROUP_RESULT_COLD) {
+            s->result_state = GROUP_RESULT_UNKNOWN;
+        }
         s->started = false;
         for (unsigned i = 0; i < ARRAY_SIZE(cursor_offsets); i++) {
             s->active[i] = s->configuration[cursor_offsets[i] / 4];
@@ -116,8 +126,10 @@ static void nikon_capture_group_run(void *opaque, int index, int level)
     if (s->running != !!level) {
         s->running = !!level;
         s->started = false;
-        /* Stop/disable/reset cannot recover the cold-empty qualification. */
-        s->results_unknown = true;
+        /* Run transitions cannot create results or restore cold-empty. */
+        if (s->result_state == GROUP_RESULT_COLD) {
+            s->result_state = GROUP_RESULT_UNKNOWN;
+        }
     }
 }
 
@@ -190,7 +202,7 @@ static MemTxResult nikon_capture_group_read(void *opaque, hwaddr offset,
     }
     result = nikon_capture_group_result(offset);
     if (result >= 0) {
-        if (s->results_unknown) {
+        if (s->result_state == GROUP_RESULT_UNKNOWN) {
             return nikon_capture_group_error(s, offset, size, false, 0);
         }
         *value = s->results[result];
@@ -245,7 +257,7 @@ static void nikon_capture_group_reset(DeviceState *dev)
     s->active_valid = false;
     s->running = false;
     s->started = false;
-    s->results_unknown = false;
+    s->result_state = GROUP_RESULT_COLD;
     s->reported_error = false;
 }
 

@@ -1,0 +1,45 @@
+{
+  "scope": "Actual capture-group result latch retained across generator lifecycle; original cold-neutral continuation to a new clear-memory boundary, not completed GUI startup",
+  "dependency_baseline": "0c5f5597",
+  "source_facts": {
+    "component": "C1.70 MAS; source addresses are VA, mapped device/storage addresses PA; masks/addresses hexadecimal, counts decimal",
+    "getter_order": "1023aed8 flag0x40 invokes10239dc6(request,0) before its later1020bfaa shared commit",
+    "consumer": "10239dc6 first reads complete eight-word packet through1020c17a/10208e0a, compares only cursor byte against VAb26b47cb, conditionally updates next address and writes control",
+    "limit": "Consumer order does not independently specify physical result-latch lifetime, bank/cursor arithmetic or shared-unit-reset behavior"
+  },
+  "functional_hypothesis": {
+    "states": "Cold-empty before activity, unknown after command/run without publication, published only after a valid existing automatic-TG rise",
+    "retention": "Configuration, commit, stop, disable and shared unit reset preserve any last actually published eight-word packet; unknown never becomes cold zero",
+    "replacement": "Only a valid automatic rise replaces all words; invalid/incomplete generator cannot manufacture replacement; whole-model reset clears the result and prior qualification",
+    "unchanged": "No additional IRQ, guest event/callback, DMA, pixel/frame injection, firmware edit or RAM extension; prior bank/cursor/address-generator assumptions remain assumptions"
+  },
+  "native": {
+    "red": "Preceding model produces real HMP Cannot access memory after commit when fixture expects the previously generated nonzero/asymmetric packet",
+    "green": {"sensor_cases":37,"memory_cases":33,"failures":0},
+    "coverage": "Both shared commit ports, stop/disable/shared reset retention; invalid generator cannot replace prior packet; valid commit waits for real boundary; new asymmetric bank/cursor packet replaces at boundary; whole reset clears old data and new unproduced run stays unknown"
+  },
+  "original_execution": {
+    "identity": "Same unchanged five-component firmware, bounded resource35 descriptor17 input, cold-neutral resource80, quadrant PGM, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG profile",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":428,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "statistics_blocked":0,
+    "error_count":0,
+    "crossed":"Original capture-group getter READ32 PA2006bb70; no numeric physical interpretation validated by progress alone",
+    "uncovered":"CPU1 PC10361058 WRITE32 PA625219bc=0, uncovered-address",
+    "later_snapshot":"DFAR VA372219bc, r6=37221800; length scratch r1=80000000 is already transformed by the clear helper and is not an entry argument",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a console",
+    "GUI_readiness":0,
+    "information_record":"zero",
+    "queued_root_pending":"0x40001",
+    "battery_peer_rejections":[]
+  },
+  "measurement_limit":"Sequential counters and later read-only debugger state are not atomic or physical timing. The new clear's allocation owner/extent/entry length remain unresolved; no surrounding RAM was mapped. Separate attempts to instrument the prior getter did not produce a qualifying probe and are not used as runtime evidence.",
+  "omissions":"Raw firmware, inputs, full source/debugger/trace records and generated artifacts remain ignored; this file publishes curated contracts and verdicts only."
+}

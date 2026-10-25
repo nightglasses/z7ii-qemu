@@ -1264,7 +1264,7 @@ static void test_capture_group_cursor(void)
     qtest_writel(q, 0x2006bb3c, 0);
     capture_group_cursor_packet(q, wrapped);
     qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
-    capture_group_result_packet(q, false);
+    capture_group_cursor_packet(q, wrapped);
     qtest_clock_step(q, 33333334);
     capture_group_cursor_packet(q, bank0); /* New start0/bank0 after commit. */
     qtest_writel(q, 0x20060028, 1); /* Resync itself is not a cursor tick. */
@@ -1280,7 +1280,7 @@ static void test_capture_group_cursor(void)
         capture_group_cursor_packet(q, first);
         qtest_writel(q, CAPTURE_BASE + controls[cancel], 0x20);
         qtest_clock_step(q, 100000000);
-        capture_group_result_packet(q, false);
+        capture_group_cursor_packet(q, first);
     }
 
     for (unsigned invalid = 0; invalid < 6; invalid++) {
@@ -1316,6 +1316,49 @@ static void test_capture_group_cursor(void)
         g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
         g_assert_false(qtest_get_irq(q, i));
     }
+    qtest_quit(q);
+}
+
+static void test_capture_group_latch(void)
+{
+    static const uint32_t first[] = {
+        1, 2, 0x41000040, 0x42000060, 0x43000080,
+        0x51000040, 0x52000060, 0x53000080,
+    };
+    static const uint32_t replacement[] = {
+        0, 1, 0x41000020, 0x42000030, 0x43000040,
+        0x51000020, 0x52000030, 0x53000040,
+    };
+    QTestState *q = capture_start(NULL);
+
+    capture_group_cursor_configure(q);
+    capture_group_result_packet(q, false); /* No publication yet. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666667);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, 0x20060014, 1); /* Stop automatic input. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x20);
+    qtest_writel(q, 0x2006bb3c, 2); /* Unsupported generator snapshot. */
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_cursor_packet(q, first); /* Invalid input cannot replace it. */
+    qtest_writel(q, 0x20060014, 1);
+    qtest_writel(q, 0x2006bb3c, 0);
+    qtest_writel(q, 0x2006bb44, 1);
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    capture_group_cursor_packet(q, first); /* Commit alone cannot replace it. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666666);
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 1);
+    capture_group_cursor_packet(q, replacement);
+    qtest_system_reset(q);
+    capture_group_result_packet(q, true); /* Whole-device reset clears latch. */
+    capture_group_cursor_configure(q);
+    capture_group_result_packet(q, false); /* No stale result after reset. */
     qtest_quit(q);
 }
 
@@ -2531,6 +2574,7 @@ int main(int argc, char **argv)
                    test_capture_group_results);
     qtest_add_func("/nikon/sensor/capture/group-cursor",
                    test_capture_group_cursor);
+    qtest_add_func("/nikon/sensor/capture/group-latch", test_capture_group_latch);
     qtest_add_func("/nikon/sensor/capture/parameters", test_capture_parameters);
     qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
     qtest_add_func("/nikon/sensor/capture/endpoint-globals",

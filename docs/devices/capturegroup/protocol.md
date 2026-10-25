@@ -3,7 +3,10 @@
 The finite device retains144 source-identified configuration words at board
 PAs`[2006b800,2006bd84)`. Its one SysBus region is exactly584 hex bytes;
 all holes within that interval remain transaction errors. Eight read-only
-result words have the cold-empty and automatic-TG cursor profiles below. There
+result words have the cold-empty and automatic-TG cursor profiles below. Once
+actually published, the packet remains latched across generator lifecycle
+changes until another publication or whole-model reset. This retention is an
+explicit functional hypothesis. There
 is no source of capture readiness, frames, DMA, IRQs or completion events.
 
 ## Original producers and masks
@@ -150,18 +153,20 @@ There is no post-submit zero provider.
 |---|---|
 | Model device/system cold reset | Readable empty snapshot |
 | Configuration write, unrelated commit, rejected access or inhibited run | Preserve current qualification and published packet |
-| Either shared command100/104 containing mask10 | Synchronously become unknown |
-| Effective unit20 run after existing reset/enable gates | Synchronously become unknown |
-| Stop, disable or shared unit reset | Cancel active cursor; never restore cold qualification |
+| Either shared command100/104 containing mask10 | Expire cold-empty; retain any actually published packet |
+| Effective unit20 run after existing reset/enable gates | Expire cold-empty; retain any actually published packet |
+| Stop, disable or shared unit reset | Cancel active cursor; unknown stays unknown, published packet stays latched |
 | Qualified automatic TG rise after commit/run | Publish the functional active-cursor packet described below |
 | Aligned32-bit read | Return the qualified cold/cursor packet; otherwise transaction error |
 | Write, wrong width or unaligned access | Transaction error without state mutation |
 
-Invalidation discards model knowledge; it does not claim physical registers
-clear or change at that instant. Using both possible triggers avoids assuming
-commit cannot update the packet. Only an explicit model cold reset opens a
-new empty epoch; shared reset00/04 does not invent a result reset law. The
-later cursor profile qualifies a new non-cold packet without reopening that epoch.
+The model distinguishes cold-empty, unknown and actually published states.
+Command/run invalidates only cold-empty knowledge; neither transition can
+create a result or clear the last actual publication. Only an explicit model
+cold reset opens a new empty epoch; shared reset00/04 does not invent a result
+reset law. The later cursor profile qualifies a non-cold packet without
+reopening that epoch. The earlier expire-on-every-command hypothesis is
+superseded by the published-result lifecycle below.
 
 The machine wires shared command-data bit4 and command-publish for both ports
 to the group. Capture-control's synchronous `run-state[0..11]` outputs mirror
@@ -383,10 +388,11 @@ Future independent evidence can falsify them without changing firmware bytes.
 
 Every one of the12 metadata fields must have been explicitly written since
 model reset: bank/start/count-minus-one, three strides and six bases. Both
-selected shared commit ports atomically capture those staged values and expire
-the old result. Initial index must be less than count, all strides nonzero,
-and every base plus the maximum index times its stride must fit32 bits.
-Incomplete/unsupported/overflowing snapshots stay unknown. No neighboring
+selected shared commit ports atomically capture those staged values. Initial
+index must be less than count, all strides nonzero, and every base plus the
+maximum index times its stride must fit32 bits. Incomplete/unsupported/overflowing
+snapshots cannot publish; they leave any last actual packet intact, or remain
+unknown if none has been published. No neighboring
 fields, address apertures, bytes or upper bits gain acceptance from this profile.
 
 Run itself does not publish. Effective run enables the committed generator;
@@ -400,14 +406,43 @@ future automatic boundary but is not itself a cursor tick.
 
 Staging writes leave both the committed generator and readable packet intact.
 Thus changing bb44 does not make bb74 follow it; only a new commit can change
-the start configuration, and even that remains unreadable until an automatic
-rise. Commit during run starts a new epoch at the next rise. Duplicate run
-high leaves an existing epoch intact. Stop/reset/disable cancel progression
-and expire the packet; restart reuses the committed configuration only after
-a new automatic rise. Only whole-model reset restores cold-empty. There is
+the start configuration, and only an automatic rise replaces the latched
+result. Commit during run starts a new epoch at the next rise. Duplicate run
+high leaves an existing epoch intact. Stop/shared-reset/disable cancel progression
+while retaining the last publication; restart reuses committed configuration
+only at a new automatic rise. Only whole-model reset clears the packet and
+restores cold-empty. There is
 no group timer, pixel input, DMA write, completion IRQ, guest flag write or
 guest callback invocation. These are active target addresses, not evidence
 that memory at those addresses has received data.
+
+### Published-result lifecycle
+
+**Source fact:** `1023aed8` handles flag `0x40` by calling
+`10239dc6(request,0)` before its later `1020bfaa` shared commit. The getter
+first reads all eight words through `1020c17a`, compares only the returned
+cursor byte with VA `b26b47cb`, conditionally updates the next address and then
+writes the control. Thus staging a new request does not provide its own
+applied cursor. This is a consumer-order fact, not a complete physical latch
+or reset specification.
+
+**Functional correction:** the previous expire-on-commit/run hypothesis also
+discarded packets already generated by actual automatic input. Separate the
+result latch from the next generator snapshot. A valid automatic rise replaces
+all eight latched words; configuration, commit, stop, disable and shared unit
+reset do not replace them. An invalid or incomplete committed generator cannot
+manufacture a replacement. Only whole-model reset clears the packet. This is
+a bounded retention hypothesis; the bank/cursor/address arithmetic and physical
+reset uncertainty above remain unchanged. It never promotes unknown state to
+zero or echoes the requested software index.
+
+The [latch receipt](/evidence/imagerequest/latch.json) records a native red on
+the old commit-expiration rule and70 passing sensor/memory cases. Distinct
+nonzero/asymmetric packets verify retention across both commit ports,
+stop/disable/shared reset, invalid generation and restart, replacement only on
+an actual automatic boundary, and whole-reset removal of old data. The original
+continuation and its remaining limit are reported separately from these
+synthetic fixtures in the [startup frontier](../../validation/frontier.md).
 
 ## Cursor validation and original continuation
 

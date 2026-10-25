@@ -114,8 +114,11 @@ explicit hypotheses. Normal live view is still incomplete; the
 previously produced ID63, separately from complete-boot or physical-camera
 evidence. The [sequence start/stop model](docs/devices/sensor/protocol.md#global-sequence-start-and-stop)
 subsequently crosses that error branch through normal router IRQ87 delivery;
-69 sensor/memory cases pass. The next stop is capture-group result
-qualification during restart. Neither result establishes normal live view.
+69 sensor/memory cases pass. The later result-latch correction preserves
+actual published capture-group packets through restart, with70 sensor/memory
+cases passing. The next stop is an original clear at PA `625219bc`, whose
+allocation owner and extent still require recovery. Normal live view remains
+incomplete.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
