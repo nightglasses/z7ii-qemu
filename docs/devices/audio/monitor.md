@@ -89,7 +89,7 @@ state11 and GUI gate/pending3/display-ready remain0. The UART peer rejects no
 request. First-frame and physical microphone behavior remain unverified.
 
 Raw source projections, red/native receipts, normal-run argv, traces and final
-read-only snapshots are in `run audiolevels-20261023/`. The older
+read-only snapshots are in `run audiolevels/`. The older
 [format](format.md) and [reload](../hdmac/reload.md) records retain their
 original checkpoints. Diagnostic stream snapshots must be paired with their
 actual submit lengths; earlier partial snapshots are not complete packets.

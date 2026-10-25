@@ -9,7 +9,7 @@ is no source of capture readiness, frames, DMA, IRQs or completion events.
 ## Original producers and masks
 
 Original MAS source projections, diagnostic execution and native receipts
-are scoped separately under`run capturegroup-20261024/`. Addresses in
+are scoped separately under`run capturegroup/`. Addresses in
 the table are board PAs, with the common prefix2006 omitted. Ranges step by4
 unless stated otherwise. Masks bound complete values constructed by the
 identified software; they are not recovered physical IP permissions.
@@ -121,7 +121,7 @@ nor force1 establishes zero hardware results. Other packet words are not
 numerically consumed by this caller. Force1 still performs all reads before
 bypassing the comparison, so its success cannot validate their numeric values.
 
-The narrow original `captureresults-20261024/red` trace confirms
+The narrow original `captureresults/red` trace confirms
 `1020c050 -> 1020a50c(unit20,0/1)` before configuration, followed by
 `1020a518(unit20,1)`. The former writes shared reset set/clear ports00/04;
 the latter writes enable port10. No group commit or unit20 run precedes the
@@ -215,7 +215,7 @@ result read, not before it. QMP reports debug/stopped and neither display
 head has a console. This crosses the configuration frontier under declared
 functional assumptions; it does not establish normal GUI output or complete
 boot. Raw source projections, trace, read-only snapshot and proof remain in
-`run capturegroup-20261024/`.
+`run capturegroup/`.
 
 ## Cold-result validation and later frontier
 
@@ -230,7 +230,7 @@ invalid widths/masks, inhibited and effective run, both commit ports, sticky
 invalidation through stop/disable/shared reset/time advance, and model reset.
 The configuration fixture still covers144 writable fields and now201 holes.
 
-The unchanged20-host-second `captureresults-20261024/green` run supplies the
+The unchanged20-host-second `captureresults/green` run supplies the
 same cold-neutral file. All six loader COPY ranges compare, the original
 guard returns0 with packed150, and property6433 is empty. The original
 force1 getter returns, then ba30 becomes1. Source execution reaches
@@ -246,11 +246,11 @@ original software progress **under the cold-empty assumption**. Force1 does
 not consume the result numbers, so the run does not validate their physical
 values or establish an actual result producer, normal GUI output or boot.
 Raw instruction/source projections, red/green trace and read-only snapshots
-remain in`run captureresults-20261024/`.
+remain in`run captureresults/`.
 
 ## Post-submit investigation: incremental caller and provider
 
-The later unchanged `groupresults-20261024/origin` run reaches the same
+The later unchanged `groupresults/origin` run reaches the same
 post-submit frontier as [grid storage](../../runtime/grid.md). Read-only
 snapshots and raw instruction traces establish this actual call chain;
 instruction addresses below are original MAS code addresses:
@@ -332,11 +332,11 @@ and neither head has a console. There is no new startup frontier or new
 native behavior in this investigation; the existing group-results fixture
 already covers sticky invalidation and rejection of identity mirroring.
 Raw projections, filtered traces, snapshots and comparison receipt remain
-under`run groupresults-20261024/`.
+under`run groupresults/`.
 
 ## Software unit index and actual VD dispatch
 
-The subsequent `groupcursor-20261024` source audit establishes the byte's
+The subsequent `groupcursor` source audit establishes the byte's
 software meaning independently of the result comparison. `1023b78e` registers
 five kind23 units and calls`102cd9a0`. Its loop passes index i to`1030b804`
 at`102cd9e8`, then stores the same i at descriptor+8 at`102cd9ee`.
@@ -425,7 +425,7 @@ the defined functional contract, not which hypothetical hardware mapping is true
 
 Raw source, the old-model native red, final native log, immutable input
 comparisons and original execution records remain under
-`run groupcursor-20261024/`. The `vd` receipt describes the old model;
+`run groupcursor/`. The `vd` receipt describes the old model;
 the later `cursor` receipt describes this explicit hypothesis model. Passing
 force0 or reaching a later startup frontier cannot validate the unconsumed
 byte0/six address fields or the assumed cursor phase.

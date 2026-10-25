@@ -67,11 +67,9 @@ with cfgB1818bd0. This is task progress, not a screen. The whole-chain trace
 reaches role1 phase3 slot0e waiting for mask10. The display lane proceeds as a
 finite hardware model and does not patch that guest wait.
 
-The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480)
-dependency is closed: `0x42062002` is firmware-local and type-5 traffic is
-service negotiation. [#482](https://github.com/mashiro01/nightglass/issues/482)
-and [#485](https://github.com/mashiro01/nightglass/issues/485) are parallel and
-unblocked.
+`0x42062002` is firmware-local, and type-5 traffic is service
+negotiation. See [the display handshake](/runtime/display) for the request
+producer and its remaining admission conditions.
 
 Original execution naturally reaches1044a98e/104dd20e/1046d0d2/1046d48a
 packets, source addresses, dimensions, layouts, TTBR state and translated RAM.

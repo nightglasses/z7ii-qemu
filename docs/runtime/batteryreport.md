@@ -1,7 +1,7 @@
 # Battery report and MAS classification
 
 The normal UART continuation recorded in
-`run batterycomplete-20261027/joined-snapshot.json` reaches MAS BatCk
+`run batterycomplete/joined-snapshot.json` reaches MAS BatCk
 value **1** with a synthetic class1 battery profile and provider gate
 `2001fba6=0`. This is an observed battery-service result from original EX
 and MAS execution. It does not establish physical battery identity or
@@ -36,7 +36,7 @@ All `080xxxxx`/`200xxxxx` addresses are EX VA; `10xxxxxx`/`bxxxxxxx` are
 MAS VA. Record offsets below are decimal; words are little-endian 32-bit
 values unless a different width is stated. EX evidence is the retained original listing
 `ex.dis`. MAS evidence is the saved original code in
-`run batterycompat-20261022/0x103f8c1a.json`, `0x103f8b50.json` and
+`run batterycompat/0x103f8c1a.json`, `0x103f8b50.json` and
 `0x103f8ec6.json`; the relevant normalizer and copy instructions were also
 checked read-only against the loaded `eg1840_mas_01700` database.
 

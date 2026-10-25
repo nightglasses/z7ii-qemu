@@ -3,13 +3,13 @@
 The `nikonvr` CPU profile uses existing RX TCG and EXTB. Its chip part number
 has not been proved. Register names and bit positions are checked against the
 [official Renesas RX Driver Package](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx64m/register_access/ccrx/iodefine.h),
-retrieved on 2026-10-09. That reference is a register protocol reference; it is
+used as a pinned protocol reference. That reference is a register protocol reference; it is
 not evidence that Nikon used an RX64M. SYSTEM and RTC are separate devices.
 
 The observed RSPI1 address `d0140`, three-bit ADADC and sampling registers at
 `890e0` are additionally checked against the
 [official RX65N register header](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx65n/register_access/ccrx/iodefine.h),
-retrieved on 2026-10-09. This matches peripheral capabilities and still does
+used as a pinned protocol reference. This matches peripheral capabilities and still does
 not identify the Nikon part. MTU3a extended clock selection is described in
 tables 24.7–24.9 of the [Renesas RX65N/RX651 hardware manual](https://www.renesas.com/en/document/mah/rx65n-group-rx651-group-users-manual-hardware).
 
@@ -79,7 +79,7 @@ followed by a chained byte write to SPCR; the last performs a byte SPCR write
 with WBDIS. These values are evidence for the implemented protocol and are
 not embedded firmware rules in the device. The bit semantics are checked
 against the [Renesas DTC migration guide](https://www.renesas.com/en/document/apn/rx65n-h8sx1668-dtc-migration-guide-h8sx1668-rx65n-rev100),
-R01AN6775EJ0100 revision 1.00, 2023-03-27.
+R01AN6775EJ0100 revision 1.00.
 
 RSPI0/1/2 have independent upstream SSI buses and transfer timers, sequence
 commands, TX/RX holding registers, status and DMA/DTC events. SPDCR determines

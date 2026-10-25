@@ -1,6 +1,6 @@
 # EX command02 boundary
 
-The unchanged EX capture `run reproducible-20261026/nextquery.json` reaches transport`08023824`, caller LR`0802434d`, with TX6/RX4/timeout100 and request`02 02 02 00 00 02`. Authentication+4 and initialized byte0 are1, class+10 is1. This is a request observation, not acceptance of a command02 reply. Earlier authentication/profile support is described in [batterypeer.md](batterypeer.md).
+The unchanged EX capture `run reproducible/nextquery.json` reaches transport`08023824`, caller LR`0802434d`, with TX6/RX4/timeout100 and request`02 02 02 00 00 02`. Authentication+4 and initialized byte0 are1, class+10 is1. This is a request observation, not acceptance of a command02 reply. Earlier authentication/profile support is described in [batterypeer.md](batterypeer.md).
 
 ## Original helper
 
@@ -31,7 +31,7 @@ The complete [batteryprotocol.md](batteryprotocol.md) inventory supersedes that 
 
 ## Observed command02 acceptance and next0b boundary
 
-Parent's unchanged EX `run batterycontrol-20261026/control.json` records one failed command02 return4 followed by original retry success0 at`08024372`, received`02060004` and pending-count0. The next actual transport entry is caller LR`0802427f`, request`020b0009`, TX4/RX14/timeout100. This proves this finite ACK's acceptance and continuation, not successful0b or complete battery operation.
+Parent's unchanged EX `run batterycontrol/control.json` records one failed command02 return4 followed by original retry success0 at`08024372`, received`02060004` and pending-count0. The next actual transport entry is caller LR`0802427f`, request`020b0009`, TX4/RX14/timeout100. This proves this finite ACK's acceptance and continuation, not successful0b or complete battery operation.
 
 Original helper`08024242..08024306` constructs the fixed0b request and calls`08023824` at`0802427a`. Null structure returns5. A nonzero transport result returns unchanged after hardware reinitialization; result1 additionally delays100 ticks. On success the generic14-byte envelope requires byte1=6 and byte13=XOR(bytes0..12). The following direct payload consumers occur at`0802429e..080242d6`:
 

@@ -16,7 +16,7 @@ The separate second-unit contract is unchanged by this evidence.
 ## Original source and observed call
 
 All code addresses here are C1.70 MAS VA; register addresses are board PA.
-Parent-owned `run mxic-20261022/` retains the original source recovery,
+Parent-owned `run mxic/` retains the original source recovery,
 read-only TCG traces, launch arguments, UART logs and final GDB snapshots.
 
 The pre-change `switch` run observes `103d1f10(2,0)` called from `10322886`

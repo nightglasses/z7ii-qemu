@@ -14,7 +14,7 @@ path, without claiming recovered factory semantics for the complete body.
 All firmware code/data addresses below are C1.70 MAS VAs. The explicit NOR
 property uses the existing physical mapping; resource80's observed RAM base
 is MAS VA `b7d00000`. Source projections and parent execution receipts are in
-`run moduleinput-20261024/`.
+`run moduleinput/`.
 
 ## Slot validation
 
@@ -115,7 +115,7 @@ common header or a proof that every conditional branch executes. They narrow
 the next virtual-profile work to real cold consumers and demonstrate why
 version acceptance cannot qualify an otherwise empty timing/program body.
 
-The later `sensorprofile-20261024` traces resolve the actual cold selectors:
+The later `sensorprofile` traces resolve the actual cold selectors:
 object `b18a769c` has mode11 and subtype3; `102fef74(11)` returns7.
 Group0 selects variant1 (`bf080`), group1 variant0 (`bf280`), and group2
 variant8 (`c04b0`); the latter still uses the shared length table `c13b0`.

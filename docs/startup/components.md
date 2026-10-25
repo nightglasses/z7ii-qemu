@@ -18,7 +18,7 @@ flowchart TD
 
 ## Container contract
 
-The following records the loader/domain work from2026-10-09 onward. Later
+The following qualifies the loader and execution domains. Later
 domain receipts supersede historical pending-work descriptions.
 
 hw/nikon/components/bundle.c reads the extracted decoded-container.bin, after

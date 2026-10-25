@@ -116,7 +116,7 @@ verified GUI first frame. This is a functional host binding, not a physical
 camera button name. Late F4-down reaches C5 low but does not by itself
 retrigger the consumed EX synchronization update. The complete source,
 negative late-input window and cold-input receipts are in
-[policy.md](../../runtime/policy.md) and `run policy-20261025/`.
+[policy.md](../../runtime/policy.md) and `run policy/`.
 
 ## Original dispatch and rotary consumers
 

@@ -73,8 +73,8 @@ data branch, not the optional NULL clearing branch. This profile neither
 supplies a factory fallback nor rewrites that separate input dependency.
 
 The source receipts remain in
-`run sensorprofile-20261024/` and
-`run capturebanks-20261024/`. Original code and data are not embedded
+`run sensorprofile/` and
+`run capturebanks/`. Original code and data are not embedded
 in the tool or committed fixtures.
 
 ## Timing arithmetic and limits
@@ -134,17 +134,17 @@ transaction is CPU0 PC`10208ea4`, WRITE32 PA`2006b800=8`; QMP reports
 debug/stopped, with no console yet. This validates the declared cold-path
 input through that frontier, not normal-menu output, later mode coverage,
 physical Sensor calibration or complete boot. Raw receipts, COPY comparison,
-guard result and timer traces remain in `run capturebanks-20261024/`.
+guard result and timer traces remain in `run capturebanks/`.
 
 The later [capture-group model](../../devices/capturegroup/protocol.md) crosses that
 configuration write. With the same generated input, the unchanged
-`capturegroup-20261024/green` run again compares all six COPY ranges and
+`capturegroup/green` run again compares all six COPY ranges and
 records guard0/property6433 empty. Its first uncovered access is CPU0
 PC`10208e14`, READ32 PA`2006bb70`, in the old-result snapshot preceding
 unit20 commit/run. The input profile does not declare those hardware results.
 QMP remains debug/stopped before a console exists; the scope above is unchanged.
 
-In `captureresults-20261024/green`, the same input additionally crosses the
+In `captureresults/green`, the same input additionally crosses the
 initial result read under the separate device's explicit cold-empty assumption.
 All eight result words become unknown at group commit/effective run; the file
 does not supply them. Original code reaches mask10 commits and unit20 run,
@@ -153,14 +153,14 @@ still compare and the guard/property check is unchanged. There is no console
 or qualified post-submit result at this checkpoint.
 
 The later [paired-parameter model](../../devices/captureparams/protocol.md)
-crosses that write without altering the input. In `captureparams-20261024/green`,
+crosses that write without altering the input. In `captureparams/green`,
 the six COPY ranges and guard/property results remain unchanged, the128-word
 table compares with the original ROM source, and unit200 commit/run executes.
 The first uncovered access is now CPU1 PC`10404398`, WRITE32 PA`c33ab400=100`,
 in a software interpolation-record buffer. Its later
 [storage investigation](../../runtime/interpolation.md) establishes kind74's
 complete pool and supplies ordinary RAM with explicit cold-zero semantics.
-In `interpolationmemory-20261024/verified`, the same six COPY ranges compare,
+In `interpolationmemory/verified`, the same six COPY ranges compare,
 guard0/property6433 empty persists, and firmware writes its own records.
 Another task first rejects READ16 PA`5d170000` at PC`1024ffda`; there is still
 no console, complete record-generation receipt or qualified post-submit result.
@@ -168,7 +168,7 @@ no console, complete record-generation receipt or qualified post-submit result.
 The [grid storage model](../../runtime/grid.md) subsequently supplies kind18's
 complete pool while preserving this input. Its zero initial bytes are a board
 RAM assumption, not NOR sample data or statistics DMA. In unchanged
-`gridstorage-20261024/verified`, all six COPY ranges still compare and
+`gridstorage/verified`, all six COPY ranges still compare and
 guard0/property6433 empty persists. Original grid processing returns; the next
 first rejection is CPU0 PC`10208e14`, READ32 PA`2006bb70`, from the force0
 incremental getter after commit/run. Post-submit results remain unknown and

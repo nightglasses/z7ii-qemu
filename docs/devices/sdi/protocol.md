@@ -1,6 +1,6 @@
 # Dual-bank SDI/PHY/DDR functional model
 
-This layer continues [issue331](https://github.com/mashiro01/nightglass/issues/331)
+This layer continues [RTOS and multicore startup](/startup/smp)
 after857ce78 stopped at PC10024c9c/WRITE32 PA20023000=1. The dual-bank
 bases, PHY/DDR reset/request/flag and DDRL groups in pinned
 [m8m-regs.h](https://github.com/hypoxic/stubby-1.60.1/blob/d670fe97469f4fbac35fcf67fbab81c7ea84f153/src/m8m-regs.h)

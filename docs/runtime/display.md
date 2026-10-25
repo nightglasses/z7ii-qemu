@@ -24,11 +24,11 @@ stays class4/mode0. Gate`b181a6ec` and pending3 remain0. The follow-up
 clear them. The present mode5 branch returns29; the zero snapshot alone
 does not identify a missing producer of1/6. An original36-byte event record
 selects mode5 before the GUI/action route.
-See [conversion.md](conversion.md) and`run srcover-20261024/` for joined
+See [conversion.md](conversion.md) and`run srcover/` for joined
 handoff/event receipts. This is a policy/readiness frontier, not another
 graphics rejection or proof of final scanout.
 
-Historical erased-input status, 2026-10-21: the paired producer of pending slot 3 and event bit
+Erased-input observation: the paired producer of pending slot 3 and event bit
 `0x80000000` is in the GUI mode-entry function `1053fe10`. The single-thread
 `icount` probes below stop earlier at battery-check status `b18651d8` and
 event bit `0x200`. The [battery delivery comparison](battery.md) supersedes
@@ -171,7 +171,7 @@ open on the ordinary GUI startup path remain unverified.
 
 ## Receipts and limits
 
-`run startgate-20261021/` retains `argv.txt`, `runprobe.py`, the
+`run startgate/` retains `argv.txt`, `runprobe.py`, the
 `manager`, `waits`, `battery` and `block` GDB scripts and logs, static IDA
 results in `static.json`, and bounded GNU objdump listings/call searches.
 Each accepted dynamic probe uses one hardware breakpoint at a time. The

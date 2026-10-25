@@ -1,6 +1,6 @@
 # MEMC and Cortex-A7 diagnostic layer
 
-This layer implements the next bounded contracts for [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330) and [QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331). It preserves the original MAS bytes, reset entry `0x10020000`, ARM state, copy destinations and `O0x178` self-loop. The [previous original run](../../startup/first.md) stopped at the first `0x04264000` write. The [new parent-run receipt](../../startup/memc.md) records both MEMC stores accepted, the early stack PUSH passed, and the next uncovered read at `0x0428102c`; whole-camera boot remains unverified.
+This layer implements the next bounded contracts for [MEMC and early peripheral startup](/startup/memc) and [RTOS and multicore startup](/startup/smp). It preserves the original MAS bytes, reset entry `0x10020000`, ARM state, copy destinations and `O0x178` self-loop. The [previous original run](../../startup/first.md) stopped at the first `0x04264000` write. The [new parent-run receipt](../../startup/memc.md) records both MEMC stores accepted, the early stack PUSH passed, and the next uncovered read at `0x0428102c`; whole-camera boot remains unverified.
 
 ## Supported MEMC contract
 

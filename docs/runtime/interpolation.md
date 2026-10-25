@@ -65,7 +65,7 @@ exact byte boundaries and absent physical VA aliases through HMP memory
 errors, then verifies RAM retention after reset. These synthetic checks
 establish the storage contract separately from firmware progress.
 
-Unchanged `interpolationmemory-20261024/verified` uses the same cold-neutral
+Unchanged `interpolationmemory/verified` uses the same cold-neutral
 NOR file, held cold F4, RNG0, acceleration/TEMP inputs,9600-baud UART peer and
 five-CPU MTTCG composition. All six original loader COPY ranges compare with
 the input; the version guard returns0 and property6433 stays empty.
@@ -85,4 +85,4 @@ zeros from the still-unimplemented statistics DMA producer.
 QMP reports debug/stopped, with neither display head bound to a console.
 This is functional-input/model progress, not normal GUI output or complete
 boot. Raw source, traces, old-model failure, native batch and input comparison
-remain in ignored `run interpolationmemory-20261024/`.
+remain in ignored `run interpolationmemory/`.

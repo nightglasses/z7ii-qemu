@@ -65,7 +65,7 @@ after the last beat, a still-high request without restart, and actual second-bea
 SS3/SS4 failures without restoration. Added negative guards pass in a focused
 3-case reload run: reserved/protection/TT/TW/MS and active descriptor edits
 remain rejected with preserved state. These are synthetic tests, not original
-sample production. Receipts: `run hdmacflags-20261023/native-red.log`,
+sample production. Receipts: `run hdmacflags/native-red.log`,
 `native-green.log`, `native-boundaries.log`, `native-guards.log`.
 
 ## Unchanged original continuation

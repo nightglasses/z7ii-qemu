@@ -1,6 +1,6 @@
 # BatCk delivery and the execution profile
 
-Status, 2026-10-21: battery-result publication is reproduced on the current
+Scope: battery-result publication is reproduced on the current
 source-graph build and unchanged complete bundle with multi-thread TCG. It is
 not a missing frontend implementation on that baseline. The earlier
 single-thread `icount` investigation found a real wait in that execution
@@ -144,7 +144,7 @@ therefore cannot reach its phase-3 acknowledgement. Pending slot 3 and its
 later GUI gate remain zero; battery delivery alone does not establish GUI
 entry or display readiness.
 
-Raw material is in `run batck-20261021/`: per-run argv, `frontend`,
+Raw material is in `run batck/`: per-run argv, `frontend`,
 `submit` and `txwait` probes, native-start scripts and snapshots, bounded
 `ex.dis` / `mas.dis`, and static MAS decompilations. The initial
 `icount-frontend` EX snapshot failed because GDB selected the wrong CPU for

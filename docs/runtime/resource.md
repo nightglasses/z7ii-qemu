@@ -1,6 +1,6 @@
 # Descriptor17 publication and the panel-table boundary
 
-Status, 2026-10-21: the current multi-thread baseline rejects the erased
+Scope: the current multi-thread baseline rejects the erased
 descriptor17 footer before copying or publishing its records. This explains
 the failed resource wait upstream of the [worker exit](handoff.md). A separate
 run with the existing, explicitly supplied Z7 cross-model seed publishes the
@@ -144,7 +144,7 @@ does not establish numeric factory values or a measured minimum that boots.
 
 ## Receipts
 
-`run descriptor-20261021/` retains actual argv, original-byte
+`run descriptor/` retains actual argv, original-byte
 decompilations, `footer`, `phases`, `waitcode`, `cross` and `crossfault` probes
 and filtered traces. Baseline and seed runs are kept separate; all use at
 most one hardware breakpoint at a time and perform read-only guest inspection.

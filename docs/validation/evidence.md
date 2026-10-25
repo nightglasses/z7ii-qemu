@@ -22,23 +22,28 @@ promises of a downloadable log. The page's Evidence section identifies which
 attachments actually exist. Unarchived results must not be presented as freshly
 verified or as complete boot evidence. No missing capture has been fabricated.
 
+Article and attachment groups use semantic names rather than dates or work
+tickets. A run label is a logical identifier, not a local filesystem path.
+Archived file contents retain their original measurements and metadata;
+renaming an attachment does not retag or rerun the experiment.
+
 Operational build and launch paths are instructions for creating local outputs;
 they are not citations to unpublished evidence.
 
 ## Downloadable records
 
-### audioformat-20261023
+### audioformat
 
-- [native-final-receipt.txt](/evidence/audioformat-20261023/native-final-receipt.txt) — Native test excerpt
-- [native-final.txt](/evidence/audioformat-20261023/native-final.txt) — Native test excerpt
-- [native-guards-receipt.txt](/evidence/audioformat-20261023/native-guards-receipt.txt) — Native test excerpt
-- [native-guards.txt](/evidence/audioformat-20261023/native-guards.txt) — Native test excerpt
-- [native-red.txt](/evidence/audioformat-20261023/native-red.txt) — Native test excerpt
+- [native-final-receipt.txt](/evidence/audioformat/native-final-receipt.txt) — Native test excerpt
+- [native-final.txt](/evidence/audioformat/native-final.txt) — Native test excerpt
+- [native-guards-receipt.txt](/evidence/audioformat/native-guards-receipt.txt) — Native test excerpt
+- [native-guards.txt](/evidence/audioformat/native-guards.txt) — Native test excerpt
+- [native-red.txt](/evidence/audioformat/native-red.txt) — Native test excerpt
 
-### audiolevels-20261023
+### audiolevels
 
-- [native-green.txt](/evidence/audiolevels-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/audiolevels-20261023/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/audiolevels/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/audiolevels/native-red.txt) — Native test excerpt
 
 ### bridgeports
 
@@ -46,265 +51,265 @@ they are not citations to unpublished evidence.
 - [nativecheck_final.txt](/evidence/bridgeports/nativecheck_final.txt) — Native test excerpt
 - [nativecheck_final2.txt](/evidence/bridgeports/nativecheck_final2.txt) — Native test excerpt
 
-### capturebanks-20261024
+### capturebanks
 
-- [banked-proof.json](/evidence/capturebanks-20261024/banked-proof.json) — Execution observation
-- [neutral-proof.json](/evidence/capturebanks-20261024/neutral-proof.json) — Execution observation
-- [native-banks-green.txt](/evidence/capturebanks-20261024/native-banks-green.txt) — Native test excerpt
-- [native-banks-red.txt](/evidence/capturebanks-20261024/native-banks-red.txt) — Native test excerpt
-- [native-module-green.txt](/evidence/capturebanks-20261024/native-module-green.txt) — Native test excerpt
+- [banked-proof.json](/evidence/capturebanks/banked-proof.json) — Execution observation
+- [neutral-proof.json](/evidence/capturebanks/neutral-proof.json) — Execution observation
+- [native-banks-green.txt](/evidence/capturebanks/native-banks-green.txt) — Native test excerpt
+- [native-banks-red.txt](/evidence/capturebanks/native-banks-red.txt) — Native test excerpt
+- [native-module-green.txt](/evidence/capturebanks/native-module-green.txt) — Native test excerpt
 
-### capturecompletion-20261024
+### capturecompletion
 
-- [final-proof.json](/evidence/capturecompletion-20261024/final-proof.json) — Execution observation
-- [finalreview-proof.json](/evidence/capturecompletion-20261024/finalreview-proof.json) — Execution observation
-- [finalverify-proof.json](/evidence/capturecompletion-20261024/finalverify-proof.json) — Execution observation
-- [native-bankcancel.txt](/evidence/capturecompletion-20261024/native-bankcancel.txt) — Native test excerpt
-- [native-final.txt](/evidence/capturecompletion-20261024/native-final.txt) — Native test excerpt
-- [native-green.txt](/evidence/capturecompletion-20261024/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/capturecompletion-20261024/native-red.txt) — Native test excerpt
-- [native-revision-green.txt](/evidence/capturecompletion-20261024/native-revision-green.txt) — Native test excerpt
-- [native-revision-red.txt](/evidence/capturecompletion-20261024/native-revision-red.txt) — Native test excerpt
+- [final-proof.json](/evidence/capturecompletion/final-proof.json) — Execution observation
+- [finalreview-proof.json](/evidence/capturecompletion/finalreview-proof.json) — Execution observation
+- [finalverify-proof.json](/evidence/capturecompletion/finalverify-proof.json) — Execution observation
+- [native-bankcancel.txt](/evidence/capturecompletion/native-bankcancel.txt) — Native test excerpt
+- [native-final.txt](/evidence/capturecompletion/native-final.txt) — Native test excerpt
+- [native-green.txt](/evidence/capturecompletion/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/capturecompletion/native-red.txt) — Native test excerpt
+- [native-revision-green.txt](/evidence/capturecompletion/native-revision-green.txt) — Native test excerpt
+- [native-revision-red.txt](/evidence/capturecompletion/native-revision-red.txt) — Native test excerpt
 
-### capturedata-20261024
+### capturedata
 
-- [routes-proof.json](/evidence/capturedata-20261024/routes-proof.json) — Execution observation
-- [verified-proof.json](/evidence/capturedata-20261024/verified-proof.json) — Execution observation
-- [native-green.txt](/evidence/capturedata-20261024/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/capturedata-20261024/native-red.txt) — Native test excerpt
+- [routes-proof.json](/evidence/capturedata/routes-proof.json) — Execution observation
+- [verified-proof.json](/evidence/capturedata/verified-proof.json) — Execution observation
+- [native-green.txt](/evidence/capturedata/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/capturedata/native-red.txt) — Native test excerpt
 
-### captureflow-20261022
+### captureflow
 
-- [native-cancel-red.txt](/evidence/captureflow-20261022/native-cancel-red.txt) — Native test excerpt
-- [native-family-red.txt](/evidence/captureflow-20261022/native-family-red.txt) — Native test excerpt
-- [native-final-receipt.txt](/evidence/captureflow-20261022/native-final-receipt.txt) — Native test excerpt
-- [native-final.txt](/evidence/captureflow-20261022/native-final.txt) — Native test excerpt
-- [native-first-green.txt](/evidence/captureflow-20261022/native-first-green.txt) — Native test excerpt
-- [native-pair-red.txt](/evidence/captureflow-20261022/native-pair-red.txt) — Native test excerpt
-- [native-red.txt](/evidence/captureflow-20261022/native-red.txt) — Native test excerpt
+- [native-cancel-red.txt](/evidence/captureflow/native-cancel-red.txt) — Native test excerpt
+- [native-family-red.txt](/evidence/captureflow/native-family-red.txt) — Native test excerpt
+- [native-final-receipt.txt](/evidence/captureflow/native-final-receipt.txt) — Native test excerpt
+- [native-final.txt](/evidence/captureflow/native-final.txt) — Native test excerpt
+- [native-first-green.txt](/evidence/captureflow/native-first-green.txt) — Native test excerpt
+- [native-pair-red.txt](/evidence/captureflow/native-pair-red.txt) — Native test excerpt
+- [native-red.txt](/evidence/captureflow/native-red.txt) — Native test excerpt
 
-### capturegroup-20261024
+### capturegroup
 
-- [green-proof.json](/evidence/capturegroup-20261024/green-proof.json) — Execution observation
-- [red-proof.json](/evidence/capturegroup-20261024/red-proof.json) — Execution observation
-- [native-group-green.txt](/evidence/capturegroup-20261024/native-group-green.txt) — Native test excerpt
-- [native-group-red.txt](/evidence/capturegroup-20261024/native-group-red.txt) — Native test excerpt
+- [green-proof.json](/evidence/capturegroup/green-proof.json) — Execution observation
+- [red-proof.json](/evidence/capturegroup/red-proof.json) — Execution observation
+- [native-group-green.txt](/evidence/capturegroup/native-group-green.txt) — Native test excerpt
+- [native-group-red.txt](/evidence/capturegroup/native-group-red.txt) — Native test excerpt
 
-### capturemask-20261022
+### capturemask
 
-- [native-final.txt](/evidence/capturemask-20261022/native-final.txt) — Native test excerpt
-- [native-green.txt](/evidence/capturemask-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/capturemask-20261022/native-red.txt) — Native test excerpt
+- [native-final.txt](/evidence/capturemask/native-final.txt) — Native test excerpt
+- [native-green.txt](/evidence/capturemask/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/capturemask/native-red.txt) — Native test excerpt
 
-### captureparams-20261024
+### captureparams
 
-- [green-proof.json](/evidence/captureparams-20261024/green-proof.json) — Execution observation
-- [red-proof.json](/evidence/captureparams-20261024/red-proof.json) — Execution observation
-- [native-params-final.txt](/evidence/captureparams-20261024/native-params-final.txt) — Native test excerpt
-- [native-params-green.txt](/evidence/captureparams-20261024/native-params-green.txt) — Native test excerpt
-- [native-params-red.txt](/evidence/captureparams-20261024/native-params-red.txt) — Native test excerpt
+- [green-proof.json](/evidence/captureparams/green-proof.json) — Execution observation
+- [red-proof.json](/evidence/captureparams/red-proof.json) — Execution observation
+- [native-params-final.txt](/evidence/captureparams/native-params-final.txt) — Native test excerpt
+- [native-params-green.txt](/evidence/captureparams/native-params-green.txt) — Native test excerpt
+- [native-params-red.txt](/evidence/captureparams/native-params-red.txt) — Native test excerpt
 
-### captureresults-20261024
+### captureresults
 
-- [green-proof.json](/evidence/captureresults-20261024/green-proof.json) — Execution observation
-- [red-control-proof.json](/evidence/captureresults-20261024/red-control-proof.json) — Execution observation
-- [native-results-final.txt](/evidence/captureresults-20261024/native-results-final.txt) — Native test excerpt
-- [native-results-green.txt](/evidence/captureresults-20261024/native-results-green.txt) — Native test excerpt
-- [native-results-independent-unit.txt](/evidence/captureresults-20261024/native-results-independent-unit.txt) — Native test excerpt
-- [native-results-red.txt](/evidence/captureresults-20261024/native-results-red.txt) — Native test excerpt
+- [green-proof.json](/evidence/captureresults/green-proof.json) — Execution observation
+- [red-control-proof.json](/evidence/captureresults/red-control-proof.json) — Execution observation
+- [native-results-final.txt](/evidence/captureresults/native-results-final.txt) — Native test excerpt
+- [native-results-green.txt](/evidence/captureresults/native-results-green.txt) — Native test excerpt
+- [native-results-independent-unit.txt](/evidence/captureresults/native-results-independent-unit.txt) — Native test excerpt
+- [native-results-red.txt](/evidence/captureresults/native-results-red.txt) — Native test excerpt
 
-### clearmode-20261023
+### clearmode
 
-- [native-green.txt](/evidence/clearmode-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/clearmode-20261023/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/clearmode/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/clearmode/native-red.txt) — Native test excerpt
 
-### convertpaint-20261023
+### convertpaint
 
-- [native-focused.txt](/evidence/convertpaint-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/convertpaint-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/convertpaint-20261023/native-red.txt) — Native test excerpt
+- [native-focused.txt](/evidence/convertpaint/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/convertpaint/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/convertpaint/native-red.txt) — Native test excerpt
 
-### graphicscommands-20261023
+### graphicscommands
 
-- [native-final.txt](/evidence/graphicscommands-20261023/native-final.txt) — Native test excerpt
-- [native-green.txt](/evidence/graphicscommands-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/graphicscommands-20261023/native-red.txt) — Native test excerpt
+- [native-final.txt](/evidence/graphicscommands/native-final.txt) — Native test excerpt
+- [native-green.txt](/evidence/graphicscommands/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/graphicscommands/native-red.txt) — Native test excerpt
 
-### gridstorage-20261024
+### gridstorage
 
-- [verified-proof.json](/evidence/gridstorage-20261024/verified-proof.json) — Execution observation
-- [native-green.txt](/evidence/gridstorage-20261024/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/gridstorage-20261024/native-red.txt) — Native test excerpt
+- [verified-proof.json](/evidence/gridstorage/verified-proof.json) — Execution observation
+- [native-green.txt](/evidence/gridstorage/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/gridstorage/native-red.txt) — Native test excerpt
 
-### groupcursor-20261024
+### groupcursor
 
-- [cursor-proof.json](/evidence/groupcursor-20261024/cursor-proof.json) — Execution observation
-- [vd-proof.json](/evidence/groupcursor-20261024/vd-proof.json) — Execution observation
-- [wait-proof.json](/evidence/groupcursor-20261024/wait-proof.json) — Execution observation
-- [native-cursor-final.txt](/evidence/groupcursor-20261024/native-cursor-final.txt) — Native test excerpt
-- [native-cursor-green.txt](/evidence/groupcursor-20261024/native-cursor-green.txt) — Native test excerpt
-- [native-cursor-red.txt](/evidence/groupcursor-20261024/native-cursor-red.txt) — Native test excerpt
+- [cursor-proof.json](/evidence/groupcursor/cursor-proof.json) — Execution observation
+- [vd-proof.json](/evidence/groupcursor/vd-proof.json) — Execution observation
+- [wait-proof.json](/evidence/groupcursor/wait-proof.json) — Execution observation
+- [native-cursor-final.txt](/evidence/groupcursor/native-cursor-final.txt) — Native test excerpt
+- [native-cursor-green.txt](/evidence/groupcursor/native-cursor-green.txt) — Native test excerpt
+- [native-cursor-red.txt](/evidence/groupcursor/native-cursor-red.txt) — Native test excerpt
 
-### groupresults-20261024
+### groupresults
 
-- [proof.json](/evidence/groupresults-20261024/proof.json) — Execution observation
+- [proof.json](/evidence/groupresults/proof.json) — Execution observation
 
-### guiimage-20261023
+### guiimage
 
-- [native-final.txt](/evidence/guiimage-20261023/native-final.txt) — Native test excerpt
-- [native-focused.txt](/evidence/guiimage-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/guiimage-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/guiimage-20261023/native-red.txt) — Native test excerpt
+- [native-final.txt](/evidence/guiimage/native-final.txt) — Native test excerpt
+- [native-focused.txt](/evidence/guiimage/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/guiimage/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/guiimage/native-red.txt) — Native test excerpt
 
-### guinormal-20261022
+### guinormal
 
-- [native-acceleration.txt](/evidence/guinormal-20261022/native-acceleration.txt) — Native test excerpt
-- [native-unit.txt](/evidence/guinormal-20261022/native-unit.txt) — Native test excerpt
+- [native-acceleration.txt](/evidence/guinormal/native-acceleration.txt) — Native test excerpt
+- [native-unit.txt](/evidence/guinormal/native-unit.txt) — Native test excerpt
 
-### guipaths-20261023
+### guipaths
 
-- [native-focused.txt](/evidence/guipaths-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/guipaths-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/guipaths-20261023/native-red.txt) — Native test excerpt
+- [native-focused.txt](/evidence/guipaths/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/guipaths/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/guipaths/native-red.txt) — Native test excerpt
 
-### hdmacflags-20261023
+### hdmacflags
 
-- [native-boundaries.txt](/evidence/hdmacflags-20261023/native-boundaries.txt) — Native test excerpt
-- [native-green.txt](/evidence/hdmacflags-20261023/native-green.txt) — Native test excerpt
-- [native-guards.txt](/evidence/hdmacflags-20261023/native-guards.txt) — Native test excerpt
-- [native-red.txt](/evidence/hdmacflags-20261023/native-red.txt) — Native test excerpt
+- [native-boundaries.txt](/evidence/hdmacflags/native-boundaries.txt) — Native test excerpt
+- [native-green.txt](/evidence/hdmacflags/native-green.txt) — Native test excerpt
+- [native-guards.txt](/evidence/hdmacflags/native-guards.txt) — Native test excerpt
+- [native-red.txt](/evidence/hdmacflags/native-red.txt) — Native test excerpt
 
-### imageprefix-20261023
+### imageprefix
 
-- [native-dispatch-red.txt](/evidence/imageprefix-20261023/native-dispatch-red.txt) — Native test excerpt
-- [native-final.txt](/evidence/imageprefix-20261023/native-final.txt) — Native test excerpt
-- [native-focused.txt](/evidence/imageprefix-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/imageprefix-20261023/native-green.txt) — Native test excerpt
-- [native-prefix.txt](/evidence/imageprefix-20261023/native-prefix.txt) — Native test excerpt
-- [native-red.txt](/evidence/imageprefix-20261023/native-red.txt) — Native test excerpt
+- [native-dispatch-red.txt](/evidence/imageprefix/native-dispatch-red.txt) — Native test excerpt
+- [native-final.txt](/evidence/imageprefix/native-final.txt) — Native test excerpt
+- [native-focused.txt](/evidence/imageprefix/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/imageprefix/native-green.txt) — Native test excerpt
+- [native-prefix.txt](/evidence/imageprefix/native-prefix.txt) — Native test excerpt
+- [native-red.txt](/evidence/imageprefix/native-red.txt) — Native test excerpt
 
-### interpolationmemory-20261024
+### interpolationmemory
 
-- [verified-proof.json](/evidence/interpolationmemory-20261024/verified-proof.json) — Execution observation
-- [native-green.txt](/evidence/interpolationmemory-20261024/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/interpolationmemory-20261024/native-red.txt) — Native test excerpt
+- [verified-proof.json](/evidence/interpolationmemory/verified-proof.json) — Execution observation
+- [native-green.txt](/evidence/interpolationmemory/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/interpolationmemory/native-red.txt) — Native test excerpt
 
-### kindforty-20261022
+### kindforty
 
-- [native-green.txt](/evidence/kindforty-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/kindforty-20261022/native-red.txt) — Native test excerpt
-- [native-sensor-green.txt](/evidence/kindforty-20261022/native-sensor-green.txt) — Native test excerpt
+- [native-green.txt](/evidence/kindforty/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/kindforty/native-red.txt) — Native test excerpt
+- [native-sensor-green.txt](/evidence/kindforty/native-sensor-green.txt) — Native test excerpt
 
-### matrixoverwrite-20261023
+### matrixoverwrite
 
-- [native-focused.txt](/evidence/matrixoverwrite-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/matrixoverwrite-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/matrixoverwrite-20261023/native-red.txt) — Native test excerpt
+- [native-focused.txt](/evidence/matrixoverwrite/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/matrixoverwrite/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/matrixoverwrite/native-red.txt) — Native test excerpt
 
-### moduleinput-20261024
+### moduleinput
 
-- [native-display-buffer-green.txt](/evidence/moduleinput-20261024/native-display-buffer-green.txt) — Native test excerpt
-- [native-image-green.txt](/evidence/moduleinput-20261024/native-image-green.txt) — Native test excerpt
-- [native-memory-green.txt](/evidence/moduleinput-20261024/native-memory-green.txt) — Native test excerpt
-- [native-module-red.txt](/evidence/moduleinput-20261024/native-module-red.txt) — Native test excerpt
-- [native-visible-red.txt](/evidence/moduleinput-20261024/native-visible-red.txt) — Native test excerpt
+- [native-display-buffer-green.txt](/evidence/moduleinput/native-display-buffer-green.txt) — Native test excerpt
+- [native-image-green.txt](/evidence/moduleinput/native-image-green.txt) — Native test excerpt
+- [native-memory-green.txt](/evidence/moduleinput/native-memory-green.txt) — Native test excerpt
+- [native-module-red.txt](/evidence/moduleinput/native-module-red.txt) — Native test excerpt
+- [native-visible-red.txt](/evidence/moduleinput/native-visible-red.txt) — Native test excerpt
 
-### mxic-20261022
+### mxic
 
-- [native-green.txt](/evidence/mxic-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/mxic-20261022/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/mxic/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/mxic/native-red.txt) — Native test excerpt
 
-### paintmask-20261023
+### paintmask
 
-- [native-context-focused.txt](/evidence/paintmask-20261023/native-context-focused.txt) — Native test excerpt
-- [native-context-red.txt](/evidence/paintmask-20261023/native-context-red.txt) — Native test excerpt
-- [native-final-focused.txt](/evidence/paintmask-20261023/native-final-focused.txt) — Native test excerpt
-- [native-final.txt](/evidence/paintmask-20261023/native-final.txt) — Native test excerpt
-- [native-focused.txt](/evidence/paintmask-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/paintmask-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/paintmask-20261023/native-red.txt) — Native test excerpt
+- [native-context-focused.txt](/evidence/paintmask/native-context-focused.txt) — Native test excerpt
+- [native-context-red.txt](/evidence/paintmask/native-context-red.txt) — Native test excerpt
+- [native-final-focused.txt](/evidence/paintmask/native-final-focused.txt) — Native test excerpt
+- [native-final.txt](/evidence/paintmask/native-final.txt) — Native test excerpt
+- [native-focused.txt](/evidence/paintmask/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/paintmask/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/paintmask/native-red.txt) — Native test excerpt
 
-### ramalignment-20261023
+### ramalignment
 
-- [native-green.txt](/evidence/ramalignment-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/ramalignment-20261023/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/ramalignment/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/ramalignment/native-red.txt) — Native test excerpt
 
-### readinessnormal-20261023
+### readinessnormal
 
-- [native-image-green.txt](/evidence/readinessnormal-20261023/native-image-green.txt) — Native test excerpt
-- [native-yuva-red.txt](/evidence/readinessnormal-20261023/native-yuva-red.txt) — Native test excerpt
+- [native-image-green.txt](/evidence/readinessnormal/native-image-green.txt) — Native test excerpt
+- [native-yuva-red.txt](/evidence/readinessnormal/native-yuva-red.txt) — Native test excerpt
 
-### rectanglecontinuation-20261023
+### rectanglecontinuation
 
-- [native-green.txt](/evidence/rectanglecontinuation-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/rectanglecontinuation-20261023/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/rectanglecontinuation/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/rectanglecontinuation/native-red.txt) — Native test excerpt
 
-### reproducible-20261026
+### reproducible
 
-- [native-final.txt](/evidence/reproducible-20261026/native-final.txt) — Native test excerpt
+- [native-final.txt](/evidence/reproducible/native-final.txt) — Native test excerpt
 
-### rgbaover-20261023
+### rgbaover
 
-- [native-green.txt](/evidence/rgbaover-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/rgbaover-20261023/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/rgbaover/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/rgbaover/native-red.txt) — Native test excerpt
 
-### router-20261022
+### router
 
-- [native-green-receipt.txt](/evidence/router-20261022/native-green-receipt.txt) — Native test excerpt
-- [native-green.txt](/evidence/router-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/router-20261022/native-red.txt) — Native test excerpt
+- [native-green-receipt.txt](/evidence/router/native-green-receipt.txt) — Native test excerpt
+- [native-green.txt](/evidence/router/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/router/native-red.txt) — Native test excerpt
 
-### routerfunctional-20261022
+### routerfunctional
 
-- [native-before-review.txt](/evidence/routerfunctional-20261022/native-before-review.txt) — Native test excerpt
-- [native-final-receipt.txt](/evidence/routerfunctional-20261022/native-final-receipt.txt) — Native test excerpt
-- [native-final.txt](/evidence/routerfunctional-20261022/native-final.txt) — Native test excerpt
-- [native-green-receipt.txt](/evidence/routerfunctional-20261022/native-green-receipt.txt) — Native test excerpt
-- [native-green.txt](/evidence/routerfunctional-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/routerfunctional-20261022/native-red.txt) — Native test excerpt
+- [native-before-review.txt](/evidence/routerfunctional/native-before-review.txt) — Native test excerpt
+- [native-final-receipt.txt](/evidence/routerfunctional/native-final-receipt.txt) — Native test excerpt
+- [native-final.txt](/evidence/routerfunctional/native-final.txt) — Native test excerpt
+- [native-green-receipt.txt](/evidence/routerfunctional/native-green-receipt.txt) — Native test excerpt
+- [native-green.txt](/evidence/routerfunctional/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/routerfunctional/native-red.txt) — Native test excerpt
 
-### sensorprofile-20261024
+### sensorprofile
 
-- [ccompnormal-proof.json](/evidence/sensorprofile-20261024/ccompnormal-proof.json) — Execution observation
-- [endpointscounts-proof.json](/evidence/sensorprofile-20261024/endpointscounts-proof.json) — Execution observation
-- [timingdiagnostic-proof.json](/evidence/sensorprofile-20261024/timingdiagnostic-proof.json) — Execution observation
-- [native-ccomp-green.txt](/evidence/sensorprofile-20261024/native-ccomp-green.txt) — Native test excerpt
-- [native-ccomp-red.txt](/evidence/sensorprofile-20261024/native-ccomp-red.txt) — Native test excerpt
-- [native-endpoints-green.txt](/evidence/sensorprofile-20261024/native-endpoints-green.txt) — Native test excerpt
-- [native-endpoints-red.txt](/evidence/sensorprofile-20261024/native-endpoints-red.txt) — Native test excerpt
-- [native-globals-red.txt](/evidence/sensorprofile-20261024/native-globals-red.txt) — Native test excerpt
-- [native-gpio-green.txt](/evidence/sensorprofile-20261024/native-gpio-green.txt) — Native test excerpt
-- [native-packet-green.txt](/evidence/sensorprofile-20261024/native-packet-green.txt) — Native test excerpt
-- [native-packet-red.txt](/evidence/sensorprofile-20261024/native-packet-red.txt) — Native test excerpt
+- [ccompnormal-proof.json](/evidence/sensorprofile/ccompnormal-proof.json) — Execution observation
+- [endpointscounts-proof.json](/evidence/sensorprofile/endpointscounts-proof.json) — Execution observation
+- [timingdiagnostic-proof.json](/evidence/sensorprofile/timingdiagnostic-proof.json) — Execution observation
+- [native-ccomp-green.txt](/evidence/sensorprofile/native-ccomp-green.txt) — Native test excerpt
+- [native-ccomp-red.txt](/evidence/sensorprofile/native-ccomp-red.txt) — Native test excerpt
+- [native-endpoints-green.txt](/evidence/sensorprofile/native-endpoints-green.txt) — Native test excerpt
+- [native-endpoints-red.txt](/evidence/sensorprofile/native-endpoints-red.txt) — Native test excerpt
+- [native-globals-red.txt](/evidence/sensorprofile/native-globals-red.txt) — Native test excerpt
+- [native-gpio-green.txt](/evidence/sensorprofile/native-gpio-green.txt) — Native test excerpt
+- [native-packet-green.txt](/evidence/sensorprofile/native-packet-green.txt) — Native test excerpt
+- [native-packet-red.txt](/evidence/sensorprofile/native-packet-red.txt) — Native test excerpt
 
-### singletarget-20261023
+### singletarget
 
-- [native-focused.txt](/evidence/singletarget-20261023/native-focused.txt) — Native test excerpt
-- [native-green.txt](/evidence/singletarget-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/singletarget-20261023/native-red.txt) — Native test excerpt
+- [native-focused.txt](/evidence/singletarget/native-focused.txt) — Native test excerpt
+- [native-green.txt](/evidence/singletarget/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/singletarget/native-red.txt) — Native test excerpt
 
-### streamstorage-20261022
+### streamstorage
 
-- [native-green.txt](/evidence/streamstorage-20261022/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/streamstorage-20261022/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/streamstorage/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/streamstorage/native-red.txt) — Native test excerpt
 
-### sysconfig-20261022
+### sysconfig
 
-- [native-green.txt](/evidence/sysconfig-20261022/native-green.txt) — Native test excerpt
-- [native-red-fullword.txt](/evidence/sysconfig-20261022/native-red-fullword.txt) — Native test excerpt
-- [native-red.txt](/evidence/sysconfig-20261022/native-red.txt) — Native test excerpt
+- [native-green.txt](/evidence/sysconfig/native-green.txt) — Native test excerpt
+- [native-red-fullword.txt](/evidence/sysconfig/native-red-fullword.txt) — Native test excerpt
+- [native-red.txt](/evidence/sysconfig/native-red.txt) — Native test excerpt
 
-### timingextra-20261023
+### timingextra
 
-- [native-final.txt](/evidence/timingextra-20261023/native-final.txt) — Native test excerpt
-- [native-green.txt](/evidence/timingextra-20261023/native-green.txt) — Native test excerpt
-- [native-red.txt](/evidence/timingextra-20261023/native-red.txt) — Native test excerpt
-- [native-transfer-final.txt](/evidence/timingextra-20261023/native-transfer-final.txt) — Native test excerpt
+- [native-final.txt](/evidence/timingextra/native-final.txt) — Native test excerpt
+- [native-green.txt](/evidence/timingextra/native-green.txt) — Native test excerpt
+- [native-red.txt](/evidence/timingextra/native-red.txt) — Native test excerpt
+- [native-transfer-final.txt](/evidence/timingextra/native-transfer-final.txt) — Native test excerpt
 
-### timingmatrix-20261022
+### timingmatrix
 
-- [native-complete.txt](/evidence/timingmatrix-20261022/native-complete.txt) — Native test excerpt
-- [native-final.txt](/evidence/timingmatrix-20261022/native-final.txt) — Native test excerpt
-- [native-green.txt](/evidence/timingmatrix-20261022/native-green.txt) — Native test excerpt
-- [native-load-red.txt](/evidence/timingmatrix-20261022/native-load-red.txt) — Native test excerpt
-- [native-validated.txt](/evidence/timingmatrix-20261022/native-validated.txt) — Native test excerpt
+- [native-complete.txt](/evidence/timingmatrix/native-complete.txt) — Native test excerpt
+- [native-final.txt](/evidence/timingmatrix/native-final.txt) — Native test excerpt
+- [native-green.txt](/evidence/timingmatrix/native-green.txt) — Native test excerpt
+- [native-load-red.txt](/evidence/timingmatrix/native-load-red.txt) — Native test excerpt
+- [native-validated.txt](/evidence/timingmatrix/native-validated.txt) — Native test excerpt

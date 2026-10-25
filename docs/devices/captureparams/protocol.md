@@ -142,7 +142,7 @@ writes after virtual time advances. Reset clears the finite configuration;
 the final scoped fixture also checks actual HMP readability of every known
 word after reset, independently of qtest's zero-filled error buffer.
 
-The unchanged20-host-second `captureparams-20261024/green` run uses the same
+The unchanged20-host-second `captureparams/green` run uses the same
 cold-neutral input and final read-only debugger snapshot. Six original loader
 COPY ranges compare with the file, original version guard returns0 with packed150,
 and property6433 is empty. The prior capture-group cold-empty assumption still
@@ -167,4 +167,4 @@ they are not executed in this original flag200 receipt.
 
 Raw source projections, instruction comparisons, native red/green receipts,
 actual argv, QMP status, read-only snapshots and loader/table comparisons stay
-in`run captureparams-20261024/`.
+in`run captureparams/`.

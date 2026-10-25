@@ -1,6 +1,6 @@
 # Encoded domain completion transactions
 
-This change addresses [Issue399](https://github.com/mashiro01/nightglass/issues/399), based on native QEMU integration `193ee98138c85c2b2848836952228078a64e4f20`. It extends the existing completion transaction, without changing machine wiring or the guest's RTOS state. The [older diagnostic report](protocol.md) retains its historical strict reset and caller-subset limits; the [current functional reset](../../startup/protocol.md) remains request/done/enable/applied zero.
+This change addresses the request-driven completion lifecycle, based on native QEMU integration `193ee98138c85c2b2848836952228078a64e4f20`. It extends the existing completion transaction, without changing machine wiring or the guest's RTOS state. The [older diagnostic report](protocol.md) retains its historical strict reset and caller-subset limits; the [current functional reset](../../startup/protocol.md) remains request/done/enable/applied zero.
 
 ## Complete setter and caller boundary
 

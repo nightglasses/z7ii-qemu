@@ -33,7 +33,7 @@ Historical run labels are provenance identifiers; the
   state = base address; ranges allowed.
 - `addr_kind`: code | data | mmio | ram | table | field | record | irq | region.
 - `evidence`: observed | verified | inferred | hypothesis (see below).
-- `source`: mandatory provenance (receipt path or issue URL).
+- `source`: mandatory provenance (article section, published attachment or pinned source).
 - `refs`: related addresses (relation described in `notes`).
 
 Evidence discipline: `observed` = runtime observation; `verified` = confirmed
@@ -67,6 +67,6 @@ build the handbook to check links and diagram syntax.
 
 ## Provenance
 
-Derived from `run **` receipts, `docs/**` and the issue tracker. The
+Derived from retained run observations, technical articles and pinned source. The
 receipts remain the evidence; this map only indexes them. It does not claim
 physical-camera fidelity, and it does not modify firmware bytes.

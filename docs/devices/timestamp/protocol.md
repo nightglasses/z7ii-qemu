@@ -5,7 +5,7 @@ is [runtime.md](runtime.md); its original+10 producer supersedes the vendor
 candidate+20/status interpretation below. Earlier receipts keep their scope.
 
 This layer implements the increasing counter read by original MAS O1e0de6
-at PA04266000+8 for [issue330](https://github.com/mashiro01/nightglass/issues/330).
+at PA04266000+8 for [MEMC and early peripheral startup](/startup/memc).
 Address placement and same-family IP association are functional hypotheses.
 An original CNTFRQ=48MHz write does not establish this external clock, so the
 model assigns an independent nominal48MHz QEMU Clock.

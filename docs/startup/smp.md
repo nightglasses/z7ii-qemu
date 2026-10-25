@@ -1,8 +1,6 @@
 # Original two-core entry and the next clock boundary
 
-Historical checkpoint, 2026-10-08,
-[issue331](https://github.com/mashiro01/nightglass/issues/331) /
-[issue330](https://github.com/mashiro01/nightglass/issues/330).
+This observation qualifies multicore entry after [MEMC initialization](memc.md).
 The two-core model built and its synthetic WFE/DSB/SEV handshake passed.
 Original MTTCG observed CPU1 after WFE while CPU0 still failed its first clock
 read at0428102c. Original magic release, kernel dispatch, tick and GUI were

@@ -126,7 +126,7 @@ cold F4 and normally paced healthy UART profiles. Final BatCk is `00010001`;
 GUI gate/pending3/display-ready remain zero, and the peer rejects no request.
 Guest-memory pixels and handler entry do not establish scanout or a first frame.
 
-Ignored receipts: `run guiimage-20261023/`, including original `red`,
+Ignored receipts: `run guiimage/`, including original `red`,
 `probe`, intermediate `initialized`, final `green`, physical source/preimage
 and output captures, complete next buffers, source projections, native
 red/mode-red/final logs, `initialized-pixels.json` and `verified-progress.json`.

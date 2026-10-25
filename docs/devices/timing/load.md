@@ -66,7 +66,7 @@ W1C, reset cancellation, compare gates and capture-profile bounds remain.
 
 ## Native checks and original continuation
 
-Parent-owned receipts are under `run timingmatrix-20261022/`. The same
+Parent-owned receipts are under `run timingmatrix/`. The same
 unchanged-bundle normal-request run fails its original channel7 submission
 assertion before the change (`red.py`, `red.stderr`). The new native divider/load
 matrix also fails against the old model, reading0 instead of2900 after the
@@ -137,7 +137,7 @@ divisors1/50/250. The existing virtual opcode labels below are not recovered
 hardware meanings. That historical extension admitted numeric0 only and did not add
 divider or optional-feature behavior. Nominal3GHz remains a virtual assumption.
 
-`run timingpreset-20261025/red.log` records the old model failing the
+`run timingpreset/red.log` records the old model failing the
 initial-count assertion. `green.log` records all eight native timing cases
 passing, including expiry/IRQ/W1C, pause/resume, illegal submits, staged and
 running reset cancellation, and preservation of pending IRQ. The unchanged

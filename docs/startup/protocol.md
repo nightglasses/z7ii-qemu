@@ -4,8 +4,8 @@ The machine follows firmware software protocols with explicitly declared
 virtual reset values and completion timing. Historical strict-unknown-state
 receipts remain tied to their original commits, not relabeled as evidence
 for the functional model. Scope:
-[system control/clock](https://github.com/mashiro01/nightglass/issues/330) and
-[RTOS startup dependencies](https://github.com/mashiro01/nightglass/issues/331).
+[MEMC and early peripheral startup](/startup/memc) and
+[RTOS and multicore startup](/startup/smp).
 
 ## Completion and system-control contracts
 

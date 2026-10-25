@@ -1,6 +1,6 @@
 # ID34 structural candidates
 
-The 2026-10-22 read-only scan found **296 structural windows**, not 296 ID34
+The read-only scan found **296 structural windows**, not 296 ID34
 records. No candidate is authenticated or approved as an external input. The
 screen deliberately retains overlapping windows, degenerate one-cell layouts
 and repeated coordinates; these weak matches require loader/xref evidence.
@@ -8,8 +8,8 @@ and repeated coordinates; these weak matches require loader/xref evidence.
 ## Method and retained evidence
 
 The stdlib-only scanner and full results are ignored artifacts:
-`run id34candidates-20261022/scan.py` and `result.json`. Reproduce from
-the repository root with `rtk python3 run id34candidates-20261022/scan.py`.
+`run id34candidates/scan.py` and `result.json`. Reproduce from
+the repository root with `rtk python3 run id34candidates/scan.py`.
 The JSON records exact absolute input paths, lengths, parameters, every
 dimension match, its first coordinate exclusion reason, and each survivor's
 active rectangles. Inputs are the original payloads identified by
@@ -120,7 +120,7 @@ last four words. The matching native getter in Z6II is at MAS VA `102cff0e`
 and returns base `119cae8c`, containing its `19ab2e0/19ab920` file-offset
 examples. These windows span multiple tuples and are not established ID34
 boundaries. The parent retains byte review, pointer searches and getter
-comparison in `run id34producer-20261022/`; see the
+comparison in `run id34producer/`; see the
 [consumer follow-up](../../runtime/id34.md#re-read-persistence-and-settings-are-distinct-paths).
 
 This result is limited to the five named byte ranges, positive dimensions,

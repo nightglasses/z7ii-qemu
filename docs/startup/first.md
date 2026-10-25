@@ -1,6 +1,6 @@
 # First diagnostic execution of original Z7II C1.70 MAS
 
-Historical checkpoint, 2026-10-08, [issue326](https://github.com/mashiro01/nightglass/issues/326).
+Recorded startup scope: [unchanged-firmware startup](/startup/first).
 Original MAS executed and stopped on its first unsupported write. Complete boot,
 arrival at `O0x178` and reconstruction comparison were not established.
 This page records the bounded diagnostic run and the next device contract.

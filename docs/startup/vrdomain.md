@@ -20,7 +20,7 @@ The temporary `li()` change in ignored
 source graph. `cmake/rx.cmake` retains the existing explicit EXTB capability;
 the official `qemu/` submodule is unchanged.
 
-On 2026-10-21, `make prepare` followed by
+`make prepare` followed by
 `make check MTESTARGS='nikon_vr nikon_peripherals' -j8` rebuilt the RX machine
 and translator and passed both executables: 2 machine subtests and 20 peripheral
 subtests, zero failures. Receipt:

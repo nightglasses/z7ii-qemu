@@ -1,8 +1,7 @@
 # Original MAS crosses MEMC initialization
 
-Historical checkpoint, 2026-10-08:
-[issue330](https://github.com/mashiro01/nightglass/issues/330) and
-[issue331](https://github.com/mashiro01/nightglass/issues/331).
+This observation qualifies early memory-controller initialization before
+[multicore startup](smp.md).
 Original MAS crossed two MEMC writes and the first temporary-stack PUSH, then
 rejected READ32 at diagnostic PA0428102c. Complete boot, O178, original
 RTOS/GIC/timer initialization and reconstruction comparison were unverified.

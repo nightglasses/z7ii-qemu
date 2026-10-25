@@ -151,7 +151,7 @@ conventions support functional output and need later source/hardware refinement.
 
 ## Format17 YUVA provider
 
-The unchanged original run in `run readinessnormal-20261023/banks.json`
+The unchanged original run in `run readinessnormal/banks.json`
 submits unit1 port0 with control `00030006`, lanes `02000301`, a 1024x682
 layer, primary PA `cb4a7000`, secondary PA `cb5fc000`, and byte strides
 2048/1024. The same run's `banks-head1.ppm` contains the old decoder's stripes.
@@ -213,7 +213,7 @@ blanking and cadence semantics remain unverified.130c carries a separate
 timing scalar, including1155 in the fixed rear profile.
 
 The normal20-host-second original run's read-only `geometry.json` in
-`run moduleinput-20261024/` observes unit1 main1308=`030c030c`,
+`run moduleinput/` observes unit1 main1308=`030c030c`,
 130c=`483`,1310/1314=`3`,1318=`707`,131c=`60`,1320/1324=`0`,
 1328=`2aa` and132c=`400`. Together with the setter/producer and the distinct
 port viewport, this supports the finite rule: compose the output at the
@@ -313,7 +313,7 @@ additional original menu or physical scanout receipt.
 Parent native red (`native-yuva-red.log`) exercised the new fixture against
 the old decoder and failed its pixel assertion, 32 versus64. The complete
 image batch then passed all14 subtests in4.41s (`native-image-green.log`).
-Both receipts are in `run readinessnormal-20261023/`.
+Both receipts are in `run readinessnormal/`.
 
 The separate unchanged-firmware `color` run in that directory used the same
 declared inputs, healthy UART peer and20 host seconds without an in-transaction
@@ -329,13 +329,13 @@ All earlier image fixtures now supply their explicit visible fields. The
 new case also checks a live512x342 output clipping a1024x682 port canvas,
 high-bit write rejection, missing/zero/over-budget extents preserving the
 complete prior surface without IRQ, recovery, pause and reset. The parent's
-old-model `native-visible-red.log` in `run moduleinput-20261024/`
+old-model `native-visible-red.log` in `run moduleinput/`
 rejects the expected1024x682 PPM length2095120 against the old780x780 length
 1825215. That synthetic red is separate from the original register snapshot
 and from any subsequent corrected original-run frame.
 
 The parent whole-image batch passes all15 subtests in4.61s
-(`moduleinput-20261024/native-image-green.log`). The separate `visible`
+(`moduleinput/native-image-green.log`). The separate `visible`
 unchanged-firmware run retains the same normal inputs and20 host seconds:
 QMP `display` head1 now publishes1024x682, with the complete guest error
 dialog and right-side icons in `visible-head1.ppm`. It adds no descriptor32

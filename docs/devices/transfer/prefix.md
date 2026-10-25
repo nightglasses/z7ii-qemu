@@ -131,7 +131,7 @@ That checkpoint captured but did not accept the packet. The subsequent
 [producer/ownership validation](target.md) now generalizes the initialized
 target and verifies record0 output through the original IRQ.
 
-Receipts: `run imageprefix-20261023/`, including native red/prefix/
+Receipts: `run imageprefix/`, including native red/prefix/
 dispatch-red/final logs; original baseline, unsuccessful green and final argv,
 traces, snapshots, raw streams/indirect data; source projections and
 producer/packet/IRQ/next-field joins. Original firmware bytes remain unchanged.
@@ -199,7 +199,7 @@ next original frontier require the parent integration receipts; defining a
 fixture is not evidence of passing validation or a GUI first frame.
 
 The parent subsequently records an old-model behavioral red at the first
-valid no-prefix START in `run timingextra-20261023/prefix-red.log`.
+valid no-prefix START in `run timingextra/prefix-red.log`.
 After integration, `prefix-green.log` passes the complete applicable transfer
 batch:25 subtests in2.10s, including the33-variant prefix fixture. These are
 synthetic native receipts. The original1232/1416 rejection described above
@@ -263,7 +263,7 @@ against the unmodified earlier full device. Restoring the final implementation,
 `native-transfer-final.log` passes all25 transfer subtests in2.11s, executing
 all39 prefix variants. These native receipts are synthetic.
 
-The final original run in `run timingextra-20261023/validated*` keeps
+The final original run in `run timingextra/validated*` keeps
 unchanged firmware and the declared functional inputs. Over110 host seconds,
 QMP reports running and no uncovered access is recorded. Four1232/1416 STARTs
 are observed, later graphics continue and a2976/3448 rectangle batch also

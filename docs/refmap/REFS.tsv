@@ -73,9 +73,9 @@ EX	0x802a834	code	EX battery setup callback	ex-battery	observed	run ex-battery-r
 EX	0x802a83e	code	EX battery setup callback	ex-battery	observed	run ex-battery-runtime/receipt.md	0x0802a834	observed =1
 EX	0x802fdf0	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x802fef0	code	unknown	startup-docs	hypothesis	docs/startup/ex.md; run ex-pad-pulse-protocol/receipt.md		address cited in assigned docs; role not stated in existing REFS.
-EX	0x802ff8c	code	EX expander config writer (full command inventory)	ex-io	observed	run ex-battery-runtime/issue488-current.txt	0x08030080	commands 00,08,48,6c,5c,70,04,40,43,0c,54,58,60,63,68,4c,50; never writes 0x74-76
+EX	0x802ff8c	code	EX expander config writer (full command inventory)	ex-io	observed	run ex-battery-runtime/battery-current.txt	0x08030080	commands 00,08,48,6c,5c,70,04,40,43,0c,54,58,60,63,68,4c,50; never writes 0x74-76
 EX	0x802ff9c	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
-EX	0x8030080	code	EX second expander config writer	ex-io	observed	run ex-battery-runtime/issue488-current.txt	0x0802ff8c	never writes debounce regs 0x74-76
+EX	0x8030080	code	EX second expander config writer	ex-io	observed	run ex-battery-runtime/battery-current.txt	0x0802ff8c	never writes debounce regs 0x74-76
 EX	0x803016a	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80301a8	code	unknown	legacy-runs	hypothesis	run ex-pad-pulse-protocol/receipt.md		address cited in legacy receipt; role not stated in assigned source
 EX	0x80301ec	code	unknown	legacy-runs	hypothesis	run ex-pad-pulse-protocol/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -331,7 +331,7 @@ EX	0x803d710	code	EX local event 02030081 handler	ex-input-builder	observed	run 
 EX	0x803d78c	code	EX local event 02030083 handler	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x02030083	
 EX	0x0803d8c8-0x0803d9b0	code	EX local event 0203008c handler	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md	0x0203008c 0x20011504	
 EX	0x803d8c8	code	EX input event handler	readout-input	verified	run analysis-input-roundtrip/receipt.md		updates shadow state
-EX	0x803d966	code	EX input mapper (5363 hits all value 0 observed)	ex-input-builder	observed	run ex-battery-runtime/issue488-current.txt	0x0803d96a	hot mapper breakpoint, timing-perturbed counterfactual
+EX	0x803d966	code	EX input mapper (5363 hits all value 0 observed)	ex-input-builder	observed	run ex-battery-runtime/battery-current.txt	0x0803d96a	hot mapper breakpoint, timing-perturbed counterfactual
 EX	0x0803d96a-0x0803d96c	code	EX event[9] -> state 0x20011504 store	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md	0x20011504	
 EX	0x803d96a	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803d96c	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
@@ -345,10 +345,10 @@ EX	0x803e2b0	code	unknown	legacy-runs	hypothesis	run display-command4-event-prob
 EX	0x803e428	code	unknown	legacy-runs	hypothesis	run ex-pad-pulse-protocol/receipt.md		address cited in legacy receipt; role not stated in assigned source
 EX	0x803e4e0	code	unknown	startup-docs	hypothesis	docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x803e51c	code	unknown	legacy-runs	hypothesis	run display-command4-event-probe/receipt.md,run ex-pad-pulse-protocol/receipt.md,run wonderlantern-ex-input-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
-EX	0x0803e574-0x0803e57c	code	EX logical index 9 = 1 (active low)	ex-input-builder	observed	run ex-battery-runtime/issue488-current.txt	0x0803e630	expander P0_6 path
-EX	0x0803e630-0x0803e646	code	EX two-sample software stabilizer	ex-input-builder	observed	run ex-battery-runtime/issue488-current.txt	0x0803e6ae	index-9 table [2,2,0]
+EX	0x0803e574-0x0803e57c	code	EX logical index 9 = 1 (active low)	ex-input-builder	observed	run ex-battery-runtime/battery-current.txt	0x0803e630	expander P0_6 path
+EX	0x0803e630-0x0803e646	code	EX two-sample software stabilizer	ex-input-builder	observed	run ex-battery-runtime/battery-current.txt	0x0803e6ae	index-9 table [2,2,0]
 EX	0x803e6aa	code	unknown	legacy-runs	hypothesis	run ex-pad-pulse-protocol/receipt.md		address cited in legacy receipt; role not stated in assigned source
-EX	0x803e6ae	code	EX emit event 0x0203008c	ex-input-builder	observed	run ex-battery-runtime/issue488-current.txt	0x0203008c	
+EX	0x803e6ae	code	EX emit event 0x0203008c	ex-input-builder	observed	run ex-battery-runtime/battery-current.txt	0x0203008c	
 EX	0x8040364	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80405c0	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80405e4	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -1161,7 +1161,7 @@ MAS	0x10233b98	code	capture conditional step	capture-state	verified	run lcdnext-
 MAS	0x10233db8	code	cleanup-mask-0x20 bypass entry	capture-state	verified	run lcdnext-capturestate10/issue485.md	0x1026de5c	zero hits
 MAS	0x10234642	code	capture owner state-1 entry	readout-input	verified	run analysis-readout-gate/receipt.md		sets B[3]=1 after checks
 MAS	0x10234794	code	owner lane-state field	readout-input	verified	run analysis-readout-gate/receipt.md		stores B[3]=1
-MAS	0x102347b6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	run ex-battery-runtime/issue488-current.txt; run analysis-gui-programs/receipt.md,run analysis-gui-programs/static-anchors.txt; run analysis-readout-gate/receipt.md	0x103299c6; 0x10234948;0x10234990;0x1023869e; 0xb1887d70;0x1023869e	
+MAS	0x102347b6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	run ex-battery-runtime/battery-current.txt; run analysis-gui-programs/receipt.md,run analysis-gui-programs/static-anchors.txt; run analysis-readout-gate/receipt.md	0x103299c6; 0x10234948;0x10234990;0x1023869e; 0xb1887d70;0x1023869e	
 MAS	0x10234814	code	CBNZ (does not branch in reconstruction)	readout-state	verified	docs/runtime/readoutstate.md	0x101004ce	
 MAS	0x1023490a	code	vector slot parameter write (0xb25eefd0)	readout-state	verified	docs/runtime/readoutstate.md	0xb25eefd0	
 MAS	0x1023493c	code	OR 0x80 into B+0x5c	readout-state	verified	docs/runtime/readoutstate.md	0x10234944	
@@ -1499,7 +1499,7 @@ MAS	0x10328ee8	code	capture enqueue step	capture-state	verified	run lcdnext-capt
 MAS	0x10328fcc	code	callback pointer site (0x10323b75)	capture-state	verified	run lcdnext-capturestate10/issue485.md	0x10323b75	
 MAS	0x1032998a	code	unknown	legacy-runs	hypothesis	run lcdnext-owner-input1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103299a8	code	unknown	legacy-runs	hypothesis	run lcdnext-owner-input1/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x103299c6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	run ex-battery-runtime/issue488-current.txt; run analysis-readout-gate/receipt.md	0x102347b6	
+MAS	0x103299c6	code	MAS unknown (EX-input issue context)	mas-unknown	hypothesis	run ex-battery-runtime/battery-current.txt; run analysis-readout-gate/receipt.md	0x102347b6	
 MAS	0x103299e2	code	unknown	readout-input	hypothesis	run analysis-readout-gate/rg-closure-callers-a.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1032a3ba	code	Goodix GT9 panel-ID dispatch	readout-input	hypothesis	run analysis-readout-gate/receipt.md	0x103e61d8	accepts touch model bytes
 MAS	0x1032a3e7	code	Goodix touch helper	readout-input	inferred	run analysis-readout-gate/receipt.md		touch driver adjacent helper
@@ -2691,7 +2691,7 @@ MAS	0x2013d020	field	MAS bridge IRQ status	mas-bridge	verified	docs/devices/brid
 MAS	0x2013d024	field	MAS bridge IRQ enable	mas-bridge	verified	docs/devices/bridge/protocol.md	0x2013d020	
 MAS	0x2013d028	field	MAS bridge IRQ W1C acknowledge	mas-bridge	verified	docs/devices/bridge/protocol.md	0x2013d020	
 MAS	0x2013e000	field	MAS bridge bank1 getter (first rejected read)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x20136000	MAS PC 102de73a, SLA PC 1006c80e
-MAS	0x20145200	mmio	display bank word (observed 0x12 = paused)	display-bank	observed	run ex-battery-runtime/issue476-update-20261014.md		after first empty main transaction
+MAS	0x20145200	mmio	display bank word (observed 0x12 = paused)	display-bank	observed	run ex-battery-runtime/issue476-update.md		after first empty main transaction
 MAS	0x20146604	field	display bank1 port0 scalar	buffer-consumers	observed	run pr-transfer-yuv-clear.md	0x10445712	Next explicit boundary after fifth graphics completion, PA.
 MAS	0x2402000c	mmio	IPUD status port (read)	ipud	verified	docs/devices/ipud/protocol.md	0x2402001c	
 MAS	0x2402001c	mmio	IPUD acknowledge port (write 4)	ipud	verified	docs/devices/ipud/protocol.md	0x2402000c	observed acknowledge value 4
@@ -3389,7 +3389,7 @@ SHARED	0x2379f94	data	payload offset O0x2379f94 (COPY0 source of 0x04266000)	doc
 SHARED	0x2380e0c	data	payload copy-data offset O0x2380e0c (clock address pairs)	docs-generic	verified	docs/devices/clock/protocol.md	0xb1806e78	file offset, not a VMA
 SHARED	0x2380e3c	data	payload copy-data offset O0x2380e3c (clock address pairs end)	docs-generic	verified	docs/devices/clock/protocol.md	0xb1806e78	file offset, not a VMA
 SHARED	0x2429444	data	unknown	startup-docs	hypothesis	docs/startup/first.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x2aa0400	data	layer extent 0x02aa0400	display-bank	observed	run ex-battery-runtime/issue476-update-20261014.md		retained geometry; semantic value
+SHARED	0x2aa0400	data	layer extent 0x02aa0400	display-bank	observed	run ex-battery-runtime/issue476-update.md		retained geometry; semantic value
 SHARED	0x4008000	mmio	unknown	startup-docs	hypothesis	docs/startup/bootshim.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4008e00	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4008f00	mmio	unknown	startup-docs	hypothesis	docs/startup/first.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.

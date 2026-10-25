@@ -125,7 +125,7 @@ preserving exact physical boundaries. Those later receipts supersede the
 unbound-address hypothesis; no firmware or QEMU upstream source was changed,
 and no assertion was disabled.
 
-Receipts remain in `run graphicscommands-20261023/`: red/producer runs,
+Receipts remain in `run graphicscommands/`: red/producer runs,
 source projections, `native-red.log`, `native-final.log`, final trace/stderr,
 `preassert-progress.json` and `verified-progress.json`. The failed first
 integration and failed host-debugger attempts retain their own scope. The

@@ -1,6 +1,6 @@
 # Explicit GPIO pad input
 
-Issue [398](https://github.com/mashiro01/nightglass/issues/398). The complete
+[IRQ and event dependency audit](/devices/gate/dependencies). The complete
 original GPIO getter at `10385d76` reads the object's PDR address, shifts by
 its pin byte and returns bit0. The fixed TOOL source
 `57546e1cbed483ac82dff7246c5d8dccbad02279`,

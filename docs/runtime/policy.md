@@ -209,7 +209,7 @@ is required for the intended startup mode.
 
 ## Receipts and limits
 
-`run policy-20261025/` retains `power` and `state` watchpoint runs,
+`run policy/` retains `power` and `state` watchpoint runs,
 `policy` and `selector` entry/condition/return, `message`, `producer`, `record` and
 `recordevent`, `recordsource`, `recordsend`, `recordinput`, `parser`,
 `systeminput` and `systemsource` joined captures, plus `systemflag`,
@@ -265,7 +265,7 @@ no final scanout or GUI first frame is established.
 The follow-up finite [timing contract](../devices/timing/protocol.md) now loads
 that initial count for the stopped channel and lets normal gates, virtual time
 and the original ISR deliver callback102eb748 with status r1=1. The joined
-`run timingpreset-20261025/frontier.json` then observes fill engine0's
+`run timingpreset/frontier.json` then observes fill engine0's
 720x480 zero-fill request tobf309600, initially rejected at PC102dbba2,
 WRITE32 PA20070010=1. The later [record5 extension](fill.md) now completes
 that exact request through the original IRQ/callback/waiter. Its25-host-second

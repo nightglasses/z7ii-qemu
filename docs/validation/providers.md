@@ -72,7 +72,7 @@ process absent and original input bundle unchanged. QMP reported no display
 QemuConsole; no GUI completion is established.
 
 The observer completed direct byte comparisons, reported in
-[the fixed-run Issue326 receipt](https://github.com/mashiro01/nightglass/issues/326#issuecomment-6089956742).
+[unchanged-firmware startup](/startup/first).
 `expected-full.bin` is the original SLA package payload `[0,0x6e0000)`;
 `full-known.bin` is actual private guest memory `[0xc8220000,0xc8900000)`.
 Their 7,208,960 bytes compared equal with exit0; the `0x2e0000` subset also

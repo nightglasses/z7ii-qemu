@@ -1,6 +1,6 @@
 # Mode1 composition clear boundary
 
-The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `run timingpreset-20261025/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
+The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `run timingpreset/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
 
 ## Original producer and owner
 
@@ -23,7 +23,7 @@ No final display/scanout or complete boot is established by this clear; the owne
 ## Accepted finite extension and current boundary
 
 The extension now adds only that destination to the existing engine0 tuple.
-`run reproducible-20261026/fill-red.json` records the preceding model's
+`run reproducible/fill-red.json` records the preceding model's
 rejection; `final-green.json` records all three fill qtests passing. They cover
 the complete active clear, adjacent/tail guards, near-shape/address rejection,
 IRQ/ACK/reset and actual failure in a selected private domain without backing.

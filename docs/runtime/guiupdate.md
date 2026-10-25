@@ -115,11 +115,11 @@ and[panel observation](../devices/panel/protocol.md) now pass23 transfer and3
 panel subtests. Their final unchanged integration repeats the0→8 clear and147
 IRQ129 entries, with the same timing channel4 +38 first error and readiness0.
 The matrix combinations are preemptively native-tested; observer correctness
-does not advance guest conditions. Final receipts: `graphicsstate-20261023`.
+does not advance guest conditions. Final receipts: `graphicsstate`.
 The later [timing extra model](../devices/timing/extra.md) passes20 timing
 subtests and accepts original channel4 enable/configuration. Its result counter,
 terminal bit3 and finite stop remain explicit functional assumptions. The
-initial `timingextra-20261023/final` and `integration` runs expose missing
+initial `timingextra/final` and `integration` runs expose missing
 rectangle prefixes and an overstrict rectangle-only next-key guard. The
 [optional-prefix/shared-context correction](../devices/transfer/prefix.md)
 and explicit two-path RGBA targets pass25 transfer cases. Final `validated`
@@ -152,7 +152,7 @@ event200. That event is not operation200 in the0..15 API.
 The earlier8-host-second trace's unreturned wait was a window boundary,
 not a permanent missing event. The first optional stack snapshot failed on
 an unmapped sampled SP; the corrected read-only snapshot succeeds.
-Parent-owned receipts are in `run captureflow-20261022/`. The later
+Parent-owned receipts are in `run captureflow/`. The later
 HDMAC descriptor rejection is the current concrete frontier; GUI gate, pending3 and
 display-ready still remain0.
 
@@ -186,7 +186,7 @@ an independent missing-ready device transaction.
 All addresses below are C1.70 MAS CPU VAs. Source observations are from the
 unchanged original payload mapped at `10020000`, retained in
 `run descriptor17-z7cross-mac1/`. Bounded decompilation receipts are in
-`run displayhealthy-20261027/child-source.json`, `child-inputgate.json`,
+`run displayhealthy/child-source.json`, `child-inputgate.json`,
 `child-notification.json`, `child-policy.json` and `child-capture.json`.
 Runtime observations
 are parent-owned; this source investigation ran no QEMU or debugger and
@@ -194,7 +194,7 @@ changed no firmware, guest state, input binding or device model.
 
 ## Paired-input and acceleration continuation
 
-Parent-owned receipts are in`run guinormal-20261022/`. The`paired` run
+Parent-owned receipts are in`run guinormal/`. The`paired` run
 supplies descriptor17 resource21 and descriptor18 resource57 through the NOR
 properties. It observes callbacks`04400043(21)` and`04400043(57)`, mask3 wait
 return1, both setters, and owner pointers`b7f54400/b7f6a0fc`. The original unit6
@@ -438,7 +438,7 @@ not a stalled completion. It does not establish that this request must occur
 during ordinary healthy startup.
 
 The next source/runtime join is recorded in
-`run guinormal-20261022/child-source.json` and `child-idle.json`.
+`run guinormal/child-source.json` and `child-idle.json`.
 The static pointer `10247d3f` at ROM `123b3920` maps to RAM
 `b181998c`, but is **not** a method at+324 of object `b1819848`.
 It is the enter method at+4 of a separate object beginning at ROM
@@ -664,7 +664,7 @@ callback or aggregate bit is a permitted substitute.
 
 The exact unmodified candidates are retained only as ignored
 `child-z7-accele-config21.bin` (256 bytes) and `child-z7-accele-cal57.bin`
-(192 bytes) in `run guinormal-20261022/`, with provenance in
+(192 bytes) in `run guinormal/`, with provenance in
 `child-z7-accele.json` and bounded disassembly in `child-donor-*.txt`.
 These are cross-model functional inputs for an explicit external-NOR
 experiment, not recovered Z7II factory records. The corresponding original
