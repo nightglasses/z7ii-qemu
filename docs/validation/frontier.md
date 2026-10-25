@@ -1,6 +1,37 @@
 # Original-firmware startup frontier
 
-## Current: processing scratch at PA `b0100000`
+## Current: processing input availability at PA `20102044`
+
+The [processing scratch arenas](../runtime/storage.md#processing-scratch-arenas)
+back both source-declared allocator capacities: sixteen `80000`-byte blocks
+at PA `b0100000` and four `4b000`-byte blocks at `af8d4000`. Allocation,
+locking, busy arrays, returned descriptors and record construction remain
+original guest execution. No wider address class, guest object or processing
+completion is supplied by the host.
+
+The [scratch receipt](/evidence/imagerequest/arenas.json) records native
+red→green and72 passing memory/sensor cases. In the unchanged60-host-second
+region/cold-neutral continuation, the original allocator owns type1 descriptor
+`{b0100000,280000,0,5,1}`: five blocks are busy and the other eleven are free.
+Type2's busy array is zero; its scope is source/native validation, not observed
+runtime use. The run records128 main acquisitions and543 statistics jobs,
+with no statistics rejection/cancellation and an empty error list.
+
+The first uncovered transaction is CPU1 PC `103bd1da`, READ32 board PA
+`20102044`. Getter `103bd1d6` reads `20102040 +4*index`, here index1.
+Consumer `1038917c` consults this value for processing input type0 before
+claiming the resource: zero permits that candidate, nonzero tries other
+resources or enters the original wait. The event-gate device currently has
+no producer/qualification contract for this query bank. Its full input-slot
+mapping and busy lifecycle must be joined to actual submissions and releases;
+returning unconditional idle would bypass that ownership check.
+
+QMP is debug/stopped, neither head has a console, GUI readiness/information
+remain zero, and one root request is queued with pending `40001`. The next
+work is the complete processing input-slot lifecycle, separately from scratch
+backing. Normal GUI startup and physical-camera fidelity remain unverified.
+
+## Previous: processing scratch at PA `b0100000`
 
 The [kind41 workspace](../runtime/storage.md#kind41-processing-workspace)
 joins ROM pool metadata, the runtime allocation object and original PTEs.

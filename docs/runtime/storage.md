@@ -107,6 +107,52 @@ also checks four points from first byte-page to last word with CPU/bus
 visibility across reset. These fixtures establish backing, separately from
 the original continuation recorded in the receipt and startup frontier.
 
+### Processing scratch arenas
+
+The C1.70 MAS initializer VA `103a34c0` sets up two independent scratch
+allocators alongside the download arenas. Addresses and byte sizes below are
+hexadecimal; slot counts and allocation types are decimal. The object at VA
+`b1808c98` receives `b0100000` at field `10` and `af8d4000` at field `14`.
+It also initializes sixteen and four free descriptors, respectively, plus
+their separate busy arrays. `103a354e(size,type)` dispatches allocation to
+the original guest functions; QEMU does not replace that API or its results.
+
+| Allocation type / function VA | Slot size | Slots | Board PA extent, exclusive end |
+|---|---|---:|---|
+| 1 / `103a37aa` | `80000` | 16 | `[b0100000,b0900000)` |
+| 2 / `103a3718` | `4b000` | 4 | `[af8d4000,afa00000)` |
+
+Both functions assign `base + slot*unit` and record the reserved byte count,
+slot index, slot count and type in the returned descriptor. Their requested
+count is `floor(size/unit)+1`, not the usual ceiling formula. The free-slot
+arrays bound the declared storage capacities; this does not prove that the
+original contiguous-span search rejects every oversized request. Original
+allocation, locking, free lists, busy bits and errors remain guest execution.
+
+The old original write at PA `b0100000` is the first decimal200-byte clear
+in `10271abe`, with saved return `10271ae9`. The earlier kind41 initializer
+also obtains a type1 scratch descriptor through `103a354e`. These facts join
+the processing consumer to the existing source-declared pool; neither the
+small clear length nor the fault address defines a one-off RAM window.
+
+The functional board supplies exactly both ranges through ordinary shared
+QEMU RAM. Cold zero and persistence across reset are explicit assumptions.
+The type1 upper neighbor is the separately owned selector-one download arena;
+type2 ends at the independent kind20 capture pool. Distinct MemoryRegions
+preserve both ownership boundaries. The lower addresses remain uncovered;
+there is no expansion of the enclosing address class, host allocator, object
+injection, frame generation or completion event. The historical `b0800000`
+hole now has a source-derived owner inside type1; the download arena itself
+has not expanded.
+
+The [scratch receipt](/evidence/imagerequest/arenas.json) records native
+red→green and72 passing memory/sensor cases. Fixtures check all20 slot
+boundaries with independent values, both adjacent owners, actual4099-byte
+HDMAC transfers crossing pages, reset persistence and real HMP errors below
+each range. The existing real-TCG case covers both pools, including the former
+hole and final words, to check CPU/bus backing visibility. These are memory
+fixtures, not validation of all guest allocation requests or image processing.
+
 ### Resource57 record0, record1 and record7 GUI slots
 
 The same correct-base table and allocation path publish record0 through the

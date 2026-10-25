@@ -1,0 +1,50 @@
+{
+  "scope": "Both source-declared processing scratch capacities, original allocator ownership and continuation to an unmodeled input-slot query; not a host allocator or complete GUI startup",
+  "dependency_baseline": "72d73884",
+  "source_facts": {
+    "component": "C1.70 MAS; code/object addresses VA, RAM/device ranges board PA; addresses and byte sizes hexadecimal, slot counts/types decimal",
+    "initializer": "103a34c0 stores B0100000 at objectb1808c98+10 andAF8D4000 at+14; initializes16/4 independent free descriptors and their busy arrays",
+    "type1": "103a354e(size,1)->103a37aa assigns base+slot*80000;16 slots give[B0100000,B0900000)",
+    "type2": "103a354e(size,2)->103a3718 assigns base+slot*4b000;4 slots give[AF8D4000,AFA00000)",
+    "descriptor": "Original returned record stores pointer, reserved size, slot index, count and type; requested count isfloor(size/unit)+1",
+    "consumer": "10271abe clears200 decimal bytes at processing recorda2; saved10271ae9 joins the old first write atB0100000",
+    "limit": "Source slot capacities do not establish that the original contiguous-span search rejects every oversized request; no guest allocator behavior was replaced or repaired"
+  },
+  "model": {
+    "ranges": ["[b0100000,b0900000)","[af8d4000,afa00000)"],
+    "backing": "Two separate existing-helper QEMU RAM regions, shared CPU/DMA cells; explicit cold-zero and reset-persistence assumptions",
+    "neighbors": "Type1 ends at independent selector-one download; type2 ends at independent kind20 capture pool. Lower bytes remain uncovered. B0800000 is now an owned type1 interior rather than its historical hole",
+    "limits": "No wider address class, allocator emulation, descriptor/busy-field injection, firmware modification, pixel production or completion event"
+  },
+  "native": {
+    "red": "Preceding model returns0 after first type1 start writea0e00000",
+    "green": {"memory_cases":35,"sensor_cases":37,"failures":0},
+    "coverage": "All20 slot starts/ends with independent tags, download/capture neighbors, actual4099-byte cross-page HDMAC in both pools, reset persistence, real HMP errors below both ranges; TCG adds both pools including former hole and last words"
+  },
+  "original_execution": {
+    "profile": "Same unchanged firmware, bounded resource35 descriptor17/cold-neutral resource80, quadrant PGM, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "large_descriptor":"{b0100000,280000,0,5,1}",
+    "large_busy":"First5 slots1, remaining11 slots0",
+    "small_busy":"All4 slots0; no original allocation/use claim for type2",
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":543,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "error_count":0,
+    "crossed":"Original200-byte record clear atPAb0100000",
+    "uncovered":"CPU1 PC103bd1da READ32 PA20102044;103bd1d6 returns[20102040+4*index], currentindex1",
+    "next_consumer":"1038917c consults this input-type0 availability before claiming a candidate; unconditional zero would bypass its ownership check",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a console",
+    "GUI_readiness":0,
+    "information_record":"zero",
+    "queued_root_pending":"0x40001",
+    "battery_peer_rejections":[]
+  },
+  "measurement_limit":"Sequential QMP counters and later read-only snapshots are not atomic or physical rates. RAM backing is distinct from image processing, input-slot lifecycle and normal GUI startup. The next query remains an explicit error until its producer/state contract is modeled.",
+  "omissions":"Full source/debugger/trace records, firmware and generated artifacts remain ignored; only curated contracts and verdicts are published."
+}

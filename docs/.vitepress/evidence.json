@@ -18,6 +18,12 @@
         "title": "Kind41 source ownership, RAM backing and original record clear",
         "href": "/evidence/imagerequest/workspace.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "processingarenas",
+        "title": "Processing scratch capacities, original allocator and input availability frontier",
+        "href": "/evidence/imagerequest/arenas.json",
+        "kind": "Execution observation"
       }
     ]
   },

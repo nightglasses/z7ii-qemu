@@ -88,6 +88,7 @@ static void test_cpu_ram(void)
         0x5df45400, 0x5df46000, 0x5f8d23fc,
         0xcb4a7000, 0xcc63affc, 0x62059800, 0x62059c00, 0x622217fc,
         0x62221800, 0x62222000, 0x625219bc, 0x626217fc,
+        0xb0100000, 0xb0800000, 0xb08ffffc, 0xaf8d4000, 0xaf9ffffc,
         0x50300000, 0x5063fffc, 0xb0d00000, 0xb10ffffc,
         0xb0900000, 0xb0cffffc, 0x04008ea8, 0x04008efc, 0x04008ffc,
     };
@@ -623,7 +624,7 @@ static void test_capture_pools(void)
     };
     static const uint32_t holes[] = {
         0x548fffff, 0x5d4b8c00,
-        0xaf9fffff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
+        0xaf8d3fff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
     };
     const uint32_t source = 0xb1804000;
     uint8_t expected[259], actual[259];
@@ -750,6 +751,63 @@ static void test_kind41_buffer(void)
         g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
 
         g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    memory_quit(&t);
+}
+
+static void test_processing_arenas(void)
+{
+    static const struct {
+        uint32_t base, unit, count;
+    } arenas[] = {
+        { 0xb0100000, 0x80000, 16 },
+        { 0xaf8d4000, 0x4b000, 4 },
+    };
+    const uint32_t source = 0xb1804000;
+    uint8_t expected[4099], actual[4099];
+    MemoryTest t = memory_init("");
+
+    for (unsigned a = 0; a < ARRAY_SIZE(arenas); a++) {
+        uint32_t base = arenas[a].base;
+        uint32_t end = base + arenas[a].unit * arenas[a].count;
+
+        for (unsigned slot = 0; slot < arenas[a].count; slot++) {
+            uint32_t start = base + slot * arenas[a].unit;
+            uint32_t tag = 0xa0e00000 | a << 12 | slot;
+
+            qtest_writel(t.qts, start, tag);
+            g_assert_cmphex(qtest_readl(t.qts, start), ==, tag);
+            qtest_writel(t.qts, start + arenas[a].unit - 4, ~tag);
+        }
+        /* Exact ends are independently owned by download/capture pools. */
+        qtest_writel(t.qts, end, 0xa0eff000 | a);
+        g_assert_cmphex(qtest_readl(t.qts, end), ==, 0xa0eff000 | a);
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 29 + (i >> 8) * 7 + a * 31;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, base + 0x17ff, sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, base + 0x17ff, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", base - 1);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned a = 0; a < ARRAY_SIZE(arenas); a++) {
+        uint32_t base = arenas[a].base, unit = arenas[a].unit;
+
+        for (unsigned slot = 0; slot < arenas[a].count; slot++) {
+            uint32_t tag = 0xa0e00000 | a << 12 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base + slot * unit), ==, tag);
+            g_assert_cmphex(qtest_readl(t.qts, base + (slot + 1) * unit - 4),
+                            ==, (uint32_t)~tag);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, base + unit * arenas[a].count), ==,
+                        0xa0eff000 | a);
     }
     memory_quit(&t);
 }
@@ -1501,6 +1559,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/cpu-ram", test_cpu_ram);
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
     qtest_add_func("/nikon/memory/kind41-buffer", test_kind41_buffer);
+    qtest_add_func("/nikon/memory/processing-arenas", test_processing_arenas);
     qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
     qtest_add_func("/nikon/memory/grid-pool", test_grid_pool);
     qtest_add_func("/nikon/memory/large-grid-pool", test_large_grid_pool);

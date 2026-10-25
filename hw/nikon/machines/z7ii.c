@@ -98,6 +98,10 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_KIND40_SIZE 0x1c8000ULL
 #define Z7II_KIND41_BASE 0x62221800ULL
 #define Z7II_KIND41_SIZE 0x400000ULL
+#define Z7II_PROCESSING_ARENA_BASE 0xb0100000ULL
+#define Z7II_PROCESSING_ARENA_SIZE 0x800000ULL
+#define Z7II_PROCESSING_SMALL_BASE 0xaf8d4000ULL
+#define Z7II_PROCESSING_SMALL_SIZE 0x12c000ULL
 #define Z7II_READOUT_PRIMARY_BASE 0x61654800ULL
 #define Z7II_READOUT_PRIMARY_SIZE 0x603000ULL
 #define Z7II_READOUT_SECONDARY_BASE 0x61c57800ULL
@@ -229,6 +233,8 @@ struct Z7IIMachineState {
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
     Z7IIRAM kind41_buffer;
+    Z7IIRAM processing_arena;
+    Z7IIRAM processing_small;
     Z7IIRAM readout_primary;
     Z7IIRAM readout_secondary;
     Z7IIRAM interpolation_pool;
@@ -995,6 +1001,16 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->kind41_buffer, "z7ii.kind41-buffer",
              Z7II_KIND41_BASE, Z7II_KIND41_SIZE);
+    /*
+     * 103a34c0 initializes both processing allocator bases and free records.
+     * 103a37aa assigns sixteen 80000-byte blocks from b0100000; 103a3718
+     * assigns four 4b000-byte blocks from af8d4000. These are separate
+     * owners from the neighboring download and capture pools.
+     */
+    z7ii_ram(&s->processing_arena, "z7ii.processing-arena",
+             Z7II_PROCESSING_ARENA_BASE, Z7II_PROCESSING_ARENA_SIZE);
+    z7ii_ram(&s->processing_small, "z7ii.processing-small",
+             Z7II_PROCESSING_SMALL_BASE, Z7II_PROCESSING_SMALL_SIZE);
     /*
      * ROM11982938 kinds38/39 select11983440/58, with no mode overrides.
      * 1023cb62 requests201000 bytes from each; 1023869e publishes their

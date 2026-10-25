@@ -2772,11 +2772,11 @@ MAS	0xa1819748	data	unknown	legacy-runs	hypothesis	run display-command4-crossref
 MAS	0xa1880b00	data	unknown	legacy-runs	hypothesis	run z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xa1f90bf0	data	unknown	legacy-runs	hypothesis	run display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xaf200000	data	region-table input base (record 12) / RMU arg2	rtos-core	verified	docs/runtime/regiontable.md	0xafa00000	also IPUD peer/source-like value; ownership unresolved
-MAS	0xaf8d4000	data	selector-one object field +0x14 value	rtos-core	verified	docs/runtime/selectoronedownload.md	0xaf200000	base + aligned 0x6d4000
+MAS	0xaf8d4000	ram	processing type2 arena; object field +0x14	rtos-core	verified	docs/runtime/storage.md	0xaf200000	four 0x4b000-byte slots; source-owned end 0xafa00000, not physical-camera capacity
 MAS	0xafa00000	data	region-table output base (record 12)	rtos-core	verified	docs/runtime/regiontable.md	0xaf200000	
 MAS	0xb0000000	data	region-table input base (record 13)	rtos-core	verified	docs/runtime/regiontable.md	0xb1000000	
-MAS	0xb0100000	ram	selector-one object field +0x10 value	rtos-core	verified	docs/runtime/selectoronedownload.md	0xaf200000	base + 0x0f00000
-MAS	0xb0800000	region	unmapped hole below selector-one arena	rtos-core	verified	docs/runtime/selectoronedownload.md	0xb0900000	model does not map it
+MAS	0xb0100000	ram	processing type1 arena; object field +0x10	rtos-core	verified	docs/runtime/storage.md	0xaf200000	sixteen 0x80000-byte slots; source-owned end 0xb0900000
+MAS	0xb0800000	region	processing type1 arena interior; historical unmapped checkpoint	rtos-core	verified	docs/runtime/storage.md	0xb0900000	source-derived scratch owner supersedes earlier hole observation
 MAS	0xb0900000-0xb0d00000	region	selector-one download arena (4 MiB)	rtos-core	verified	docs/runtime/selectoronedownload.md	0x103a34c0	
 MAS	0xb0905000	ram	selector-one payload1 destination (src 0x107e00f4, len 0x34238)	rtos-core	observed	docs/runtime/selectoronedownload.md	0x107e00f4	payloads 2/3 at b093a000/b096e000
 MAS	0xb093a000	ram	selector-one COPY2 destination	rtos-core	observed	docs/runtime/selectoronedownload.md	0x1081432c	offset 0x3a000, len 0x33300

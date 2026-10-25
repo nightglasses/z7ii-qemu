@@ -40,7 +40,11 @@ starts at `0xb0d00000` inside that firmware envelope.
 `z7ii.selectoronedownload` is a dedicated 4 MiB writable RAM region. It is
 attached directly to the system memory AddressSpace used by the COPY device.
 It is not an alias of `z7ii.download`, is not folded into a DDR storage class,
-does not seed any bytes, and does not map the surrounding `0xb0800000` hole.
+does not seed any bytes, and does not own the surrounding addresses. The
+later [processing scratch contract](storage.md#processing-scratch-arenas)
+identifies `[b0100000,b0900000)` as a separate allocator's storage, including
+the historical `b0800000` hole. That source-derived mapping leaves the
+download arena's exact bounds unchanged.
 The adjacent selector-zero region remains independently owned at
 `0xb0d00000`.
 
