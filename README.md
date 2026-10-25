@@ -115,9 +115,12 @@ The [kind41 workspace](docs/runtime/storage.md#kind41-processing-workspace)
 backs its source-owned 4 MiB unit and crosses the original record clear.
 The complete [processing scratch arenas](docs/runtime/storage.md#processing-scratch-arenas)
 also support the original allocator's two block families; the latest72
-memory/sensor cases pass. Unchanged firmware with the same region/cold-neutral
-inputs crosses both clears and reaches processing input availability at PA
-`20102044`, with an empty error list but no bound display console. The earlier ID63 error
+memory/sensor cases pass. The [sixteen type0 parameter slots](docs/devices/gate/slots.md)
+now retain complete packets and submitted busy ownership; all23 applicable SLA
+subtests pass. Unchanged firmware with the same region/cold-neutral inputs
+crosses the `20102044` query, submits slot1, and stops at downstream command-buffer
+reset PA `20100814`. Slot1 remains busy; no processing completion is invented.
+The error property is empty and neither display head has a console. The earlier ID63 error
 frame is separately archived; normal live view remains incomplete. The
 [current frontier](docs/validation/frontier.md) distinguishes these results
 from complete-boot and physical-camera evidence.

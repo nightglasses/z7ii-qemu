@@ -1,6 +1,42 @@
 # Original-firmware startup frontier
 
-## Current: processing input availability at PA `20102044`
+## Current: graph command-buffer reset at PA `20100814`
+
+The [type0 parameter-slot contract](../devices/gate/slots.md) now covers all
+sixteen source-declared slots: complete thirteen-word packets, selector2c,
+independent busy ownership and reset cancellation. A submitted slot remains
+busy; elapsed time, ordinary stop ACK and W1C cannot turn parameter admission
+into processing completion. Physical busy duration/encoding remains a model
+hypothesis. No data DMA, result, event, IRQ or guest callback is supplied for
+the unmodeled downstream processor.
+
+The [slot receipt](/evidence/imagerequest/slots.json) records native query
+red→green and23 passing SLA subtests. In the unchanged60-host-second
+region/cold-neutral continuation, the original allocator crosses PA `20102044`
+and original code submits slot1. Its complete packet is
+`{20121,15500,0,0,80,80,80,0,22003c,0,12000,24000,0}`; slot1 is busy and the
+other fifteen slots are idle. The eleven-node graph has a separate downstream
+result path; type0's resource descriptors have zero completion masks.
+
+The first uncovered transaction is CPU1 PC `103bdedc`, WRITE32 board PA
+`20100814=1`. Graph node1 is type4/resource37, with a decimal72-byte command
+payload at VA `b2bdb3a8`. Callback `103bdc72 ->103bded0` pulses backend+14
+before supplying its payload pointer at+10. Both input-enable nibbles and both
+retained input maps are still zero; parameter submission alone cannot justify
+data completion or slot retirement. The next work is this command-buffer
+consumer and its real processing/result/terminal-event join, rather than a
+timer that clears busy or fabricates a terminal event.
+
+The final observation records128 main acquisitions and448 statistics jobs,
+with zero statistics rejection/cancellation and an empty error property6433.
+QMP is debug/stopped, neither head has a console, GUI readiness/information
+remain zero, and one root is queued with pending `40001`. No debugger pauses
+occur inside the window. A separate failed read-only observer included a
+reserved input-group word; its E14 is retained as an observer failure, not a
+guest regression. The final snapshot uses sparse supported words. Normal GUI
+startup and a completed processing-slot reuse cycle remain unverified.
+
+## Previous: processing input availability at PA `20102044`
 
 The [processing scratch arenas](../runtime/storage.md#processing-scratch-arenas)
 back both source-declared allocator capacities: sixteen `80000`-byte blocks
@@ -21,14 +57,14 @@ The first uncovered transaction is CPU1 PC `103bd1da`, READ32 board PA
 `20102044`. Getter `103bd1d6` reads `20102040 +4*index`, here index1.
 Consumer `1038917c` consults this value for processing input type0 before
 claiming the resource: zero permits that candidate, nonzero tries other
-resources or enters the original wait. The event-gate device currently has
+resources or enters the original wait. At that checkpoint the event-gate had
 no producer/qualification contract for this query bank. Its full input-slot
 mapping and busy lifecycle must be joined to actual submissions and releases;
 returning unconditional idle would bypass that ownership check.
 
 QMP is debug/stopped, neither head has a console, GUI readiness/information
 remain zero, and one root request is queued with pending `40001`. The next
-work is the complete processing input-slot lifecycle, separately from scratch
+work was the complete processing input-slot lifecycle, separately from scratch
 backing. Normal GUI startup and physical-camera fidelity remain unverified.
 
 ## Previous: processing scratch at PA `b0100000`

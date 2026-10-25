@@ -55,9 +55,12 @@ method94640 preserves arbitrary high bits and ORs a full argument, so the
 packet setter's generated14-bit value cannot constrain the whole interface.
 This is retained configuration; it supplies no pending, data or completion.
 
-Unknown activation, pulses, submits and monitor/data remain strict errors.
-In particular20A4/2620/2660 assert1,2680/2800, global00=1, selector2C and
-E74/E94 are not assigned fabricated operating effects. The model cannot claim
+The later MAS [type0 slot contract](slots.md) adds sixteen complete parameter
+packets, selector2c and retained busy ownership to the shared class. This is
+source/native MAS scope, not an original SLA slot-cycle observation. Request2800
+records an outstanding submit only. Unknown activation, pulses and monitor/data
+remain strict errors:20A4/2620/2660 assert1,2680, global00=1 and E74/E94 are not
+assigned fabricated operating effects. The model cannot claim
 successful execution of a whole compound method that reaches one of those
 unsupported operations. External storage at24010000 belongs outside this
 class. The adjacent95408 family uses literal24073400 and is separate.

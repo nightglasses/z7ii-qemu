@@ -10,6 +10,11 @@ are relative to the diagnostic machine mappings, whose physical placement is
 a model assumption. No new firmware extraction, native query or execution
 was performed for this inventory.
 
+The later [type0 ownership contract](slots.md) supersedes this historical
+inventory's unbounded2040-query boundary: sixteen packet/submit/busy slots are
+implemented, while downstream processing and hardware slot retirement remain
+unsupported. It adds no completion producer to the event inventory below.
+
 ## Saved consumers and current behavior
 
 | Device / saved consumer family | Implemented operation families | Source-bound work still required |

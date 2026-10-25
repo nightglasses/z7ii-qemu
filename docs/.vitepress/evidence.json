@@ -2025,6 +2025,16 @@
   "devices/gate/protocol.md": {
     "records": []
   },
+  "devices/gate/slots.md": {
+    "records": [
+      {
+        "run": "processingslots",
+        "title": "Type0 parameter ownership and downstream processing frontier",
+        "href": "/evidence/imagerequest/slots.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/mxic/protocol.md": {
     "records": []
   },

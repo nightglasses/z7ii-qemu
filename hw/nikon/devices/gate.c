@@ -2,7 +2,8 @@
  * Finite original 2010 configuration, masks and external pending inputs.
  * Cold zero, retained configuration readback, rising input latches, mask1
  * enable, external gate, deferred stop ACK, submit-pending state and W1C are
- * virtual laws, not pipeline semantics.
+ * virtual laws, not pipeline semantics. Type0 parameter slots retain busy
+ * ownership after submission; no unbound processor is treated as complete.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -13,6 +14,8 @@
 #include "hw/nikon/devices.h"
 
 #define CONTROL_SIZE 0x2928
+#define INPUT_SLOTS 16
+#define INPUT_WORDS 13
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEventGateState, NIKON_EVENT_GATE)
 
 struct NikonEventGateState {
@@ -21,9 +24,28 @@ struct NikonEventGateState {
     qemu_irq irq;
     uint32_t config[CONTROL_SIZE / 4];
     uint32_t mask[3], pending[3], inputs[3];
+    uint32_t slot[INPUT_SLOTS][INPUT_WORDS];
+    uint16_t written[INPUT_SLOTS], busy;
     QEMUTimer *stop_timer;
     bool stopping, stop_ack, submit_pending;
     bool reported_error;
+};
+
+static bool nikon_event_gate_slot(hwaddr offset, unsigned *slot, unsigned *word)
+{
+    if (offset < 0x400 || offset >= 0x800 || (offset & 0x3f) >= 0x34) {
+        return false;
+    }
+    *slot = (offset - 0x400) / 0x40;
+    *word = (offset & 0x3f) / 4;
+    return true;
+}
+
+/* MAS103bda1e emits the complete packet, including overlapping byte fields. */
+static const uint32_t slot_masks[INPUT_WORDS] = {
+    0xff771f71, 0x0001ff3f, UINT32_MAX, UINT32_MAX,
+    0x0001ffff, 0x0001ffff, 0x0001ffff, 0x0001ffff,
+    0x3fff7fff, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
 };
 
 /* Finite setup shapes, not a physical writable-bit specification. */
@@ -155,10 +177,19 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
 {
     NikonEventGateState *s = opaque;
     uint32_t mask;
+    unsigned slot, word;
 
     *value = 0;
     if (size != 4 || (offset & 3)) {
         return nikon_event_gate_error(s, offset, size, false, 0);
+    }
+    if (nikon_event_gate_slot(offset, &slot, &word)) {
+        *value = s->slot[slot][word];
+        return MEMTX_OK;
+    }
+    if (offset >= 0x2040 && offset < 0x2080) {
+        *value = !!(s->busy & (1U << ((offset - 0x2040) / 4)));
+        return MEMTX_OK;
     }
     if (nikon_event_gate_config(offset, &mask)) {
         /* Retained setup values, never unbound data/monitor word defaults. */
@@ -187,9 +218,30 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
 {
     NikonEventGateState *s = opaque;
     uint32_t mask;
+    unsigned slot, word;
 
     if (size != 4 || (offset & 3)) {
         return nikon_event_gate_error(s, offset, size, true, value);
+    }
+    if (nikon_event_gate_slot(offset, &slot, &word)) {
+        if ((s->busy & (1U << slot)) || (value & ~slot_masks[word])) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        s->slot[slot][word] = value;
+        s->written[slot] |= 1U << word;
+        return MEMTX_OK;
+    }
+    if (offset == 0x2c) {
+        if (value >= INPUT_SLOTS || (s->busy & (1U << value)) ||
+            s->written[value] != (1U << INPUT_WORDS) - 1 ||
+            !(s->slot[value][0] & 1)) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        /* Parameter ownership only. Processing needs its real graph consumer;
+         * elapsed time, W1C and the existing stop ACK cannot retire this work. */
+        s->busy |= 1U << value;
+        s->written[value] = 0;
+        return MEMTX_OK;
     }
     if (offset == 0x2800) {
         /* 94996 submits one; no ready bit, completion, IRQ, guest write or
@@ -267,6 +319,9 @@ static void nikon_event_gate_reset(DeviceState *dev)
     s->stopping = false;
     s->stop_ack = false;
     s->submit_pending = false;
+    s->busy = 0;
+    memset(s->slot, 0, sizeof(s->slot));
+    memset(s->written, 0, sizeof(s->written));
     memset(s->config, 0, sizeof(s->config));
     memset(s->mask, 0, sizeof(s->mask));
     memset(s->pending, 0, sizeof(s->pending));
