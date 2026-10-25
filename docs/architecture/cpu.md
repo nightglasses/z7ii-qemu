@@ -91,4 +91,4 @@ remains unresolved; this does not imply missing model storage or a CPU1 fault.
 
 - [Arm: The top five things to know about Cortex-A7](https://developer.arm.com/community/arm-community-blogs/b/architectures-and-processors-blog/posts/the-top-5-things-to-know-about-cortex--a7)
 - [Arm Cortex-A7/A15 MPCore documentation](https://developer.arm.com/documentation/ddi0503/i/hardware-description/cortex-a15-a7-mpcore-test-chip)
-- [Project CPU/board evidence matrix](../startup/cpu_board.md)
+- [Project CPU/board evidence matrix](../startup/cpuboard.md)

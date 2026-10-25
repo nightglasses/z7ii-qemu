@@ -4412,12 +4412,12 @@ So no operation is ever dispatched in this boot: keys reaching the pad cannot
 become operations because the operation module never runs, which is consistent
 with every key experiment in this log producing nothing.
 
-See [`../reference/z7-assisted-boot.md`](../reference/z7-assisted-boot.md) for the
+See [`../reference/assistedboot.md`](../reference/assistedboot.md) for the
 reference recipe and which of its properties transfer.
 
 ### Poking one AutoOperation tick
 
-Following the reference method (see `../reference/z7-assisted-boot.md`), one
+Following the reference method (see `../reference/assistedboot.md`), one
 operation tick was invoked from outside with the call harness, with the execution
 filter counting the aftermath:
 
@@ -4719,7 +4719,7 @@ Two open possibilities remain, both narrowing the problem rather than blocking i
 1. the EX `McuCm` peer is not the MAS - "McuCm"/"McuMg" only say "MCU"; the SLA
    component has not been searched for this relay;
 2. the relay belongs to a stage the MAS never reaches, which is the assisted-boot
-   territory the reference project occupies (see `../reference/z7-assisted-boot.md`).
+   territory the reference project occupies (see `../reference/assistedboot.md`).
 
 ### Z7-style forcing on this firmware: what each poke actually moved
 
@@ -4902,7 +4902,7 @@ exactly where it was.  The documented way to supply such bytes is
 source-qualified file; fabricating the slot is explicitly rejected.
 
 The VR path is therefore closed until a real dump of the VR resident interval
-exists.  See `docs/startup/vr-domain.md` for the full record.
+exists.  See `docs/startup/vrdomain.md` for the full record.
 
 ### MAS-side SPI4 protocol: first capture
 

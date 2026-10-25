@@ -1,6 +1,6 @@
 # Mode1 composition clear boundary
 
-The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. [frontier.json](../../work/runs/timingpreset-20261025/frontier.json) records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
+The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `work/runs/timingpreset-20261025/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
 
 ## Original producer and owner
 

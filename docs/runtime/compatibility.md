@@ -335,11 +335,11 @@ separately from protocol/checksum rejection.
 
 Transport driver pointer`[2001f4f0]=2000e6dc`; its entry's peripheral base is
 EX PA`40011000`, and the active configuration at`2001f518` agrees. The machine
-source [ex.c](../../hw/nikon/machines/ex.c) maps this as USART1 using upstream
+source `hw/nikon/machines/ex.c` maps this as USART1 using upstream
 `TYPE_STM32F2XX_USART`, connecting its chardev to`serial_hd(0)`. The exact
 original-run argv has`-serial none`, so no external battery endpoint supplies
 receive bytes. The upstream
-[USART implementation](../../qemu/hw/char/stm32f2xx_usart.c) emits TX to that
+`qemu/hw/char/stm32f2xx_usart.c` emits TX to that
 chardev and sets RXNE only on received input; it does not invent a battery
 reply. Existing I2C monitor/status peer behavior does not fill this UART seam.
 

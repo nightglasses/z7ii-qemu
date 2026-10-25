@@ -2,6 +2,10 @@
 
 This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
+The [handbook](docs/index.md) organizes architecture, startup, device contracts,
+runtime, explicit inputs, address references and validation. Start with the
+[current startup frontier](docs/validation/frontier.md) for the latest result.
+
 The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. With the declared functional inputs, unchanged firmware now publishes an error-GUI frame through the bank display; normal-menu startup remains unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
@@ -298,7 +302,7 @@ or ambiguous component input before any component becomes visible to a machine.
 The detailed CPU, memory, device, and runtime pipeline diagrams are in
 [`docs/architecture.md`](docs/architecture.md). The parameter matrix and
 evidence classification are maintained in
-[`docs/startup/cpu_board.md`](docs/startup/cpu_board.md).
+[`docs/startup/cpuboard.md`](docs/startup/cpuboard.md).
 
 ```mermaid
 flowchart TD

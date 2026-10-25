@@ -37,14 +37,14 @@ starts at `0xb0d00000` inside that firmware envelope.
 
 ## QEMU model boundary
 
-`z7ii.selector-one-download` is a dedicated 4 MiB writable RAM region. It is
+`z7ii.selectoronedownload` is a dedicated 4 MiB writable RAM region. It is
 attached directly to the system memory AddressSpace used by the COPY device.
 It is not an alias of `z7ii.download`, is not folded into a DDR storage class,
 does not seed any bytes, and does not map the surrounding `0xb0800000` hole.
 The adjacent selector-zero region remains independently owned at
 `0xb0d00000`.
 
-The focused qtest `/arm/nikon/memory/selector-one-download` copies all three
+The focused qtest `/arm/nikon/memory/selectoronedownload` copies all three
 source ranges, checks their destination offsets and bytes, verifies the exact
 arena end, and proves that the adjacent selector-zero region does not alias
 the selector-one arena. The test uses a deterministic guest ROM fixture only

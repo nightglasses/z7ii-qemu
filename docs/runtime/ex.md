@@ -280,7 +280,7 @@ teardown path, so reaching it is phase completion rather than GUI progress.
   relocates the vector table; a boot loader produces the descriptor image at
   `0x2000d000` from the scatter table at `0x080038cc`. The loader and its two
   decoders run at cold boot and on every MCU reset
-  ([`exboot.c`](../../hw/nikon/components/exboot.c)).
+  (`hw/nikon/components/exboot.c`).
 - The earlier reset loop also included status `14`: the board profile drove
   the seven declared power-good wires (`PA10`, `PB1`, `PB15`, `PB11`, `PB12`,
   `PF3`, `PG2`) low, and the firmware treats all of them low as a rail fault.

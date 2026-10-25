@@ -18,6 +18,6 @@
 
 本轮使用的单核 Cortex-A7、CBAR `0x1d000000`、CNTFRQ 48 MHz、A15MPCore 256 个总 IRQ、同源 MEMC IP 布局绑定及零初始化 48 字节临时 RAM，仍是[明确诊断假设](../devices/memc/protocol.md)。两个 MODE/TIM 初始化值被接受，只证明原版在这些假设下跨过首轮阻断；不确认真实 Nikon CPU、控制器身份、reset 值或 NOR 设备。NOR 写、clock、IPC 和 BootROM 仍未实现。
 
-`0x0428102c` 是原字节中 `0x04281000` 初始化序列的首次读。后续静态代码会修改 `+0x2c/+0x28` 的字段并执行软件延迟，但本轮在第一次读便停止，后续写和延迟没有执行。[前次有限静态分析](first.md#0x04264000-的下一项合同)已将该块与 MEMC 分开。下一步需要该独立时钟块的寄存器字段、reset/read 值、写约束和状态副作用证据；不能以通用 regfile 或 ready 值越过此读。Data Abort 先于异步 debug stop，所以最终 PC 与拒绝访问发起 PC 不同。
+`0x0428102c` 是原字节中 `0x04281000` 初始化序列的首次读。后续静态代码会修改 `+0x2c/+0x28` 的字段并执行软件延迟，但本轮在第一次读便停止，后续写和延迟没有执行。[前次有限静态分析](first.md#_0x04264000-的下一项合同)已将该块与 MEMC 分开。下一步需要该独立时钟块的寄存器字段、reset/read 值、写约束和状态副作用证据；不能以通用 regfile 或 ready 值越过此读。Data Abort 先于异步 debug stop，所以最终 PC 与拒绝访问发起 PC 不同。
 
 合成记录 `work/issue330/device-smoke-40fb/result.json` 中 13 个 fixture 全部退出码 0：MODE/TIM 读回及 WEOFF RMW、未初始化读、未覆盖宽度/offset/profile、NOR 初始化/写保护/未实现后端错误，以及临时栈上下边界均符合预期；secure timer fixture 经真实上游 PPI 29 观察 IAR/active/EOI 状态并检查 CNTFRQ/CBAR。这些是小型合成 ARM 测试，不是原版 RTOS 到达证据，也不证明完整 flash 写入或 SMP/IPC。QEMU 结果只降低已覆盖的软件风险，不证明真实 Flash、BootROM、calibration、硬件健康或 EXPEED 性能。

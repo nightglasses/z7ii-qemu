@@ -16,7 +16,7 @@
 | 异常和停止 | 上游 ARM 接受 Data Abort；QMP stop reason/status 均为 `debug`，running=false；最终 PC `0x10103610`，CPSR `0x600001d7`，SP `0xb2ba8000`，LR `0x1002bdac` |
 | 主机会话时间 | 收据 `wall_seconds=0.11494487500749528`，包含控制与退出；不是固件启动耗时或 EXPEED 性能 |
 
-复现初始假设保持可见：单核 Cortex-A9；候选 MAS 程序 VA `0x10020000` 被用作诊断物理装载地址；上游默认 CPU reset；两个静态复制目标、16 KiB TTBR0 迁移目的窗口和六个 CPU0 栈槽各 16 KiB，仅按[README](../../README.md)有限映射。无 BootROM、真实 loader、IRQ、timer、IPC 或握手设备；未预填 RAM 复制内容、未置 ready magic、未改原始自环。由于错误事务先触发异常，再处理异步 stop，最终 PC 与访问发起 PC不同。
+复现初始假设保持可见：单核 Cortex-A9；候选 MAS 程序 VA `0x10020000` 被用作诊断物理装载地址；上游默认 CPU reset；两个静态复制目标、16 KiB TTBR0 迁移目的窗口和六个 CPU0 栈槽各 16 KiB，仅按[装载参数](cpuboard.md)有限映射。无 BootROM、真实 loader、IRQ、timer、IPC 或握手设备；未预填 RAM 复制内容、未置 ready magic、未改原始自环。由于错误事务先触发异常，再处理异步 stop，最终 PC 与访问发起 PC不同。
 
 ## `0x04264000` 的下一项合同
 

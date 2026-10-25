@@ -8,7 +8,7 @@ that VR is unnecessary for every camera mode.
 
 ## Current source and validation
 
-`vr_map_ram()` in [vr.c](../../hw/nikon/machines/vr.c) maps the merged COPY/ZERO
+`vr_map_ram()` in `hw/nikon/machines/vr.c` maps the merged COPY/ZERO
 destinations declared by the guest plus the separately named caller stack
 `[0x1000,0x2000)`. It does not add the probe-only ranges `[0,0x0fe0)` and
 `[0x2000,0x2100)`. Their removal retires that experiment; it does not establish

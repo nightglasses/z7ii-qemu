@@ -1,0 +1,2 @@
+# Empty trailing fields are significant in the fixed-column address index.
+docs/refmap/REFS.tsv whitespace=-blank-at-eol

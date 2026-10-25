@@ -17,7 +17,7 @@ EX	0x203008b	field	EX local event route key (-> 080365fc)	ex-input-builder	obser
 EX	0x203008c	field	EX local event route key (-> 0803d8c8)	ex-input-builder	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x0803d8c8 0x0803e6ae	
 EX	0x3040002	field	EX observed system report header (kind 3, type 4, len 2)	ex-transport	observed	work/runs/ex-mas-handshake-audit/receipt.md	0x102055e6	natural system report after complete frame
 EX	0x08000000-0x0807ffff	region	EX flash image (512 KiB C1.70 component ex1840_013000.bi)	ex-firmware	verified	hw/nikon/machines/ex.c	0x08000000 0x08000004	EX VMA base 0x08000000; reset alias at 0x0
-EX	0x8000000	field	EX initial SP (vector[0])	ex-boot	verified	hw/nikon/machines/ex.c; docs/startup/cpu_board.md,docs/startup/ex.md; work/runs/analysis-gui-programs/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x20000000	validated inside SRAM, 4-aligned
+EX	0x8000000	field	EX initial SP (vector[0])	ex-boot	verified	hw/nikon/machines/ex.c; docs/startup/cpuboard.md,docs/startup/ex.md; work/runs/analysis-gui-programs/receipt.md; work/runs/analysis-readout-gate/receipt.md	0x20000000	validated inside SRAM, 4-aligned
 EX	0x8000004	field	EX reset PC (vector[1], Thumb bit set)	ex-boot	verified	hw/nikon/machines/ex.c	0x08000000	must be odd and inside flash
 EX	0x80001e0	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 EX	0x80002b4	code	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -512,7 +512,7 @@ MAS	0x3232	data	unknown	legacy-runs	hypothesis	work/runs/mas-ssi-partial-frame/r
 MAS	0x8043	data	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md; work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x8045	data	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md; work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xd700	data	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md,work/runs/z6ii-id34-compare/receipt.md; work/runs/resource34-schema/receipt.md,work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x1d	irq	secure generic timer PPI (CNTFRQ 48 MHz)	gic	verified	docs/startup/cpu_board.md		PHYS30/VIRT27/HYP26 siblings
+MAS	0x1d	irq	secure generic timer PPI (CNTFRQ 48 MHz)	gic	verified	docs/startup/cpuboard.md		PHYS30/VIRT27/HYP26 siblings
 MAS	0xa0-0xb6	irq	MAS SPI channel IRQs (TX 160+2i, RX 161+2i)	spi	verified	hw/nikon/machines/z7ii.c	0x2c0a0000	
 MAS	0xfa	irq	GIC SPI250 (frame completion)	gic	verified	docs/startup/peripherals.md		
 MAS	0x1	irq	SGI1 (CPU1 wake)	gic	observed	docs/runtime/stacks.md		GICD SGI request +f00=00020001
@@ -709,8 +709,8 @@ MAS	0x10000000-0x10020000	region	external 128 KiB boot prefix (erased NOR defaul
 MAS	0x10000432	code	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 MAS	0x10000554	ram	NOR CFI unlock address (16-bit write 0x55)	loader	verified	docs/startup/first.md	0x10000aaa	
 MAS	0x10000aaa	ram	NOR CFI unlock address (16-bit writes 0xaa then 0x80)	loader	verified	docs/startup/first.md	0x10000554	CFI context; controller identity unbound
-MAS	0x10020000	region	MAS ROM base	display-bank	verified	work/runs/lcd-state-machine-audit/receipt.md; work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt; docs/startup/first.md;docs/startup/cpu_board.md; work/runs/analysis-readout-gate/receipt.md	0x106ee04a;0x106ee3ca; 0x1002bc88	C1.70 MAS VMA base.
-MAS	0x10020000-0x12477b78	region	MAS ROM image (size 0x2477b78)	loader	verified	docs/startup/cpu_board.md		
+MAS	0x10020000	region	MAS ROM base	display-bank	verified	work/runs/lcd-state-machine-audit/receipt.md; work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt; docs/startup/first.md;docs/startup/cpuboard.md; work/runs/analysis-readout-gate/receipt.md	0x106ee04a;0x106ee3ca; 0x1002bc88	C1.70 MAS VMA base.
+MAS	0x10020000-0x12477b78	region	MAS ROM image (size 0x2477b78)	loader	verified	docs/startup/cpuboard.md		
 MAS	0x10020150	code	counter config write site (0x04266010 = 02dc6c00)	loader	observed	docs/devices/timestamp/runtime.md	0x04266010	
 MAS	0x10020178	data	O0x178 self-loop guard	loader	verified	docs/startup/smp.md		bytes fe ff ff ea (b .-4); loader identity guard, must not be patched
 MAS	0x10020234	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -739,7 +739,7 @@ MAS	0x1002d70c	code	first clock read site (READ32 0x0428102c)	loader	observed	do
 MAS	0x1002d848	code	SMP magic writer (0x04008ffc = 0xbabebabe, DSB/SEV)	loader	verified	docs/startup/smp.md	0x04008ffc	
 MAS	0x10030000	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10030740	data	L1 word 0x1d000000 (type0 section)	gic	verified	docs/startup/peripherals.md	0x1d000000	
-MAS	0x10031400	data	L1 page-table source (16 KiB)	loader	verified	docs/runtime/region-table.md	0xb2b74000	
+MAS	0x10031400	data	L1 page-table source (16 KiB)	loader	verified	docs/runtime/regiontable.md	0xb2b74000	
 MAS	0x10033e04	data	L1 word 0xf8114422 (section at 0xf8100000)	gic	verified	docs/startup/peripherals.md	0xf8100000	domain1, AP1, XN0, NS0
 MAS	0x10034110	code	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 MAS	0x10035074	code	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/romread.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
@@ -1040,14 +1040,14 @@ MAS	0x1021f198	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1021f1c4	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1021f1ce	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1021f1dc	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/rg-slot-reg.txt		address mentioned in assigned readout/input source; role not further assigned here
-MAS	0x102216fc	code	SoC/configuration pointer table producer	502-object	verified	docs/runtime/502-object-consumer.md	0xb2a9ad9c	
-MAS	0x1022170c	code	callback/metadata pointer producer	502-object	verified	docs/runtime/502-object-consumer.md	0xb18a729c	used by mode blocks
-MAS	0x10221714	code	secondary metadata table producer	502-object	verified	docs/runtime/502-object-consumer.md	0xb18a6ef8	
+MAS	0x102216fc	code	SoC/configuration pointer table producer	502-object	verified	docs/runtime/arena502.md#objects	0xb2a9ad9c	
+MAS	0x1022170c	code	callback/metadata pointer producer	502-object	verified	docs/runtime/arena502.md#objects	0xb18a729c	used by mode blocks
+MAS	0x10221714	code	secondary metadata table producer	502-object	verified	docs/runtime/arena502.md#objects	0xb18a6ef8	
 MAS	0x10221db6	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10221eb6	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10221ec4	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x10221ed0	code	object table root resource	502-object	verified	docs/runtime/502-object-consumer.md	0xb2a9adac	
-MAS	0x10221ed4	code	secondary metadata table resource	502-object	verified	docs/runtime/502-object-consumer.md	0xb18a6ef8	
+MAS	0x10221ed0	code	object table root resource	502-object	verified	docs/runtime/arena502.md#objects	0xb2a9adac	
+MAS	0x10221ed4	code	secondary metadata table resource	502-object	verified	docs/runtime/arena502.md#objects	0xb18a6ef8	
 MAS	0x10221ef2	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10221f12	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10222000	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1270,15 +1270,15 @@ MAS	0x1023ef86	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export
 MAS	0x1023ef88	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1023ef8a	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1023ef8c	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102415d6	code	mode-block object constructor (r3 destination)	502-object	verified	docs/runtime/502-object-consumer.md	0x10241c6e	
-MAS	0x102416c4	code	conversion caller block (descriptor -> object+0x30)	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x10241728	code	conversion caller block	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x1024173c	code	conversion caller block	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x102418e0	code	conversion caller block	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x10241914	code	conversion caller block	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x1024192a	code	conversion caller block	502-object	verified	docs/runtime/502-provider-boundary.md	0x103c5a7a	
-MAS	0x10241c6e	code	object pointer derivation caller	502-object	verified	docs/runtime/502-object-consumer.md	0x102415d6	sl = *resource(0x10221ed0); r7 = sl + 0x20; r3 = r7 + ((11*index)<<3)
-MAS	0x10241cc8	code	mode loop block	502-object	verified	docs/runtime/502-object-consumer.md	0x102416c4	
+MAS	0x102415d6	code	mode-block object constructor (r3 destination)	502-object	verified	docs/runtime/arena502.md#objects	0x10241c6e	
+MAS	0x102416c4	code	conversion caller block (descriptor -> object+0x30)	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x10241728	code	conversion caller block	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x1024173c	code	conversion caller block	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x102418e0	code	conversion caller block	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x10241914	code	conversion caller block	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x1024192a	code	conversion caller block	502-object	verified	docs/runtime/arena502.md#provider	0x103c5a7a	
+MAS	0x10241c6e	code	object pointer derivation caller	502-object	verified	docs/runtime/arena502.md#objects	0x102415d6	sl = *resource(0x10221ed0); r7 = sl + 0x20; r3 = r7 + ((11*index)<<3)
+MAS	0x10241cc8	code	mode loop block	502-object	verified	docs/runtime/arena502.md#objects	0x102416c4	
 MAS	0x10242fda	code	MAS SPI initialization anchor	mas-spi	verified	docs/devices/spi/protocol.md; docs/runtime/buffer.md	0x102435ec	whole 11-object init
 MAS	0x10242ff6	code	MAS SPI reset/depth TB	spi	observed	docs/runtime/buffer.md		nine guest-enabled indices 0,1,2,3,4,5,6,8,9
 MAS	0x10243037	code	MAS SPI init final LR (GIC enable loop follows)	spi	observed	docs/runtime/buffer.md		
@@ -1286,7 +1286,7 @@ MAS	0x10243468	code	MAS SPI FIFO mode	mas-spi	verified	docs/devices/spi/protocol
 MAS	0x102435ec	code	MAS SPI common ISR (reads pending, W1C, intersects enable)	mas-spi	verified	docs/devices/spi/protocol.md	0x2c0a0000	
 MAS	0x1024365b	code	unknown	legacy-runs	hypothesis	work/runs/mas-ssi-partial-frame/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10243695	code	unknown	legacy-runs	hypothesis	work/runs/mas-ssi-partial-frame/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x10244966	code	COPY submit callsite (0x50200000 request)	502-object	observed	docs/runtime/502-runtime-consumer.md	0x103a3b66	channel 0
+MAS	0x10244966	code	COPY submit callsite (0x50200000 request)	502-object	observed	docs/runtime/arena502.md#copy	0x103a3b66	channel 0
 MAS	0x10245c1c	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x10247a5d	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10247ad0	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md,work/runs/ex-pad-pulse-protocol/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1330,8 +1330,8 @@ MAS	0x1026d64a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x1026dc68	code	backend call target (BL from 0x1039822c)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1039822c	zero hits in capturestate6
 MAS	0x1026de5c	code	cleanup bypass step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233db8	
 MAS	0x1026e1fc	code	cleanup bypass step	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x1026de5c	
-MAS	0x10293312	code	request finalizer (clears/copies status)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102c64fe	frees private request object
-MAS	0x10293362	code	request builder (0xe0-byte object, +0xa0 copy)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a7764	copies 24 bytes from object+0x30 value
+MAS	0x10293312	code	request finalizer (clears/copies status)	502-object	verified	docs/runtime/arena502.md#static	0x102c64fe	frees private request object
+MAS	0x10293362	code	request builder (0xe0-byte object, +0xa0 copy)	502-object	verified	docs/runtime/arena502.md#static	0x102a7764	copies 24 bytes from object+0x30 value
 MAS	0x102942f8	code	generic queue worker	app-service	verified	work/runs/display-command4-crossref/receipt.md	0x1020ca7a	
 MAS	0x10294318	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10294319	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1386,19 +1386,19 @@ MAS	0x102a69bb	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-po
 MAS	0x102a69c0	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md,work/runs/display-command4-power-callback/receipt.md,work/runs/display-command4-producer/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a69c1	code	app-service method veneer	app-service	verified	work/runs/display-command4-crossref/receipt.md		
 MAS	0x102a6ca2	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
-MAS	0x102a7764	code	internal request builder	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10293362	no COPY/DMA call in recovered windows
+MAS	0x102a7764	code	internal request builder	502-object	verified	docs/runtime/arena502.md#static	0x10293362	no COPY/DMA call in recovered windows
 MAS	0x102a7892	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102a7c64	code	object graph path function	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a8076	no breakpoint fired before COPY fault
+MAS	0x102a7c64	code	object graph path function	502-object	verified	docs/runtime/arena502.md#static	0x102a8076	no breakpoint fired before COPY fault
 MAS	0x102a7d0a	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a7d2e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102a7d4c	code	object graph path function	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a8076	no breakpoint fired before COPY fault
+MAS	0x102a7d4c	code	object graph path function	502-object	verified	docs/runtime/arena502.md#static	0x102a8076	no breakpoint fired before COPY fault
 MAS	0x102a7d56	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a7d82	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a7d94	code	MAS record scanner reader (READ32 12e00004)	mas-i2c	observed	docs/devices/i2c/protocol.md	0x12e00000	first records in log 6111
-MAS	0x102a7ee2	code	object graph path function	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a8076	no breakpoint fired before COPY fault
-MAS	0x102a8076	code	object graph path function	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a80a8	
+MAS	0x102a7ee2	code	object graph path function	502-object	verified	docs/runtime/arena502.md#static	0x102a8076	no breakpoint fired before COPY fault
+MAS	0x102a8076	code	object graph path function	502-object	verified	docs/runtime/arena502.md#static	0x102a80a8	
 MAS	0x102a807e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102a80a8	code	object graph gate (arg +0x10 state gate)	502-object	observed	docs/runtime/502-object30-runtime.md; work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md,work/runs/id34-producer-format/receipt.md	0x102a84cc	
+MAS	0x102a80a8	code	object graph gate (arg +0x10 state gate)	502-object	observed	docs/runtime/arena502.md#runtime; work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md,work/runs/id34-producer-format/receipt.md	0x102a84cc	
 MAS	0x102a80d6	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a80ec	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a80f2	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1412,9 +1412,9 @@ MAS	0x102a840c	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provis
 MAS	0x102a8416	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a8418	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a84a0	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102a84cc	code	object+0x30 reader (ldr r0,[r4,#0x30])	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a80a8	runtime objects b51b94f0/b51e5f50, value 0x00020000, LR 0x103bf42b
-MAS	0x102a84ce	code	object+0x30 reader call site (bl 0x102a80a8)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102a80a8	
-MAS	0x102a84d3	code	gate return address (lr at 0x102a80a8)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a80a8	
+MAS	0x102a84cc	code	object+0x30 reader (ldr r0,[r4,#0x30])	502-object	observed	docs/runtime/arena502.md#runtime	0x102a80a8	runtime objects b51b94f0/b51e5f50, value 0x00020000, LR 0x103bf42b
+MAS	0x102a84ce	code	object+0x30 reader call site (bl 0x102a80a8)	502-object	verified	docs/runtime/arena502.md#static	0x102a80a8	
+MAS	0x102a84d3	code	gate return address (lr at 0x102a80a8)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a80a8	
 MAS	0x102a8712	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a871c	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a874e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1422,9 +1422,9 @@ MAS	0x102a8762	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provis
 MAS	0x102a876e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a8834	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x102a8838	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x102c426c	code	callback pair branch (-> 0x10365466)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10365466	selected by source object byte +0x0c
-MAS	0x102c429c	code	callback pair branch (-> 0x103a67a2, 28-byte event record)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103a67a2	0x1388 timeout via 0x103654dc
-MAS	0x102c64fe	code	finalizer optional helper	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10293312	no breakpoint fired before COPY fault
+MAS	0x102c426c	code	callback pair branch (-> 0x10365466)	502-object	verified	docs/runtime/arena502.md#static	0x10365466	selected by source object byte +0x0c
+MAS	0x102c429c	code	callback pair branch (-> 0x103a67a2, 28-byte event record)	502-object	verified	docs/runtime/arena502.md#static	0x103a67a2	0x1388 timeout via 0x103654dc
+MAS	0x102c64fe	code	finalizer optional helper	502-object	verified	docs/runtime/arena502.md#static	0x10293312	no breakpoint fired before COPY fault
 MAS	0x102cd1ce	code	object getter for marker join	readout-state	verified	docs/runtime/readoutstate.md	0x1023c648	
 MAS	0x102d6b6a	code	backend flag route callback	readout-state	verified	docs/runtime/readoutstate.md	0x1026d402	
 MAS	0x102d6b6b	code	MAS Q+0x34 callback	mas-unknown	inferred	work/runs/ex-battery-runtime/issue485-current.txt	0xb1806d98	
@@ -1508,11 +1508,11 @@ MAS	0x1032b14c	code	service-start check	readout-state	verified	docs/runtime/read
 MAS	0x1032b77c	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1032c368	code	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1032c374	code	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x103410cc	code	event/synchronization primitive	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103654cc	family d2/da/116/156/192
+MAS	0x103410cc	code	event/synchronization primitive	502-object	verified	docs/runtime/arena502.md#static	0x103654cc	family d2/da/116/156/192
 MAS	0x103447e0	code	keyed-data callback	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1035783e	
 MAS	0x10347414	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x10347418	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x10348c06	code	callback sync field helper	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10365466	
+MAS	0x10348c06	code	callback sync field helper	502-object	verified	docs/runtime/arena502.md#static	0x10365466	
 MAS	0x1034ffac	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x1035783e	code	keyed-data transaction commit	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x103447e0	
 MAS	0x1035791c	code	keyed-data transaction commit	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md	0x1035783e	
@@ -1546,12 +1546,12 @@ MAS	0x103610cc	code	event-set wrapper	rtos-core	observed	docs/runtime/wait/ev3.m
 MAS	0x103610d2	code	event-clear wrapper	rtos-core	observed	docs/runtime/wait/abi.md		
 MAS	0x103610da	code	event wait	rtos-core	observed	docs/runtime/wait/abi.md		
 MAS	0x10361116	code	event wait with timeout	rtos-core	verified	docs/runtime/coprocessor.md		timeout arg fa0 example
-MAS	0x10365466	code	callback sync wrapper (+0x28 field)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102c426c	
-MAS	0x103654cc	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103410cc	
-MAS	0x103654dc	code	callback event wrapper (+0x14c, 0x1388 timeout)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103410cc	
-MAS	0x103654e4	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103410cc	
-MAS	0x103654ec	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103410cc	
-MAS	0x103654f4	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x103410cc	
+MAS	0x10365466	code	callback sync wrapper (+0x28 field)	502-object	verified	docs/runtime/arena502.md#static	0x102c426c	
+MAS	0x103654cc	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/arena502.md#static	0x103410cc	
+MAS	0x103654dc	code	callback event wrapper (+0x14c, 0x1388 timeout)	502-object	verified	docs/runtime/arena502.md#static	0x103410cc	
+MAS	0x103654e4	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/arena502.md#static	0x103410cc	
+MAS	0x103654ec	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/arena502.md#static	0x103410cc	
+MAS	0x103654f4	code	callback event wrapper (+0x14c block)	502-object	verified	docs/runtime/arena502.md#static	0x103410cc	
 MAS	0x1036833c	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1036d492	code	MAS I2C2 ADDR writer (0x38)	mas-i2c	observed	docs/devices/i2c/protocol.md	0x2c01a008	
 MAS	0x1036d5fd	code	MAS I2C0 ISR (resource100)	mas-i2c	verified	docs/devices/i2c/protocol.md	0x2c018000	
@@ -1649,17 +1649,17 @@ MAS	0x1039fb07	code	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger
 MAS	0x1039fb35	code	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md,work/runs/display-command4-event-probe/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x1039fb7a	code	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103a30ca	code	sentinel tuple initializer	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x10233570	no sync gate to compare call
-MAS	0x103a34c0	code	selector-one arena initializer	rtos-core	verified	docs/runtime/selector-one-download.md	0xb1808c98	base arg 0xaf200000
+MAS	0x103a34c0	code	selector-one arena initializer	rtos-core	verified	docs/runtime/selectoronedownload.md	0xb1808c98	base arg 0xaf200000
 MAS	0x103a34d2	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
-MAS	0x103a364e	code	selector-one payload rounding (4 KiB, base+0x5000 start, cap 0x400000)	rtos-core	verified	docs/runtime/selector-one-download.md		
-MAS	0x103a369c	code	selector-one envelope range check [b0900000,b1000000)	rtos-core	verified	docs/runtime/selector-one-download.md		7 MiB check envelope, model owns 4 MiB
-MAS	0x103a3b66	code	generic COPY submit wrapper	rtos-core	observed	docs/runtime/region-table.md	0x1024496b;0x50200000	channel 0, src 0x122acf40, dst 0x50200000, len 0x27800
+MAS	0x103a364e	code	selector-one payload rounding (4 KiB, base+0x5000 start, cap 0x400000)	rtos-core	verified	docs/runtime/selectoronedownload.md		
+MAS	0x103a369c	code	selector-one envelope range check [b0900000,b1000000)	rtos-core	verified	docs/runtime/selectoronedownload.md		7 MiB check envelope, model owns 4 MiB
+MAS	0x103a3b66	code	generic COPY submit wrapper	rtos-core	observed	docs/runtime/regiontable.md	0x1024496b;0x50200000	channel 0, src 0x122acf40, dst 0x50200000, len 0x27800
 MAS	0x103a46ac	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x103a47a2	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/id34-packed-struct/receipt.md,work/runs/id34-producer-format/receipt.md,work/runs/resource34-schema/receipt.md,work/runs/z6ii-id34-compare/receipt.md,work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103a4ac0	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x103a5a7a	data	region-table conversion wrapper copy spelling (not a function entry)	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5a7a	frequently copied spelling; real entry is 0x103c5a7a
-MAS	0x103a6708	code	callback/finalizer address	502-object	verified	docs/runtime/502-object30-runtime.md	0x102c426c	no breakpoint fired before COPY fault
-MAS	0x103a67a2	code	callback finalizer (0x102c429c branch)	502-object	verified	docs/runtime/502-object-consumer-static.md	0x102c429c	no breakpoint fired before COPY fault
+MAS	0x103a5a7a	data	region-table conversion wrapper copy spelling (not a function entry)	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5a7a	frequently copied spelling; real entry is 0x103c5a7a
+MAS	0x103a6708	code	callback/finalizer address	502-object	verified	docs/runtime/arena502.md#runtime	0x102c426c	no breakpoint fired before COPY fault
+MAS	0x103a67a2	code	callback finalizer (0x102c429c branch)	502-object	verified	docs/runtime/arena502.md#static	0x102c429c	no breakpoint fired before COPY fault
 MAS	0x103a6baa	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103ab030	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103aeafe	code	reset-path input validation	readout-state	verified	docs/runtime/readoutstate.md	0x10234cd0	
@@ -1671,7 +1671,7 @@ MAS	0x103b08e2	code	clock +0x34 mask-word read site (0x04281034)	rtos-service	ob
 MAS	0x103b092c	code	clock two-bank RMW setter read (0x04281058)	rtos-service	observed	docs/devices/clock/runtime.md	0x04281058	inside setter O390914..960; bank by bits16..19
 MAS	0x103b097e	code	clock bank/alias selector helper	clock	verified	docs/devices/clock/protocol.md		packed arg bits16..19
 MAS	0x103b2306	code	object-initialization/synchronization entry (wait boundary)	rtos-core	observed	docs/runtime/wait/audit.md		next implementation prerequisite
-MAS	0x103b3dc0	code	callback sync field helper	502-object	verified	docs/runtime/502-object-consumer-static.md	0x10365466	
+MAS	0x103b3dc0	code	callback sync field helper	502-object	verified	docs/runtime/arena502.md#static	0x10365466	
 MAS	0x103b9050	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103b909a	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103ba164	code	InitiateCapture	readout-input	verified	work/runs/analysis-readout-gate/receipt.md	0x103ba6ea	camera-control capture entry
@@ -1691,8 +1691,8 @@ MAS	0x103bf214	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-
 MAS	0x103bf224	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103bf374	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x103bf37c	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
-MAS	0x103bf42b	code	reader LR (0x102a84cc caller return)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a84cc	
-MAS	0x103bf48b	code	object +0x34 word value	502-object	observed	docs/runtime/502-object30-runtime.md	0xb51b94f0	
+MAS	0x103bf42b	code	reader LR (0x102a84cc caller return)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a84cc	
+MAS	0x103bf48b	code	object +0x34 word value	502-object	observed	docs/runtime/arena502.md#runtime	0xb51b94f0	
 MAS	0x103bf9be	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md,work/runs/id34-producer-format/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103bfa3d	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103bfa3e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -1717,18 +1717,18 @@ MAS	0x103c0742	code	unknown	legacy-runs	hypothesis	work/runs/id34-producer-forma
 MAS	0x103c0744	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103c21ce	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103c2ac8	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x103c585c	code	saved native initializer (region table + relocation records)	rtos-core	verified	docs/runtime/region-table.md	0xb2b4145c;0xbaa00000	
-MAS	0x103c58fc	code	region-table builder region writer	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c585c	
+MAS	0x103c585c	code	saved native initializer (region table + relocation records)	rtos-core	verified	docs/runtime/regiontable.md	0xb2b4145c;0xbaa00000	
+MAS	0x103c58fc	code	region-table builder region writer	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c585c	
 MAS	0x103c5a48	code	allocator watch stop (store at 0x103c5a46)	rtos-core	observed	docs/runtime/buffer.md	0xb18ab558	
 MAS	0x103c5a4e	code	allocator leaf entry (hardware breakpoint)	rtos-core	observed	docs/runtime/buffer.md		R0 003a0000, LR 10248473
-MAS	0x103c5a7a	code	region-table conversion helper	rtos-core	verified	docs/runtime/region-table.md		word2+(input-word0) when enabled
-MAS	0x103c5a96	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5ad8	consumes record +4/+8
-MAS	0x103c5ab0	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5ad8	
-MAS	0x103c5ac6	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5ad8	
-MAS	0x103c5ad8	code	region-table lookup	rtos-core	verified	docs/runtime/region-table.md	0x103c585c	scan record[i+1].word0-1 < input
-MAS	0x103c5ae0	code	region-table query loop	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5ad8	
+MAS	0x103c5a7a	code	region-table conversion helper	rtos-core	verified	docs/runtime/regiontable.md		word2+(input-word0) when enabled
+MAS	0x103c5a96	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5ad8	consumes record +4/+8
+MAS	0x103c5ab0	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5ad8	
+MAS	0x103c5ac6	code	region-table sibling helper (predicate)	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5ad8	
+MAS	0x103c5ad8	code	region-table lookup	rtos-core	verified	docs/runtime/regiontable.md	0x103c585c	scan record[i+1].word0-1 < input
+MAS	0x103c5ae0	code	region-table query loop	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5ad8	
 MAS	0x103c5ae8	code	faulting PC at first abort (LR 0x103c5af0)	loader	observed	docs/startup/relocation.md	0x10103610	R0/R5 0xb2b7440c, R6 0xb2b74000, R7 0x10500000, R12 0x010b0211
-MAS	0x103c5af0	code	region-table query return address calculation	rtos-core	verified	docs/runtime/502-runtime-consumer.md	0x103c5ad8	
+MAS	0x103c5af0	code	region-table query return address calculation	rtos-core	verified	docs/runtime/arena502.md#copy	0x103c5ad8	
 MAS	0x103c5d86	code	system-config helper (selector 0x8a)	sysconfig	verified	docs/runtime/coprocessor.md	0x04280088	
 MAS	0x103c6b2a	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-power-callback/receipt.md,work/runs/lcdnext-input-snapshot1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x103c6b5c	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
@@ -2516,9 +2516,9 @@ MAS	0x107a2334	code	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear
 MAS	0x107a2b8e	code	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x107a4f34	data	IPUD COPY source descriptor	ipud	verified	docs/devices/ipud/protocol.md	0xb0d00000	MAS source descriptor used by byte-copy engine
 MAS	0x107a764e	code	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x107e00f4	data	selector-one COPY source1	rtos-core	observed	docs/runtime/selector-one-download.md	0xb0905000	
-MAS	0x1081432c	data	selector-one COPY2 source	rtos-core	observed	docs/runtime/selector-one-download.md	0xb093a000	
-MAS	0x1087a92c	data	selector-one COPY3 source	rtos-core	observed	docs/runtime/selector-one-download.md	0xb096e000	
+MAS	0x107e00f4	data	selector-one COPY source1	rtos-core	observed	docs/runtime/selectoronedownload.md	0xb0905000	
+MAS	0x1081432c	data	selector-one COPY2 source	rtos-core	observed	docs/runtime/selectoronedownload.md	0xb093a000	
+MAS	0x1087a92c	data	selector-one COPY3 source	rtos-core	observed	docs/runtime/selectoronedownload.md	0xb096e000	
 MAS	0x108ecd40	code	unknown	startup-docs	hypothesis	docs/startup/romread.md		address cited in assigned docs; role not stated in existing REFS.
 MAS	0x1092bac0	code	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0x10944e34	code	unknown	legacy-runs	hypothesis	work/runs/capture-service-owner/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2577,8 +2577,8 @@ MAS	0x11eb5d64	code	unknown	legacy-runs	hypothesis	work/runs/display-command4-cr
 MAS	0x11f0cbb4	code	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x12020000	code	unknown	legacy-runs	hypothesis	work/runs/wl-z7-id34-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x120a6730	data	MAS ExCmdQuD/H/L ROM strings	mas-ssi	observed	work/runs/analysis-input-roundtrip/receipt.md; work/runs/analysis-input-roundtrip/receipt.md	0x12421a84	
-MAS	0x122acf40	data	COPY source (MAS ROM block)	rtos-core	observed	docs/runtime/region-table.md	0x122d4740	+0x27800 = descriptor address
-MAS	0x122d4740	data	COPY descriptor (first word 0x27800)	rtos-core	observed	docs/runtime/region-table.md		
+MAS	0x122acf40	data	COPY source (MAS ROM block)	rtos-core	observed	docs/runtime/regiontable.md	0x122d4740	+0x27800 = descriptor address
+MAS	0x122d4740	data	COPY descriptor (first word 0x27800)	rtos-core	observed	docs/runtime/regiontable.md		
 MAS	0x1232ffd0	code	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x12399f94	code	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0x1239c07c	code	unknown	legacy-runs	hypothesis	work/runs/mas-ssi-partial-frame/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2615,9 +2615,9 @@ MAS	0x132dfffc	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provis
 MAS	0x132e0000	data	unknown	legacy-runs	hypothesis	work/runs/descriptor17-export-path/receipt.md,work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md,work/runs/id34-producer-format/receipt.md,work/runs/lcdnext-type2-clear5/receipt.md,work/runs/z6ii-id34-compare/receipt.md,work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x133e0000	region	uncovered ROM projection address (COPY source read)	loader	observed	docs/runtime/buffer.md	0x10360f74	CPU0 READ32 PA133e0000 rejected
 MAS	0x13ffffff	data	unknown	legacy-runs	hypothesis	work/runs/wl-z7-id34-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x14000000	data	region-table threshold / logical class base	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0xb5f00000	observed threshold sequence
+MAS	0x14000000	data	region-table threshold / logical class base	rtos-core	observed	docs/runtime/arena502.md#copy	0xb5f00000	observed threshold sequence
 MAS	0x153b0902	data	MEMC TIM0 initialization profile value	memc	verified	docs/devices/memc/protocol.md	0x04264020	timing fields from public source
-MAS	0x19c00000	data	region-table threshold value	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0x50300000	observed threshold sequence
+MAS	0x19c00000	data	region-table threshold value	rtos-core	observed	docs/runtime/arena502.md#copy	0x50300000	observed threshold sequence
 MAS	0x1d000000	mmio	historical CBAR candidate (superseded by 0xf8100000)	gic	hypothesis	docs/startup/peripherals.md	0x1d001000	caused DFAR 0x1d001000/0x1d002004 faults
 MAS	0x2001148c	ram	EX transport descriptor root	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		kind/submit fields
 MAS	0x200114e6	ram	EX input shadow state	readout-input	verified	work/runs/analysis-readout-gate/receipt.md		120-byte shadow
@@ -2648,14 +2648,14 @@ MAS	0x20013c98	ram	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gat
 MAS	0x20013cb0	ram	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x20013ce0	ram	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x20013cfa	ram	unknown	legacy-runs	hypothesis	work/runs/analysis-readout-gate/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x20016020	mmio	MXIC region pair A0 word	mxic	verified	docs/runtime/502-provider-boundary.md	0x2001603f	writes (0x60000000,0x50000000)
-MAS	0x20016028	mmio	MXIC region pair A1 word	mxic	verified	docs/runtime/502-provider-boundary.md		writes (0x50000000,0xb0000000)
-MAS	0x20016030	mmio	MXIC region pair A2 word	mxic	verified	docs/runtime/502-provider-boundary.md		writes (0x50000000,0x00000000)
-MAS	0x20016038	mmio	MXIC region pair A3 word	mxic	verified	docs/runtime/502-provider-boundary.md		writes (0x00030000,0x40000000)
+MAS	0x20016020	mmio	MXIC region pair A0 word	mxic	verified	docs/runtime/arena502.md#provider	0x2001603f	writes (0x60000000,0x50000000)
+MAS	0x20016028	mmio	MXIC region pair A1 word	mxic	verified	docs/runtime/arena502.md#provider		writes (0x50000000,0xb0000000)
+MAS	0x20016030	mmio	MXIC region pair A2 word	mxic	verified	docs/runtime/arena502.md#provider		writes (0x50000000,0x00000000)
+MAS	0x20016038	mmio	MXIC region pair A3 word	mxic	verified	docs/runtime/arena502.md#provider		writes (0x00030000,0x40000000)
 MAS	0x2001603f	mmio	MXIC region pair A end	mxic	verified	docs/devices/mxic/protocol.md	0x20016020	four word pairs at 0x20016020..0x2001603f
-MAS	0x20016d40	mmio	MXIC unit B commit word	mxic	verified	docs/runtime/502-provider-boundary.md		word-one unit commit
-MAS	0x20016d50	mmio	MXIC region pair B0 word	mxic	verified	docs/runtime/502-provider-boundary.md	0x20016d5f	writes (0x60000000,0x50000000)
-MAS	0x20016d58	mmio	MXIC region pair B1 word	mxic	verified	docs/runtime/502-provider-boundary.md		writes (0x50000000,0xb0000000)
+MAS	0x20016d40	mmio	MXIC unit B commit word	mxic	verified	docs/runtime/arena502.md#provider		word-one unit commit
+MAS	0x20016d50	mmio	MXIC region pair B0 word	mxic	verified	docs/runtime/arena502.md#provider	0x20016d5f	writes (0x60000000,0x50000000)
+MAS	0x20016d58	mmio	MXIC region pair B1 word	mxic	verified	docs/runtime/arena502.md#provider		writes (0x50000000,0xb0000000)
 MAS	0x20016d5f	mmio	MXIC region pair B end	mxic	verified	docs/devices/mxic/protocol.md	0x20016d50	two pairs at 0x20016d50..0x20016d5f
 MAS	0x20060034	mmio	uncovered device word (CPU1 read)	startup-frontier	observed	docs/runtime/wait/abi.md	0x102dcc46	device family unresolved
 MAS	0x20060044	mmio	router raw44 word (read/W1C)	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0x102dc5c8	bit 7 -> IRQ87 path
@@ -2754,16 +2754,16 @@ MAS	0x462e0000	data	unknown	legacy-runs	hypothesis	work/runs/wl-z9-persistent-au
 MAS	0x46ca0000	data	unknown	legacy-runs	hypothesis	work/runs/wl-z9-persistent-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x47700000	data	unknown	legacy-runs	hypothesis	work/runs/wl-z9-persistent-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x47e80000	data	unknown	legacy-runs	hypothesis	work/runs/wl-z9-persistent-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x50200000	ram	region-table output for 0x50000000 logical class	rtos-core	verified	docs/runtime/region-table.md		owner unproved; QEMU keeps it uncovered
-MAS	0x50214422	data	L1 descriptor value 0x50214422 (identity section)	rtos-core	observed	docs/runtime/502-owner-boundary.md	0x50200000	VA 0x50200000 -> PA 0x50200000
-MAS	0x50300000	data	region-table threshold value	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0x50000000	observed threshold sequence
-MAS	0x50700000	data	region-table threshold value	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0x5f900000	observed threshold sequence
-MAS	0x51ffffff	data	identity section upper bound (0x50000000..0x51ffffff)	502-object	verified	docs/runtime/502-owner-boundary.md	0x50000000	guest MMU intent; no physical owner
+MAS	0x50200000	ram	region-table output for 0x50000000 logical class	rtos-core	verified	docs/runtime/regiontable.md		owner unproved; QEMU keeps it uncovered
+MAS	0x50214422	data	L1 descriptor value 0x50214422 (identity section)	rtos-core	observed	docs/runtime/arena502.md#owner	0x50200000	VA 0x50200000 -> PA 0x50200000
+MAS	0x50300000	data	region-table threshold value	rtos-core	observed	docs/runtime/arena502.md#copy	0x50000000	observed threshold sequence
+MAS	0x50700000	data	region-table threshold value	rtos-core	observed	docs/runtime/arena502.md#copy	0x5f900000	observed threshold sequence
+MAS	0x51ffffff	data	identity section upper bound (0x50000000..0x51ffffff)	502-object	verified	docs/runtime/arena502.md#owner	0x50000000	guest MMU intent; no physical owner
 MAS	0x53535353	data	unknown	legacy-runs	hypothesis	work/runs/analysis-tl4-processor/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0x54900000	data	region-table next input base (record 10 end)	rtos-core	verified	docs/runtime/region-table.md	0x50000000	
-MAS	0x5f900000	data	region-table threshold value	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0xbd200000	observed threshold sequence
+MAS	0x54900000	data	region-table next input base (record 10 end)	rtos-core	verified	docs/runtime/regiontable.md	0x50000000	
+MAS	0x5f900000	data	region-table threshold value	rtos-core	observed	docs/runtime/arena502.md#copy	0xbd200000	observed threshold sequence
 MAS	0x60000000	data	MXIC region pair word (start value)	mxic	verified	docs/devices/mxic/protocol.md	0x20016020	(0x60000000,0x50000000) pair member
-MAS	0x62700000	data	region-table output base (record 11)	rtos-core	verified	docs/runtime/region-table.md	0x54900000	
+MAS	0x62700000	data	region-table output base (record 11)	rtos-core	verified	docs/runtime/regiontable.md	0x54900000	
 MAS	0x80000000	data	unknown	legacy-runs	hypothesis	work/runs/lcd-mailbox-owner/receipt.md,work/runs/wonderlantern-ex-input-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x80000002	data	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0x80000192	field	IRQ111 event mask value (r2 at IRQ111_ENTER)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb180126c 0x4b0000 0x1194000	register value, not an address; 0x4b0000/0x1194000 are qemu.stderr byte-size values (resource57 records / display buffer)
@@ -2771,21 +2771,21 @@ MAS	0xa1815a74	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-cr
 MAS	0xa1819748	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xa1880b00	data	unknown	legacy-runs	hypothesis	work/runs/z7-resource34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xa1f90bf0	data	unknown	legacy-runs	hypothesis	work/runs/display-command4-crossref/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0xaf200000	data	region-table input base (record 12) / RMU arg2	rtos-core	verified	docs/runtime/region-table.md	0xafa00000	also IPUD peer/source-like value; ownership unresolved
-MAS	0xaf8d4000	data	selector-one object field +0x14 value	rtos-core	verified	docs/runtime/selector-one-download.md	0xaf200000	base + aligned 0x6d4000
-MAS	0xafa00000	data	region-table output base (record 12)	rtos-core	verified	docs/runtime/region-table.md	0xaf200000	
-MAS	0xb0000000	data	region-table input base (record 13)	rtos-core	verified	docs/runtime/region-table.md	0xb1000000	
-MAS	0xb0100000	ram	selector-one object field +0x10 value	rtos-core	verified	docs/runtime/selector-one-download.md	0xaf200000	base + 0x0f00000
-MAS	0xb0800000	region	unmapped hole below selector-one arena	rtos-core	verified	docs/runtime/selector-one-download.md	0xb0900000	model does not map it
-MAS	0xb0900000-0xb0d00000	region	selector-one download arena (4 MiB)	rtos-core	verified	docs/runtime/selector-one-download.md	0x103a34c0	
-MAS	0xb0905000	ram	selector-one payload1 destination (src 0x107e00f4, len 0x34238)	rtos-core	observed	docs/runtime/selector-one-download.md	0x107e00f4	payloads 2/3 at b093a000/b096e000
-MAS	0xb093a000	ram	selector-one COPY2 destination	rtos-core	observed	docs/runtime/selector-one-download.md	0x1081432c	offset 0x3a000, len 0x33300
-MAS	0xb096e000	ram	selector-one COPY3 destination	rtos-core	observed	docs/runtime/selector-one-download.md	0x1087a92c	offset 0x6e000, len 0x2cbc8
+MAS	0xaf200000	data	region-table input base (record 12) / RMU arg2	rtos-core	verified	docs/runtime/regiontable.md	0xafa00000	also IPUD peer/source-like value; ownership unresolved
+MAS	0xaf8d4000	data	selector-one object field +0x14 value	rtos-core	verified	docs/runtime/selectoronedownload.md	0xaf200000	base + aligned 0x6d4000
+MAS	0xafa00000	data	region-table output base (record 12)	rtos-core	verified	docs/runtime/regiontable.md	0xaf200000	
+MAS	0xb0000000	data	region-table input base (record 13)	rtos-core	verified	docs/runtime/regiontable.md	0xb1000000	
+MAS	0xb0100000	ram	selector-one object field +0x10 value	rtos-core	verified	docs/runtime/selectoronedownload.md	0xaf200000	base + 0x0f00000
+MAS	0xb0800000	region	unmapped hole below selector-one arena	rtos-core	verified	docs/runtime/selectoronedownload.md	0xb0900000	model does not map it
+MAS	0xb0900000-0xb0d00000	region	selector-one download arena (4 MiB)	rtos-core	verified	docs/runtime/selectoronedownload.md	0x103a34c0	
+MAS	0xb0905000	ram	selector-one payload1 destination (src 0x107e00f4, len 0x34238)	rtos-core	observed	docs/runtime/selectoronedownload.md	0x107e00f4	payloads 2/3 at b093a000/b096e000
+MAS	0xb093a000	ram	selector-one COPY2 destination	rtos-core	observed	docs/runtime/selectoronedownload.md	0x1081432c	offset 0x3a000, len 0x33300
+MAS	0xb096e000	ram	selector-one COPY3 destination	rtos-core	observed	docs/runtime/selectoronedownload.md	0x1087a92c	offset 0x6e000, len 0x2cbc8
 MAS	0xb0d00000-0xb0d40000	region	selector-zero download scratch (4 MiB)	rtos-core	verified	docs/runtime/pte.md		L1 entry 0xb0d14422; consumed by RMU/IPUD
 MAS	0xb0d14422	data	L1 descriptor value 0xb0d14422 (section 0xb0d00000)	rtos-core	observed	docs/runtime/pte.md	0xb0d00000	L1 index 0xb0d
 MAS	0xb1000000-0xb1204a00	region	MAS inner-image copy destination	loader	verified	docs/startup/bootshim.md		source-backed MAS inner image
-MAS	0xb1100000	ram	selector-zero arena end	rtos-core	verified	docs/runtime/502-owner-boundary.md	0xb0d00000	no overlap with storage classes
-MAS	0xb1800000	data	region-table input base (record 14, disabled) / storage start	rtos-core	verified	docs/runtime/region-table.md; work/runs/gui-event-producer/receipt.md	0xbaa00000	six storage regions start here
+MAS	0xb1100000	ram	selector-zero arena end	rtos-core	verified	docs/runtime/arena502.md#owner	0xb0d00000	no overlap with storage classes
+MAS	0xb1800000	data	region-table input base (record 14, disabled) / storage start	rtos-core	verified	docs/runtime/regiontable.md; work/runs/gui-event-producer/receipt.md	0xbaa00000	six storage regions start here
 MAS	0xb1800058	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb18004f0	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md,work/runs/nor-command-static/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb1802060	record	MAS SPI descriptor (phase1/role1/slot1 descriptor+4 chain)	mas-spi	observed	docs/devices/spi/protocol.md	0x10200684 0x10201010	
@@ -2818,7 +2818,7 @@ MAS	0xb180898c	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-g
 MAS	0xb1808990	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb1808994	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb18089a8	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
-MAS	0xb1808c98	ram	selector-one runtime object	rtos-core	verified	docs/runtime/selector-one-download.md		+4=b0d00000 +8=af200000 +c=b0900000 +10=b0100000 +14=af8d4000
+MAS	0xb1808c98	ram	selector-one runtime object	rtos-core	verified	docs/runtime/selectoronedownload.md		+4=b0d00000 +8=af200000 +c=b0900000 +10=b0100000 +14=af8d4000
 MAS	0xb1808c9c	ram	unknown	readout-input	hypothesis	work/runs/analysis-readout-gate/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 MAS	0xb181048c	ram	unknown	legacy-runs2	hypothesis	work/runs/analysis-app-start/receipt.md		address cited in remaining receipt; role not stated
 MAS	0xb18104c0	ram	power-classify stored byte (value 0)	app-service	observed	work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md; work/runs/lcd-normal-parent/parent-power-byte-a546016/receipt.md	0x1038a6aa; 0x1038a6aa	r0=0x43090001
@@ -2860,11 +2860,11 @@ MAS	0xb1824ea0	ram	unknown	legacy-runs	hypothesis	work/runs/capture-service-owne
 MAS	0xb1828064	ram	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md,work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb1828108	ram	unknown	legacy-runs	hypothesis	work/runs/display-command4-producer/receipt.md,work/runs/display-menu-descriptor-differential/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb185e12c	ram	EV3 handle cell (event id 0x01000003)	rtos-core	observed	docs/runtime/wait/ev3.md	0xb2c55848	
-MAS	0xb185e4f8	ram	object field +0x04/+0x2c value	502-object	observed	docs/runtime/502-object30-runtime.md	0xb51b94f0	
+MAS	0xb185e4f8	ram	object field +0x04/+0x2c value	502-object	observed	docs/runtime/arena502.md#runtime	0xb51b94f0	
 MAS	0xb185e59c	ram	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb185e8b0	ram	unknown	legacy-runs	hypothesis	work/runs/descriptor17-provisioning/receipt.md,work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0xb185e960	ram	gate call register r6 value	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a80a8	
-MAS	0xb185e974	ram	object field +0x28 value	502-object	observed	docs/runtime/502-object30-runtime.md	0xb51b94f0	
+MAS	0xb185e960	ram	gate call register r6 value	502-object	observed	docs/runtime/arena502.md#runtime	0x102a80a8	
+MAS	0xb185e974	ram	object field +0x28 value	502-object	observed	docs/runtime/arena502.md#runtime	0xb51b94f0	
 MAS	0xb185eb70	ram	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb185ed4c	ram	unknown	legacy-runs	hypothesis	work/runs/display-resource-loader1/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb185ef28	ram	unknown	legacy-runs	hypothesis	work/runs/resource34-schema/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2902,8 +2902,8 @@ MAS	0xb188bc78	ram	registry lookup cache	rtos-service	verified	work/runs/PLAYBOO
 MAS	0xb188bc80	ram	framework dispatch hook object	rtos-service	verified	work/runs/PLAYBOOK.md	0x104c6bb2	+16/+20 handshake record fields
 MAS	0xb188bd48	ram	handshake reply record (+8 code, +12 value)	rtos-service	verified	work/runs/analysis-owner-transition/receipt.md		
 MAS	0xb189da94	ram	logical parent pointer publish slot (sibling +0x98)	rtos-core	verified	docs/runtime/address.md		
-MAS	0xb18a6ef8	ram	secondary metadata table	502-object	verified	docs/runtime/502-object-consumer.md	0x10221ed4	
-MAS	0xb18a729c	ram	callback/metadata pointer	502-object	verified	docs/runtime/502-object-consumer.md	0x1022170c	
+MAS	0xb18a6ef8	ram	secondary metadata table	502-object	verified	docs/runtime/arena502.md#objects	0x10221ed4	
+MAS	0xb18a729c	ram	callback/metadata pointer	502-object	verified	docs/runtime/arena502.md#objects	0x1022170c	
 MAS	0xb18ab558	ram	bump allocator control pointer	rtos-core	observed	docs/runtime/allocations.md	0x103c5a48	zero -> 0xb7d00000
 MAS	0xb18aedc0-0xb2b5edc0	region	virtual DDR fill backing (length 0x012b0000)	fill	verified	docs/devices/fill/protocol.md; docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0x20070000; 0x20070000	virtual-board RAM assumption, not physical DDR evidence
 MAS	0xb1c81898	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -2999,12 +2999,12 @@ MAS	0xb2989bf4	ram	class fan-out object (+76 = 0xb2989c40 table)	rtos-service	ve
 MAS	0xb2989c40	ram	16 registered class handlers	rtos-service	inferred	work/runs/analysis-handshake-responder/service-dispatch.disasm		runtime-registered; static identity unresolved
 MAS	0xb2a4e00c	ram	transport fn tables base (+88/+132)	rtos-service	verified	work/runs/analysis-owner-transition/receipt.md	0x104c0f20	populated at runtime; static template in 0x119e15xx rows
 MAS	0xb2a4e0bc	ram	inbound peer service envelope	display-provider	inferred	work/runs/analysis-owner-bridge/receipt.md; work/runs/PLAYBOOK.md	0x10463a18;0x104c6b14; 0x10463a02	+6 class, +12 key, +16 payload filled by peer transport.
-MAS	0xb2a9ad9c	ram	SoC/configuration pointer table	502-object	verified	docs/runtime/502-object-consumer.md	0x102216fc	
-MAS	0xb2a9adac	ram	object table root	502-object	verified	docs/runtime/502-object-consumer.md	0x10221ed0	
+MAS	0xb2a9ad9c	ram	SoC/configuration pointer table	502-object	verified	docs/runtime/arena502.md#objects	0x102216fc	
+MAS	0xb2a9adac	ram	object table root	502-object	verified	docs/runtime/arena502.md#objects	0x10221ed0	
 MAS	0xb2b3a2c0	ram	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xb2b3a300	ram	unknown	legacy-runs	hypothesis	work/runs/display-command4-event-probe/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0xb2b40000	ram	object +0x0c word value (instance 2)	502-object	observed	docs/runtime/502-object30-runtime.md	0xb51e5f50	
-MAS	0xb2b4145c	ram	address-conversion table root	rtos-core	verified	docs/runtime/region-table.md	0x103c585c	12-byte records {input,enabled,output}
+MAS	0xb2b40000	ram	object +0x0c word value (instance 2)	502-object	observed	docs/runtime/arena502.md#runtime	0xb51e5f50	
+MAS	0xb2b4145c	ram	address-conversion table root	rtos-core	verified	docs/runtime/regiontable.md	0x103c585c	12-byte records {input,enabled,output}
 MAS	0xb2b415f4	ram	scheduler cell	rtos-core	observed	docs/runtime/scheduler.md		
 MAS	0xb2b41604	ram	per-core scheduler cell (CPU0 current)	rtos-core	observed	docs/runtime/scheduler.md	0xb2b41608	
 MAS	0xb2b41608	ram	per-core scheduler cell (CPU1 candidate)	rtos-core	observed	docs/runtime/scheduler.md		watchpoint never fired in 200 samples
@@ -3014,7 +3014,7 @@ MAS	0xb2b43320	data	IRQ111 callback record argument (r1)	display-bank	observed	w
 MAS	0xb2b5e510	ram	startup fill logical end	fill	verified	docs/runtime/readoutstate.md; docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0xb18aedc0; 0xb18aedc0-0xb2b5edc0	profile fills extra 0x8b0 tail beyond this
 MAS	0xb2b5edc0	ram	virtual DDR backing end	fill-engine	verified	docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0xb18aedc0-0xb2b5e510	End of finite virtual DDR backing.
 MAS	0xb2b74000	ram	MAS L1 page-table destination (16 KiB, TTBR0_S)	loader	observed	docs/runtime/pte.md	0x10031400	
-MAS	0xb2b75408	ram	L1 entry address for 0x50200000 section	rtos-core	observed	docs/runtime/502-owner-boundary.md	0x50214422;0xb2b74000	
+MAS	0xb2b75408	ram	L1 entry address for 0x50200000 section	rtos-core	observed	docs/runtime/arena502.md#owner	0x50214422;0xb2b74000	
 MAS	0xb2b83f9c	ram	CPU1 exception-frame save address (below 72-byte prefix)	fill	observed	docs/devices/fill/protocol.md; docs/devices/fill/protocol.md,docs/devices/fill/runtime.md,hw/nikon/devices/fill.c	0x10103638; 0x10103638	word write 0xff; not the first cause
 MAS	0xb2b83fb8-0xb2b84000	region	CPU1 SVC 72-byte stack prefix (historical stage)	rtos-core	verified	docs/startup/smp.md		superseded by per-core slots
 MAS	0xb2b84000	ram	CPU1 SVC SP	rtos-core	observed	docs/startup/smp.md		
@@ -3042,14 +3042,14 @@ MAS	0xb2c34f40	ram	second successor task object	rtos-core	observed	docs/runtime/
 MAS	0xb2c55848	ram	EV3 control block	rtos-core	observed	docs/runtime/wait/ev3.md		pattern reached 0x5; waiters b2c33008/b2c33290
 MAS	0xb2c55858	ram	EV3 control-block pattern row	readout-input	observed	docs/runtime/wait/ev3.md	0xb2c55848	
 MAS	0xb2c568e8	ram	EV88 control block (event id 0x01000088)	rtos-core	observed	docs/runtime/wait/ev3.md		
-MAS	0xb51b94c8	ram	gate call stack slot (r2)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a80a8	
-MAS	0xb51b94dc	ram	gate call stack slot (r3)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a80a8	
-MAS	0xb51b94f0	ram	runtime object instance 1 (reader r4)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a84cc	+0x30=0x00020000, +0x0c=0, +0x10=0x133e0000
+MAS	0xb51b94c8	ram	gate call stack slot (r2)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a80a8	
+MAS	0xb51b94dc	ram	gate call stack slot (r3)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a80a8	
+MAS	0xb51b94f0	ram	runtime object instance 1 (reader r4)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a84cc	+0x30=0x00020000, +0x0c=0, +0x10=0x133e0000
 MAS	0xb51bb508	ram	EV3 waiter output stack slot	readout-input	observed	docs/runtime/wait/ev3.md	0xb2c33368	
 MAS	0xb51bb570	ram	MAS SVC stack (10201010 entry)	mas-spi	observed	docs/devices/spi/protocol.md	0x10201010	
 MAS	0xb51bb578	ram	MAS SVC stack (10200684)	mas-spi	observed	docs/devices/spi/protocol.md	0x10200684	
 MAS	0xb51bcf9c	data	IRQ111 callback rotating record pointers (r1 across 686 events)	display-bank	observed	work/runs/lcd-normal-parent/completion-order-head-120/gdb.log	0xb51bef70 0xb51c7b1c 0xb51c7b28 0xb51c7b4c 0xb51c7b58 0xb51c7ba4 0xb51c8af4 0xb51c8b20 0xb51c8b30 0xb51c8b38 0xb51c8b44 0xb51c8b5c 0xb51c8b7c 0xb51c8bac 0xb51c8bbc 0xb51cdfd4 0xb51cfee8 0xb51e5f20 0xb51e5f28 0xb51e5fb0 0xb51e5fcc 0xb51e5fe4 0xb52c4b90 0xb52d4f7c 0xb52d4f80 0xb52d4fa0 0xb52d4fbc 0xb52d6e54 0xb52d6e5c 0xb52d6e64 0xb52d6e8c 0xb52d6e98 0xb52d6e9c 0xb52d6eac 0xb52d6ec4 0xb52d6ecc 0xb52d6eec 0xb52d6f00 0xb52d6f04 0xb52d6f0c 0xb52d6f28 0xb52d6f30 0xb52d6f44 0xb52d6f4c 0xb52d6f54 0xb52d6f68 0xb52d6f74 0xb52d6f78 0xb52d6f7c 0xb52d6f84 0xb52d6f90 0xb52d6f94 0xb52d6f9c 0xb52d6fa4 0xb52d6fb0 0xb52d6fcc 0xb52d8724 0xb52d875c 0xb52d9f74 0xb52def94 0xb52defac 0xb53adf18 0xb53b8d34 0xb53b8f18 0xb53c2fd4 0xb5406558 0xb540656c 0xb5406574 0xb540657c 0xb54065a0 0xb5406600 0xb5406648 0xb5406660 0xb5412588 0xb5412620 0xb5412658 0xb5412664 0xb5412680 0xb5412684 0xb54126a4 0xb54126a8 0xb54126dc 0xb54126ec 0xb54126f4 0xb5412704 0xb5412784 0xb54175e4 0xb5417764 0xb5417794 0xb54177b0 0xb54177bc 0xb54177cc 0xb54177d4 0xb545e6e0 0xb545e768	transient per-event record instances; not fixed research state
-MAS	0xb51e5f50	ram	runtime object instance 2 (reader r4)	502-object	observed	docs/runtime/502-object30-runtime.md	0x102a84cc	+0x30=0x00020000, +0x0c=0xb2b40000
+MAS	0xb51e5f50	ram	runtime object instance 2 (reader r4)	502-object	observed	docs/runtime/arena502.md#runtime	0x102a84cc	+0x30=0x00020000, +0x0c=0xb2b40000
 MAS	0xb51f43f0	ram	MAS SVC stack (102ddfe6 entry)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x102ddfe6	
 MAS	0xb51f4400	ram	MAS SVC stack (10387e36 wrapper)	mas-bridge	observed	docs/devices/bridge/protocol.md	0x10387e36	
 MAS	0xb52d6e78	ram	unknown	legacy-runs	hypothesis	work/runs/display-completion-audit/receipt.md		address cited in legacy receipt; role not stated in assigned source
@@ -3078,13 +3078,13 @@ MAS	0xbaa00000-0xbb300000	region	code relocation destination class (9 MiB)	loade
 MAS	0xbab00000-0xbab21538	region	kernel copy destination (src 0x10100000, len 0x21538)	loader	observed	docs/runtime/stacks.md		
 MAS	0xbac00000-0xbaf00000	region	selector0 copy destination (src 0x10200000, len 0x300000, LR 0x10368245)	loader	observed	docs/startup/relocation.md		
 MAS	0xbaf00000-0xbb300000	region	selector1 copy destination (src 0x10500000)	loader	verified	docs/startup/relocation.md		prospective source declaration
-MAS	0xbc100000	data	region-table threshold value	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0x19c00000	observed threshold sequence
+MAS	0xbc100000	data	region-table threshold value	rtos-core	observed	docs/runtime/arena502.md#copy	0x19c00000	observed threshold sequence
 MAS	0xbcca7a10	ram	RGBA path operand A	graphics-programs	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/summary-streams.txt,docs/devices/transfer/protocol.md	0x106ee04a;0xbf309600	Guest-owned indirect path input; exact role is source-backed path data.
 MAS	0xbcca7b50	ram	RGBA path operand B	graphics-programs	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/summary-streams.txt,docs/devices/transfer/protocol.md	0x106ee04a;0xbf309600	Guest-owned indirect path input; exact role is source-backed path data.
 MAS	0xbcca7f50	ram	RGBA segment/coordinate operand	graphics-programs	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/summary-streams.txt,docs/devices/transfer/protocol.md	0x106ee04a;0xbf309600	Guest-owned indirect path input; exact role is source-backed path data.
 MAS	0xbcec3f70	ram	LUT/clear source operand	graphics-programs	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/summary-streams.txt,docs/devices/transfer/protocol.md	0x106ee04a	Source-looking guest RAM operand in captured streams; not assumed texture for clear.
 MAS	0xbcf6fff0	ram	unknown	legacy-runs	hypothesis	work/runs/analysis-z7-trigger-map/receipt.md		address cited in legacy receipt; role not stated in assigned source
-MAS	0xbd200000	data	region-table threshold value / storage classes end	rtos-core	observed	docs/runtime/502-runtime-consumer.md	0xb1800000	observed threshold sequence; also storage class top
+MAS	0xbd200000	data	region-table threshold value / storage classes end	rtos-core	observed	docs/runtime/arena502.md#copy	0xb1800000	observed threshold sequence; also storage class top
 MAS	0xbec5f200-0xbf10f200	region	resource57 record0 RGBA slot	buffer-producers	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xbec5f200;0xbedb0a00	720x480x4 slot; engine0 clear active prefix.
 MAS	0xbedb0a00	ram	record0 active-clear end	buffer-producers	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xbec5f200-0xbf10f200	End of 0x0b40*0x01e0 active clear.
 MAS	0xbf10f200-0xbf309600	region	resource57 record1 RGBA slot	buffer-producers	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xbf10f200;0xbf309600	Exact 960x540x4 engine0 clear slot.
@@ -3095,7 +3095,7 @@ MAS	0xc175d600-0xc1c0d600	region	resource57 record7 RGBA slot	buffer-producers	o
 MAS	0xc185f858	ram	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xc18aee00	ram	record7 active-clear end	buffer-producers	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xc175d600-0xc1c0d600	End of 0x0b40*0x01e0 active clear.
 MAS	0xc1c0d600	ram	resource57 record8 boundary	buffer-producers	inferred	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xc175d600-0xc1c0d600	Published record8 base remains unmapped.
-MAS	0xc3e00000	data	region-table output base (record 15)	rtos-core	verified	docs/runtime/region-table.md	0xbb300000	
+MAS	0xc3e00000	data	region-table output base (record 15)	rtos-core	verified	docs/runtime/regiontable.md	0xbb300000	
 MAS	0xc60f0000	region	MAS bridge requested remote ring (length C618)	mas-bridge	verified	docs/devices/bridge/protocol.md	0x460f0000	
 MAS	0xcb4a7000	ram	YUVA107 primary plane	graphics-programs	observed	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/summary-streams.txt,docs/devices/transfer/protocol.md	0xcb5fc000;0xcc63b000	First display-buffer group primary; 2 bytes per pixel pair.
 MAS	0xcb4a7000-0xcc63b000	region	first display-buffer union	buffer-producers	inferred	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xcb4a7000;0xcb5fc000	Union cited for first display-buffer group; not proof of scanout.
@@ -3105,7 +3105,7 @@ MAS	0xcbfdd7ff	ram	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5
 MAS	0xcbfdd800	ram	YUV105 interleaved UV plane	graphics-programs	observed	work/pr-transfer-yuv-clear.md	0xcbf33000	Second display-buffer group UV plane; delta 0xaa800.
 MAS	0xcc087fff	ram	unknown	legacy-runs	hypothesis	work/runs/lcdnext-type2-clear5/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xcc63b000	ram	display-buffer union end	buffer-producers	inferred	work/runs/analysis-gui-programs/receipt.md,work/runs/analysis-gui-programs/static-anchors.txt	0xcb4a7000-0xcc63b000	End of first display-buffer union.
-MAS	0xcc700000	data	region-table next input base (record 15 end)	rtos-core	verified	docs/runtime/region-table.md	0xc3e00000	
+MAS	0xcc700000	data	region-table next input base (record 15 end)	rtos-core	verified	docs/runtime/regiontable.md	0xc3e00000	
 MAS	0xea002f20	data	unknown	legacy-runs	hypothesis	work/runs/z6ii-id34-compare/receipt.md		address cited in legacy receipt; role not stated in assigned source
 MAS	0xf8100000	mmio	CBAR (PERIPHBASE)	gic	verified	docs/startup/peripherals.md	0xf8110000;0xf8120000	A15MPCore mapped here; reset-cbar property
 MAS	0xf8110000	mmio	GIC distributor (CBAR+0x1000)	gic	verified	docs/startup/peripherals.md		
@@ -3268,7 +3268,7 @@ QEMU	0x50200000-0x502277ff	ram	boot-shim MAS COPY view (0x27800)	qemu-loader	ver
 QEMU	0x80300000-0x803277ff	ram	boot-shim SLA copy view (0x27800)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x10020000	
 QEMU	0xb1000000-0xb12049ff	ram	boot-shim MAS inner view (0x204a00)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x04008000	MAS inner image O[0x208853c,0x228cf3c) loaded by guest COPY
 QEMU	0xc8200000-0xc82fffff	ram	boot-shim MAS code view (0x300000)	qemu-loader	verified	hw/nikon/components/bootshim.c	0x50200000	
-SHARED	0x0	data	observed zero RAM word (semantic value)	docs-generic	observed	docs/runtime/502-object30-runtime.md; docs/startup/bundleabort.md		word contents in runtime dumps; not a firmware address
+SHARED	0x0	data	observed zero RAM word (semantic value)	docs-generic	observed	docs/runtime/arena502.md#runtime; docs/startup/bundleabort.md		word contents in runtime dumps; not a firmware address
 SHARED	0x1	data	RAM word value 1 (semantic value)	docs-generic	observed	docs/runtime/scheduler.md		scheduler cell word; not a firmware address
 SHARED	0x2	data	RAM word value 2 (semantic value)	docs-generic	observed	docs/runtime/scheduler.md		scheduler cell word; not a firmware address
 SHARED	0x8	data	RAM word value 8 (semantic value)	docs-generic	observed	docs/runtime/wait/ev3.md		EV3 control-block word; not a firmware address
@@ -3285,14 +3285,14 @@ SHARED	0x13e04	data	unknown	startup-docs	hypothesis	docs/startup/peripherals.md,
 SHARED	0x14100	data	unknown	startup-docs	hypothesis	docs/startup/romread.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x141fc	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x15074	data	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/romread.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x18d80	data	gate request-record value 0x00018d80	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value; not attributed to 0x50200000 COPY
-SHARED	0x20000	data	object+0x30 observed word value 0x00020000	docs-generic	observed	docs/runtime/502-object30-runtime.md	0x102a84cc	normalized reader value, not 0x50200000
-SHARED	0x27800	data	COPY length / descriptor word 0x27800	docs-generic	observed	docs/runtime/502-runtime-consumer.md; docs/architecture.md	0x103a3b66;0x122d4740	remaining length of 0x122acf40 -> 0x50200000 copy
-SHARED	0x2cbc8	data	selector-one COPY3 length 0x2cbc8	docs-generic	observed	docs/runtime/selector-one-download.md	0xb096e000	semantic value
+SHARED	0x18d80	data	gate request-record value 0x00018d80	docs-generic	observed	docs/runtime/arena502.md#runtime		retained raw run log value; not attributed to 0x50200000 COPY
+SHARED	0x20000	data	object+0x30 observed word value 0x00020000	docs-generic	observed	docs/runtime/arena502.md#runtime	0x102a84cc	normalized reader value, not 0x50200000
+SHARED	0x27800	data	COPY length / descriptor word 0x27800	docs-generic	observed	docs/runtime/arena502.md#copy; docs/architecture.md	0x103a3b66;0x122d4740	remaining length of 0x122acf40 -> 0x50200000 copy
+SHARED	0x2cbc8	data	selector-one COPY3 length 0x2cbc8	docs-generic	observed	docs/runtime/selectoronedownload.md	0xb096e000	semantic value
 SHARED	0x30000	data	MXIC region pair word 0x00030000	docs-generic	verified	docs/devices/mxic/protocol.md	0x20016038	(0x00030000,0x40000000) preloader profile
-SHARED	0x33300	data	selector-one COPY2 length 0x33300	docs-generic	observed	docs/runtime/selector-one-download.md	0xb093a000	semantic value
-SHARED	0x34238	data	selector-one COPY1 length 0x34238	docs-generic	observed	docs/runtime/selector-one-download.md	0xb0905000	semantic value
-SHARED	0x3a000	data	selector-one COPY2 arena offset 0x3a000	docs-generic	observed	docs/runtime/selector-one-download.md	0xb093a000	semantic value
+SHARED	0x33300	data	selector-one COPY2 length 0x33300	docs-generic	observed	docs/runtime/selectoronedownload.md	0xb093a000	semantic value
+SHARED	0x34238	data	selector-one COPY1 length 0x34238	docs-generic	observed	docs/runtime/selectoronedownload.md	0xb0905000	semantic value
+SHARED	0x3a000	data	selector-one COPY2 arena offset 0x3a000	docs-generic	observed	docs/runtime/selectoronedownload.md	0xb093a000	semantic value
 SHARED	0x3b1c0	data	COPY remaining length 0x3b1c0 (destination 0)	display-bank	observed	work/runs/lcd-normal-parent/parent-baseline-head-a546016/receipt.md		semantic value
 SHARED	0x40f00	data	0x040f00xx message-code family shorthand	rtos-service	verified	work/runs/PLAYBOOK.md	0x040f0020	prefix token, not a single address
 SHARED	0x51738	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3302,10 +3302,10 @@ SHARED	0x528e1	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address 
 SHARED	0x528e4	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x57e30	data	unknown	startup-docs	hypothesis	docs/architecture.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x69e70	data	unknown	startup-docs	hypothesis	docs/architecture.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x6e000	data	selector-one COPY3 arena offset 0x6e000	docs-generic	observed	docs/runtime/selector-one-download.md	0xb096e000	semantic value
-SHARED	0x9b000	data	selector-one rounded aggregate extent 0x9b000	docs-generic	observed	docs/runtime/selector-one-download.md		below 4 MiB bound; semantic value
-SHARED	0xdfff8	data	gate request-record value 0x000dfff8	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
-SHARED	0xe0000	data	gate request-record value 0x000e0000	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
+SHARED	0x6e000	data	selector-one COPY3 arena offset 0x6e000	docs-generic	observed	docs/runtime/selectoronedownload.md	0xb096e000	semantic value
+SHARED	0x9b000	data	selector-one rounded aggregate extent 0x9b000	docs-generic	observed	docs/runtime/selectoronedownload.md		below 4 MiB bound; semantic value
+SHARED	0xdfff8	data	gate request-record value 0x000dfff8	docs-generic	observed	docs/runtime/arena502.md#runtime		retained raw run log value
+SHARED	0xe0000	data	gate request-record value 0x000e0000	docs-generic	observed	docs/runtime/arena502.md#runtime		retained raw run log value
 SHARED	0xe8494	data	payload offset O0xe8494 (allocator closure)	docs-generic	verified	docs/runtime/allocator.md		file offset, not a VMA; VA = 0x10020000 + O
 SHARED	0xf0000	region	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x104798	data	0x104798xx framework init shorthand	rtos-service	verified	work/runs/PLAYBOOK.md	0x104c6bb2	prefix token
@@ -3314,16 +3314,16 @@ SHARED	0x136b8f	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		addres
 SHARED	0x14afbc	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x14b2d8	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x17267f	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x180000	data	gate request-record value 0x00180000	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
+SHARED	0x180000	data	gate request-record value 0x00180000	docs-generic	observed	docs/runtime/arena502.md#runtime		retained raw run log value
 SHARED	0x1e0034	data	unknown	startup-docs	hypothesis	docs/startup/smp.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x200016	data	OBJECT_TRANSITION r1 value 0x200016	display-bank	observed	work/runs/lcd-normal-parent/parent-display-frontier-a546016/receipt.md	0x10438acd	semantic value
-SHARED	0x24fff8	data	gate request-record value 0x0024fff8	docs-generic	observed	docs/runtime/502-object30-runtime.md		retained raw run log value
+SHARED	0x24fff8	data	gate request-record value 0x0024fff8	docs-generic	observed	docs/runtime/arena502.md#runtime		retained raw run log value
 SHARED	0x2e0000	region	unknown	startup-docs	hypothesis	docs/validation/providers.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x3905ac	data	payload offset O0x3905ac (clock CLEAR mask helper)	docs-generic	verified	docs/devices/clock/protocol.md		file offset, not a VMA; VA = 0x10020000 + O
 SHARED	0x3905e4	data	payload offset O0x3905e4 (clock SET mask helper)	docs-generic	verified	docs/devices/clock/protocol.md		file offset, not a VMA
 SHARED	0x39097e	data	payload offset O0x39097e (clock bank/alias selector)	docs-generic	verified	docs/devices/clock/protocol.md		file offset, not a VMA
-SHARED	0x3a585c	data	payload offset O0x3a585c (region-table initializer)	docs-generic	verified	docs/runtime/region-table.md	0x103c585c	file offset, not a VMA
-SHARED	0x3a5ad8	data	payload offset O0x3a5ad8 (region-table lookup)	docs-generic	verified	docs/runtime/region-table.md	0x103c5ad8	file offset, not a VMA
+SHARED	0x3a585c	data	payload offset O0x3a585c (region-table initializer)	docs-generic	verified	docs/runtime/regiontable.md	0x103c585c	file offset, not a VMA
+SHARED	0x3a5ad8	data	payload offset O0x3a5ad8 (region-table lookup)	docs-generic	verified	docs/runtime/regiontable.md	0x103c5ad8	file offset, not a VMA
 SHARED	0x400000	data	bound value 0x400000 (selector/alias/RMU size)	docs-generic	verified	docs/runtime/pte.md	0xb0d00000	selector-zero bound, bridge alias width, RMU arg1; semantic value
 SHARED	0x400018	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x400020	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3331,7 +3331,7 @@ SHARED	0x400100	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address
 SHARED	0x400104	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x400140	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x400148	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x6d4000	data	selector-one aligned offset 0x6d4000	docs-generic	verified	docs/runtime/selector-one-download.md	0xaf8d4000	base + aligned 0x6d4000
+SHARED	0x6d4000	data	selector-one aligned offset 0x6d4000	docs-generic	verified	docs/runtime/selectoronedownload.md	0xaf8d4000	base + aligned 0x6d4000
 SHARED	0x6e0000	region	unknown	startup-docs	hypothesis	docs/validation/providers.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x83c4d4	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x83cbf4	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3360,11 +3360,11 @@ SHARED	0x843b84	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		addres
 SHARED	0x854234	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x854240	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x854d14	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x86cd40	region	unknown	startup-docs	hypothesis	docs/startup/cpu_board.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x86cd40	region	unknown	startup-docs	hypothesis	docs/startup/cpuboard.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x8b8000	region	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0xc00108	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0xc5107d	data	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0xf00000	data	selector-one object offset 0x0f00000	docs-generic	verified	docs/runtime/selector-one-download.md	0xb0100000	base + 0x0f00000
+SHARED	0xf00000	data	selector-one object offset 0x0f00000	docs-generic	verified	docs/runtime/selectoronedownload.md	0xb0100000	base + 0x0f00000
 SHARED	0xffffff	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x1000001	data	task id 0x01000001 (semantic value)	docs-generic	observed	docs/runtime/scheduler.md	0xb2c33008	initial task id
 SHARED	0x1000003	data	event id 0x01000003 (EV3)	docs-generic	observed	docs/runtime/wait/ev3.md	0xb185e12c	semantic value
@@ -3373,8 +3373,8 @@ SHARED	0x1000088	data	event id 0x01000088 (EV88)	docs-generic	observed	docs/runt
 SHARED	0x12af750	data	startup fill length 0x012af750	docs-generic	verified	docs/runtime/readoutstate.md	0xb18aedc0	[0xb18aedc0,0xb2b5e510) range length
 SHARED	0x12b0000	data	fill byte count 0x012b0000	docs-generic	observed	docs/devices/fill/protocol.md	0xb18aedc0	observed real fill request size
 SHARED	0x148db97	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x1700000	data	selector-one object offset 0x1700000	docs-generic	verified	docs/runtime/selector-one-download.md	0xb0900000	base + 0x1700000
-SHARED	0x1b00000	data	selector-one object offset 0x1b00000	docs-generic	verified	docs/runtime/selector-one-download.md	0xb0d00000	base + 0x1b00000
+SHARED	0x1700000	data	selector-one object offset 0x1700000	docs-generic	verified	docs/runtime/selectoronedownload.md	0xb0900000	base + 0x1700000
+SHARED	0x1b00000	data	selector-one object offset 0x1b00000	docs-generic	verified	docs/runtime/selectoronedownload.md	0xb0d00000	base + 0x1b00000
 SHARED	0x1ff0001	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x1ff0002	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x2010001	data	capture backend event id 0x02010001	capture-state	verified	work/runs/lcdnext-capturestate10/issue485.md	0xb1868510	state 1 returns directly on it
@@ -3417,7 +3417,7 @@ SHARED	0x602041f	data	unknown	startup-docs	hypothesis	docs/startup/ex.md		addres
 SHARED	0xfff0000	data	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x10470b42	code	unknown display callback path	display-completion	inferred	work/runs/lcd-normal-parent/pause-owner-receipt.md		Referenced by pause-owner receipt.
 SHARED	0x153b0902	data	unknown	startup-docs	hypothesis	docs/startup/first.md,docs/startup/memc.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
-SHARED	0x20000000	mmio	unknown	startup-docs	hypothesis	docs/startup/cpu_board.md,docs/startup/ex.md,docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x20000000	mmio	unknown	startup-docs	hypothesis	docs/startup/cpuboard.md,docs/startup/ex.md,docs/startup/exsystick.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x20000033	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x20000197	mmio	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x200001d3	mmio	unknown	startup-docs	hypothesis	docs/startup/smp.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3482,7 +3482,7 @@ SHARED	0x2c0b0000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		addr
 SHARED	0x3fffffff	data	event mask value 0x3fffffff	docs-generic	verified	docs/runtime/readoutstate.md	0x10238ee4	mask argument; semantic value
 SHARED	0x40000000	mmio	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40000130	data	software configuration property id 0x40000130	keyed-data	verified	work/runs/lcdnext-ownerclosure/issue485.md		source of property unresolved
-SHARED	0x400001d3	mmio	unknown	startup-docs	hypothesis	docs/startup/cpu_board.md,docs/startup/first.md,docs/startup/memc.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
+SHARED	0x400001d3	mmio	unknown	startup-docs	hypothesis	docs/startup/cpuboard.md,docs/startup/first.md,docs/startup/memc.md,docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40012000	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x4001300c	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
 SHARED	0x40014808	mmio	unknown	startup-docs	hypothesis	docs/startup/ex.md		address cited in assigned docs; role not stated in existing REFS.
@@ -3751,7 +3751,7 @@ SLA	0xc1017d80-0xc1097d7f	ram	SLA BSS fill (0x8b71d4 rounded to 0x8b8000 blocks)
 SLA	0xc1017d80	ram	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SLA	0xc13ea858	ram	unknown	startup-docs	hypothesis	docs/startup/sla.md		address cited in assigned docs; role not stated in existing REFS.
 SLA	0xc18e4000-0xc18e7fff	ram	SLA secondary table COPY region (0x4000)	sla-firmware	verified	hw/nikon/machines/sla.c	0xc18e4000	
-SLA	0xc18e4000	ram	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/cpu_board.md,docs/startup/sla.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
+SLA	0xc18e4000	ram	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/cpuboard.md,docs/startup/sla.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 SLA	0xc18e4400	ram	unknown	startup-docs	hypothesis	docs/startup/bundleabort.md,docs/startup/sla.md,docs/startup/vectors.md		address cited in assigned docs; role not stated in existing REFS.
 SLA	0xc18f8000-0xc191ffff	ram	SLA per-CPU mode stacks (6 slots x 0x4000 from c1920000 down)	sla-firmware	verified	hw/nikon/machines/sla.c	0xc1920000	stack_top c1920000/c1918000/c1910000/c1908000/c1900000/c18f8000
 SLA	0xc1920000-0xc1920ad3	ram	SLA COPY2 region (0xad4)	sla-firmware	verified	include/hw/nikon/sla.h	0xc1920b00	

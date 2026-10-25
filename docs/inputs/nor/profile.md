@@ -1,6 +1,6 @@
 # Whole finite external NOR erased-input profile
 
-Code `1a42e38b2c4f3609dad8de4631678f3afd0221e6` replaces the individually installed external slots with one coherent physical input profile. The [fixed whole source contract](https://github.com/mashiro01/nightglass/blob/38eae749dce72e3d9cc1d7c05bdb1a756cbe6b8e/research/z7ii/qemu-nor-profile-contract.md) and its [numeric manifest](https://github.com/mashiro01/nightglass/blob/f75cf38b1c6b8737f8becb1ea8e0aa54e7eb7981/research/z7ii/qemu-nor-external-profile.json) derive the original33 eleven-word descriptors and81 default registry IDs. [The test manifest](../../../tests/nor.json) preserves every descriptor's geometry and original numeric fields without interpreting unfamiliar flags as physical permissions.
+Code `1a42e38b2c4f3609dad8de4631678f3afd0221e6` replaces the individually installed external slots with one coherent physical input profile. The [fixed whole source contract](https://github.com/mashiro01/nightglass/blob/38eae749dce72e3d9cc1d7c05bdb1a756cbe6b8e/research/z7ii/qemu-nor-profile-contract.md) and its [numeric manifest](https://github.com/mashiro01/nightglass/blob/f75cf38b1c6b8737f8becb1ea8e0aa54e7eb7981/research/z7ii/qemu-nor-external-profile.json) derive the original33 eleven-word descriptors and81 default registry IDs. [The test manifest](manifest.md) preserves every descriptor's geometry and original numeric fields without interpreting unfamiliar flags as physical permissions.
 
 ## Finite cells and explicit assumptions
 

@@ -287,7 +287,7 @@ suite, Linux CI, physical timing or GUI-first-frame result. See
 > checkpoint below records 33 passing Nikon executables; the earlier 0x6b read
 > wait is resolved by the receive shift-byte change. The 2026-10-21 VR retirement
 > check is a focused 2-executable/22-subtest run, not a new full-suite receipt;
-> see [the VR note](../startup/vr-domain.md). The later affine-path check is
+> see [the VR note](../startup/vrdomain.md). The later affine-path check is
 > one transfer executable/nine cases. Earlier receipts keep their own scope.
 
 The integration uses QEMU 11.1.2 at upstream commit

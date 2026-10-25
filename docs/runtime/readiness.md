@@ -139,7 +139,7 @@ version register: initializer `1026d5e6` calls `103a47a2(80)`, then thunks
 
 The original registry row VA `123f93c4` and live28-byte row at
 `b185eb70 + 80*28` identify resource80, span16e000 and descriptor32. The
-existing [NOR geometry](../../tests/nor.json) gives descriptors31/32 the same
+existing [NOR geometry](../inputs/nor/manifest.md) gives descriptors31/32 the same
 physical `[13e80000,14000000)` slot; descriptor32 has max length16e000 and
 different flags from31. In that baseline the slot is erased, without a declared
 input. The `slot80` trace observes `103a4b0e -> 103c048a(80,118d0850,8,phase)`

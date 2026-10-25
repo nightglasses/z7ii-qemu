@@ -1,6 +1,18 @@
 # 五组件输入与执行域
 
-2026-10-09。当前运行 machine 仍是 MAS 组件装载后的双 Cortex-A7 模型。到达 GUI、完整五组件装载、五组件协同运行是不同结果。
+当前完整容器的 ARM 组合使用 MAS 双核、SLA 双核及 EX 单核；VR 是独立 RX profile，TPJ 是独立 GNU NDS32 simulator。装载五个组件、执行这些域和完成协同启动是不同结果。当前运行范围见 [architecture](../architecture.md) 和 [startup frontier](../validation/frontier.md)。
+
+```mermaid
+flowchart TD
+  Bundle["Decoded five-component container"] --> ARM["ARM composition: MAS2 / SLA2 / EX1"]
+  Bundle --> VR["Separate RX profile: VR"]
+  Bundle --> TPJ["Separate GNU simulator: TPJ"]
+  ARM --> Native["QEMU CPU / bus / device contracts"]
+  VR --> RX["QEMU RX execution"]
+  TPJ --> GNU["GNU instruction and device callbacks"]
+```
+
+以下保留 2026-10-09 起的装载合同与各域接入记录；其中当时的待验证事项不替代后续各域文档的执行收据。
 
 `hw/nikon/components/bundle.c` 读取已有 Nightglass 提取结果中的 `decoded-container.bin`。这是去掉 32 B 外部 wrapper 后完整解码的容器，包含五个目录项、每组件尾部 CRC、整包 CRC 和尾部填充；不是五文件路径拼接，也不接受原始 XOR 更新文件。格式来源是 Nightglass 的 `src/nightglass/container.py` 与 C1.70 样本登记。原有解包是输入准备工具；QEMU 装载、测试与构建不通过 Python 控制器执行。
 
@@ -14,7 +26,7 @@
 | SLA | 上游 ARM TCG，隔离地址空间 | 与 MAS ROM 数值地址相同而内容不同；独立 CPU memory view 或独立 ARM machine 保持域隔离。不能覆盖 MAS ROM。 |
 | EX | 上游 ARMv7M、NVIC、SysTick | 原向量和 copy/unpack/clear 由 guest 消费；具体 Cortex-M 型号、时钟及 MCU 寄存器是待软件访问绑定的功能 profile。 |
 | VR | 上游 RX TCG、ICU、timer | 固定上游有 `target/rx` 与 `hw/rx`；基于原 record body 和 source entry 建独立加载后 machine，不能照搬 RX62N 板的 Flash 大小、外围基址或异常 trampoline。 |
-| TPJ | NDS32 成熟实现来源需固定 | 当前 QEMU 上游没有 NDS32 target。Andes 原作者曾提交 GNU simulator；该历史补丁不是已合入、已构建的实现，不能用当前 Andes V5 RISC-V SDK 冒充本镜像 NDS32。 |
+| TPJ | 固定 GNU NDS32 simulator | 官方 QEMU 无 NDS32 target；独立 GNU 运行器的输入、IRQ、外设边界与执行收据见 [system](system.md)。不能用 Andes V5 RISC-V SDK 冒充本镜像 NDS32。 |
 
 `machines/vr.c` 新增 `nikonvr` 单域加载后 profile，使用完整容器的原 VR 记录 body，按原 13 条 COPY / 11 条 ZERO 目的区间分配合并的有限 RAM，由 guest 执行复制/清零。没有在 host 预填应用、INTB 或任务对象。包中 `fff00010` 第一条 PUSHM 依赖调用者的 R0；缺少包外 loader 时，本 profile 明确采用 caller-SP=`2000` 和 4 KiB 虚拟栈假设。入口与 ROM 地址也属于已恢复软件映射的加载后模型，不冒充机身 reset vector。
 

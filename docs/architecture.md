@@ -77,7 +77,7 @@ flowchart TD
 CPU0 creates and starts the initial task. CPU1 may remain in a scheduler or
 wait boundary before joining a role task; an empty successor is not a missing
 ready producer. CPU choices, reset state and board values remain classified
-in the [CPU evidence matrix](startup/cpu_board.md). This is a functional TCG
+in the [CPU evidence matrix](startup/cpuboard.md). This is a functional TCG
 model, not a model of cache latency, branch prediction or silicon pipelines.
 
 ## Memory and DMA ownership
@@ -185,9 +185,9 @@ this join disconnected. No physical pixel format, sensor timing, secondary-plane
 producer or downstream ISP/display join is inferred. The mode-selected
 IRQ94 completion is an explicit functional assumption tied to the original
 consumer, and is emitted only after actual DMA. See the
-[readout mapping](devices/readout/profile.json),
+[readout mapping](devices/readout/mapping.md),
 [controller contract](devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
-and [pipeline fixtures](../tests/qtest/nikon/cmos.c).
+and `tests/qtest/nikon/cmos.c`.
 The complete-bundle [statistics transaction](devices/statistics/protocol.md)
 adds a finite grayscale processing profile. Output geometry and consumer
 packing are source-backed; auxiliary-input association, numerical arithmetic
@@ -238,8 +238,8 @@ other status states, fences, IRQ131 and other command families remain
 unsupported. Reset cancels pending work. This is a finite functional law,
 not recovered physical GPU precision or a screen rendering claim. See
 [graphics transfer](devices/transfer/protocol.md) and its
-[qtest](../tests/qtest/nikon/transfer.c) /
-[unit fixtures](../tests/unit/nikon/transfer.c).
+`tests/qtest/nikon/transfer.c` /
+`tests/unit/nikon/transfer.c`.
 
 The 29-fixture/247-subtest receipt and the two full-stream original-bundle
 experiments in [native receipts](validation/native.md) predate this executor.

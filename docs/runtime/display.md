@@ -1,5 +1,11 @@
 # Display readiness producers
 
+This page preserves earlier policy and event observations. Current normal
+startup uses the [cold-neutral input](../inputs/nor/virtual.md); the
+[readiness audit](readiness.md) and [current frontier](../validation/frontier.md)
+supersede the checkpoints below. The slot3/event branch described here is
+not established as a universal prerequisite for all GUI output.
+
 Current held-input follow-up: normal F4 held before initial EX sampling now
 crosses main mode5, selects mode1 and starts GUI worker3/mode1, with BatCk
 still2. Channel9's finite shared initial-count load now reaches the original
