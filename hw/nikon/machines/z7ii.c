@@ -798,7 +798,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *group;
     DeviceState *cmos;
     DeviceState *endpoints, *banks, *statistics = NULL;
-    DeviceState *router;
+    DeviceState *router, *input_split = NULL;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
@@ -1212,7 +1212,8 @@ static void z7ii_init(MachineState *machine)
         if (statistics) {
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
-            qdev_prop_set_uint16(split, "num-lines", 2);
+            input_split = split;
+            qdev_prop_set_uint16(split, "num-lines", 3);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "automatic-rise", 0));
@@ -1318,6 +1319,9 @@ static void z7ii_init(MachineState *machine)
         object_property_set_link(OBJECT(pipeline), "capture", OBJECT(capture),
                                  &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
+        /* One input boundary clocks transport admission and processing. */
+        qdev_connect_gpio_out(input_split, 2,
+            qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
         object_property_set_link(OBJECT(statistics), "endpoints",
                                  OBJECT(endpoints), &error_fatal);
         object_property_set_link(OBJECT(statistics), "banks", OBJECT(banks),

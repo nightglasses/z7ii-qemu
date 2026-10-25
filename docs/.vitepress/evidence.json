@@ -36,6 +36,12 @@
         "title": "Image prerequisites, callback backlog and enable producers",
         "href": "/evidence/imagerequest/phase.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "guicoordination",
+        "title": "OnVd waits, input admission and first-enable notification",
+        "href": "/evidence/imagerequest/coordination.json",
+        "kind": "Execution observation"
       }
     ]
   },
@@ -406,7 +412,14 @@
     "records": []
   },
   "validation/frontier.md": {
-    "records": []
+    "records": [
+      {
+        "run": "guicoordination",
+        "title": "OnVd waits, input admission and first-enable notification",
+        "href": "/evidence/imagerequest/coordination.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "validation/layers.md": {
     "records": []
@@ -1872,7 +1885,14 @@
     ]
   },
   "devices/sensor/protocol.md": {
-    "records": []
+    "records": [
+      {
+        "run": "guicoordination",
+        "title": "OnVd waits, input admission and first-enable notification",
+        "href": "/evidence/imagerequest/coordination.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "devices/readout/protocol.md": {
     "records": []

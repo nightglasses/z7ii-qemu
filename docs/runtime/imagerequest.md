@@ -5,10 +5,12 @@ but has no active display target or observed publication through the traced
 image-information subscriber.
 The image-task branch rejects the surviving sequence phase before image DMA.
 An upstream task cancels the eligible phase because two computed-input caches
-have never been published. The focused trace also finds the service callback
-queue full of OnVd work; the needed state-transition callback is queued behind
-that work or rejected. These are software boundaries, not a newly established
-unsupported device contract. AF6's state9 request is a separate conditional route;
+have not been published in the observed windows. Short focused traces find a
+full service callback queue, but longer runs consume the transition and empty
+it. OnVd repeatedly times out on FE synchronization and an old-cycle processing
+fence. The finite model now admits auxiliary transport on the existing automatic
+input clock; that corrects acquisition cadence but does not supply the missing
+processing-stage completions. AF6's state9 request is a separate conditional route;
 forcing it is not justified as a normal GUI prerequisite.
 
 Addresses below are original C1.70 MAS CPU VA unless explicitly marked PA.
@@ -210,19 +212,101 @@ ends in service state10 with no image task or published cache1/2; a slower1s
 attempt has no complete final snapshot. Neither validates a pacing repair.
 Both temporary board changes were removed.
 
-A separate sparse, chained trace with the default period also ends with an
-empty queue, service state4 and CPU0 at vector10100008, without a console.
-Runs with CPU logging disabled failed the old snapshot's non-null descriptor
-precondition and are excluded from the successful checkpoint receipts.
-These observations expose sensitivity to execution/observation conditions;
-they do not prove the focused backlog is the only startup failure. QMP
-`running`, or a live battery peer, does not prove healthy guest execution.
+The later `steady` window uses the same baseline implementation `98fe5e02`,
+default period and cold-neutral inputs for90 host seconds, with scoped
+`cpu,nochain` tracing. It observes `10323198(10,2)` three times and finishes
+in service state4 with queue occupancy0. The queue's `+38` offset from snapshot
+base `b23edde8` is occupancy; `+3c=5` is a ring index, not five pending records.
+Thus the focused backlog is real but not a permanent failure to consume the
+transition. Caches1/2 remain unpublished and there is still no console.
 
-The next evidence must identify the outstanding OnVd call/wait and the first
-state-transition consumption across a controlled execution window. A device
-change must attach to an actual request/completion contract. Slowing input,
-coalescing guest messages, filling caches, or injecting state3 is not an
-accepted correction on this evidence.
+A prior sample at CPU0 vector `10100008` was insufficient evidence of a fault:
+the decoded original wrapper `10104a14..10104a24` invokes SVC6 through that
+normal SVC vector. Older runs with CPU logging disabled failed the diagnostic
+script's non-null descriptor precondition; they are not guest-fault receipts.
+The corrected low-observation run below permits a null descriptor.
+
+## OnVd waits and processing-stage ownership
+
+The [coordination summary](/evidence/imagerequest/coordination.json) binds the
+following observations to the original MAS and baseline `98fe5e02`. The OnVd
+chain is `10325ff6 -> 103250f2:10325714 -> 10233570`. Many calls return;
+sampling inside this function does not establish a permanently blocked call.
+
+| Call inside OnVd | Original wait and observed boundary |
+|---|---|
+| `10233782` | `103611b2(b1887d9c,8,0,100)` generally succeeds. |
+| `102339d8` | `103611b2(b1887d9c,5,0,100)` repeatedly fails. The initial mode1 mask1 succeeds. |
+| `10233cc6 -> 10232154 -> 1023b00e:1023b016 -> 10238974` | `10361192(b188814c,05b00000,&out,200)` waits for selected old processing units. It fails, clears the requested bits and returns; the caller then proceeds to `1023aed8` configuration/commit. |
+
+The literal100/200 values are timeout arguments; their time unit in this
+extended RTOS ABI is not established. Matched wrapper entry/return observations
+in `steady` record54 FE mask5 failures and54 unit mask05b00000 failures, each
+with raw return `ffce0000`. The higher wrappers report0. Low-level event setters
+for the FE handle publish8/1 repeatedly, but no bit4 is observed in this filter
+and window. The unit handle receives10000000 and08000000, neither satisfying
+05b00000. The remaining FE bit4 producer needs a source/runtime join.
+
+The original ISR family identifies the required processing-stage causes.
+All table values are hexadecimal; raw word indices are zero-based in the
+eight-word capture packet. The event object is MAS VA `b188814c`.
+
+| Software unit bit | Event flag | Capture cause | Callback VA |
+|---|---|---|---|
+| `1` | `100000` | raw word0 bit3 | `102391b2` |
+| `2` | `200000` | raw word0 bit4 | `102391b2` |
+| `4` | `400000` | raw word4 bit16 | `102392c6` |
+| `8` | `800000` | raw word3 bit5 | `10239480` |
+| `40` | `1000000` | raw word3 bit0 | `10239436` |
+| `100` | `2000000` | raw word3 bit30 | `10239394` |
+| `200` | `4000000` | raw word4 bit7 | `1023931c` |
+
+These callbacks also mark processed units at `b26b38c4`; `102389dc` consults
+that state before a stop fence. The wait precedes the new commit, so publishing
+an ACK merely because configuration was accepted would reverse the lifecycle.
+Software unit1 is required repeatedly although its initialization commit1 is
+separate from later configuration; one commit cannot justify one universal
+completion. Each unresolved cause needs its own actual work, result extent,
+generation and cancellation contract. Existing ten-output statistics DMA and
+raw0.bit6 do not complete every stage. No new fence causes are fabricated.
+
+## Acquisition on the normal input clock
+
+Previously the auxiliary producer submitted CMOS immediately after every
+readout request. Its real DMA completion caused the original owner to request
+again, independently of the input cadence. The configured1ns readout quantum
+applies per at-most4096-byte chunk without crossing a row, not per frame. The
+observed stride4100/span8a200 profile has34 rows and170 chunks: its ideal engine
+latency was171ns including exposure, without claiming physical sensor timing.
+
+**Functional hypothesis, implemented:** a valid request reserves its immutable
+generation immediately, then consumes the next fresh automatic TG rising edge.
+Earlier/busy edges are discarded, and forced router levels cannot acquire an
+input. Actual timed CMOS DMA still produces completion. The existing33333334ns
+TG period is unchanged. Processing at the same edge sees the previous completed
+input, while the newly admitted transfer finishes later. The
+[device contract](../devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
+defines ownership, errors and cancellation.
+
+| Original-firmware window | Completed auxiliary DMA | Completed statistics | Final service / queue occupancy |
+|---|---|---|---|
+| Baseline `onvd`,20s, focused CPU trace | 1999 | 523 | 2 /60 |
+| Input-clock `clocked`,20s, same focused filter | 519 | 518 | 2 /60 |
+| Baseline `steady`,90s, expanded CPU/nochain filter | 2808 | 829 | 4 /0 |
+| Input-clock `coordinated`,90s, narrower CPU/nochain filter | 739 | 738 | 4 /0 |
+| Input-clock `quiet`,30s, guest-error logging only | 818 | 817 | 4 /0 |
+
+Windows are host observation time; filters and resulting guest throughput
+differ, so these counts are not physical rates or a speed benchmark. All have
+zero reported readout/statistics rejection and statistics cancellation, no
+battery-peer rejection, and no display console. In `coordinated`, the FE mask5
+wrapper returns0 at56 observed resume points, and the unit fence returns0 at55;
+TCG positions are not distinct-call counts. Its three observed transition
+requests use `(10,2)`. The low-observation run also empties the queue naturally.
+Both leave caches1/2 unpublished and display masks0. This validates bounded
+input/transport coordination, not complete runtime stability or normal GUI
+startup. Native validation separately passes17 CMOS,33 Sensor and1 readout-unit
+case, including a new input-boundary fixture that fails on the old model.
 
 ## Additional first-enable producers
 
@@ -251,10 +335,26 @@ pending byte0, no104bd90e(ed), and no1035ed5c entry. That helper's clear-list
 arm can write an empty6433 through1034ffe0; one source route is capseq worker
 bit20000000 from103977f6's successful error-clear branch. It has its own
 guards and is not established as a mandatory initial-startup request.
-Which normal notification
-or selection transition should perform **first** activation still requires a
-runtime join; the source admits several routes, and none should be declared
-the unique startup producer merely from its call graph.
+There is also an image-information route that does not require a selection or
+property6433 change. Builder `1035a2d8` publishes through registered04380001 to
+`104be876`. The subscriber copies464hex bytes to `b201c038`, queues record92
+through `104bd99e`, and posts primary80. Phase5 `10542486 -> 1053f42a` consumes
+record92 through `104bdde0(92,&pointer)`. At `1053f7a0`, it compares packet
+offset1016decimal (`3f8` hex) against the saved word at `b202c970`. A change
+posts record132; a new nonzero value additionally posts133. After either zero
+or nonzero change, `105b0a7e()==0` permits `104a94fe(5)` at `1053f7c0`.
+That guard reads `b1821e81` and is1 only in
+states1/4. The builder writes this packet field from root[6] at `b23cd5c0`;
+its full semantic identity remains opaque, so it is not labelled image-valid.
+
+In `steady`, phase5 is active but no successful record92-consumption resume
+at `1053f446` or downstream comparison/enable is observed. `coordinated` also
+observes no record92-success resume or operation5; its three `104a94fe` entries
+use operations8/10/13decimal. This is a concrete normal candidate for first
+enable, conditional on genuine image-information publication and its policy
+guard. It is not proof of a unique mandatory first-enable path. The next join
+must recover the processing inputs/completions before that publication, rather
+than posting a notification or activating a target from the host.
 
 ## AF6 relationship and next evidence
 
@@ -270,6 +370,7 @@ possible, but no evidence establishes AF6/state9 as their required producer.
 
 The eligible-job cancellation is now established; the earlier conjecture of
 an unexplained parity selector is superseded by the cache/queue evidence above.
-This audit adds no accepted hardware behavior. The existing statistics model
-remains unchanged; its81-case native receipt is separate from these original
-firmware observations and from the unsuccessful timing experiments.
+The statistics arithmetic remains unchanged; the accepted acquisition boundary
+is documented above. The historical81-case native receipt is separate from
+the51-case coordination batch, original-firmware observations and unsuccessful
+period experiments.

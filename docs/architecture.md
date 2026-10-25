@@ -178,7 +178,11 @@ The implemented profile maps `3e8/3ec/3f0` to primary destination/stride/span,
 validates the secondary destination/stride without writing it, and accepts
 only format pairs `00400040` and `00010001`. Functional samples are two bytes;
 width is stride/2 and height is span/stride. The CMOS engine performs actual
-timed DMA. Busy requests are rejected, stale generations cannot complete,
+timed DMA. In the diagram, the pipeline-to-CMOS arrow requires the next fresh
+automatic TG rising edge after request reservation. This finite functional
+association discards earlier/busy edges; it does not change the virtual input
+period or admit input from forced router levels. Processing at that same edge
+uses the previous completed input. Busy requests are rejected, stale generations cannot complete,
 and cancellation/reset stop pending work. The raw MAS diagnostic path leaves
 this join disconnected. No physical pixel format, sensor timing, secondary-plane
 producer or downstream ISP/display join is inferred. The mode-selected

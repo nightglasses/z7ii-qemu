@@ -43,9 +43,11 @@
     "secondary_stride": "u32 at 0x2006b3f8; nonzero and 256-byte aligned",
     "accepted_formats": ["0x00400040", "0x00010001"],
     "functional_geometry": "two-byte samples; width = primary_stride / 2; height = primary_span / primary_stride",
-    "producer": "the existing CMOS timing/DMA engine writes exactly primary_span bytes to submitted writable guest RAM",
+    "producer": "reserve the generation immediately, then admit it only on the next fresh automatic TG rising edge; the existing CMOS timing/DMA engine writes exactly primary_span bytes to submitted writable guest RAM",
+    "input_association": "explicit functional hypothesis; no early/busy edge credit, repeated-high or forced-level admission; existing 33333334 ns TG period unchanged; processing on the same edge sees the previous completed input",
+    "dma_quantum": "1 ns exposure plus 1 ns per at-most-4096-byte chunk without crossing a row; deterministic engine quantum, not physical frame timing",
     "completion": "only actual DMA DONE publishes capture IRQ94 raw0.bit3 for mode0 or bit5 for mode1 (0x2006b394[23:16]); explicit functional hypothesis, original ISR owns the software event",
-    "lifecycle": "all eight consumed profile fields must be written; enable must equal1; mode must be0/1; busy preserves ownership; unit2 stop/reset/disable and CMOS cancel invalidate ownership and stop the timer",
+    "lifecycle": "all eight consumed profile fields must be written; enable must equal1; mode must be0/1; busy preserves ownership and the immutable mapping while pending or submitted; unit2 stop/reset/disable releases pending ownership or cancels its submitted timer; unrelated DONE while pending is ignored; failed CMOS admission releases ownership without completion",
     "source": "an explicit PGM/PPM image when configured, otherwise the deterministic functional CMOS provider"
   },
   "not_proven": [

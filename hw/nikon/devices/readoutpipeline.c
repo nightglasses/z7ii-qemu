@@ -24,6 +24,8 @@ struct NikonReadoutPipeline {
     DeviceState *cmos;
     DeviceState *capture;
     uint64_t active_generation;
+    bool submitted;
+    bool input_high;
     uint32_t completion_cause;
     uint64_t requests;
     uint64_t accepted;
@@ -49,7 +51,6 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
     NikonReadoutPipeline *s = opaque;
     NikonReadoutRequest request;
     NikonReadoutC170Mapping mapping;
-    NikonCmosSubmission submission;
     Error *err = NULL;
 
     if (!level) {
@@ -70,14 +71,46 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
         return;
     }
 
+    s->active_generation = request.generation;
+    s->mapping = mapping;
+    s->completion_cause = mapping.completion_cause;
+    /*
+     * Ready means the provider owns this immutable request, including while
+     * waiting for input. Otherwise a new marker can replace its generation.
+     */
+    if (!nikon_readout_publish_ready(s->readout, request.generation)) {
+        s->active_generation = 0;
+        s->stale++;
+        return;
+    }
+    s->accepted++;
+}
+
+static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
+{
+    NikonReadoutPipeline *s = opaque;
+    NikonReadoutC170Mapping *m = &s->mapping;
+    bool rising = level && !s->input_high;
+    NikonCmosSubmission submission;
+    Error *err = NULL;
+
+    s->input_high = !!level;
+    if (!rising || !s->active_generation || s->submitted) {
+        return;
+    }
+    /*
+     * Functional input association: an owned request consumes a fresh TG
+     * boundary. Busy/earlier edges are not queued. The existing CMOS engine
+     * still owns timed chunks, actual DMA and completion/error/cancellation.
+     */
     submission = (NikonCmosSubmission) {
-        .width = mapping.width,
-        .height = mapping.height,
+        .width = m->width,
+        .height = m->height,
         .bytes_per_pixel = 2,
-        .stride = mapping.stride,
-        .destination = mapping.destination,
+        .stride = m->stride,
+        .destination = m->destination,
         .format = NIKON_CMOS_FORMAT_FUNCTIONAL_C170,
-        .transport_seed = request.generation ^ mapping.format,
+        .transport_seed = s->active_generation ^ m->format,
         .exposure_ns = 1,
         .readout_ns = 1,
     };
@@ -85,22 +118,15 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
         qemu_log_mask(LOG_GUEST_ERROR,
                       "nikon readout generation %" PRIu64
                       " destination=0x%08x span=0x%x rejected: %s\n",
-                      request.generation, mapping.destination, mapping.span,
+                      s->active_generation, m->destination, m->span,
                       error_get_pretty(err));
         error_free(err);
+        nikon_readout_release(s->readout, s->active_generation);
+        s->active_generation = 0;
         s->rejected++;
         return;
     }
-    s->active_generation = request.generation;
-    s->mapping = mapping;
-    s->completion_cause = mapping.completion_cause;
-    if (!nikon_readout_publish_ready(s->readout, request.generation)) {
-        s->active_generation = 0;
-        s->stale++;
-        nikon_cmos_cancel(s->cmos);
-        return;
-    }
-    s->accepted++;
+    s->submitted = true;
 }
 
 static void nikon_readout_pipeline_event(void *opaque, int n, int level)
@@ -108,11 +134,12 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
     NikonReadoutPipeline *s = opaque;
     uint64_t generation;
 
-    if (!level || !s->active_generation) {
+    if (!level || !s->active_generation || !s->submitted) {
         return;
     }
     generation = s->active_generation;
     s->active_generation = 0;
+    s->submitted = false;
     if (n == NIKON_CMOS_PIPELINE_DONE) {
         NikonReadoutC170Mapping *m = &s->mapping;
         uint8_t *data = g_malloc(m->span);
@@ -158,8 +185,12 @@ static void nikon_readout_pipeline_cancel(void *opaque, int n, int level)
 {
     NikonReadoutPipeline *s = opaque;
 
-    if (level && s->active_generation) {
+    if (level && s->submitted) {
         nikon_cmos_cancel(s->cmos);
+    } else if (level && s->active_generation) {
+        nikon_readout_release(s->readout, s->active_generation);
+        s->active_generation = 0;
+        s->cancelled++;
     }
     if (level) {
         s->input.generation = 0;
@@ -170,12 +201,16 @@ static void nikon_readout_pipeline_reset(DeviceState *dev)
 {
     NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(dev);
     uint64_t generation = s->active_generation;
+    bool submitted = s->submitted;
 
     s->active_generation = 0;
+    s->submitted = false;
     s->input = (NikonCaptureInput) { 0 };
     g_clear_pointer(&s->input_data, g_free);
     if (generation) {
         nikon_readout_release(s->readout, generation);
+    }
+    if (submitted) {
         nikon_cmos_cancel(s->cmos);
     }
 }
@@ -204,6 +239,8 @@ static void nikon_readout_pipeline_init(Object *obj)
                             "cancel", 1);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_event,
                             "cmos-event", NIKON_CMOS_PIPELINE_EVENTS);
+    qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_input_rise,
+                            "automatic-rise", 1);
     object_property_add_uint64_ptr(obj, "active-generation",
                                    &s->active_generation, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "requests", &s->requests,

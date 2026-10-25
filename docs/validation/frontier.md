@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Current: computed inputs, service backlog and first display enable
+## Current: computed inputs, processing fences and first display enable
 
 The [image request audit](../runtime/imagerequest.md) separates the normal
 GUI/display producer from AF6's state9 request. Original drawing and valid
@@ -18,32 +18,54 @@ FE's bootstrap ends with synchronization flagb1887dc8 still0; normal
 mode0/metadata+10132=0 bypass the subsequent calculation submission.
 
 The [phase/producer evidence](/evidence/imagerequest/phase.json) joins the
-upstream041a0002 request to queued10326676, which would transition service2
-to3. The focused service queue is full at60 records:94 OnVd enqueue successes
-and442 failures, versus2 transition successes and31 failures. No10326676
-execution is observed. This establishes backlog/loss in that window; the
-outstanding OnVd wait and first successful transition consumption remain open.
-The normal041b0040 ->103284d0 ->1035a2d8 ->106d103c ->104be876 producer
-remains registered without an observed information publication.
-AF6=0/service2 explains a separate conditional route; state9 is not established
-as a prerequisite for these normal display functions.
+upstream041a0002 request to queued10326676, which transitions service2 to3.
+Its20-second focused window has a full60-record queue and lost enqueues, but
+the later [coordination audit](/evidence/imagerequest/coordination.json) observes
+`10323198(10,2)` and naturally reaches service4 with queue occupancy0 in both
+the baseline and the changed model. Backlog is not a permanent transition block.
 
-The first-enable audit adds primary8000/phase17 and property6433 change-indexed
-primary4/phase5 routes to the earlier primary400/phase18 path. Mode entry sees
-target1 already selected and skips8000; phase5 sees no6433 index-ed change and
-skips its direct operation5. A further window confirms index-ed enabled1,
-pending0 and no mark request. An empty list is not itself a change notification.
-The policy becomes1, so permanent policy0 is not the explanation.
+OnVd `10325ff6 ->103250f2 ->10233570` repeatedly fails FE event mask5 at
+`102339d8` and processing-unit mask05b00000 at `102389c2`. The latter is an
+**old-cycle fence before new configuration/commit**, not a new-commit ACK.
+The callbacks and seven stage causes are source-established in the
+[runtime audit](../runtime/imagerequest.md#onvd-waits-and-processing-stage-ownership).
+Their actual stage work/results remain to be joined; existing statistics DMA
+does not authorize all these completion causes. FE bit4's producer also needs
+a source/runtime join. The literal100/200 timeout arguments have unverified
+extended-ABI units. The waits return on failure; no permanent OnVd lock is proven.
 
-The focused20-second cold-neutral `join` window compares all six loader COPY
-ranges and reports1913/1912 accepted/completed readouts and525 statistics jobs,
-with0 rejection/cancellation and no console. These are sequential QMP reads.
-Temporary100ms input pacing empties the queue but enters a different stop path;
-default-period sparse tracing also diverges, to service4 and CPU0 vector10100008.
-Neither is a GUI success or proof that backlog is the sole blocker. The original
-33333334ns period is restored, with no accepted device change, firmware edit,
-injected event/cache/state or forced enable. The earlier
-[admission receipt](/evidence/imagerequest/admission.json) retains its own scope.
+The normal information producer remains registered without an observed
+publication. An additional first-enable candidate is now source-joined:
+`1035a2d8 ->04380001 ->104be876 ->record92 ->1053f42a`.
+A change to packet offset1016decimal (`3f8` hex) and the `105b0a7e` policy
+guard lead to `104a94fe(5)` at `1053f7c0`; nonzero additionally posts record133
+but is not required for operation5. The record has not
+been successfully consumed in the focused windows. This conditional route
+does not require a target switch or property6433 change; it is not established
+as the unique first-enable producer. AF6/state9 is a separate guarded request.
+
+The accepted finite model now reserves an auxiliary request immediately and
+admits actual CMOS DMA only at the next fresh automatic TG input edge. This
+functional association removes independent completion/resubmission feedback;
+earlier/busy edges are discarded, forced levels do not acquire input, and the
+original33333334ns virtual period is unchanged. Same-edge statistics uses the
+previous completed input. No software event/cache/state or display enable is
+injected. Native red→green evidence and the applicable51-case batch cover this
+ownership/input boundary separately from original-firmware progress.
+
+With unchanged firmware, cold-neutral descriptor32, RNG0, healthy paced battery,
+held F4 and5 MTTCG CPUs, a20-host-second focused window completes519 readouts
+and518 statistics jobs; the comparable baseline completes1999/523. The changed
+90-second CPU/nochain run completes739/738 and a30-second guest-error-only run
+completes818/817. Both end in service4 with empty queues, unpublished caches1/2,
+zero display masks and no console; no readout/statistics rejection, statistics
+cancellation or peer rejection is reported. Different trace filters affect
+throughput, so these are coordination observations, not rates or a complete
+stability claim. The next boundary is genuine FE/processing-stage completion
+and computed-input publication before the GUI information notification.
+The earlier [admission receipt](/evidence/imagerequest/admission.json) and
+six-range COPY comparisons retain their original scope. CPU0 at10100008 alone
+is not a fault receipt: the original extended API uses the normal SVC vector.
 
 ## Finite processing-data completion
 

@@ -1,0 +1,279 @@
+{
+  "scope": "Curated original C1.70 execution, source-established OnVd waits and finite input-admission model; no normal GUI startup demonstrated",
+  "source": {
+    "firmware": "unchanged 02_eg1840_mas_01700.payload.bin at MAS VA 0x10020000",
+    "baseline": "98fe5e02",
+    "implementation": "readoutpipeline.c and z7ii.c in the accompanying change; baseline runs precede that change",
+    "address_domain": "MAS CPU VA unless PA explicitly stated; hexadecimal addresses and masks"
+  },
+  "input": {
+    "descriptor32": "cold-neutral resource80",
+    "rng": 0,
+    "battery": "healthy paced UART peer",
+    "key": "F4 held after initial cont; no extra input",
+    "execution": "five CPUs total, MTTCG",
+    "debugger": "read-only snapshot after run; no in-transaction pause",
+    "tg_period_ns": 33333334
+  },
+  "model": {
+    "status": "explicit functional hypothesis",
+    "request": "reserve immutable generation and ready ownership immediately; next fresh automatic TG rise admits real timed CMOS DMA",
+    "no_credit": "early/busy edges and repeated highs do not admit another request; forced router levels are not automatic acquisition",
+    "same_edge": "statistics consumes previous completed input before current transfer completes",
+    "dma_quantum": "1 ns exposure plus 1 ns per <=4096-byte non-row-crossing chunk; not physical bandwidth",
+    "observed_profile": {
+      "stride_hex": "4100",
+      "span_hex": "8a200",
+      "rows": 34,
+      "chunks": 170,
+      "ideal_engine_duration_ns": 171
+    },
+    "lifecycle": "waiting stop/reset/disable releases generation; active cancellation stops its timer; unrelated DONE while waiting ignored; no synthetic fence completion"
+  },
+  "native": {
+    "command": "make check MTESTARGS='nikon_cmos nikon_sensor nikon_readout_unit'",
+    "red": {
+      "test": "/arm/nikon/cmos/pipeline/input-boundary",
+      "subject": "new fixture against baseline immediate-submit implementation",
+      "result": "FAIL: completed == 0 assertion received 1; input had not arrived"
+    },
+    "green": {
+      "executables": 3,
+      "subtests": {
+        "nikon_cmos": 17,
+        "nikon_sensor": 33,
+        "nikon_readout_unit": 1
+      },
+      "total": 51,
+      "result": "PASS"
+    },
+    "coverage": "no-input silence, pending ready ownership, immutable destination/mode, busy generation, unrelated DONE, early/busy/no-job edges, repeated high, pending cancellation/reset, actual automatic-TG board connection versus forced levels; existing DMA/statistics/capture lifecycle and negative cases"
+  },
+  "observations": [
+    {
+      "run": "onvd",
+      "host_window_seconds": 20,
+      "input_clock_admission": false,
+      "trace": "focused CPU/nochain OnVd trace",
+      "accepted_readouts": 2000,
+      "completed_readouts": 1999,
+      "completed_statistics": 523,
+      "final_service": 2,
+      "queue_occupancy": 60,
+      "queue_ring_index": 43,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "readout_rejected": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "peer_rejected": [],
+      "qmp_running": true,
+      "display_console": false,
+      "display_masks_zero": true
+    },
+    {
+      "run": "steady",
+      "host_window_seconds": 90,
+      "input_clock_admission": false,
+      "trace": "expanded CPU/nochain including wait and event-set wrappers",
+      "accepted_readouts": 2809,
+      "completed_readouts": 2808,
+      "completed_statistics": 829,
+      "final_service": 4,
+      "queue_occupancy": 0,
+      "queue_ring_index": 5,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "readout_rejected": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "peer_rejected": [],
+      "qmp_running": true,
+      "display_console": false,
+      "display_masks_zero": true
+    },
+    {
+      "run": "clocked",
+      "host_window_seconds": 20,
+      "input_clock_admission": true,
+      "trace": "same focused filter as onvd",
+      "accepted_readouts": 520,
+      "completed_readouts": 519,
+      "completed_statistics": 518,
+      "final_service": 2,
+      "queue_occupancy": 60,
+      "queue_ring_index": 44,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "readout_rejected": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "peer_rejected": [],
+      "qmp_running": true,
+      "display_console": false,
+      "display_masks_zero": true
+    },
+    {
+      "run": "coordinated",
+      "host_window_seconds": 90,
+      "input_clock_admission": true,
+      "trace": "narrower CPU/nochain OnVd/transition/cache/image/enable filters",
+      "accepted_readouts": 740,
+      "completed_readouts": 739,
+      "completed_statistics": 738,
+      "final_service": 4,
+      "queue_occupancy": 0,
+      "queue_ring_index": 1,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "readout_rejected": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "peer_rejected": [],
+      "qmp_running": true,
+      "display_console": false,
+      "display_masks_zero": true
+    },
+    {
+      "run": "quiet",
+      "host_window_seconds": 30,
+      "input_clock_admission": true,
+      "trace": "guest_errors only; no CPU trace",
+      "accepted_readouts": 819,
+      "completed_readouts": 818,
+      "completed_statistics": 817,
+      "final_service": 4,
+      "queue_occupancy": 0,
+      "queue_ring_index": 59,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "readout_rejected": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "peer_rejected": [],
+      "qmp_running": true,
+      "display_console": false,
+      "display_masks_zero": true
+    }
+  ],
+  "onvd": {
+    "chain": [
+      "10325ff6",
+      "103250f2:10325714",
+      "10233570"
+    ],
+    "fe_wait": {
+      "call": "102339d8 ->103611b2",
+      "object": "b1887d9c",
+      "mask": "5",
+      "timeout_argument": 100
+    },
+    "unit_wait": {
+      "call": "10233cc6 ->10232154 ->1023b00e:1023b016 ->10238974:102389c2 ->10361192",
+      "object": "b188814c",
+      "mask": "05b00000",
+      "timeout_argument": 200,
+      "ordering": "old-cycle wait and clear precede 1023aed8 configuration/commit"
+    },
+    "timeout_units": "extended ABI units unverified; not labelled milliseconds or ticks",
+    "steady_matched_returns": {
+      "fe_mask8_success": 55,
+      "fe_mask1_success": 1,
+      "fe_mask5_raw_ffce0000": 54,
+      "unit_mask100000_raw_ffce0000": 1,
+      "unit_mask05b00000_raw_ffce0000": 54
+    },
+    "steady_low_sets": {
+      "FE_handle": "01000038",
+      "repeated_bits": "8 and 1",
+      "bit4": "not observed within scoped 90-second trace",
+      "unit_handle": "01000111",
+      "unit_bits": [
+        "10000000",
+        "08000000"
+      ],
+      "required05b00000_bits": "not observed within scoped trace"
+    },
+    "unit_causes": [
+      [
+        "1",
+        "100000",
+        "word0.bit3",
+        "102391b2"
+      ],
+      [
+        "2",
+        "200000",
+        "word0.bit4",
+        "102391b2"
+      ],
+      [
+        "4",
+        "400000",
+        "word4.bit16",
+        "102392c6"
+      ],
+      [
+        "8",
+        "800000",
+        "word3.bit5",
+        "10239480"
+      ],
+      [
+        "40",
+        "1000000",
+        "word3.bit0",
+        "10239436"
+      ],
+      [
+        "100",
+        "2000000",
+        "word3.bit30",
+        "10239394"
+      ],
+      [
+        "200",
+        "4000000",
+        "word4.bit7",
+        "1023931c"
+      ]
+    ],
+    "unit_cause_columns": [
+      "software unit hex",
+      "event flag hex",
+      "zero-based capture raw word",
+      "callback VA"
+    ],
+    "limit": "software callbacks establish cause-to-event contract, not actual physical stage producer; no universal commit ACK implemented"
+  },
+  "first_enable": {
+    "status": "source-established conditional candidate; not proven unique first-enable path",
+    "chain": [
+      "1035a2d8",
+      "04380001",
+      "104be876",
+      "104bd99e(record92) / primary80",
+      "10542486 ->1053f42a",
+      "104bdde0(92,&pointer)",
+      "1053f7a0 compare packet+1016 decimal with b202c970",
+      "1053f7c0 ->104a94fe(5)"
+    ],
+    "guards": "changed field and 105b0a7e()==0 permit operation5 for either zero or nonzero new value; every change posts132, nonzero additionally posts133; helper returns1 only for b1821e81 states1/4",
+    "field_source": "root[6] copied to b23cd5c0; semantic identity remains opaque",
+    "observation": "steady/coordinated observe phase5 but no successful record92 resume at1053f446 or subsequent compare; operation entries are8/10/13 decimal, not5"
+  },
+  "corrections": [
+    "A full short-window queue does not establish a permanent block: longer default-period runs naturally consume transition(10,2), reach service4 and end with occupancy0.",
+    "Snapshot queue occupancy is +0x38 from b23edde8; +0x3c is ring index.",
+    "CPU0 PC10100008 alone is not a crash: original extended wrapper issues SVC6.",
+    "An earlier sync diagnostic incorrectly dereferenced an RTOS handle as RAM and failed; excluded from execution receipts.",
+    "Old no-logging scripts rejected null descriptors; quiet uses the corrected diagnostic."
+  ],
+  "omissions": [
+    "Full traces, firmware bytes, disassembly, binary snapshots and private absolute paths are excluded.",
+    "Sequential QMP reads and post-window GDB snapshots are not atomic.",
+    "CPU filters differ; trace positions are observations, not exact distinct-call counts; host duration/counts do not establish physical rates.",
+    "The model coordinates transport admission; FE bit4, per-stage work/result production, cache publication and normal GUI startup remain unresolved.",
+    "Historical loader COPY comparisons are not retagged as fresh comparisons in these windows."
+  ]
+}
