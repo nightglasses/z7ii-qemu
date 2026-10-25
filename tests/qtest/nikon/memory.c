@@ -85,6 +85,7 @@ static void test_cpu_ram(void)
         0xc175d600, 0xc175d800, 0xc1c0d5fc,
         0xc24cb400, 0xc24cc000, 0xc33ab400, 0xc33cb3fc,
         0x5d170000, 0x5d171000, 0x5d181ffc, 0x5d1dbffc,
+        0x5df45400, 0x5df46000, 0x5f8d23fc,
         0xcb4a7000, 0xcc63affc, 0x62059800, 0x62059c00, 0x622217fc,
         0x50300000, 0x5063fffc, 0xb0d00000, 0xb10ffffc,
         0xb0900000, 0xb0cffffc, 0x04008ea8, 0x04008efc, 0x04008ffc,
@@ -549,6 +550,59 @@ static void test_grid_pool(void)
             qtest_memread(t.qts, base + slot * length, actual, length);
             g_assert_cmpmem(actual, length, expected + slot * length, length);
         }
+    }
+    memory_quit(&t);
+}
+
+static void test_large_grid_pool(void)
+{
+    const uint32_t base = 0x5df45400, size = 0x198d000;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = {
+        base, base + 0x663400 - 4, base + 0x663400,
+        base + 254 * 0x12000, base + 255 * 0x12000 - 4,
+        base + size - 4,
+    };
+    const uint32_t holes[] = { base - 1, base + size };
+    uint8_t expected[0x300], actual[0x300];
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x32000000 + i);
+    }
+    /* The first-read consumer subdivides this pool into 12000-byte slots. */
+    for (unsigned slot = 0; slot < 255; slot++) {
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 29 + slot * 7;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, base + slot * 0x12000 + 0x7f1,
+                    sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, base + slot * 0x12000 + 0x7f1,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    /* Ordinary kind18 has independent storage, even at the same slot offset. */
+    qtest_writel(t.qts, 0x5d170000, 0x18000000);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x32000000 + i);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, 0x5d170000), ==, 0x18000000);
+        qtest_memread(t.qts, base + 254 * 0x12000 + 0x7f1,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
     }
     memory_quit(&t);
 }
@@ -1405,6 +1459,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
     qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
     qtest_add_func("/nikon/memory/grid-pool", test_grid_pool);
+    qtest_add_func("/nikon/memory/large-grid-pool", test_large_grid_pool);
     qtest_add_func("/nikon/memory/readout-pools", test_readout_pools);
     qtest_add_func("/nikon/memory/capture-pools", test_capture_pools);
     qtest_add_func("/nikon/memory/row-storage", test_row_storage);

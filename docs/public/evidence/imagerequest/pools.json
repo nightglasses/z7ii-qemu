@@ -1,0 +1,66 @@
+{
+  "scope": "Exact kind32 RAM backing, native DMA/CPU boundaries and unchanged C1.70 first-read continuation; not GUI boot or physical-camera evidence",
+  "dependency_baseline": "85ce3b09",
+  "source_facts": {
+    "initialization": "MAS VA10306fb0 loads11982938[32] at119829b8 -> row119833e0, sets runtime base table b26b4bd0 and calls10298a7a; all five mode override entries32 are NULL",
+    "row": {
+      "flags": "0xd98",
+      "PA_base": "0x5df45400",
+      "bytes": "0x198d000",
+      "unit_bytes": "0x663400",
+      "units": 4,
+      "control": "0x701",
+      "exclusive_end": "0x5f8d2400"
+    },
+    "allocator": "Low control byte1 selects10297d12 ->102e5e6c; independent subdividable pool rather than alias of kind18",
+    "grid_consumer": "1030ad70 selects kind18 for count<=6, kind32 otherwise; passes base, total12000*count, stride12000 and count to10298e94;255 slots require11ee000 bytes within reserved198d000",
+    "other_consumer": "1030bd56 also leases kind32;1030ddc8 returns512-byte-aligned663400 or242000 units according to its source context",
+    "RGB_allocation": "1023b86c ->1030af00 explicitly requests6 kind19 slots, each36000 bytes at5d1dc000; endpoint3/4 displacements12000/24000",
+    "first_read_count": "1023a6c6 independently passes requested255 count through1023a63c to endpoints1/2/3/4; records contain count-minus1 fe and respective strides12000/36000",
+    "setter_tables": "Read-only30s snapshot confirms b18069d4 points to endpoint14; b1806a24 to24; b1806a4c to3c; b1806a74 to40; b1806a9c to44; b1806ac4 to48; b1806cf4 to80, repeated per endpoint"
+  },
+  "finite_memory_contract": {
+    "storage": "Existing offset-aware QEMU RAM helper, independent exact PA extent; no broader DDR class or mirror",
+    "initial_state": "Cold-zero bytes are a functional assumption, normal RAM preserved across reset",
+    "guest_ownership": "Firmware bytes, allocator records, task state, queues, results, callbacks and events unchanged"
+  },
+  "native": {
+    "red": "large-grid-pool: COPY source b1804000 ->5df45bf1 length300 reports first DMA fault, expected status8 actual1",
+    "green": {
+      "memory_cases": 33,
+      "CMOS_cases": 32,
+      "sensor_cases": 33,
+      "failures": 0,
+      "large_pool_checks": "All255 consumer slots, actual nonzero DMA data, declared unit boundaries and final pool word, exact outer holes, independent kind18, reset preservation, TCG CPU access through partial/interior/final pages"
+    }
+  },
+  "original_execution": {
+    "input": "Same unchanged cold-neutral resource80, explicit PGM quadrants32/192/64/224, healthy paced UART, RNG0, acceleration0/0/1024, held F4, five CPUs MTTCG",
+    "host_seconds": 60,
+    "in_window_GDB_pause": false,
+    "final_snapshot": "Read-only GDB after sequential QMP observations",
+    "QEMU_running": true,
+    "auxiliary_completed": 380,
+    "main_completed": 1327,
+    "main_rejected": 0,
+    "main_cancelled": 0,
+    "statistics_completed": 392,
+    "statistics_rejected": 1313,
+    "statistics_cancelled": 0,
+    "statistics_blocked": 0,
+    "previous_fault": "No remaining output PA5df45400 rejection",
+    "next_fault": "nikon statistics output PA=0x5d4be000 bytes=0x10 region=z7ii.uncovered is not writable RAM",
+    "next_address": "Endpoint4 base5d200000 + model cursor13 * stride36000; outside kind19's declared5d1dc000..5d31ffff. First RAM rejection, not first ownership violation: earlier slots can enter other mapped pools. Additional completions do not establish correct RGB DMA.",
+    "CaptureService_state": 4,
+    "first_read_pending": true,
+    "run_enable": ["0x1d", "0x1d"],
+    "reset": 0,
+    "GUI_readiness": 0,
+    "information_record": "still zero",
+    "display_console": false,
+    "battery_peer_rejections": []
+  },
+  "remaining_hypothesis": "Existing statistics model increments every active endpoint's DMA cursor through the whole completion count. Source requests255 first-read completions but reserves only6 RGB slots. Actual RGB address-control/count relationship remains unresolved; no kind24 mapping, modulo6 wrap, suppressed RGB output or forced completion added.",
+  "measurement_limit": "Sequential QMP and later snapshots are not atomic counters or physical rates.392 statistics versus380 auxiliary completions indicates additional work but is not an atomic per-channel accounting proof. No first-read completion or long-term stability claim.",
+  "omissions": "Raw firmware, disassembly, full memory snapshots, trace logs and local paths remain ignored; source facts and curated verdicts only."
+}

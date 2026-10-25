@@ -243,6 +243,12 @@
         "title": "capturedata/native-red.txt",
         "href": "/evidence/capturedata/native-red.txt",
         "kind": "Native test excerpt"
+      },
+      {
+        "run": "kind32",
+        "title": "Large-count grid pool, native boundaries and RGB progression frontier",
+        "href": "/evidence/imagerequest/pools.json",
+        "kind": "Execution observation"
       }
     ]
   },

@@ -1,6 +1,40 @@
 # Original-firmware startup frontier
 
-## Current: kind32 output backing after main acquisition
+## Current: RGB address progression during the first read
+
+The [large-count grid pool](../runtime/capturedata.md#large-count-grid-storage-and-the-remaining-address-contract)
+now backs kind32's complete source-declared PA range `5df45400..5f8d23ff`.
+It uses the existing offset-aware RAM helper, independently of kind18. Original
+pool initialization, all five absent overrides and both kind32 consumers establish
+the allocation; cold-zero RAM remains an explicit functional assumption.
+No new result, event, guest flag or firmware change accompanies this storage.
+
+The [pool receipt](/evidence/imagerequest/pools.json) records native DMA
+red→green and98 passing memory/CMOS/sensor cases. A60-host-second unchanged
+cold-neutral run removes the previous endpoint1 RAM fault: sequential QMP
+queries report380 auxiliary completions,1327 main acquisitions and392 statistics
+completions, with1313 statistics rejections. Main acquisition has no rejection
+or cancellation. The new rejection is endpoint4's calculated PA `5d4be000`,
+span10, outside kind19's six declared slots. A separate30-second read-only
+snapshot confirms the source setters' endpoint pointer tables and records.
+Earlier cursor values can already enter other mapped pools; this is the first
+RAM rejection, not the first ownership violation or evidence of correct RGB DMA.
+
+`1023b86c ->1030af00` explicitly allocates6 RGB slots. Independently,
+`1023a6c6 ->1023a63c` programs the first-read count255 into endpoints1/2/3/4.
+The existing functional statistics hypothesis advances each DMA address once
+per completed frame; it reaches `5d200000 +13*36000` at endpoint4. The
+relationship between this completion count and RGB address progression must
+be recovered before extending that model. Mapping the adjacent kind24 pool,
+wrapping at6 or suppressing RGB output would each assume an unproved behavior.
+The model retains the explicit rejection and publishes no completion for it.
+
+CaptureService remains4, the first read is pending, information storage stays
+zero, GUI readiness is0 and both display heads lack a console. The next work
+is the address-control and completion-count contract, not another arbitrary
+RAM aperture. First-read completion and normal GUI output remain unverified.
+
+## Previous: kind32 output backing after main acquisition
 
 The [independent main-input profile](../devices/sensor/protocol.md#independent-main-acquisition)
 now acquires fresh scene-dependent gray frames after auxiliary readout stops.
@@ -19,7 +53,7 @@ CMOS extension pass. In a60-host-second unchanged-firmware cold-neutral run,
 The final45-second profile completes985 main frames after290 auxiliary DMAs;
 main acquisition therefore continues across the normal run1d transition.
 
-The next rejected work is statistics endpoint1's PA `5df45400`, span300,
+That revision's next rejected work is statistics endpoint1's PA `5df45400`, span300,
 resolving to `z7ii.uncovered`. The original `1030ad70` constructor selects
 kind32 rather than ordinary kind18 when requested count exceeds6; its unit
 stride is12000 and total size is stride times count. The runtime kind32 base

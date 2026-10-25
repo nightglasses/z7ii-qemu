@@ -296,8 +296,11 @@ outputs. The diagnostic remains explicit and publishes no result/completion.
 Source `1030ad70` selects ordinary kind18 for up to6 requested units, but
 kind32 above6, with stride12000 and total size `12000 * count`. The final
 kind32 base table VA `b26b4bd0` contains `5df45400`, matching endpoint1's
-committed address and the root descriptor. Its complete backing/allocation
-and address conversion are the next boundary; this change does not map a
-single failing address or extend the surrounding DDR class. The first read
+committed address and the root descriptor. At this acquisition revision, its
+complete backing/allocation and address conversion are the next boundary;
+this change does not map a single failing address or extend the surrounding
+DDR class. The first read
 remains pending, information storage remains zero and both heads lack a
 console. These observations do not establish FECLCTRK admission or GUI boot.
+The later [pool continuation](../../runtime/capturedata.md#large-count-grid-storage-and-the-remaining-address-contract)
+resolves that storage boundary and records the next RGB address-control limit.

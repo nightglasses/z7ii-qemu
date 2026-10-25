@@ -131,21 +131,71 @@ original image. Pool sizes equal unit size times count.
 |21|`11983338`|`5d320000`|`195000`|`65400`|4|
 |22|`11983350`|`afc3dc00`|`60000`|`18000`|4|
 |23|`11983368`|`5d4b5000`|`3c00`|`c00`|5|
+|32|`119833e0`|`5df45400`|`198d000`|`663400`|4|
 
 Pool constructors `1030ab92/ad70/af00/b0ee/b9aa/b2ce` establish the
 17..22 family; capture-group's `10239dc6` uses kind23. Kind18 already has
-its [grid region](grid.md); this change backs the other six complete
+its [grid region](grid.md); the board backs the other complete
 extents using the existing offset-aware RAM helper. Source row lengths and
 address translations remain unchanged. Adjacent pools are separate regions,
 not a broad DDR aperture. Cold-zero RAM is an explicit functional assumption;
-it produces no statistics, DMA, scalar, status or IRQ. Kind18's alternate
-kind32 allocation for large requested slot counts is outside this addition.
+it produces no statistics, DMA, scalar, status or IRQ.
 
 Endpoint metadata builder `1023a63c` and setters `1020b142/1020b16a` explain
 word48 as count-minus1 and word80 as unit stride in this configured family.
 The observed values5/3 are not established pixel-format numbers. Kind17
 parser `102ce5aa` establishes an aligned pitch from configuration columns;
 it does not recover the cell arithmetic or the distinct kind18 scalar.
+
+## Large-count grid storage and the remaining address contract
+
+**Source facts:** `11982938[32]` at MAS VA `119829b8` selects row `119833e0`.
+Initializer `10306fb0` copies that row's base to runtime table entry
+`b26b4bd0`, then calls `10298a7a`. All five mode override entries32 are NULL.
+The row is `{d98,198d000,663400,4,5df45400,701}`. Its low control byte1
+selects `10297d12 ->102e5e6c`, the subdividable allocator, rather than the
+ordinary fixed-unit path. This is a separately declared pool, not an alias
+of ordinary kind18 or a lease from its six slots.
+
+`1030ad70` chooses kind18 when the requested count is at most6, otherwise
+kind32, and passes a record with base from that table, total `12000 * count`,
+stride12000 and the requested count to `10298e94`. The first-read request's
+255 slots occupy11ee000 bytes within kind32's198d000 bytes. The independent
+constructor `1030bd56` also leases kind32 using the aligned size returned by
+`1030ddc8`; its larger663400-byte units explain why the reserved extent must
+not be reduced to the one observed statistics request.
+
+**Implemented finite memory contract:** PA `5df45400..5f8d23ff` is its own
+offset-aware RAM region. The identity-mapped guest destination and programmed
+DMA address agree with the original row. Neither a new physical mirror nor
+an enclosing conversion class is added. Cold-zero initial bytes are a model
+assumption; normal RAM persists across reset. The firmware still owns all
+allocation records, contents and callbacks.
+
+The [pool receipt](/evidence/imagerequest/pools.json) separates native
+red→green from original execution. Native validation covers255 consumer slots,
+declared pool edges, unaligned DMA, independent kind18 storage, reset and CPU
+access through partial backing pages. The98-case memory/CMOS/sensor batch
+passes. The60-host-second cold-neutral replay removes the `5df45400` fault.
+Sequential queries report392 statistics completions versus380 auxiliary
+completions, consistent with additional main-input processing; these are not
+atomic per-channel accounting measurements.
+
+**Observed next boundary:** endpoint4's calculated PA `5d4be000`, span10,
+is outside kind19's six declared36000-byte slots. The model computes it as
+`5d200000 + 13 * 36000`; endpoint2/3/4 retain count-minus1 `fe` and stride36000.
+But their original producer `1023b86c ->1030af00` requests exactly6 kind19
+slots. `1023a6c6 ->1023a63c` independently applies the first-read count255
+to these endpoints. Thus the current hypothesis that every successful frame
+advances every endpoint's DMA address through its entire completion count
+needs further evidence. Mapping the adjacent kind24 pool would hide this
+contract mismatch. This is the first RAM rejection, not the first address
+outside kind19 ownership: earlier cursor values can fall into other mapped
+pools. The additional successes therefore do not establish correct RGB
+addressing. No larger kind19 extent, modulo-six wrap, skipped RGB
+output or ring event is inferred from the failure alone. The next required
+evidence is the relationship between the completion count, address control
+fields and each output's actual producer.
 
 ## GUI relationship and unchanged execution
 

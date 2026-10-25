@@ -158,7 +158,7 @@ static const struct {
 };
 
 /*
- * Original pool rows119832a8..11983368; kind18 has its own grid region.
+ * Original pool rows119832a8..119833e0; kind18 has its own grid region.
  * These are separate pool extents, not an enclosing DDR conversion class.
  */
 static const struct {
@@ -173,6 +173,8 @@ static const struct {
     { "z7ii.capture-kind21", 0x5d320000, 0x195000 },
     { "z7ii.capture-kind22", 0xafc3dc00, 0x60000 },
     { "z7ii.capture-kind23", 0x5d4b5000, 0x3c00 },
+    /* Kind32 also supplies 12000-byte slots when kind18's count exceeds6. */
+    { "z7ii.capture-kind32", 0x5df45400, 0x198d000 },
 };
 
 typedef struct Z7IINorSlot {
@@ -1733,7 +1735,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
-                 "capture-pools=16,17,19,20,21,22,23 source-extents cold-zero; "
+                 "capture-pools=16,17,19,20,21,22,23,32 source-extents cold-zero; "
                  "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
