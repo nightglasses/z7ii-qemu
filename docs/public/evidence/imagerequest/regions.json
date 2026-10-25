@@ -1,0 +1,65 @@
+{
+  "scope": "Explicit virtual resource35 input through unchanged C1.70 NOR loader; bounded region consumer and original GUI error-frame continuation, not factory calibration or normal live view",
+  "dependency_baseline": "6293bd35",
+  "source_facts": {
+    "directory": "Resource35 decimal is child of resource17, offsete400, directory capacityd00; runtime pointerb7f58400",
+    "manifest": "MAS VA118d0b30 declares offsete400,lengthc00,operation0,phase3,resource35,COPY selector1",
+    "coordinates": "10218bca selects64-entry LE32 x0/x1/y0/y1 tables24/124/224/324 and434/534/634/734; columns/rows at decimal28/32 must fit8x8 result arrays",
+    "whole_image": "10218e7c reorders wire rect{x0,y0,x1,y1} at424/834 into consumer{x0,x1,y0,y1}",
+    "frame_limits": "10218f84 and102194c4 have64 pointers;10219826 has16;1021894a's ten margin frames require count>10 in the first two consumers",
+    "request": "1022fca6 ->10210ae2 reads resource35+848 and passes its low byte to1023adba; erasedFFFFFFFF previously selected255",
+    "prior_failure": "Erased bound(-1,-1), pitch32 and LE16 base5df45400 compute5df453be; PC10218d7e explicitly faults"
+  },
+  "virtual_profile": {
+    "tool": "nikon-module neutral-regions-descriptor17 INPUT_DESCRIPTOR17 OUTPUT_DESCRIPTOR17",
+    "input_size": "0x20000, exact; opaque outside selected body",
+    "changed_range": "[e400,f000), exactly thec00-byte manifest body; directory tail, other records and footer preserved",
+    "regions": "Two8x8 partitions cover the30x12 source exactly once per family, with inclusive nonnegative bounds; whole image{0,0,29,11}",
+    "limits848_860_864": [64, 64, 16],
+    "gain850": "24, explicit virtual unit-gain hypothesis for10218866's multiply/divide-by24 expression",
+    "other_parameters": "All other copied-body bytes explicitly zero, including unqualified header/threshold fields; not recovered factory values or general coverage of other image modes",
+    "input_lifecycle": "Tool does not validate/repair footer or write guest RAM; firmware retains validation, phased COPY, callbacks and input interpretation"
+  },
+  "native": {
+    "red": "New profile rejected by preceding CLI with usage/code2 rather than reading the requested input; original erased-input CPU fault separately establishes the consumer failure",
+    "green": {
+      "module_cases": 5,
+      "memory_cases": 33,
+      "failures": 0,
+      "coverage": "Exact input/output size, source unchanged, every byte outsidec00 preserved, both64-region partitions nonempty/nonoverlapping/complete, all LE16 accesses within32-sample pitch, rect order and64/64/16 limits, missing/short/long inputs, invalid arguments and unwritable output"
+    }
+  },
+  "original_execution": {
+    "input": "Same unchanged cold-neutral resource80, explicit PGM quadrants32/192/64/224, healthy paced UART, RNG0, acceleration0/0/1024, held F4, five CPUs MTTCG; only resource35 body enriched",
+    "tool_comparison": "Native tool output directly byte-compares equal to the experimental descriptor17 file",
+    "host_seconds": 60,
+    "in_window_GDB_pause": false,
+    "loader_comparison": "Entirec00-byte destination body atb7f58400 equals explicit descriptor17 file slice[e400,f000); copied counts/bounds/limits match",
+    "QMP_status": "running",
+    "auxiliary_completed": 292,
+    "main_completed": 128,
+    "main_rejected": 0,
+    "main_cancelled": 1,
+    "statistics_completed": 419,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "statistics_blocked": 0,
+    "acquisition": "Original request uses64 and completes two phases; next owned main job cancelled by normal stop",
+    "uncovered_accesses": 0,
+    "display": "Head1 screendump succeeds,1024x682, actual firmware status widgets plus Error: Turn camera off and then on again overlay; head0 has no console",
+    "error_list": [63],
+    "GUI_readiness": 0,
+    "information_record": "still zero",
+    "battery_peer_rejections": []
+  },
+  "instrumented_error_probe": {
+    "scope": "Separate read-only GDB breakpoint, not an uninterrupted or physical-timing run; normal baseline already independently reproducesID63",
+    "hit": "1026c1d4 entry:r0=100,LR1026c839; caller1026c66e invokes102d986e using backend word30=0",
+    "mapping": "status100 -> Sensor state9 ->10394d06 table118f9338[9] -> ID63",
+    "source_condition": "102d986e(0) clears event10 atb18a764c, submits101 via102ff522/102976c2 to200632e0 and commits200632e4=1, then waits for event10 with timeout150 in original API units; missing completion contributes100",
+    "condition_probe": "Separate conditional breakpoint at102d9906: event10 wait returns0, r4/r5/r6=0 before status100 is added; isolates the completion timeout from initial readiness and submission status",
+    "remaining_model": "SDES global command completion work and its normal event producer; paired107/event20 branch belongs to the same cohort. No waiter flag, event or IRQ forced"
+  },
+  "measurement_limit": "Sequential QMP and later snapshots are not atomic counts or physical rates. A rendered error GUI is not normal GUI startup, live view, factory calibration or long-term stability.",
+  "omissions": "Raw firmware, original input bytes, full debugger/trace records and generated screen images remain ignored; public record contains curated source contracts and verdicts only."
+}

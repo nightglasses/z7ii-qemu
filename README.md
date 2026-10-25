@@ -102,6 +102,17 @@ physical calibration or a universal block-disable setting.
 Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.
 
+The later [bounded statistics storage](docs/devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+and [explicit region input](docs/inputs/nor/descriptor.md#resource35-first-read-region-input)
+now cross the first-read acquisition and its erased-parameter consumer. The
+unchanged cold-neutral continuation requests two64-frame phases, performs
+actual input/output work and binds display head1 with original GUI widgets
+and an ID63 error overlay. Native99-case device and38-case input-tool/memory
+batches pass. Automatic storage reuse and virtual region coefficients remain
+explicit hypotheses. Normal live view is still incomplete; the
+[current frontier](docs/validation/frontier.md) records the Sensor wait that
+produces ID63, separately from complete-boot or physical-camera evidence.
+
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
 component records (`EX`, `TPJ`, `MAS`, `VR`, and `SLA`) into one composed machine:

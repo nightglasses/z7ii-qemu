@@ -2598,6 +2598,12 @@
         "title": "moduleinput/native-visible-red.txt",
         "href": "/evidence/moduleinput/native-visible-red.txt",
         "kind": "Native test excerpt"
+      },
+      {
+        "run": "regioninput",
+        "title": "Virtual first-read regions, original loader and ID63 GUI continuation",
+        "href": "/evidence/imagerequest/regions.json",
+        "kind": "Execution observation"
       }
     ]
   },

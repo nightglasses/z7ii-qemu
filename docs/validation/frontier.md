@@ -1,6 +1,43 @@
 # Original-firmware startup frontier
 
-## Current: erased region parameters after first-read processing
+## Current: Sensor switch completion after first-read consumption
+
+The [explicit resource35 profile](../inputs/nor/descriptor.md#resource35-first-read-region-input)
+supplies complete bounded virtual region tables through descriptor17's normal
+NOR loader. It preserves the rest of that opaque input, including the footer,
+and keeps resource80 cold-neutral. Source field848 supplies64 first-read
+samples; the preceding255 was the low byte of an erased FF parameter.
+Bounds, temporal limits and virtual coefficients are distinguished from
+recovered factory data. No guest flag, callback or frame is injected.
+
+The [region receipt](/evidence/imagerequest/regions.json) records5 native
+module-tool cases and33 memory cases, with all original `c00` loader bytes
+matching the explicit file. A60-host-second unchanged-firmware run completes
+128 main acquisitions and419 statistics jobs, with no statistics rejection
+or cancellation and no uncovered access. QMP remains running, and head1
+binds an actual1024x682 console containing status widgets and an error overlay.
+GUI readiness/information storage remain zero; normal live view is incomplete.
+
+The error list contains only ID63. An independently instrumented read-only
+breakpoint observes `1026c1d4(100)` with LR `1026c839`, from the normal
+`1026c66e ->102d986e(0)` call. The mapper turns status bit100 into Sensor
+state9; `10394d06` maps it through table `118f9338[9]` to ID63. This separates
+the new error from the solved resource35 negative-coordinate read.
+
+`102d986e(0)` clears Sensor event10 at object VA `b18a764c`, submits command
+101 through `102ff522 ->102976c2` to PA `200632e0`, and commits it with
+`200632e4=1`. It then waits for event10 with timeout150 in original API units;
+a missing completion contributes
+status100. A second conditional breakpoint at `102d9906` observes the wait
+returning0 with accumulated status0, isolating this missing completion from
+the earlier readiness wait and command submission. These debugger probes
+are separate from the uninterrupted60-second run. The SDES channel device
+currently retains/publishes these global commands, but their completion work
+and source-associated event producer must
+be recovered together. Do not set the waiter flag or invent an IRQ to clear
+the error. The alternate107/event20 branch belongs to the same source cohort.
+
+## Previous: erased region parameters after first-read processing
 
 The [bounded output-storage profile](../devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
 separates the configured completion sequence from each source-declared output

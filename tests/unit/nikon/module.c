@@ -151,6 +151,89 @@ static void test_cli(void)
     g_assert_cmpint(rmdir(directory), ==, 0);
 }
 
+static void test_regions(void)
+{
+    g_autofree char *directory = g_dir_make_tmp("nikon-regions-XXXXXX", NULL);
+    g_autofree char *input = g_build_filename(directory, "input.bin", NULL);
+    g_autofree char *output = g_build_filename(directory, "output.bin", NULL);
+    g_autofree uint8_t *before = g_malloc(0x20001);
+    g_autofree char *after = NULL;
+    g_autofree char *original = NULL;
+    char profile[] = "neutral-regions-descriptor17";
+    char *valid[] = { tool, profile, input, output, NULL };
+    char *missing[] = { tool, profile, output, input, NULL };
+    char *bad_output[] = { tool, profile, input, directory, NULL };
+    char *bad_args[] = { tool, profile, input, NULL };
+    const uint8_t *record;
+    gsize size, original_size;
+
+    for (unsigned i = 0; i < 0x20001; i++) {
+        before[i] = i * 29 + (i >> 8) * 11;
+    }
+    memcpy(before + 0x1fffc, "ENDM", 4);
+    run_cli(bad_args, 2, "usage:");
+    run_cli(missing, 3, "cannot read");
+    g_assert_true(g_file_set_contents(input, (char *)before, 0x20000, NULL));
+    run_cli(valid, 0, NULL);
+    g_assert_true(g_file_get_contents(output, &after, &size, NULL));
+    g_assert_cmpuint(size, ==, 0x20000);
+    g_assert_cmpmem(after, 0xe400, before, 0xe400);
+    g_assert_cmpmem(after + 0xf000, size - 0xf000,
+                    before + 0xf000, size - 0xf000);
+    g_assert_true(g_file_get_contents(input, &original, &original_size, NULL));
+    g_assert_cmpmem(original, original_size, before, 0x20000);
+    record = (const uint8_t *)after + 0xe400;
+    g_assert_cmpuint(ldl_le_p(record + 28), ==, 8);
+    g_assert_cmpuint(ldl_le_p(record + 32), ==, 8);
+    for (unsigned family = 0; family < 2; family++) {
+        unsigned covered[12][30] = { 0 };
+        unsigned table = family ? 0x434 : 0x24;
+        unsigned rectangle = family ? 0x834 : 0x424;
+
+        for (unsigned i = 0; i < 64; i++) {
+            uint32_t x0 = ldl_le_p(record + table + 4 * i);
+            uint32_t x1 = ldl_le_p(record + table + 0x100 + 4 * i);
+            uint32_t y0 = ldl_le_p(record + table + 0x200 + 4 * i);
+            uint32_t y1 = ldl_le_p(record + table + 0x300 + 4 * i);
+
+            g_assert_cmpuint(x0, <=, x1);
+            g_assert_cmpuint(y0, <=, y1);
+            g_assert_cmpuint(x1, <, 30);
+            g_assert_cmpuint(y1, <, 12);
+            for (unsigned y = y0; y <= y1; y++) {
+                for (unsigned x = x0; x <= x1; x++) {
+                    g_assert_cmpuint((y * 32 + x) * 2 + 2, <=, 32 * 12 * 2);
+                    covered[y][x]++;
+                }
+            }
+        }
+        for (unsigned y = 0; y < 12; y++) {
+            for (unsigned x = 0; x < 30; x++) {
+                g_assert_cmpuint(covered[y][x], ==, 1);
+            }
+        }
+        g_assert_cmpuint(ldl_le_p(record + rectangle), ==, 0);
+        g_assert_cmpuint(ldl_le_p(record + rectangle + 4), ==, 0);
+        g_assert_cmpuint(ldl_le_p(record + rectangle + 8), ==, 29);
+        g_assert_cmpuint(ldl_le_p(record + rectangle + 12), ==, 11);
+    }
+    /* The first two consumers have 64-frame arrays and a five-frame window
+     * on either side; the third consumer has only 16 frame pointers. */
+    g_assert_cmpuint(ldl_le_p(record + 0x848), ==, 64);
+    g_assert_cmpuint(ldl_le_p(record + 0x848), >, 10);
+    g_assert_cmpuint(ldl_le_p(record + 0x860), ==, 64);
+    g_assert_cmpuint(ldl_le_p(record + 0x864), ==, 16);
+    g_assert_cmpuint(ldl_le_p(record + 0x850), ==, 24);
+    run_cli(bad_output, 3, "cannot write");
+    for (unsigned length = 0x1ffff; length <= 0x20001; length += 2) {
+        g_assert_true(g_file_set_contents(input, (char *)before, length, NULL));
+        run_cli(valid, 3, "exactly");
+    }
+    g_assert_cmpint(unlink(input), ==, 0);
+    g_assert_cmpint(unlink(output), ==, 0);
+    g_assert_cmpint(rmdir(directory), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -160,5 +243,6 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/module/readsets", test_readsets);
     g_test_add_func("/nikon/module/timing", test_timing);
     g_test_add_func("/nikon/module/cli", test_cli);
+    g_test_add_func("/nikon/module/regions", test_regions);
     return g_test_run();
 }

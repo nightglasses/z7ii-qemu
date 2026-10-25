@@ -160,6 +160,12 @@ count-minus1 also publishes raw3.bit7. Other endpoint completion bits and
 physical bank timing are not inferred. This corrects the earlier profile's
 use of bits2:1 as the address-set selector.
 
+The later [resource35 input audit](../../inputs/nor/descriptor.md#resource35-first-read-region-input)
+finds that255 was the low byte of an erased temporal parameter, not a recovered
+normal sample count. Its bounded virtual record selects64, which the original
+producer requests normally. This still exceeds RGB's six allocated slots;
+the separate storage/completion contract below applies to both counts.
+
 ### Completion sequence and bounded output storage
 
 **Source facts:** the original constructors independently reserve6 kind17

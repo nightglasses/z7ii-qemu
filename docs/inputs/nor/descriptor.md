@@ -120,6 +120,64 @@ boundary. Neither candidate is silently selected or embedded in QEMU. See
 [guiupdate](../../runtime/guiupdate.md) for accepted-request observations and
 the remaining board-selection/factory-calibration limits.
 
+## Resource35 first-read region input
+
+**Source facts:** resource35 is a child of resource17, at descriptor17 file
+offset `e400`. Manifest row MAS VA `118d0b30` copies `c00` bytes in phase3
+through COPY selector1. Its directory capacity is `d00`, not the copy length.
+The original loader zeroes the uncopied tail; the input tool leaves those file
+bytes untouched. Getter `10248880` caches resource35, observed at VA `b7f58400`.
+
+`10218bca` selects two families of64 inclusive coordinate bounds. The first
+family's four tables start at offsets `24/124/224/324`, the second at
+`434/534/634/734`; each table has64 LE32 entries. Whole-image rectangles at
+`424/834` use wire order `{x0,y0,x1,y1}`, reordered by `10218e7c` for the
+consumer. Header words at decimal offsets28/32 bound the region columns/rows;
+the result arrays support at most8 in each direction.
+
+The prior TEMP/acceleration input leaves the copied body FF. Its counts and
+signed bounds become `ffffffff`; `10218d24` therefore reads coordinate(-1,-1)
+at `base +2*(-32-1)`, PA `5df453be`, before the kind32 allocation. This is not
+missing storage. Separately, `1022fca6 ->10210ae2` reads frame limit at offset
+`848` and passes its low byte into first-read submission. Erased FF consequently
+requests255 frames; that was not evidence of a normal factory sample count.
+
+**Explicit virtual profile:** the existing native input tool can enrich an
+opaque descriptor17 file while preserving every byte outside `[e400,f000)`:
+
+```sh
+work/build/qemu/tools/nikon/nikon-module neutral-regions-descriptor17 \
+  INPUT_DESCRIPTOR17 OUTPUT_DESCRIPTOR17
+```
+
+Both paths are explicit; the input must be exactly128 KiB. The tool neither
+validates nor repairs its footer or other records. Unreadable/wrong-sized
+inputs and output failures return errors. Supply the output through the
+normal `descriptor17-input` property, alongside the unchanged cold-neutral
+resource80 and other inputs. No guest RAM or event is populated by the tool.
+
+The profile declares two8x8 partitions covering a30x12 image exactly once,
+plus each whole-image rectangle. Frame limits at `848/860/864` are64/64/16:
+`10218f84/102194c4` have64 frame pointers; `10219826` has16. The first two
+also need more than10 frames for `1021894a`'s five-frame margins and denominator.
+Offset `850=24` is an explicit virtual unit-gain choice for `10218866`'s
+multiply/divide-by24 expression. Every other byte within the copied body is
+explicitly zero, including unqualified thresholds/header fields. These are
+bounded functional parameters, not recovered factory calibration, physical
+thresholds or universal values for other image modes.
+
+The [region receipt](/evidence/imagerequest/regions.json) records5 passing
+module-tool cases and33 memory cases, exact opaque-byte preservation, both
+coordinate families' coverage and all consumer addresses within a32-sample
+pitch. Tool output compares directly with the experimental input. Original
+loader output matches all `c00` bytes; unchanged firmware now requests64 frames,
+completes128 main acquisitions over two phases and reaches a running head1
+console. The actual1024x682 guest frame contains status widgets and an error
+overlay with ID63; it is not normal live view. The following source audit
+connects that error to Sensor status100 from `102d986e(0)`, rather than the
+erased-region read. Physical calibration and normal GUI completion remain
+unverified.
+
 ## Resource31 timing parameters
 
 C1.70 manifest row at MAS VA `118d0af0` copies descriptor17 file offsets
