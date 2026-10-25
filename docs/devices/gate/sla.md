@@ -5,11 +5,14 @@ Provider: `zero-domain-source/sla.S` and original
 runtime first stopped at CPU3 `PC100944D2`, W32 `20100000=0`. No new decoder,
 native collection, original run or build was executed by this owner.
 
-Reuse `TYPE_NIKON_EVENT_GATE`: one aligned little-endian word MMIO region,
+The historical control profile reused `TYPE_NIKON_EVENT_GATE`: one aligned
+little-endian word MMIO region,
 `20100000..20102928`, one SysBus IRQ output to IRQ102. No DMA address-space
 link, transfer backend or global address space is needed for this finite
 interface. The SLA owner supplies private mapping/wiring; `pending-bit[96]`
-inputs remain disconnected by default.
+inputs remain disconnected by default. The later [command importer](commands.md)
+extends this shared class with bounded RAM DMA and extra storage regions; the
+original narrower SLA observations below do not claim execution of those paths.
 
 `943CE` registers146 at `C10012C4` (literal9473C=C100138C minusC8), then
 registers IRQ102 with Thumb handler94339. Service state at `C10012B4` holds

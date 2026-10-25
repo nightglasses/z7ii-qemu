@@ -5,8 +5,8 @@
 #ifndef NIKON_GATE_PACKET_H
 #define NIKON_GATE_PACKET_H
 
-#define NIKON_GATE_REGISTERS (0x240 / 4)
-#define NIKON_GATE_PACKET_MAX 248
+#define NIKON_GATE_REGISTERS (0x40c / 4)
+#define NIKON_GATE_PACKET_MAX 356
 
 typedef struct NikonGatePacket {
     uint32_t value[NIKON_GATE_REGISTERS];

@@ -34,6 +34,7 @@ static const struct {
     { 0xbc0, 10 }, { 0xd00, 15 }, { 0xd20, 15 }, { 0xd40, 11 },
     { 0xd60, 11 }, { 0xd80, 11 }, { 0xda0, 11 }, { 0xdc0, 11 },
     { 0xde0, 11 }, { 0xe00, 11 }, { 0xe20, 11 },
+    { 0xe60, 5 }, { 0xe80, 6 },
 };
 
 typedef struct GateCommand {

@@ -123,9 +123,11 @@ configuration;25 decoder/SLA subtests pass. Unchanged firmware with the same
 region/cold-neutral inputs imports eight packets totaling269 words, submits
 slots1/2. The complete [paired-bank packet](docs/devices/pairs/parameters.md)
 now crosses PA `203800a8`; all23 SLA subtests pass. Original execution submits
-another slot8 and stops at type5 processing-command reset PA `20100e74`.
-Slots1/2/8 remain busy; actual processing activation is unsupported and no
-completion is invented.
+another slot8. The [type5/type6 stream contract](docs/devices/gate/fanout.md)
+now separates356 command bytes from the CPU-consumed trailer;26 decoder/SLA
+subtests pass. Original type5 import raises the total to9 packets/358 words,
+then stops at downstream type9 reset PA `20100914`. Slots1/2/8 remain busy;
+actual processing activation is unsupported and no completion is invented.
 The error property is empty and neither display head has a console. The earlier ID63 error
 frame is separately archived; normal live view remains incomplete. The
 [current frontier](docs/validation/frontier.md) distinguishes these results

@@ -2055,6 +2055,16 @@
       }
     ]
   },
+  "devices/gate/fanout.md": {
+    "records": [
+      {
+        "run": "type5streams",
+        "title": "Type5/type6 prefix import, CPU trailer and graph ownership",
+        "href": "/evidence/imagerequest/fanout.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/mxic/protocol.md": {
     "records": []
   },

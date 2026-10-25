@@ -1,6 +1,36 @@
 # Original-firmware startup frontier
 
-## Current: type5 processing command reset at PA `20100e74`
+## Current: downstream type9 command reset at PA `20100914`
+
+The [type5/type6 stream contract](../devices/gate/fanout.md) separates the
+356-byte register prefix from the396-byte software allocation's CPU-consumed
+trailer. Both source-selected ports use the shared strict reset/RAM-DMA/atomic
+import lifecycle. Their original upstream/resource routing and trailer stores
+are located; physical pixel/table equations and the complete input/output DMA
+association remain unresolved. No identity transform, black frame, successful
+processor activation, completion event or automatic slot release is inferred.
+
+The [stream receipt](/evidence/imagerequest/fanout.json) records native red→green
+with26 passing decoder/SLA subtests. In the same unchanged60-host-second
+region/cold-neutral run, original type5/resource35 imports89 words, increasing
+the total to9 packets/358 words. Its pointer is retained, reset deasserted,
+and slots1/2/8 remain busy. Type6 is covered by the shared source/native contract
+but remains unconfigured in this original window.
+
+The active eighteen-node graph begins `0/8 ->5/35 ->9/45`. The first uncovered
+transaction becomes CPU1 PC `103bdedc`, WRITE32 PA `20100914=1`, the downstream
+type9/resource45 reset at backend `20100900`. Original execution has not yet
+finished configuring this graph or reached processing activation. The next
+boundary is that unit's complete stream/data contract.
+
+The run completes128 main acquisitions and542 statistics jobs, with zero
+rejections/statistics cancellations and one main cancellation. Error
+property6433 and both GUI information records stay zero; neither head has a
+console. No debugger pause occurs inside the window; QMP then read-only GDB
+observations are sequential, not atomic or physical rates. Normal GUI
+publication and processing-slot reuse remain unverified.
+
+## Previous: type5 processing command reset at PA `20100e74`
 
 The [paired-bank packet contract](../devices/pairs/parameters.md) now retains
 the complete eight-field group containing PA `203800a8` in both banks. MAS and

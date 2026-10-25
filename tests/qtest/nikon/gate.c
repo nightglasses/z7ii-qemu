@@ -5,6 +5,7 @@
 #include "qemu/bswap.h"
 #include "qobject/qdict.h"
 #include "libqtest.h"
+#include "hw/nikon/gatepacket.h"
 
 void nikon_gate_test(QTestState *q, const char *path, uint64_t base);
 
@@ -25,6 +26,8 @@ static size_t gate_program(unsigned kind, uint8_t *data)
         unsigned offset[8], words[8];
     } programs[] = {
         { 4, 2, { 4, 0x10 }, { 2, 16 } },
+        { 5, 3, { 0, 0x200, 0x400 }, { 4, 81, 4 } },
+        { 6, 3, { 0, 0x200, 0x400 }, { 4, 81, 4 } },
         { 7, 6, { 0, 0x64, 0x80, 0xc0, 0x100, 0x22c },
                  { 22, 5, 10, 10, 10, 5 } },
         { 10, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
@@ -66,6 +69,7 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
         { 0xbc0, 10 }, { 0xd00, 15 }, { 0xd20, 15 }, { 0xd40, 11 },
         { 0xd60, 11 }, { 0xd80, 11 }, { 0xda0, 11 }, { 0xdc0, 11 },
         { 0xde0, 11 }, { 0xe00, 11 }, { 0xe20, 11 },
+        { 0xe60, 5 }, { 0xe80, 6 },
     };
     const uint32_t source = 0xc1004000;
     uint64_t words = 0;
@@ -73,10 +77,16 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
 
     for (i = 0; i < ARRAY_SIZE(engines); i++) {
         uint64_t port = base + engines[i].offset;
-        uint8_t data[248];
+        uint8_t data[NIKON_GATE_PACKET_MAX];
         size_t length = gate_program(engines[i].kind, data);
 
         qtest_memwrite(q, source, data, length);
+        if (engines[i].kind == 5 || engines[i].kind == 6) {
+            uint8_t trailer[40];
+
+            memset(trailer, 0xff, sizeof(trailer));
+            qtest_memwrite(q, source + length, trailer, sizeof(trailer));
+        }
         qtest_writel(q, port + 0x10, source); /* No reset pair yet. */
         g_assert_cmphex(qtest_readl(q, port + 0x10), ==, 0);
         if (engines[i].kind == 10) {
@@ -193,6 +203,12 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     unsigned i, j, group;
 
     qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          base + 0xe74);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+    }
     /*
      * Resource37 command reset must be a real state transition, not a
      * discarded write or a fabricated processing completion.
@@ -251,6 +267,14 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
         g_assert_nonnull(strstr(reply, "Cannot access memory"));
     }
     qtest_clock_step(q, 1000000);
+    for (i = 0; i < 16; i++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x2040 + 4 * i), ==, 1);
+    }
+    /* Type5/6 command reset cannot retire any submitted type0 slot. */
+    qtest_writel(q, base + 0xe74, 1);
+    qtest_writel(q, base + 0xe74, 0);
+    qtest_writel(q, base + 0xe94, 1);
+    qtest_writel(q, base + 0xe94, 0);
     for (i = 0; i < 16; i++) {
         g_assert_cmphex(qtest_readl(q, base + 0x2040 + 4 * i), ==, 1);
     }

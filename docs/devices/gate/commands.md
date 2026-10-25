@@ -1,8 +1,8 @@
 # Processing command import and terminal ownership
 
 C1.70 MAS type4/resource37 submits a 72-byte logical-register packet through
-PA `20100810`, after pulsing `20100814`. The functional model imports the
-complete current graph's seven packet shapes, its paired endpoint configuration
+PA `20100810`, after pulsing `20100814`. The initial command-import contract
+covers seven processing types, their paired endpoint configuration
 and CPU-written lookup tables. Original execution crosses this boundary and
 imports eight packets before stopping in the separate paired-event banks at
 the command-import checkpoint. The later [paired parameter contract](../pairs/parameters.md)
@@ -10,6 +10,11 @@ crosses that historical stop; its startup observation is reported separately.
 Actual pixel processing, terminal completion and type0 slot retirement remain
 unsupported. See the [execution receipt](/evidence/imagerequest/commands.json)
 and [startup frontier](../../validation/frontier.md).
+
+The later [type5/type6 stream contract](fanout.md) adds two source-selected
+ports and their356-byte prefix layout to this shared importer. The maintained
+port set has29 entries; the original seven-type/27-port observation below
+retains its historical scope.
 
 Code, ROM and software objects below are original C1.70 MAS virtual addresses
 (VA); device addresses are board physical addresses (PA). Addresses, offsets
@@ -39,6 +44,7 @@ layouts; all current original graph packets agree with their headers.
 | Type | Blocks: logical offset / total words | Packet bytes |
 | --- | --- | --- |
 | 4 | `4/2`, `10/16` | 72 |
+| 5, 6 | `0/4`, `200/81`, `400/4` | 356 |
 | 7 | `0/22`, `64/5`, `80/10`, `c0/10`, `100/10`, `22c/5` | 248 |
 | 10, 11 | `0/10`, `40/8`, `80/17` | 140 |
 | 12 | `0/7`, `20/2`, `30/6`, `50/6`, `70/6`, `90/6`, `b0/6`, `d0/5` | 176 |
@@ -60,6 +66,8 @@ PA `20100000`.
 | Type | Resource → backend offset |
 | --- | --- |
 | 4 | `37→800`, `38→820`, `39→840` |
+| 5 | `35→e60` |
+| 6 | `36→e80` |
 | 7 | `40→880` |
 | 10 | `49→940`, `50→960`, `51→980`, `52→9a0`, `53→9c0`, `54→9e0`, `55→ba0`, `56→bc0` |
 | 11 | `57→d40`, `58→d60`, `59→d80`, `60→da0`, `61→dc0`, `62→de0`, `63→e00`, `64→e20` |
@@ -130,16 +138,17 @@ clock, nominal delay, configuration write or processing result sets it.
 ## Terminal completion and slot release
 
 Worker `103b4adc` configures the graph, then `103b4cea` starts later nodes and
-waits on terminal callbacks. Type4 resources37..39 have raw-domain1 masks
-`1/2/4`; type0 has no completion mask. For the observed terminal pair,
+forms its wait mask from resources49..56. Type4 resources37..39 have raw-domain1 masks
+`1/2/4`; type0 has no completion mask. As callback-routing examples,
 type10/resource53 has raw-domain1 mask `4000`, and type11/resource61 has
 raw-domain2 mask `4000`. Identical numeric masks in different domains are not
 interchangeable events. Domain indices are zero-based: domain1 is pending PA
 `2010001c`, and domain2 is pending PA `20100020`.
+Resource61's raw mask does not make it a terminal source for that worker wait.
 
 Original IRQ102 handler `103bce38` acknowledges raw pending and calls
 `103bde3e` to dispatch registered guest callbacks. Callback `103b4b9e`
-normalizes terminal masks into worker event bits; the `40/4000` class maps to
+normalizes callback mask classes into worker event bits; the `40/4000` class maps to
 event `80`. On normal worker completion, `10388b3c ->1038897e` clears software
 resource/worker ownership and wakes the waiter on the `421930f1` route. This
 does not write the hardware slot query bank.
@@ -154,7 +163,8 @@ alone cannot establish them.
 
 ## Validation and original execution
 
-The old device fails the focused reset read at `20100814`. The completed
+At the original command-import checkpoint, the old device fails the focused
+reset read at `20100814`. The completed
 native batch passes two decoder subtests and all23 SLA subtests. It covers all
 27 ports, seven layouts, truncation and header corruption, complete versus
 rejected RAM DMA, reset isolation/cancellation, auxiliary preservation, all

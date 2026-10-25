@@ -114,6 +114,7 @@ export default defineConfig({
               { text: 'Gate Runtime', link: '/devices/gate/runtime' },
               { text: 'Gate Parameter Slots', link: '/devices/gate/slots' },
               { text: 'Gate Processing Commands', link: '/devices/gate/commands' },
+              { text: 'Gate Branch Streams', link: '/devices/gate/fanout' },
               { text: 'Gate Stop Lifecycle', link: '/devices/gate/stop' },
               { text: 'Gate SLA Mapping', link: '/devices/gate/sla' },
               { text: 'Banks Dual-Object Control', link: '/devices/banks/protocol' },
