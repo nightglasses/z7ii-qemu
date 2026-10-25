@@ -176,6 +176,29 @@ still need tracing. Other producers do send global event041a0002, so that
 event number alone is not proof of this owner branch. No normal-menu output
 or physical frame rate is claimed.
 
+The later [capture data audit](../runtime/capturedata.md) traces normal
+submission `10235c84 -> 1023bc02`, the four queues, bank1 statistics and
+global-scalar consumers, then041a0002/pending40000/041a0008 retirement.
+The final cold-neutral `verified`/`routes` runs each have queue lengths
+0/33/33/33:32 roots pending40000 and one40001. All33 roots checked by
+`routes` have root[8]=root[16]=0; the upper image-delivery branch requires
+root[16]!=0. Bit6 is enabled but unproduced, and the owner data consumer
+is still absent. This identifies request retirement, not a proven GUI
+main-image completion. Direct setter `103250f2 -> 10324f04(root+8)`
+requires `b1868af6=1` and unequal `b1868b94/b1868b98` counters to set
+root[16]; the `routes` snapshot has `b1868af6=0`, which would select the
+clear branch. Its state at each request's setter call was not traced.
+
+Complete source-declared pools17/19/20/21/22/23 now have exact RAM beside
+the existing kind18 grid. Old-model DMA fails at the first new pool; all32
+memory subtests pass after the change. The unchanged runs remain running
+without uncovered accesses or UART rejection, with1662/1662 and1640/1640
+sequential accepted/completed auxiliary counters. Both retain all six loader
+COPY comparisons, guard0 and empty property6433, with no console. Storage
+does not produce numerical data or completion, so the current boundary
+remains a coherent processing-data/result/bit6 producer; selecting the upper
+image-delivery request is a separate unresolved upstream condition.
+
 ## Earlier original error-GUI frame and module-input investigation
 
 The normal-input `readinessnormal-20261023/color` run publishes an actual

@@ -126,6 +126,12 @@ original endpoint1 address sets at`2006a550/560` to PA`5d170000`, with stride
 This establishes the configured output's ownership; it does not recover the
 statistics arithmetic or add DMA/completion to this configuration device.
 The separate board RAM's cold-zero convention is not endpoint-produced data.
+The later [capture data audit](../../runtime/capturedata.md) adds the entire
+source-declared neighboring pool family, traces queued results and corrects
+two possible inferences: configured word48 is count-minus1 and word80 is
+unit stride in this family, while global result selector0 does not identify
+endpoint0 or establish a scalar value. Numerical result publication remains
+outside this configuration device.
 
 ## Native validation scope
 

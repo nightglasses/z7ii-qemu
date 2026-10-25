@@ -156,6 +156,23 @@ static const struct {
     { "z7ii.pixels",   0xbc100000, 0x1100000 },
 };
 
+/*
+ * Original pool rows119832d8..11983368; kind18 has its own grid region.
+ * These are separate pool extents, not an enclosing DDR conversion class.
+ */
+static const struct {
+    const char *name;
+    hwaddr base;
+    uint64_t size;
+} z7ii_capture_pools[] = {
+    { "z7ii.capture-kind17", 0x5d134000, 0x3c000 },
+    { "z7ii.capture-kind19", 0x5d1dc000, 0x144000 },
+    { "z7ii.capture-kind20", 0xafa00000, 0x43800 },
+    { "z7ii.capture-kind21", 0x5d320000, 0x195000 },
+    { "z7ii.capture-kind22", 0xafc3dc00, 0x60000 },
+    { "z7ii.capture-kind23", 0x5d4b5000, 0x3c00 },
+};
+
 typedef struct Z7IINorSlot {
     MemoryRegion region;
     Z7IIMachineState *machine;
@@ -209,6 +226,7 @@ struct Z7IIMachineState {
     Z7IIRAM readout_secondary;
     Z7IIRAM interpolation_pool;
     Z7IIRAM grid_pool;
+    Z7IIRAM capture_pools[ARRAY_SIZE(z7ii_capture_pools)];
     Z7IIRAM row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
     Z7IIRAM download;
@@ -990,6 +1008,17 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->grid_pool, "z7ii.grid-pool", Z7II_GRID_BASE, Z7II_GRID_SIZE);
     /*
+     * 1030ab92/ad70/af00/b0ee/b9aa/b2ce establish the endpoint pool
+     * family;10239dc6 uses kind23 for capture-group cursors. Back all other
+     * complete declared pools17..23 once, without duplicating kind18.
+     * Cold zero is a functional assumption. Storage performs no statistics,
+     * frame DMA, result publication or EPP completion on the guest's behalf.
+     */
+    for (i = 0; i < ARRAY_SIZE(z7ii_capture_pools); i++) {
+        z7ii_ram(&s->capture_pools[i], z7ii_capture_pools[i].name,
+                 z7ii_capture_pools[i].base, z7ii_capture_pools[i].size);
+    }
+    /*
      * Resource11/12 destinations from 10248468; full loader extents at
      * 118d0930/118d09d0. Original code supplies all contents from NOR.
      */
@@ -1600,6 +1629,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
+                 "capture-pools=17,19,20,21,22,23 source-extents cold-zero; "
                  "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "

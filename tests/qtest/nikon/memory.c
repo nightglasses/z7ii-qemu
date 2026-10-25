@@ -522,8 +522,7 @@ static void test_interpolation_pool(void)
 static void test_grid_pool(void)
 {
     const uint32_t base = 0x5d170000, length = 0x12000, count = 6;
-    const uint32_t end = base + length * count, source = 0xb1804000;
-    const uint32_t holes[] = { base - 1, end };
+    const uint32_t source = 0xb1804000;
     g_autofree uint8_t *expected = g_malloc(length * count);
     g_autofree uint8_t *actual = g_malloc(length);
     MemoryTest t = memory_init("");
@@ -550,11 +549,65 @@ static void test_grid_pool(void)
             qtest_memread(t.qts, base + slot * length, actual, length);
             g_assert_cmpmem(actual, length, expected + slot * length, length);
         }
-        for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
-            g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+    }
+    memory_quit(&t);
+}
 
-            g_assert_nonnull(strstr(reply, "Cannot access memory"));
+static void test_capture_pools(void)
+{
+    static const struct {
+        uint32_t base, unit, count;
+    } pools[] = {
+        { 0x5d134000, 0xa000, 6 },
+        { 0x5d1dc000, 0x36000, 6 },
+        { 0xafa00000, 0x10e00, 4 },
+        { 0x5d320000, 0x65400, 4 },
+        { 0xafc3dc00, 0x18000, 4 },
+        { 0x5d4b5000, 0xc00, 5 },
+    };
+    static const uint32_t holes[] = {
+        0x5d133fff, 0x5d4b8c00,
+        0xaf9fffff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
+    };
+    const uint32_t source = 0xb1804000;
+    uint8_t expected[259], actual[259];
+    MemoryTest t = memory_init("");
+
+    for (unsigned p = 0; p < ARRAY_SIZE(pools); p++) {
+        for (unsigned slot = 0; slot < pools[p].count; slot++) {
+            uint32_t base = pools[p].base + slot * pools[p].unit;
+            uint32_t tag = 0xc0170000 | p << 8 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+            g_assert_cmphex(qtest_readl(t.qts, base + pools[p].unit - 4), ==, 0);
+            qtest_writel(t.qts, base, tag);
+            qtest_writel(t.qts, base + pools[p].unit - 4, ~tag);
+            for (unsigned i = 0; i < sizeof(expected); i++) {
+                expected[i] = i * 29 + p * 17 + slot * 7;
+            }
+            qtest_memwrite(t.qts, source, expected, sizeof(expected));
+            qtest_writel(t.qts, 0x04251030, 0);
+            prefix_copy(t.qts, source, base + 0x7f1, sizeof(expected));
+            g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+            qtest_memread(t.qts, base + 0x7f1, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
         }
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned p = 0; p < ARRAY_SIZE(pools); p++) {
+        for (unsigned slot = 0; slot < pools[p].count; slot++) {
+            uint32_t base = pools[p].base + slot * pools[p].unit;
+            uint32_t tag = 0xc0170000 | p << 8 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, tag);
+            g_assert_cmphex(qtest_readl(t.qts, base + pools[p].unit - 4), ==,
+                            (uint32_t)~tag);
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
     }
     memory_quit(&t);
 }
@@ -1352,6 +1405,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
     qtest_add_func("/nikon/memory/grid-pool", test_grid_pool);
     qtest_add_func("/nikon/memory/readout-pools", test_readout_pools);
+    qtest_add_func("/nikon/memory/capture-pools", test_capture_pools);
     qtest_add_func("/nikon/memory/row-storage", test_row_storage);
     qtest_add_data_func("/nikon/memory/descriptor11-input",
                         GUINT_TO_POINTER(11), test_row_input);
