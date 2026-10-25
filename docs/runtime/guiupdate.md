@@ -1,5 +1,12 @@
 # Ordinary GUI input and update route
 
+The current [cold-neutral image request audit](imagerequest.md) supersedes
+the ID68/operation10 checkpoint below: operation10 now reaches the original
+unpause. GUI drawing and layer programming execute, but final activation and
+record92 publication remain absent. The observed image tasks fail a specific
+period/phase admission before submission. AF6's state9 route has separate
+guards and is not established as the missing normal GUI request.
+
 The later [normal-input readiness trace](readiness.md#current-normal-input-observation)
 establishes an original error-GUI frame through the actual bank head1 while
 gate/pending3/display-ready remain0. ID68 suppresses software operation10;
