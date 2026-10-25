@@ -55,5 +55,5 @@ both lane paths, all five independently produced pending pairs, selective
 acknowledgement and original read/writeback acknowledgement. It requires
 a fresh synthetic private SLA VM and uses the actual named `sysbus-irq`
 outputs. The sole builder compiled and executed this focused group with exit0
-in1.69s; its ignored receipt is `work/slasignalnativereceipt.log`. This does not
+in1.69s; its ignored receipt is `run slasignalnativereceipt.log`. This does not
 rerun previous suites or establish original downstream engine execution.

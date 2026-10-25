@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: audiolevels-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/audio/monitor/reset - ERROR:../../config/source/tests/qtest/nikon/audio.c:193:monitor_read: assertion failed (qtest_readl(q, HDMAC + 0x14) == 0x08050000): (0x08030000 == 0x08050000) FAIL
+▶ 1/1                                        ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_audio ERROR           1.52s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/audio.c:193:monitor_read: assertion failed (qtest_readl(q, HDMAC + 0x14) == 0x08050000): (0x08030000 == 0x08050000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_audio ERROR           1.52s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

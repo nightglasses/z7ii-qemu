@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: timingmatrix-20261022
+Original log: native-complete.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/timing-preset/load-boundaries - ERROR:../../config/source/tests/qtest/libqtest.c:783:qtest_rsp_args: assertion failed (words[0] == "OK"): ("FAIL" == "OK") FAIL
+▶ 1/1                                        ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer ERROR           1.90s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/libqtest.c:783:qtest_rsp_args: assertion failed (words[0] == "OK"): ("FAIL" == "OK")
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer ERROR           1.90s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

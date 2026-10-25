@@ -1,335 +1,116 @@
-/**
- * Terminal / Firmware Console Theme for VitePress
- * Inspired by low-level RTOS diagnostics, VT100/retro-modern consoles, and IDA/Ghidra themes.
+/*!
+ * Palette adapted from Microsoft's VS Code Dark 2026 theme.
+ * Source: vscode@86db3b69224f75a786f815684bc96fc0eb5d9300
+ * extensions/theme-defaults/themes/2026-dark.json
+ * Copyright (c) 2015 - present Microsoft Corporation. MIT; see /theme-license.txt.
  */
-
 :root {
-  /* Terminal Fonts */
-  --vp-font-family-base: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  --vp-font-family-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-
-  /* Phosphor Green & Cyber Cyan Palette */
-  --vp-c-brand-1: #00ff88;
-  --vp-c-brand-2: #05e67d;
-  --vp-c-brand-3: #00cc6d;
-  --vp-c-brand-soft: rgba(0, 255, 136, 0.12);
-
-  --vp-c-bg: #090d12;
-  --vp-c-bg-alt: #0e131b;
-  --vp-c-bg-elv: #131924;
-  --vp-c-bg-soft: #111722;
-
-  --vp-c-border: #1e2736;
-  --vp-c-divider: #18202d;
-  --vp-c-gutter: #090d12;
-
-  --vp-c-text-1: #e2e8f0;
-  --vp-c-text-2: #94a3b8;
-  --vp-c-text-3: #64748b;
-
-  --vp-code-bg: #0e131b;
-  --vp-code-line-highlight-color: rgba(0, 255, 136, 0.08);
-
-  /* Pele Mermaid Diagram Variables */
-  --pele-bg: #070a0e;
-  --pele-fg: #00ff88;
-  --pele-line: #00ff88;
-  --pele-surface: #0e141d;
-  --pele-surface-alt: #131924;
-  --pele-border: #233042;
-  --pele-accent: #00f0ff;
-  --pele-muted: #64748b;
-  --pele-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --vp-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --vp-c-bg: #121314;
+  --vp-c-bg-alt: #191a1b;
+  --vp-c-bg-elv: #202122;
+  --vp-c-bg-soft: #242526;
+  --vp-c-border: #333536;
+  --vp-c-divider: #2a2b2c;
+  --vp-c-gutter: #191a1b;
+  --vp-c-text-1: #bbbebf;
+  --vp-c-text-2: #bfbfbf;
+  --vp-c-text-3: #8c8c8c;
+  --vp-c-brand-1: #48a0c7;
+  --vp-c-brand-2: #53a5ca;
+  --vp-c-brand-3: #297aa0;
+  --vp-c-brand-soft: #3994bc26;
+  --vp-button-brand-bg: #297aa0;
+  --vp-button-brand-hover-bg: #2b7da3;
+  --vp-button-brand-text: #fff;
+  --vp-code-bg: #242526;
+  --vp-code-color: #bbbebf;
+  --vp-code-block-bg: #191a1b;
+  --vp-code-line-highlight-color: #27678240;
+  --vp-home-hero-name-color: #bbbebf;
+  --vp-home-hero-name-background: none;
+  --vp-nav-bg-color: #191a1b;
+  --vp-sidebar-bg-color: #191a1b;
+  --vp-local-search-bg: #202122;
+  --vp-local-search-result-bg: #191a1b;
+  --vp-local-search-highlight-bg: #276782dd;
+  --vp-local-search-highlight-text: #fff;
+  --pele-bg: #121314;
+  --pele-fg: #bbbebf;
+  --pele-muted: #8c8c8c;
+  --pele-line: #8c8c8c;
+  --pele-surface: #191a1b;
+  --pele-surface-alt: #242526;
+  --pele-border: #333536;
+  --pele-accent: #48a0c7;
+  --pele-font: var(--vp-font-family-base);
   --pele-font-mono: var(--vp-font-family-mono);
-  --pele-radius: 4px;
+  --pele-radius: 5px;
 }
 
-/* Force dark mode styling */
-html.dark, html:not(.dark) {
-  background-color: var(--vp-c-bg);
-  color: var(--vp-c-text-1);
-}
-
-/* Terminal Cursor Blink on Hero Title */
-@keyframes terminal-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.VPHero .name .clip {
-  background: linear-gradient(120deg, #00ff88 30%, #00f0ff) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-
-.VPHero .name::after {
-  content: '_';
-  color: #00ff88;
-  font-weight: 700;
-  margin-left: 4px;
-  animation: terminal-blink 1s step-end infinite;
-}
-
-/* Heading Prompts */
-.vp-doc h1:not(.VPHero h1)::before {
-  content: '> ';
-  color: var(--vp-c-brand-1);
-  font-weight: normal;
-  user-select: none;
-}
-
-.vp-doc h2::before {
-  content: '$ ';
-  color: #00f0ff;
-  font-weight: normal;
-  opacity: 0.85;
-  user-select: none;
-}
-
-.vp-doc h3::before {
-  content: '# ';
-  color: var(--vp-c-brand-1);
-  font-weight: normal;
-  opacity: 0.7;
-  user-select: none;
-}
-
-/* Terminal Tables (Monospace Data Grid) */
-.vp-doc table {
-  font-family: var(--vp-font-family-mono);
-  font-size: 0.84rem;
-  width: 100%;
-  border-collapse: collapse;
-  border: 1px solid var(--vp-c-border);
-  margin: 1.5rem 0;
-}
-
-.vp-doc th {
-  background-color: var(--vp-c-bg-elv);
-  color: #00ff88;
-  border: 1px solid var(--vp-c-border);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 8px 14px;
-  font-weight: 600;
-}
-
-.vp-doc td {
-  border: 1px solid var(--vp-c-border);
-  padding: 8px 14px;
-}
-
-.vp-doc tr:nth-child(even) {
-  background-color: rgba(14, 19, 27, 0.6);
-}
-
-.vp-doc tr:hover {
-  background-color: rgba(0, 255, 136, 0.04);
-}
-
-/* Feature Cards (Terminal Window Style) */
-.VPFeature {
-  border: 1px solid var(--vp-c-border) !important;
-  background-color: var(--vp-c-bg-alt) !important;
-  border-radius: 4px !important;
-  transition: border-color 0.25s, transform 0.2s !important;
-}
-
-.VPFeature:hover {
-  border-color: var(--vp-c-brand-1) !important;
-  box-shadow: 0 0 15px rgba(0, 255, 136, 0.12) !important;
-  transform: translateY(-2px);
-}
-
-/* Code Blocks with Terminal Bevel */
-div[class*='language-'] {
-  border: 1px solid var(--vp-c-border);
-  border-radius: 4px;
-  background-color: #070a0e !important;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-
-/* ============================================================
-   Pele Diagram Container & Interactive Zoom/Pan/Fullscreen
-   ============================================================ */
+::selection { background: #276782dd; color: #fff; }
+.vp-doc { line-height: 1.75; }
+.vp-doc h1, .vp-doc h2, .vp-doc h3 { letter-spacing: -0.02em; }
+.vp-doc table { font-size: 0.9rem; }
+.vp-doc th { background: #242526; }
+.vp-doc tr:nth-child(2n) { background: #191a1b; }
+.vp-doc :not(pre) > code { color: #bbbebf; background: #262626; }
+.vp-doc div[class*="language-"] { border: 1px solid #2a2b2c; }
+.VPFeature { border: 1px solid #2a2b2c; background: #191a1b; }
+.VPFeature:hover { border-color: #3994bc; }
+:focus-visible { outline: 2px solid #3994bcb3; outline-offset: 3px; }
 
 .pele-container {
   position: relative;
-  background: #06090e;
-  border: 1px solid var(--vp-c-border);
+  background: #121314;
+  border: 1px solid #2a2b2c;
   border-radius: 6px;
-  margin: 1.8rem 0;
-  padding: 1.5rem;
-  overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+  overflow: auto;
   display: flex;
-  justify-content: center;
   align-items: center;
-  user-select: none;
+  justify-content: center;
 }
-
-.pele-container:hover {
-  border-color: rgba(0, 255, 136, 0.35);
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.08);
-}
-
-/* Pele Text Formatting - Explicitly Proportional to Fit Perfectly */
-.pele-container svg {
-  --pele-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  display: block;
-  margin: 0 auto;
-}
-
-.pele-container text,
-.pele-container .pele-label {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  letter-spacing: -0.01em !important;
-}
-
-/* Diagram Shapes & Connection Lines */
-.pele-container .pele-node rect,
-.pele-container .pele-node polygon,
-.pele-container .pele-node path {
-  fill: #0d131c !important;
-  stroke: #253347 !important;
-  stroke-width: 1.5px !important;
-  rx: 4px;
-  transition: stroke 0.15s, fill 0.15s;
-}
-
-.pele-container .pele-node:hover rect,
-.pele-container .pele-node:hover polygon {
-  stroke: #00ff88 !important;
-  fill: #121a26 !important;
-}
-
-.pele-container .pele-edge path {
-  stroke: #00ff88 !important;
-  stroke-width: 1.6px !important;
-}
-
-.pele-container .pele-marker {
-  fill: #00ff88 !important;
-}
-
-/* Pele Floating Zoom Toolbar */
+.pele-container > svg { display: block; margin: auto; }
 .pele-zoom {
   position: absolute !important;
-  top: 10px !important;
-  right: 10px !important;
-  display: flex !important;
-  flex-direction: row !important;
-  gap: 4px !important;
-  padding: 4px !important;
-  background: rgba(14, 20, 29, 0.88) !important;
-  backdrop-filter: blur(8px) !important;
-  border: 1px solid #253347 !important;
-  border-radius: 4px !important;
-  z-index: 20 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #202122;
+  border: 1px solid #333536;
+  border-radius: 5px;
+  z-index: 20;
 }
-
 .pele-zoom button {
-  appearance: none;
   display: grid;
   place-items: center;
-  width: 26px !important;
-  height: 26px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  background: transparent !important;
-  color: #94a3b8 !important;
-  border: 1px solid transparent !important;
-  border-radius: 3px !important;
-  cursor: pointer !important;
-  transition: all 0.15s ease !important;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  color: #bfbfbf;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
 }
-
-.pele-zoom button:hover {
-  color: #00ff88 !important;
-  background: rgba(0, 255, 136, 0.12) !important;
-  border-color: rgba(0, 255, 136, 0.3) !important;
-}
-
-.pele-zoom button svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Fullscreen Immersive Mode for Diagrams */
+.pele-zoom button:hover { background: #ffffff14; border-color: #3994bc; }
+.pele-zoom button svg { width: 14px; height: 14px; }
 .pele-container.is-fullscreen {
   position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: none !important;
-  max-height: none !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-  z-index: 999999 !important;
-  background: rgba(6, 9, 14, 0.98) !important;
-  backdrop-filter: blur(16px);
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border: none !important;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  z-index: 9999;
+  background: #121314;
 }
-
-.pele-container.is-fullscreen .pele-zoom {
-  top: 20px !important;
-  right: 20px !important;
-  padding: 6px !important;
-}
-
-.pele-container.is-fullscreen .pele-zoom button {
-  width: 32px !important;
-  height: 32px !important;
-}
-
-body.has-diagram-fullscreen {
-  overflow: hidden !important;
-}
-
-/* Inline Code Tags */
-.vp-doc :not(pre) > code {
-  color: #00ff88 !important;
-  background-color: rgba(0, 255, 136, 0.08) !important;
-  border: 1px solid rgba(0, 255, 136, 0.2);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 0.88em;
-}
-
-/* Search Box Terminal Accent */
-.DocSearch-Button {
-  border: 1px solid var(--vp-c-border) !important;
-  background: var(--vp-c-bg-alt) !important;
-  border-radius: 4px !important;
-}
-
-.DocSearch-Button:hover {
-  border-color: var(--vp-c-brand-1) !important;
-}
-
-/* Scrollbar Terminal Style */
-::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--vp-c-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1e2736;
-  border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #00ff88;
-}
+body.has-diagram-fullscreen { overflow: hidden; }

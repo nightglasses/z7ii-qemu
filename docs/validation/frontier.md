@@ -2,6 +2,13 @@
 
 ## Current: finite processing-data completion
 
+Published records for this checkpoint:
+[original execution summary](/evidence/capturecompletion-20261024/finalreview-proof.json),
+[native CMOS/Sensor results](/evidence/capturecompletion-20261024/native-final.txt),
+and [commit-revision regression results](/evidence/capturecompletion-20261024/native-revision-green.txt).
+These attachments are shipped with the site; the [archive](evidence.md)
+describes their scope and omissions.
+
 The complete-bundle [statistics profile](../devices/statistics/protocol.md)
 joins unit16's selected commit8 snapshot and automatic TG with immutable
 successful readout input, ten endpoint DMAs, running-bank twelve-word results,
@@ -295,7 +302,7 @@ yet; this is not a normal GUI continuation. The remaining module timing table
 contains a zero divisor and produces zero counters followed by decrement
 encodings offfff/ffffffff. Source-selected capture entries and script tables
 still need a coherent virtual-input contract; version acceptance alone does
-not supply it. Receipts: `work/runs/sensorprofile-20261024/`.
+not supply it. Receipts: `run sensorprofile-20261024/`.
 
 The subsequent [endpoint/global parameter model](../devices/endpoints/protocol.md)
 covers93 global words plus134 words across ten endpoints, retaining source
@@ -335,7 +342,7 @@ manager current3/target5/mode1/state2, BatCk1, and GUI gate/pending3/display-rea
 These snapshots do not identify a blocked task; that run did not check the
 actual bank console. The long delay comes from erased resource31 field288,
 copied from the declared descriptor17 input and scaled by500 to `fffffe0c`.
-The input is unchanged. Receipts: `work/runs/timingextra-20261023/`
+The input is unchanged. Receipts: `run timingextra-20261023/`
 (`final`, `integration`, then `validated`).
 
 The latest unchanged-bundle runs cross normal display-request admission with
@@ -619,7 +626,7 @@ ready notification. No input lock, job state or GUI event was injected.
 Gate, pending3 and display-ready remain0 in the healthy run; its sampled
 surface words remain0 and no GUI first frame or scanout has been verified.
 
-Parent-owned receipts are in `work/runs/displayhealthy-20261027/`: the20-second
+Parent-owned receipts are in `run displayhealthy-20261027/`: the20-second
 baseline, targeted policy and notification traces, `healthyhistory` /
 `warninghistory` comparison, and final read-only
 snapshots. The released-F4 healthy comparison selects main mode5 rather than
@@ -656,14 +663,14 @@ Original execution reaches callback10389dc2 with event41050c01 and saved
 status1; waiter1038a3c6 returns1 at10389e2e. Active first/last words are0,
 while the adjacent tail word atbf45ae00 remainsff000000.
 
-`work/runs/timingpreset-20261025/frontier.json` retains the joined input,
+`run timingpreset-20261025/frontier.json` retains the joined input,
 initializer, callback and fill-register capture; `frontier-qemu.stderr`
 records the historical rejection. The new
-`work/runs/reproducible-20261026/mainline.json` joins the accepted fill and
+`run reproducible-20261026/mainline.json` joins the accepted fill and
 25-host-second continuation without a new uncovered transaction. GUI gate
 and pending3 remain0, manager remains
 current3/target5/mode1/state2. Final scanout and a GUI first frame remain
-unverified. Earlier `work/runs/policy-20261025/coldkey*` and `coldrecord*`
+unverified. Earlier `run policy-20261025/coldkey*` and `coldrecord*`
 retain their historical timing rejection. The [readiness probe](../runtime/readiness.md)
 now reaches its gate condition with selector1, which skips the selector34
 setter; configuration290 is not read on that path. Mode entry reaches its
@@ -865,12 +872,12 @@ identity, downstream scanout and a GUI first frame remain unestablished.
 The accepted probe uses one hardware breakpoint at a time, after correcting an
 exploratory retained internal breakpoint. Actual input recipe, argv, expected
 and observed mapper outputs and the later stop are retained in
-`work/runs/descriptorfunctional-20261022/`. Follow-up native/execution receipts
-are `work/runs/streammodel-20261022/`, complete next-pair capture/decoding is
-`work/runs/streamnext-20261022/`, and its current indirect operands/caller are
-`work/runs/streamboundary-20261022/`. Current red/green, stream/IRQ/fault and
-next-pair decoding receipts are in `work/runs/singleclear-20261022/`; the next
-rectangle's read-only entry capture is `work/runs/singleboundary-20261022/`.
+`run descriptorfunctional-20261022/`. Follow-up native/execution receipts
+are `run streammodel-20261022/`, complete next-pair capture/decoding is
+`run streamnext-20261022/`, and its current indirect operands/caller are
+`run streamboundary-20261022/`. Current red/green, stream/IRQ/fault and
+next-pair decoding receipts are in `run singleclear-20261022/`; the next
+rectangle's read-only entry capture is `run singleboundary-20261022/`.
 The latter captures its operands before an asynchronous debug stop on EX; it
 does not supply another MAS frontier receipt. An earlier singleclear probe
 tried to read just below record7's mapped slot and failed in the debugger;
@@ -879,41 +886,41 @@ firmware and the constructed input remain unchanged. Factory-data recovery is
 optional for continuing this functional route.
 
 Current native and accepted gray-completion/next-abort receipts, full next-pair
-bytes and command decoding are `work/runs/graycontext-20261022/`. The first
+bytes and command decoding are `run graycontext-20261022/`. The first
 green attempt exposed a signed-extension bug in the test's comparison only;
 `fixturecomparison.log` records it, and the corrected `green.log` passes.
 The next131-path batch's separate read-only entry capture, all131 indirect
-arrays and transforms are in `work/runs/graypaths-20261022/entry.json`, with
+arrays and transforms are in `run graypaths-20261022/entry.json`, with
 caller LR=`106eeab9` and command bytes matching the main fault capture.
 Coordinate counts range10..128 and segment counts6..37; observed segment
 codes are00/02/04/0a. No additional external data was needed to capture them.
 
 Current implementation/native receipts, final original completion/next fault,
-full framebuffer and preview recipe are `work/runs/pathmodel-20261022/`.
+full framebuffer and preview recipe are `run pathmodel-20261022/`.
 The earlier successful pre-alias-check execution is retained as `prealias-*`;
 the unprefixed records use the final checked build. The passive five-path entry
-capture and all its indirect arrays are `work/runs/pathboundary-20261022/`.
+capture and all its indirect arrays are `run pathboundary-20261022/`.
 The buffer preview is not a scanout receipt: it reverses captured rows using
 the fixed Z7 presentation convention and does not establish Z7II physical
 orientation. Final display publication and GUI gate/pending3 remain unproven.
 
 Current five-path native/completion/frame/next-fault receipts are in
-`work/runs/coloredpaths-20261022/`; the next inline packet and a bounded raw
-image-source window are retained in `work/runs/textureboundary-20261022/`.
+`run coloredpaths-20261022/`; the next inline packet and a bounded raw
+image-source window are retained in `run textureboundary-20261022/`.
 The latter is only an entry capture, not processing acceptance. A first-report
 MAS capture also observes unknown battery typeff and mainfault1, with software
 override disabled; the normalizer produces fault1 before BatCk becomes2.
 See [battery classification](../runtime/compatibility.md) for the upstream EX
 conditions and the distinction between report arrival and usable power.
-The separate original EX probe in `work/runs/batteryhandshake-20261022/`
+The separate original EX probe in `run batteryhandshake-20261022/`
 observes three21-byte initialization requests expecting29-byte replies, each
 returning transport4, followed by error8 on structure`2001fa50`. This narrows
 the battery issue to a concrete transport exchange. The subsequent work below
 identifies the event-bit2 producer and consumed reply fields; no battery-success
 data is injected.
 The current A8 implementation/native/frame/next-abort records are in
-`work/runs/texturemodel-20261023/`; passive next-pair submission and alarm
-captures are in `work/runs/imagetransfer-20261023/`. The latter directly
+`run texturemodel-20261023/`; passive next-pair submission and alarm
+captures are in `run imagetransfer-20261023/`. The latter directly
 observes EX`08023768`, LR`0804ab53`, TX count21/21 and RX count0/29, with
 driver record selecting USART1 at EX PA`40011000`. Static source registration
 names that callback's timer`BatCmAl2`. It signals event4, producing transport4.
@@ -924,11 +931,11 @@ also needs the random-dependent29-byte challenge response described in
 insufficient. No supported peer key source is established in current evidence.
 
 YUV105 model/native/completion/source/plane/next-abort receipts are
-`work/runs/yuvmodel-20261023/`; the next107 submission/full source is in
-`work/runs/yuvnext-20261023/`. Current107 native/plane/next-abort and complete
-176/1552-byte command decoding are in`work/runs/yuva107-20261023/`.
+`run yuvmodel-20261023/`; the next107 submission/full source is in
+`run yuvnext-20261023/`. Current107 native/plane/next-abort and complete
+176/1552-byte command decoding are in`run yuva107-20261023/`.
 Current SRC_OVER native/frame/completion and joined manager/worker0 event
-receipts are in`work/runs/srcover-20261024/`. The host-only
+receipts are in`run srcover-20261024/`. The host-only
 [authentication reconstruction](../runtime/authentication.md) now checks the
 field/ladder algorithm against an independent affine oracle. The bounded
 Z7II/Z6II/Z7 inventory finds shared public constants, not an identified peer
@@ -951,7 +958,7 @@ identity/class fields and0e acknowledgement, alongside response latency.
 The inspected Z72 responder
 reads guest nonce RAM and the Z8 path supplies a synthetic report, so neither
 establishes a wire-only peer. Current host recovery/reply receipts are in
-`work/runs/seednative-20261024/` and `work/runs/batteryaccept-20261025/`.
+`run seednative-20261024/` and `run batteryaccept-20261025/`.
 
 ## Erased-input baseline: rear-panel table fault during worker exit
 
@@ -1019,11 +1026,11 @@ the ordinary settings-persistence table excludes ID17/34. The ROM survey's
 296 geometry windows remain unqualified, and later phase-3 records still have
 unvalidated bodies. This narrows input acquisition to a traceable descriptor17
 capture without claiming another boot transition. Receipt:
-`work/runs/id34producer-20261022/`.
+`run id34producer-20261022/`.
 
 Pending slot 3 and the later GUI gate remain zero, and no GUI first frame
-is claimed. Receipts: `work/runs/batck-20261021/` and
-`work/runs/handoff-20261021/` and `work/runs/descriptor-20261021/`.
+is claimed. Receipts: `run batck-20261021/` and
+`run handoff-20261021/` and `run descriptor-20261021/`.
 
 ### Earlier single-thread battery wait and the readiness producer
 
@@ -1045,7 +1052,7 @@ window, without the data/update flags needed to classify and publish a result.
 
 This locates the software condition in that execution profile, not the
 multi-thread baseline. The zero-valued later gate is not an observed rejection
-in the unentered GUI producer. Receipts: `work/runs/startgate-20261021/`.
+in the unentered GUI producer. Receipts: `run startgate-20261021/`.
 
 ### F091 is a PTP input, not a demonstrated boot sender
 
@@ -1092,7 +1099,7 @@ supplied resident spans, debugger writes or forced guest calls, records:
 The run used single-thread TCG, `-icount shift=6,sleep=off`, and narrow
 `-d exec,nochain` filters. These are function-entry trace counts in a host-time
 window, not virtual-time performance or a proof of unreachability. Receipt:
-`work/runs/vrtriage-20261021/{arm.argv.txt,arm.exec.log,arm.stderr,summary.txt}`.
+`run vrtriage-20261021/{arm.argv.txt,arm.exec.log,arm.stderr,summary.txt}`.
 The same batch rechecked standalone original VR: its first uncovered access
 remains RX VA `0xfff00167` reading `0xfffc8008`.
 
@@ -1102,7 +1109,7 @@ Read-only MAS IDB inspection confirms that the Thumb wrappers at
 request and performs a table lookup. F091's row at MAS VA `0x119e483c` contains
 handler pointer `0x10502d0b`; the handler calls `0x10502cbc(1)` before provider
 admission. Wrapper decoding and the table getter are retained in
-`work/runs/vrtriage-20261021/static.json`.
+`run vrtriage-20261021/static.json`.
 
 That upstream dispatch is now identified in the PTP note above. In particular,
 `104c0f20` iterates eleven local callbacks; it is not itself an external PTP
@@ -1338,8 +1345,8 @@ across time bases by guest progress, never by wall seconds.
 ## Re-running the 0x6b receipt
 
 ```sh
-work/runs/ex-6b-ercd/check-6b.sh            # 900 s run, asserts the markers
-work/runs/ex-6b-ercd/check-6b.sh --log NAME # assert an existing log only
+run ex-6b-ercd/check-6b.sh            # 900 s run, asserts the markers
+run ex-6b-ercd/check-6b.sh --log NAME # assert an existing log only
 ```
 
 Expected markers in the log:

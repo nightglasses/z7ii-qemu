@@ -1,0 +1,88 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "scope": "unchanged firmware, explicit cold-neutral input; trace entries are observations, QMP reads sequential",
+  "copies": [
+    {
+      "offset": "0x0",
+      "length": "0xbe000",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xbe000",
+      "length": "0x6000",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xc4000",
+      "length": "0x99c0",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xcd9c0",
+      "length": "0x1f60",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xcf920",
+      "length": "0x9d950",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0x16dffc",
+      "length": "0x4",
+      "equal": true,
+      "complete": true
+    }
+  ],
+  "guard": [
+    [
+      "0x0",
+      "0x15",
+      "0x150"
+    ]
+  ],
+  "property6433_empty": true,
+  "entry_observations": {
+    "0x102391b2": 2284,
+    "0x10238d4a": 2338,
+    "0x10238c40": 1,
+    "0x10209f4a": 38,
+    "0x1022e0ae": 73,
+    "0x10324f04": 37,
+    "0x10328ca6": 0,
+    "0x10323a7e": 0
+  },
+  "owner_masks": {
+    "0x10000000": 1,
+    "0x20000000": 1802,
+    "0x4": 535
+  },
+  "queue_counts": {
+    "0xb26b3924": 0,
+    "0xb26b3944": 1,
+    "0xb26b3964": 1,
+    "0xb26b3984": 1
+  },
+  "pending": {
+    "0x40001": 1
+  },
+  "qmp_sequential": {
+    "readout_accepted": 1763,
+    "readout_completed": 1762,
+    "readout_rejected": 0,
+    "statistics_completed": 527,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "statistics_blocked": 0
+  },
+  "service_state": 2,
+  "af6": 0,
+  "running": true,
+  "no_uncovered_access": true,
+  "no_console": true
+}

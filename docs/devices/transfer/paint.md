@@ -122,7 +122,7 @@ profile; the new rejection is not attributed to them.
 
 Final GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02
 and primary request11. QEMU and peer are alive until controlled cleanup, and
-the peer has no protocol rejection. Receipts in `work/runs/paintmask-20261023/`
+the peer has no protocol rejection. Receipts in `run paintmask-20261023/`
 retain baseline red, parser-only green/context rejection, final original run,
 native red/context-red/focused/final logs, source projections, raw streams,
 snapshots and progress/producer/next-field joins. Normal startup progress and

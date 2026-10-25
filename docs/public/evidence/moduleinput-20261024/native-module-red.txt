@@ -1,0 +1,7 @@
+Native test output excerpt
+Run: moduleinput-20261024
+Original log: native-module-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+Ok:                0
+Fail:              0

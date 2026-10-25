@@ -12,7 +12,7 @@ explicit transaction error; the interval is not a read-zero/discard aperture.
 The original MAS call chain `1023c998` configures these endpoint/global groups
 through wrappers `1020c8b2..1020c8f0` and `1020c862..1020c89e`. Narrow original
 source projections and the read-only pointer-table snapshot are retained in
-`work/runs/sensorprofile-20261024/`. The latter covers MAS VA `b18069cc`;
+`run sensorprofile-20261024/`. The latter covers MAS VA `b18069cc`;
 the table for endpoint offset14 starts at `b18069d4`. Each table contains
 ten pointers and the next table begins28 hex bytes later. The actual pointers
 establish the base, stride and NULL entries, rather than an inferred broad

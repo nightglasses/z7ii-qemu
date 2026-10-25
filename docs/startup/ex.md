@@ -177,9 +177,9 @@ The new `/nikon/ex/adc` fixture supplies synthetic, explicit counts and
 checks missing/late inputs, polling and interrupt consumption, overrun,
 release, disabled conversion, all three ADCs' shared IRQ, resolution and
 alignment, AIRCR cancellation and local/global reset retention. The official
-incremental ARM/EX-fixture compile and link passed in `work/exadcbuild.log`.
+incremental ARM/EX-fixture compile and link passed in `run exadcbuild.log`.
 This sole new case passed in1.02s with exit0; its actual receipt is
-`work/exadcnativereceipt.log`. No old EX groups were rerun, and no original
+`run exadcnativereceipt.log`. No old EX groups were rerun, and no original
 VM or machine-level analog input was supplied by this qualification.
 
 ## Component wiring
@@ -586,7 +586,7 @@ not full application readiness. Continuing naturally exposed RTC WPR at PC
 `0x080395ae` and SSR at `0x08044fb2`, causing a real failed transaction and
 HardFault lockup. Original RTC drivers `0x08045004`, `0x080491dc`, `0x08044eb4`
 and `0x080450a4` establish the whole protection/INIT/alarm group added next.
-Runtime logs and GDB command files stay under ignored `work/ex/`. No vendor
+Runtime logs and GDB command files stay under ignored `run ex/`. No vendor
 firmware, generated native object, or temporary GDB command file is tracked.
 
 The subsequent complete original run used that qualified `c54ef00` binary.

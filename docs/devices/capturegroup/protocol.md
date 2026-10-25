@@ -9,7 +9,7 @@ is no source of capture readiness, frames, DMA, IRQs or completion events.
 ## Original producers and masks
 
 Original MAS source projections, diagnostic execution and native receipts
-are scoped separately under`work/runs/capturegroup-20261024/`. Addresses in
+are scoped separately under`run capturegroup-20261024/`. Addresses in
 the table are board PAs, with the common prefix2006 omitted. Ranges step by4
 unless stated otherwise. Masks bound complete values constructed by the
 identified software; they are not recovered physical IP permissions.
@@ -215,7 +215,7 @@ result read, not before it. QMP reports debug/stopped and neither display
 head has a console. This crosses the configuration frontier under declared
 functional assumptions; it does not establish normal GUI output or complete
 boot. Raw source projections, trace, read-only snapshot and proof remain in
-`work/runs/capturegroup-20261024/`.
+`run capturegroup-20261024/`.
 
 ## Cold-result validation and later frontier
 
@@ -246,7 +246,7 @@ original software progress **under the cold-empty assumption**. Force1 does
 not consume the result numbers, so the run does not validate their physical
 values or establish an actual result producer, normal GUI output or boot.
 Raw instruction/source projections, red/green trace and read-only snapshots
-remain in`work/runs/captureresults-20261024/`.
+remain in`run captureresults-20261024/`.
 
 ## Post-submit investigation: incremental caller and provider
 
@@ -332,7 +332,7 @@ and neither head has a console. There is no new startup frontier or new
 native behavior in this investigation; the existing group-results fixture
 already covers sticky invalidation and rejection of identity mirroring.
 Raw projections, filtered traces, snapshots and comparison receipt remain
-under`work/runs/groupresults-20261024/`.
+under`run groupresults-20261024/`.
 
 ## Software unit index and actual VD dispatch
 
@@ -425,7 +425,7 @@ the defined functional contract, not which hypothetical hardware mapping is true
 
 Raw source, the old-model native red, final native log, immutable input
 comparisons and original execution records remain under
-`work/runs/groupcursor-20261024/`. The `vd` receipt describes the old model;
+`run groupcursor-20261024/`. The `vd` receipt describes the old model;
 the later `cursor` receipt describes this explicit hypothesis model. Passing
 force0 or reaching a later startup frontier cannot validate the unconsumed
 byte0/six address fields or the assumed cursor phase.

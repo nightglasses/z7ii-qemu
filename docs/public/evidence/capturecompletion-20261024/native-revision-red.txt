@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: capturecompletion-20261024
+Original log: native-revision-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/cmos/statistics/transaction - ERROR:../../config/source/tests/qtest/nikon/cmos.c:649:test_statistics_transaction: assertion failed (qtest_readl(q, RAM + 0x102000) == 0xa5a5a5a5): (0x0000d10a == 0xa5a5a5a5) FAIL
+▶ 1/1                                       ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_cmos ERROR           1.14s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/cmos.c:649:test_statistics_transaction: assertion failed (qtest_readl(q, RAM + 0x102000) == 0xa5a5a5a5): (0x0000d10a == 0xa5a5a5a5)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_cmos ERROR           1.14s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

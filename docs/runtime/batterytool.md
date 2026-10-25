@@ -121,7 +121,7 @@ full-17-byte verification failure, all 29 bytes of the previously EX-accepted
 wire vector, reply framing and CLI exit/output boundaries. Closed stdout
 must return failure for every output command. These are synthetic host
 fixtures, not firmware execution. The native `nikon_battery_unit` batch passes
-all eight cases; receipts are in `work/runs/timingpreset-20261025/`.
+all eight cases; receipts are in `run timingpreset-20261025/`.
 
 The formal executable searched 4,194,304 predetermined nonmatching candidates
 with 12 threads in 3.446039 host seconds, about 1.217 million candidates/s,
@@ -131,7 +131,7 @@ extrapolation, not a deadline guarantee. A separate SIGINT run exits130 with
 empty stdout. `benchmarklong.json` and `signal.json` retain the measurements.
 
 The research tool's unchanged original EX acceptance is separately retained
-in `work/runs/batteryaccept-20261025/parent-accept.json`: transport returned
+in `run batteryaccept-20261025/parent-accept.json`: transport returned
 0, the field validator returned 1, and EX entered the following 0c query.
 That run paused all vCPUs for approximately 1077 host seconds. It proves
 timing-assisted first-auth acceptance; it does not establish a real-time

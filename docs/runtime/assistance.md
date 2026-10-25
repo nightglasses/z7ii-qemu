@@ -26,7 +26,7 @@ to a return checkpoint, set `pc` to `function & ~1`, set the Thumb bit, resume.
 
 ## The method as implemented here
 
-`work/runs/ex-6b-ercd/assist.py` implements the same primitive for this
+`run ex-6b-ercd/assist.py` implements the same primitive for this
 workspace, with one change that keeps the guest's own memory authoritative: the
 return checkpoint is not a firmware address but a two-byte `b .` sentinel
 written into unused stack scratch, and the harness owns a breakpoint on it.

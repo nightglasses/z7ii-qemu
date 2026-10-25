@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: timingextra-20261023
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer OK              4.64s   20 subtests passed
+Ok:                1
+Fail:              0

@@ -127,6 +127,6 @@ trace, or an independently justified finite hardware algorithm. The code
 already identifies the exact consumer and the next wait, but those facts
 cannot choose a reset/commit/pulse interpretation or a timer period.
 Receipts and source projections remain in ignored
-`work/runs/router-20261022/`, including original red, native red/green,
+`run router-20261022/`, including original red, native red/green,
 the corrected original `alias` snapshot and the failed first verifier
 expectation (`20=103` instead of the preserved `503`).

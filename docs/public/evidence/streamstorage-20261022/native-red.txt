@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: streamstorage-20261022
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+not ok /arm/nikon/memory/row-storage - ERROR:../../config/source/tests/qtest/nikon/memory.c:185:test_row_storage: assertion failed (qtest_readl(t.qts, cells[i]) == 0x120b0000 + i): (0x00000000 == 0x120b0000)
+ERROR:../../config/source/tests/qtest/nikon/memory.c:185:test_row_storage: assertion failed (qtest_readl(t.qts, cells[i]) == 0x120b0000 + i): (0x00000000 == 0x120b0000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.71s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

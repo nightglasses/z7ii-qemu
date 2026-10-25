@@ -14,7 +14,7 @@ path, without claiming recovered factory semantics for the complete body.
 All firmware code/data addresses below are C1.70 MAS VAs. The explicit NOR
 property uses the existing physical mapping; resource80's observed RAM base
 is MAS VA `b7d00000`. Source projections and parent execution receipts are in
-`work/runs/moduleinput-20261024/`.
+`run moduleinput-20261024/`.
 
 ## Slot validation
 

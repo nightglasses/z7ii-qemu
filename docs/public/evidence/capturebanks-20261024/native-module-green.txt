@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: capturebanks-20261024
+Original log: native-module-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 unit+nikon - qemu:nikon_module_unit OK              0.41s   4 subtests passed
+Ok:                1
+Fail:              0

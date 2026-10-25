@@ -7,7 +7,7 @@ It does not write software roots, queues, event objects, callbacks or GUI
 pixels. Addresses below are board PAs, code/data symbols are original MAS
 VAs, offsets/masks are hexadecimal, and dimensions/C indices are decimal.
 Source projections and raw runs remain in
-`work/runs/capturecompletion-20261024/`.
+`run capturecompletion-20261024/`.
 
 ## Established protocol and geometry
 

@@ -1,15 +1,40 @@
 import { defineConfig } from 'vitepress'
 import { render as renderPele } from 'pele'
+import { copyFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import evidence from './evidence.json'
 
 export default defineConfig({
     title: 'Nikon Z7II Emulation Handbook',
     description: 'Diagnostic QEMU virtual machine for unchanged Nikon Z7II (C1.70) firmware',
     cleanUrls: true,
+    appearance: 'force-dark',
     outDir: '../work/handbook/dist',
     cacheDir: '../work/handbook/cache',
+    buildEnd: (site) => {
+      for (const page of Object.values(evidence)) {
+        for (const record of page.records) {
+          if (!existsSync(resolve(site.srcDir, 'public', record.href.slice(1)))) {
+            throw new Error(`Missing published evidence: ${record.href}`)
+          }
+        }
+      }
+      copyFileSync(resolve(site.srcDir, 'refmap/REFS.tsv'), resolve(site.outDir, 'refmap/REFS.tsv'))
+      copyFileSync(resolve(site.srcDir, '.vitepress/theme/LICENSE.txt'), resolve(site.outDir, 'theme-license.txt'))
+    },
     markdown: {
+      theme: 'dark-plus',
       lineNumbers: true,
       config: (md) => {
+        md.core.ruler.before('normalize', 'public-handbook', (state) => {
+          const path = state.env.relativePath
+          if (/\p{Script=Han}/u.test(state.src)) {
+            throw new Error(`Public handbook page must be English: ${path}`)
+          }
+          if (/work\/(?:runs|issue\d+|research|docsfix|ida|gui|validation)\//.test(state.src)) {
+            throw new Error(`Embed or publish the evidence instead of citing a private capture: ${path}`)
+          }
+        })
         const defaultFence = md.renderer.rules.fence!
         md.renderer.rules.fence = (tokens, idx, options, env, self) => {
           const token = tokens[idx]
@@ -418,6 +443,7 @@ export default defineConfig({
             items: [
               { text: 'Synthetic Deadlines & Budgets', link: '/validation/budgets' },
               { text: 'Firmware Startup Frontier', link: '/validation/frontier' },
+              { text: 'Published Execution Evidence', link: '/validation/evidence' },
               { text: 'Native Integration Tests', link: '/validation/native' },
               { text: 'Peripheral Test Layer', link: '/validation/peripherals' },
               { text: 'Controller Test Layer', link: '/validation/controllers' },

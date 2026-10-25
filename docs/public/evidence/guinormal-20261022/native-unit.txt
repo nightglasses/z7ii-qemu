@@ -1,0 +1,13 @@
+Native test output excerpt
+Run: guinormal-20261022
+Original log: native-unit.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..5
+ok 1 /nikon/acceleration/sequence
+ok 2 /nikon/acceleration/missing
+ok 3 /nikon/acceleration/rejection
+ok 4 /nikon/acceleration/partial
+ok 5 /nikon/acceleration/invalid-sample
+Ok:                1
+Fail:              0

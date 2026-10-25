@@ -14,7 +14,7 @@ NOR; see [descriptor.md](descriptor.md).
 ## First bounded experiment
 
 The local 2026-10-21 experiment is retained in the UTC-stamped directory
-`work/runs/descriptorfunctional-20261022/`. `build.py` starts with the qualified
+`run descriptorfunctional-20261022/`. `build.py` starts with the qualified
 Z7 display seed and changes **only** range `d700:e300`. The added ID34 is a
 functional hypothesis, not a recovered Nikon record:
 

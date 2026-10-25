@@ -8,14 +8,14 @@ replace the observed producer rather than execute its graphics contract.
 
 ## Scope and receipts
 
-Direct inputs are `work/runs/graypaths-20261022/{entry.json,setup.bin,draw.bin}`
-and `work/runs/graycontext-20261022/nextcommands.json`. They record original
+Direct inputs are `run graypaths-20261022/{entry.json,setup.bin,draw.bin}`
+and `run graycontext-20261022/nextcommands.json`. They record original
 MAS submission at VA `106ee04a`, LR `106eeab9`, source buffers `bd0e00f0` and
 `bd1601f0`, setup21,488 and draw28,832 bytes. The unchanged C1.70 MAS payload
-is `work/runs/descriptor17-z7cross-mac1/02_eg1840_mas_01700.payload.bin`, base
+is `02_eg1840_mas_01700.payload.bin`, base
 VA `10020000`. Addresses below are original MAS VAs, not physical registers.
 
-`work/runs/pathsemantics-20261022/` retains `check.py/check.json`, five original
+`run pathsemantics-20261022/` retains `check.py/check.json`, five original
 function decompilations and the inspected fixed public `z7-gpu.h`. The check
 validates coordinate consumption, segment counts, finite arrays, repeated
 glyph correspondence, ROM string locations and actual command operands. It
@@ -173,7 +173,7 @@ perspective/nonfinite data and malformed/unsafe ranges remain errors.
 Reset/unrealize and any late error leave the destination unchanged.
 
 Old-parser red, independent backing-alias red and final nine-case native green
-are recorded under `work/runs/pathmodel-20261022/`. With unchanged firmware
+are recorded under `run pathmodel-20261022/`. With unchanged firmware
 and the same explicit functional input, all131 original outlines render into
 guest memory before original IRQ129. `render.json` records25958 changed panel
 pixels, including11874 black and14084 fringe pixels; the six ROM strings are
@@ -185,12 +185,12 @@ scanout or normal ready screen.
 The subsequent824/1112-byte batch has five even-odd relative
 H/V rectangles and mixed gray paints: four light border strips and a72x72
 background patch. Its complete commands and indirect arrays are retained in
-`work/runs/pathboundary-20261022/`. The extended model processes them through
+`run pathboundary-20261022/`. The extended model processes them through
 original IRQ129: all3328 border pixels become `ffe6e6e6`, the5184 patch pixels
 are `ffb4b4b4`, and every other pixel matches the previous glyph frame.
 The former168/232 gray rectangle now uses this same path processor; its
 obsolete dedicated table/executor branch has been removed. Native red/green,
-full-frame comparison and next abort are in `work/runs/coloredpaths-20261022/`.
+full-frame comparison and next abort are in `run coloredpaths-20261022/`.
 The subsequent176/336-byte submission changes to an inline path and image
 sampling state. The [finite A8 model](image.md) now completes it through
 original IRQ129 too. A separate RGBA-to-YUV105 [conversion](conversion.md)

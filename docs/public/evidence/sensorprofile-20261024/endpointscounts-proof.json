@@ -1,0 +1,25 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "scope": "unchanged firmware, version compatibility plus explicit nonzero timing hypothesis with incomplete resource80 body; diagnostic arithmetic trace, not normal startup; final read-only snapshot after20hostseconds",
+  "object": {
+    "148": 35190,
+    "156": 4096,
+    "160": 1000
+  },
+  "encoded": {
+    "b2b369c2:u16": 4095,
+    "b2b369cc:u32": 35189
+  },
+  "qmp": [
+    {
+      "return": {
+        "status": "debug",
+        "running": false
+      },
+      "id": 4
+    }
+  ],
+  "first_error": [
+    "qemu-system-arm: nikon: uncovered access cpu=0 pc=0x10209efe address=0x2006be00 direction=write width=4 value=0x0 transaction=error reason=uncovered-address"
+  ]
+}

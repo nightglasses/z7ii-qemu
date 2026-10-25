@@ -118,6 +118,6 @@ length validation, not proof of missing guest bytes.
 Final GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02
 and primary request11. QEMU and peer remain alive until controlled cleanup;
 the peer reports no protocol rejection. Receipts in
-`work/runs/convertpaint-20261023/` include native red/focused/green logs,
+`run convertpaint-20261023/` include native red/focused/green logs,
 original red/green argv/traces/read-only snapshots, source projections,
 raw streams, producer joins, packet/mode/IRQ progress and UART/QMP receipts.

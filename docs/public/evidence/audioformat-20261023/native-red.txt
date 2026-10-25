@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: audioformat-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/audio/format - ERROR:../../config/source/tests/qtest/nikon/audio.c:35:test_format: assertion failed (qtest_readl(q, base + 12) == 0xd820000): (0x00000000 == 0x0d820000) FAIL
+▶ 1/1                                        ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_audio ERROR           1.43s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/audio.c:35:test_format: assertion failed (qtest_readl(q, base + 12) == 0xd820000): (0x00000000 == 0x0d820000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_audio ERROR           1.43s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

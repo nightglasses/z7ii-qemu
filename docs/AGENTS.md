@@ -2,6 +2,7 @@
 
 - Distinguish every item between direct observation, verified, inferred, and hypothesis. Addresses must specify component, domain, and O/VA/PA; every unknown identifies the next required evidence.
 - Public implementations reference pinned source code and primary author materials. When community forum posts lack runnable source code, preserve this fact; do not treat screenshots as build or complete boot receipts.
-- Raw execution logs remain in `work/`; documentation retains only critical stop points, register/device events, and modeled boundaries.
+- Public documentation is English and self-contained. Embed critical observations and source/assumption boundaries in the page; do not cite private capture paths as reader-accessible evidence.
+- Curated execution summaries and native verdict excerpts may be tracked under `docs/public/evidence/` and linked from pages. Label omissions and historical scope explicitly; never substitute them for a fresh run. Keep firmware bytes, factory disassembly and unreviewed full captures out of the public archive. Mark unavailable historical originals honestly.
 - Maintained filenames avoid hyphens, preferring a single clear word; organize into directories by device, startup, runtime, or input, without lengthy underscore names. Device document directories match source word names; historical argv, pinned source references, and ignored receipts retain original identities, while active links point to current paths.
 - RTOS source matching, board-level emulation, and reconstruction code cross-reference provide mutual evidence; they do not substitute for one another in acceptance.

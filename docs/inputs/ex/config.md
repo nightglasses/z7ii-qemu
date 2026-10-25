@@ -3,7 +3,7 @@
 The C1.70 update contains the complete 512 KiB EX component, but its factory
 configuration window at `0x08004000..0x08020000` is erased in that payload and
 in the assembled container (direct observation: the whole window is zero in
-`work/docsfix/exdis/ex.img`, and IDA renders the window as a single bogus
+`ex.img`, and IDA renders the window as a single bogus
 function `sub_800407C` over instructions decoded from zero bytes).  The EX
 firmware nevertheless reads this window during cold start, so the complete
 bundle composition installs a **class-factory** structure: model data the

@@ -85,4 +85,4 @@ zeros from the still-unimplemented statistics DMA producer.
 QMP reports debug/stopped, with neither display head bound to a console.
 This is functional-input/model progress, not normal GUI output or complete
 boot. Raw source, traces, old-model failure, native batch and input comparison
-remain in ignored `work/runs/interpolationmemory-20261024/`.
+remain in ignored `run interpolationmemory-20261024/`.

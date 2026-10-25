@@ -24,7 +24,7 @@ The original seeder/generator and challenge arithmetic are documented in
 [authentication.md](authentication.md), with original EX VA ranges and
 the successful recorded-seed diagnostic. The present recovery study uses
 only wire challenge`f2b22009879b787ac3fdf87578d6f64a06`, public G/H/c and
-those algorithms. `work/runs/seedrecovery-20261023/bounded.py` never opens
+those algorithms. `run seedrecovery-20261023/bounded.py` never opens
 the capture's seed answer, guest RAM, hardware RNG state or seedcheck output.
 It imports the host field implementation and reads the retained original
 EX only for public constants.
@@ -138,14 +138,14 @@ searches do not prove that all versions, branches or dependencies lack one.
 
 Receipts are`bounded.py`, `bounded.json`, `source-observations.json` and
 the fixed Z72 reference source copies under
-`work/runs/seedrecovery-20261023/`. Only pure-host bounded computation and
+`run seedrecovery-20261023/`. Only pure-host bounded computation and
 primary-source reads were performed; no build, guest run, firmware change,
 private-state response oracle or successful reply generation occurred.
 
 ## Native search implementation and first measurements
 
 The next stage is an isolated host tool in
-`work/runs/seednative-20261024/{search.c,validate.py,commands.md}`. It accepts
+`run seednative-20261024/{search.c,validate.py,commands.md}`. It accepts
 only the17-byte wire challenge, a bounded representative-seed interval and
 thread count. It contains public G/c, PRNG reconstruction and field/ladder
 arithmetic; it has no H calculation, guest memory access or response path.
@@ -238,7 +238,7 @@ by this research worker.
 
 ## Original acceptance, follow-up query and timeout boundary
 
-Static original EX receipts are in`work/runs/batteryaccept-20261025/`.
+Static original EX receipts are in`run batteryaccept-20261025/`.
 Transport success and authentication success have different return values:
 `080247ec` returns0 at`08024836` after receiving29 bytes and passing the
 generic reply byte1/XOR checks; `08042622` returns1 at`0804266e` only after

@@ -157,7 +157,7 @@ added here.
 
 ## Receipts and limits
 
-Ignored receipts are in `work/runs/handoff-20261021/`: actual argv, manager,
+Ignored receipts are in `run handoff-20261021/`: actual argv, manager,
 cleanup, subsystem, completion, abort, confirm, resource and resourcewait probes, filtered
 instruction traces, and static decompilations. Each accepted probe uses at
 most one hardware breakpoint at a time. `confirm` joins the worker wait,

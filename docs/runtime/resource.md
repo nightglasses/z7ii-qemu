@@ -92,7 +92,7 @@ name. No ready bit, callback, IRQ or table was supplied to bypass this path.
 ## Controlled external-input experiment
 
 The existing file
-`work/runs/descriptor17-z7cross-mac1/descriptor17-z7cross.bin` is 128 KiB,
+`descriptor17-z7cross.bin` is 128 KiB,
 contains the Z7-derived display records and `ENDM`, and leaves ID34 erased.
 It was supplied only through the documented `descriptor17-input` machine
 property. Its provenance and limitations remain those in
@@ -144,7 +144,7 @@ does not establish numeric factory values or a measured minimum that boots.
 
 ## Receipts
 
-`work/runs/descriptor-20261021/` retains actual argv, original-byte
+`run descriptor-20261021/` retains actual argv, original-byte
 decompilations, `footer`, `phases`, `waitcode`, `cross` and `crossfault` probes
 and filtered traces. Baseline and seed runs are kept separate; all use at
 most one hardware breakpoint at a time and perform read-only guest inspection.

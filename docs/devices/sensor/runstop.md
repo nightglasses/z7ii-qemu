@@ -119,7 +119,7 @@ Original `1036da82` derives that word from a byte configuration record by
 RMW and ORs fixed bits `04800000`; the whole related control family is the
 next source audit. No GUI first frame, scanout,
 complete boot or physical-camera validation is established. Ignored receipts
-are `work/runs/captureflow-20261022/`: source projections, actual argv,
+are `run captureflow-20261022/`: source projections, actual argv,
 native reds and final log, final control trace/snapshot, the separate
 bounded GUI wait trace, and `confirmed` final-binary argv/trace/snapshot and
 `confirmed-callchain.json` checked by `verify.py`. A first optional-stack snapshot failed on an unmapped

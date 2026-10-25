@@ -127,7 +127,7 @@ only draw word66 differs: temporary `01841004=0` instead of8; final word389
 still writes8 before drawing. That checkpoint leaves the packet rejected;
 the later[clear mode model](clearmode.md) traces both writers and crosses it.
 
-Receipts: `work/runs/singletarget-20261023/`, including original baseline and
+Receipts: `run singletarget-20261023/`, including original baseline and
 ownership probe, source projections, native red/focused/final batch, final
 normal argv/traces/snapshot/streams and producer/IRQ joins. An intermediate
 green snapshot script read a stale baseline filename and failed; its trace
@@ -176,10 +176,10 @@ fixture's target+4 rejection is replaced by a genuinely short-span target.
 Native run receipts and acceptance remain owned by the integration batch.
 
 The parent integration batch confirms the scoped red in
-`work/runs/timingextra-20261023/rgba-red.log`: the old model rejects the first
+`run timingextra-20261023/rgba-red.log`: the old model rejects the first
 valid alternate target at START with MEMTX_ERROR. With the final 76-variant
 fixture and target operand implementation, `make check
 MTESTARGS=nikon_transfer_unit` passes all 24 transfer subtests in 2.13s;
-the receipt is `work/runs/timingextra-20261023/rgba-green.log`. These are
+the receipt is `run timingextra-20261023/rgba-green.log`. These are
 native synthetic protocol checks, not additional original-firmware startup
 or scanout evidence.

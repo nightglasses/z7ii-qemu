@@ -109,4 +109,4 @@ PA`2006a414=3`, reason`uncovered-address`. QMP reports debug/stopped, with
 no display console yet. Its compatibility declaration removes ID68 at this
 checkpoint, but the constructed resource80 body is incomplete and remains
 an explicitly diagnostic input. Receipts remain in
-`work/runs/sensorprofile-20261024/`.
+`run sensorprofile-20261024/`.

@@ -13,7 +13,7 @@ uses the current software state: state1 dispatches `03030024`, state2
 dispatches `03030025`. Both states use the same complete electrical request
 pulse. Their different callbacks are guest software policy, not two distinct
 commands on the GPIO wire. The source receipts are retained in
-`work/runs/sensorprofile-20261024/`.
+`run sensorprofile-20261024/`.
 
 These observations establish who requests and handles an acknowledgement.
 They do not recover a physical CComp implementation, its processing latency,
@@ -81,7 +81,7 @@ synthetic device-contract checks, not original Nikon execution, complete
 startup or physical-camera evidence. The parent obtained the old-model red
 (ACK remained low), then all3 CComp and all5 GPIO cases passed in separate
 native selections. Receipts: `native-ccomp-red.log`, `native-ccomp-green.log`
-and `native-gpio-green.log` under `work/runs/sensorprofile-20261024/`.
+and `native-gpio-green.log` under `run sensorprofile-20261024/`.
 
 ## Original-firmware observation
 

@@ -1,9 +1,12 @@
 import DefaultTheme from 'vitepress/theme'
 import './custom.css'
 import { inBrowser } from 'vitepress'
+import { h } from 'vue'
+import Evidence from './evidence.vue'
 
 export default {
   extends: DefaultTheme,
+  Layout: () => h(DefaultTheme.Layout, null, { 'doc-after': () => h(Evidence) }),
   enhanceApp({ app, router }) {
     if (inBrowser) {
       const initPeleZoom = async () => {

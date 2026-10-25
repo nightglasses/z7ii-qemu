@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: audioformat-20261023
+Original log: native-guards-receipt.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..4
+ok 1 /arm/nikon/audio/format
+ok 2 /arm/nikon/audio/clock
+ok 3 /arm/nikon/audio/blocks
+ok 4 /arm/nikon/audio/lifetime
+Ok:                1
+Fail:              0

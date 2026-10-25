@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: reproducible-20261026
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/5 unit+nikon - qemu:nikon_battery_unit     OK              0.68s   8 subtests passed
+2/5 unit+nikon - qemu:nikon_batterypeer_unit OK              0.41s   9 subtests passed
+3/5 nikon+qtest+qtest-arm - qemu:nikon_fill  OK              0.93s   3 subtests passed
+4/5 nikon+qtest+qtest-arm - qemu:nikon_rng   OK              0.87s   5 subtests passed
+5/5 nikon+qtest+qtest-arm - qemu:nikon_uart  OK              0.31s   2 subtests passed
+Ok:                5
+Fail:              0

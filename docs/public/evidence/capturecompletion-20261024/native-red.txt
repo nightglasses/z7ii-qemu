@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: capturecompletion-20261024
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/cmos/statistics/transaction - ERROR:../../config/source/tests/qtest/nikon/cmos.c:31:property_at: 'qdict_haskey(reply, "return")' should be TRUE FAIL
+▶ 1/1                                       ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_cmos ERROR           0.81s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/cmos.c:31:property_at: 'qdict_haskey(reply, "return")' should be TRUE
+1/1 nikon+qtest+qtest-arm - qemu:nikon_cmos ERROR           0.81s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

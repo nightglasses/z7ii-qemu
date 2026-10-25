@@ -127,6 +127,6 @@ The descriptor/TEMP/resource12, RNG0, acceleration, cold F4 and healthy UART
 profiles remain declared inputs. Final BatCk is `00010001`; gate/pending3/
 display-ready remain zero. The peer rejects no request. Final guest-memory
 pixels include subsequent jobs and do not establish scanout or first frame.
-Receipts are ignored in `work/runs/guipaths-20261023/`: baseline `red`/`probe`,
+Receipts are ignored in `run guipaths-20261023/`: baseline `red`/`probe`,
 post-fix `green`/`matched`, indirect arrays, source projections, native logs and
 `matched-progress.json`/`verified-progress.json`.

@@ -48,7 +48,7 @@ assertion (0 updates instead of1). The final native batch passes all3 subtests
 in0.51s, with no compiler warning. An intermediate lifecycle fixture used
 `sysbus_realize` on an already parented device and failed a QEMU assertion;
 the corrected fixture re-realizes through the documented QOM property.
-Receipts: `work/runs/clearmode-20261023/panel-{red,lifecycle,green}.log`.
+Receipts: `run clearmode-20261023/panel-{red,lifecycle,green}.log`.
 
 The fixture is synthetic observer evidence. It does not establish original
 firmware progress, GUI readiness, a complete boot or physical panel behavior.

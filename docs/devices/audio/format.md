@@ -94,7 +94,7 @@ do not independently expose MEMTX_ERROR; negative cases verify preserved state.
 The applicable DMA/HDMAC cases preserve their real-memory transfer, pressure,
 clock drain, request gating and reset checks. These synthetic results are
 independent of original startup or physical audio validation. Ignored receipts
-are in `work/runs/audioformat-20261023/`, including source projections,
+are in `run audioformat-20261023/`, including source projections,
 original/native red, `native-final.log` and `native-final-receipt.log`.
 The two independent-review guard assertions for entering block-output mode
 while enabled/nonempty pass in a focused4-case audio rerun, recorded in

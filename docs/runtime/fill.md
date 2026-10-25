@@ -1,10 +1,10 @@
 # Mode1 composition clear boundary
 
-The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `work/runs/timingpreset-20261025/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
+The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `run timingpreset-20261025/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
 
 ## Original producer and owner
 
-Read-only original MAS analysis (payload `work/runs/descriptor17-z7cross-mac1/02_eg1840_mas_01700.payload.bin`, base`10020000`) shows `10389e3a` constructing the fill configuration. In its second event branch it clears36 bytes, sets configuration byte0=1 and mask+32=17, copies width/stride/count from request halfwords+2/+4/+6, and computes destination from request word+8 plus u16(+12) plus width*u16(+14). Pattern comes from request word+16; format byte comes from+20; optional callback from+24. `10389eaa` calls `10389e08`, which starts the resource, clears completion eventbit1, submits through `102dba60` at`10389e24` with callback`10389dc2`, waits, then releases the resource.
+Read-only original MAS analysis (payload `02_eg1840_mas_01700.payload.bin`, base`10020000`) shows `10389e3a` constructing the fill configuration. In its second event branch it clears36 bytes, sets configuration byte0=1 and mask+32=17, copies width/stride/count from request halfwords+2/+4/+6, and computes destination from request word+8 plus u16(+12) plus width*u16(+14). Pattern comes from request word+16; format byte comes from+20; optional callback from+24. `10389eaa` calls `10389e08`, which starts the resource, clears completion eventbit1, submits through `102dba60` at`10389e24` with callback`10389dc2`, waits, then releases the resource.
 
 The destination ownership is independently established by the original resource57 allocation/partition chain documented in [storage.md](storage.md#rear-lcd-composition-slot): ROM`123b7428`, record5 of the nine12-byte records at`123b73ec`, is `{1,004b0000,b181d388}`. Allocation route`1063da70 -> 1030d96e -> 1030d85c` selects index19; partition stores`bf309600` via`b181d388` at`10634b04/10634b06`, then advances by`4b0000`. Thus this request clears only `[bf309600,bf45ae00)`, length`151800` =720*480*4, within the larger owned slot `[bf309600,bf7b9600)`. Its tail and both neighbors must remain unchanged. The720x480 four-byte interpretation is consistent with existing RGBA canvas use; register units and synchronous zero-fill timing remain the explicitly declared functional laws in [fill protocol](../devices/fill/protocol.md), not physical-IP identification.
 
@@ -23,7 +23,7 @@ No final display/scanout or complete boot is established by this clear; the owne
 ## Accepted finite extension and current boundary
 
 The extension now adds only that destination to the existing engine0 tuple.
-`work/runs/reproducible-20261026/fill-red.json` records the preceding model's
+`run reproducible-20261026/fill-red.json` records the preceding model's
 rejection; `final-green.json` records all three fill qtests passing. They cover
 the complete active clear, adjacent/tail guards, near-shape/address rejection,
 IRQ/ACK/reset and actual failure in a selected private domain without backing.

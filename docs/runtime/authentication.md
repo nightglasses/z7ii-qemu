@@ -17,9 +17,9 @@ unsupported transaction. The wire-only search results below keep their scope.
 
 ## Original algorithm and independent host check
 
-The original Z7II EX image is `work/docsfix/exdis/ex.img`; EX VA is file
+The original Z7II EX image is `ex.img`; EX VA is file
 offset plus`08000000`. Static instruction receipts are retained in
-`work/runs/batteryreply-20261022/`. The request/error path is documented in
+`run batteryreply-20261022/`. The request/error path is documented in
 [compatibility.md](compatibility.md). Original bytes stay unchanged.
 
 | Original routine | Reconstructed operation |
@@ -41,7 +41,7 @@ A((X1,Z1),(X2,Z2),u) = (tv+uw,w)
 ```
 
 These are binary-curve Montgomery x-coordinate recurrences. The host-only
-`work/runs/authentication-20261023/field.py` reconstructs these routines,
+`run authentication-20261023/field.py` reconstructs these routines,
 including the original128-bit scalar limit. An independent affine oracle
 uses the curve equation`y²+xy=x³+a*x²+c²` and ordinary point addition.
 Seven scalars `{1,2,3,7,16,127,12345(hex)}` match the affine oracle with
@@ -190,12 +190,12 @@ secret or establish a wire-only response generator. No guest-state oracle,
 seed enumeration, successful reply, build or guest experiment was used.
 
 Original ranges are retained in
-`work/runs/authentication-20261023/prng.dis`: generator`080200ec..011a`,
+`prng.dis`: generator`080200ec..011a`,
 startup`08020074..007e`, seeder`08020468..0494`, battery caller
 `08023e04..3e76`, and RNG driver`08044c40..4d10`.
 
 The parent's subsequent unchanged-firmware, read-only receipt
-`work/runs/authseed-20261023/seed.json` records successful reseeding at
+`run authseed-20261023/seed.json` records successful reseeding at
 `08023e68`, structure`2001fa50`, with seed2082591 and the first21-byte
 wire request. `seedcheck.py` reproduces the seeder, ring and first eight
 low-halfword outputs from that single recorded seed. The resulting scalar
@@ -219,8 +219,8 @@ enumerating the full configured domain from0. Independent Python recomputation
 matches all17 bytes. A pure-host29-byte first-auth candidate then passes the
 reconstructed tag/framing/XOR predicates. The retained R tail has original
 startup-zero evidence; it is not read as a reply-generation input. Receipts
-are in`work/runs/seednative-20261024/`. A later run in
-`work/runs/batteryaccept-20261025/` sends a fresh wire-derived29-byte reply
+are in`run seednative-20261024/`. A later run in
+`run batteryaccept-20261025/` sends a fresh wire-derived29-byte reply
 through the actual upstream USART/chardev: original transport0, validator1
 and state+4=1 lead to0c. All vCPUs were paused during1077 seconds of search.
 This is timing-assisted original acceptance; no0c reply was sent and neither

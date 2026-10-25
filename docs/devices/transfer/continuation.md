@@ -104,7 +104,7 @@ graphics and completion of a2976/3448 batch. It remains running with no
 uncovered access over110 host seconds. GUI gate/pending3/display-ready stay0;
 this bounded original continuation establishes neither full boot nor a GUI
 first frame. Native receipts and `validated*` original receipts are in
-`work/runs/timingextra-20261023/`.
+`run timingextra-20261023/`.
 
 ## Validation and next stop
 
@@ -140,7 +140,7 @@ partial-alpha compositing.
 The final read-only snapshot has BatCk `00010001` and GUI gate/pending3/
 display-ready zero; the UART peer rejects no protocol request.
 
-Ignored receipts are in `work/runs/rectanglecontinuation-20261023/`: original
+Ignored receipts are in `run rectanglecontinuation-20261023/`: original
 red/green traces, source projections, complete buffers, snapshots, native
 red/green logs, profile comparison and `verified-progress.json`. Native fixtures
 and original continuation remain separate from physical-camera evidence or

@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: routerfunctional-20261022
+Original log: native-before-review.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/2 nikon+qtest+qtest-arm - qemu:nikon_memory OK              7.14s   25 subtests passed
+2/2 nikon+qtest+qtest-arm - qemu:nikon_sla    ERROR           6.91s   killed by signal 6 SIGABRT
+2/2 nikon+qtest+qtest-arm - qemu:nikon_sla    ERROR           6.91s   killed by signal 6 SIGABRT
+Ok:                1
+Fail:              1

@@ -91,7 +91,7 @@ TEMP/acceleration descriptors, raw axes, reproducible RNG and UART peer:
 from pathlib import Path
 import struct
 size = 0xe0000
-Path("work/descriptor12-empty.bin").write_bytes(
+Path("descriptor12-empty.bin").write_bytes(
     b"\xff" * (size - 8) + struct.pack("<I", 0) + b"ENDM")
 ```
 
@@ -122,7 +122,7 @@ Native old-model row-storage readback fails. The corrected `nikon_memory`
 batch passes24 cases: exact RAM endpoints, independent resource cells, outer
 holes, no physical logical-view alias, reset retention, both NOR inputs,
 size/missing-file errors, unchanged destination RAM and NOR mutation persistence.
-Receipts are `work/runs/streamstorage-20261022/` (`native-red.log`,
+Receipts are `run streamstorage-20261022/` (`native-red.log`,
 `native-green.log`, `source.json`, `execution.json`, `twelve-execution.json`,
 and original red/green/final/twelve
 TCG, UART and read-only snapshots). These are separate from native fixture success.

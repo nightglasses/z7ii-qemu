@@ -1,0 +1,51 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "scope": "unchanged firmware; explicit cold-neutral functional input; read-only snapshot; no model delta",
+  "copy_ranges": [
+    {
+      "offset": "0x0",
+      "length": "0xbe000",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xbe000",
+      "length": "0x6000",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xc4000",
+      "length": "0x99c0",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xcd9c0",
+      "length": "0x1f60",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0xcf920",
+      "length": "0x9d950",
+      "equal": true,
+      "complete": true
+    },
+    {
+      "offset": "0x16dffc",
+      "length": "0x4",
+      "equal": true,
+      "complete": true
+    }
+  ],
+  "guard": [
+    [
+      "R00=00000000 R01=00000015 R02=00000150 R03=00000000",
+      "R04=00000000 R05=b18a75f8 R06=00000100 R07=00000001",
+      "R08=00000000 R09=00000000 R10=00000000 R11=00000bb8",
+      "R12=802a0100 R13=b53a7f80 R14=102d7255 R15=102d7254"
+    ]
+  ],
+  "property6433_empty": true
+}

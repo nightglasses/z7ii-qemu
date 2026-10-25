@@ -7,11 +7,11 @@ patch or guarantee of a complete boot. It targets only the currently inspected
 cold mode11/subtype3 path. Other modes and consumers remain unvalidated.
 
 ```sh
-work/build/qemu/tools/nikon/nikon-module cold-neutral-resource80 work/descriptor32-cold-neutral-resource80.bin
+work/build/qemu/tools/nikon/nikon-module cold-neutral-resource80 descriptor32-cold-neutral-resource80.bin
 ```
 
 Supply that file explicitly as
-`-machine z7ii-mas-diagnostic,descriptor32-input=work/descriptor32-cold-neutral-resource80.bin`
+`-machine z7ii-mas-diagnostic,descriptor32-input=descriptor32-cold-neutral-resource80.bin`
 alongside the other declared inputs. The existing [descriptor32 input](descriptor.md)
 installs it once into the shared NOR span at MAS PA
 `[0x13e80000,0x14000000)`. The original firmware still selects, validates,
@@ -73,8 +73,8 @@ data branch, not the optional NULL clearing branch. This profile neither
 supplies a factory fallback nor rewrites that separate input dependency.
 
 The source receipts remain in
-`work/runs/sensorprofile-20261024/` and
-`work/runs/capturebanks-20261024/`. Original code and data are not embedded
+`run sensorprofile-20261024/` and
+`run capturebanks-20261024/`. Original code and data are not embedded
 in the tool or committed fixtures.
 
 ## Timing arithmetic and limits
@@ -134,7 +134,7 @@ transaction is CPU0 PC`10208ea4`, WRITE32 PA`2006b800=8`; QMP reports
 debug/stopped, with no console yet. This validates the declared cold-path
 input through that frontier, not normal-menu output, later mode coverage,
 physical Sensor calibration or complete boot. Raw receipts, COPY comparison,
-guard result and timer traces remain in `work/runs/capturebanks-20261024/`.
+guard result and timer traces remain in `run capturebanks-20261024/`.
 
 The later [capture-group model](../../devices/capturegroup/protocol.md) crosses that
 configuration write. With the same generated input, the unchanged

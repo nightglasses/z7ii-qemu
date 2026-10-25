@@ -149,7 +149,7 @@ external-input experiment rather than explain this original path.
 
 ## Receipts and scope
 
-Raw material is under `work/runs/f091-20261021/`:
+Raw material is under `run f091-20261021/`:
 
 - `probe.gdb`, `gdb.log`: 60 host seconds from reset; PTPCMD creation/task
   entry and the idle final state.

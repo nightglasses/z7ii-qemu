@@ -24,7 +24,7 @@ On 2026-10-21, `make prepare` followed by
 `make check MTESTARGS='nikon_vr nikon_peripherals' -j8` rebuilt the RX machine
 and translator and passed both executables: 2 machine subtests and 20 peripheral
 subtests, zero failures. Receipt:
-`work/validation/vrtriage/focused.txt`. These are synthetic native contracts,
+`run validation/vrtriage/focused.txt`. These are synthetic native contracts,
 not original-firmware boot or reply receipts.
 
 ## Unchanged VR execution
@@ -110,7 +110,7 @@ fixed vector interval `[0xffffff80,0x100000000)` lies inside this same supplied
 page, not in a separate area beyond it. An all-`rts` table would add another
 unqualified interface assumption and is not the next mainline experiment.
 
-Original ignored probe material remains in `work/runs/ex-6b-ercd/`, including
+Original ignored probe material remains in `run ex-6b-ercd/`, including
 `run-vrmock.sh`. Its results depend on the retired RAM and translator changes;
 running that script against the current binary does not reproduce the deepest
 historical stop.

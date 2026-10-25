@@ -11,7 +11,7 @@ interrupt handling and subsequent message production.
 
 The preserved EX export is TOOL producer
 `b865bbc379dc590a49b4ad8f0cac4c17b57ae52a`, at
-`work/worktrees/ex-patched-producer-baseline/work/ex-patched-producer-baseline/export-b865bbc/`.
+`run ex-patched-producer-baseline/export-b865bbc/`.
 Its 1,269-function inventory is a saved export, not complete EX code discovery.
 EX payload O starts at component byte zero, and ROM VA is `08000000 + O`.
 The payload is 524,288 bytes. No new Ghidra or native decompiler was run.
@@ -35,7 +35,7 @@ initialization record `O38dc`: ROM input `O51ba8..528e1` expands to 7,696 bytes
 at `VA2000d000`. The existing TOOL `ex_runtime.initial_data` implementation
 at `7ced9c1077a2ad9c9a3a6d27989223607a2bfb31` was reused without alteration.
 Each selected descriptor's actual GPIO base and single-bit mask agree with
-`port=ID>>4`, `pin=ID&15`. The ignored `work/input/source.json` preserves all
+`port=ID>>4`, `pin=ID&15`. The ignored `run input/source.json` preserves all
 seventeen bindings, the complete registration candidate and eleven selected
 saved native function bodies and references. Old metadata digests are not
 used as a new acceptance gate.
@@ -116,7 +116,7 @@ verified GUI first frame. This is a functional host binding, not a physical
 camera button name. Late F4-down reaches C5 low but does not by itself
 retrigger the consumed EX synchronization update. The complete source,
 negative late-input window and cold-input receipts are in
-[policy.md](../../runtime/policy.md) and `work/runs/policy-20261025/`.
+[policy.md](../../runtime/policy.md) and `run policy-20261025/`.
 
 ## Original dispatch and rotary consumers
 
@@ -141,7 +141,7 @@ Both preserve signed saturation and accumulate into state
 record and passes event `02030081` through `0803e12c`. These are software
 rotation consumers, without a physical dial-name or peer-receiver binding.
 
-The ignored `work/input/unowned-event-candidates.json` records eight
+The ignored `run input/unowned-event-candidates.json` records eight
 call/literal-derived raw CFG candidates, their exact original bytes and
 remaining computed-flow boundaries. Capstone does not establish an incoming
 ITSTATE, official function ownership, complete native coverage or actual
@@ -192,7 +192,7 @@ The sole builder compiled and linked the production reset implementation
 `33e8ec68e85839cd8744ad11a1409909e73c69a8` and executed native unit source
 `792509ca0360215abea55a77dbadadf1ba0bf4e5` in canonical composition
 `f252e9ca320eeae013cdf9210de9259f08795131`. The retained receipt
-`work/worktrees/qemu-submodule/work/inputrootedreceipt.log` records
+`run inputrootedreceipt.log` records
 `/nikon/input/receivers-reset-lifecycle` PASS, exit 0, 0.62 seconds, 1 test and
 0 failures. Actual assertions cover all seventeen keys, held global reset,
 late receiver hold, independent release and registry retirement/reconstruction.

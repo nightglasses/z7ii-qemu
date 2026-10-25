@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: interpolationmemory-20261024
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/memory/interpolation-pool - ERROR:../../config/source/tests/qtest/nikon/memory.c:494:test_interpolation_pool: assertion failed (qtest_readl(t.qts, cells[i]) == 0x74000000 + i): (0x00000000 == 0x74000000) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.97s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/memory.c:494:test_interpolation_pool: assertion failed (qtest_readl(t.qts, cells[i]) == 0x74000000 + i): (0x00000000 == 0x74000000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.97s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

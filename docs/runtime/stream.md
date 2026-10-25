@@ -6,7 +6,7 @@ Later progress is tracked in the [current startup frontier](../validation/fronti
 The older captures and profiles below retain their scope.
 
 The 232-byte setup and 416-byte draw captured in
-`work/runs/descriptorfunctional-20261022/` describe the existing finite RGBA
+`run descriptorfunctional-20261022/` describe the existing finite RGBA
 clear profile with one early state variation. They do not require a new fill
 program: independent comparison finds only draw word 25 changing from `0` to
 `8`, outside the already dynamic pointer operands. Both versions overwrite
@@ -15,10 +15,10 @@ that same register byte with `8` before either draw trigger.
 ## Input and original builders
 
 The read-only source is unchanged Z7II C1.70 MAS payload
-`work/runs/descriptor17-z7cross-mac1/02_eg1840_mas_01700.payload.bin`, loaded at
+`02_eg1840_mas_01700.payload.bin`, loaded at
 MAS VA `10020000`. All code addresses below are original MAS VAs. Static
 decompilation receipts, a finite word decoder/profile comparison and its
-results are retained under `work/runs/streamsemantics-20261022/`.
+results are retained under `run streamsemantics-20261022/`.
 The capture's `stream.json` identifies source0 `bd0dff90`, 58 words, and
 source1 `bd15ff90`, 104 words. It records a fault at `201810e0`; that fault
 snapshot alone does not establish graphics completion or a first frame.
@@ -123,7 +123,7 @@ accept initial word25=0/8. The new initial8 fixture fails on the old model;
 the updated complete transfer unit batch passes all six cases, retaining
 unknown-initial-bit and final-mode rejection, exact pixels/guards, IRQ/ACK and
 initial8 map-loss/reset/unrealize coverage. Receipts are
-`work/runs/streammodel-20261022/{red,green}.log`.
+`run streammodel-20261022/{red,green}.log`.
 
 The unchanged bundle runs with the same explicit constructed descriptor17
 input. At entry `106ee04a`, the232/416-byte streams have initial8, segments
@@ -138,7 +138,7 @@ causes the later data abort.
 The new descriptor reuses source addresses `bd0dff90/bd15ff90`, but word counts
 are44/92, hence176/368 bytes. Both streams are complete: setup ends with a
 NOP, draw word88 triggers once and words90/91 form its normal ending. Decoding
-retained in `work/runs/streamnext-20261022/semantics.json` shows format0,
+retained in `run streamnext-20261022/semantics.json` shows format0,
 mode8, paint `ff000000`, state108 and a single path key10001. It omits the
 earlier second band and changes extent/clip to720x480/719x479 and target to
 `c175d600`, resource57 record7. The declared RGBA extent is
@@ -149,7 +149,7 @@ segments `02 07 09 07 00`, float32 coordinates `(0,0,720,480,-720)`.
 The target rectangle is therefore full720x480, not inferred from reused
 pointers. Caller LR=`106eeab9`; the original dispatcher `106eea34` calls
 `106ee04a(a1+36,...)` at `106eeab4`. These observations and its static
-decompilation are retained in `work/runs/streamboundary-20261022/`.
+decompilation are retained in `run streamboundary-20261022/`.
 
 The preceding length dispatcher recognized draw416 and1648; other lengths
 went to the LUT parser. Draw368 consequently failed its224/1688-byte length
@@ -168,7 +168,7 @@ In the unchanged-bundle run with the same functional input, the target's first
 sample changes from zero to `00 00 00 ff`, its last sample also reads opaque
 black, and the tail sample stays zero. Original IRQ129 handler `106ee3ca` is
 entered. Accepted command/IRQ/next-fault receipts are retained under
-`work/runs/singleclear-20261022/`. Its first exploratory probe attempted to read
+`run singleclear-20261022/`. Its first exploratory probe attempted to read
 an unmapped address below record7's slot and failed in GDB; those prefixed
 logs are excluded from the completion-to-fault result.
 
@@ -180,7 +180,7 @@ Setup lacks the initial register69 write and selects path key10002. Draw
 sets target `c175d600`, low mode byte8, paint `ffb4b4b4`, state108 and one
 trigger; both streams have normal ending commands. It omits full format,
 target extent and clip initialization. Decoding is retained as
-`work/runs/singleclear-20261022/{decode.py,nextcommands.json}`.
+`run singleclear-20261022/{decode.py,nextcommands.json}`.
 
 An entry-only read at `106ee04a`, caller LR=`106eeab9`, captures actual
 segments `02 07 09 07 00` and float coordinates `(96,86,528,308,-528)`.
@@ -188,7 +188,7 @@ This describes a centered gray rectangle `[96,624) × [86,394)` inside the
 preceding720x480 target. The dispatch record begins bytes `01 0a`: case0a of
 the original dispatcher `106eea34`. Captured command bytes match those from
 the completion-to-fault run. Receipts are
-`work/runs/singleboundary-20261022/{stream.json,entry.json}`; that probe later
+`run singleboundary-20261022/{stream.json,entry.json}`; that probe later
 receives an asynchronous debug stop on EX and is used only for its prior
 entry/operand reads, not another MAS abort claim.
 
@@ -211,7 +211,7 @@ The unchanged bundle with the same input now produces gray first/last
 rectangle samples while side/next-row samples remain opaque black, and enters
 original IRQ129. No firmware, input, guest event or software status is changed
 to achieve this step. The accepted gray-completion/next-abort probe is
-`work/runs/graycontext-20261022/{probe.log,snapshot.json,qemu.stderr}`.
+`run graycontext-20261022/{probe.log,snapshot.json,qemu.stderr}`.
 
 ### Captured131-path batch
 
@@ -237,8 +237,8 @@ communication warning. A bounded Cairo A8 path module now processes the
 original arrays, preserving the gray background and retaining context across
 completion/ACK. Full-batch staging, bounds and effective backing checks prevent
 partial output or unsafe DMA aliases. Decode and raw
-bytes are in `work/runs/graycontext-20261022/`; passive entry/operand reads are
-in `work/runs/graypaths-20261022/`.
+bytes are in `run graycontext-20261022/`; passive entry/operand reads are
+in `run graypaths-20261022/`.
 
 The final original-code execution produces25958 changed gray-panel pixels,
 including11874 solid black and14084 fringe pixels, at buffer bounds
@@ -277,22 +277,22 @@ bounded run has no new graphics rejection or MAS data abort; manager returns
 from warning worker4 to worker0, with GUI readiness still unarmed.
 Current native, frame
 comparison, first battery report and next-fault receipts are retained in
-`work/runs/coloredpaths-20261022/`; a separate read-only next-entry/source-window
-capture is in `work/runs/textureboundary-20261022/`.
+`run coloredpaths-20261022/`; a separate read-only next-entry/source-window
+capture is in `run textureboundary-20261022/`.
 Current A8 red/green, icon frame and next-abort receipts are in
-`work/runs/texturemodel-20261023/`; the next pair's entry capture and an
-independent battery-alarm read are in `work/runs/imagetransfer-20261023/`.
+`run texturemodel-20261023/`; the next pair's entry capture and an
+independent battery-alarm read are in `run imagetransfer-20261023/`.
 The current YUV105 native/completion/next-abort records are in
-`work/runs/yuvmodel-20261023/`; a passive next107 entry capture is in
-`work/runs/yuvnext-20261023/`.
+`run yuvmodel-20261023/`; a passive next107 entry capture is in
+`run yuvnext-20261023/`.
 Current107 red/green, complete planes and next-fault receipts are in
-`work/runs/yuva107-20261023/`.
+`run yuva107-20261023/`.
 SRC_OVER native/frame/handoff and worker0 policy-event receipts are in
-`work/runs/srcover-20261024/`.
+`run srcover-20261024/`.
 
 Current native/final execution receipts, captured frame and reference-direction
-preview are `work/runs/pathmodel-20261022/`; passive five-path capture and
-paired command comparison are `work/runs/pathboundary-20261022/`. The PNG
+preview are `run pathmodel-20261022/`; passive five-path capture and
+paired command comparison are `run pathboundary-20261022/`. The PNG
 preview reverses captured rows per the fixed Z7 presentation convention and
 does not establish Z7II physical scanout. No host font or UI pixels are
 substituted into guest memory.

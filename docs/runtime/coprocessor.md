@@ -7,7 +7,7 @@ SOURCE/ABI, physical IP identification or a recovered processor ISA.
 Original C1.70 MAS bytes use load base `0x10020000`, SHA256
 `a218daf0234cebc11ed3b9277208a884eace242a32af3a60ef25081ce6221ae6`.
 Raw listings, byte checks and observations remain under ignored
-`work/research/bridgeports/` and `work/research/guiresume/coprocessor{1..6}/`.
+`run research/bridgeports/` and `run research/guiresume/coprocessor{1..6}/`.
 
 All six eight-second observations use the same dirty-worktree ARM binary
 `3848f3146a462f0649e586d548d1a264f1424949c17a67be24979eb8d06fdae9`,
@@ -259,7 +259,7 @@ experimental progression do not qualify the notification assumptions.
 
 ## Superseding read-only stream extent qualification
 
-Parent evidence `work/research/guiresume/graphicsextent1/gdb.log` follows
+Parent evidence `run research/guiresume/graphicsextent1/gdb.log` follows
 original descriptor routine MAS VA `1068193e/10681976`, packet-ready
 `1064d2d4`, configuration `106ee04a` and register writer `106ee3c4`.
 The descriptor output identifies32-bit cursor words, not byte lengths:
@@ -294,7 +294,7 @@ red→green and full-suite receipts are recorded in
 separately from the earlier prefix receipts and read-only study.
 
 Two independent twelve-second complete-original-bundle observations,
-`work/research/guiresume/extentfixed1/2`, use ARM SHA256
+`run research/guiresume/extentfixed1/2`, use ARM SHA256
 `0398c59a4da249213e15e475ef8ccc9e8b763ccbc758d315162be823b1f688ad`,
 functional, MTTCG and both actual notification propertiestrue. Their
 receipts retain dirty source identity and actual argv; these are explicitly

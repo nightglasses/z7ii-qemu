@@ -3,7 +3,7 @@
 ## Current normal-input observation
 
 The earlier gate investigation below is historical. The normal-input runs in
-`work/runs/readinessnormal-20261023/` now establish a guest error-GUI frame
+`run readinessnormal-20261023/` now establish a guest error-GUI frame
 despite gate/pending3/display-ready all0. Those words gate particular software
 routes; they are not universal prerequisites for the ordinary bank output.
 The [bank YUVA profile](../devices/banks/image.md#format17-yuva-provider)
@@ -176,13 +176,13 @@ changed to obtain this result.
 
 All code and data addresses here are C1.70 MAS CPU VAs. The primary source is
 the unchanged original MAS payload mapped at `10020000`, retained under
-`work/runs/descriptor17-z7cross-mac1/`. Bounded source receipts and the
-parent-owned read-only runtime probes are under `work/runs/readiness-20261026/`.
+`run descriptor17-z7cross-mac1/`. Bounded source receipts and the
+parent-owned read-only runtime probes are under `run readiness-20261026/`.
 This is a control-flow result, not a GUI first-frame or complete-startup claim.
 
 ## Direct original execution
 
-The preceding `work/runs/reproducible-20261026/mainline.json` records main
+The preceding `run reproducible-20261026/mainline.json` records main
 mode1, manager current3/target5/mode1/state2 and GUI class1/mode1 after the
 record5 fill callback `10389dc2` and successful waiter return `10389e2e=1`.
 Gate `b181a6ec` and pending3 `b201bf6c` remain0 in its bounded continuation.

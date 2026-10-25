@@ -1,0 +1,2642 @@
+{
+  "refmap/FRONTIER.md": {
+    "records": []
+  },
+  "refmap/README.md": {
+    "records": []
+  },
+  "runtime/buffer.md": {
+    "records": []
+  },
+  "runtime/authentication.md": {
+    "records": []
+  },
+  "runtime/storage.md": {
+    "records": []
+  },
+  "runtime/seed.md": {
+    "records": []
+  },
+  "runtime/ring.md": {
+    "records": []
+  },
+  "runtime/image.md": {
+    "records": []
+  },
+  "runtime/batteryreport.md": {
+    "records": []
+  },
+  "runtime/path.md": {
+    "records": []
+  },
+  "runtime/stacks.md": {
+    "records": []
+  },
+  "runtime/allocator.md": {
+    "records": []
+  },
+  "runtime/guichain.md": {
+    "records": []
+  },
+  "runtime/readiness.md": {
+    "records": [
+      {
+        "run": "readinessnormal-20261023",
+        "title": "readinessnormal-20261023/native-image-green.txt",
+        "href": "/evidence/readinessnormal-20261023/native-image-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "readinessnormal-20261023",
+        "title": "readinessnormal-20261023/native-yuva-red.txt",
+        "href": "/evidence/readinessnormal-20261023/native-yuva-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/allocations.md": {
+    "records": []
+  },
+  "runtime/rows.md": {
+    "records": [
+      {
+        "run": "streamstorage-20261022",
+        "title": "streamstorage-20261022/native-green.txt",
+        "href": "/evidence/streamstorage-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "streamstorage-20261022",
+        "title": "streamstorage-20261022/native-red.txt",
+        "href": "/evidence/streamstorage-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/coprocessor.md": {
+    "records": [
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck.txt",
+        "href": "/evidence/bridgeports/nativecheck.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck_final.txt",
+        "href": "/evidence/bridgeports/nativecheck_final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck_final2.txt",
+        "href": "/evidence/bridgeports/nativecheck_final2.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/guiupdate.md": {
+    "records": [
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-cancel-red.txt",
+        "href": "/evidence/captureflow-20261022/native-cancel-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-family-red.txt",
+        "href": "/evidence/captureflow-20261022/native-family-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final-receipt.txt",
+        "href": "/evidence/captureflow-20261022/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final.txt",
+        "href": "/evidence/captureflow-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-first-green.txt",
+        "href": "/evidence/captureflow-20261022/native-first-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-pair-red.txt",
+        "href": "/evidence/captureflow-20261022/native-pair-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-red.txt",
+        "href": "/evidence/captureflow-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-acceleration.txt",
+        "href": "/evidence/guinormal-20261022/native-acceleration.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-unit.txt",
+        "href": "/evidence/guinormal-20261022/native-unit.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/batterycontrol.md": {
+    "records": [
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/capturedata.md": {
+    "records": [
+      {
+        "run": "capturedata-20261024",
+        "title": "capturedata-20261024/routes-proof.json",
+        "href": "/evidence/capturedata-20261024/routes-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturedata-20261024",
+        "title": "capturedata-20261024/verified-proof.json",
+        "href": "/evidence/capturedata-20261024/verified-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturedata-20261024",
+        "title": "capturedata-20261024/native-green.txt",
+        "href": "/evidence/capturedata-20261024/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturedata-20261024",
+        "title": "capturedata-20261024/native-red.txt",
+        "href": "/evidence/capturedata-20261024/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/transport.md": {
+    "records": []
+  },
+  "runtime/fill.md": {
+    "records": [
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/interpolation.md": {
+    "records": [
+      {
+        "run": "interpolationmemory-20261024",
+        "title": "interpolationmemory-20261024/verified-proof.json",
+        "href": "/evidence/interpolationmemory-20261024/verified-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "interpolationmemory-20261024",
+        "title": "interpolationmemory-20261024/native-green.txt",
+        "href": "/evidence/interpolationmemory-20261024/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "interpolationmemory-20261024",
+        "title": "interpolationmemory-20261024/native-red.txt",
+        "href": "/evidence/interpolationmemory-20261024/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/address.md": {
+    "records": []
+  },
+  "runtime/id34.md": {
+    "records": []
+  },
+  "runtime/batterytool.md": {
+    "records": []
+  },
+  "runtime/ptp.md": {
+    "records": []
+  },
+  "runtime/compatibility.md": {
+    "records": []
+  },
+  "runtime/batteryprotocol.md": {
+    "records": []
+  },
+  "runtime/grid.md": {
+    "records": [
+      {
+        "run": "gridstorage-20261024",
+        "title": "gridstorage-20261024/verified-proof.json",
+        "href": "/evidence/gridstorage-20261024/verified-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "gridstorage-20261024",
+        "title": "gridstorage-20261024/native-green.txt",
+        "href": "/evidence/gridstorage-20261024/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "gridstorage-20261024",
+        "title": "gridstorage-20261024/native-red.txt",
+        "href": "/evidence/gridstorage-20261024/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/readoutstate.md": {
+    "records": []
+  },
+  "runtime/assistance.md": {
+    "records": []
+  },
+  "runtime/resource.md": {
+    "records": []
+  },
+  "runtime/policy.md": {
+    "records": []
+  },
+  "runtime/display.md": {
+    "records": []
+  },
+  "runtime/stream.md": {
+    "records": []
+  },
+  "runtime/batterypeer.md": {
+    "records": [
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/kind40.md": {
+    "records": [
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-green.txt",
+        "href": "/evidence/kindforty-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-red.txt",
+        "href": "/evidence/kindforty-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-sensor-green.txt",
+        "href": "/evidence/kindforty-20261022/native-sensor-green.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "runtime/battery.md": {
+    "records": []
+  },
+  "runtime/handoff.md": {
+    "records": []
+  },
+  "runtime/conversion.md": {
+    "records": []
+  },
+  "runtime/reset.md": {
+    "records": []
+  },
+  "startup/sla.md": {
+    "records": []
+  },
+  "startup/vr.md": {
+    "records": []
+  },
+  "startup/vrdomain.md": {
+    "records": []
+  },
+  "startup/first.md": {
+    "records": []
+  },
+  "startup/ram.md": {
+    "records": [
+      {
+        "run": "ramalignment-20261023",
+        "title": "ramalignment-20261023/native-green.txt",
+        "href": "/evidence/ramalignment-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "ramalignment-20261023",
+        "title": "ramalignment-20261023/native-red.txt",
+        "href": "/evidence/ramalignment-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "startup/components.md": {
+    "records": []
+  },
+  "startup/memc.md": {
+    "records": []
+  },
+  "startup/ex.md": {
+    "records": []
+  },
+  "startup/peripherals.md": {
+    "records": []
+  },
+  "startup/smp.md": {
+    "records": []
+  },
+  "startup/relocation.md": {
+    "records": []
+  },
+  "startup/system.md": {
+    "records": []
+  },
+  "startup/protocol.md": {
+    "records": []
+  },
+  "validation/budgets.md": {
+    "records": []
+  },
+  "validation/providers.md": {
+    "records": []
+  },
+  "validation/frontier.md": {
+    "records": [
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/ccompnormal-proof.json",
+        "href": "/evidence/sensorprofile-20261024/ccompnormal-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/endpointscounts-proof.json",
+        "href": "/evidence/sensorprofile-20261024/endpointscounts-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/timingdiagnostic-proof.json",
+        "href": "/evidence/sensorprofile-20261024/timingdiagnostic-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-globals-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-globals-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-gpio-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-gpio-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-final.txt",
+        "href": "/evidence/timingextra-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-green.txt",
+        "href": "/evidence/timingextra-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-red.txt",
+        "href": "/evidence/timingextra-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-transfer-final.txt",
+        "href": "/evidence/timingextra-20261023/native-transfer-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "validation/layers.md": {
+    "records": []
+  },
+  "validation/native.md": {
+    "records": [
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck.txt",
+        "href": "/evidence/bridgeports/nativecheck.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck_final.txt",
+        "href": "/evidence/bridgeports/nativecheck_final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "bridgeports",
+        "title": "bridgeports/nativecheck_final2.txt",
+        "href": "/evidence/bridgeports/nativecheck_final2.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-final-receipt.txt",
+        "href": "/evidence/audioformat-20261023/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-final.txt",
+        "href": "/evidence/audioformat-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-guards-receipt.txt",
+        "href": "/evidence/audioformat-20261023/native-guards-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-guards.txt",
+        "href": "/evidence/audioformat-20261023/native-guards.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-red.txt",
+        "href": "/evidence/audioformat-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-green.txt",
+        "href": "/evidence/audiolevels-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-red.txt",
+        "href": "/evidence/audiolevels-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-cancel-red.txt",
+        "href": "/evidence/captureflow-20261022/native-cancel-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-family-red.txt",
+        "href": "/evidence/captureflow-20261022/native-family-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final-receipt.txt",
+        "href": "/evidence/captureflow-20261022/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final.txt",
+        "href": "/evidence/captureflow-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-first-green.txt",
+        "href": "/evidence/captureflow-20261022/native-first-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-pair-red.txt",
+        "href": "/evidence/captureflow-20261022/native-pair-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-red.txt",
+        "href": "/evidence/captureflow-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-final.txt",
+        "href": "/evidence/capturemask-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-green.txt",
+        "href": "/evidence/capturemask-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-red.txt",
+        "href": "/evidence/capturemask-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-green.txt",
+        "href": "/evidence/clearmode-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-red.txt",
+        "href": "/evidence/clearmode-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-focused.txt",
+        "href": "/evidence/convertpaint-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-green.txt",
+        "href": "/evidence/convertpaint-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-red.txt",
+        "href": "/evidence/convertpaint-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-final.txt",
+        "href": "/evidence/graphicscommands-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-green.txt",
+        "href": "/evidence/graphicscommands-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-red.txt",
+        "href": "/evidence/graphicscommands-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-final.txt",
+        "href": "/evidence/guiimage-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-focused.txt",
+        "href": "/evidence/guiimage-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-green.txt",
+        "href": "/evidence/guiimage-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-red.txt",
+        "href": "/evidence/guiimage-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-focused.txt",
+        "href": "/evidence/guipaths-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-green.txt",
+        "href": "/evidence/guipaths-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-red.txt",
+        "href": "/evidence/guipaths-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-boundaries.txt",
+        "href": "/evidence/hdmacflags-20261023/native-boundaries.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-green.txt",
+        "href": "/evidence/hdmacflags-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-guards.txt",
+        "href": "/evidence/hdmacflags-20261023/native-guards.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-red.txt",
+        "href": "/evidence/hdmacflags-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-dispatch-red.txt",
+        "href": "/evidence/imageprefix-20261023/native-dispatch-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-final.txt",
+        "href": "/evidence/imageprefix-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-focused.txt",
+        "href": "/evidence/imageprefix-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-green.txt",
+        "href": "/evidence/imageprefix-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-prefix.txt",
+        "href": "/evidence/imageprefix-20261023/native-prefix.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-red.txt",
+        "href": "/evidence/imageprefix-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-green.txt",
+        "href": "/evidence/kindforty-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-red.txt",
+        "href": "/evidence/kindforty-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "kindforty-20261022",
+        "title": "kindforty-20261022/native-sensor-green.txt",
+        "href": "/evidence/kindforty-20261022/native-sensor-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-focused.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-green.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-red.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "mxic-20261022",
+        "title": "mxic-20261022/native-green.txt",
+        "href": "/evidence/mxic-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "mxic-20261022",
+        "title": "mxic-20261022/native-red.txt",
+        "href": "/evidence/mxic-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-context-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-context-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-context-red.txt",
+        "href": "/evidence/paintmask-20261023/native-context-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-final-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-final-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-final.txt",
+        "href": "/evidence/paintmask-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-green.txt",
+        "href": "/evidence/paintmask-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-red.txt",
+        "href": "/evidence/paintmask-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "ramalignment-20261023",
+        "title": "ramalignment-20261023/native-green.txt",
+        "href": "/evidence/ramalignment-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "ramalignment-20261023",
+        "title": "ramalignment-20261023/native-red.txt",
+        "href": "/evidence/ramalignment-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rectanglecontinuation-20261023",
+        "title": "rectanglecontinuation-20261023/native-green.txt",
+        "href": "/evidence/rectanglecontinuation-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rectanglecontinuation-20261023",
+        "title": "rectanglecontinuation-20261023/native-red.txt",
+        "href": "/evidence/rectanglecontinuation-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rgbaover-20261023",
+        "title": "rgbaover-20261023/native-green.txt",
+        "href": "/evidence/rgbaover-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rgbaover-20261023",
+        "title": "rgbaover-20261023/native-red.txt",
+        "href": "/evidence/rgbaover-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-green-receipt.txt",
+        "href": "/evidence/router-20261022/native-green-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-green.txt",
+        "href": "/evidence/router-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-red.txt",
+        "href": "/evidence/router-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-before-review.txt",
+        "href": "/evidence/routerfunctional-20261022/native-before-review.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-final-receipt.txt",
+        "href": "/evidence/routerfunctional-20261022/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-final.txt",
+        "href": "/evidence/routerfunctional-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-green-receipt.txt",
+        "href": "/evidence/routerfunctional-20261022/native-green-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-green.txt",
+        "href": "/evidence/routerfunctional-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-red.txt",
+        "href": "/evidence/routerfunctional-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-focused.txt",
+        "href": "/evidence/singletarget-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-green.txt",
+        "href": "/evidence/singletarget-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-red.txt",
+        "href": "/evidence/singletarget-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "streamstorage-20261022",
+        "title": "streamstorage-20261022/native-green.txt",
+        "href": "/evidence/streamstorage-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "streamstorage-20261022",
+        "title": "streamstorage-20261022/native-red.txt",
+        "href": "/evidence/streamstorage-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-green.txt",
+        "href": "/evidence/sysconfig-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-red-fullword.txt",
+        "href": "/evidence/sysconfig-20261022/native-red-fullword.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-red.txt",
+        "href": "/evidence/sysconfig-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-complete.txt",
+        "href": "/evidence/timingmatrix-20261022/native-complete.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-final.txt",
+        "href": "/evidence/timingmatrix-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-green.txt",
+        "href": "/evidence/timingmatrix-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-load-red.txt",
+        "href": "/evidence/timingmatrix-20261022/native-load-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-validated.txt",
+        "href": "/evidence/timingmatrix-20261022/native-validated.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "validation/runtime.md": {
+    "records": []
+  },
+  "validation/controllers.md": {
+    "records": []
+  },
+  "devices/statistics/protocol.md": {
+    "records": [
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/final-proof.json",
+        "href": "/evidence/capturecompletion-20261024/final-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/finalreview-proof.json",
+        "href": "/evidence/capturecompletion-20261024/finalreview-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/finalverify-proof.json",
+        "href": "/evidence/capturecompletion-20261024/finalverify-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-bankcancel.txt",
+        "href": "/evidence/capturecompletion-20261024/native-bankcancel.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-final.txt",
+        "href": "/evidence/capturecompletion-20261024/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-green.txt",
+        "href": "/evidence/capturecompletion-20261024/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-red.txt",
+        "href": "/evidence/capturecompletion-20261024/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-revision-green.txt",
+        "href": "/evidence/capturecompletion-20261024/native-revision-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturecompletion-20261024",
+        "title": "capturecompletion-20261024/native-revision-red.txt",
+        "href": "/evidence/capturecompletion-20261024/native-revision-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/acceleration/protocol.md": {
+    "records": [
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-acceleration.txt",
+        "href": "/evidence/guinormal-20261022/native-acceleration.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-unit.txt",
+        "href": "/evidence/guinormal-20261022/native-unit.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/capture/banks.md": {
+    "records": [
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/banked-proof.json",
+        "href": "/evidence/capturebanks-20261024/banked-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/neutral-proof.json",
+        "href": "/evidence/capturebanks-20261024/neutral-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-banks-green.txt",
+        "href": "/evidence/capturebanks-20261024/native-banks-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-banks-red.txt",
+        "href": "/evidence/capturebanks-20261024/native-banks-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-module-green.txt",
+        "href": "/evidence/capturebanks-20261024/native-module-green.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/staging/sla.md": {
+    "records": []
+  },
+  "devices/staging/protocol.md": {
+    "records": []
+  },
+  "devices/endpoints/protocol.md": {
+    "records": [
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/ccompnormal-proof.json",
+        "href": "/evidence/sensorprofile-20261024/ccompnormal-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/endpointscounts-proof.json",
+        "href": "/evidence/sensorprofile-20261024/endpointscounts-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/timingdiagnostic-proof.json",
+        "href": "/evidence/sensorprofile-20261024/timingdiagnostic-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-globals-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-globals-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-gpio-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-gpio-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/panel/protocol.md": {
+    "records": [
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-green.txt",
+        "href": "/evidence/clearmode-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-red.txt",
+        "href": "/evidence/clearmode-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/update/protocol.md": {
+    "records": []
+  },
+  "devices/notifier/protocol.md": {
+    "records": []
+  },
+  "devices/touch/protocol.md": {
+    "records": []
+  },
+  "devices/config/view.md": {
+    "records": [
+      {
+        "run": "mxic-20261022",
+        "title": "mxic-20261022/native-green.txt",
+        "href": "/evidence/mxic-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "mxic-20261022",
+        "title": "mxic-20261022/native-red.txt",
+        "href": "/evidence/mxic-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/config/protocol.md": {
+    "records": []
+  },
+  "devices/sdi/protocol.md": {
+    "records": []
+  },
+  "devices/fill/runtime.md": {
+    "records": []
+  },
+  "devices/fill/protocol.md": {
+    "records": []
+  },
+  "devices/input/protocol.md": {
+    "records": []
+  },
+  "devices/processing/protocol.md": {
+    "records": []
+  },
+  "devices/pairs/sla.md": {
+    "records": []
+  },
+  "devices/pairs/protocol.md": {
+    "records": []
+  },
+  "devices/bridge/protocol.md": {
+    "records": []
+  },
+  "devices/dispatcher/protocol.md": {
+    "records": []
+  },
+  "devices/i2c/protocol.md": {
+    "records": []
+  },
+  "devices/gic/runtime.md": {
+    "records": []
+  },
+  "devices/transfer/target.md": {
+    "records": [
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-focused.txt",
+        "href": "/evidence/singletarget-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-green.txt",
+        "href": "/evidence/singletarget-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "singletarget-20261023",
+        "title": "singletarget-20261023/native-red.txt",
+        "href": "/evidence/singletarget-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-final.txt",
+        "href": "/evidence/timingextra-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-green.txt",
+        "href": "/evidence/timingextra-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-red.txt",
+        "href": "/evidence/timingextra-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-transfer-final.txt",
+        "href": "/evidence/timingextra-20261023/native-transfer-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/mode.md": {
+    "records": [
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-focused.txt",
+        "href": "/evidence/convertpaint-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-green.txt",
+        "href": "/evidence/convertpaint-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "convertpaint-20261023",
+        "title": "convertpaint-20261023/native-red.txt",
+        "href": "/evidence/convertpaint-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/image.md": {
+    "records": [
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-final.txt",
+        "href": "/evidence/guiimage-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-focused.txt",
+        "href": "/evidence/guiimage-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-green.txt",
+        "href": "/evidence/guiimage-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guiimage-20261023",
+        "title": "guiimage-20261023/native-red.txt",
+        "href": "/evidence/guiimage-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/over.md": {
+    "records": [
+      {
+        "run": "rgbaover-20261023",
+        "title": "rgbaover-20261023/native-green.txt",
+        "href": "/evidence/rgbaover-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rgbaover-20261023",
+        "title": "rgbaover-20261023/native-red.txt",
+        "href": "/evidence/rgbaover-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/clearmode.md": {
+    "records": [
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-green.txt",
+        "href": "/evidence/clearmode-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-red.txt",
+        "href": "/evidence/clearmode-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/overwrite.md": {
+    "records": [
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-green.txt",
+        "href": "/evidence/clearmode-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "clearmode-20261023",
+        "title": "clearmode-20261023/native-red.txt",
+        "href": "/evidence/clearmode-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-focused.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-green.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "matrixoverwrite-20261023",
+        "title": "matrixoverwrite-20261023/native-red.txt",
+        "href": "/evidence/matrixoverwrite-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/rectangles.md": {
+    "records": [
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-final.txt",
+        "href": "/evidence/graphicscommands-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-green.txt",
+        "href": "/evidence/graphicscommands-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "graphicscommands-20261023",
+        "title": "graphicscommands-20261023/native-red.txt",
+        "href": "/evidence/graphicscommands-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/prefix.md": {
+    "records": [
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-dispatch-red.txt",
+        "href": "/evidence/imageprefix-20261023/native-dispatch-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-final.txt",
+        "href": "/evidence/imageprefix-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-focused.txt",
+        "href": "/evidence/imageprefix-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-green.txt",
+        "href": "/evidence/imageprefix-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-prefix.txt",
+        "href": "/evidence/imageprefix-20261023/native-prefix.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "imageprefix-20261023",
+        "title": "imageprefix-20261023/native-red.txt",
+        "href": "/evidence/imageprefix-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-final.txt",
+        "href": "/evidence/timingextra-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-green.txt",
+        "href": "/evidence/timingextra-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-red.txt",
+        "href": "/evidence/timingextra-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-transfer-final.txt",
+        "href": "/evidence/timingextra-20261023/native-transfer-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/paint.md": {
+    "records": [
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-context-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-context-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-context-red.txt",
+        "href": "/evidence/paintmask-20261023/native-context-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-final-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-final-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-final.txt",
+        "href": "/evidence/paintmask-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-focused.txt",
+        "href": "/evidence/paintmask-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-green.txt",
+        "href": "/evidence/paintmask-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "paintmask-20261023",
+        "title": "paintmask-20261023/native-red.txt",
+        "href": "/evidence/paintmask-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/continuation.md": {
+    "records": [
+      {
+        "run": "rectanglecontinuation-20261023",
+        "title": "rectanglecontinuation-20261023/native-green.txt",
+        "href": "/evidence/rectanglecontinuation-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "rectanglecontinuation-20261023",
+        "title": "rectanglecontinuation-20261023/native-red.txt",
+        "href": "/evidence/rectanglecontinuation-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-final.txt",
+        "href": "/evidence/timingextra-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-green.txt",
+        "href": "/evidence/timingextra-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-red.txt",
+        "href": "/evidence/timingextra-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-transfer-final.txt",
+        "href": "/evidence/timingextra-20261023/native-transfer-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/stroke.md": {
+    "records": [
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-focused.txt",
+        "href": "/evidence/guipaths-20261023/native-focused.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-green.txt",
+        "href": "/evidence/guipaths-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guipaths-20261023",
+        "title": "guipaths-20261023/native-red.txt",
+        "href": "/evidence/guipaths-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/transfer/protocol.md": {
+    "records": [
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-green.txt",
+        "href": "/evidence/audiolevels-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-red.txt",
+        "href": "/evidence/audiolevels-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/completion/protocol.md": {
+    "records": []
+  },
+  "devices/ipud/protocol.md": {
+    "records": []
+  },
+  "devices/lookup/protocol.md": {
+    "records": []
+  },
+  "devices/shared/protocol.md": {
+    "records": []
+  },
+  "devices/lanes/protocol.md": {
+    "records": []
+  },
+  "devices/status/protocol.md": {
+    "records": []
+  },
+  "devices/storage/protocol.md": {
+    "records": []
+  },
+  "devices/timing/capture.md": {
+    "records": []
+  },
+  "devices/timing/load.md": {
+    "records": [
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-complete.txt",
+        "href": "/evidence/timingmatrix-20261022/native-complete.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-final.txt",
+        "href": "/evidence/timingmatrix-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-green.txt",
+        "href": "/evidence/timingmatrix-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-load-red.txt",
+        "href": "/evidence/timingmatrix-20261022/native-load-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingmatrix-20261022",
+        "title": "timingmatrix-20261022/native-validated.txt",
+        "href": "/evidence/timingmatrix-20261022/native-validated.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/timing/extra.md": {
+    "records": [
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-final.txt",
+        "href": "/evidence/timingextra-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-green.txt",
+        "href": "/evidence/timingextra-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-red.txt",
+        "href": "/evidence/timingextra-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "timingextra-20261023",
+        "title": "timingextra-20261023/native-transfer-final.txt",
+        "href": "/evidence/timingextra-20261023/native-transfer-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/timing/protocol.md": {
+    "records": []
+  },
+  "devices/spi/protocol.md": {
+    "records": []
+  },
+  "devices/audio/monitor.md": {
+    "records": [
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-green.txt",
+        "href": "/evidence/audiolevels-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audiolevels-20261023",
+        "title": "audiolevels-20261023/native-red.txt",
+        "href": "/evidence/audiolevels-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/audio/format.md": {
+    "records": [
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-final-receipt.txt",
+        "href": "/evidence/audioformat-20261023/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-final.txt",
+        "href": "/evidence/audioformat-20261023/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-guards-receipt.txt",
+        "href": "/evidence/audioformat-20261023/native-guards-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-guards.txt",
+        "href": "/evidence/audioformat-20261023/native-guards.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "audioformat-20261023",
+        "title": "audioformat-20261023/native-red.txt",
+        "href": "/evidence/audioformat-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/audio/protocol.md": {
+    "records": []
+  },
+  "devices/sensor/packet.md": {
+    "records": [
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/ccompnormal-proof.json",
+        "href": "/evidence/sensorprofile-20261024/ccompnormal-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/endpointscounts-proof.json",
+        "href": "/evidence/sensorprofile-20261024/endpointscounts-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/timingdiagnostic-proof.json",
+        "href": "/evidence/sensorprofile-20261024/timingdiagnostic-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-globals-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-globals-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-gpio-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-gpio-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/sensor/runstop.md": {
+    "records": [
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-cancel-red.txt",
+        "href": "/evidence/captureflow-20261022/native-cancel-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-family-red.txt",
+        "href": "/evidence/captureflow-20261022/native-family-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final-receipt.txt",
+        "href": "/evidence/captureflow-20261022/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-final.txt",
+        "href": "/evidence/captureflow-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-first-green.txt",
+        "href": "/evidence/captureflow-20261022/native-first-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-pair-red.txt",
+        "href": "/evidence/captureflow-20261022/native-pair-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureflow-20261022",
+        "title": "captureflow-20261022/native-red.txt",
+        "href": "/evidence/captureflow-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/sensor/control.md": {
+    "records": [
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-final.txt",
+        "href": "/evidence/capturemask-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-green.txt",
+        "href": "/evidence/capturemask-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturemask-20261022",
+        "title": "capturemask-20261022/native-red.txt",
+        "href": "/evidence/capturemask-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/sensor/protocol.md": {
+    "records": []
+  },
+  "devices/readout/protocol.md": {
+    "records": []
+  },
+  "devices/sysconfig/runtime.md": {
+    "records": [
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-green.txt",
+        "href": "/evidence/sysconfig-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-red-fullword.txt",
+        "href": "/evidence/sysconfig-20261022/native-red-fullword.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sysconfig-20261022",
+        "title": "sysconfig-20261022/native-red.txt",
+        "href": "/evidence/sysconfig-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/sysconfig/protocol.md": {
+    "records": []
+  },
+  "devices/exiu/readback.md": {
+    "records": []
+  },
+  "devices/exiu/protocol.md": {
+    "records": []
+  },
+  "devices/parameters/protocol.md": {
+    "records": []
+  },
+  "devices/gate/routing.md": {
+    "records": []
+  },
+  "devices/gate/sla.md": {
+    "records": []
+  },
+  "devices/gate/runtime.md": {
+    "records": []
+  },
+  "devices/gate/stop.md": {
+    "records": []
+  },
+  "devices/gate/protocol.md": {
+    "records": []
+  },
+  "devices/mxic/protocol.md": {
+    "records": []
+  },
+  "devices/copy/repeat.md": {
+    "records": []
+  },
+  "devices/copy/directions.md": {
+    "records": []
+  },
+  "devices/copy/protocol.md": {
+    "records": []
+  },
+  "devices/hdmac/reload.md": {
+    "records": [
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-boundaries.txt",
+        "href": "/evidence/hdmacflags-20261023/native-boundaries.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-green.txt",
+        "href": "/evidence/hdmacflags-20261023/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-guards.txt",
+        "href": "/evidence/hdmacflags-20261023/native-guards.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "hdmacflags-20261023",
+        "title": "hdmacflags-20261023/native-red.txt",
+        "href": "/evidence/hdmacflags-20261023/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/hdmac/protocol.md": {
+    "records": []
+  },
+  "devices/counter/protocol.md": {
+    "records": []
+  },
+  "devices/capturegroup/protocol.md": {
+    "records": [
+      {
+        "run": "capturegroup-20261024",
+        "title": "capturegroup-20261024/green-proof.json",
+        "href": "/evidence/capturegroup-20261024/green-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturegroup-20261024",
+        "title": "capturegroup-20261024/red-proof.json",
+        "href": "/evidence/capturegroup-20261024/red-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/green-proof.json",
+        "href": "/evidence/captureresults-20261024/green-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/red-control-proof.json",
+        "href": "/evidence/captureresults-20261024/red-control-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/cursor-proof.json",
+        "href": "/evidence/groupcursor-20261024/cursor-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/vd-proof.json",
+        "href": "/evidence/groupcursor-20261024/vd-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/wait-proof.json",
+        "href": "/evidence/groupcursor-20261024/wait-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "groupresults-20261024",
+        "title": "groupresults-20261024/proof.json",
+        "href": "/evidence/groupresults-20261024/proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturegroup-20261024",
+        "title": "capturegroup-20261024/native-group-green.txt",
+        "href": "/evidence/capturegroup-20261024/native-group-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturegroup-20261024",
+        "title": "capturegroup-20261024/native-group-red.txt",
+        "href": "/evidence/capturegroup-20261024/native-group-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/native-results-final.txt",
+        "href": "/evidence/captureresults-20261024/native-results-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/native-results-green.txt",
+        "href": "/evidence/captureresults-20261024/native-results-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/native-results-independent-unit.txt",
+        "href": "/evidence/captureresults-20261024/native-results-independent-unit.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureresults-20261024",
+        "title": "captureresults-20261024/native-results-red.txt",
+        "href": "/evidence/captureresults-20261024/native-results-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/native-cursor-final.txt",
+        "href": "/evidence/groupcursor-20261024/native-cursor-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/native-cursor-green.txt",
+        "href": "/evidence/groupcursor-20261024/native-cursor-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "groupcursor-20261024",
+        "title": "groupcursor-20261024/native-cursor-red.txt",
+        "href": "/evidence/groupcursor-20261024/native-cursor-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/timestamp/runtime.md": {
+    "records": []
+  },
+  "devices/timestamp/protocol.md": {
+    "records": []
+  },
+  "devices/ccomp/protocol.md": {
+    "records": [
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/ccompnormal-proof.json",
+        "href": "/evidence/sensorprofile-20261024/ccompnormal-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/endpointscounts-proof.json",
+        "href": "/evidence/sensorprofile-20261024/endpointscounts-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/timingdiagnostic-proof.json",
+        "href": "/evidence/sensorprofile-20261024/timingdiagnostic-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-globals-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-globals-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-gpio-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-gpio-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/banks/image.md": {
+    "records": [
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-display-buffer-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-display-buffer-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-image-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-image-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-memory-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-memory-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-module-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-module-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-visible-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-visible-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "readinessnormal-20261023",
+        "title": "readinessnormal-20261023/native-image-green.txt",
+        "href": "/evidence/readinessnormal-20261023/native-image-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "readinessnormal-20261023",
+        "title": "readinessnormal-20261023/native-yuva-red.txt",
+        "href": "/evidence/readinessnormal-20261023/native-yuva-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/captureparams/protocol.md": {
+    "records": [
+      {
+        "run": "captureparams-20261024",
+        "title": "captureparams-20261024/green-proof.json",
+        "href": "/evidence/captureparams-20261024/green-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "captureparams-20261024",
+        "title": "captureparams-20261024/red-proof.json",
+        "href": "/evidence/captureparams-20261024/red-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "captureparams-20261024",
+        "title": "captureparams-20261024/native-params-final.txt",
+        "href": "/evidence/captureparams-20261024/native-params-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureparams-20261024",
+        "title": "captureparams-20261024/native-params-green.txt",
+        "href": "/evidence/captureparams-20261024/native-params-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "captureparams-20261024",
+        "title": "captureparams-20261024/native-params-red.txt",
+        "href": "/evidence/captureparams-20261024/native-params-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/gpio/mux.md": {
+    "records": []
+  },
+  "devices/gpio/protocol.md": {
+    "records": []
+  },
+  "devices/usio/protocol.md": {
+    "records": []
+  },
+  "devices/signal/input.md": {
+    "records": []
+  },
+  "devices/signal/sla.md": {
+    "records": []
+  },
+  "devices/signal/protocol.md": {
+    "records": []
+  },
+  "devices/clock/mask.md": {
+    "records": []
+  },
+  "devices/clock/runtime.md": {
+    "records": []
+  },
+  "devices/clock/protocol.md": {
+    "records": []
+  },
+  "devices/router/sla.md": {
+    "records": []
+  },
+  "devices/router/timing.md": {
+    "records": [
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-before-review.txt",
+        "href": "/evidence/routerfunctional-20261022/native-before-review.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-final-receipt.txt",
+        "href": "/evidence/routerfunctional-20261022/native-final-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-final.txt",
+        "href": "/evidence/routerfunctional-20261022/native-final.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-green-receipt.txt",
+        "href": "/evidence/routerfunctional-20261022/native-green-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-green.txt",
+        "href": "/evidence/routerfunctional-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "routerfunctional-20261022",
+        "title": "routerfunctional-20261022/native-red.txt",
+        "href": "/evidence/routerfunctional-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "devices/router/runtime.md": {
+    "records": [
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-green-receipt.txt",
+        "href": "/evidence/router-20261022/native-green-receipt.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-green.txt",
+        "href": "/evidence/router-20261022/native-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "router-20261022",
+        "title": "router-20261022/native-red.txt",
+        "href": "/evidence/router-20261022/native-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "inputs/nor/footer.md": {
+    "records": []
+  },
+  "inputs/nor/functional.md": {
+    "records": []
+  },
+  "inputs/nor/module.md": {
+    "records": [
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-display-buffer-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-display-buffer-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-image-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-image-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-memory-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-memory-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-module-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-module-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-visible-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-visible-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "inputs/nor/candidates.md": {
+    "records": []
+  },
+  "inputs/nor/virtual.md": {
+    "records": [
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/banked-proof.json",
+        "href": "/evidence/capturebanks-20261024/banked-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/neutral-proof.json",
+        "href": "/evidence/capturebanks-20261024/neutral-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/ccompnormal-proof.json",
+        "href": "/evidence/sensorprofile-20261024/ccompnormal-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/endpointscounts-proof.json",
+        "href": "/evidence/sensorprofile-20261024/endpointscounts-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/timingdiagnostic-proof.json",
+        "href": "/evidence/sensorprofile-20261024/timingdiagnostic-proof.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-banks-green.txt",
+        "href": "/evidence/capturebanks-20261024/native-banks-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-banks-red.txt",
+        "href": "/evidence/capturebanks-20261024/native-banks-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "capturebanks-20261024",
+        "title": "capturebanks-20261024/native-module-green.txt",
+        "href": "/evidence/capturebanks-20261024/native-module-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-ccomp-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-ccomp-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-endpoints-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-endpoints-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-globals-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-globals-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-gpio-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-gpio-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-green.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "sensorprofile-20261024",
+        "title": "sensorprofile-20261024/native-packet-red.txt",
+        "href": "/evidence/sensorprofile-20261024/native-packet-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "inputs/nor/descriptor.md": {
+    "records": [
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-acceleration.txt",
+        "href": "/evidence/guinormal-20261022/native-acceleration.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "guinormal-20261022",
+        "title": "guinormal-20261022/native-unit.txt",
+        "href": "/evidence/guinormal-20261022/native-unit.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-display-buffer-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-display-buffer-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-image-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-image-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-memory-green.txt",
+        "href": "/evidence/moduleinput-20261024/native-memory-green.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-module-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-module-red.txt",
+        "kind": "Native test excerpt"
+      },
+      {
+        "run": "moduleinput-20261024",
+        "title": "moduleinput-20261024/native-visible-red.txt",
+        "href": "/evidence/moduleinput-20261024/native-visible-red.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "inputs/nor/id34.md": {
+    "records": []
+  },
+  "inputs/nor/profile.md": {
+    "records": []
+  },
+  "inputs/camera/keys.md": {
+    "records": []
+  },
+  "inputs/ex/config.md": {
+    "records": []
+  },
+  "inputs/ex/rng.md": {
+    "records": [
+      {
+        "run": "reproducible-20261026",
+        "title": "reproducible-20261026/native-final.txt",
+        "href": "/evidence/reproducible-20261026/native-final.txt",
+        "kind": "Native test excerpt"
+      }
+    ]
+  },
+  "inputs/nv/slot.md": {
+    "records": []
+  },
+  "inputs/nv/records.md": {
+    "records": []
+  },
+  "runtime/wait/abi.md": {
+    "records": []
+  },
+  "runtime/wait/ev3.md": {
+    "records": []
+  },
+  "runtime/wait/audit.md": {
+    "records": []
+  },
+  "runtime/wait/observation.md": {
+    "records": []
+  }
+}

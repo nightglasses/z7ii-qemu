@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: readinessnormal-20261023
+Original log: native-yuva-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/image/yuva - ERROR:../../config/source/tests/qtest/nikon/image.c:606:assert_yuva: assertion failed ((uint8_t)image[(y * width + x) * 3 + c] == rgb * alpha / 255): (32 == 64) FAIL
+▶ 1/1                                  ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.44s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/image.c:606:assert_yuva: assertion failed ((uint8_t)image[(y * width + x) * 3 + c] == rgb * alpha / 255): (32 == 64)
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.44s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

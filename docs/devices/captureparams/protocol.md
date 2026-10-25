@@ -167,4 +167,4 @@ they are not executed in this original flag200 receipt.
 
 Raw source projections, instruction comparisons, native red/green receipts,
 actual argv, QMP status, read-only snapshots and loader/table comparisons stay
-in`work/runs/captureparams-20261024/`.
+in`run captureparams-20261024/`.

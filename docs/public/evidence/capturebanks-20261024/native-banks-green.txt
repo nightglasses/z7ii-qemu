@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: capturebanks-20261024
+Original log: native-banks-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor OK              7.75s   29 subtests passed
+Ok:                1
+Fail:              0

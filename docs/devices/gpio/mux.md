@@ -3,8 +3,8 @@
 The original SLA whole-source provider retains complete functions at source VA
 `10066c1c`, `10066c42`, `10066d1c`, and `10066d50`, and the complete 232-record
 GPIO registry. The saved provider is
-`zero-domain-source/work/sla-whole-source-4/sla.S`; bounded presentations are
-`sla-domain/work/sla/gpio-exiu-family.txt` and `gpio-copy-records.txt`.
+`zero-domain-source/sla.S`; bounded presentations are
+`sla-domain/run sla/gpio-exiu-family.txt` and `gpio-copy-records.txt`.
 These are original source-qualified functions and data, not evidence of a
 completed runtime call or physical GPIO activity.
 Provider source4 belongs to fixed source producer `1076d278`; its authoritative

@@ -1,0 +1,11 @@
+Native test output excerpt
+Run: hdmacflags-20261023
+Original log: native-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/4 unit+nikon - qemu:nikon_memory_unit      OK              0.74s   3 subtests passed
+2/4 nikon+qtest+qtest-arm - qemu:nikon_audio OK              1.75s   4 subtests passed
+3/4 nikon+qtest+qtest-arm - qemu:nikon_dma   OK              1.82s   10 subtests passed
+4/4 nikon+qtest+qtest-arm - qemu:nikon_hdmac OK              0.73s   4 subtests passed
+Ok:                4
+Fail:              0

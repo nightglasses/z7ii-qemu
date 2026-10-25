@@ -14,11 +14,11 @@ Unsupported offsets, widths, values, missing configuration and commands return `
 
 ## Verification and original prefix
 
-Incremental native compilation and upstream checkpatch pass, with0 errors/0 warnings. `work/issue331/bridge-lifecycle-d48ac22/result.json` binds exact native/fixtures`d48ac22d6c0fb82dc22038cedc5d7cfa446ffc04` and pinned QEMU`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`:23 focused synthetic PASS in1.967728s. The whole-lifecycle fixture checks both banks'`AC=1`, `C910=4`, `AC=0`, late`e00e` completion, both`4120/4124` pairs and configuration handshake. Other cases verify array publication after handshake with no array IRQ, real IRQ127/IAR/EOI, pending lane/control/configuration cancellation, board reset with a second guest entry, and rejection of invalid state/value/selector/command/offset/width. Two negative cases read back the prior valid configuration after rejection. These are control contracts, not peer/data-transfer or original-firmware verification.
+Incremental native compilation and upstream checkpatch pass, with0 errors/0 warnings. `run issue331/bridge-lifecycle-d48ac22/result.json` binds exact native/fixtures`d48ac22d6c0fb82dc22038cedc5d7cfa446ffc04` and pinned QEMU`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`:23 focused synthetic PASS in1.967728s. The whole-lifecycle fixture checks both banks'`AC=1`, `C910=4`, `AC=0`, late`e00e` completion, both`4120/4124` pairs and configuration handshake. Other cases verify array publication after handshake with no array IRQ, real IRQ127/IAR/EOI, pending lane/control/configuration cancellation, board reset with a second guest entry, and rejection of invalid state/value/selector/command/offset/width. Two negative cases read back the prior valid configuration after rejection. These are control contracts, not peer/data-transfer or original-firmware verification.
 
 The earlier16+4 synthetic receipts against native228a7d7 remain historical. Their map-commit interpretation and its prerequisite were corrected by d48ac22. The first draft also shared a Python list between fixtures; that failure artifact was retained, its owned synthetic process terminated, and the list corrected. No historical receipt is relabeled as current proof. The full smoke entry contains each ring fixture once and asserts unique names before launching any VM.
 
-The original run `work/issue331/original-bridge-228a7d7/{receipt.json,qemu.log}` binds **earlier native`228a7d7d804ef3c66fbabbbbc4cb96bcded81584`**: exit0,0.188778s host observation, complete direct payload equality true and whole-boot verification false. It was not repeated solely to test these later methods. Future runner metadata is corrected; its original metadata remains unchanged.
+The original run `run issue331/original-bridge-228a7d7/{receipt.json,qemu.log}` binds **earlier native`228a7d7d804ef3c66fbabbbbc4cb96bcded81584`**: exit0,0.188778s host observation, complete direct payload equality true and whole-boot verification false. It was not repeated solely to test these later methods. Future runner metadata is corrected; its original metadata remains unchanged.
 
 | Original trace | Observation |
 |---|---|
@@ -40,7 +40,7 @@ The whole inventory retains the existing source boundaries: physical mapping eff
 
 ## Source-qualified peer windows
 
-The retained official incremental source at `nightglass/work/worktrees/native-arm-exception-roots/work/incremental/closure/` now contains original decompiled C and exact Listing rows for the complete bridge family. Original native functions `102dcd5c`, `102ddc76`, `102ddfe6`, `102de336`, `102de3b2`, `102de600`, `102de666`, `102de69e`, `10387e36`, `1038816a` and `1038825e` completed without timeout, cancellation or start failure. Completed decompilation does not imply source acceptance: saved C, exact instruction ranges and physical hardware behavior remain separate. The old882-row candidate receipts above keep their original identities.
+The retained official incremental source at `nightglass/run incremental/closure/` now contains original decompiled C and exact Listing rows for the complete bridge family. Original native functions `102dcd5c`, `102ddc76`, `102ddfe6`, `102de336`, `102de3b2`, `102de600`, `102de666`, `102de69e`, `10387e36`, `1038816a` and `1038825e` completed without timeout, cancellation or start failure. Completed decompilation does not imply source acceptance: saved C, exact instruction ranges and physical hardware behavior remain separate. The old882-row candidate receipts above keep their original identities.
 
 `1038816a` clears the whole160B descriptor packet, validates each24B region and emits up to eight entries. For entry i the arrays contain: `[i] = remote_base >> 12`, `[8+i] = ~(chunk_length-1) >> 12`, `[16+i] = local_base >> 12`; the final two arrays stay guest-zero. `102ddc76` publishes all five arrays through word ports50b0..514c in the selected bank. The default MAS selector0 record maps local`40000000..50000000` to remote`c0000000..d0000000`; its requested ring`c60f0000/C618` becomes local`460f0000`. The [original peer reader](https://github.com/mashiro01/nightglass/blob/57546e1cbed483ac82dff7246c5d8dccbad02279/research/z7ii/qemu-rtos-startup-contract.md) reads that local view and compares the peer header. It does not reuse the MAS sending ring at`b7cf0000`.
 
@@ -50,7 +50,7 @@ Each window transaction resolves the current guest-published remote/mask/local t
 
 The new native C cases extend the finite configuration/lane/reset coverage and use a synthetic five-component bundle plus the standard MAS machine's real private SLA provider. They check word/unaligned halfword/64-bit forwarding, alias reconfiguration reaching the same peer bytes, bank isolation, unknown attributes and reset without erasing peer RAM. They contain no factory firmware or peer signature. Compilation and actual execution of these new cases are pending the single builder and machine/provider integration; none of the older receipts is relabeled as their validation. GPIO60/SLA handshake and external peer-event producers remain machine-owned dependencies rather than default-ready behavior in this device.
 
-The single builder subsequently compiled and linked implementation `f9096c43d15dfbd54e2b4bc99fa78326d0f5567f` with the qualified paired machine/provider stage `f114`. Its retained `work/worktrees/qemu-submodule/work/pairedbridgereceipt.log` records exit0 and exactly two native PASS: `/arm/nikon/bridge` and `/arm/nikon/bridge/peer-window`. They verify the implemented control/input protocols and real private-provider forwarding with synthetic bytes. They do not establish original peer startup, GUI completion or execution of a firmware page publisher. The compile failure caused by the new MemoryRegion and old context-word array sharing the name `window` remains historical; f909 distinguishes the MemoryRegion as `aperture` without changing the old context array or guards.
+The single builder subsequently compiled and linked implementation `f9096c43d15dfbd54e2b4bc99fa78326d0f5567f` with the qualified paired machine/provider stage `f114`. Its retained `run pairedbridgereceipt.log` records exit0 and exactly two native PASS: `/arm/nikon/bridge` and `/arm/nikon/bridge/peer-window`. They verify the implemented control/input protocols and real private-provider forwarding with synthetic bytes. They do not establish original peer startup, GUI completion or execution of a firmware page publisher. The compile failure caused by the new MemoryRegion and old context-word array sharing the name `window` remains historical; f909 distinguishes the MemoryRegion as `aperture` without changing the old context array or guards.
 
 ## Connected control requests
 
@@ -91,9 +91,9 @@ configuration cause (`0x40 != 0x20`) and old third peer-event mapping
 inputs; it does not add a producer, completion timer, guest flag write or
 ready edge. Masking, W1C, deferred completion and reset cancellation remain
 covered. All 27 native fixtures, 239 subtests pass in
-`work/research/ev3producer/nativecheck_final2.log`.
+`run research/ev3producer/nativecheck_final2.log`.
 
-Two final unchanged complete-bundle runs (`work/research/guiresume/final1/`
+Two final unchanged complete-bundle runs (`run research/guiresume/final1/`
 and `final2/`) now catch raw `0x20`, both flag4 branches, the natural MAS
 setter for handle `0xb1806f44`, and return from the configuration wait.
 Their next first rejected read is PA `0x2013e000`: MAS PC `0x102de73a`,

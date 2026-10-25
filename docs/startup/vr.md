@@ -215,7 +215,7 @@ synthetic guest registers and does not
 execute Nikon's ISR. Sole-builder qualification passed the focused ninth case
 after the busless reset registration repair (`8819090`), in 0.83 seconds with
 exit 0; the preceding eight cases passed in the original batch. The receipt is
-`work/vrpeerresetreceipt.log` in the canonical `qemu-submodule` worktree.
+`run vrpeerresetreceipt.log` in the canonical `qemu-submodule` worktree.
 
 The complete original image remains strictly stopped at bootstrap
 `fff00167`, reading the four-byte external function-pointer slot `fffc8008`.
@@ -279,9 +279,9 @@ passed focused qualification: the sole builder compiled/linked
 production input source `1706171` and qualified all five focused cases after
 fixture corrections `9401ec3`/`b6be0d8`. External-span, flash-overlay,
 flash-cancel-bounds and external-conflict exited 0 in 0.52/0.66/0.52/0.60
-seconds (`work/vrinputscalar0receipt.log` through
-`work/vrinputscalar3receipt.log`); external-rejection exited 0 in 1.44 seconds
-(`work/vrinputrejectionreceipt.log`). These receipts belong to the canonical
+seconds (`run vrinputscalar0receipt.log` through
+`run vrinputscalar3receipt.log`); external-rejection exited 0 in 1.44 seconds
+(`run vrinputrejectionreceipt.log`). These receipts belong to the canonical
 `qemu-submodule` worktree and qualified source snapshot `615a8a94d05dd44986b2fab28a66f3dc1ab7231c`.
 The existing nine peripheral cases were not rerun or changed by this group.
 
@@ -418,9 +418,9 @@ after shutdown, opens a new instance, and rejects a stream crossing the body
 boundary before either write. Untouched body bytes and full metadata are
 checked. The sole builder compiled/linked production `155e36b` and passed
 only this focused case in 1.25 seconds with exit 0; its receipt is
-`work/vrstoresectorreceipt.log` in the canonical `qemu-submodule` worktree.
+`run vrstoresectorreceipt.log` in the canonical `qemu-submodule` worktree.
 Staging independently passed with fixture `0d40bc3` in 0.44 seconds with
-exit 0 (`work/vruploadstagingdeclaredreceipt.log`). The already qualified
+exit 0 (`run vruploadstagingdeclaredreceipt.log`). The already qualified
 external-input five and peripheral nine were not rerun.
 
 QEMU's `block.c:bdrv_co_getlength()` returns sector-rounded lengths, always
@@ -479,7 +479,7 @@ production machine continues to map RAM from the input's real startup table;
 it has no added RAM alias. The sole builder compiled/linked exact production
 and fixture `3eecfaa` (RX build session 38012, exit 0), then passed only this
 focused case in 0.81 seconds with exit 0. Its receipt is
-`work/vrrecordprogressreceipt.log`, canonical snapshot
+`run vrrecordprogressreceipt.log`, canonical snapshot
 `d2d94c46c0c56a083197e5595918d150e6b0e3a0`. Prior staging and persistence
 passes were retained, and the external-input five and peripheral nine were
 not rerun. These results do not claim original firmware boot or an original

@@ -51,7 +51,7 @@ LCD start
   0x1046bf0c
 ```
 
-The passive probe is `work/runs/analysis-app-start/probe-full-chain-12480.gdb`.
+The passive probe is `run analysis-app-start/probe-full-chain-12480.gdb`.
 It prints call arguments, link registers and record/payload headers without
 writing guest memory or changing execution.
 
@@ -100,7 +100,7 @@ times, pad 6 released high, pad 0 pulsed 48 more times. The machine rejected the
 drive on a number of pads with the upstream `can't be driven externally`
 diagnostic, exactly as expected when the pin is still an output.
 
-Result (`work/runs/analysis-readout-gate/pad-pulse-024850`):
+Result (`run analysis-readout-gate/pad-pulse-024850`):
 
 ```text
 MAS_TX            462
@@ -147,9 +147,9 @@ MAS battery classifier 0x103f8ec6
 MAS report 0x103f96da       code 0x43090010
 ```
 
-Evidence: `work/runs/analysis-readout-gate/bchain-030704`,
-`work/runs/analysis-readout-gate/rwire-030851`,
-`work/runs/analysis-readout-gate/exrep-031443`.
+Evidence: `run analysis-readout-gate/bchain-030704`,
+`run analysis-readout-gate/rwire-030851`,
+`run analysis-readout-gate/exrep-031443`.
 
 The report is emitted, received and classified on the current build. Its
 classification is off because the EX I2C gates above have not completed; the
@@ -177,8 +177,8 @@ offset `+61` (and the neighbouring `0x103f8ae4` state), which the current EX
 report never populates. This is a MAS-side decode/condition question, not the
 MAS-to-EX command `0x12` path that the previous frontier note emphasised.
 
-Sweep receipt: `work/runs/analysis-readout-gate/adc1000-031617`,
-`work/runs/analysis-readout-gate/adc4095-031728`.
+Sweep receipt: `run analysis-readout-gate/adc1000-031617`,
+`run analysis-readout-gate/adc4095-031728`.
 
 ### Why the EX report leaves `+61` zero
 
@@ -265,9 +265,9 @@ The next probe should read the raw client-4 body fields
 at the decode, to identify which finite source the model must supply. The
 command `0x12` MAS-to-EX path is not on this chain.
 
-Evidence: `work/runs/analysis-readout-gate/dec-032201`,
-`work/runs/analysis-readout-gate/src61-031911`,
-`work/runs/analysis-readout-gate/cls-032035`.
+Evidence: `run analysis-readout-gate/dec-032201`,
+`run analysis-readout-gate/src61-031911`,
+`run analysis-readout-gate/cls-032035`.
 
 ## The exact EX power-state gate
 
@@ -339,7 +339,7 @@ but the guest then aborted because
 the rest of the factory config block is absent. So a valid EX factory config
 block at `0x08004000` is the required finite external input; the extracted
 firmware does not contain it. Receipts:
-`work/runs/analysis-readout-gate/make-034221`, `make2-034406`.
+`run analysis-readout-gate/make-034221`, `make2-034406`.
 
 ## EX factory config: built-in synthetic data
 
@@ -416,7 +416,7 @@ undriven (low), which is why the configured `f644[0]=0` path stalls.
 
 Counterfactual (temporary board drive, reverted): replaying
 `nikon_ex_gpio_input(ex, 3, 13) = 1` lets the configured `f644[0]=0` boot
-reach channel-open and the SPI RX; `work/runs/analysis-readout-gate/gpd13-*`.
+reach channel-open and the SPI RX; `run analysis-readout-gate/gpd13-*`.
 With the drive plus the earlier file-based synthetic block, the EX transport is reached but the
 client-4 battery report still does not form in the 150 s window, so the board
 line is necessary but not yet sufficient.
@@ -504,7 +504,7 @@ is the service/data-ready callback that reaches `0x08034168`.
 
 ## MAS ingress and EX power-I2C follow-up
 
-A passive MAS trace on the clean functional profile (`work/runs/analysis-readout-gate/masdrop5-063852`) separates the earlier “dropped-frame” suspicion from the power report. The ingress loop at `0x10205406` saw 25 candidate frames in the first window; every observed client id was below `0x12` (including the accepted `client=0x04` report), so no high-client rejection carried the missing power transition. The client-4 report arrived repeatedly as `class=0x02, len=0x70` and reached both `0x1038a6aa` and `0x103f96da`.
+A passive MAS trace on the clean functional profile (`run analysis-readout-gate/masdrop5-063852`) separates the earlier “dropped-frame” suspicion from the power report. The ingress loop at `0x10205406` saw 25 candidate frames in the first window; every observed client id was below `0x12` (including the accepted `client=0x04` report), so no high-client rejection carried the missing power transition. The client-4 report arrived repeatedly as `class=0x02, len=0x70` and reached both `0x1038a6aa` and `0x103f96da`.
 
 At those callbacks the report header/body bytes began:
 
@@ -642,7 +642,7 @@ the EX firmware itself.  There is no basis for synthesizing event 4 or for
 adding a generic MAS 256-byte frame to the power contract.
 
 The static scan supporting this closure is recorded in
-`work/runs/analysis-ex-power-adc/receipt.md`; it covers the GPIO test tables,
+`run analysis-ex-power-adc/receipt.md`; it covers the GPIO test tables,
 the config table at `0x2000e79c`, the event setter/queue, and the battery
 threshold path.  Earlier notes that described the unresolved boundary as a
 generic service/data-ready callback remain useful for the adjacent service
@@ -668,7 +668,7 @@ while id1 (the main config pointer passed to `0x08029418` and
 `0x08032c4e`) begins at `0x08004010`.  Therefore a file copied at id0 offset
 `0x4000` must place `config[276]` at file offset `0x124` (payload offset
 `0x4124`) and `config[541]` at file offset `0x22d` (payload offset `0x422d`).
-Some earlier ignored `work/runs/ex-config-sim/cfg-*` files placed those fields
+Some earlier ignored `run ex-config-sim/cfg-*` files placed those fields
 at the id0-relative offsets without the `0x10` view adjustment; they are not
 valid evidence for the main-config values.  The built-in profile uses the
 corrected id1 mapping.
@@ -779,7 +779,7 @@ functional run is the `0x6b` I2C endpoint above.
 
 ## Clean-source ordering and the adjacent `0x0d` service
 
-The clean-source run (`work/runs/analysis-readout-gate/clean-gate2-074950`)
+The clean-source run (`run analysis-readout-gate/clean-gate2-074950`)
 separates the two transactions instead of treating every I2C failure as one
 power signal:
 
@@ -1038,7 +1038,7 @@ and no `0x2c0a0000`/`0x2c0a0100` write. This reproduces the scheduler/data-path
 stop on the current binary without treating the stale dynamic receipts as a
 current firmware run.
 
-The historical ignored run `work/runs/ex-battery-runtime/trace-notif7/` used
+The historical ignored run `run ex-battery-runtime/trace-notif7/` used
 an older functional bundle and descriptor with GDB breakpoints at
 `0x080214fe`, `0x0802f484`, `0x0802ea70`, `0x08033b1c`, `0x0803459c`, and
 `0x0803423c`. It watched byte writes at `0x20014074` and word writes at the
@@ -1083,7 +1083,7 @@ after downgrading the receive-buffer watchpoint at `0x20017b76`, and its log
 stopped before the service-start chain.
 
 A follow-up probe without RAM watchpoints captured the actual EX start chain in
-`work/runs/ex-battery-runtime/ex-start-probe/gdb.log`. It saw the power
+`run ex-battery-runtime/ex-start-probe/gdb.log`. It saw the power
 completion path (`0x0803813a -> 0x08037eac -> 0x08021418 -> 0x0802138a`),
 then `0x08034210`/`0x0803422a` with `r0=1`, followed by RX start
 `0x08034580`, TX start `0x08034a04`, RX worker `0x0803459c`, and TX worker
@@ -1345,7 +1345,7 @@ The source-backed generic data sender `0x10367fe0` does build a mode-0 command
 and calls `0x10370a14`, so the image contains a legal data path. Its selector is
 initialized by `0x10367ec0` as
 `b18a7808 = sub_10368b0a(7)`. The new unmodified receipt
-(`work/runs/ex-battery-runtime/mas-channel-receipt/gdb.log`) reads that selector
+(`run ex-battery-runtime/mas-channel-receipt/gdb.log`) reads that selector
 as channel `8`, i.e. object `0x2c0a0800`; it also reads MAS TX channel `0` and
 RX channel `1`, with every observed MAS command still `mode=1`. The earlier
 `ssi-api-probe` channel-6 calls belong to another configuration object and are
@@ -1361,7 +1361,7 @@ producer. Event-6 cannot supply a mode-0 transfer.
 helper that stores through the device pointer at `[a1+28]`) records
 `datareg=0x2c0a0000` (TX channel 0) with 0x80-byte frames split into 0x20-byte
 stores, and `datareg=0x2c0a0100` (channel 1) for the RX task argument
-(`work/runs/ex-6b-ercd/probeMAS3.gdb.log`). The earlier sentence that the
+(`run ex-6b-ercd/probeMAS3.gdb.log`). The earlier sentence that the
 mode-1 path produces no observed SSI0/1 write is withdrawn.
 
 The direct-xref audit remains valid for the mode-0 set. `0x10370a14` has nine
@@ -1376,7 +1376,7 @@ untraced mode-0 caller.
 
 A minimal unmodified runtime probe placed only one breakpoint at
 `0x102437f0`. Over its ten-second window the target exited normally and the
-mode-0 engine had zero hits (`work/runs/ex-battery-runtime/ssi-mode0-watch/gdb.log`).
+mode-0 engine had zero hits (`run ex-battery-runtime/ssi-mode0-watch/gdb.log`).
 This independently confirms that the absence of an SSI0/1 mode-0 hit is not a
 side effect of the higher-volume configuration probes.
 
@@ -1485,18 +1485,18 @@ of host execution shows MAS CPU0/CPU1 in the kernel idle loop
 STOPF (bit 4).
 
 A hardware-breakpoint probe at `sub_80442c4`
-(`work/runs/ex-i2c-entry/gdb.log`) records the active transfer as
+(`run ex-i2c-entry/gdb.log`) records the active transfer as
 `a2=0x9e` (0x4f write address), `a3=0x23`, `a4=1`, `a5=0x20008928`,
 `a6=1`, `a7=1000`, called from `sub_80387e8` at `0x08038857`. The same probe
 shows the 0x22 three-byte read from `sub_802fdf0`; the 0x6b/0x0d setup is not
 reached. A second probe at `sub_8047584`
-(`work/runs/ex-i2c-wait/gdb.log`) records `base=0x40005400`,
+(`run ex-i2c-wait/gdb.log`) records `base=0x40005400`,
 `buf=0x20008928/0x20008929`, `count=1`, and `SR1=0` on every sample.
 
 `sub_80387e8` writes the expected value to 0x4f register `0x23` with
 `sub_804472c`, then reads it back three times. The read side was the blocker:
 the firmware saw neither RXNE nor STOPF. A `hbreak` at `0x08047192`
-(`work/runs/ex-i2c-sr1b/gdb.log`) records SR1 `0x46` (ADDR+RXNE+BTF)
+(`run ex-i2c-sr1b/gdb.log`) records SR1 `0x46` (ADDR+RXNE+BTF)
 immediately after both the 0x22 (`0x45`) and 0x4f (`0x9f`) read addresses.
 The HAL's ADDR wait then saw `0x44`, but the subsequent RXNE/STOPF wait saw
 `0`. The receive byte was filled and then cleared between the address and the
@@ -1511,15 +1511,15 @@ last DR read retires RXNE/BTF. The native
 sequence. With that change the 0x4f readback completes.
 
 A hardware-breakpoint probe on the new binary
-(`work/runs/ex-i2c-fixed/gdb.log`, `work/runs/ex-setup-ret/gdb.log`,
-`work/runs/ex-setup-stop/gdb.log`) records `SETUP_B40C` at `0x0802b40c` with
+(`run ex-i2c-fixed/gdb.log`, `run ex-setup-ret/gdb.log`,
+`run ex-setup-stop/gdb.log`) records `SETUP_B40C` at `0x0802b40c` with
 descriptor bytes `0,0,1,1,0,0`, `sub_802b014` mode 0 write `0` repeated, the
 0x6b write returning `0`, and the STOP/wait returning `0`. No `READ_RET` at
 `0x0802b074` and no compare at `0x0802b0d6` are reached.
 
 The 0x6b **read** (`sub_802ae48`) is the current stop. A hardware-breakpoint
-probe (`work/runs/ex-6b-read/gdb.log`, `work/runs/ex-6b-ret/gdb.log`,
-`work/runs/ex-6b-sr2/gdb.log`, `work/runs/ex-6b-464c/gdb.log`) records the
+probe (`run ex-6b-read/gdb.log`, `run ex-6b-ret/gdb.log`,
+`run ex-6b-sr2/gdb.log`, `run ex-6b-464c/gdb.log`) records the
 read entry with handle `0x2001fdcc`, base `0x40005400`, SR2 `0`, state
 `0x20`; `sub_804464c` is entered with the same SR2/state, runs its post-loop
 setup, writes CR1 ACK/START, and does not return to `0x0802ae78` within the
@@ -1583,23 +1583,23 @@ icount derives `QEMU_CLOCK_VIRTUAL` from executed instructions, so peripheral
 byte timers advance with guest progress instead of wall clock, and `shift=6`
 (64 ns per instruction) matches one instruction per cycle at the modelled
 16 MHz HSI.  icount is incompatible with multi-threaded TCG.  The wall-clock
-base is kept for A/B comparison (`work/runs/ex-6b-ercd/run-wallclock.sh`);
+base is kept for A/B comparison (`run ex-6b-ercd/run-wallclock.sh`);
 receipts across time bases must be compared by guest progress, not wall
 seconds.
 
 Two later harness changes keep the same time base but remove wall-clock cost:
 
-- `-icount shift=6,sleep=off` (`work/runs/ex-6b-ercd/run-fast.sh`) stops QEMU
+- `-icount shift=6,sleep=off` (`run ex-6b-ercd/run-fast.sh`) stops QEMU
   from idling to keep virtual time equal to real time, so one wall second covers
   far more guest progress at the identical 64 ns per instruction.  A state that
   needed a 420 s throttled window arrives in about 10 s.
 - Static "who references this" scans must cover unconditional `B`/`B.W` as
-  well as `BL`/`BLX`: `work/brscan.py` does both, `work/blscan.py` only calls.
+  well as `BL`/`BLX`: `run brscan.py` does both, `run blscan.py` only calls.
   Several earlier "no reference" results were `B`-only references (see the
   event-0x39 correction), while the EGL present wrapper stays unreferenced
   under both scanners.
 - Execution coverage is measured with `-dfilter ADDR+SIZE -d exec,guest_errors`
-  (`work/runs/ex-6b-ercd/run-df.sh`) and aggregated from the trace, because
+  (`run ex-6b-ercd/run-df.sh`) and aggregated from the trace, because
   GDB execution breakpoints detach the QEMU stub in this configuration after
   their first hit (data watchpoints stay connected).  A zero-hit coverage line
   is a direct execution fact, not a probe artefact.
@@ -1677,7 +1677,7 @@ The "no `0x2c0a0000`/`0x1024...` FIFO write" item is an instrumentation
 artifact. `0x10370A14` has nine code callers and no data references; the mode-1
 engine `0x10243380` pumps through `0x1024325C`, and `0x102436EC` (called from
 the RX branch) is a second writer to the same `device+0x00` data register with
-the same `SR` bit4 gate. Existing receipts under `work/runs/ex-battery-runtime/`
+the same `SR` bit4 gate. Existing receipts under `run ex-battery-runtime/`
 record the worker callback storing state `2->1` with `lr=0x10370a7b`, the
 channel-1 context stepping `tx_index` `0 -> 32 -> ... -> 128`, and the final
 object at `tx_index=128/128` with a shifting model FIFO. Fifteen probe scripts
@@ -2408,7 +2408,7 @@ lanes ctx+0..4        = 0 0 0 0 0
 Later in the same window the UI dispatcher takes `0x42010001` and draws
 `720x480` at `0xbf309600`, which the machine log names `lcd-composition-base`.
 **That surface stays empty in the later runs:** a RAM dump after 30 s and after
-90 s of unthrottled shift-6 execution (`work/runs/ex-6b-ercd/run-dump2.sh`,
+90 s of unthrottled shift-6 execution (`run ex-6b-ercd/run-dump2.sh`,
 `probeFB4`/`probeFB5`) finds `0xbf309600`, `0xcb4a7000` (`display-buffer-base`)
 and `0xbec5f200` (resource-57 record 0) entirely zero, while the app draw
 `0x10569c76` executes 41 times in 300 s.  The single earlier sighting of the
@@ -2431,7 +2431,7 @@ that arms the owner and fills the provider mailbox.  Two candidates remain:
    ready/manager, and
 2. an image provider object that would fill `0xB1D020A0`.
 
-`work/runs/ex-6b-ercd/probeDMSVC.gdb` watched the F0 router `0x104c6b14`,
+`run ex-6b-ercd/probeDMSVC.gdb` watched the F0 router `0x104c6b14`,
 admission `0x104d7e78`, the ready setter `0x104d7f16`, the manager setter
 `0x104d79ea`, the owner event method `0x104dcd16`, the owner callback
 `0x104dc804`, the two service handlers `0x10502d0a`/`0x10502db8` and the
@@ -3056,7 +3056,7 @@ writes a pixel into the composition buffer in this boot.
 ### Key assistance does not drive the chain (measured)
 
 The model already maps seventeen host keys onto the EX GPIO pads
-(`hw/nikon/devices/input.c`).  A 60 s assisted run (`work/runs/ex-6b-ercd/
+(`hw/nikon/devices/input.c`).  A 60 s assisted run (`run ex-6b-ercd/
 run-assist.sh`) pressed `F1..F5` and `1..3` in four rounds at 8/16/24/32 s
 through QMP `input-send-event`, with a `-dfilter` over the display frontier and
 a panel screendump at the end:
@@ -3283,7 +3283,7 @@ classic job, no stream job, therefore no completion and no IRQ129 in this boot.
 
 `-d cpu` with `-dfilter 0x1062EDDC+0x3C4` logs the full register state of every
 executed block inside the function, which turns the branch question into a
-direct reading (`work/runs/ex-6b-ercd/probeCPUF`, 60 s unthrottled):
+direct reading (`run ex-6b-ercd/probeCPUF`, 60 s unthrottled):
 
 ```text
 pc=1062eddc r4=b181d8a4 r0=10437a6f lr=10437a79   entry, called from 0x10437a74
@@ -3422,7 +3422,7 @@ the `0x1053CF66` callback registered as its first entry.
 
 ### Coverage says exactly which of these run (unthrottled shift 6, 300 s)
 
-A `-dfilter`/`-d exec` run (`work/runs/ex-6b-ercd/run-df.sh probeLONG`) over the
+A `-dfilter`/`-d exec` run (`run ex-6b-ercd/run-df.sh probeLONG`) over the
 frontier addresses plus the ROM range of the GUI framework gives:
 
 | Address | Meaning | Executions in 300 s |
@@ -4908,7 +4908,7 @@ exists.  See `docs/startup/vrdomain.md` for the full record.
 
 The peer transport makes the guest's SPI4 traffic observable without touching the
 model: run the camera with `nikon-spi-peer` on `/machine/spi4` and read the
-40-byte peer envelope from the chardev (`work/runs/ex-6b-ercd/cap-vr.py`).
+40-byte peer envelope from the chardev (`run ex-6b-ercd/cap-vr.py`).
 
 Without answering any clock request, the guest asserts select, clocks exactly
 one byte `0xD0`, then cancels and retries - 14 times in 40 s.  So `0xD0` is the

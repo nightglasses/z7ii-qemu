@@ -1,32 +1,75 @@
-# Z7II 原版两核入口与下一时钟阻断
+# Original two-core entry and the next clock boundary
 
-2026-10-08；[QEMU: recover IRQ timer RTOS and interprocessor startup dependencies](https://github.com/mashiro01/nightglass/issues/331)、[QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330)。两核模型已实际构建，合成 WFE/DSB/SEV 握手通过。**原版 MTTCG 记录到 CPU1 的 WFE 后续 PC，同时 CPU0 仍在 `0x0428102c` 首次时钟读上失败。没有越过该阻断，没有验证原版 magic 释放、内核首派、tick 或 GUI。**
+Historical checkpoint, 2026-10-08,
+[issue331](https://github.com/mashiro01/nightglass/issues/331) /
+[issue330](https://github.com/mashiro01/nightglass/issues/330).
+The two-core model built and its synthetic WFE/DSB/SEV handshake passed.
+Original MTTCG observed CPU1 after WFE while CPU0 still failed its first clock
+read at0428102c. Original magic release, kernel dispatch, tick and GUI were
+not established.
 
-Machine C 固定 `942de88`，上游固定 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`。本实施线实际完成 macOS ARM 增量 Ninja、合成测试与原版观测；没有替换原指令、设置 PC 跳过 clock、填共享 magic 或改 `O0x178`。输入是原 `02_eg1840_mas_01700.payload.bin`，38,239,096 字节；两个原版收据均记录直接内容不变，入口仍 `20 2f 00 ea`，`O0x178` 仍 `fe ff ff ea`。
+Machine942de88 used upstream4fc49f46dc95d4a27de2509e7fceb2931e91faeb.
+Native macOS ARM build, synthetic tests and original observations were
+completed without instruction/PC changes or host magic injection. The original
+38,239,096-byte MAS input remained directly equal in both receipts; entry
+was20 2f 00 ea and O178 remainedfe ff ff ea.
 
-## 初始软件合同与映射
+## Software contract and bounded mappings
 
-Nikon 原配置的真实文本生产链给出 `TSysPrNum=2`、`TKerPrNum=2`、`TTimPeriod=1`；descriptor `+4` 实际由 `O0x308` 写入 `O0x260` 重装函数，`+0xc` 才是停止函数 `O0x254`。CPU0 的原 `O0xd848` 向 `0x04008ffc` 写 `0xbabebabe`，随后 DSB/SEV；非零 selector 路径在 `O0xbfa4` WFE、DMB、读/比较、清零并返回共同入口。证据见[固定 RTOS 启动合同](https://github.com/mashiro01/nightglass/blob/aa759231295a8b20662ca35f3d313b1bff7035b2/research/z7ii/qemu-rtos-startup-contract.md)。这是软件默认值和生产/消费链，不是实机 CPU 型号、全部物理 core 数或 CBAR 的测量。
+The original configuration producer gives TSysPrNum=2, TKerPrNum=2 and
+TTimPeriod=1. Descriptor+4 is the reload function O260 written at O308;
++c is stop O254. CPU0 Od848 writes04008ffc=babebabe and executes DSB/SEV.
+The nonzero-selector path performs WFE at Obfa4, DMB, reads/compares, clears
+the word and returns to common entry. See the
+[pinned RTOS contract](https://github.com/mashiro01/nightglass/blob/aa759231295a8b20662ca35f3d313b1bff7035b2/research/z7ii/qemu-rtos-startup-contract.md).
+These are software defaults and flow, not physical core/CBAR measurements.
 
-默认创建两个现成 Cortex-A7，两个 reset PC 均为候选 `0x10020000`、ARM state；MPIDR、CPU index、WFE/SEV、异常及内存序全部保留上游。A15MPCore `num-cpu=2`、`num-irq=256`，IRQ/FIQ/virtual 输出按官方[多核 VExpress 模式](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/arm/vexpress.c#L214-L270)连线；每核 secure timer 仍由上游连接 PPI 29。CPU 型号、CBAR `0x1d000000` 和诊断物理装载仍是[已列模型假设](../devices/memc/protocol.md)。小型单核夹具明确指定 `-smp 1`。
+The profile creates two upstream Cortex-A7 cores at candidate reset PC10020000,
+ARM state, retaining upstream MPIDR, indices, WFE/SEV, exceptions and ordering.
+A15MPCore uses num-cpu2/num-irq256 and
+[upstream VExpress wiring](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/arm/vexpress.c);
+each secure timer uses PPI29. CPU identity, CBAR1d000000 and physical loading
+are [model assumptions](../devices/memc/protocol.md). Single-core fixtures
+explicitly select -smp1.
 
-仅新增 cold-zero RAM `[0x04008ffc,0x04009000)` 四字节，host 不写 magic。CPU1 SVC 的原 SP 为 `0xb2b84000`；入口、表迁移和 cache clean 的原 PUSH 闭包为 `8+8+max(8,56)=72` 字节，所以只映射 `[0xb2b83fb8,0xb2b84000)`。其余 CPU1 栈容量仍未提供，不能拿 `selector<<14` 的 stride 扩成 16 KiB 新 RAM。既有 CPU0 栈槽假设与复制窗口保持原范围。[固定 72 字节推导](https://github.com/mashiro01/nightglass/blob/b75f77140fa05d5d5e75e3a32ed0d58961ebc906/research/z7ii/qemu-rtos-startup-contract.md)
+Only cold-zero [04008ffc,04009000) was added for the magic word; host code
+does not set it. CPU1 SVC SP isb2b84000. The entry/table/cache PUSH closure
+is8+8+max(8,56)=72 bytes, so only[b2b83fb8,b2b84000) is mapped.
+The selector<<14 stride does not justify another16KiB stack. See the
+[pinned72-byte derivation](https://github.com/mashiro01/nightglass/blob/b75f77140fa05d5d5e75e3a32ed0d58961ebc906/research/z7ii/qemu-rtos-startup-contract.md).
 
-## 两次真实原版观测
+## Two original observations
 
-薄入口 `scripts/run.py` 直接使用上游 `qemu.machine.QEMUMachine`，记录真实 argv、每核初末寄存器和直接字节比较。QMP 的 HMP 调用是[无状态接口](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/qapi/misc.json#L218-L258)，每核寄存器通过同一次调用的 `cpu-index` 指定，不能靠之前的 HMP `cpu 1` 命令保留选择。短 socket 位于 `/tmp/ng-*`。
+The historical thin runner used official QEMUMachine and recorded argv,
+per-core registers and direct input comparisons. HMP over QMP is
+[stateless](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/qapi/misc.json):
+cpu-index must be supplied in each call; a previous cpu1 command is not a
+persistent selection.
 
-| 记录 | 直接观察 |
+| Run | Observed result (addresses/values hexadecimal) |
 |---|---|
-| `work/issue331/original-two-core-942de/receipt.json`；TCG `thread=single` | 两个 CPU 已存在，但 CPU0 在 scheduler 切到 CPU1 前触发时钟读错误；CPU1 最终 PC 仍 `0x10020000`、SP=0。这次不能证明 CPU1 已执行 WFE |
-| `work/issue331/original-two-core-mtcg-first/receipt.json`；TCG `thread=multi` | CPU1 实际走到 WFE 路径：最终 PC `0x1002bfa8`，恰为原 `0x1002bfa4 WFE` 的后续 DMB；SP `0xb2b84000`，R0=`0x04008ffc`，R2=`0xbabebabe`，CPSR=`0x200001d3`。它尚未读后清 magic 或进入共同入口；CPU1 的 72 字节栈映射在此轮尚未被实际消费 |
-| 两次 CPU0 第一拒绝 | PC `0x1002d70c`，诊断 PA `0x0428102c`，32-bit read，`MEMTX_ERROR`；随后上游 Data Abort，最终 PC `0x10100010`、CPSR `0x600001d7`、SP `0xb2ba8000`、LR `0x1002d714` |
-| 两次结束 | QMP status=`debug`，running=false，进程退出码 0，原 payload 直接内容相同；主机会话分别约 0.071 s / 0.274 s，均不是 boot 耗时或 EXPEED 性能 |
+| original-two-core-942de, single-thread TCG | Both CPUs existed; CPU0 faulted before CPU1 scheduling. CPU1 PC10020000/SP0 does not prove WFE execution |
+| original-two-core-mtcg-first, MTTCG | CPU1 PC1002bfa8, the DMB after WFE1002bfa4; SPb2b84000,R0=04008ffc,R2=babebabe,CPSR200001d3. No subsequent magic read/clear/common entry was observed; its72-byte stack was not yet consumed |
+| CPU0 in both | PC1002d70c READ32 PA0428102c, MEMTX_ERROR; Data Abort; final PC10100010,CPSR600001d7,SPb2ba8000,LR1002d714 |
+| Completion in both | QMP debug/running=false, process exit0, original payload unchanged; host sessions about0.071s/0.274s, not boot times |
 
-MTTCG 的 CPU1 停点说明原等待路径已到达，与 WFE 等待相符；收据只承诺观察到的 PC 和寄存器，不把这一点扩成 SMP 初始化、共享 magic 已由 CPU0 生产或首派成功。CPU0 尚未执行后面的 magic writer。原收据、日志和此前失败测试记录均保留，未覆盖。
+The observed CPU1 PC is compatible with the original wait path; it does not
+prove CPU0 produced magic, SMP initialization or first dispatch. CPU0 had not
+executed the later magic writer.
 
-## 验证范围与下一合同
+## Validation scope and next contract
 
-Native 增量构建退出 0；`work/issue331/startup-single-smoke` 四字节 ARM self-loop 通过；`startup-device-smoke` 的 15 个合同全部退出 0，包括共享 word 外的上下边界失败；`startup-smp-r2` 两核合成握手通过。合成 master/secondary 仅由 guest 代码写 RAM flags、magic 与清零，通过真实 WFE/DSB/SEV 完成，未靠 QMP 注入 ready；它不是原版握手成功证据。首次合成测试因误用无状态 HMP CPU 选择而失败，记录保留在 `startup-smp-first`，修正的是观测 API，未修改 C 来绕断言。
+Native incremental build exited0. startup-single-smoke passed a four-byte
+ARM loop; all15 startup-device-smoke contracts passed, including shared-word
+edge faults; startup-smp-r2 passed the synthetic two-core handshake. Only
+guest instructions wrote/cleared flags and magic using actual WFE/DSB/SEV.
+The first synthetic attempt failed because HMP CPU selection was incorrectly
+treated as persistent; the observation API was corrected without bypassing
+device assertions.
 
-下一项仍是 `0x04281000+0x2c` 在 MAS entry 前的真实初始值及整块寄存器语义。新公开 M10V/SC2000 的 `+0x28/+0x2c` 是不同 CLKSEL 布局，不能据它生成此处的 PLL reset 值；没有可信 reset 或 preloader 输入时，模型保持失败。后继 counter、domain completion、NOR、UART 与 IPC 会按真实命中顺序实现完整写/状态/IRQ/ack 合同，不能仅把读值设 ready。原 reset/kernel callback 的公开软件链可自然到 `O0x294→Thumb O0x1e0034`，仍需实际运行验收；它不授权 patch、跳过或删除原 `O0x178`。模型覆盖不证明真实 Flash、BootROM、calibration、硬件健康或 EXPEED 性能。
+At this checkpoint, the unresolved contract remained04281000+2c initial state
+and the surrounding clock registers. Public M10V/SC2000 CLKSEL offsets28/2c
+do not justify a Nikon PLL reset value. Later devices require their own
+write/status/IRQ/ACK contracts; the software path O294→Thumb O1e0034 does
+not authorize skipping O178. Later progress is in the
+[current frontier](../validation/frontier.md).

@@ -2,7 +2,7 @@
 
 ## Original source contract
 
-Provider: `zero-domain-source/work/sla-whole-source-11/sla.S` and its original
+Provider: `zero-domain-source/sla.S` and its original
 `sla-rows.jsonl`, complete `10093DC0..10094320` family. This audit uses the
 published original instructions and literal bindings; no new decoding, inferred
 function roots or runtime qualification is claimed. The first cfd SLA runtime
@@ -87,5 +87,5 @@ commit, unbracketed setters, retained optional parameters, all three explicit
 providers, selective and same-word W1C, interrupt masking, cancellation, no
 spontaneous completion and reset with a held external level. The sole builder
 compiled and executed the focused private-SLA case with exit0 in1.30s;
-its ignored receipt is `work/slastagingnativereceipt.log`. It establishes this
+its ignored receipt is `run slastagingnativereceipt.log`. It establishes this
 functional contract, not a recovered physical producer or original completion.

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: mxic-20261022
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/config/readview - ERROR:../../config/source/tests/qtest/nikon/config.c:76:selectors: assertion failed (qtest_readl(q, CONFIG + offset) == value): (0x00000000 == 0x00000010) FAIL
+▶ 1/1                                  ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           0.81s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/config.c:76:selectors: assertion failed (qtest_readl(q, CONFIG + offset) == value): (0x00000000 == 0x00000010)
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           0.81s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

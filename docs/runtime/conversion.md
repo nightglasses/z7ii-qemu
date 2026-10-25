@@ -18,7 +18,7 @@ profiles and retained SRC_OVER. All20 transfer native subtests pass; the
 ## Original command contract
 
 All code/buffer addresses below are MAS VAs. Raw56/434-word commands are in
-`work/runs/imagetransfer-20261023/`, observed at entry`106ee04a`,
+`run imagetransfer-20261023/`, observed at entry`106ee04a`,
 LR`106eeab9`, descriptor`b545e79c`, command sources`bd0dff90/bd15ff90`.
 Unlike the older small byte-LUT fixture, this is a full image transaction.
 
@@ -47,7 +47,7 @@ The original builder`106b55a2` calls`10646360→10646500` for destination
 low format bits greater than4; the latter packs signed halfword coefficient
 fields into the observed conversion registers. It is not an f24 matrix.
 Read-only producer/decode receipts are in
-`work/runs/yuvmodel-20261023/{yuvbuilder,yuvcoeff,nextcommands}.json`.
+`run yuvmodel-20261023/{yuvbuilder,yuvcoeff,nextcommands}.json`.
 
 The fixed [Z7 source sampler and SRC blend](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L304-L439)
 corroborates normalized f24 image sampling, direct memory rows and six-row
@@ -85,7 +85,7 @@ output or successful completion. Only successful work raises IRQ129.
 
 ## YUV105 validation
 
-`work/runs/yuvmodel-20261023/red.log` shows rejection of a valid synthetic
+`run yuvmodel-20261023/red.log` shows rejection of a valid synthetic
 transaction on the preceding parser. `green.log` passes all11 native transfer
 cases. The new fixture uses seven known RGB/YUV colors, differing adjacent
 pixels and source rows, independently tabulated chroma, a floating-point
@@ -152,7 +152,7 @@ below. This does not preserve arbitrary GPU register programs.
 
 ## YUVA107 validation and current stop
 
-`work/runs/yuva107-20261023/red.log` records valid scaled-profile rejection
+`run yuva107-20261023/red.log` records valid scaled-profile rejection
 before implementation. `green-final.log` passes all12 native transfer cases.
 The new case tests seven colors with0/64/128/255 alpha, an independent floating
 sampler oracle, every packed/alpha output byte, transparent SRC edge retention,
@@ -202,7 +202,7 @@ numerator including rounding is4,236,541,312, within32-bit unsigned range.
 All previous full-span, backing-alias, deferred-read and atomic-write checks
 also cover this continuation; unknown blend/sampler/LUT/mask state rejects.
 
-`work/runs/srcover-20261024/red.log` records the previous model rejecting a
+`run srcover-20261024/red.log` records the previous model rejecting a
 valid initialized continuation. `green-final.log` passes all13 native transfer
 cases. The new case uses independently tabulated white-over-blue YUV/alpha
 for source alpha0/64/128/255 and old alpha0/128/255, checks every output byte

@@ -34,7 +34,7 @@ The DDR device called SDI is unrelated to this storage endpoint.
 
 These execution addresses belong to the C1.70 MAS outer image. The local original
 Listing/P-code projection is
-`nightglass/work/worktrees/qemu-rtos-startup/work/storage/source/`:
+`nightglass/run storage/source/`:
 101 complete entry providers, 3,883 unique original instructions, 330 direct calls,
 2,835 expression nodes and 43 indirect transfers. The original instruction bytes,
 mode, reference sites and expression producers remain in the projection. This is
@@ -208,7 +208,7 @@ training producer10517c6a accesses them before PHY start.
 The existing SLA SOURCE11 Listing was audited as a complete related family,
 rather than assigning a role from address similarity. Source ROM execution
 addresses below use `O = VA - 10020000` in component04. The bounded original
-projection is `nightglass/work/worktrees/qemu-rtos-startup/work/storage/sla/`:
+projection is `nightglass/run storage/sla/`:
 `family.json` retains 4,050 original rows and incoming reference sites;
 `phy.json` retains the 821 low-level rows and every observed PHY-offset access.
 The existing source has not been accepted as recovered, compiled source, and
@@ -284,7 +284,7 @@ loop BIOS and the same real backend:
 
 The sole builder compiled and linked the complete host with the actual board
 mapping, then ran all three added host cases successfully in 0.71s. The local
-receipt is `work/worktrees/native-qemu-source/work/validation/gui/storageqomfinal.log`.
+receipt is `run validation/gui/storageqomfinal.log`.
 The tests do not claim original frame-save execution, racing Abort, or card hot
 removal. Build and execution are delegated to the single native
 build owner. The sole build owner ran these three cases successfully in 0.78 s;
@@ -303,13 +303,13 @@ a manufactured link. This catches the duplicate-root-path abort that separate
 MAS and SLA invocations cannot detect. The sole builder compiled production
 and fixture from `c245e238`; the dual-host case exited0 in1.38s and the existing
 roundtrip/cancellation lifecycle case exited0 in1.22s. Their ignored receipts
-are `work/storagedualdomainsnativereceipt.log` and
-`work/storageidentityroundtripnativereceipt.log`. Synthetic input does not
+are `run storagedualdomainsnativereceipt.log` and
+`run storageidentityroundtripnativereceipt.log`. Synthetic input does not
 establish original firmware execution or a frame save.
 
 The private AddressSpace selection was compiled as part of fixed source
 `7f241eb9`. Its necessary native host regression exited0 in1.32s, and the
-cancellation roundtrip exited0 in0.15s: `work/storagedomainhostnativereceipt.log`
-and `work/storagedomainroundtripnativereceipt.log`. These are the existing
+cancellation roundtrip exited0 in0.15s: `run storagedomainhostnativereceipt.log`
+and `run storagedomainroundtripnativereceipt.log`. These are the existing
 synthetic host interfaces; they do not establish original SLA DMA execution,
 physical link training or an original frame save.

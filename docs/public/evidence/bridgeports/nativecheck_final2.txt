@@ -1,0 +1,35 @@
+Native test output excerpt
+Run: bridgeports
+Original log: nativecheck_final2.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+ 1/28 unit+nikon - qemu:nikon_bundle                OK              0.01s   3 subtests passed
+ 2/28 unit+nikon - qemu:nikon_memory_unit           OK              0.07s   2 subtests passed
+ 3/28 unit+nikon - qemu:nikon_copy_unit             OK              0.06s   1 subtests passed
+ 4/28 unit+nikon - qemu:nikon_transfer_unit         OK              0.06s   1 subtests passed
+ 5/28 unit+nikon - qemu:nikon_bridge_unit           OK              0.06s   2 subtests passed
+ 6/28 unit+nikon - qemu:nikon_command_unit          OK              0.06s   2 subtests passed
+ 7/28 unit+nikon - qemu:nikon_input_unit            OK              0.06s   1 subtests passed
+ 8/28 unit+nikon - qemu:nikon_readout_unit          OK              0.06s   1 subtests passed
+ 9/28 unit+nikon - qemu:nikon_lookup_unit           OK              0.06s   6 subtests passed
+10/28 unit+nikon - qemu:nikon_exreset_unit          OK              0.07s   1 subtests passed
+11/28 unit+nikon - qemu:nikon_save_unit             OK              0.06s   3 subtests passed
+12/28 nikon+qtest+qtest-arm - qemu:nikon            OK             27.76s   94 subtests passed
+13/28 nikon+qtest+qtest-arm - qemu:nikon_timer      OK              0.67s   4 subtests passed
+14/28 nikon+qtest+qtest-arm - qemu:nikon_dma        OK              1.14s   7 subtests passed
+15/28 nikon+qtest+qtest-arm - qemu:nikon_memory     OK              2.37s   8 subtests passed
+16/28 nikon+qtest+qtest-arm - qemu:nikon_usio       OK              1.05s   5 subtests passed
+17/28 nikon+qtest+qtest-arm - qemu:nikon_cmos       OK              0.98s   6 subtests passed
+18/28 nikon+qtest+qtest-arm - qemu:nikon_save       OK              0.17s   1 subtests passed
+19/28 nikon+qtest+qtest-arm - qemu:nikon_frame      OK              0.18s   1 subtests passed
+20/28 nikon+qtest+qtest-arm - qemu:nikon_gui        OK              0.18s   1 subtests passed
+21/28 nikon+qtest+qtest-arm - qemu:nikon_fill       OK              0.35s   2 subtests passed
+22/28 nikon+qtest+qtest-arm - qemu:nikon_hdmac      OK              0.69s   4 subtests passed
+23/28 nikon+qtest+qtest-arm - qemu:nikon_sla        OK              9.03s   20 subtests passed
+24/28 nikon+qtest+qtest-arm - qemu:nikon_ex         OK              2.22s   14 subtests passed
+25/28 nikon+qtest+qtest-arm - qemu:nikon_sensor     OK              5.20s   23 subtests passed
+26/28 nikon+qtest+qtest-arm - qemu:nikon_storage    OK              1.31s   7 subtests passed
+27/28 nikon+qtest+qtest-rx - qemu:nikon_vr          OK              0.34s   2 subtests passed
+28/28 nikon+qtest+qtest-rx - qemu:nikon_peripherals OK              3.81s   20 subtests passed
+Ok:                28
+Fail:              0
