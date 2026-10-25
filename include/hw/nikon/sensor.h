@@ -22,7 +22,10 @@
  */
 bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
                                        unsigned offset, uint32_t *value);
-/* Global configuration offset is relative to the MMIO base, not a channel. */
+/* Global offset is relative to MMIO. 2d0/2e0 are consumed start/stop masks;
+ * their commits manage the eleven-channel functional sequence state. Deferred
+ * stopped[0/1] publish router causes for channels8/0; no pixel work is implied.
+ */
 bool nikon_sdes_channels_global_configuration(DeviceState *dev, unsigned offset,
                                               uint32_t *value);
 

@@ -1951,6 +1951,12 @@
         "title": "OnVd waits, input admission and first-enable notification",
         "href": "/evidence/imagerequest/coordination.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "sequencestop",
+        "title": "Sequence lifecycle, independent stop deadlines and Sensor continuation",
+        "href": "/evidence/imagerequest/sequence.json",
+        "kind": "Execution observation"
       }
     ]
   },

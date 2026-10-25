@@ -68,6 +68,62 @@ The recovered capture route reaches software workers `103250f2`/`103259cc`, then
 
 Three new focused qtest cases cover independent configuration banks without IRQ, complete eleven-word publication and partial W1C, and incomplete/stale publication plus reset. They passed individually in0.69s each, exit0, on integrated QEMU `7f241eb9d9c046db4cc3c3ccf5719697ae8ea02c` (SDES `229b68af57333e2791641377416337cb0b51bde4`, machine glue `85bac47`, named-IRQ fixture correction `f8672cacdf2590814cfc6eb6cf29c1973536a7f3`). The sole builder saved `sdesconfigurationfixedreceipt.log`, `sdesstatusfixedreceipt.log` and `sdespublicationfixedreceipt.log` under `qemu-submodule/work`. Their first attempt compiled/linked but failed before assertions because unnamed IRQ interception found no outputs; official SysBus IRQs are named `sysbus-irq`. The cold-zero configuration extension subsequently passed in1.17s on integrated ARM `49e63fc9b3cd1e43c0f15da6de7f6169a4503895`; `sdescoldconfigurationnativereceipt.log` records that distinct run. The six prior endpoint cases are unchanged. Actual exposure trigger, reset profile, sensor serial slave, pixel geometry/encoding, frame destination and readout completion cause are still required before joining this controller to frame input, ISP, display or save. This implements the source-bound control/status layer, not completed original CMOS capture.
 
+## Global sequence start and stop
+
+The C1.70 MAS helpers `102976b6` and `102976c2` perform RMW/strobe pairs
+at board PA `200632d0/d4` and `200632e0/e4`. These belong to the separate
+eleven-selector table at MAS VA `1078a92c`, implemented by
+`NikonSdesChannels` in `sensor.c`. They do not publish SDES IRQ89–93 status.
+Addresses, register masks and event masks are hexadecimal; channel indices,
+bit positions, IRQ numbers, timeouts and error IDs are decimal.
+
+**Source facts:** `102d986e(0)` clears Sensor event `0x10`, submits mask `0x101`
+through `102ff522 ->102976c2`, then waits with timeout150 in original API
+units. Its other arm submits `0x107` and waits for event `0x20`. The original
+router ISR `102dc5c0` invokes registered callback `102d6b6a`: raw bit18
+sets event `0x10`, and raw bit10 sets event `0x20`, at Sensor object VA `b18a764c`.
+Thus these completions belong to router IRQ87, not the SDES status banks.
+An instrumented pre-model probe isolates the first wait returning0 with
+accumulated status0 before OR `100`; the upper mapper reports Sensor state9
+and ID63.
+
+**Functional hypotheses:** the `d0/d4` pair starts selected sequences and
+`e0/e4` stops them. Each commit consumes its mask, so a later RMW starts a
+fresh request. The eleven selectors bound the accepted masks to `7ff`.
+Each active selected channel takes1µs of virtual time to stop. Channel8
+publishes router bit18; channel0 publishes bit10. This interpretation also
+matches the independently implemented Z7
+[sequence experiment](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-lab.c#L1890),
+which explicitly labels its own timing as assumed. It corroborates a finite
+functional interpretation, not a physical timing specification.
+
+The model tracks all eleven running/stopping bits. A mask store alone does
+no work. WRITE32 `1` to its commit applies the selected transition; other
+values, widths, unaligned accesses and unknown mask bits reject. Stop affects
+only running channels; empty or already stopped requests publish nothing.
+Each newly stopping channel retains its own deadline; a repeated pending
+stop cannot postpone it or borrow another channel's earlier deadline.
+Restart cancels only the selected unfinished stops. One QEMU virtual timer
+serves the earliest deadline, and expiry updates actual sequence state before
+publishing only the two established causes. Other channels stop without
+invented causes. Reset clears masks/state and cancels all deadlines; finalize
+frees the timer. Read-only QOM `running`/`stopping` expose model state.
+
+Machine wiring sends `stopped[0/1]` to router domain1 bits18/10. Existing
+router masking, pending/W1C, GIC delivery, original ISR and callback own the
+rest of the path. No guest flag is set by the host. Configuration, data DMA,
+pixel work and frame completion remain separate; sequence stop creates none.
+
+The [sequence receipt](/evidence/imagerequest/sequence.json) records native
+red→green for consumed masks and staggered stops, followed by36 sensor and33
+memory cases. The fixtures cover every selector, actual router pending,
+inactive/duplicate requests, partial/full restart cancellation, independent
+deadlines, malformed transactions, reset/reuse and unchanged RAM/SDES status.
+Its original continuation uses unchanged firmware and the same explicit
+resource35/cold-neutral inputs. The following capture-group result boundary
+is tracked in the [startup frontier](../../validation/frontier.md); passing
+sequence tests do not establish normal GUI startup or physical fidelity.
+
 ## Original capture configuration and commit family
 
 The [mask and enable audit](control.md) supersedes independent0/4 storage.

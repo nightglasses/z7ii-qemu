@@ -1,6 +1,33 @@
 # Original-firmware startup frontier
 
-## Current: Sensor switch completion after first-read consumption
+## Current: capture-group result lifecycle after sequence stop
+
+The [global sequence model](../devices/sensor/protocol.md#global-sequence-start-and-stop)
+executes all eleven channel start/stop masks and preserves each pending stop's
+own virtual deadline. Only completed active channel8/0 stops publish router
+IRQ87 causes18/10; the original ISR and callback set Sensor events10/20.
+Mask consumption,1µs latency and the channel/cause association remain explicit
+functional hypotheses. No pixel work, guest flag or callback is supplied.
+
+The [sequence receipt](/evidence/imagerequest/sequence.json) records36 sensor
+and33 memory cases, including a red→green staggered-stop regression. With
+unchanged firmware and the same explicit region/cold-neutral inputs, the
+60-host-second final run reaches129 main acquisitions and420 statistics jobs.
+The Sensor error list is empty, both command masks have been consumed, and
+the sequence model reports running `503`, stopping0. This crosses the earlier
+ID63 branch; it does not establish normal GUI startup.
+
+The first uncovered transaction is original MAS PC `10208e14`, READ32 board
+PA `2006bb70`. Capture-group's result getter rejects an unqualified package;
+its current model invalidates qualification on selected commit and run/stop.
+The next investigation must establish the last actual result producer and
+the getter's lifecycle across sequence restart, distinguishing retained
+published results from unpublished or cold state. Do not return cold zeros
+or a guessed bank/identity. QMP is debug/stopped, both display heads lack a
+console, GUI readiness/information remain zero, and one root request remains
+queued with pending `40001`.
+
+## Previous: Sensor switch completion after first-read consumption
 
 The [explicit resource35 profile](../inputs/nor/descriptor.md#resource35-first-read-region-input)
 supplies complete bounded virtual region tables through descriptor17's normal
@@ -32,10 +59,10 @@ status100. A second conditional breakpoint at `102d9906` observes the wait
 returning0 with accumulated status0, isolating this missing completion from
 the earlier readiness wait and command submission. These debugger probes
 are separate from the uninterrupted60-second run. The SDES channel device
-currently retains/publishes these global commands, but their completion work
-and source-associated event producer must
-be recovered together. Do not set the waiter flag or invent an IRQ to clear
-the error. The alternate107/event20 branch belongs to the same source cohort.
+at that revision retained/published these global commands without their
+completion work. The bounded sequence model above now supplies that hardware
+state transition through the normal router route; the waiter flag is never
+set by the host. The alternate107/event20 branch belongs to the same cohort.
 
 ## Previous: erased region parameters after first-read processing
 

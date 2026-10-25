@@ -111,7 +111,11 @@ and an ID63 error overlay. Native99-case device and38-case input-tool/memory
 batches pass. Automatic storage reuse and virtual region coefficients remain
 explicit hypotheses. Normal live view is still incomplete; the
 [current frontier](docs/validation/frontier.md) records the Sensor wait that
-produces ID63, separately from complete-boot or physical-camera evidence.
+previously produced ID63, separately from complete-boot or physical-camera
+evidence. The [sequence start/stop model](docs/devices/sensor/protocol.md#global-sequence-start-and-stop)
+subsequently crosses that error branch through normal router IRQ87 delivery;
+69 sensor/memory cases pass. The next stop is capture-group result
+qualification during restart. Neither result establishes normal live view.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

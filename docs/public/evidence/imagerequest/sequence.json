@@ -1,0 +1,54 @@
+{
+  "scope": "Finite eleven-channel SDES sequence control and original Sensor switch continuation, not pixel work or complete GUI startup",
+  "dependency_baseline": "a679ebe8",
+  "source_facts": {
+    "component": "C1.70 MAS; helper/table/callback addresses are VA, device placements are board PA under the documented peripheral identity-map convention; addresses/masks hexadecimal, channel indices/bit positions/IRQ numbers/timeouts/error IDs decimal",
+    "start": "102976b6 RMWs PA200632d0, then writes200632d4=1",
+    "stop": "102976c2 RMWs PA200632e0, then writes200632e4=1",
+    "channels": "Eleven selector groups in VA1078a92c",
+    "wait": "102d986e(0) submits0x101/waits Sensor event0x10; alternate arm submits0x107/waits0x20; timeout150 in original API units",
+    "producer": "Router ISR102dc5c0 calls registered102d6b6a: raw bit18 sets Sensor event0x10, raw bit10 sets0x20; not SDES IRQ89-93",
+    "comparison": "Pinned z7-qemu97abf0b81cd3211f8374a38987a0beaf4549b90f sequence experiment also associates stopped channel8/0 with causes18/10 and explicitly assumes timing"
+  },
+  "functional_hypotheses": {
+    "commands": "Consumed eleven-bit start/stop masks; configuration alone cannot execute a transition",
+    "state": "Start adds running channels and cancels only their unfinished stops; stop selects only currently running channels",
+    "latency": "Each newly stopping channel owns a1us virtual deadline; repeated stop does not postpone it; independent deadlines share one QEMU timer",
+    "completion": "Expiry changes actual running/stopping state before publishing channel8/0 causes; other channels stop without invented causes",
+    "reset": "Cold zero, cancel all deadlines and qualification; finalize frees timer",
+    "limits": "No sequence pixel execution, SDES data publication, DMA, frame, host guest callback or software flag injection; physical command consumption and timing are not measured"
+  },
+  "native": {
+    "mask_red": "Preceding retention-only model returns403 after command commit; fixture requires consumed0",
+    "stagger_red": "Initial shared-deadline implementation stops newly added channel0 after1ns; fixture sees running0 instead of1",
+    "fixture_correction": "First stop fixture intercepted and disconnected the actual stopped outputs; changed fixture to observe real router pending without interception",
+    "green": {"sensor_cases":36,"memory_cases":33,"failures":0},
+    "coverage": "All eleven selectors; no transition on mask store; both actual router causes, W1C/mask preservation; inactive/duplicate stop; partial/full restart cancellation; staggered submission and restart-stop deadlines; bad width/value/mask; reset/reuse; unchanged RAM and SDES status"
+  },
+  "original_execution": {
+    "identity": "Unchanged five-component firmware, explicit bounded resource35 descriptor17 input and cold-neutral resource80, same quadrant PGM/healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG baseline",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "main_completed":129,
+    "main_rejected":0,
+    "main_cancelled":0,
+    "statistics_completed":420,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "statistics_blocked":0,
+    "sequence_running":"0x503",
+    "sequence_stopping":0,
+    "global_requests":11,
+    "start_stop_masks":[0,0],
+    "error_count":0,
+    "uncovered":"CPU0 PC10208e14 READ32 PA2006bb70: capture-group-configuration-not-supported",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a console at this earlier normal-path stop; preceding error-frame run remains separately archived",
+    "GUI_readiness":0,
+    "information_record":"zero",
+    "queued_root_pending":"0x40001",
+    "battery_peer_rejections":[]
+  },
+  "measurement_limit":"Sequential QMP and subsequent read-only GDB snapshots are not atomic counts or physical timing. Empty error list before a bus stop is not complete startup. Initial shared-deadline trial reached the same new boundary but is not the final-binary receipt.",
+  "omissions":"Firmware bytes, inputs, full source/debugger traces and generated files remain ignored; only curated contracts and verdicts are published."
+}

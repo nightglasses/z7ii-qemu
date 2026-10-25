@@ -1898,6 +1898,10 @@ struct NikonSdesChannels {
     uint32_t values[NIKON_SDES_CHANNEL_SIZE / 4];
     qemu_irq command[NIKON_SDES_CHANNEL_COUNT];
     qemu_irq global_command[2];
+    qemu_irq stopped[2];
+    QEMUTimer *stop_timer;
+    int64_t stop_deadline[NIKON_SDES_CHANNEL_COUNT];
+    uint32_t running, stopping;
     uint64_t requests;
     uint64_t global_requests;
     bool reported_error;
@@ -1941,6 +1945,8 @@ static bool nikon_sdes_channel_field(hwaddr offset, unsigned *channel,
     switch (offset) {
     case 0x2d0:
     case 0x2e0:
+        *mask = (1u << NIKON_SDES_CHANNEL_COUNT) - 1;
+        return true;
     case 0x2f4:
     case 0x2f8:
         return true;
@@ -2005,6 +2011,74 @@ static MemTxResult nikon_sdes_channels_error(NikonSdesChannels *s,
     return MEMTX_ERROR;
 }
 
+static void nikon_sdes_channels_schedule(NikonSdesChannels *s)
+{
+    int64_t deadline = INT64_MAX;
+
+    for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+        if (s->stopping & (1u << i)) {
+            deadline = MIN(deadline, s->stop_deadline[i]);
+        }
+    }
+    if (deadline == INT64_MAX) {
+        timer_del(s->stop_timer);
+    } else {
+        timer_mod(s->stop_timer, deadline);
+    }
+}
+
+static void nikon_sdes_channels_stopped(void *opaque)
+{
+    NikonSdesChannels *s = opaque;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    uint32_t stopped = 0;
+
+    for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+        if ((s->stopping & (1u << i)) && s->stop_deadline[i] <= now) {
+            stopped |= 1u << i;
+        }
+    }
+    s->stopping &= ~stopped;
+    s->running &= ~stopped;
+    nikon_sdes_channels_schedule(s);
+    /* Functional route hypotheses: 102d986e waits for router bit18 after
+     * stop101, or bit10 after stop107. No pixel work or frame is completed.
+     */
+    if (stopped & 0x100) {
+        qemu_irq_pulse(s->stopped[0]);
+    }
+    if (stopped & 1) {
+        qemu_irq_pulse(s->stopped[1]);
+    }
+}
+
+static void nikon_sdes_channels_commit(NikonSdesChannels *s, unsigned command)
+{
+    unsigned offset = command ? 0x2e0 : 0x2d0;
+    uint32_t mask = s->values[offset / 4];
+
+    /* Source RMW/strobe pairs become fresh requests after each submission.
+     * Consumption and 1us deferred quiescence are functional hypotheses.
+     * A restart cancels only the selected unfinished stops.
+     */
+    s->values[offset / 4] = 0;
+    if (command) {
+        uint32_t added = mask & s->running & ~s->stopping;
+
+        for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+            if (added & (1u << i)) {
+                s->stop_deadline[i] =
+                    qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000;
+            }
+        }
+        s->stopping |= mask & s->running;
+    } else {
+        s->running |= mask;
+        s->stopping &= ~mask;
+    }
+    nikon_sdes_channels_schedule(s);
+}
+
 static MemTxResult nikon_sdes_channels_read(void *opaque, hwaddr offset,
                                            uint64_t *value, unsigned size,
                                            MemTxAttrs attrs)
@@ -2044,6 +2118,8 @@ static MemTxResult nikon_sdes_channels_write(void *opaque, hwaddr offset,
             qemu_irq_pulse(s->command[channel]);
         } else {
             s->global_requests++;
+            nikon_sdes_channels_commit(s,
+                                      channel - NIKON_SDES_CHANNEL_COUNT);
             qemu_irq_pulse(s->global_command[
                            channel - NIKON_SDES_CHANNEL_COUNT]);
         }
@@ -2066,6 +2142,10 @@ static void nikon_sdes_channels_reset(DeviceState *dev)
 
     /* Functional cold-zero applies only to fields admitted by the decoder. */
     memset(s->values, 0, sizeof(s->values));
+    timer_del(s->stop_timer);
+    s->running = 0;
+    s->stopping = 0;
+    memset(s->stop_deadline, 0, sizeof(s->stop_deadline));
     s->requests = 0;
     s->global_requests = 0;
     s->reported_error = false;
@@ -2074,6 +2154,7 @@ static void nikon_sdes_channels_reset(DeviceState *dev)
     }
     for (i = 0; i < ARRAY_SIZE(s->global_command); i++) {
         qemu_set_irq(s->global_command[i], 0);
+        qemu_set_irq(s->stopped[i], 0);
     }
 }
 
@@ -2081,6 +2162,8 @@ static void nikon_sdes_channels_init(Object *obj)
 {
     NikonSdesChannels *s = NIKON_SDES_CHANNELS(obj);
 
+    s->stop_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                nikon_sdes_channels_stopped, s);
     memory_region_init_io(&s->memory, obj, &nikon_sdes_channels_ops, s,
                           "nikon-sdes-channels", NIKON_SDES_CHANNEL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
@@ -2089,10 +2172,21 @@ static void nikon_sdes_channels_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(s), s->global_command,
                             "global-command-publish",
                             ARRAY_SIZE(s->global_command));
+    qdev_init_gpio_out_named(DEVICE(s), s->stopped, "stopped",
+                            ARRAY_SIZE(s->stopped));
+    object_property_add_uint32_ptr(obj, "running", &s->running,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "stopping", &s->stopping,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "requests", &s->requests,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "global-requests", &s->global_requests,
                                    OBJ_PROP_FLAG_READ);
+}
+
+static void nikon_sdes_channels_finalize(Object *obj)
+{
+    timer_free(NIKON_SDES_CHANNELS(obj)->stop_timer);
 }
 
 static const VMStateDescription nikon_sdes_channels_vmstate = {
@@ -2113,6 +2207,7 @@ static const TypeInfo nikon_sdes_channels_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonSdesChannels),
     .instance_init = nikon_sdes_channels_init,
+    .instance_finalize = nikon_sdes_channels_finalize,
     .class_init = nikon_sdes_channels_class_init,
 };
 

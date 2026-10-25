@@ -1185,7 +1185,11 @@ static void z7ii_init(MachineState *machine)
                                   OBJECT(channels));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(channels), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(channels), 0, 0x20063000);
-        /* Guest configuration/commands; no default completion provider. */
+        /* Original 102d6b6a consumes IRQ87 bits18/10 for sequence stops. */
+        qdev_connect_gpio_out_named(channels, "stopped", 0,
+            qdev_get_gpio_in_named(router, "external-pending", 11 + 18));
+        qdev_connect_gpio_out_named(channels, "stopped", 1,
+            qdev_get_gpio_in_named(router, "external-pending", 11 + 10));
     }
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);

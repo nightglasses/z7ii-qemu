@@ -2183,7 +2183,9 @@ static QTestState *channels_start(const char *outputs)
     QTestState *q = qtest_initf(
         "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", bios);
 
-    qtest_irq_intercept_out_named(q, CHANNEL_PATH, outputs);
+    if (outputs) {
+        qtest_irq_intercept_out_named(q, CHANNEL_PATH, outputs);
+    }
     return q;
 }
 
@@ -2328,13 +2330,14 @@ static void test_channels_global(void)
     qtest_memset(q, RAM + 0x1000, 0xa7, 32);
     for (i = 0; i < ARRAY_SIZE(fields); i++) {
         uint64_t address = CHANNEL_BASE + fields[i];
-        uint32_t value = fields[i] == 0x2ec ? 0xfff : 0xfedcba98;
+        uint32_t value = fields[i] == 0x2ec ? 0xfff :
+                         fields[i] < 0x2ec ? 0x7ff : 0xfedcba98;
 
         g_assert_cmphex(qtest_readl(q, address), ==, 0);
         qtest_writel(q, address, value);
         g_assert_cmphex(qtest_readl(q, address), ==, value);
     }
-    /* Replay both actual OR-mask protocols without manufacturing a response. */
+    /* Both RMW command masks are consumed by their own commit. */
     for (i = 0; i < 2; i++) {
         uint64_t configuration = CHANNEL_BASE + 0x2d0 + i * 0x10;
         uint64_t command = configuration + 4;
@@ -2346,6 +2349,7 @@ static void test_channels_global(void)
         g_assert_cmpuint(property_at(q, CHANNEL_PATH, "global-requests"), ==,
                          i * 2);
         qtest_writel(q, command, 1);
+        g_assert_cmphex(qtest_readl(q, configuration), ==, 0);
         qtest_writel(q, command, 1);
         qtest_writel(q, command, 0);
         qtest_writel(q, command, 2);
@@ -2358,7 +2362,7 @@ static void test_channels_global(void)
     qtest_writew(q, CHANNEL_BASE + 0x2d0, 0xffff);
     qtest_writel(q, CHANNEL_BASE + 0x2d8, UINT32_MAX); /* Unqualified offset. */
     g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2ec), ==, 0xfff);
-    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0x403);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0);
     g_assert_cmpuint(property_at(q, CHANNEL_PATH, "requests"), ==, 0);
     g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
@@ -2371,6 +2375,126 @@ static void test_channels_global(void)
         g_assert_false(qtest_get_irq(q, i));
     }
     g_assert_cmpuint(property_at(q, CHANNEL_PATH, "global-requests"), ==, 0);
+    qtest_quit(q);
+}
+
+static void channels_commit(QTestState *q, bool stop, uint32_t mask)
+{
+    unsigned offset = stop ? 0x2e0 : 0x2d0;
+
+    qtest_writel(q, CHANNEL_BASE + offset, mask);
+    qtest_writel(q, CHANNEL_BASE + offset + 4, 1);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + offset), ==, 0);
+}
+
+static void test_channels_stop(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned i = 0; i < 11; i++) {
+        uint32_t cause = i == 8 ? 0x40000 : i == 0 ? 0x400 : 0;
+
+        channels_commit(q, false, 0x7ff);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0x7ff);
+        channels_commit(q, true, 1u << i);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 1u << i);
+        qtest_clock_step(q, 999);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0x7ff);
+        /* Repeated stop must not postpone the already pending transition. */
+        channels_commit(q, true, 1u << i);
+        qtest_clock_step(q, 1);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==,
+                        0x7ff & ~(1u << i));
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, cause);
+        /* Pending survives disabled masking; W1C owns acknowledgement. */
+        qtest_writel(q, 0x20060040, cause);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, cause);
+        qtest_writel(q, 0x20060044, cause);
+        channels_commit(q, true, 1u << i);
+        qtest_clock_step(q, 10000);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    }
+    channels_commit(q, true, 0x7ff);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40400);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
+    g_assert_cmphex(qtest_readl(q, 0x20064014), ==, 0);
+    qtest_quit(q);
+}
+
+static void test_channels_stop_cancel(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x101);
+    channels_commit(q, false, 1); /* Only channel0 restarts. */
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0x100);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    qtest_writel(q, 0x20060044, 0x40000);
+    channels_commit(q, true, 1);
+    channels_commit(q, false, 1); /* Full cancellation owns no completion. */
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    /* Mask stores, malformed commits and unsupported bits cannot run work. */
+    qtest_writel(q, CHANNEL_BASE + 0x2d0, 0x100);
+    qtest_writel(q, CHANNEL_BASE + 0x2d4, 0);
+    qtest_writel(q, CHANNEL_BASE + 0x2d4, 2);
+    qtest_writew(q, CHANNEL_BASE + 0x2d4, 1);
+    qtest_writel(q, CHANNEL_BASE + 0x2d0, 0x800);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0x100);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    channels_commit(q, true, 1);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    channels_commit(q, false, 0x107);
+    channels_commit(q, true, 0x107);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40400);
+    qtest_quit(q);
+}
+
+static void test_channels_stop_stagger(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x100);
+    qtest_clock_step(q, 999);
+    channels_commit(q, true, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    qtest_writel(q, 0x20060044, 0x40000);
+    qtest_clock_step(q, 998);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x400);
+    qtest_writel(q, 0x20060044, 0x400);
+    /* Restart followed by a new stop must not reuse the cancelled deadline. */
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x101);
+    qtest_clock_step(q, 999);
+    channels_commit(q, false, 1);
+    channels_commit(q, true, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    qtest_writel(q, 0x20060044, 0x40000);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x400);
     qtest_quit(q);
 }
 
@@ -2425,6 +2549,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/channels/request", test_channels_request);
     qtest_add_func("/nikon/sensor/channels/reset", test_channels_reset);
     qtest_add_func("/nikon/sensor/channels/global", test_channels_global);
+    qtest_add_func("/nikon/sensor/channels/stop", test_channels_stop);
+    qtest_add_func("/nikon/sensor/channels/stop-cancel", test_channels_stop_cancel);
+    qtest_add_func("/nikon/sensor/channels/stop-stagger",
+                    test_channels_stop_stagger);
     qtest_add_func("/nikon/sensor/eye", test_eye_sensor);
     qtest_add_func("/nikon/sensor/eye/nak", test_eye_sensor_nak);
     qtest_add_func("/nikon/sensor/display-buffer", test_sensor_display_buffer);
