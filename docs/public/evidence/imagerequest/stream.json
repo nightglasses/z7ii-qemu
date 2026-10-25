@@ -1,0 +1,161 @@
+{
+  "scope": "Original C1.70 software under an explicit finite grayscale stream hypothesis; not physical-camera evidence, normal GUI output or complete boot",
+  "dependency_baseline": "dff1f42f13041d3f1c2ab86de96b1a8d65126d07",
+  "source_facts": {
+    "domains": "Code addresses are MAS VAs; device and DMA addresses below are board PAs. Masks and unprefixed addresses are hexadecimal; dimensions and counters are decimal.",
+    "unit1": "102097fa packs14 flags; normal20068500=0. Commit1, run1. Raw0.bit3 reaches software1 and fence100000.",
+    "unit2": "1023a9d2 selects kind3/subtype0 ROM packets through102094aa/10209578. Programmed2760x918 to1380x918; local20069f00=11, commit4, run4/8. Raw0.bit4 reaches software2 and fence200000.",
+    "paired": "1023994c/10239900 configure selector2;1023c830 and stride arithmetic establish16/14/12-bit byte geometries. Commit80, run200, local2006952c.bit1.1023931c consumes raw4.bit7 for software200/fence4000000; raw7.bit8 is another owner path.",
+    "normal_output": {
+      "width": 1380,
+      "height": 918,
+      "pitch": "0x820",
+      "set0": [
+        "0x54900000",
+        "0x56b0d000",
+        "0x58d1a000",
+        "0x5af27000"
+      ]
+    },
+    "kind16": "11982938[16] points to119832a8: total8834000, unit220d000, count4, base54900000. Five mode override entries16 are NULL. Owned interval[54900000,5d134000); live classifier leaves addresses unchanged.",
+    "group": "Kind23 has fiveC00-byte units and interior offsets0/80/d0.1030b630 clears descriptor metadata, not payload;102cec72 is a no-op. Cursor publication alone is not group work or raw3.bit0 completion."
+  },
+  "implemented_hypotheses": [
+    "Fresh completed LE16 grayscale acquisition is the shared virtual input; unit1 input qualification must have held from CMOS submission to completion.",
+    "Zero correction flags forward identity; unit2 nearest-samples grayscale to committed output dimensions. Physical color/filter coefficients and Bayer behavior are not implemented.",
+    "Paired control bit2 selects a256-entry LE16 LUT indexed by the high sample byte. Otherwise high16/14/12 sample bits are used. Samples form a little-endian bit stream;9530 remains retained without physical arithmetic.",
+    "The committed bank and initial/count ring select output slots. Every selected writable-RAM span and overlap is checked before row DMA. Padding persists; only successful whole-output DMA publishes raw0 mask18/raw4 mask80.",
+    "Both commit ports latch independently; equal commits retain cursor phase. Changed commits, stop/disable/unit/system reset cancel work. Stale input is not replayed, and pending frontend/paired/statistics data applies backpressure."
+  ],
+  "native_validation": {
+    "old_model_red": "New processing fixture fails because capture-processing is absent. Separate kind16 storage fixture fails COPY at549007f1 with status1 instead of8.",
+    "initial_batch": {
+      "Memory": 32,
+      "CMOS": 25,
+      "Sensor": 33,
+      "result": "PASS"
+    },
+    "final_batch": {
+      "Memory": 32,
+      "CMOS": 27,
+      "Sensor": 33,
+      "result": "PASS"
+    },
+    "policy0_repair": {
+      "red": "Without any LUT or9530 writes, the formats fixture reads sentinel42405 instead of sample0; the previous admission incorrectly required optional9530.",
+      "change": "Require the six parameter words plus local952c; retain9530 only when written, without assigning arithmetic.",
+      "green": "All27 CMOS subtests PASS after the repair, including16/14/12-bit modes both with and without LUT/9530 writes. Memory/Sensor behavior is unchanged."
+    },
+    "focused_processing": {
+      "subtests": 5,
+      "result": "PASS",
+      "coverage": "Literal12-bit output, all16/14/12 formats, second bank, ring wrap, equal commits, immutable source/config snapshots, stale input, backpressure, stop/disable/unit/system reset, invalid format/LUT/geometry/RAM/overlap/wrap; no group cause"
+    }
+  },
+  "input_profile": {
+    "firmware": "Unchanged C1.70 EX/MAS/SLA bundle",
+    "descriptor32": "Same explicit cold-neutral resource80 input",
+    "other_inputs": "Same TEMP3 descriptor17/18, empty12, acceleration0/0/1024, RNG0, paced healthy battery UART, held F4, five CPUs, MTTCG",
+    "scene": [
+      32,
+      192,
+      64,
+      224
+    ],
+    "provider": "Explicit2x2 PGM; fixture-provider false",
+    "six_loader_copy_comparisons": "Not repeated in these windows; earlier comparison receipts retain their original scope",
+    "debugger": "Final read-only snapshot; no in-transaction pause, guest memory/register/PC writes or callbacks"
+  },
+  "observations": {
+    "packed2": {
+      "host_seconds": 40,
+      "trace": "Focused CPU/nochain",
+      "auxiliary_completed": 300,
+      "statistics_completed": 299,
+      "stream_completed": 299,
+      "stream_payload_bytes": 568177740,
+      "stream_rejected": 0,
+      "stream_cancelled": 0,
+      "observed_fence_setters": {
+        "100000": 300,
+        "200000": 303,
+        "800000": 299,
+        "4000000": 299
+      },
+      "setter_count_scope": "TCG entry observations, not a universal one-to-one call count; unit1 also has historical auxiliary-mode0 routing",
+      "OnVd_mask5": {
+        "return1": 32
+      },
+      "unit1_only_fence": {
+        "return1": 1
+      },
+      "aggregate05b00000": {
+        "return0": 33
+      },
+      "group1000000_setter": "Not observed",
+      "calculation_or_first_enable_entries": "No10235afe/10230368/10273268/10272d62/1035a2d8/105801ce entry observed",
+      "console": "Neither head bound"
+    },
+    "pixels": {
+      "host_seconds": 40,
+      "trace": "Guest-errors only",
+      "auxiliary_completed": 298,
+      "statistics_completed": 297,
+      "stream_completed": 297,
+      "stream_payload_bytes": 564377220,
+      "stream_rejected": 0,
+      "stream_cancelled": 0,
+      "submitted_LUT_samples": [
+        464,
+        918,
+        617,
+        972
+      ],
+      "actual_packed_pairs": [
+        "d0011d",
+        "966339",
+        "699226",
+        "ccc33c"
+      ],
+      "sample_scope": "All four configured slots, row0/459/917 and column0/690/1378; corresponding scene quadrants agree",
+      "console": "Neither head bound"
+    },
+    "final": {
+      "host_seconds": 40,
+      "trace": "Narrower CPU/nochain filter, final frontend/paired backpressure model",
+      "auxiliary_completed": 390,
+      "statistics_completed": 390,
+      "stream_completed": 388,
+      "stream_payload_bytes": 737300880,
+      "stream_rejected": 0,
+      "stream_cancelled": 0,
+      "stream_blocked": 0,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "readout_rejected": 0,
+      "peer_rejected": 0,
+      "observed_fence_setters": {
+        "100000": 396,
+        "200000": 388,
+        "800000": 390,
+        "4000000": 388
+      },
+      "setter_count_scope": "TCG entry observations, not universal distinct-call counts",
+      "OnVd_mask5": {
+        "return1": 36
+      },
+      "unit1_only_fence": {
+        "return1": 1
+      },
+      "aggregate05b00000": {
+        "return0": 38
+      },
+      "group1000000_setter": "Not observed",
+      "packed_samples": "Same LUT values and packed quadrants in all four slots",
+      "console": "Neither head bound",
+      "calculation_or_first_enable_entries": "No10235afe/10230368/10273268/10272d62/1035a2d8/105801ce entry observed"
+    }
+  },
+  "remaining_boundary": "Group payload operation/completion, normal FECLCTRK admission and completed-root queue transition; paired numeric result getters remain unknown/unobserved. No group completion is borrowed from stream or statistics.",
+  "omissions": "Raw factory bytes, disassembly, full logs, debugger dumps and private host paths are excluded. Counts under different filters are not rates or proof of full runtime stability. Ignored raw receipts are in run maininput/."
+}

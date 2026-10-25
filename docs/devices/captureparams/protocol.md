@@ -106,8 +106,9 @@ records, sets952c bit1, then calls `1020c23c(1)`. The selector mapping is:
 `1020c1ee` separately asserts/deasserts the selected shared reset bits and
 `10208f9e` enables the units. `1020c284` stops them. These reuse the existing
 capture-control profile; parameters, local bits and table writes themselves
-neither submit that request nor complete it. The new device has no connection
-that turns commit/run into a result or data event.
+neither submit that request nor complete it. The retention device produces no
+result or data event. The separate [grayscale stream model](../capturework/protocol.md)
+performs actual work after selected commits, effective run and delivered input.
 
 The result getters `10209186/102091a8` read9534/538/544/54c and
 953c/540/548/550. Their data producers and cold values remain unrecovered;
@@ -168,3 +169,8 @@ they are not executed in this original flag200 receipt.
 Raw source projections, instruction comparisons, native red/green receipts,
 actual argv, QMP status, read-only snapshots and loader/table comparisons stay
 in`run captureparams/`.
+
+The [capture-work contract](../capturework/protocol.md) defines the finite
+stream, kind16 output storage, source/assumption boundary and actual DMA
+validation. The parameter device exposes only explicitly written configuration
+to that consumer; reset clears that qualification.

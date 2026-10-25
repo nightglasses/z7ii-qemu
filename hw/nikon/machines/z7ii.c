@@ -158,7 +158,7 @@ static const struct {
 };
 
 /*
- * Original pool rows119832d8..11983368; kind18 has its own grid region.
+ * Original pool rows119832a8..11983368; kind18 has its own grid region.
  * These are separate pool extents, not an enclosing DDR conversion class.
  */
 static const struct {
@@ -166,6 +166,7 @@ static const struct {
     hwaddr base;
     uint64_t size;
 } z7ii_capture_pools[] = {
+    { "z7ii.capture-kind16", 0x54900000, 0x8834000 },
     { "z7ii.capture-kind17", 0x5d134000, 0x3c000 },
     { "z7ii.capture-kind19", 0x5d1dc000, 0x144000 },
     { "z7ii.capture-kind20", 0xafa00000, 0x43800 },
@@ -795,6 +796,8 @@ static void z7ii_init(MachineState *machine)
     DeviceState *bridge;
     DeviceState *readout;
     DeviceState *capture;
+    DeviceState *work = NULL;
+    DeviceState *parameters;
     DeviceState *group;
     DeviceState *cmos;
     DeviceState *endpoints, *banks, *statistics = NULL;
@@ -1186,6 +1189,9 @@ static void z7ii_init(MachineState *machine)
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
         if (s->bundle) {
             statistics = qdev_new(TYPE_NIKON_STATISTICS);
+            work = qdev_new(TYPE_NIKON_CAPTURE_WORK);
+            object_property_add_child(OBJECT(machine), "capture-processing",
+                                      OBJECT(work));
             object_property_add_child(OBJECT(machine), "capture-statistics",
                                       OBJECT(statistics));
         }
@@ -1213,12 +1219,14 @@ static void z7ii_init(MachineState *machine)
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
             input_split = split;
-            qdev_prop_set_uint16(split, "num-lines", 3);
+            qdev_prop_set_uint16(split, "num-lines", 4);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "automatic-rise", 0));
             qdev_connect_gpio_out(split, 1,
                 qdev_get_gpio_in_named(statistics, "automatic-rise", 0));
+            qdev_connect_gpio_out(split, 3,
+                qdev_get_gpio_in_named(work, "automatic-rise", 0));
             qdev_connect_gpio_out_named(router, "automatic-rise", 0,
                                        qdev_get_gpio_in(split, 0));
             qdev_connect_gpio_out_named(capture, "run-state", 4,
@@ -1233,7 +1241,7 @@ static void z7ii_init(MachineState *machine)
         }
     }
     {
-        DeviceState *parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
+        parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
 
         object_property_add_child(OBJECT(machine), "capture-parameters",
                                   OBJECT(parameters));
@@ -1272,17 +1280,27 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < 2; i++) {
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
-            qdev_prop_set_uint16(split, "num-lines", statistics ? 3 : 2);
+            qdev_prop_set_uint16(split, "num-lines", statistics ? 4 : 2);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "commit", i));
             qdev_connect_gpio_out(split, 1,
                 qdev_get_gpio_in_named(readout, "commit", i));
             if (statistics) {
+                static const unsigned work_bits[] = { 0, 2, 7 };
+
                 qdev_connect_gpio_out(split, 2,
                     qdev_get_gpio_in_named(statistics, "commit", i));
                 qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 3,
                     qdev_get_gpio_in_named(statistics, "commit-selected", i));
+                qdev_connect_gpio_out(split, 3,
+                    qdev_get_gpio_in_named(work, "commit", i));
+                for (unsigned j = 0; j < ARRAY_SIZE(work_bits); j++) {
+                    qdev_connect_gpio_out_named(capture, "command-data",
+                        i * 32 + work_bits[j],
+                        qdev_get_gpio_in_named(work, "commit-selected",
+                                               i * 3 + j));
+                }
             }
 
             qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 1,
@@ -1309,6 +1327,7 @@ static void z7ii_init(MachineState *machine)
     }
     if (s->bundle) {
         DeviceState *pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
+        DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
         object_property_add_child(OBJECT(machine), "readout-pipeline",
                                   OBJECT(pipeline));
@@ -1322,8 +1341,29 @@ static void z7ii_init(MachineState *machine)
         /* One input boundary clocks transport admission and processing. */
         qdev_connect_gpio_out(input_split, 2,
             qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
+        qdev_prop_set_uint16(split, "num-lines", 2);
+        qdev_realize_and_unref(split, NULL, &error_fatal);
         qdev_connect_gpio_out_named(capture, "run-state", 0,
+                                   qdev_get_gpio_in(split, 0));
+        qdev_connect_gpio_out(split, 0,
             qdev_get_gpio_in_named(pipeline, "input-run", 0));
+        qdev_connect_gpio_out(split, 1,
+            qdev_get_gpio_in_named(work, "run", 0));
+        for (unsigned i = 1; i < 4; i++) {
+            static const unsigned bits[] = { 0, 2, 3, 9 };
+
+            qdev_connect_gpio_out_named(capture, "run-state", bits[i],
+                qdev_get_gpio_in_named(work, "run", i));
+        }
+        object_property_set_link(OBJECT(work), "capture", OBJECT(capture),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "parameters", OBJECT(parameters),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "readout", OBJECT(readout),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "pipeline", OBJECT(pipeline),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(work), &error_fatal);
         object_property_set_link(OBJECT(statistics), "endpoints",
                                  OBJECT(endpoints), &error_fatal);
         object_property_set_link(OBJECT(statistics), "banks", OBJECT(banks),
@@ -1676,7 +1716,7 @@ static void z7ii_init(MachineState *machine)
                  "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
-                 "capture-pools=17,19,20,21,22,23 source-extents cold-zero; "
+                 "capture-pools=16,17,19,20,21,22,23 source-extents cold-zero; "
                  "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "

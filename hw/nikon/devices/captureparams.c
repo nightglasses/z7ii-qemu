@@ -7,6 +7,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/sensor.h"
 
 #define CAPTURE_PARAMETERS_SIZE 0x300
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureParametersState,
@@ -16,8 +17,22 @@ struct NikonCaptureParametersState {
     SysBusDevice parent_obj;
     MemoryRegion memory;
     uint32_t configuration[CAPTURE_PARAMETERS_SIZE / 4];
+    bool written[CAPTURE_PARAMETERS_SIZE / 4];
     bool reported_error;
 };
+
+bool nikon_capture_parameters_configuration(DeviceState *dev, unsigned offset,
+                                             uint32_t *value)
+{
+    NikonCaptureParametersState *s = NIKON_CAPTURE_PARAMETERS(dev);
+
+    if (!value || (offset & 3) || offset >= CAPTURE_PARAMETERS_SIZE ||
+        !s->written[offset / 4]) {
+        return false;
+    }
+    *value = s->configuration[offset / 4];
+    return true;
+}
 
 static bool nikon_capture_parameters_mask(hwaddr offset, uint32_t *mask)
 {
@@ -89,6 +104,7 @@ static MemTxResult nikon_capture_parameters_write(void *opaque, hwaddr offset,
         return nikon_capture_parameters_error(s, offset, size, true, value);
     }
     s->configuration[offset / 4] = value;
+    s->written[offset / 4] = true;
     return MEMTX_OK;
 }
 
@@ -105,6 +121,7 @@ static void nikon_capture_parameters_reset(DeviceState *dev)
     NikonCaptureParametersState *s = NIKON_CAPTURE_PARAMETERS(dev);
 
     memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->written, 0, sizeof(s->written));
     s->reported_error = false;
 }
 

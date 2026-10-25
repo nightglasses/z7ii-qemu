@@ -558,6 +558,7 @@ static void test_capture_pools(void)
     static const struct {
         uint32_t base, unit, count;
     } pools[] = {
+        { 0x54900000, 0x220d000, 4 },
         { 0x5d134000, 0xa000, 6 },
         { 0x5d1dc000, 0x36000, 6 },
         { 0xafa00000, 0x10e00, 4 },
@@ -566,7 +567,7 @@ static void test_capture_pools(void)
         { 0x5d4b5000, 0xc00, 5 },
     };
     static const uint32_t holes[] = {
-        0x5d133fff, 0x5d4b8c00,
+        0x548fffff, 0x5d4b8c00,
         0xaf9fffff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
     };
     const uint32_t source = 0xb1804000;

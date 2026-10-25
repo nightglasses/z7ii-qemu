@@ -220,6 +220,7 @@ export default defineConfig({
               { text: 'Capture Service Banks', link: '/devices/capture/banks' },
               { text: 'Capture Configuration & Cursors', link: '/devices/capturegroup/protocol' },
               { text: 'Paired Capture Parameters', link: '/devices/captureparams/protocol' },
+              { text: 'Finite Grayscale Stream & DMA', link: '/devices/capturework/protocol' },
               { text: 'Finite Statistics & Data Completion', link: '/devices/statistics/protocol' },
               { text: 'Readout Engine', link: '/devices/readout/protocol' },
               { text: 'MAS Readout Functional Mapping', link: '/devices/readout/mapping' },

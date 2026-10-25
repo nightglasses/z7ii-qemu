@@ -584,6 +584,37 @@ input/output operation for the submitted stages and the normal guard transition
 that admits FECLCTRK. No new external-record or real-camera requirement has been
 established. Those unknown completions are not supplied by the new input sync.
 
+### Actual stream work after qualified input
+
+The subsequent [grayscale stream contract](../devices/capturework/protocol.md)
+joins unit1/2 and paired flag200 through real output DMA. Source producers
+identify disabled correction flags, ROM geometry,16/14/12-bit byte strides,
+four allocated kind16 outputs, commit masks1/4/80 and effective run masks
+1/4/8/200. Identity forwarding, nearest grayscale sampling, LUT indexing and
+little-endian sample packing remain explicit finite functional assumptions.
+The actual payload is written before the three stage causes are published;
+neither input synchronization nor statistics supplies their ACKs.
+
+The [stream receipt](/evidence/imagerequest/stream.json) records a40-second
+final unchanged cold-neutral execution:388 complete stream jobs,737300880 payload
+bytes, and original fence setters100000/200000/4000000. The unit1-only wait
+now succeeds. Aggregate05b00000 still fails; of its requested stages,
+**group1000000 alone lacks an observed setter**. All36 observed OnVd mask5
+resumes succeed. Cache1/2 and the normal information/first-enable chain remain
+unpublished, with no console. These are functional model observations, not
+physical-camera validation.
+
+Group remains an independently open payload contract. Kind23's three interior
+addresses and cursor metadata do not establish processing: descriptor
+construction clears152 bytes of metadata, not the C00-hex payload. The current
+`1030b630 ->102cec72` hook is a no-op; the inspected force0 getter consumes
+only the index comparison, not numeric payload contents. No independently
+recovered packet layout/arithmetic permits treating the three addresses as
+completed data. The remaining evidence needed is the actual payload consumer
+or a same-architecture producer defining those fields and the source-to-output
+operation. Neither an all-zero payload, a matching index, nor a completed
+paired stream qualifies group's raw3.bit0. It is not emitted by this change.
+
 ## Acquisition on the normal input clock
 
 Previously the auxiliary producer submitted CMOS immediately after every

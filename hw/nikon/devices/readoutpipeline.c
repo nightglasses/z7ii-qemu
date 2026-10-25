@@ -183,6 +183,7 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
         s->input = (NikonCaptureInput) {
             .generation = generation, .width = m->width, .height = m->height,
             .stride = m->stride, .data = data,
+            .synchronized = input_sync,
         };
         if (nikon_readout_publish_completion(s->readout, generation)) {
             /* Functional shared-acquisition hypothesis: an active input stage

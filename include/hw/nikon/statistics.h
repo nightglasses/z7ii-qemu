@@ -14,6 +14,8 @@ typedef struct NikonCaptureInput {
     uint64_t generation;
     uint32_t width, height, stride;
     const uint8_t *data;
+    /* Unit1 input qualification held from CMOS submission to completion. */
+    bool synchronized;
 } NikonCaptureInput;
 
 /* Borrowed immutable completed DMA bytes, valid until the next completion. */

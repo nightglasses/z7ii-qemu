@@ -1001,6 +1001,13 @@ bool nikon_capture_data_pending(DeviceState *dev)
     return NIKON_CAPTURE_CONTROL(dev)->pending[0] & 0x40;
 }
 
+bool nikon_capture_front_pending(DeviceState *dev)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+
+    return (s->pending[0] & 0x58) || (s->pending[4] & 0x80);
+}
+
 bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
                            const uint32_t *words, size_t count, Error **errp)
 {

@@ -1,6 +1,29 @@
 # Original-firmware startup frontier
 
-## Current: computed inputs, processing fences and first display enable
+## Current: output DMA, remaining group work and first display enable
+
+The [finite grayscale stream](../devices/capturework/protocol.md)
+now performs unit1 identity forwarding, unit2 geometry sampling and paired
+LUT/packing into the four source-allocated kind16 RAM slots. Arithmetic and
+shared input association are explicit functional hypotheses; original bytes,
+guest state and memory allocation boundaries are unchanged. Native tests check
+actual nonzero output, padding, ring/bank/lifecycle and rejection boundaries.
+
+In the final40-second cold-neutral explicit-scene run,388 stream jobs write737300880
+payload bytes. Original stage setters100000/200000/4000000 execute and the
+unit1-only fence succeeds. Aggregate05b00000 still fails: of its five requested
+stages, group1000000 alone has no observed setter. All36 observed OnVd mask5
+resumes succeed, but caches1/2, the information notification and both display
+consoles remain absent. The [stream receipt](/evidence/imagerequest/stream.json)
+separates source facts, model assumptions and original observations.
+
+The next boundary is group kind23 payload processing plus the normal
+FECLCTRK admission/queue transition. The existing group model only advances
+addresses; its payload layout and operation are still unbound. Paired numeric
+getters remain unsupported and unobserved, rather than receiving fabricated
+values. No completion is borrowed from another stage.
+
+## Earlier frontier observations
 
 The [image request audit](../runtime/imagerequest.md) separates the normal
 GUI/display producer from AF6's state9 request. Original drawing and valid

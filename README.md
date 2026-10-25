@@ -70,7 +70,7 @@ owner data-consumer bit2/raw0.bit6 path was initially unproduced. The subsequent
 [capture data audit](docs/runtime/capturedata.md) traces its four queues,
 statistics/scalar readers and pending40000 retirement callback. All33 sampled
 requests have root[16]=0, so their upper image-delivery branch is not selected.
-The complete source-declared capture pools17..23 now have exact RAM (kind18
+The complete source-declared capture pools16..23 now have exact RAM (kind18
 was already mapped); all32 memory cases pass. The complete-bundle
 [finite statistics profile](docs/devices/statistics/protocol.md) now joins
 committed endpoint configuration, immutable completed input, all ten output
@@ -82,14 +82,19 @@ no processing rejection/cancellation or uncovered access; the original
 consumer and request retirement execute, with all four queues empty at the
 checkpoint. There is still no display console. The separate conditional
 image request requires service state9, while this run remains in state2.
-The [normal image request audit](docs/runtime/imagerequest.md) identifies
-the separate information/activation producers: an earlier task cancels eligible
-jobs while two computed-input caches are unpublished; surviving jobs fail the
-image cadence check. The focused service callback queue is full of OnVd work,
-delaying or rejecting the required state transition. First-enable notification
-and selection guards are traced, but no enabled target or console is observed.
-Timing experiments have not validated a correction, and AF6/state9 is not
-established as the normal prerequisite.
+The [normal image request audit](docs/runtime/imagerequest.md) separates
+information/activation producers from AF6/state9. Qualified input synchronization
+now reaches the original FE mask4 setter, closing OnVd's mask5 wait. The earlier
+callback backlog naturally resolves to service4 with an empty queue.
+The [finite grayscale stream](docs/devices/capturework/protocol.md) now joins
+unit1 identity forwarding, unit2 geometry and paired LUT/packing to actual
+kind16 output DMA under explicit arithmetic/input hypotheses. In the final
+40-second cold-neutral explicit-scene run,388 stream jobs write737300880 payload
+bytes and original unit1/2/paired fence setters execute. All92 applicable
+Memory/CMOS/Sensor subtests pass. Aggregate processing still waits for group's
+independent payload operation; its address cursor is not a data completion.
+The computed caches remain unpublished and the first-enable chain has no
+console. No guest event, cache value or display enable is forced.
 Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
 module metadata is a bounded functional assumption, not

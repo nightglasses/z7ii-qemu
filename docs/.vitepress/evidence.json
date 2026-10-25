@@ -66,6 +66,12 @@
         "title": "Shared acquisition synchronization, original notification route and remaining processing guard",
         "href": "/evidence/imagerequest/notification.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "capturestream",
+        "title": "Owned grayscale stream, kind16 DMA and remaining group completion",
+        "href": "/evidence/imagerequest/stream.json",
+        "kind": "Execution observation"
       }
     ]
   },
@@ -2738,5 +2744,15 @@
   },
   "runtime/guidispatch.md": {
     "records": []
+  },
+  "devices/capturework/protocol.md": {
+    "records": [
+      {
+        "run": "capturestream",
+        "title": "Owned grayscale stream and remaining group completion",
+        "href": "/evidence/imagerequest/stream.json",
+        "kind": "Execution observation"
+      }
+    ]
   }
 }
