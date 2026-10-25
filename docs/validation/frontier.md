@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Current: image-information admission and display activation
+## Current: computed inputs, service backlog and first display enable
 
 The [image request audit](../runtime/imagerequest.md) separates the normal
 GUI/display producer from AF6's state9 request. Original drawing and valid
@@ -9,25 +9,41 @@ Display active/requested-enable masks and bank port/layer enables remain0.
 Phase18's final enable and the image-information04380001 publication have
 not executed in their focused cold-neutral windows.
 
-The new concrete software boundary is1026a312's cadence admission:
-103f6b90 reads selector4's pair `{2,0}`, and103f6bb2 requires
-`(job[0]-1) % 2 == 0`. All15 observed inputs5,7,...,33 fail and return0
-before image submission/publication. The normal producer chain would be
-041b0040 ->103284d0 ->1035a2d8 ->106d103c ->104be876 ->GUI record92.
-Its callbacks are registered, but no information payload reaches this subscriber
-in the focused window.
+Both root parities are created. Earlier step102669aa cancels the eligible
+phase at10266a8c because computed cache1 is unpublished; its cache2 check is
+short-circuited. Opposite-phase jobs survive to1026a312 and fail `{2,0}`
+cadence admission. The missing cache producer is the original FECLCTRK /
+10273268 ->10272d62 calculation, not an established missing external blob.
+FE's bootstrap ends with synchronization flagb1887dc8 still0; normal
+mode0/metadata+10132=0 bypass the subsequent calculation submission.
+
+The [phase/producer evidence](/evidence/imagerequest/phase.json) joins the
+upstream041a0002 request to queued10326676, which would transition service2
+to3. The focused service queue is full at60 records:94 OnVd enqueue successes
+and442 failures, versus2 transition successes and31 failures. No10326676
+execution is observed. This establishes backlog/loss in that window; the
+outstanding OnVd wait and first successful transition consumption remain open.
+The normal041b0040 ->103284d0 ->1035a2d8 ->106d103c ->104be876 producer
+remains registered without an observed information publication.
 AF6=0/service2 explains a separate conditional route; state9 is not established
 as a prerequisite for these normal display functions.
 
-The [unchanged-firmware admission observation](/evidence/imagerequest/admission.json)
-retains cold-neutral input, compares
-all six COPY ranges, records guard0/version150 and property6433 empty, and
-remains running with no uncovered access, peer rejection or console. Sequential
-QMP reads report1874/1873 readout requests/completions and527 statistics jobs,
-with0 rejection/cancellation. The next evidence is the source job-selection
-phase and the initial switch/phase18 producer. No period, sequence, software
-event, AF6 state or display enable is forced; no new hardware model is justified
-by these observations alone.
+The first-enable audit adds primary8000/phase17 and property6433 change-indexed
+primary4/phase5 routes to the earlier primary400/phase18 path. Mode entry sees
+target1 already selected and skips8000; phase5 sees no6433 index-ed change and
+skips its direct operation5. A further window confirms index-ed enabled1,
+pending0 and no mark request. An empty list is not itself a change notification.
+The policy becomes1, so permanent policy0 is not the explanation.
+
+The focused20-second cold-neutral `join` window compares all six loader COPY
+ranges and reports1913/1912 accepted/completed readouts and525 statistics jobs,
+with0 rejection/cancellation and no console. These are sequential QMP reads.
+Temporary100ms input pacing empties the queue but enters a different stop path;
+default-period sparse tracing also diverges, to service4 and CPU0 vector10100008.
+Neither is a GUI success or proof that backlog is the sole blocker. The original
+33333334ns period is restored, with no accepted device change, firmware edit,
+injected event/cache/state or forced enable. The earlier
+[admission receipt](/evidence/imagerequest/admission.json) retains its own scope.
 
 ## Finite processing-data completion
 

@@ -3,9 +3,12 @@
 The cold-neutral checkpoint reaches GUI drawing and display-layer programming,
 but has no active display target or observed publication through the traced
 image-information subscriber.
-The newly isolated image-task branch rejects the observed sequence phase before
-any image DMA submission. This is a software admission boundary, not a new
-unsupported device access. AF6's state9 request is a separate conditional route;
+The image-task branch rejects the surviving sequence phase before image DMA.
+An upstream task cancels the eligible phase because two computed-input caches
+have never been published. The focused trace also finds the service callback
+queue full of OnVd work; the needed state-transition callback is queued behind
+that work or rejected. These are software boundaries, not a newly established
+unsupported device contract. AF6's state9 request is a separate conditional route;
 forcing it is not justified as a normal GUI prerequisite.
 
 Addresses below are original C1.70 MAS CPU VA unless explicitly marked PA.
@@ -102,6 +105,113 @@ the remaining existing EX pad inputs through QMP. It observes no activation
 or AF6 request and no console. It is not the no-extra-input baseline, and pad
 identities are not established physical camera controls.
 
+## Eligible jobs and the missing cache producer
+
+The [phase and producer summary](/evidence/imagerequest/phase.json) extends the
+earlier admission receipt with `cpu,nochain` observations. Disabling TCG chaining
+does not reveal a hidden successful image-task admission. `103250f2` creates
+both sequence parities; `103d0db0` assigns the same type2 task table to both.
+The generic dispatcher `102994b4` skips remaining work after `job[1]` becomes
+nonzero. Thus the queue does not initially select only the wrong parity.
+
+The earlier step `102669aa` uses `103f6a60(selector4)` and the same `{2,0}`
+cadence. For an eligible job it requires both `10272c9e(1)` and
+`10272c9e(2)`. The first returns0 in all20 observed failed prerequisite checks;
+the second is short-circuited. Store `10266a8c` sets `job[1]=1`. Opposite-phase
+jobs bypass this work, survive to1026a312, then correctly fail its cadence test.
+Changing the image phase would bypass the missing inputs, not repair their
+producer.
+
+| Source edge | Verified contract |
+|---|---|
+| `10272c9e -> 102de7f0` | Require both allocated storage at context+4 and a published flag at+20. Cache1/2 contexts are `b26c13b0/b26c13c8`. |
+| `10272d20 -> 10272c7e -> 102de840` | Copy the supplied field, mark dirty and published under the original mutex. Cache1/2 lengths are10/11 bytes. |
+| `10272d62` | Call the firmware calculation `10288560 -> 102d3264`, then publish cache1/2 through the source pointers stored at `b2725e00/b2725e04`. These are firmware-computed fields, not established opaque external records. Their complete input requirements remain a separate question. |
+| `10273268` | Serialize a calculation request. A null callback computes inline; an asynchronous request wakes10272dc0 with bit2 and completes with041e000c. |
+| `1022ef30 -> 10273268` | Synchronous producer after FECLCTRK completion041a000a, handled by1022f318. |
+| `10235afe -> 10235e5c -> 10237d0e/10` | Submit FECLCTRK work when10235f3e accepts the root. Wrapper10237d0e is `MOV R1,R0`, falling through to10237d10. |
+
+The read-only snapshot finds both caches allocated, with dirty/published flags0.
+Caches3..6 are published, so this is not failure to initialize the entire cache
+family. No10273268 or10272d62 entry is observed in their focused filters.
+
+`102313ea` initially takes its bootstrap branch. Afterwards `b1887dc8=0`,
+mode byte `b1887d72=0`, and metadata byte+10132=0 make it skip10235afe.
+Another branch can setdc8 after exposure synchronization; `10230368` can also
+set it after consuming a completed read queue entry. Neither justifies setting
+the flag directly. Initial configuration10322886(0) constructs mode0 for
+10232de6; zero is a software request, not a missing register readback.
+
+## Callback backlog and observation limits
+
+In the focused `join` window the skipped FE roots notify registered
+`10327976(041a0002)`. It requests queued callback10326676 through10319d56.
+That callback would call10323198(10,2); the original transition table maps
+service state2/event10 to3. It is **not** observed executing. Registration and
+the request are therefore present; consumption is the new boundary.
+
+The queue at `b23ede14` holds60 records of92 bytes. Its final occupancy is60.
+Of completed, matched enqueue observations, OnVd callback10325ff6 is accepted94
+times and rejected442 times; callback10326676 is accepted twice and rejected31
+times. `1022587c` returns0 on full, while10319d56 ignores that result and still
+wakes the worker. The worker103191b2 has entered38 OnVd calls in this window.
+The accepted transition requests can remain behind older work; the rejected
+requests are not pending messages. Initial10232de6 returns in this trace, so
+the backlog is not evidence of an indefinitely blocked initial configuration.
+
+**Hypothesis:** the virtual input cadence and guest processing throughput can
+prevent the service from catching up. The board's33333334ns input period is a
+functional assumption. A separate100ms-period experiment empties the queue but
+ends in service state10 with no image task or published cache1/2; a slower1s
+attempt has no complete final snapshot. Neither validates a pacing repair.
+Both temporary board changes were removed.
+
+A separate sparse, chained trace with the default period also ends with an
+empty queue, service state4 and CPU0 at vector10100008, without a console.
+Runs with CPU logging disabled failed the old snapshot's non-null descriptor
+precondition and are excluded from the successful checkpoint receipts.
+These observations expose sensitivity to execution/observation conditions;
+they do not prove the focused backlog is the only startup failure. QMP
+`running`, or a live battery peer, does not prove healthy guest execution.
+
+The next evidence must identify the outstanding OnVd call/wait and the first
+state-transition consumption across a controlled execution window. A device
+change must attach to an actual request/completion contract. Slowing input,
+coalescing guest messages, filling caches, or injecting state3 is not an
+accepted correction on this evidence.
+
+## Additional first-enable producers
+
+Phase18 is not the only source-defined enable route. Initial mode entry
+1053fe10 can post primary8000 at10540502. `1053d0ec` maps that bit to phase17,
+whose10540be2 handler can reach operation5 after its target/policy guards.
+In the focused window the calculated mask is1, selected target is already1,
+and1063192c returns0; the code bypasses the8000 post. No phase17 entry occurs.
+This is an intentional no-change decision, not a failed hardware ACK.
+
+A distinct direct route is primary4 -> phase5 ->105413d6. Its
+`104bf2ee(ed)` result must be nonzero before10541578 reads property6433.
+With an empty list and flag42 clear it then sends operation5 at105415a8.
+The property-to-index record at MAS VA12449ff0 maps6433 to index `ed`; the lookup
+uses its RAM table atb2bb1080. Property callbacks104be4ea/104be5fa map a
+notification to this index, call104bd90e, then post primary4. `104bd90e`
+requires the index enabled and not already pending;104bf2ee consumes the flag.
+An empty property value alone therefore does not request an enable.
+
+In `join`, phase5 executes repeatedly, but all99 observations at10541578
+haveR4=0, bypassing this direct enable. Policy is not permanently0:
+104be90a receives0410000b and writes1 to b181c99c. This rules out explaining
+the entire window by the earlier policy0 observation. A further focused
+`enable` window confirms the runtime6433 ->ed mapping, index-enabled byte1,
+pending byte0, no104bd90e(ed), and no1035ed5c entry. That helper's clear-list
+arm can write an empty6433 through1034ffe0; one source route is capseq worker
+bit20000000 from103977f6's successful error-clear branch. It has its own
+guards and is not established as a mandatory initial-startup request.
+Which normal notification
+or selection transition should perform **first** activation still requires a
+runtime join; the source admits several routes, and none should be declared
+the unique startup producer merely from its call graph.
+
 ## AF6 relationship and next evidence
 
 The [AF6 producer audit](../devices/statistics/protocol.md#separate-software-image-request-condition)
@@ -114,17 +224,8 @@ The normal information/display functions above have their own guards; they
 do not test AF6 at the identified edges. A shared earlier dependency remains
 possible, but no evidence establishes AF6/state9 as their required producer.
 
-**Inference:** the observed opposite sequence phase is a useful next upstream
-boundary. `103250f2` numbers roots and records the selector; `103cc1a6` performs
-further packet admission, and `102994b4` dispatches the source task table that
-contains1026a312. Capture both phases across those edges and match job identity
-to the completion/publication callbacks before attributing the selection to a
-device timing or missing data contract. Separately trace callers of10631c7e
-and the switch-pending setters to identify the initial phase18 trigger.
-
-**Unproved hypothesis:** a device phase/completion association might suppress
-the eligible jobs. The current receipts do not distinguish that from intended
-software task selection. Accordingly this change adds no hardware behavior:
-do not alter the software period/phase, change a job number, force state9,
-inject400/04380001, or enable display ports to bypass these checks. The existing
-statistics model remains unchanged; its81-case native receipt is separate.
+The eligible-job cancellation is now established; the earlier conjecture of
+an unexplained parity selector is superseded by the cache/queue evidence above.
+This audit adds no accepted hardware behavior. The existing statistics model
+remains unchanged; its81-case native receipt is separate from these original
+firmware observations and from the unsuccessful timing experiments.
