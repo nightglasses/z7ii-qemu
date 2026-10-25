@@ -4,6 +4,9 @@ This audit continues the [readout producer join](readoutstate.md#current-cold-ne
 Code addresses and software objects below are original MAS VAs; device and
 pool addresses are board PAs. Source projections, raw allocation rows and
 unchanged-firmware receipts remain in `work/runs/capturedata-20261024/`.
+The storage-only checkpoints below precede the implemented
+[finite statistics transaction](../devices/statistics/protocol.md), which
+now produces DMA/results/raw6 under explicit arithmetic/input assumptions.
 
 ## Established producer and consumer chain
 
@@ -57,8 +60,9 @@ bank's four triples are `{signed24,unsigned29,unsigned17}` with register
 offset orders `{00,08,10}`, `{04,0c,14}`, `{18,20,28}`, `{1c,24,2c}`.
 Original code sign-extends/masks them and writes the software statistics
 record; the packed widths and ordering do not establish the arithmetic
-that generates them from pixels. Existing capture-bank devices retain
-configuration only and do not publish these results.
+that generates them from pixels. At this audit's storage-only checkpoint,
+capture-bank devices retained configuration only. They now accept results
+from the separate statistics coordinator.
 
 `10238a62(0,p) -> 1020c876(0) -> 1020af08` reads `2006a3e0` into the
 kind18 descriptor's word+30. Selectors0..3 address `a3e0/e4/e8/ec`.
@@ -74,8 +78,10 @@ commit8 configuration, accept a definite input generation while effectively
 running, produce required endpoint data and both result families, then
 publish raw0.bit6 once through existing capture pending/IRQ/W1C. Duplicate
 commit ports must not duplicate work; failed DMA, cancellation, stop, reset
-and stale jobs must not publish completion. This is a proposed contract,
-not implemented or verified processing behavior. Returning arbitrary results
+and stale jobs must not publish completion. The later statistics profile
+implements this contract, including raw6 pending/W1C backpressure. Empty
+software queues may discard a completed frame; result reads therefore must
+not gate the next job. Returning arbitrary results
 or attaching bit6 to every auxiliary completion would retire requests
 without satisfying their data dependencies.
 
@@ -125,9 +131,12 @@ increments the former counter. Otherwise it writes0; equality while in state1
 also changes `b1868af6` to2. The read-only `routes` snapshot has
 `b1868af6=0`; at that sampled state the setter would select the zero branch.
 Its per-request execution state was not traced. The
-upstream producer of that state/counter request and the eventual connection
-to GUI main-image delivery remain unresolved; this conditional delivery
-branch is not itself proof of normal live-view GUI output.
+later [upstream request audit](../devices/statistics/protocol.md#separate-software-image-request-condition)
+identifies `103f27ba -> 10328ca6 -> 10323a7e`, guarded by service state9
+and property1053=1. The eventual connection to GUI main-image delivery
+remains unresolved; this conditional branch is not itself proof of normal
+live-view GUI output. Root[8], separately, requires `b1868b0c=2` in the same
+setter; the latest state has that byte0 as well.
 
 The post-change `verified` and `routes` runs each use unchanged firmware,
 the same cold-neutral descriptor32, RNG0, healthy paced battery UART, held
@@ -144,8 +153,8 @@ root[16] are both0 in every one. Mask `20068200=10000079` already enables
 raw0.bit6, reset is0, enable/run=`2bf`, and mode=`10008`. The focused trace
 sees owner bit29 but no bit2, no `10238c40` entry and no statistics-reader
 entry. The primary auxiliary prefix is nonzero; the secondary stays cold.
-Thus queue submission and IRQ masking are not the missing edge. The current
-model lacks processing-data/result production and raw0.bit6; these queued
+Thus queue submission and IRQ masking were not the missing edge. That
+storage-only model lacked processing-data/results and raw0.bit6; its queued
 roots also have not selected the upper image-delivery branch. No new startup
 stop or normal-GUI progress is claimed from adding storage alone.
 

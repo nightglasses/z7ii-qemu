@@ -29,6 +29,7 @@
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/cmos.h"
 #include "hw/nikon/readoutpipeline.h"
+#include "hw/nikon/statistics.h"
 #include "hw/nikon/frame.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
@@ -796,6 +797,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *capture;
     DeviceState *group;
     DeviceState *cmos;
+    DeviceState *endpoints, *banks, *statistics = NULL;
     DeviceState *router;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
@@ -1182,6 +1184,11 @@ static void z7ii_init(MachineState *machine)
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
+        if (s->bundle) {
+            statistics = qdev_new(TYPE_NIKON_STATISTICS);
+            object_property_add_child(OBJECT(machine), "capture-statistics",
+                                      OBJECT(statistics));
+        }
 
         object_property_add_child(OBJECT(machine), "capture-control",
                                   OBJECT(capture));
@@ -1202,8 +1209,27 @@ static void z7ii_init(MachineState *machine)
         }
         qdev_connect_gpio_out_named(capture, "run-state", 5,
                                    qdev_get_gpio_in_named(group, "run", 0));
-        qdev_connect_gpio_out_named(router, "automatic-rise", 0,
-            qdev_get_gpio_in_named(group, "automatic-rise", 0));
+        if (statistics) {
+            DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(split, "num-lines", 2);
+            qdev_realize_and_unref(split, NULL, &error_fatal);
+            qdev_connect_gpio_out(split, 0,
+                qdev_get_gpio_in_named(group, "automatic-rise", 0));
+            qdev_connect_gpio_out(split, 1,
+                qdev_get_gpio_in_named(statistics, "automatic-rise", 0));
+            qdev_connect_gpio_out_named(router, "automatic-rise", 0,
+                                       qdev_get_gpio_in(split, 0));
+            qdev_connect_gpio_out_named(capture, "run-state", 4,
+                qdev_get_gpio_in_named(statistics, "run", 0));
+            for (unsigned i = 0; i < 2; i++) {
+                qdev_connect_gpio_out_named(capture, "run-state", 6 + i,
+                    qdev_get_gpio_in_named(statistics, "bank-run", i));
+            }
+        } else {
+            qdev_connect_gpio_out_named(router, "automatic-rise", 0,
+                qdev_get_gpio_in_named(group, "automatic-rise", 0));
+        }
     }
     {
         DeviceState *parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
@@ -1214,7 +1240,7 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(parameters), 0, 0x20069500);
     }
     {
-        DeviceState *endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
+        endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
 
         object_property_add_child(OBJECT(machine), "capture-endpoints",
                                   OBJECT(endpoints));
@@ -1222,7 +1248,7 @@ static void z7ii_init(MachineState *machine)
         sysbus_mmio_map(SYS_BUS_DEVICE(endpoints), 0, 0x2006a200);
     }
     {
-        DeviceState *banks = qdev_new(TYPE_NIKON_CAPTURE_BANKS);
+        banks = qdev_new(TYPE_NIKON_CAPTURE_BANKS);
 
         object_property_add_child(OBJECT(machine), "capture-banks", OBJECT(banks));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(banks), &error_fatal);
@@ -1245,12 +1271,18 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < 2; i++) {
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
-            qdev_prop_set_uint16(split, "num-lines", 2);
+            qdev_prop_set_uint16(split, "num-lines", statistics ? 3 : 2);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "commit", i));
             qdev_connect_gpio_out(split, 1,
                 qdev_get_gpio_in_named(readout, "commit", i));
+            if (statistics) {
+                qdev_connect_gpio_out(split, 2,
+                    qdev_get_gpio_in_named(statistics, "commit", i));
+                qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 3,
+                    qdev_get_gpio_in_named(statistics, "commit-selected", i));
+            }
 
             qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 1,
                 qdev_get_gpio_in_named(readout, "commit-selected", i));
@@ -1286,6 +1318,15 @@ static void z7ii_init(MachineState *machine)
         object_property_set_link(OBJECT(pipeline), "capture", OBJECT(capture),
                                  &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "endpoints",
+                                 OBJECT(endpoints), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "banks", OBJECT(banks),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(statistics), "pipeline",
+                                 OBJECT(pipeline), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "capture", OBJECT(capture),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(statistics), &error_fatal);
         qdev_connect_gpio_out_named(readout, "readout-request", 0,
             qdev_get_gpio_in_named(pipeline, "request", 0));
         qdev_connect_gpio_out_named(readout, "readout-cancel", 0,

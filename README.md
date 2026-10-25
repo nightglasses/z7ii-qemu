@@ -62,15 +62,24 @@ and mode-selected capture completion. It backs the complete kind38/39 pools.
 Two20-second cold-neutral runs now complete about1500–1650 functional
 transfers through the original IRQ/owner/marker loop, with no request rejection
 or console; all99 applicable CMOS/Sensor/memory/SLA cases pass. The separate
-owner data-consumer bit2/raw0.bit6 path remains unproduced. The subsequent
+owner data-consumer bit2/raw0.bit6 path was initially unproduced. The subsequent
 [capture data audit](docs/runtime/capturedata.md) traces its four queues,
 statistics/scalar readers and pending40000 retirement callback. All33 sampled
 requests have root[16]=0, so their upper image-delivery branch is not selected.
 The complete source-declared capture pools17..23 now have exact RAM (kind18
-was already mapped); all32 memory cases pass. Storage alone supplies neither
-processing results nor bit6, and unchanged cold-neutral runs still have no
-console. Statistics DMA,
-the secondary-plane producer and the normal display join remain unresolved.
+was already mapped); all32 memory cases pass. The complete-bundle
+[finite statistics profile](docs/devices/statistics/protocol.md) now joins
+committed endpoint configuration, immutable completed input, all ten output
+DMAs, twelve-word bank results, four global scalars and bit6 publication.
+Its numerical arithmetic and input association are explicit functional
+assumptions. All81 applicable memory/CMOS/Sensor cases pass. Unchanged
+cold-neutral execution completes519 processing jobs in20 host seconds with
+no processing rejection/cancellation or uncovered access; the original
+consumer and request retirement execute, with all four queues empty at the
+checkpoint. There is still no display console. The separate conditional
+image request requires service state9, while this run remains in state2;
+its necessity for normal GUI, the secondary-plane producer and the normal
+display join remain unresolved.
 Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
 module metadata is a bounded functional assumption, not

@@ -159,6 +159,12 @@ flowchart TD
   Capture --> ISR["Original ISR / owner event29"]
   ISR --> Guest
 
+  Pipeline -->|"immutable successful input snapshot"| Statistics["statistics.c<br/>selected unit16 commit/run + automatic TG"]
+  Statistics -->|"ten validated output DMAs"| RAM
+  Statistics --> Results["running-bank twelve-word results<br/>four global scalars"]
+  Results -->|"after every required DMA succeeds"| DataIRQ["capture raw0.bit6 / IRQ94"]
+  DataIRQ --> Consumer["original owner bit2 / 10238c40<br/>statistics read / request retirement"]
+
   RAM -. "original producer join unverified" .-> Process["Processing endpoint PA 0x24070000<br/>accepts supplied complete buffers"]
   Supplied["Explicit complete input buffers"] --> Process
   RAM -. "original display packet / commit unverified" .-> Compose["Image-bank compositor<br/>guest packet and supported RAM layers"]
@@ -182,6 +188,13 @@ consumer, and is emitted only after actual DMA. See the
 [readout mapping](devices/readout/profile.json),
 [controller contract](devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
 and [pipeline fixtures](../tests/qtest/nikon/cmos.c).
+The complete-bundle [statistics transaction](devices/statistics/protocol.md)
+adds a finite grayscale processing profile. Output geometry and consumer
+packing are source-backed; auxiliary-input association, numerical arithmetic
+and computation latency are declared functional assumptions. Publication
+follows successful DMA, respects cancellation and raw6 W1C backpressure,
+and never edits software queues. Original request retirement now runs;
+the normal GUI image/display join is still unverified.
 
 Image-bank composition and console publication already exist independently;
 the missing acceptance is the original guest's natural producer/commit path,

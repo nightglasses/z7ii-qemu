@@ -84,7 +84,7 @@ succeed, before another task first rejects READ16 PA`5d170000` at PC`1024ffda`.
 The final snapshot still has guard0/property6433 empty and no display console;
 completion of all interpolation records is not established.
 The subsequent [grid pool](grid.md) supplies kind18's exact six-unit storage,
-with cold-zero RAM explicitly assumed and statistics DMA still absent.
+with cold-zero RAM explicitly assumed and statistics DMA absent at that checkpoint.
 Unchanged `gridstorage-20261024/verified` crosses the grid consumer and again
 records guard0/property6433 empty. The next rejection is CPU0 PC`10208e14`,
 READ32 PA`2006bb70`, on the force0 incremental path after commit/run has
@@ -107,8 +107,13 @@ queues to pending40000 retirement. All33 sampled queued roots have root[16]=0,
 which bypasses the upper image-delivery branch even after retirement. The
 direct setter `103250f2 -> 10324f04(root+8)` requires `b1868af6=1`
 and unequal counters `b1868b94/b1868b98`; the snapshot has that state byte0.
-The complete capture-pool RAM family is now backed, but processing results and
-the separate bit6 producer remain absent; no new GUI progress is claimed.
+The complete capture-pool RAM family is backed. The subsequent
+[statistics profile](../devices/statistics/protocol.md) supplies processing
+DMA/results/bit6 and the unchanged consumer/retirement chain now executes
+continuously. Its cold-neutral checkpoint still has no display console:
+service state2 and AF6=0 do not enter the separately recovered state9 image
+request. That conditional path's necessity for normal GUI remains unproven;
+the readiness gate alone is not treated as a universal display prerequisite.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.

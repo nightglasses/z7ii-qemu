@@ -26,7 +26,10 @@ static uint64_t property_at(QTestState *q, const char *path,
     QDict *reply = qtest_qmp(q,
         "{'execute':'qom-get','arguments':{'path':%s,'property':%s}}",
         path, property);
-    uint64_t value = qdict_get_int(reply, "return");
+    uint64_t value;
+
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_int(reply, "return");
 
     qobject_unref(reply);
     return value;
@@ -483,6 +486,331 @@ static void test_pipeline_backpressure_and_stale(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+static void statistics_rise(QTestState *q)
+{
+    qtest_set_irq_in(q, "/machine/capture-statistics", "automatic-rise", 0, 0);
+    qtest_set_irq_in(q, "/machine/capture-statistics", "automatic-rise", 0, 1);
+}
+
+static void statistics_configure(QTestState *q)
+{
+    static const uint32_t dimensions[] = { 0x278, 0x2d0, 0x2e8, 0x300, 0x318 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(dimensions); i++) {
+        qtest_writel(q, 0x2006a000 + dimensions[i], 0x204);
+    }
+    qtest_writel(q, 0x2006a338, (2 << 10) | 4);
+    qtest_writel(q, 0x2006a354, (2 << 11) | 4);
+    qtest_writel(q, 0x2006a370, (2 << 10) | 4);
+    for (unsigned n = 0; n < 10; n++) {
+        uint32_t port = 0x2006a400 + n * 0x100;
+        uint32_t base = RAM + 0x100000 + n * 0x10000;
+
+        qtest_writel(q, port + 0x14, 3);
+        qtest_writel(q, port + 0x18, 1);
+        qtest_writel(q, port + 0x40, 1);
+        qtest_writel(q, port + 0x44, 1);
+        qtest_writel(q, port + 0x48, 2);
+        qtest_writel(q, port + 0x80, 0x1000);
+        for (unsigned bank = 0; bank < 2; bank++) {
+            unsigned addresses = (n >= 2 && n <= 4) || n == 9 ? 4 : 1;
+
+            for (unsigned a = 0; a < addresses; a++) {
+                qtest_writel(q, port + 0x50 + bank * 16 + a * 4, base);
+            }
+        }
+        qtest_memset(q, base, 0xa5, 0x3000);
+    }
+    qtest_writel(q, CAPTURE + 0x10, 0xd2);
+    qtest_writel(q, CAPTURE + 8, 0xd2);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    qtest_writel(q, CAPTURE + 0x104, 8);
+}
+
+static void statistics_input(QTestState *q, uint8_t *bytes)
+{
+    pipeline_configure(q, RAM, 0x100, 0x400,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 10000);
+    if (bytes) {
+        qtest_memread(q, RAM, bytes, 0x400);
+    }
+}
+
+static uint64_t statistics_sum(const uint8_t *bytes, unsigned x0, unsigned y0,
+                                unsigned width, unsigned height)
+{
+    uint64_t sum = 0;
+
+    for (unsigned y = y0; y < y0 + height; y++) {
+        for (unsigned x = x0; x < x0 + width; x++) {
+            sum += lduw_le_p(bytes + y * 256 + x * 2);
+        }
+    }
+    return sum;
+}
+
+static void test_statistics_transaction(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+    uint8_t input[0x400];
+
+    /* The old model fails here: no capture processing device exists. */
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 0);
+    statistics_configure(q);
+    qtest_writel(q, 0x2006a53c, 3);
+    qtest_writel(q, 0x2006a560, RAM + 0x114000);
+    qtest_memset(q, RAM + 0x114000, 0xa5, 0x3000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 0);
+    statistics_input(q, input);
+    qtest_memset(q, RAM, 0x55, sizeof(input));
+    statistics_rise(q);
+    /* Live staging and a newer CMOS completion cannot alter this job. */
+    qtest_writel(q, 0x2006a560, RAM + 0x200000);
+    statistics_input(q, NULL);
+    /* Returning to the same bytes still establishes a newer commit. */
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    qtest_writel(q, 0x2006a560, RAM + 0x114000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0x40);
+    for (unsigned n = 0; n < 10; n++) {
+        uint32_t base = RAM + 0x101000 + n * 0x10000;
+        unsigned stride = n ? 16 : 64;
+
+        if (n == 1) {
+            base = RAM + 0x115000;
+        }
+        g_assert_cmphex(qtest_readl(q, base - 4), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, base + stride * 2), ==, 0xa5a5a5a5);
+        for (unsigned y = 0; y < 2; y++) {
+            for (unsigned x = 0; x < 4; x++) {
+                unsigned mean =
+                    (statistics_sum(input, x * 32, y * 2, 32, 2) + 32) / 64;
+
+                if (!n) {
+                    g_assert_cmphex(qtest_readl(q, base + y * stride +
+                                                x * 16 + 12), ==, mean);
+                    g_assert_cmphex(qtest_readl(q, base + y * stride +
+                                                x * 16 + 8), ==, 64);
+                } else if (n <= 4) {
+                    g_assert_cmphex(qtest_readw(q, base + y * stride + x * 2),
+                                    ==, mean);
+                } else {
+                    g_assert_cmphex(qtest_readb(q, base + y * stride + x),
+                                    ==, mean >> 8);
+                }
+            }
+        }
+    }
+    for (unsigned bank = 0; bank < 2; bank++) {
+        uint32_t base = bank ? 0x2006bf00 : 0x2006a100;
+
+        for (unsigned i = 0; i < 4; i++) {
+            unsigned x = (i % 2) * 64, y = (i / 2) * 2;
+            uint64_t sum = statistics_sum(input, x, y, 64, 2);
+            int64_t difference =
+                (int64_t)statistics_sum(input, x + 63, y, 1, 2) -
+                (int64_t)statistics_sum(input, x, y, 1, 2);
+            unsigned index = i < 2 ? i : i + 4;
+
+            g_assert_cmphex(qtest_readl(q, base + index * 4),
+                            ==, difference & 0xffffff);
+            g_assert_cmphex(qtest_readl(q, base + (index + 2) * 4), ==, sum);
+            g_assert_cmphex(qtest_readl(q, base + (index + 4) * 4), ==, 128);
+            g_assert_cmphex(qtest_readl(q, 0x2006a3e0 + i * 4),
+                            ==, (sum + 64) / 128);
+        }
+    }
+    /* ACK backpressure and duplicate commits preserve the published packet. */
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    qtest_writel(q, CAPTURE + 0x104, 8);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "blocked"), >, 0);
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 2);
+    /* The newer A snapshot starts at slot1; the old job cannot advance it. */
+    g_assert_cmphex(qtest_readl(q, RAM + 0x102000), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x116000), ==, 0xa5a5a5a5);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_statistics_saturation(void)
+{
+    static const char header[] = "P5\n128 8192\n255\n";
+    const size_t pixels = 128 * 8192, prefix = sizeof(header) - 1;
+    g_autofree char *bundle = NULL;
+    g_autofree char *path = NULL;
+    g_autofree uint8_t *image = g_malloc(prefix + pixels);
+    QTestState *q = pipeline_start(&bundle);
+    int fd = g_file_open_tmp("nikon-statistics-XXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(image, header, prefix);
+    memset(image + prefix, 255, pixels);
+    for (unsigned y = 0; y < 8192; y++) {
+        image[prefix + y * 128] = 0;
+        image[prefix + y * 128 + 127] = 0;
+    }
+    g_assert_true(g_file_set_contents(path, (char *)image,
+                                     prefix + pixels, NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    statistics_configure(q);
+    pipeline_configure(q, RAM + 0x400000, 256, 256 * 8192,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 100000);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    for (unsigned i = 0; i < 4; i++) {
+        unsigned base = (i < 2 ? i : i + 4) * 4 + 0x2006bf00;
+
+        g_assert_cmphex(qtest_readl(q, base), ==, i % 2 ? 0x800000 : 0x7fffff);
+        g_assert_cmphex(qtest_readl(q, base + 8), ==, 0x1fffffff);
+        g_assert_cmphex(qtest_readl(q, base + 16), ==, 0x1ffff);
+        g_assert_cmphex(qtest_readl(q, 0x2006a3e0 + i * 4), ==,
+                        (65535u * 63 + 32) / 64);
+    }
+    qtest_quit(q);
+    unlink(bundle);
+    unlink(path);
+}
+
+static void test_statistics_lifecycle(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    statistics_configure(q);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    /* Empty original queues may discard a frame without any result reads. */
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 2);
+    /* Advance once per success; unchanged dual commits do not rewind. */
+    g_assert_cmphex(qtest_readl(q, RAM + 0x102000 + 8), ==, 64);
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    for (unsigned i = 0; i < 12; i++) {
+        qtest_readl(q, 0x2006bf00 + i * 4);
+    }
+    qtest_readl(q, 0x2006a3e0);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_writel(q, CAPTURE + 0xc, 0x10);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "cancelled"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
+    /* Stop/restart must not revive the old job; bank1 alone preserves bank0. */
+    for (unsigned bank = 0; bank < 2; bank++) {
+        for (unsigned i = 0; i < 12; i++) {
+            qtest_readl(q, (bank ? 0x2006bf00 : 0x2006a100) + i * 4);
+        }
+    }
+    qtest_writel(q, CAPTURE + 8, 0xd2);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_writel(q, CAPTURE + 0xc, 0x40);
+    qtest_writel(q, CAPTURE + 8, 0xd2);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "cancelled"), ==, 2);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
+    qtest_writel(q, CAPTURE + 0xc, 0x40);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 3);
+    g_assert_cmphex(property_at(q, "/machine/capture-banks", "read-mask0"),
+                    ==, 0xfff);
+    g_assert_cmphex(property_at(q, "/machine/capture-banks", "read-mask1"),
+                    ==, 0);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_statistics_boundaries(void)
+{
+    static const uint32_t bad[][2] = {
+        { 0x2006ad60, 0x10020000 }, /* ROM */
+        { 0x2006ad50, 0xfffffff0 }, /* overflow */
+        { 0x2006ad54, RAM },        /* unmodeled address layout */
+        { 0x2006ad80, 1 },          /* undersized slot */
+        { 0x2006ad50, RAM + 0x100000 }, /* output overlap */
+        { 0x2006ad3c, 6 },          /* unknown bank mode */
+        { 0x2006a278, 0 },          /* empty geometry */
+    };
+
+    for (unsigned c = 0; c < ARRAY_SIZE(bad); c++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle);
+
+        statistics_configure(q);
+        qtest_writel(q, bad[c][0], bad[c][1]);
+        if (c == 0 || c == 1 || c == 4) {
+            unsigned set = c == 0 ? 0x60 : 0x50;
+
+            for (unsigned i = 1; i < 4; i++) {
+                qtest_writel(q, 0x2006ad00 + set + i * 4, bad[c][1]);
+            }
+        }
+        if (c == 0) {
+            qtest_writel(q, 0x2006ad3c, 2);
+        }
+        qtest_writel(q, CAPTURE + 0x100, 8);
+        statistics_input(q, NULL);
+        statistics_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                     "rejected"), ==, 1);
+        g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                     "completed"), ==, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
+        g_assert_cmphex(qtest_readl(q, RAM + 0x101000), ==, 0xa5a5a5a5);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void test_pipeline_cancel_and_reset(void)
 {
     g_autofree char *bundle = NULL;
@@ -550,6 +878,14 @@ int main(int argc, char **argv)
                    test_pipeline_backpressure_and_stale);
     qtest_add_func("/nikon/cmos/pipeline/cancel-reset",
                    test_pipeline_cancel_and_reset);
+    qtest_add_func("/nikon/cmos/statistics/transaction",
+                   test_statistics_transaction);
+    qtest_add_func("/nikon/cmos/statistics/saturation",
+                   test_statistics_saturation);
+    qtest_add_func("/nikon/cmos/statistics/lifecycle",
+                   test_statistics_lifecycle);
+    qtest_add_func("/nikon/cmos/statistics/boundaries",
+                   test_statistics_boundaries);
     result = g_test_run();
     unlink(image);
     g_free(image);

@@ -1,12 +1,13 @@
 /*
- * Two source-identified capture service parameter banks.
- * Configuration retention implies no status, IRQ, timer or DMA producer.
+ * Capture service parameters and externally published numerical results.
+ * Configuration retention alone produces no status, IRQ, timer or DMA.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/statistics.h"
 
 #define CAPTURE_BANK_SIZE 0x44
 #define CAPTURE_BANK_WORDS (CAPTURE_BANK_SIZE / 4)
@@ -23,7 +24,24 @@ struct NikonCaptureBanksState {
     NikonCaptureBank bank[2];
     uint32_t configuration[2][CAPTURE_BANK_WORDS];
     bool reported_error;
+    uint32_t results[2][12];
+    uint32_t read_mask[2];
+    unsigned results_valid;
 };
+
+void nikon_capture_banks_results(DeviceState *dev, unsigned banks,
+                                 const uint32_t words[12])
+{
+    NikonCaptureBanksState *s = NIKON_CAPTURE_BANKS(dev);
+
+    for (unsigned bank = 0; bank < 2; bank++) {
+        if (banks & (1u << bank)) {
+            memcpy(s->results[bank], words, sizeof(s->results[bank]));
+            s->read_mask[bank] = 0;
+        }
+    }
+    s->results_valid |= banks & 3;
+}
 
 static bool nikon_capture_bank_mask(hwaddr offset, uint32_t *mask)
 {
@@ -58,6 +76,14 @@ static MemTxResult nikon_capture_bank_read(void *opaque, hwaddr offset,
     uint32_t mask;
 
     *value = 0;
+    if (size == 4 && !(offset & 3) && offset >= 0x100 &&
+        offset <= 0x12c && (bank->owner->results_valid & (1u << bank->index))) {
+        unsigned word = (offset - 0x100) / 4;
+
+        *value = bank->owner->results[bank->index][word];
+        bank->owner->read_mask[bank->index] |= 1u << word;
+        return MEMTX_OK;
+    }
     if (size != 4 || (offset & 3) ||
         !nikon_capture_bank_mask(offset, &mask)) {
         return nikon_capture_bank_error(bank, offset, size, false, 0);
@@ -95,19 +121,26 @@ static void nikon_capture_banks_reset(DeviceState *dev)
 
     memset(s->configuration, 0, sizeof(s->configuration));
     s->reported_error = false;
+    s->results_valid = false;
+    memset(s->read_mask, 0, sizeof(s->read_mask));
+    memset(s->results, 0, sizeof(s->results));
 }
 
 static void nikon_capture_banks_init(Object *obj)
 {
     NikonCaptureBanksState *s = NIKON_CAPTURE_BANKS(obj);
 
+    object_property_add_uint32_ptr(obj, "read-mask0", &s->read_mask[0],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "read-mask1", &s->read_mask[1],
+                                   OBJ_PROP_FLAG_READ);
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonCaptureBank *bank = &s->bank[i];
 
         bank->owner = s;
         bank->index = i;
         memory_region_init_io(&bank->memory, obj, &nikon_capture_bank_ops, bank,
-                              "nikon.capture-bank", CAPTURE_BANK_SIZE);
+                              "nikon.capture-bank", 0x130);
         sysbus_init_mmio(SYS_BUS_DEVICE(s), &bank->memory);
     }
 }

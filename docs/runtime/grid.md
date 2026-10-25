@@ -3,8 +3,10 @@
 The C1.70 MAS consumer at PC`1024ffda` reads a16-bit sample at VA/PA
 `5d170000`. It belongs to allocation kind18's complete pool, not to a NOR
 calibration payload. The board now supplies that pool's ordinary RAM. Initial
-zero is an explicit functional assumption; a statistics DMA producer is still
-unimplemented and is not established by the resulting software continuation.
+zero is an explicit functional assumption; the storage-only continuation below
+does not establish statistics DMA. The later
+[finite statistics profile](../devices/statistics/protocol.md) now fills this
+grid from completed input under explicit numerical/input assumptions.
 Addresses and offsets below are hexadecimal; dimensions/counts are decimal
 unless marked otherwise.
 

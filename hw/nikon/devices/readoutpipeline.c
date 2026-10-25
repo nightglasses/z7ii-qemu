@@ -11,6 +11,9 @@
 #include "hw/nikon/cmos.h"
 #include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/sensor.h"
+#include "hw/nikon/statistics.h"
+#include "system/address-spaces.h"
+#include "system/dma.h"
 #include "migration/vmstate.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonReadoutPipeline, NIKON_READOUT_PIPELINE)
@@ -28,7 +31,18 @@ struct NikonReadoutPipeline {
     uint64_t rejected;
     uint64_t cancelled;
     uint64_t stale;
+    NikonReadoutC170Mapping mapping;
+    NikonCaptureInput input;
+    uint8_t *input_data;
 };
+
+bool nikon_readout_pipeline_input(DeviceState *dev, NikonCaptureInput *input)
+{
+    NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(dev);
+
+    *input = s->input;
+    return input->generation != 0;
+}
 
 static void nikon_readout_pipeline_request(void *opaque, int n, int level)
 {
@@ -78,6 +92,7 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
         return;
     }
     s->active_generation = request.generation;
+    s->mapping = mapping;
     s->completion_cause = mapping.completion_cause;
     if (!nikon_readout_publish_ready(s->readout, request.generation)) {
         s->active_generation = 0;
@@ -99,6 +114,24 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
     generation = s->active_generation;
     s->active_generation = 0;
     if (n == NIKON_CMOS_PIPELINE_DONE) {
+        NikonReadoutC170Mapping *m = &s->mapping;
+        uint8_t *data = g_malloc(m->span);
+
+        /* Snapshot only completed DMA, before another request can reuse RAM. */
+        if (dma_memory_read(&address_space_memory, m->destination, data,
+                            m->span, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            g_free(data);
+            s->input.generation = 0;
+            nikon_readout_release(s->readout, generation);
+            s->rejected++;
+            return;
+        }
+        g_free(s->input_data);
+        s->input_data = data;
+        s->input = (NikonCaptureInput) {
+            .generation = generation, .width = m->width, .height = m->height,
+            .stride = m->stride, .data = data,
+        };
         if (nikon_readout_publish_completion(s->readout, generation)) {
             uint32_t causes[] = { s->completion_cause, 0 };
             Error *err = NULL;
@@ -111,9 +144,11 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
                 s->stale++;
             }
         } else {
+            s->input.generation = 0;
             s->stale++;
         }
     } else {
+        s->input.generation = 0;
         nikon_readout_release(s->readout, generation);
         s->cancelled++;
     }
@@ -126,6 +161,9 @@ static void nikon_readout_pipeline_cancel(void *opaque, int n, int level)
     if (level && s->active_generation) {
         nikon_cmos_cancel(s->cmos);
     }
+    if (level) {
+        s->input.generation = 0;
+    }
 }
 
 static void nikon_readout_pipeline_reset(DeviceState *dev)
@@ -134,6 +172,8 @@ static void nikon_readout_pipeline_reset(DeviceState *dev)
     uint64_t generation = s->active_generation;
 
     s->active_generation = 0;
+    s->input = (NikonCaptureInput) { 0 };
+    g_clear_pointer(&s->input_data, g_free);
     if (generation) {
         nikon_readout_release(s->readout, generation);
         nikon_cmos_cancel(s->cmos);
@@ -200,6 +240,7 @@ static void nikon_readout_pipeline_class_init(ObjectClass *oc, const void *data)
 
     dc->realize = nikon_readout_pipeline_realize;
     dc->vmsd = &nikon_readout_pipeline_vmstate;
+    dc->unrealize = nikon_readout_pipeline_reset;
     device_class_set_props(dc, nikon_readout_pipeline_properties);
     device_class_set_legacy_reset(dc, nikon_readout_pipeline_reset);
 }

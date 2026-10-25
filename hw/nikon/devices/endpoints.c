@@ -1,12 +1,13 @@
 /*
- * Source-bound capture endpoint and global parameter retention.
- * No status provider, command completion, DMA or IRQ is inferred.
+ * Capture endpoint parameters and externally published global results.
+ * Configuration retention alone produces no command completion, DMA or IRQ.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/statistics.h"
 
 #define ENDPOINTS_SIZE 0xb84
 #define ENDPOINTS_WORDS (ENDPOINTS_SIZE / 4)
@@ -17,7 +18,26 @@ struct NikonCaptureEndpointsState {
     MemoryRegion memory;
     uint32_t configuration[ENDPOINTS_WORDS];
     bool reported_error;
+    uint32_t results[4];
+    bool results_valid;
+    uint32_t consumed;
 };
+
+void nikon_capture_endpoints_snapshot(
+    DeviceState *dev, uint32_t words[NIKON_CAPTURE_ENDPOINT_WORDS])
+{
+    memcpy(words, NIKON_CAPTURE_ENDPOINTS(dev)->configuration,
+           sizeof(NIKON_CAPTURE_ENDPOINTS(dev)->configuration));
+}
+
+void nikon_capture_endpoints_results(DeviceState *dev, const uint32_t words[4])
+{
+    NikonCaptureEndpointsState *s = NIKON_CAPTURE_ENDPOINTS(dev);
+
+    memcpy(s->results, words, sizeof(s->results));
+    s->results_valid = true;
+    s->consumed = false;
+}
 
 /* Offsets in this helper match the original 2006a000 parameter domain. */
 static bool nikon_endpoints_global(unsigned offset, uint32_t *mask)
@@ -136,6 +156,13 @@ static MemTxResult nikon_endpoints_read(void *opaque, hwaddr offset,
     uint32_t mask;
 
     *value = 0;
+    if (size == 4 && !(offset & 3) && offset >= 0x1e0 &&
+        offset <= 0x1ec && s->results_valid) {
+        *value = s->results[(offset - 0x1e0) / 4];
+        /* Current original consumer10238a62 always reads selector0. */
+        s->consumed |= offset == 0x1e0;
+        return MEMTX_OK;
+    }
     if (size != 4 || (offset & 3) || !nikon_endpoints_config(offset, &mask)) {
         return nikon_endpoints_error(s, offset, size, false, 0);
     }
@@ -172,12 +199,16 @@ static void nikon_endpoints_reset(DeviceState *dev)
 
     memset(s->configuration, 0, sizeof(s->configuration));
     s->reported_error = false;
+    s->results_valid = s->consumed = false;
+    memset(s->results, 0, sizeof(s->results));
 }
 
 static void nikon_endpoints_init(Object *obj)
 {
     NikonCaptureEndpointsState *s = NIKON_CAPTURE_ENDPOINTS(obj);
 
+    object_property_add_uint32_ptr(obj, "scalar-consumed", &s->consumed,
+                                   OBJ_PROP_FLAG_READ);
     memory_region_init_io(&s->memory, obj, &nikon_endpoints_ops, s,
                           "nikon.capture-endpoints", ENDPOINTS_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
