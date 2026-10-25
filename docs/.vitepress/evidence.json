@@ -48,6 +48,12 @@
         "title": "FE AND-wait semantics and source-associated statistics stage completion",
         "href": "/evidence/imagerequest/fence.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "frontwork",
+        "title": "Front-end input, group payload and paired-result boundaries",
+        "href": "/evidence/imagerequest/frontend.json",
+        "kind": "Execution observation"
       }
     ]
   },

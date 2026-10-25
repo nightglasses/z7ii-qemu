@@ -9,9 +9,14 @@ The original bytes and loader callbacks are unchanged.
 
 ## Producers and exact aperture
 
-Original MAS `1023a9d2` copies24 bytes from the selected module record, obtains
-its configuration and two168-byte auxiliary records, and calls the normal
-wrappers in order:
+Original MAS `1023a9d2` selects ROM policy records using its software input's
+kind/subtype bytes through `102ce450`. Getter `102ce4a0` selects a376-byte row
+from the table rooted at ROM VA `119ba114`; `102ce4ca` selects a148-byte row
+from the parallel table at `119ba1bc`. The caller copies24 bytes from the
+first row and128 bytes from offset14hex of the second. These are firmware
+policy records, not a direct copy of descriptor32/resource80 calibration.
+It obtains the configuration and two168-byte auxiliary records from the
+first row, then calls the normal wrappers in order:
 
 | Wrapper | Writer | Exact board PAs |
 |---|---|---|
@@ -84,6 +89,30 @@ run/stop and external-publication contracts are unchanged. In particular,
 the shared unit4/8 stop cause`8000` in status word0 reaches existing IRQ94;
 packet configuration does not synthesize that cause or a normal data event.
 No sensor frame provider or reply is inferred from a configured packet.
+
+### Software unit2 input boundary
+
+The [front-end investigation](../../runtime/imagerequest.md#front-end-input-and-buffer-boundaries)
+uses the cold-neutral profile on baseline `029ee3bd`. Software unit2 selects
+this packet; its shared commit mask4 and physical run units4/8 are a different
+namespace from the software unit flag. The packet does not contain a recovered
+source/destination DMA pair. It is not enough to copy the auxiliary readout
+buffer or to publish raw0.bit4 whenever either run bit is high.
+
+`1023ca66` computes four coefficient values from the software input's halfwords
+at offsets8/a. Each input `ffff` becomes4096; the shifted values are clamped
+to at least256 and to512 or1023, and the other pair is `400000hex / value`.
+Under the caller's additional policy guards these replace selected halfwords
+of the stack records before MMIO submission. They are computed parameters;
+the division does not establish their physical gain or pixel-format meaning.
+
+The two subrecord calls in `102094aa` are individually conditional on the
+two complete source words that also enter `d24`. Consequently a skipped
+subrecord preserves its previous words. The source does not authorize decoding
+an arbitrary retained `d24` solely by its low two bits: those two unmasked
+words can overlap other packed fields. The finite model continues to retain
+the complete value and neither invents processing semantics nor clears the
+skipped subrecord.
 
 ## Native fixture scope
 

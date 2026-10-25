@@ -1,0 +1,91 @@
+{
+  "scope": "C1.70 front-end configuration and unclosed data-production edges; investigation only, no new completion model or GUI output",
+  "baseline": "029ee3bd",
+  "source": {
+    "firmware": "unchanged MAS 02_eg1840_mas_01700.payload.bin, base VA10020000",
+    "inspection": "read-only IDA projections and GNU ARM binutils disassembly; raw factory code excluded",
+    "notation": "addresses, masks and offsets hexadecimal; host durations and counts decimal; code/software data are MAS VA and named hardware addresses board PA",
+    "unit1": {
+      "initial": "1023aafe ->103981fa ->1026dbb0 ->pointer array b23ed878; conditional 10238fbc setters ->1020c444 commit1/run1",
+      "control": "102097fa packs14 supplied fields into PA20068500, shifts13..0",
+      "dynamic": "1023912c copies23 pointers, calls10238fbc, commits1 and optionally calls1020bfb6 when packet+5c is nonzero",
+      "missing": "actual stream input, physical correction semantics, output ownership and per-input completion lifecycle"
+    },
+    "unit2": {
+      "configuration": "1023a9d2 uses kind/subtype ->102ce450; 102ce4a0 selects376-byte ROM policy row at table119ba114, 102ce4ca selects148-byte row at119ba1bc",
+      "copies": "24 bytes from first row;128 bytes from second row+14hex; not a direct resource80 copy",
+      "coefficients": "1023ca66 computes clamped values and reciprocal pair from software input halfwords8/a; physical interpretation unproven",
+      "incremental": "1023aed8 rewrites only on kind-byte change against b1888142, then includes shared commit4 even without a rewrite",
+      "subrecords": "conditional on two complete source words; d24 low bits alone are insufficient to decode arbitrary retained configuration",
+      "missing": "stream format and actual processing/output contract; configuration does not identify a DMA source/destination pair"
+    },
+    "group": {
+      "pool": "PA[5d4b5000,5d4b8c00), five units of sizec00; three interior addresses0/80/d0",
+      "constructor": "1030b630 clears descriptor+14 length98, then fills pointers; 1030b3bc produces geometry metadata at descriptor+96 and stack bounds; hook102cec72 is BX LR",
+      "other_constructors": "102cd9a0 queues descriptors;10239e36 reads provider address records; neither accesses payload bytes",
+      "missing": "real payload load/store or transfer contract establishing input/output direction, computation and completion"
+    },
+    "paired_results": {
+      "six_word_path": "1020c32a ->102091a8 reads PA2006953c/540/548/550 with32-bit accesses, copies u32/u32/u16/u32 to output0/4/8/c",
+      "other_path": "1020c320 ->10209186 reads PA20069534/538/544/54c",
+      "missing": "result meaning, numerical producer and update/publication condition; no static caller recovered in scoped analysis, not proof of global unreachability"
+    },
+    "input_notification": "102391b2 raw0.bit0 ->owner1 ->10238d4a registered callback041a000f; distinct from raw0.bit3/4 completion flags"
+  },
+  "input": {
+    "descriptor32": "cold-neutral",
+    "other_inputs": "existing TEMP3 descriptor17, descriptor18, empty descriptor12, acceleration(0,0,1024), RNG0, healthy paced UART battery",
+    "key": "F4 held after cont; no extra input",
+    "execution": "five CPUs, MTTCG; cpu,nochain logging",
+    "tg_period_ns": 33333334,
+    "debugger": "read-only final snapshot; physical-memory mode used only for complete group-pool read and restored to CPU-VA mode",
+    "firmware_patches": false,
+    "forced_events_or_callbacks": false,
+    "new_memory_apertures": false
+  },
+  "windows": {
+    "flow": {
+      "host_seconds": 30,
+      "completed_auxiliary_dma": 813,
+      "completed_statistics": 812,
+      "unit1_control": "0",
+      "unit1_parameters": "PA[20068508,20068820) all0 except20068708=1",
+      "unit2_d00_d04_d08": ["03960000", "0ac80000", "13f0"],
+      "group_pool": "all bytes0 at final physical snapshot",
+      "kind23_handle": "170000",
+      "final_lane_participation": "2",
+      "final_effective_run": "2bf"
+    },
+    "input": {
+      "host_seconds": 30,
+      "completed_auxiliary_dma": 742,
+      "completed_statistics": 741,
+      "unit1_control": "0",
+      "unit1_parameters": "PA[20068508,20068820) all0",
+      "unit1_initial_pointer_array": "all23 pointers0 at final snapshot; does not exclude earlier/dynamic configuration",
+      "unit2_d00_d04_d08": ["003a0000", "20600000", "3f0"],
+      "group_pool": "all bytes0 at final physical snapshot",
+      "kind23_handle": "0; pool read does not demonstrate an active allocation",
+      "final_lane_participation": "4",
+      "final_effective_run": "1d"
+    }
+  },
+  "shared_observations": {
+    "owner_entry_filter": "10238d4a..10238e3e; auxiliary20000000 and statistics4 observed, owner1 not observed in either window",
+    "getter_filters": "1020c320..1020c334 and10209186..102091c8; neither paired getter nor wrapper observed in either window",
+    "reported_readout_or_statistics_rejections": 0,
+    "reported_statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "qmp_status": "running",
+    "display": "neither head bound to QemuConsole",
+    "loader_comparison": "six-range COPY comparison not repeated in these windows"
+  },
+  "limits": [
+    "Two different final configurations do not establish one steady state or full runtime stability.",
+    "Zero pool bytes do not establish reset values, successful processing or payload direction.",
+    "Numerically related geometry fields do not establish pixel format or justify resizing auxiliary8320x34 input into a front-end frame.",
+    "No getter observation in these filters does not establish global unreachability or make result values known.",
+    "Native device behavior is unchanged; no new fixture PASS or model validation is claimed.",
+    "No normal GUI frame, complete startup or physical-camera validation is established."
+  ]
+}

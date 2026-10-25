@@ -56,6 +56,18 @@ The [fence receipt](/evidence/imagerequest/fence.json) separates source, native
 and unchanged-firmware observations; accepted configuration does not justify
 all requested completions.
 
+The subsequent [front-end audit](../runtime/imagerequest.md#front-end-input-and-buffer-boundaries)
+locates unit1's optional parameter pointers and unit2's ROM-policy/coefficient
+sources, without identifying their actual pixel input/output contract.
+Kind23 construction does not populate its payload; the pool's bytes are zero
+in both final physical reads, with its handle already cleared in the second.
+The paired result getters do not execute
+in these focused windows. Owner mask1's041a000f input notification is also
+absent within the owner-entry filter. The new30-second runs complete813/812
+and742/741 auxiliary/statistics operations without reported rejection, but
+end in different lane/run states and still have no console. No additional
+completion model is accepted from configuration or these negative observations.
+
 The normal information producer remains registered without an observed
 publication. An additional first-enable candidate is now source-joined:
 `1035a2d8 ->04380001 ->104be876 ->record92 ->1053f42a`.

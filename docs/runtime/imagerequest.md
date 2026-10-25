@@ -313,7 +313,7 @@ hexadecimal; board addresses are PAs and function addresses MAS VAs.
 
 | Software unit | Configuration and actual result boundary |
 |---|---|
-| `1` | `1023aafe ->1020c444`: initialization commit1/run1 and capture packet. Existing mode0 auxiliary DMA can produce raw0.bit3 under its finite profile, but mode1 produces bit5; neither commits nor another stage's DMA justify replaying unit1's fence. The independent front-end work/input join remains unresolved. |
+| `1` | `1023aafe ->10238fbc ->1020c444`: optional front-end parameters at PA20068500/508..81c, initialization commit1/run1. These are separate from unit2's PA20069d00 packet. Existing mode0 auxiliary DMA can produce raw0.bit3 under its finite profile, but mode1 produces bit5; neither commits nor another stage's DMA justify replaying unit1's fence. |
 | `2` | `1023a9d2 ->1020c3ec/c3fa`, commit4, run units4/8: front-end packet and controls. Configuration is retained; complete image transfer/result ownership is not established. |
 | `4` | `1023a984 ->1020c6ac`, commit200: five fields at PA20069200..20069210. No result producer is implemented; this unit is not selected by the observed2eb request. |
 | `8` | `1023a07e ->1020c862/c86c/c880/c894/c89e`, commit8/run10: existing ten output DMAs, twelve bank words and four scalars. This closes a specific actual-work contract; see below. |
@@ -345,6 +345,95 @@ The30-second guest-error-only `quiet` run completes725 auxiliary transfers and
 724 statistics jobs with the same final boundary and zero reported rejections
 or statistics cancellations. Its CPU setters are not measured. Different trace
 filters preclude treating these counts as physical rates or speed comparisons.
+
+## Front-end input and buffer boundaries
+
+The [front-end receipt](/evidence/imagerequest/frontend.json) binds this
+investigation to unchanged C1.70 and implementation `029ee3bd`. It does not
+add a device model or establish the front-end pixel algorithm. The missing
+edges are an owned front-end input, its actual processing outputs and the
+separate group/paired-result update rules, rather than another rejected
+configuration value. The existing auxiliary input has a finite LE16 profile
+of8320 samples by34 rows; that alone does not identify the front-end stream.
+
+### Unit1 and unit2 producers
+
+`1023aafe` obtains a pointer to the23-word parameter-pointer array at MAS VA
+`b23ed878` through `103981fa ->1026dbb0` when lane participation has mask6.
+It copies that array, then `10238fbc` invokes only setters whose required
+pointers are non-NULL. For example the14 software fields supplied through
+`1020c46a ->102097fa` pack into PA `20068500`, shifted13 down to0.
+This is optional configuration, not a pixel buffer. The dynamic path
+`1023912c` copies another23-pointer packet, invokes the same conditional
+setters, submits commit1 and optionally the companion command when packet+5c
+is nonzero. Thus the initialization provider is not the only parameter source.
+The physical operation of each enabled correction remains unresolved.
+
+Software unit2's [packet producer](../devices/sensor/packet.md#software-unit2-input-boundary)
+selects firmware ROM policy using software kind/subtype. Its two24/128-byte
+copies and calculated coefficients are configuration inputs, not recovered
+pixel samples or DMA addresses. Incremental `1023aed8` rewrites that packet
+only when the kind byte differs from cached `b1888142`; otherwise it still
+includes shared commit4 in the later `1020bfaa` call. An accepted commit is
+therefore neither evidence of a new packet nor evidence of completed data.
+
+In both30-host-second windows, unit1 control PA `20068500` is0. In `flow`,
+the only nonzero parameter in PA `[20068508,20068820)` is `20068708=1`;
+in `input`, that entire extent is0. These snapshots do not prove that all
+front-end work is disabled: the source has not identified a complete bypass
+or input-consumption rule for that control word. The second snapshot's
+initialization pointer array is also all0; it cannot exclude earlier pointers
+or the separate dynamic packets observed by the CPU trace.
+
+The packet snapshots differ: d00/d04/d08 are
+`03960000/0ac80000/13f0` in `flow` and `003a0000/20600000/3f0` in `input`.
+The former's high halves numerically agree with the paired parameter sizes,
+including `ac8 = 2*564`; this is not enough to assign physical format, crop,
+stride or a resize algorithm. In particular these two retained snapshots
+must not be treated as one constant geometry.
+
+The raw0.bit0 branch of `102391b2` separately posts owner mask1. Owner
+`10238d4a` then calls its registered input notification with041a000f. That
+software edge is distinct from raw0.bit3/4 and their unit1/2 completion flags.
+Neither window observes owner mask1 in its full owner-entry filter; both do
+observe auxiliary owner20000000 and statistics owner4. Current auxiliary
+transport therefore does not demonstrate the main input-notification join.
+
+### Group buffers and paired results
+
+Kind23's source construction establishes a five-unit ring with unit sizec00
+and three interior addresses at offsets0/80/d0. Crucially, `1030b630` clears
+the **software descriptor's**98hex bytes at+14, not the unit payload.
+`1030b3bc` supplies geometry metadata to descriptor+96 and a separate stack
+record; the following hook `102cec72` is an original `BX LR`. The enqueue
+path `102cd9a0` and group setup `10239e36` also do not access payload bytes.
+Neither input-table direction nor image-output direction follows from those
+constructors. The current cursor model generates addresses only.
+
+Both final physical reads find all bytes of PA `[5d4b5000,5d4b8c00)` zero.
+The `flow` snapshot still has kind23 handle170000; `input` has handle0, so its
+read is not evidence of an active allocation. Neither read establishes a hardware
+reset value, a successful clear or zero-valued processing results. The next
+discriminating source edge is a real load/store through descriptor+14/+18/+1c,
+or an independently identified hardware transfer into/out of those addresses.
+
+The paired four-field result APIs are separate again. Wrapper `1020c32a`
+tail-calls `102091a8`, which reads PA953c/9540/9548/9550 (common prefix2006)
+with32-bit accesses and copies u32/u32/u16/u32 to output offsets0/4/8/c.
+Wrapper `1020c320` selects the
+other record's getter. Neither wrapper nor getter executes in these two
+focused windows. Their source-established control/commit/run gates do not
+establish the numerical result producer or prove these reads currently block
+GUI startup. They remain errors; no cold-zero or identity result is supplied.
+
+`flow` completes813 auxiliary transfers and812 statistics jobs; `input`
+completes742/741. Both report zero readout/statistics rejection, statistics
+cancellation and battery-peer rejection, with no display console. Their final
+lane participation/run masks differ (`2/2bf` versus `4/1d`); observation filters
+and MTTCG scheduling affect progress. These are two bounded observations,
+not proof of a single steady state or complete runtime stability. They do not
+repeat the earlier six-range loader COPY comparison. No new completion,
+software event, frame, firmware patch or memory aperture is introduced.
 
 ## Acquisition on the normal input clock
 
