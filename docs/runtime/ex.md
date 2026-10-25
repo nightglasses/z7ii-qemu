@@ -21,7 +21,7 @@ domain CPU count. The existing source-qualified SLA bridge and memory links
 remain independent from EX. VR and TPJ are retained bundle components; their
 execution is not implied by this composition.
 
-The [2026-10-21 battery comparison](battery.md) reproduces the EX system
+The [battery comparison](battery.md) reproduces the EX system
 handshake, client-4 report and BatCk publication with this multi-thread baseline.
 Single-thread/`icount` probes instead fail a timed EX SPI/ACK condition before
 the first system completion; their missing battery update is scoped to that

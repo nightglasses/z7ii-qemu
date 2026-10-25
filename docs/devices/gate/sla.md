@@ -1,6 +1,6 @@
 # SLA event gate source contract
 
-Provider: `zero-domain-source/work/sla-whole-source-11/sla.S` and original
+Provider: `zero-domain-source/sla.S` and original
 `sla-rows.jsonl`, recovered `100943CE..100953E2` family. The c245 original
 runtime first stopped at CPU3 `PC100944D2`, W32 `20100000=0`. No new decoder,
 native collection, original run or build was executed by this owner.

@@ -1,5 +1,13 @@
 # Native GUI integration
 
+This article groups retained validation by graphics, peripheral and execution
+boundary. Each result belongs to its stated source revision and fixture scope;
+it is not a rolling full-suite result. See the [startup boundary](frontier.md)
+for the accepted unchanged-firmware state and the linked device articles for
+current contracts.
+
+## Graphics state, composition and memory
+
 Parallel graphics validation extends the[cached matrix contract](../devices/transfer/overwrite.md)
 to initialized105/107 clears and converters:232 new variants, with the full
 transfer batch passing23 subtests in1.95s after the old-model red. Retained
@@ -9,8 +17,8 @@ for whole-frame updates and console/timer lifecycle. Its intermediate fixture
 API assertion and corrected final run are recorded separately. The final
 unchanged integration, with all three changes, repeats the0→8 clear and147
 IRQ129 entries before timing PA2c011538=1; GUI readiness remains0. Native
-receipts are in `clearmode-20261023`, final original receipts in
-`work/runs/graphicsstate-20261023/`. Preemptive raw matrix combinations have
+receipts are in `clearmode`, final original receipts in
+`run graphicsstate/`. Preemptive raw matrix combinations have
 native coverage; the observer fixture does not claim guest progress.
 
 The[clear temporary-mode model](../devices/transfer/clearmode.md) passes all22
@@ -20,7 +28,7 @@ early-draw rejection, immutable capture and temporary0 cancellation/map-loss
 boundaries. Separate normal original execution completes the0→8 clear and
 147 IRQ129 entries through later graphics, then encounters timing channel4
 extra-feature enable at PA2c011538. Its last176/1552 graphics job completed;
-GUI readiness remains0. Receipts: `work/runs/clearmode-20261023/`.
+GUI readiness remains0. Receipts: `run clearmode/`.
 
 The[initialized SRC_OVER target model](../devices/transfer/target.md) passes
 all22 transfer subtests in1.12s after a native record0 red. Reused tests cover
@@ -33,7 +41,7 @@ subsequent jobs, then rejects224/1648 YUVA107 at temporary mode0 before final8.
 A separately scoped debugger-paused original run verifies every active pixel
 at IRQ129 and an unchanged slot tail. Application01/03, primary0 and GUI
 readiness0 remain final snapshots, not first-frame evidence.
-Receipts: `work/runs/singletarget-20261023/`.
+Receipts: `run singletarget/`.
 
 The [retained image prefix model](../devices/transfer/prefix.md) passes all21
 transfer subtests in1.38s after a native216/344 red. Its77 variants cover both
@@ -44,7 +52,7 @@ a shared-header LUT dispatch collision; its new native guard is red, then
 passes with bounded image dispatch. The final original run completes ten216/344
 images and69 IRQ129 entries from the first one through later work, then rejects
 176/368 at the single-clear target restriction. Application01/03, primary0 and
-GUI readiness0 are final snapshots. Receipts: `work/runs/imageprefix-20261023/`.
+GUI readiness0 are final snapshots. Receipts: `run imageprefix/`.
 
 The [temporary conversion mode correction](../devices/transfer/mode.md) passes
 all20 transfer subtests in1.38s after the new scaled mode2 case fails against
@@ -54,7 +62,7 @@ immutable capture, independent full-plane color/sampler references, mapping
 loss and cancellation. Separate original execution completes nine newly
 accepted2→2 conversions and84 IRQ129 entries from the first one through later
 work, then rejects216/344 A8 with extra cached-state prefixes. GUI readiness
-remains0. Receipts: `work/runs/convertpaint-20261023/`.
+remains0. Receipts: `run convertpaint/`.
 
 The [paint-state correction](../devices/transfer/paint.md) passes all20 transfer
 subtests in0.81s after two actual native reds: optional01848004=0 grammar, then
@@ -64,7 +72,7 @@ retained clears, foreign/reset/failed contexts and deferred cancellation with
 whole output/guards. Separate original execution completes three840/1048
 packets and26 IRQ129 entries from the first one through later graphics work,
 then rejects224/1736 YUVA107 at temporary mode2 instead of the profile's0.
-GUI readiness remains0. Receipts: `work/runs/paintmask-20261023/`.
+GUI readiness remains0. Receipts: `run paintmask/`.
 
 The [matrix overwrite correction](../devices/transfer/overwrite.md) passes all20
 transfer subtests in0.70s after its new valid case fails against the old model.
@@ -74,7 +82,7 @@ continuation, immutable capture, full output/guards and cancellation. Separate
 unchanged original execution completes a late1280/1560 six-clear packet through
 IRQ129 with zero physical output in all six areas, then rejects840/1048 mixed
 paths with an extra `01848004=0` state write. GUI readiness remains0.
-Receipts: `work/runs/matrixoverwrite-20261023/`.
+Receipts: `run matrixoverwrite/`.
 
 The [mixed fill/stroke model](../devices/transfer/stroke.md) passes all19
 transfer subtests in1.23s after a valid mixed packet fails against the old
@@ -87,7 +95,7 @@ Independent review's cap/join coverage concern is resolved. Separate original
 MTTCG runs complete mixed280/352 and1680/2072 packets and later graphics work,
 then reject a new856/1088-byte rectangle matrix state. Exact840/1040 acceptance
 is synthetic; post-fix original batch boundaries differ. GUI readiness remains
-zero. Receipts: `work/runs/guipaths-20261023/`.
+zero. Receipts: `run guipaths/`.
 
 The [image context extension](../devices/transfer/image.md) passes all17
 transfer unit cases in0.99s after native reds for full initialization and
@@ -101,7 +109,7 @@ read-only review finds no concrete defect. Separate original execution completes
 image changes578 pixels and matches a whole-target independent reference.
 At that image-only checkpoint, the next840/1040-byte pair rejects with
 `transfer-path-batch-count-not-supported`. That snapshot's GUI readiness remains
-zero. Receipts: `work/runs/guiimage-20261023/`.
+zero. Receipts: `run guiimage/`.
 
 The [RGBA SRC_OVER extension](../devices/transfer/over.md) passes all16 transfer
 unit cases in1.21s after the new valid submission fails against the old model.
@@ -113,7 +121,7 @@ nonopaque targets. Independent read-only review found no concrete defect.
 Separate unchanged execution crosses five more graphics pairs through original
 IRQ129 and, at that RGBA-only checkpoint, next rejects224/472 bytes with
 `transfer-rectangle-count-not-supported`. That snapshot's GUI readiness remains
-zero. Receipts: `work/runs/rgbaover-20261023/`.
+zero. Receipts: `run rgbaover/`.
 
 The [rectangle context continuation](../devices/transfer/continuation.md)
 passes the complete 15-case `nikon_transfer_unit` batch after the new valid
@@ -125,7 +133,7 @@ found no concrete defect. Separate unchanged execution receives original IRQ129
 after 2120/2368 START and, at that continuation-only checkpoint, next rejects a
 176/368-byte partial-alpha SRC_OVER program. That snapshot's GUI readiness is
 zero; no GUI first frame is established.
-Receipts are in `work/runs/rectanglecontinuation-20261023/`.
+Receipts are in `run rectanglecontinuation/`.
 
 The [MAS RAM backing fix](../startup/ram.md) passes all 43 applicable cases:
 memory qtest 26, memory unit 3 and transfer unit 14. Its new real-TCG regression
@@ -134,7 +142,7 @@ CPU/bus bidirectional reads and writes over two reset phases. Existing boundary
 and MXIC cases remain green. Separate unchanged execution crosses the host
 assertion and, at that RAM-only checkpoint, stops at the 2120/2368-byte submission; the final
 snapshot has GUI gate/pending3/display-ready zero. Receipts are in
-`work/runs/ramalignment-20261023/`. No GUI first frame is claimed.
+`run ramalignment/`. No GUI first frame is claimed.
 
 The [inline rectangle family](../devices/transfer/rectangles.md) passes the
 complete14-case `nikon_transfer_unit` batch after its new submission fails
@@ -147,8 +155,10 @@ final full applicable batch and final review passed. At that rectangle-only
 checkpoint, unchanged execution crosses856/1088 START and enters original IRQ129, then aborts in
 host QEMU's RAM/IOTLB page-alignment assertion. No final guest snapshot,
 physical GPU fidelity or GUI first frame is claimed. Receipts are in
-`work/runs/graphicscommands-20261023/`, including `native-final.log` and
+`run graphicscommands/`, including `native-final.log` and
 `verified-progress.json`; earlier failed integration remains separate.
+
+## Peripheral timing, capture and DMA
 
 The [Audio observation profile](../devices/audio/monitor.md) passes22
 applicable native cases: Audio7/DMA10/HDMAC5. A real HDMAC monitor read
@@ -159,7 +169,7 @@ negative writes and reset/unrealize. Last-observed policy,16-bit extraction
 and zero high bits are documented functional assumptions. Independent review
 found no defect. Separate unchanged-bundle runs cross the input getter and
 amplitude consumer, then first reject CPU1 PA201810e0=1 at106ee3c6 with
-transfer-stream-truncated. Receipts are in `work/runs/audiolevels-20261023/`;
+transfer-stream-truncated. Receipts are in `run audiolevels/`;
 no full-suite, microphone sample transfer or GUI first-frame claim is made.
 
 The [HDMAC reload family](../devices/hdmac/reload.md) passes an applicable
@@ -168,7 +178,7 @@ A later private-root/DREQ/error case passes in the focused5-case HDMAC run;
 additional rejection guards pass in the focused3-case reload run. All8 reload
 combinations,3 widths and4 fixed-address combinations execute real bus copies;
 hold/rearm, reentrant cancel, reset, no automatic repeat and partial-error
-boundaries are covered. Receipts are in `work/runs/hdmacflags-20261023/`.
+boundaries are covered. Receipts are in `run hdmacflags/`.
 Independent read-only review found no defect. Separate unchanged-bundle runs
 cross the original descriptor stores/starts and input enable, reach the
 microphone initializer's return sequence and, at that earlier checkpoint, next reject Audio READ32
@@ -181,7 +191,7 @@ after the old-model format case fails on0d820000. Coverage includes all format,
 port and1024 divider combinations, real FIFO drain, programming-only block
 state, preserved-state rejection and reset/unrealize. Two review-requested
 guard assertions pass in a focused4-case audio rerun. Receipts are in
-`work/runs/audioformat-20261023/`, including `native-final-receipt.log` and
+`run audioformat/`, including `native-final-receipt.log` and
 `native-guards-receipt.log`. The separate unchanged original continuation
 crosses format/block setup and, at that earlier checkpoint, next rejects HDMAC PA2c030034=2ae00000;
 it does not complete microphone initialization, capture input samples or
@@ -192,7 +202,7 @@ The [capture run/stop model](../devices/sensor/runstop.md) passes all25
 shared4/8 deadline/lost-identity reds. The whole11-unit family, both stop
 notification layers, shared drain, staggered/duplicate commands, per-unit
 cancellation, pending/W1C, reset/unrealize and negative access boundaries are
-covered. Receipts are in `work/runs/captureflow-20261022/`, including
+covered. Receipts are in `run captureflow/`, including
 `native-final-receipt.log`. Original-bundle execution is separate: the old0c
 store returns, a later GUI4000 wait receives its original callback, and the
 at that capture-only checkpoint the next rejection is audio PA2c08010c=0d820000. No capture ISR, completed
@@ -203,11 +213,11 @@ The [finite router timing model](../devices/router/timing.md) passes23
 unsupported-request and staggered-fence reds. New coverage includes all three
 requests, independent deadlines/coalescing, phase/gates/force, absent input,
 invalid accesses/period and reset/unrealize cancellation. Receipts are in
-`work/runs/routerfunctional-20261022/native-final-receipt.log`. Final-binary
+`run routerfunctional/native-final-receipt.log`. Final-binary
 original execution under the declared functional hypotheses crosses both
 IRQ87 waits and next rejects capture-control`2006800c=1`. This is not a new
 full-suite, physical-camera or GUI-first-frame result. The earlier20-case
-paired-control checkpoint remains in `work/runs/router-20261022/`.
+paired-control checkpoint remains in `run router/`.
 
 The complete SYS indexed configuration family at`04280064/68/6c` passes
 all25 `nikon_memory` qtests after the new case fails against the old model.
@@ -216,7 +226,7 @@ state, bad-width/unaligned-write preservation, holes and reset reuse.
 At that earlier SYS-only checkpoint, unchanged-bundle execution crosses the store and next rejects
 `20060028=1` in the peripheral-event router; UART requests remain accepted.
 See [SYS runtime](../devices/sysconfig/runtime.md) and ignored receipts in
-`work/runs/sysconfig-20261022/`. This is a focused batch, not a new full-suite
+`run sysconfig/`. This is a focused batch, not a new full-suite
 or GUI-first-frame result.
 
 The resource11/12 destination and explicit-NOR-input change passes all24
@@ -225,17 +235,17 @@ cover RAM capacity/bounds/alias/reset and both input files' bytes, exact sizes,
 missing files, erased neighbors/alternative banks, unchanged destination RAM
 and NOR mutation persistence. Original execution is separately qualified in
 [rows.md](../runtime/rows.md): the whole2640-row output matches and the next
-rejection is system configuration. Receipts: `work/runs/streamstorage-20261022/`.
+rejection is system configuration. Receipts: `run streamstorage/`.
 This is a focused batch; the full-suite result below predates this change.
 
-The integrated 2026-10-22 macOS `make check` run passes all40 Nikon test
+The integrated macOS `make check` run passes all40 Nikon test
 executables and348 TAP cases (ARM/RX qtests and native units). It includes
 the previously uncommitted finite graphics implementation and the kind40
 storage correction. The first full run exposed an obsolete eye-sensor fixture
 expectation that HOLD TX completion stayed clear; the corrected fixture checks
 completion while the bus remains held, including its post-reset reuse. All24
 sensor cases pass, followed by the complete40-executable green batch.
-Raw logs are `work/runs/kindforty-20261022/native-suite-red.log` and
+Raw logs are `run kindforty/native-suite-red.log` and
 `native-suite-green.txt`/`.json`. This validates the integrated functional
 models, not physical timing or an original-firmware GUI first frame.
 
@@ -244,7 +254,7 @@ after an actual old-model red. The new case covers allocation endpoints,
 independent cells, neighboring holes, absence of a physical VA mirror and
 reset retention. The separate unchanged-firmware run completes the original
 clear and stops at a source-stream read at PA50560000. See
-[kind40.md](../runtime/kind40.md) and `work/runs/kindforty-20261022/`.
+[kind40.md](../runtime/kind40.md) and `run kindforty/`.
 
 The capture-control mask/enable correction passes all four focused capture
 cases after exact original/native reds. It covers complement normalization,
@@ -252,7 +262,7 @@ all12 reset/enable bits and their aliases, independent RMW/IRQ controls,
 adjacent fields, invalid requests, publication/W1C and reset. Separate unchanged
 original runs now finish the initializer and reject a buffer clear at PA62059800.
 No frame completion is generated. See [control.md](../devices/sensor/control.md)
-and parent-owned `work/runs/capturemask-20261022/` receipts; this is not a
+and parent-owned `run capturemask/` receipts; this is not a
 whole-suite or GUI-first-frame result.
 
 The timing divider/load correction passes all12 cases in `nikon_timer`
@@ -263,32 +273,35 @@ The source-derived divisor field replaces the obsolete one-shot/source1 opcode
 split. Separate unchanged-firmware runs cross channel7's seven waits and next
 reject a capture-control mask write. These focused results do not establish
 a GUI first frame; see [load.md](../devices/timing/load.md) and parent-owned
-`work/runs/timingmatrix-20261022/` receipts.
+`run timingmatrix/` receipts.
 
 The earlier MXIC active read-view correction passes all eight configuration qtests
 in one focused native batch after a recorded old-model selector failure.
 Coverage and unchanged-firmware continuation are qualified separately in
 [view.md](../devices/config/view.md). That original run completed the
 configuration initializer and stopped at channel7's raw31 shared timing load;
-no GUI first frame is established. Receipts: `work/runs/mxic-20261022/`.
+no GUI first frame is established. Receipts: `run mxic/`.
+
+## Reproducible battery input
 
 The reproducible-input extension passes five RNG qtests, two raw-UART routing
 qtests, eight battery arithmetic/CLI units, nine finite-peer units and three
 fill qtests (27 distinct cases in their applicable batches). Actual old-source
 RNG/property, routing, attention-parser and record5-profile red receipts are
-retained separately from greens in `work/runs/reproducible-20261026/`.
+retained separately from greens in `run reproducible/`.
 The original EX auth/0c/0e acceptance and original MAS record5 callback/waiter
 are separate execution receipts. This is a focused macOS result, not a whole
 suite, Linux CI, physical timing or GUI-first-frame result. See
 [batterypeer.md](../runtime/batterypeer.md) and [fill.md](../runtime/fill.md).
 
-> Status: this file mixes historical receipts with the current green native
-> checkpoint. No original-firmware GUI startup is claimed. The EX continuous-run
-> checkpoint below records 33 passing Nikon executables; the earlier 0x6b read
-> wait is resolved by the receive shift-byte change. The 2026-10-21 VR retirement
-> check is a focused 2-executable/22-subtest run, not a new full-suite receipt;
-> see [the VR note](../startup/vrdomain.md). The later affine-path check is
-> one transfer executable/nine cases. Earlier receipts keep their own scope.
+## Build and execution qualification
+
+The EX continuous-run result records 33 passing Nikon executables. The
+receive shift-byte change resolves the preceding `0x6b` read wait. The
+[VR retirement check](../startup/vrdomain.md) covers two executables and
+22 subtests; affine-path validation covers one transfer executable and nine
+cases. These separate results do not form a new full-suite receipt or prove
+original-firmware GUI startup.
 
 The integration uses QEMU 11.1.2 at upstream commit
 `4fc49f46dc95d4a27de2509e7fceb2931e91faeb`. The configured development
@@ -308,7 +321,7 @@ output and is not current-release evidence.
 The historical cases below passed across the initial batch and its necessary
 corrections:
 
-| Cases | Result | Local evidence under `work/validation/gui` |
+| Cases | Result | Local evidence under `run validation/gui` |
 |---|---|---|
 | Memory class boundaries, independence, decode retention and holes: 4 | PASS | `memory.log` |
 | GPIO explicit 192-pad input, completion domains and bridge events: 3 | PASS | `devices.log`, before its transfer failure |
@@ -333,7 +346,7 @@ remains in the ignored logs; only the affected cases were repeated.
 The next integration at `f44817e` also compiled both native ARM and RX system
 targets and passed only its six new or previously failing cases:
 
-| Cases | Result | Local evidence under `work/validation/gui` |
+| Cases | Result | Local evidence under `run validation/gui` |
 |---|---|---|
 | USIO transmit, receive, idle, flushing and disconnected nine-bit lanes: 4 | PASS | `usio.log`, 1.44 seconds |
 | Source-derived paired transfer planes: 1 | PASS | `planes.log`, 1.00 seconds |
@@ -355,7 +368,7 @@ section-bounded transfer and test changes builds from the maintained root
 `qemu/` dependency through `work/config/source` into `work/build/qemu`.
 `make check MTESTARGS='--print-errorlogs'` passes all 27 Nikon fixtures,
 239 subtests, with no failures. Raw output and the structured Meson record
-are retained as `work/research/guiresume/nativecheck3.log` and
+are retained as `run research/guiresume/nativecheck3.log` and
 `nativecheck3.json`. The official upstream submodule remains unchanged.
 
 The new transfer unit boundary test fails its byte assertion on the old
@@ -385,7 +398,7 @@ acceptance.
 The same base `f02f0c43cd4da62b3a469717accd86e03d540f0c` with uncommitted
 transfer, fixture and bridge changes again passes all 27 Nikon fixtures,
 239 subtests with `make check MTESTARGS='--print-errorlogs'`. The final raw
-and structured receipts are `work/research/ev3producer/nativecheck_final2.log`
+and structured receipts are `run research/ev3producer/nativecheck_final2.log`
 and `nativecheck_final2.json`; the upstream submodule remains clean.
 
 The bridge tests first fail on the old configuration IRQ cause
@@ -411,7 +424,7 @@ undelivered.
 
 The uncommitted native source graph now passes 28 Nikon fixtures and 242
 subtests with `make check MTESTARGS='--print-errorlogs'`.
-`work/research/bridgeports/nativecheck_final2.log/json` hold the final raw and
+`run research/bridgeports/nativecheck_final2.log/json` hold the final raw and
 structured records; the official QEMU submodule remains unchanged.
 
 The added bridge unit fixture first rejects the old unsupported flag read,
@@ -439,7 +452,7 @@ not default-profile boot or qualification of the experimental hardware laws.
 
 The same binary's default run confirms both notification properties false,
 rejects `0x2013e000`, captures zero COPY requests and fails the loader checks.
-Ignored receipts `work/research/guiresume/{flagsi2c1,flagsi2c2,flagsdefault2}`
+Ignored receipts `run research/guiresume/{flagsi2c1,flagsi2c2,flagsdefault2}`
 record each connection state, hashes, dirty source identity and bounded exit.
 No GUI first-frame acceptance is claimed; the connected results do not
 replace unconnected failures or the historical identities above.
@@ -489,7 +502,7 @@ not original-firmware red→green. Native host GDB bus-error and LLDB launch
 incompleteness are inspection failures, not guest failures.
 
 `make check MTESTARGS='--print-errorlogs'` passes29 fixtures /245 subtests,
-zero failures, receipt `work/research/z9reference/nativecheck-green.{log,json}`.
+zero failures, receipt `run research/z9reference/nativecheck-green.{log,json}`.
 The ARM binary is
 `ecb020af61b554c65d075640b6403095833e17b1b255eea812783a6d1d57a85f`.
 Two independent complete-bundle twelve-second experiments,
@@ -563,7 +576,7 @@ remain ignored under `work/`; no command arrays or CPU/ISA decoder were added.
 
 ## Historical read-only stream extent qualification
 
-The later parent probe `work/research/guiresume/graphicsextent1/gdb.log`
+The later parent probe `run research/guiresume/graphicsextent1/gdb.log`
 establishes descriptor extents56/422 as32-bit words and register counts28/211
 as64-bit units, hence full224/1688-byte sources. The old56/422-byte captures
 are prefixes, not independently validated full inputs. The
@@ -578,7 +591,7 @@ acceptance. The separate corrected implementation and receipts follow.
 
 The parent accepted `8e113e58` changes capture to `8*units64`, preserving the
 functional 128-KiB limit and unprocessed pending ownership. The actual native
-red `work/research/z9reference/extent-red.log` fails the updated submission
+red `run research/z9reference/extent-red.log` fails the updated submission
 comparison on the old implementation (`56 != 224`). `extent-green.log` then
 passes all four transfer unit cases, including full 224/1688-byte snapshots
 and `stream-extent-boundaries`. The latter checks both stream banks, finite
@@ -602,7 +615,7 @@ is included in this validation scope.
 
 The parent incremental build and
 `make check MTESTARGS='--print-errorlogs'` receipt
-`work/research/z9reference/extent-nativecheck.log` passes 29 fixtures / 247
+`run research/z9reference/extent-nativecheck.log` passes 29 fixtures / 247
 subtests, zero failures. Parent active root LSP probes are clean 3/3 for the
 transfer implementation, header and unit fixture. These are scoped native
 contract/build checks, not firmware or physical-camera red→green. No
@@ -777,7 +790,7 @@ only initial0/8 with the later word60=8 still required,
 and passes one executable, all six registered transfer cases. The fixture
 verifies output bytes, untouched rows/tail/guards, no early IRQ, ACK,
 initial18 rejection, final0 rejection and initial8 map-loss/reset/unrealize
-cancellation. Receipts: `work/runs/streammodel-20261022/{red,green}.log`.
+cancellation. Receipts: `run streammodel/{red,green}.log`.
 
 This is a focused native receipt. The separately qualified unchanged-firmware
 run uses an explicit constructed descriptor17 input, reaches original IRQ129,
@@ -797,7 +810,7 @@ overlap, read-only output, and initial8 map-loss/reset/unrealize cancellation.
 The second-key equality test applies only to the two-path profile; single-path
 draw91 is instead checked as the fixed ending operand.
 
-Receipts are `work/runs/singleclear-20261022/{red,green}.log`. This is a focused
+Receipts are `run singleclear/{red,green}.log`. This is a focused
 batch, not a rerun of the whole Nikon suite. The unchanged-bundle functional
 run separately observes this clear and original IRQ129, then rejects the
 168/232-byte gray continuation. No GUI frame or physical color fidelity is
@@ -816,7 +829,7 @@ cancellation and execution failure, invalid fields/keys/color/path/ranges,
 pending reset/unrealize and execution-time map loss. Rejected complete programs
 and failed execution are checked not to leave reusable context.
 
-Receipts: `work/runs/graycontext-20261022/{red,green}.log`. The intermediate
+Receipts: `run graycontext/{red,green}.log`. The intermediate
 `fixturecomparison.log` contains a signed-extension error in the fixture's
 hex comparison; storing the loaded word as uint32 corrects it. This is a
 focused transfer batch, not a full-suite receipt. The separate unchanged-bundle
@@ -851,11 +864,11 @@ focused transfer receipt, not a full-suite or pixel-exact-camera claim.
 The final unchanged-bundle functional execution separately renders all131
 original glyphs, enters original IRQ129 and then rejects the824/1112-byte
 five-rectangle pair. Raw memory/PNG preview is not final scanout evidence.
-Receipts: `work/runs/pathmodel-20261022/`.
+Receipts: `run pathmodel/`.
 
 ## Ordered opaque path paints and relative H/V
 
-`work/runs/coloredpaths-20261022/red.log` reproduces valid even-odd rejection
+`run coloredpaths/red.log` reproduces valid even-odd rejection
 on the preceding model. The extension adds relative07/09 in object space,
 even-odd fill, ordered opaque paints and distinct packed RGB channels. The
 former gray continuation uses the shared path processor; its invalid geometry
@@ -871,7 +884,7 @@ final display scanout.
 
 ## Inline path and A8 image modulation
 
-`work/runs/texturemodel-20261023/red.log` records valid176/336-byte synthetic
+`run texturemodel/red.log` records valid176/336-byte synthetic
 image rejection on the preceding parser. `verifiedgreen.log` passes the
 expanded native transfer executable, all10 cases. Image coverage includes
 alpha0/64/128/255 and RGB channels, padded row width, affine path transforms,
@@ -894,7 +907,7 @@ display publication is established.
 
 ## RGBA input to YUV105 conversion
 
-`work/runs/yuvmodel-20261023/red.log` records valid224/1736-byte rejection by
+`run yuvmodel/red.log` records valid224/1736-byte rejection by
 the previous model. `green.log` passes one native transfer executable, all11
 cases. New coverage uses seven independently tabulated RGB/YUV colors,
 different neighbors/source rows, a floating f24 oracle against the device's
@@ -914,7 +927,7 @@ startup is established by these results.
 
 ## Scaled RGBA input to packed YUVA107
 
-`work/runs/yuva107-20261023/red.log` fails on the preceding model's rejection
+`run yuva107/red.log` fails on the preceding model's rejection
 of valid224/1736-byte input. `green-final.log` passes one native transfer
 executable, all12 cases. The new case checks720x480→1024x682 sampling against
 an independent floating f24 oracle, seven tabulated colors, all packed and
@@ -935,7 +948,7 @@ that historical run.
 
 ## YUVA107 SRC_OVER continuation and retained context
 
-`work/runs/srcover-20261024/red.log` records valid initialized176/1552-byte
+`run srcover/red.log` records valid initialized176/1552-byte
 rejection on the preceding model. `green-final.log` passes one native transfer
 executable, all13 cases. New coverage tabulates white-over-blue colors with
 source alpha0/64/128/255 and old alpha0/128/255; it checks every packed/alpha

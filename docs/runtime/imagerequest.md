@@ -1,7 +1,8 @@
 # Image information and display activation
 
 The cold-neutral checkpoint reaches GUI drawing and display-layer programming,
-but has neither an active display target nor an image-information publication.
+but has no active display target or observed publication through the traced
+image-information subscriber.
 The newly isolated image-task branch rejects the observed sequence phase before
 any image DMA submission. This is a software admission boundary, not a new
 unsupported device access. AF6's state9 request is a separate conditional route;
@@ -10,8 +11,9 @@ forcing it is not justified as a normal GUI prerequisite.
 Addresses below are original C1.70 MAS CPU VA unless explicitly marked PA.
 Source is the unchanged MAS payload at base10020000, inspected in IDA;
 unrecognized Thumb wrappers were decoded without changing the database.
-Raw source, argv, snapshots and trace receipts remain in ignored
-`work/runs/imagerequest-20261024/`.
+The [published admission summary](/evidence/imagerequest/admission.json)
+contains the critical observations and omissions. Raw disassembly, argv,
+snapshots and traces remain private and are not shipped with the handbook.
 
 ## Verified producers and conditions
 

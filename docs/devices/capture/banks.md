@@ -83,7 +83,7 @@ The original diagnostic probe is qualified as a version-compatibility
 experiment with an explicit timing hypothesis and incomplete resource80.
 It is not a normal GUI-startup run or recovered factory-data receipt. Source
 projections and runtime objects are retained separately in
-`work/runs/capturebanks-20261024/`. The first discovered original bank1 write
+`run capturebanks/`. The first discovered original bank1 write
 and the native fixture's arbitrary bank0 value have distinct purposes.
 
 The historical configuration-only receipt`native-banks-red.log` records the new

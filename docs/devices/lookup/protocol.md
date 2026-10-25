@@ -147,5 +147,5 @@ owned busy before provider connection, cold stop at idle, unchanged active busy
 across stop/disconnect, real idle publication, invalid publication and reset.
 The sole builder compiled the fixed integrated source and executed all four
 native cases with exit0 in0.65s; the receipt is
-`work/lookupprotocolnativereceipt.log`. No physical result values or completed
+`run lookupprotocolnativereceipt.log`. No physical result values or completed
 original processing are inferred from the synthetic provider fixtures.

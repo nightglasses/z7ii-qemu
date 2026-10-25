@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: matrixoverwrite-20261023
+Original log: native-focused.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 unit+nikon - qemu:nikon_transfer_unit OK              0.78s   1 subtests passed
+Ok:                1
+Fail:              0

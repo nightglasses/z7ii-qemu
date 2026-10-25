@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: capturebanks-20261024
+Original log: native-banks-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/banks - ERROR:../../config/source/tests/qtest/nikon/sensor.c:870:test_capture_banks: assertion failed (qtest_readl(q, bases[0]) == 0x1234): (0x00000000 == 0x00001234) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.44s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/sensor.c:870:test_capture_banks: assertion failed (qtest_readl(q, bases[0]) == 0x1234): (0x00000000 == 0x00001234)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.44s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

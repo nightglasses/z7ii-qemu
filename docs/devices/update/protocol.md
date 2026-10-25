@@ -125,5 +125,5 @@ QOM profile and public APIs serve production
 construction; there is no test-only packet command. Only synthetic bytes are
 used. The sole builder compiled/linked the atomic frontend and executed this
 focused case with exit0 in1.23s; its ignored receipt is
-`work/vrupdatenativereceipt.log`. The previous five input, nine peripheral,
+`run vrupdatenativereceipt.log`. The previous five input, nine peripheral,
 and three storage/staging cases were not rerun by this group.

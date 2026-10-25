@@ -110,4 +110,4 @@ returns0 at`102d7254`, and property6433 is empty. QMP remains debug/stopped,
 with neither display head bound to a console.
 
 Raw source, ROM row bytes, descriptor/route/PTE snapshots, original traces and
-native red/green receipts remain in ignored `work/runs/gridstorage-20261024/`.
+native red/green receipts remain in ignored `run gridstorage/`.

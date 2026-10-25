@@ -43,7 +43,7 @@ qemu-system-arm -machine z7ii-mas-diagnostic,bundle=<container>,... \
                                      "key": {"type": "qcode", "data": "f1"}}}]}}
 ```
 
-`work/runs/ex-6b-ercd/run-assist.sh` performs four press/release rounds over
+`run ex-6b-ercd/run-assist.sh` performs four press/release rounds over
 `F1..F5` and `1..3` at 8/16/24/32 s, with a `-dfilter` over the display frontier
 and a panel screendump at the end.  It is the receipt script for this profile.
 

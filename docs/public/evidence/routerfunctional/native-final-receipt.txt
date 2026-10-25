@@ -1,0 +1,57 @@
+Native test output excerpt
+Run: routerfunctional-20261022
+Original log: native-final-receipt.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..25
+ok 1 /arm/nikon/memory/storage-profile
+ok 2 /arm/nikon/memory/kind40-buffer
+ok 3 /arm/nikon/memory/row-storage
+ok 4 /arm/nikon/memory/descriptor11-input
+ok 5 /arm/nikon/memory/descriptor12-input
+ok 6 /arm/nikon/memory/descriptor11-rejection
+ok 7 /arm/nikon/memory/descriptor12-rejection
+ok 8 /arm/nikon/memory/no-physical-logical-mirror
+ok 9 /arm/nikon/memory/decode-retention
+ok 10 /arm/nikon/memory/outer-holes
+ok 11 /arm/nikon/memory/display-buffers
+ok 12 /arm/nikon/memory/lcd-composition
+ok 13 /arm/nikon/memory/resource57-record0
+ok 14 /arm/nikon/memory/resource57-record1
+ok 15 /arm/nikon/memory/resource57-record7
+ok 16 /arm/nikon/memory/download-scratch
+ok 17 /arm/nikon/memory/selector-one-download
+ok 18 /arm/nikon/memory/external-input
+ok 19 /arm/nikon/memory/nor-protocol
+ok 20 /arm/nikon/memory/descriptor17-input
+ok 21 /arm/nikon/memory/descriptor17-rejection
+ok 22 /arm/nikon/memory/descriptor18-input
+ok 23 /arm/nikon/memory/descriptor18-rejection
+ok 24 /arm/nikon/memory/sysconfig
+ok 25 /arm/nikon/memory/sysconfig-controls
+1..23
+ok 1 /arm/nikon/sla/external-input
+ok 2 /arm/nikon/sla/loaded-domain
+ok 3 /arm/nikon/sla/startup-observation
+ok 4 /arm/nikon/sla/copy-private
+ok 5 /arm/nikon/sla/external-interrupts
+ok 6 /arm/nikon/sla/events
+ok 7 /arm/nikon/sla/notifier
+ok 8 /arm/nikon/sla/counter
+ok 9 /arm/nikon/sla/local-code
+ok 10 /arm/nikon/sla/signal
+ok 11 /arm/nikon/sla/staging
+ok 12 /arm/nikon/sla/router
+ok 13 /arm/nikon/sla/router-requests
+ok 14 /arm/nikon/sla/router-timing
+ok 15 /arm/nikon/sla/router-period-rejection
+ok 16 /arm/nikon/sla/gate
+ok 17 /arm/nikon/sla/status
+ok 18 /arm/nikon/sla/flags
+ok 19 /arm/nikon/sla/config-links
+ok 20 /arm/nikon/sla/provider-topology
+ok 21 /arm/nikon/sla/pairs
+ok 22 /arm/nikon/sla/secure-tick
+ok 23 /arm/nikon/sla/deferred-copy
+Ok:                2
+Fail:              0

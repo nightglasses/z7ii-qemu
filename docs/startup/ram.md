@@ -96,7 +96,7 @@ does not establish genuinely incomplete guest commands. The subsequent
 [continuation model](../devices/transfer/continuation.md) implements that
 contract separately from the RAM fix and completes this pair through IRQ129.
 
-Ignored receipts: `work/runs/ramalignment-20261023/` contains the diagnostic
+Ignored receipts: `run ramalignment/` contains the diagnostic
 probe, native red/green logs, normal green argv/QMP/GDB/trace, both complete
 command streams, and `verified-progress.json`. The diagnostic run and synthetic
 tests are separate from the final unchanged-firmware continuation.

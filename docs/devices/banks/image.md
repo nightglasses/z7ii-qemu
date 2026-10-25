@@ -6,7 +6,7 @@ publication. It adds no overlapping MMIO device. Physical LCD/ISP identity and
 an original GUI menu receipt remain unverified.
 
 Evidence is the saved ec048f native instruction/P-code index and the finite
-`qemu-rtos-startup/work/display/{bank,completion,registers}/` graphs. They contain
+`qemu-rtos-startup/run display/{bank,completion,registers}/` graphs. They contain
 249 complete bank entries and 7,778 unique instructions; the register graph
 retains 121 original literal READ records across 59 owners, each with consuming
 instruction, literal address, payload offset and original word. The complete
@@ -151,7 +151,7 @@ conventions support functional output and need later source/hardware refinement.
 
 ## Format17 YUVA provider
 
-The unchanged original run in `work/runs/readinessnormal-20261023/banks.json`
+The unchanged original run in `run readinessnormal/banks.json`
 submits unit1 port0 with control `00030006`, lanes `02000301`, a 1024x682
 layer, primary PA `cb4a7000`, secondary PA `cb5fc000`, and byte strides
 2048/1024. The same run's `banks-head1.ppm` contains the old decoder's stripes.
@@ -213,7 +213,7 @@ blanking and cadence semantics remain unverified.130c carries a separate
 timing scalar, including1155 in the fixed rear profile.
 
 The normal20-host-second original run's read-only `geometry.json` in
-`work/runs/moduleinput-20261024/` observes unit1 main1308=`030c030c`,
+`run moduleinput/` observes unit1 main1308=`030c030c`,
 130c=`483`,1310/1314=`3`,1318=`707`,131c=`60`,1320/1324=`0`,
 1328=`2aa` and132c=`400`. Together with the setter/producer and the distinct
 port viewport, this supports the finite rule: compose the output at the
@@ -287,17 +287,17 @@ with the exact RGB,8×8 extent, object, cancellation, fault and packed-table
 assertions retained. Tested device source is `ef0ba27`; the named board endpoint
 is `43ea19b`; fixture `4c1db31` selects the device/head and suppresses unused
 defaults. The preserved log is
-`native-qemu-source/work/validation/gui/imagenativefinal.log`.
+`native-qemu-source/run validation/gui/imagenativefinal.log`.
 The earlier default-console failure and upstream text-property abort are
 closed by the supported fixture launch contract. No naturally submitted
 original frame or camera measurement follows from this native receipt.
 The sole builder independently compiled the continuous/affine extension from
 `d31386c` and observed all nine cases passing, including refresh, in
-`qemu-submodule/work/scanoutfinal.log`; that receipt is separate from the prior
+`qemu-submodule/run scanoutfinal.log`; that receipt is separate from the prior
 eight-case baseline. The sole builder compiled the signed-origin change;
 focused crop/ports/refresh checks exited0 in1.11/1.10/1.11s, respectively,
-recorded in `work/displaycropreceipt.log`, `work/displayportsreceipt.log` and
-`work/displayrefreshreceipt.log`. Processing's unchanged exact-byte,
+recorded in `run displaycropreceipt.log`, `run displayportsreceipt.log` and
+`run displayrefreshreceipt.log`. Processing's unchanged exact-byte,
 EOF and cancellation receipts are not rerun for this display change.
 
 The YUVA fixtures add independent tabulated black/white/red/green/blue
@@ -313,7 +313,7 @@ additional original menu or physical scanout receipt.
 Parent native red (`native-yuva-red.log`) exercised the new fixture against
 the old decoder and failed its pixel assertion, 32 versus64. The complete
 image batch then passed all14 subtests in4.41s (`native-image-green.log`).
-Both receipts are in `work/runs/readinessnormal-20261023/`.
+Both receipts are in `run readinessnormal/`.
 
 The separate unchanged-firmware `color` run in that directory used the same
 declared inputs, healthy UART peer and20 host seconds without an in-transaction
@@ -329,13 +329,13 @@ All earlier image fixtures now supply their explicit visible fields. The
 new case also checks a live512x342 output clipping a1024x682 port canvas,
 high-bit write rejection, missing/zero/over-budget extents preserving the
 complete prior surface without IRQ, recovery, pause and reset. The parent's
-old-model `native-visible-red.log` in `work/runs/moduleinput-20261024/`
+old-model `native-visible-red.log` in `run moduleinput/`
 rejects the expected1024x682 PPM length2095120 against the old780x780 length
 1825215. That synthetic red is separate from the original register snapshot
 and from any subsequent corrected original-run frame.
 
 The parent whole-image batch passes all15 subtests in4.61s
-(`moduleinput-20261024/native-image-green.log`). The separate `visible`
+(`moduleinput/native-image-green.log`). The separate `visible`
 unchanged-firmware run retains the same normal inputs and20 host seconds:
 QMP `display` head1 now publishes1024x682, with the complete guest error
 dialog and right-side icons in `visible-head1.ppm`. It adds no descriptor32

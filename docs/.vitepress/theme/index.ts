@@ -1,24 +1,34 @@
 import DefaultTheme from 'vitepress/theme'
 import './custom.css'
 import { inBrowser } from 'vitepress'
+import { h } from 'vue'
+import Evidence from './evidence.vue'
 
 export default {
   extends: DefaultTheme,
+  Layout: () => h(DefaultTheme.Layout, null, { 'doc-after': () => h(Evidence) }),
   enhanceApp({ app, router }) {
     if (inBrowser) {
       const initPeleZoom = async () => {
         try {
           const { enableZoom } = await import('pele')
 
-          document.querySelectorAll('.pele-container').forEach((container) => {
+          document.querySelectorAll<HTMLElement>('.pele-container').forEach((container) => {
             if (container.getAttribute('data-zoom-initialized')) return
             container.setAttribute('data-zoom-initialized', 'true')
 
-            // Enable smooth wheel zoom and drag panning
-            enableZoom(container as HTMLElement, {
+            const zoom = enableZoom(container, {
               always: true,
               maxScale: 6,
             })
+
+            // Pele handles modified wheel events; fullscreen also accepts plain wheel.
+            container.addEventListener('wheel', (event) => {
+              if (!container.classList.contains('is-fullscreen') || event.ctrlKey || event.metaKey) return
+              event.preventDefault()
+              const delta = Math.max(-24, Math.min(24, event.deltaY))
+              zoom.zoomBy(2 ** (-delta * 0.02))
+            }, { passive: false })
 
             // Add Fullscreen toggle button to the zoom toolbar
             const toolbar = container.querySelector('.pele-zoom')

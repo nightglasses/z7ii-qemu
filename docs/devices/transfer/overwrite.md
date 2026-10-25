@@ -119,7 +119,7 @@ are synthetic fixture requirements, separate from original GUI execution.
 The parent-run first cached-matrix case is red against the preceding model.
 With this extension and the independently validated clear-mode correction,
 the complete transfer batch passes23 subtests in1.95s. Receipts are
-`work/runs/clearmode-20261023/matrix-{red,green}.log`. This verifies the
+`run clearmode/matrix-{red,green}.log`. This verifies the
 preemptive model combinations, not a new original-firmware frontier.
 
 ## Native and original validation
@@ -163,7 +163,7 @@ GUI gate/pending3/display-ready remain0, BatCk00010001, application03/02,
 primary request11. Both processes remain alive until controlled cleanup;
 the UART peer records no protocol rejection.
 
-Receipts: `work/runs/matrixoverwrite-20261023/`, including red/green scripts,
+Receipts: `run matrixoverwrite/`, including red/green scripts,
 argv, traces, read-only snapshots, raw streams/target, source projections,
 native-red/focused/green logs and UART/QMP process receipts. Exact late856/1088
 grammar is covered by the four-record native variant; the new original run's

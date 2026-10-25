@@ -129,7 +129,7 @@ guest count. Final BatCk is `00010001`; GUI gate/pending3/display-ready remain
 zero. The UART peer rejects no protocol request. Audio input samples,
 physical fidelity and GUI first frame remain unverified.
 
-Ignored receipts are in `work/runs/rgbaover-20261023/`: original red/green
+Ignored receipts are in `run rgbaover/`: original red/green
 traces, physical input/preimage/canvas captures, source projections, complete
 next buffers, native red/green logs, `path-observed.json`,
 `paint-producers.json` and `verified-progress.json`.

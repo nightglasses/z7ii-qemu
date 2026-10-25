@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: imageprefix-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /nikon/transfer/image-prefixes - ERROR:../../config/source/tests/unit/nikon/transfer.c:3530:test_image_prefixes: assertion failed (submit_inline_rectangles(&f, 0x400000, 216, 344, false) == MEMTX_OK): (1 == 0) FAIL
+▶ 1/1                                     ERROR
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.81s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/unit/nikon/transfer.c:3530:test_image_prefixes: assertion failed (submit_inline_rectangles(&f, 0x400000, 216, 344, false) == MEMTX_OK): (1 == 0)
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.81s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: sensorprofile-20261024
+Original log: native-globals-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/endpoint-globals - ERROR:../../config/source/tests/qtest/nikon/sensor.c:1052:test_capture_endpoint_globals: assertion failed (qtest_readl(q, base + offset) == value): (0x00000000 == 0xfdfd00ff) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.83s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/sensor.c:1052:test_capture_endpoint_globals: assertion failed (qtest_readl(q, base + offset) == value): (0x00000000 == 0xfdfd00ff)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.83s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

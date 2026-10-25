@@ -12,6 +12,11 @@ the device model.
 
 ## Files
 
+[Download the complete address index](/refmap/REFS.tsv).
+Every row retains its component, address, evidence class, references and notes.
+Historical run labels are provenance identifiers; the
+[public archive](../validation/evidence.md) lists the records actually available.
+
 | file | purpose |
 |---|---|
 | `REFS.tsv` | master table; one row per address (component + evidence + source) |
@@ -28,7 +33,7 @@ the device model.
   state = base address; ranges allowed.
 - `addr_kind`: code | data | mmio | ram | table | field | record | irq | region.
 - `evidence`: observed | verified | inferred | hypothesis (see below).
-- `source`: mandatory provenance (receipt path or issue URL).
+- `source`: mandatory provenance (article section, published attachment or pinned source).
 - `refs`: related addresses (relation described in `notes`).
 
 Evidence discipline: `observed` = runtime observation; `verified` = confirmed
@@ -52,15 +57,16 @@ combines them into one graph.
 
 ## Updating
 
-The generator and the per-subsystem sources live in `work/runs/refmap/`
-(git-ignored): `parts/*.tsv` (one writer per subsystem), `merge.py` (writes
-`REFS.tsv` + graphs), `coverage.py` (reports source addresses missing from the
-map), `extract_qemu.py` (QEMU MMIO/IRQ). Regenerate there, then copy the curated
-set here. `REFS.tsv` may also be edited directly for small fixes; keep `source`
-mandatory and evidence classes honest.
+Maintain the tracked `docs/refmap/REFS.tsv` directly. Keep the fixed columns,
+component/address domain and evidence class intact. A source should identify
+a tracked contract section, a published attachment or a fixed primary-source
+reference. Historical run labels identify older observations whose raw captures
+may be unavailable; they must not be treated as downloadable files or upgraded
+to new verification. Update related graphs when a relationship changes, then
+build the handbook to check links and diagram syntax.
 
 ## Provenance
 
-Derived from `work/runs/**` receipts, `docs/**` and the issue tracker. The
+Derived from retained run observations, technical articles and pinned source. The
 receipts remain the evidence; this map only indexes them. It does not claim
 physical-camera fidelity, and it does not modify firmware bytes.

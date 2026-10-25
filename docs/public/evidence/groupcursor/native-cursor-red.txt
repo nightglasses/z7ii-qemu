@@ -1,0 +1,11 @@
+Native test output excerpt
+Run: groupcursor-20261024
+Original log: native-cursor-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/group-cursor - ERROR:../../config/source/tests/qtest/nikon/sensor.c:1210:capture_group_cursor_packet: 'strstr(reply, "Cannot access memory")' should be NULL FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.46s   killed by signal 6 SIGABRT
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.46s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

@@ -13,8 +13,8 @@ hero:
       text: "Peripheral Contracts"
       link: "/devices/gate/protocol"
     - theme: alt
-      text: "Address Reference Map"
-      link: "/refmap/README"
+      text: "Published Evidence"
+      link: "/validation/evidence"
 
 features:
   - icon: 🎯

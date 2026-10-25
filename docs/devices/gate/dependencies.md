@@ -1,7 +1,7 @@
 # Startup IRQ and event dependencies
 
-Issue [398](https://github.com/mashiro01/nightglass/issues/398), parent
-[326](https://github.com/mashiro01/nightglass/issues/326). This inventory reads
+This inventory relates device IRQ and event contracts to
+[unchanged-firmware startup](/startup/first). It reads
 the eight device sources at QEMU `193ee98138c85c2b2848836952228078a64e4f20`
 and their saved firmware contracts. It describes every operation family in
 those contracts, rather than counting refusal branches as missing devices.

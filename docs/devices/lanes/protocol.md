@@ -34,5 +34,5 @@ storage behavior. Its complete protocol belongs to the storage owner.
 which exercises both complete lane write paths and confirms no resulting
 signal pending bit or IRQ. The sole builder compiled the private signal/lane
 group and executed it with exit0 in1.69s; its ignored receipt is
-`work/slasignalnativereceipt.log`. This establishes the finite functional
+`run slasignalnativereceipt.log`. This establishes the finite functional
 contract, not original downstream engine execution.

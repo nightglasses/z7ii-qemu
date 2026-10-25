@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: timingmatrix-20261022
+Original log: native-validated.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer OK              2.65s   12 subtests passed
+Ok:                1
+Fail:              0

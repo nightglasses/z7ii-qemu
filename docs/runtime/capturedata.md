@@ -3,7 +3,7 @@
 This audit continues the [readout producer join](readoutstate.md#current-cold-neutral-producer-and-completion-join).
 Code addresses and software objects below are original MAS VAs; device and
 pool addresses are board PAs. Source projections, raw allocation rows and
-unchanged-firmware receipts remain in `work/runs/capturedata-20261024/`.
+unchanged-firmware receipts remain in `run capturedata/`.
 The storage-only checkpoints below precede the implemented
 [finite statistics transaction](../devices/statistics/protocol.md), which
 now produces DMA/results/raw6 under explicit arithmetic/input assumptions.

@@ -1,0 +1,33 @@
+Native test output excerpt
+Run: sysconfig-20261022
+Original log: native-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..25
+ok 1 /arm/nikon/memory/storage-profile
+ok 2 /arm/nikon/memory/kind40-buffer
+ok 3 /arm/nikon/memory/row-storage
+ok 4 /arm/nikon/memory/descriptor11-input
+ok 5 /arm/nikon/memory/descriptor12-input
+ok 6 /arm/nikon/memory/descriptor11-rejection
+ok 7 /arm/nikon/memory/descriptor12-rejection
+ok 8 /arm/nikon/memory/no-physical-logical-mirror
+ok 9 /arm/nikon/memory/decode-retention
+ok 10 /arm/nikon/memory/outer-holes
+ok 11 /arm/nikon/memory/display-buffers
+ok 12 /arm/nikon/memory/lcd-composition
+ok 13 /arm/nikon/memory/resource57-record0
+ok 14 /arm/nikon/memory/resource57-record1
+ok 15 /arm/nikon/memory/resource57-record7
+ok 16 /arm/nikon/memory/download-scratch
+ok 17 /arm/nikon/memory/selector-one-download
+ok 18 /arm/nikon/memory/external-input
+ok 19 /arm/nikon/memory/nor-protocol
+ok 20 /arm/nikon/memory/descriptor17-input
+ok 21 /arm/nikon/memory/descriptor17-rejection
+ok 22 /arm/nikon/memory/descriptor18-input
+ok 23 /arm/nikon/memory/descriptor18-rejection
+ok 24 /arm/nikon/memory/sysconfig
+ok 25 /arm/nikon/memory/sysconfig-controls
+Ok:                1
+Fail:              0

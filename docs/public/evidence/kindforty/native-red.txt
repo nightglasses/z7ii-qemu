@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: kindforty-20261022
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/memory/kind40-buffer - ERROR:../../config/source/tests/qtest/nikon/memory.c:148:test_kind40_buffer: assertion failed (qtest_readl(t.qts, addresses[i]) == 0x40280000 + i): (0x00000000 == 0x40280000) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.72s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/memory.c:148:test_kind40_buffer: assertion failed (qtest_readl(t.qts, addresses[i]) == 0x40280000 + i): (0x00000000 == 0x40280000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.72s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

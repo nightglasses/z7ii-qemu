@@ -89,7 +89,7 @@ the known producers load before arming optional features.
 
 ## Native evidence
 
-`work/runs/timingextra-20261023/native-red.log` records the old model's actual
+`run timingextra/native-red.log` records the old model's actual
 failure on enable1 readback in `/arm/nikon/timing-extra/budget`. After the change,
 `make check MTESTARGS=nikon_timer` initially passes all19 subtests in4.31s
 (`native-green.log`). Independent review then identifies missing unrealize

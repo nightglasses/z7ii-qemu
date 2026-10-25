@@ -1,6 +1,6 @@
 # SLA router source audit
 
-The fixed provider is `zero-domain-source/work/sla-whole-source-11/sla.S`
+The fixed provider is `zero-domain-source/sla.S`
 with its original `sla-rows.jsonl`. Recovered `1009EDD4..1009F4AA` instructions
 and literals `9F1B8..9F1E0`, `9F4C4/9F4C8` establish the finite interface
 below. This is an audit against the mature `router.c`, not a new physical

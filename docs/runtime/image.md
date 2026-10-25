@@ -21,7 +21,7 @@ the target-matched initialized profile and active-state validation mandatory.
 
 All code and buffer addresses in this section are MAS VAs. Full original
 streams and a bounded source window are in
-`work/runs/textureboundary-20261022/`. Submission entry is`106ee04a`,
+`run textureboundary/`. Submission entry is`106ee04a`,
 caller LR`106eeab9`, descriptor`b545e79c`, command sources
 `bd0e5820/bd1676f0`, counts44/84 words, path key`1008b`.
 
@@ -48,7 +48,7 @@ into the f24 representation. `106b5198` selects image/paint mode3, whose
 `10645c86` packing yields low byte0e with inherited bit3. `106b4064` calls
 `10646324`, which emits the inline rectangle coordinate words; its two raw
 control payloads must not be interpreted as register commands. Read-only
-decompilation receipts are in`work/runs/texturemodel-20261023/producer*.json`.
+decompilation receipts are in`run texturemodel/producer*.json`.
 
 The fixed [Z7 path decoder](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L162-L198)
 corroborates datatype bits31..30=2 as signed32. Its
@@ -90,7 +90,7 @@ value remains fixed; acceptance does not claim physical filter precision.
 
 ## Native and original-execution evidence
 
-`work/runs/texturemodel-20261023/red.log` records valid synthetic image
+`run texturemodel/red.log` records valid synthetic image
 rejection by the preceding model. `verifiedgreen.log` passes one executable,
 all10 transfer cases. The new image fixture covers alpha0/64/128/255,
 distinct color channels, row width versus rectangle width, f24 mapping,
@@ -114,7 +114,7 @@ The subsequent pair is224/1736 bytes,56/434 words, source buffers
 aligned extent and a1024x682 inline path. It is not evidence that the rendered
 720x480 warning has been scanned out. Full decoding/state and next abort are
 in the same model receipt directory; a separate entry capture is in
-`work/runs/imagetransfer-20261023/`. See the
+`run imagetransfer/`. See the
 [startup frontier](../validation/frontier.md).
 This YUV105 [conversion](conversion.md) now completes through IRQ129 as well.
 The next same-length pair also completes720x480 scaling into YUVA107. The

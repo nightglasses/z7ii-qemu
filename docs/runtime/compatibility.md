@@ -1,7 +1,7 @@
 # Battery compatibility warning boundary
 
 The battery report reaches MAS; that is separate from its acceptance as usable
-power. The retained 2026-10-21 original report explicitly contains unknown
+power. The retained original report explicitly contains unknown
 type `ff` and main fault flag1. Those bytes suffice to explain BatCk status2.
 The later [131 original glyphs](path.md) identify the communication warning,
 and the graphics run's first MAS report confirms those same fields. Its EX
@@ -15,7 +15,7 @@ Real-time response and the subsequent0c/0e peer semantics remain unresolved.
 
 All `10xxxxxx/bxxxxxxx` addresses below are MAS VA; `080xxxxx/200xxxxx`
 are EX VA. Raw static receipts and historical-field extraction remain in
-`work/runs/batterycompat-20261022/`. The initial static investigation made no
+`run batterycompat/`. The initial static investigation made no
 guest run, write or IDA change; the parent subsequently added the read-only
 original-execution captures identified below.
 
@@ -56,7 +56,7 @@ has not been traced by this investigation.
 
 ## Retained direct observation
 
-`work/runs/batck-20261021/multi-frontend.log:4` records the original112-byte
+`run batck/multi-frontend.log:4` records the original112-byte
 MAS frontend payload, repeated at line14. Its relevant bytes are:
 
 ```text
@@ -72,7 +72,7 @@ first-report/normalization evidence before inheriting this diagnosis.
 
 ## Original EX field production
 
-The original EX bytes `work/docsfix/exdis/ex.img` are disassembled locally in
+The original EX bytes `ex.img` are disassembled locally in
 `report.dis` and `snapshot.dis`; literals establish report base `20015fc0`
 and input snapshot `20016040`, length60. Handler `08025268` receives event
 `02020045`, copies60 bytes to that snapshot and posts local event15.
@@ -135,7 +135,7 @@ collected here.
 
 ## Later graphics capture and upstream error classification
 
-Direct observation: `work/runs/coloredpaths-20261022/battery.json` has first
+Direct observation: `run coloredpaths/battery.json` has first
 MAS raw type`ff`, main fault1, normalized-before all zero, override0,
 unknown-type flag0 and status-before0. Thus the explicit main fault causes
 this first decision; the unknown-type fallback is not needed. The EX report
@@ -168,7 +168,7 @@ checksum mismatch3. It does not justify substituting arbitrary accepted
 identity/authentication data. The precise peripheral instance and missing
 peer behavior remain unproven; this is distinct from assuming the existing
 monitor/I2C peer is at fault. Receipts: `handshake.dis`, original EX image
-and full `work/docsfix/exdis/ex.dis`.
+and full `ex.dis`.
 
 Minimal next read-only probes: `08024ac0` conditional on`r1==2001fa50`,
 record`r0`,LR and`2001f441`; `08023eaa`/`08024836` record retry request
@@ -181,7 +181,7 @@ normalization. Only that evidence can support a finite physical peer repair.
 ## Confirmed timeout and challenge/reply boundary
 
 The parent's original execution receipt
-`work/runs/batteryhandshake-20261022/handshake.json` confirms all three
+`run batteryhandshake/handshake.json` confirms all three
 21-byte/29-byte/440-timeout attempts returned transport4, followed by
 `08024ac0(r1=2001fa50,r0=8)`. This closes the inference about the error8
 producer above. It does not supply any accepted physical-battery reply.
@@ -232,7 +232,7 @@ branches. A finite peer implementation therefore needs source-backed
 challenge behavior and later command responses; a fixed accepted29-byte
 packet or a forced completion would bypass original validation.
 
-New static receipts are`work/runs/batteryreply-20261022/{transport,reply,
+New static receipts are`run batteryreply/{transport,reply
 replyconsumer,challenge,arithmetic,scalar}.dis` and`literals.json`, all derived
 from the retained original EX image/listing. Minimal additional read-only
 points: `08023768` with LR and timer/transport state`2001f4e8..2001f548`;
@@ -298,7 +298,7 @@ guest execution or firmware modification was used.
 
 The unchanged bundle and same functional descriptor input were run with one
 read-only hardware breakpoint at a time. In
-`work/runs/batteryhandshake-20261022/handshake.json`, the three consecutive
+`run batteryhandshake/handshake.json`, the three consecutive
 calls at EX VA`08024832` use structure`2001fa50`, channel argument0,
 tx length21, expected rx length29 and timeout440. Every transmit byte is
 identical across attempts (retained only in the ignored receipt), and each
@@ -316,16 +316,16 @@ the later original timer capture below and static registration close that
 question. The request's source17 bytes and checksum are retained, while the
 response relation above exposes the remaining key-provisioning boundary.
 
-`work/runs/batteryfirst-20261022/first.json` is an exploratory capture at the
+`run batteryfirst/first.json` is an exploratory capture at the
 first observed `08025544` call and its natural return, followed by the first
 MAS normalizer entry. The EX report is already sequence3 while MAS receives
 sequence1. It is expressly **not** a sequence-matched report-production proof.
-The MAS first-publication evidence in `coloredpaths-20261022/battery.json`
+The MAS first-publication evidence in `coloredpaths/battery.json`
 remains the basis for mainfault1, disabled override and subsequent status2.
 
 ## Original alarm capture and machine connection
 
-`work/runs/imagetransfer-20261023/alarm.json` directly stops at EX VA
+`run imagetransfer/alarm.json` directly stops at EX VA
 `08023768`, LR`0804ab53`, before the alarm clears the peripheral and posts
 event4. Transport bytes at`2001f4e8` are channel identifier3a, tx length15,
 tx count15, expected rx1d, actual rx00 (hex). The full21-byte request was
@@ -370,7 +370,7 @@ constitute original EX acceptance or an implemented battery peer.
 
 The parent additionally captures the natural successful reseed call at EX
 `08023e68` and its following first request at`08024832`, without modifying
-either. `work/runs/authseed-20261023/seed.json` records that original branch.
+either. `run authseed/seed.json` records that original branch.
 The host reconstruction reproduces all17 challenge bytes from that observed
 single32-bit seed; [authentication.md](authentication.md) records the
 comparison and its limits. This establishes the successful seed path and
@@ -384,7 +384,7 @@ hit verification and the later timing-assisted original-acceptance receipt.
 
 ## Original acceptance and the following query
 
-`work/runs/batteryaccept-20261025/parent-accept.json` joins an actual UART
+`run batteryaccept/parent-accept.json` joins an actual UART
 29-byte reply to transport return0 at EX VA`08024836`, validator return1 at
 `08023ed4`, structure`2001fa50+4=1` and entry`0802487c` for0c. Host search
 uses only the fresh wire challenge and public arithmetic; no guest-private

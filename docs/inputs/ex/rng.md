@@ -48,7 +48,7 @@ bundle/functional-descriptor launch; they are not a replacement firmware mode.
 
 ## Validation
 
-`work/runs/reproducible-20261026/` retains the actual native old-source failures
+`run reproducible/` retains the actual native old-source failures
 and new-source results. Five RNG qtests cover host/default protocol, fixed zero,
 all ones, another fixed word, invalid configuration/accesses, consumed-ready,
 disable cancellation and reset. Two UART qtests cover default and dedicated

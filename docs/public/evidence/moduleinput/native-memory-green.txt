@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: moduleinput-20261024
+Original log: native-memory-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory OK              8.65s   28 subtests passed
+Ok:                1
+Fail:              0

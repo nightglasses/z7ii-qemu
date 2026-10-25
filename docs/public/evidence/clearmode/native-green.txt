@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: clearmode-20261023
+Original log: native-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 unit+nikon - qemu:nikon_transfer_unit OK              1.67s   22 subtests passed
+Ok:                1
+Fail:              0

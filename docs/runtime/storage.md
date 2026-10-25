@@ -189,7 +189,7 @@ The GDB command completed with exit0 in **0.380554292 s** of host wall time.
 QEMU exited0 through QMP `quit`; direct comparison of the complete container
 against its pre-run APFS clone passed. This host duration is not a guest clock
 or performance measurement. Ignored receipts and original logs are
-`work/gui/original/{receipt.json,qemu.log,gdb.log,observer.gdb}`. The first host
+`run gui/original/{receipt.json,qemu.log,gdb.log,observer.gdb}`. The first host
 launch rejected an overlong UNIX QMP socket path before guest initialization;
 the actual run used the local TCP QMP endpoint. No GUI or whole-boot success is
 claimed.
@@ -220,7 +220,7 @@ this coordinator. The full entry body and its later initialization calls are
 captured together so the next dependency is the complete worker/producer
 protocol, rather than another guessed memory range or a forced event bit.
 
-Ignored evidence is `work/gui/namespace/{receipt.json,gdb.log,events.bin,
+Ignored evidence is `{receipt.json,gdb.log,events.bin
 tasks.bin,stacks.log,producer.log,trace.json,waits.json}`. Complete GDB capture,
 the additional stack capture and native mapped-byte disassembly all exit0;
 QEMU exits0 and the input remains directly equal to the pre-run clone. The

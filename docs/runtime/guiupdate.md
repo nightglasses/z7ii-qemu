@@ -3,8 +3,8 @@
 The current [cold-neutral image request audit](imagerequest.md) supersedes
 the ID68/operation10 checkpoint below: operation10 now reaches the original
 unpause. GUI drawing and layer programming execute, but final activation and
-record92 publication remain absent. The observed image tasks fail a specific
-period/phase admission before submission. AF6's state9 route has separate
+the traced image-information-to-record92 route remain unobserved. The observed
+image tasks fail a specific period/phase admission before submission. AF6's state9 route has separate
 guards and is not established as the missing normal GUI request.
 
 The later [normal-input readiness trace](readiness.md#current-normal-input-observation)
@@ -122,11 +122,11 @@ and[panel observation](../devices/panel/protocol.md) now pass23 transfer and3
 panel subtests. Their final unchanged integration repeats the0→8 clear and147
 IRQ129 entries, with the same timing channel4 +38 first error and readiness0.
 The matrix combinations are preemptively native-tested; observer correctness
-does not advance guest conditions. Final receipts: `graphicsstate-20261023`.
+does not advance guest conditions. Final receipts: `graphicsstate`.
 The later [timing extra model](../devices/timing/extra.md) passes20 timing
 subtests and accepts original channel4 enable/configuration. Its result counter,
 terminal bit3 and finite stop remain explicit functional assumptions. The
-initial `timingextra-20261023/final` and `integration` runs expose missing
+initial `timingextra/final` and `integration` runs expose missing
 rectangle prefixes and an overstrict rectangle-only next-key guard. The
 [optional-prefix/shared-context correction](../devices/transfer/prefix.md)
 and explicit two-path RGBA targets pass25 transfer cases. Final `validated`
@@ -159,7 +159,7 @@ event200. That event is not operation200 in the0..15 API.
 The earlier8-host-second trace's unreturned wait was a window boundary,
 not a permanent missing event. The first optional stack snapshot failed on
 an unmapped sampled SP; the corrected read-only snapshot succeeds.
-Parent-owned receipts are in `work/runs/captureflow-20261022/`. The later
+Parent-owned receipts are in `run captureflow/`. The later
 HDMAC descriptor rejection is the current concrete frontier; GUI gate, pending3 and
 display-ready still remain0.
 
@@ -192,8 +192,8 @@ an independent missing-ready device transaction.
 
 All addresses below are C1.70 MAS CPU VAs. Source observations are from the
 unchanged original payload mapped at `10020000`, retained in
-`work/runs/descriptor17-z7cross-mac1/`. Bounded decompilation receipts are in
-`work/runs/displayhealthy-20261027/child-source.json`, `child-inputgate.json`,
+`run descriptor17-z7cross-mac1/`. Bounded decompilation receipts are in
+`run displayhealthy/child-source.json`, `child-inputgate.json`,
 `child-notification.json`, `child-policy.json` and `child-capture.json`.
 Runtime observations
 are parent-owned; this source investigation ran no QEMU or debugger and
@@ -201,7 +201,7 @@ changed no firmware, guest state, input binding or device model.
 
 ## Paired-input and acceleration continuation
 
-Parent-owned receipts are in`work/runs/guinormal-20261022/`. The`paired` run
+Parent-owned receipts are in`run guinormal/`. The`paired` run
 supplies descriptor17 resource21 and descriptor18 resource57 through the NOR
 properties. It observes callbacks`04400043(21)` and`04400043(57)`, mask3 wait
 return1, both setters, and owner pointers`b7f54400/b7f6a0fc`. The original unit6
@@ -445,7 +445,7 @@ not a stalled completion. It does not establish that this request must occur
 during ordinary healthy startup.
 
 The next source/runtime join is recorded in
-`work/runs/guinormal-20261022/child-source.json` and `child-idle.json`.
+`run guinormal/child-source.json` and `child-idle.json`.
 The static pointer `10247d3f` at ROM `123b3920` maps to RAM
 `b181998c`, but is **not** a method at+324 of object `b1819848`.
 It is the enter method at+4 of a separate object beginning at ROM
@@ -639,7 +639,7 @@ completion callback must be joined before any hardware response is modeled.
 ### Qualified ACCELE defaults from the original Z7 comparison
 
 The local original Z7 C3.80 payload
-`work/runs/id34official-20261021/z7/02_eg1610_038000.bi.payload.bin` contains
+`02_eg1610_038000.bi.payload.bin` contains
 two candidate ROM defaults at file offsets `1501304` and `1501404`
 (VAs `11521304` and `11521404`). This is more than a marker match:
 original Z7 function `10232616` installs the first with copy length256 through
@@ -671,7 +671,7 @@ callback or aggregate bit is a permitted substitute.
 
 The exact unmodified candidates are retained only as ignored
 `child-z7-accele-config21.bin` (256 bytes) and `child-z7-accele-cal57.bin`
-(192 bytes) in `work/runs/guinormal-20261022/`, with provenance in
+(192 bytes) in `run guinormal/`, with provenance in
 `child-z7-accele.json` and bounded disassembly in `child-donor-*.txt`.
 These are cross-model functional inputs for an explicit external-NOR
 experiment, not recovered Z7II factory records. The corresponding original
@@ -912,8 +912,11 @@ The only identified direct record92 publisher is callback `104be876` for
 event `04380001`. At `104be8c8` it copies1124 bytes from the incoming
 payload to `b201c038`; `104be8d0` publishes record92 and it posts ordinary
 event80. Its pending word is `b201bf40`, pointer word `b201caf4`.
-Registration `104bf278` passes this callback to `10551b62`. The upstream
-event producer has not been resolved.
+Registration `104bf278` passes this callback to `10551b62`. The later
+[image admission audit](imagerequest.md) resolves the upstream producer as
+`041b0040 -> 103284d0 -> 1035a2d8 -> 106d103c`, and isolates the observed
+task's period/phase rejection before publication. This earlier checkpoint
+did not establish that chain.
 
 Phase9 helper `1053f42a` consumes record92 at `1053f444`, compares fields
 against cached data at `b202c578`, and can request an update. When a changed

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: timingextra-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/timing-extra/budget - ERROR:../../config/source/tests/qtest/nikon/timer.c:525:test_extra_budget: assertion failed (qtest_readl(t.qts, second + 0x38) == 1): (0x00000000 == 0x00000001) FAIL
+▶ 1/1                                        ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer ERROR           1.28s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/timer.c:525:test_extra_budget: assertion failed (qtest_readl(t.qts, second + 0x38) == 1): (0x00000000 == 0x00000001)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_timer ERROR           1.28s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

@@ -61,7 +61,7 @@ At the [Audio observation checkpoint](../audio/monitor.md), unchanged
 firmware's first uncovered access was CPU1 MAS VA106ee3c6, WRITE32 board
 PA201810e0=1. Original submitter106ee04a programs64-bit unit counts6b/88:
 setup856 bytes at PAbd0dff90, draw1088 bytes at PAbd15ff90. Both complete
-buffers are saved in `work/runs/audiolevels-20261023/final-stream0.bin` and
+buffers are saved in `final-stream0.bin` and
 `final-stream1.bin`; `verified.json` binds the actual submit metadata. The
 trace includes both writer-entry and store instruction PCs, since later TCG
 blocks enter at106ee3c6. Earlier snapshots using only106ee3c4 metadata are
@@ -216,7 +216,7 @@ ordinary byte-copy engine and IRQ130 remain separate.
 ## Finite black YUV422 rectangle clear
 
 An additional original C1.70 job was captured after an explicit EX ADC/pad
-input experiment in `work/runs/lcdnext-type2-transfer2`. Its stream extents
+input experiment in `run lcdnext-type2-transfer2`. Its stream extents
 are224/1648 bytes (port counts28/206), rather than the LUT pair's224/1688.
 The firmware and its command buffers were only read by the debugger. This
 observation establishes the submitted commands, not a completed LCD boot or
@@ -409,7 +409,7 @@ The new initial8 fixture fails against the old parser, then the complete
 `nikon_transfer_unit` batch passes: one executable, six registered test cases.
 It checks both initial values' full pixels and guards, rejects initial18 and
 final word60=0, and exercises initial8 with map loss, reset and unrealize.
-Receipts: `work/runs/streammodel-20261022/{red,green}.log`.
+Receipts: `run streammodel/{red,green}.log`.
 
 With unchanged firmware and the same explicit functional input, the captured
 indirect paths match the model, the surface's active first/last samples become
@@ -444,7 +444,7 @@ reject changed fields, setup/draw truncation and bad indirect data, and retain
 the IRQ/ACK, reset, unrealize and execution-time map-loss checks for initial8.
 The new case fails against the previous model, then the complete transfer unit
 batch passes one executable/seven cases. Receipts are
-`work/runs/singleclear-20261022/{red,green}.log`.
+`run singleclear/{red,green}.log`.
 
 The unchanged bundle with the same explicit functional input submits the pair;
 its target first/last samples change from cold zero to `00 00 00 ff`, the tail
@@ -485,7 +485,7 @@ guards/tail, delayed IRQ and ACK, context retention across ACK/repeat, cold and
 wrong-context rejection, reset/canceled/failed initialization, malformed fields
 and DMA operands, execution-time map loss and pending reset/unrealize. It also
 checks context invalidation after a rejected program or failed execution.
-Receipts: `work/runs/graycontext-20261022/{red,green}.log`. The intervening
+Receipts: `run graycontext/{red,green}.log`. The intervening
 `fixturecomparison.log` is a test signed-extension comparison error, corrected
 by storing the loaded word as uint32 before comparison; it is not a pixel defect.
 
@@ -538,7 +538,7 @@ glyph batch is committed. Coverage precision is a functional approximation.
 The new synthetic path fixture distinguishes transformed geometry, quadratic
 interior from its bounding box, nonzero contour direction/holes, partial
 coverage over gray, clipping, late bad data and cancellation. Old-parser red
-and nine-case transfer green are in `work/runs/pathmodel-20261022/`; the
+and nine-case transfer green are in `run pathmodel/`; the
 independent backing-alias review produced `aliasred.log` before its fix and
 `finalgreen.log` afterwards. `buildinclude.log` is an initial missing math-header
 compile failure, not the red fixture receipt. Cairo is an explicit Z7II Meson
@@ -555,7 +555,7 @@ The subsequent824/1112-byte pair has five relative H/V rectangles, even-odd oper
 original IRQ129, preserving all pixels outside the five paths. Native coverage
 adds same-direction even-odd holes, relative H/V, overlapping ordered paints,
 distinct RGB channels, invalid alpha and relative topology. The focused
-nine-case batch passes; receipts are `work/runs/coloredpaths-20261022/`.
+nine-case batch passes; receipts are `run coloredpaths/`.
 The subsequent176/336-byte packet uses the finite image extension below.
 
 ### Inline signed32 path and A8 image modulation
@@ -591,7 +591,7 @@ clamping, malformed/unsafe inputs, backing aliases, delayed data reads, map
 loss and reset/unrealize. The focused native batch passes all10 cases after
 old-model red. Unchanged firmware then renders the red icon:3751 changed
 pixels,3365 solid and386 alpha edges; all outside-patch pixels match the prior
-frame. Receipts: `work/runs/texturemodel-20261023/`. The subsequent224/1736-byte
+frame. Receipts: `run texturemodel/`. The subsequent224/1736-byte
 RGBA-input/YUV105-output pair uses the finite conversion below; see the
 [current frontier](../../validation/frontier.md). Physical raster/filter
 precision and final scanout remain separate, unverified properties.
@@ -630,7 +630,7 @@ plane byte, alpha, source/command/plane aliases, bad fields/tables/ranges,
 delayed input, map loss and cancellation. Unchanged firmware then converts
 the separate black RGBA source to full Y16/UV128 planes through original
 IRQ129; it leaves source and guards unchanged. Receipts:
-`work/runs/yuvmodel-20261023/`.
+`run yuvmodel/`.
 
 The107 profile reads1382400 source bytes and writes1396736 packed Y0/Y1/U/V
 bytes plus698368 separate alpha bytes, with exact plane delta155000(hex).
@@ -644,7 +644,7 @@ Both targets are read into scratch, and both writable maps/alias checks must
 succeed before either commit. Successful107 completion retains this finite
 state for the SRC_OVER continuation below.
 
-`work/runs/yuva107-20261023/` records old-model red and all12 native cases
+`run yuva107/` records old-model red and all12 native cases
 passing, including partial alpha, edge color/alpha retention and previous
 safety/cancellation boundaries. Unchanged firmware completes this pair through
 IRQ129 with source/guards preserved, packed Y16/UV128 and alpha0. The next
@@ -659,7 +659,7 @@ RGB and rounded alpha. The largest rounded RGB numerator fits32-bit unsigned.
 ACK and successful107 continuation preserve the context; cold or unsuccessful
 initialization does not establish it. A different completed profile, rejected
 complete stream, late failure, reset or unrealize clears it. Native old-model
-red and all13 transfer cases passing are in`work/runs/srcover-20261024/`,
+red and all13 transfer cases passing are in`run srcover/`,
 including source/old alpha combinations, every packed byte, repeat, lifecycle,
 mask/field/range/alias rejection and late cancellation. Original unchanged
 execution completes through IRQ129 and its actual packed buffer contains the
@@ -691,7 +691,7 @@ types. The old frontend failed the initial10d4 word write before these tests
 passed. These are synthetic device tests, not GUI boot evidence.
 
 The corrected stream-submission test uses counts 28/211 and compares full
-224/1688-byte snapshots. `work/research/z9reference/extent-red.log` records
+224/1688-byte snapshots. `run research/z9reference/extent-red.log` records
 the actual old-length failure (`56 != 224`), then `extent-green.log` passes
 all four transfer unit cases. The added `stream-extent-boundaries` case checks
 both banks, incomplete setup, zero/invalid starts, unsupported widths/read

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: singletarget-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /nikon/transfer/rgba-targets - ERROR:../../config/source/tests/unit/nikon/transfer.c:3459:test_rgba_over_target: assertion failed (submit_rgba(&f, 176, 368) == accepted ? MEMTX_OK : MEMTX_ERROR): (1 == 0) FAIL
+▶ 1/1                                     ERROR
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.89s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/unit/nikon/transfer.c:3459:test_rgba_over_target: assertion failed (submit_rgba(&f, 176, 368) == accepted ? MEMTX_OK : MEMTX_ERROR): (1 == 0)
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.89s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

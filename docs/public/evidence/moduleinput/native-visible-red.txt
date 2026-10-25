@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: moduleinput-20261024
+Original log: native-visible-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/image/visible-area - ERROR:../../config/source/tests/qtest/nikon/image.c:83:pixels_extent: assertion failed (length == strlen(header) + width * height * 3): (1825215 == 2095120) FAIL
+▶ 1/1                                  ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.60s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/image.c:83:pixels_extent: assertion failed (length == strlen(header) + width * height * 3): (1825215 == 2095120)
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.60s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

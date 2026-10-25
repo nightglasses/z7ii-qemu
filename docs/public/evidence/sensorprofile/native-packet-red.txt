@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: sensorprofile-20261024
+Original log: native-packet-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/packet - ERROR:../../config/source/tests/qtest/nikon/sensor.c:778:test_capture_packet: assertion failed (qtest_readl(q, base) == 0x03960000): (0x00000000 == 0x03960000) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.58s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/sensor.c:778:test_capture_packet: assertion failed (qtest_readl(q, base) == 0x03960000): (0x00000000 == 0x03960000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.58s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

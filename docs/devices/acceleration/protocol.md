@@ -6,7 +6,7 @@ the qualified variant1 sequence; no physical-device identity is claimed.
 The application/runtime join is in [guiupdate.md](../../runtime/guiupdate.md).
 
 The source is unchanged Z7II C1.70 MAS, mapped at `10020000`. Bounded source
-receipts are `work/runs/guinormal-20261022/child-sensor.json` and
+receipts are `run guinormal/child-sensor.json` and
 `child-bus.json`. Original execution, external record candidates and proposed
 device behavior are distinguished below. No firmware or guest state was edited.
 

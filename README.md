@@ -81,9 +81,12 @@ cold-neutral execution completes519 processing jobs in20 host seconds with
 no processing rejection/cancellation or uncovered access; the original
 consumer and request retirement execute, with all four queues empty at the
 checkpoint. There is still no display console. The separate conditional
-image request requires service state9, while this run remains in state2;
-its necessity for normal GUI, the secondary-plane producer and the normal
-display join remain unresolved.
+image request requires service state9, while this run remains in state2.
+The [normal image request audit](docs/runtime/imagerequest.md) identifies
+the separate information/activation producers: observed image jobs fail a
+period/phase check before publication, and display targets remain disabled.
+The upstream job-selection phase and first activation trigger remain unresolved;
+AF6/state9 is not established as their normal prerequisite.
 Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
 module metadata is a bounded functional assumption, not

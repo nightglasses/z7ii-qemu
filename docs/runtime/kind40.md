@@ -40,7 +40,7 @@ The native old-model test fails on the first RAM readback. All19 cases in
 `nikon_memory` then pass, including first/middle/last independent cells, exact
 outer holes, no physical VA mirror and reset retention. Qtest checks physical
 storage; the original PTE observation establishes CPU translation separately.
-Receipts are in `work/runs/kindforty-20261022/` (`native-red.log`,
+Receipts are in `run kindforty/` (`native-red.log`,
 `native-green.log`, `trace.json`, `translation-calls.json`, `green.json` and
 the source/TCG records).
 

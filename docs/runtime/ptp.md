@@ -1,6 +1,6 @@
 # F091 and the PTP command boundary
 
-Status, 2026-10-21: F091 is a subcommand received by the MAS `PTPCMD`
+Scope: F091 is a subcommand received by the MAS `PTPCMD`
 service, not a demonstrated internal boot request. In three original-bundle
 hardware-breakpoint windows the service is created and runs, but remains in
 state 0 waiting for event bit 1. No command reaches its dispatcher. The
@@ -149,7 +149,7 @@ external-input experiment rather than explain this original path.
 
 ## Receipts and scope
 
-Raw material is under `work/runs/f091-20261021/`:
+Raw material is under `run f091/`:
 
 - `probe.gdb`, `gdb.log`: 60 host seconds from reset; PTPCMD creation/task
   entry and the idle final state.

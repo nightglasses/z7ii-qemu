@@ -7,7 +7,7 @@ It does not write software roots, queues, event objects, callbacks or GUI
 pixels. Addresses below are board PAs, code/data symbols are original MAS
 VAs, offsets/masks are hexadecimal, and dimensions/C indices are decimal.
 Source projections and raw runs remain in
-`work/runs/capturecompletion-20261024/`.
+`run capturecompletion/`.
 
 ## Established protocol and geometry
 
@@ -135,6 +135,11 @@ and worker are absent from the focused normal trace; the per-root setter
 does execute. Their physical-control/UI meaning is not established, and
 this mode9 conditional delivery path is not proven necessary for the normal
 GUI main image. No guest state is set to enter it.
+
+The later [image request audit](../../runtime/imagerequest.md) identifies
+separate normal information-publication and display-activation producers.
+Its observed image tasks fail a software period/phase check before submission;
+that result does not justify setting AF6 or forcing service state9.
 
 ## Validation scope
 

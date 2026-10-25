@@ -70,7 +70,7 @@ not unchanged-firmware loader or complete-boot evidence.
 
 Parent old-model red records the missing property; the complete native
 `nikon_memory` batch then passes28 subtests in8.65s. Receipts are
-`work/runs/moduleinput-20261024/native-module-red.log` and
+`run moduleinput/native-module-red.log` and
 `native-memory-green.log`. The separate [original loader investigation](module.md)
 records raw COPY/fill semantics, successful structural-input loading and
 the still-unrecovered semantic resource80 body.
@@ -92,7 +92,7 @@ offsets, rather than matching numeric IDs. Unit gains at+56/+60/+64 are65536;
 offsets and the inspected correction terms are zero. These remain cross-model
 functional candidates, not authentic Z7II factory calibration.
 
-The explicit experiment under`work/runs/guinormal-20261022/` adds only the256-byte
+The explicit experiment under`run guinormal/` adds only the256-byte
 configuration to the existing functional descriptor17 and the192-byte calibration
 plus`ENDM` to an otherwise erased descriptor18. Unchanged execution observes both
 `04400043` callbacks, successful mask3 wait, and pointer installation at

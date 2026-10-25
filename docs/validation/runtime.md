@@ -35,11 +35,11 @@ artifacts, rather than committed binaries or copied log dumps.
 
 | Focused native case | Receipt | Duration |
 | --- | --- | --- |
-| `/nikon/ex/local-system-reset` | `work/exresetownernativereceipt.log` | 0.57 s |
-| `/arm/nikon/ex/adc` | `work/exadcnativereceipt.log` | 1.02 s |
-| `/arm/nikon/sla/secure-tick` | `work/slasecureticknativereceipt.log` | 1.42 s |
-| `/arm/nikon/sla/loaded-domain` | `work/slagicprofileloadednativereceipt.log` | 0.41 s |
-| `/arm/nikon/sla/deferred-copy` | `work/sladeferrednativereceipt.log` | 1.49 s |
+| `/nikon/ex/local-system-reset` | `run exresetownernativereceipt.log` | 0.57 s |
+| `/arm/nikon/ex/adc` | `run exadcnativereceipt.log` | 1.02 s |
+| `/arm/nikon/sla/secure-tick` | `run slasecureticknativereceipt.log` | 1.42 s |
+| `/arm/nikon/sla/loaded-domain` | `run slagicprofileloadednativereceipt.log` | 0.41 s |
+| `/arm/nikon/sla/deferred-copy` | `run sladeferrednativereceipt.log` | 1.49 s |
 
 These receipts qualify MCU-local and board reset, retained analog inputs with
 real guest conversion requests, actual secure physical timer delivery through
@@ -49,9 +49,9 @@ corresponding source contracts. The machine count property is an explicit
 input boundary, not a default calibration profile or evidence of normal power.
 
 The optional machine count property also compiled and linked in the saved
-`work/adcoptionbuild.log`. Its lifecycle guard uses QEMU's actual
+`run adcoptionbuild.log`. Its lifecycle guard uses QEMU's actual
 `PHASE_MACHINE_INITIALIZED` instead of treating bundle presence as a phase.
-The GUI worker's `work/gui/analog/options.json` records an initialized-machine
+The GUI worker's `run gui/analog/options.json` records an initialized-machine
 getter returning `1:3500`, rejection of a subsequent setter to `1:2900`, and
 the getter still returning `1:3500`. Four CLI negative cases (out-of-range
 count, unknown channel, duplicate channel and fractional count) each exited1.

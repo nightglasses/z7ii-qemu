@@ -1,0 +1,28 @@
+Native test output excerpt
+Run: router-20261022
+Original log: native-green-receipt.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..20
+ok 1 /arm/nikon/sla/external-input
+ok 2 /arm/nikon/sla/loaded-domain
+ok 3 /arm/nikon/sla/startup-observation
+ok 4 /arm/nikon/sla/copy-private
+ok 5 /arm/nikon/sla/external-interrupts
+ok 6 /arm/nikon/sla/events
+ok 7 /arm/nikon/sla/notifier
+ok 8 /arm/nikon/sla/counter
+ok 9 /arm/nikon/sla/local-code
+ok 10 /arm/nikon/sla/signal
+ok 11 /arm/nikon/sla/staging
+ok 12 /arm/nikon/sla/router
+ok 13 /arm/nikon/sla/gate
+ok 14 /arm/nikon/sla/status
+ok 15 /arm/nikon/sla/flags
+ok 16 /arm/nikon/sla/config-links
+ok 17 /arm/nikon/sla/provider-topology
+ok 18 /arm/nikon/sla/pairs
+ok 19 /arm/nikon/sla/secure-tick
+ok 20 /arm/nikon/sla/deferred-copy
+Ok:                1
+Fail:              0

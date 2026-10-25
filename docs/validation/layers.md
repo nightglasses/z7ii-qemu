@@ -56,7 +56,7 @@ expected negative boundaries and the preserved architectural-fault assertion.
 The fixed snapshot's GNU implementation and fixture match that exact cohort.
 
 The separate original whole-profile receipt is
-`peer-transport/work/runtime/touch/startup.log`. With an explicitly supplied
+`run runtime/touch/startup.log`. With an explicitly supplied
 11,508-byte, fourteen-record startup stream, the unchanged original reached
 its finite 2,000,000-tick budget with status 0 at PC `8ec8`. Actual counters
 were normal 9, capture 2, reference 2, BUFFER 4 and quiesce 1; no source
@@ -90,7 +90,7 @@ receipts without rebuilding or touching the original-run VM.
 
 The separate original whole-bundle observation used fixed `c245e238`, five
 execution contexts and explicitly independent erased-FF prefixes. Its receipt
-is `local-gdb-observers/work/gui/peripherals/receipt.json`. It crossed the
+is `local-gdb-observers/run gui/peripherals/receipt.json`. It crossed the
 previous native savevm identity assertion and reached a real CPU3 guest access
 at PC `100944d2`, PA `20100000`, W32 zero after 114,282,000 virtual ns. After
 one bounded continuation, the observer quit through QMP at 140,639,000 ns,

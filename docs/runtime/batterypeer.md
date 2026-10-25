@@ -49,7 +49,7 @@ connecting. The socket carries raw bytes; the peer does not implement QEMU
 mux escapes or strip unrelated device output. Use a raw EX USART endpoint.
 
 ```sh
-work/build/qemu/tools/nikon/nikon-battery peer work/battery.sock 0 01020304050607080100000064002823000000e803e803000000
+work/build/qemu/tools/nikon/nikon-battery peer run battery.sock 0 01020304050607080100000064002823000000e803e803000000
 ```
 
 Replace `work/build/qemu` with the configured `BUILD_DIR`. A matching
@@ -133,7 +133,7 @@ with neither facility fails explicitly before sending.
 ## Evidence and validation
 
 The source-backed decoder/initializer boundary is retained in
-`work/runs/batteryaccept-20261025/child-profile.md`, derived from original EX:
+`run batteryaccept/child-profile.md`, derived from original EX:
 
 - EX VA `0802487c..080248da` consumes the 0c envelope and stores the class
   and opaque halfwords. Their parser accepts 16-bit storage; that does not
@@ -167,7 +167,7 @@ operational battery or whole-camera completion claim.
 
 ## Reproducible unchanged-EX acceptance
 
-`work/runs/reproducible-20261026/` retains fresh source/build/native and original
+`run reproducible/` retains fresh source/build/native and original
 receipts. RNG input0 produces challenge`c1bac8b20c6ffe82fecd05132fbd7c1003`.
 The raw EX USART link is configured as documented in
 [rng.md](../inputs/ex/rng.md); the peer precomputes before connecting.
@@ -192,7 +192,7 @@ which assumed the first byte was a framed02 are not acceptance receipts.
 That stage's `nextquery.json` independently reaches the next transport call at
 08023824, caller LR0802434d: request`02 02 02 00 00 02`, TX6/RX4,
 timeout100 kernel ticks. The newer finite extension and original acceptance
-are retained in `work/runs/batterycontrol-20261026/`: all eleven peer native
+are retained in `run batterycontrol/`: all eleven peer native
 cases pass after the recorded old-parser failure. Original helper08024308
 returns0 at08024372 with received bytes02060004 and pending count0. One
 earlier helper return4 is retained; the original retry path then succeeds.
@@ -212,7 +212,7 @@ Linux execution and physical serial timing remain unverified.
 
 ## Complete finite protocol and continuous UART acceptance
 
-`work/runs/batterycomplete-20261027/` retains the expanded profile, complete
+`run batterycomplete/` retains the expanded profile, complete
 command fixtures and fresh unchanged-firmware execution. The earlier0b stop
 above is historical; every shape in the14-call original inventory is now
 implemented, including both02/89 builders, optional0b echo and25/26 controls.

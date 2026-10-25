@@ -311,7 +311,7 @@ consumer before unchanged-firmware progress can be claimed.
 
 ## Current cold-neutral producer and completion join
 
-Original C1.70 observations in `work/runs/readoutrequest-20261024/origin`
+Original C1.70 observations in `run readoutrequest/origin`
 reach descriptor builder `1023869e`33 times and initial wrapper `10238876`
 once. `C[7]=0` selects regular OnVd `10325ff6`, not the special-mode
 `103263e8 -> 102347b6` branch. That absent special branch therefore does

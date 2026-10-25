@@ -139,10 +139,9 @@ hypothesis, not a recovered physical bank/reset/IRQ contract. Historical
 experimental wait returns do not prove complete boot under the latest bundle
 composition.
 
-The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480)
-dependency is closed: `0x42062002` is firmware-local and type-5 traffic is
-service negotiation. [#482](https://github.com/mashiro01/nightglass/issues/482)
-and [#485](https://github.com/mashiro01/nightglass/issues/485) are unblocked.
+`0x42062002` is firmware-local, and type-5 traffic is service
+negotiation. See [the display handshake](/runtime/display) for the request
+producer and its remaining admission conditions.
 
 ### Readout, image, display and storage
 

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: router-20261022
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sla/router - ERROR:../../config/source/tests/qtest/nikon/router.c:32:nikon_router_test: assertion failed (qtest_readl(q, base) == 0x1e): (0x0000003f == 0x0000001e) FAIL
+▶ 1/1                                      ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sla ERROR           1.09s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/router.c:32:nikon_router_test: assertion failed (qtest_readl(q, base) == 0x1e): (0x0000003f == 0x0000001e)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sla ERROR           1.09s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

@@ -1,0 +1,9 @@
+Native test output excerpt
+Run: capturecompletion-20261024
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/2 nikon+qtest+qtest-arm - qemu:nikon_cmos   OK              9.11s   16 subtests passed
+2/2 nikon+qtest+qtest-arm - qemu:nikon_sensor OK              7.87s   33 subtests passed
+Ok:                2
+Fail:              0

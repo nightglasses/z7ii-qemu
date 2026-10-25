@@ -30,12 +30,12 @@ prefix/package crossing byte for byte, readonly CPU/DMA rejection, no destinatio
 preseed, retained input on reset, exact-file validation and default failure.
 
 Direct source evidence is the fixed whole-domain provider in Nightglass
-`work/sla-whole-source-4/sla.S` and its row/context metadata, producer
-`1076d278`, plus `work/sla-native-data-source-3/`. The peripheral dispatch
-inventory uses `work/sla-whole-source-5/sla.S`, producer
+`sla.S` and its row/context metadata, producer
+`1076d278`, plus `run sla-native-data-source-3/`. The peripheral dispatch
+inventory uses `sla.S`, producer
 `43d1909ecd2fb27e422263d01f9fcf2ab390efcd`. Subsequent official I2C/TIMING
 callback qualification is in the source owner's
-`work/sla-supplement/devices-callback-source/instructions.jsonl`.
+`run sla-supplement/devices-callback-source/instructions.jsonl`.
 The ROM first branch and reset
 vector independently converge on ARM VA `0x1002bcd4`; the vector is at
 `0x10034100`. The complete component is placed at diagnostic PA `0x10020000`.
@@ -278,7 +278,7 @@ the first rejected transaction: CPU0 PC `0x10023730`, PA `0x200300b8`, write
 32-bit value `1`, `sdi-config-profile-not-supported`. This is an actual SDI
 configuration difference from the earlier MAS profile's value `3`, not an
 observed O `0x178` startup loop. Receipts are ignored
-`work/sla/original1.json` and `work/sla/original1.log`. The builder also passed
+`run sla/original1.json` and `run sla/original1.log`. The builder also passed
 the original native SLA loaded-domain qtest in 1.01 seconds. This run predates
 the queued kernel-arena addition and complete SLA SDI profile; no COPY,
 allocator, peer or full-boot success is inferred from it.
@@ -296,7 +296,7 @@ SLA-core init flag was 1, and the guest had installed GIC CPU/distributor bases
 `0xf8102000/0xf8101000` and secure physical timer IRQ 29. CPU1 consumed the
 release and reached its original WFE callee `0x10050060`. These are observed
 native instructions and sampled RAM, not a full-byte COPY comparison or full
-application boot claim. Receipts remain in ignored `work/sla/original2*`.
+application boot claim. Receipts remain in ignored `run sla/original2*`.
 
 The next actual rejected transaction was CPU0 PC `0x10020134`, a 32-bit read
 from `0x04266000`. The complete `0x1002012c/0x10020158` counter lifecycle
@@ -330,7 +330,7 @@ rejected transaction was CPU0 PC `0x10053860`, a 32-bit zero write to
 `0x04287000`. CPU1 progressed into its RTOS path at `0x10038a68`. Native GDB
 stopped both CPUs for observation and quit the VM; no firmware branch was
 changed. The UART file remained empty at this frontier. Ignored receipts are
-`work/sla/original3*`.
+`run sla/original3*`.
 
 This run exposed the original timer initialization's GIC operations, but its
 initial interpretation was incomplete. `10036CAC..10036CC0` reads the active
@@ -371,7 +371,7 @@ its normal IRQ path. This is a separate natural scheduling comparison, with
 no MAS CPU, host flag or firmware edit. It passed the complete MXIC configuration
 family and next rejected CPU1's original `0x1005ed02` write of 1 to SPI5 reset
 at `0x2c0a0560`. The peer worker breakpoints were not reached. Both processes
-exited0 through `monitor quit`; ignored receipts are `work/sla/original5*`.
+exited0 through `monitor quit`; ignored receipts are `run sla/original5*`.
 Use `-smp 2 -accel tcg,thread=multi` for this loaded two-core profile. The
 earlier single-thread barrier receipt remains a distinct scheduling limitation.
 
@@ -424,7 +424,7 @@ and next rejected CPU1 PC `0x10066c0c`, a 32-bit zero write to `0x0426f004`.
 CPU0 remained in its normal IRQ path at `0x10038a48`; CPU1 reached its original
 abort loop `0x1003410c`. The barrier counter was zero, the six ring-prefix words
 were zero, and none of the three peer-worker breakpoints was reached. Both
-processes exited0 by `monitor quit`; ignored receipts are `work/sla/original6*`.
+processes exited0 by `monitor quit`; ignored receipts are `run sla/original6*`.
 
 The complete source GPIO/EXIU registration and configuration family
 `0x10066b60..0x10066df4` supplies an independent SLA binding. Its table at
@@ -482,7 +482,7 @@ An observer Ctrl-C ended the first RTK/GDB process with exit1. QMP `stop`
 and a fresh debugger captured the final CPU registers and RAM page table;
 neither guest memory nor firmware was changed. QMP `quit` ended QEMU with
 exit0, and the final debugger exited0. Ignored receipts are
-`work/sla/original7*`; no banked GIC MMIO was read.
+`run sla/original7*`; no banked GIC MMIO was read.
 
 ## Signal and lane initialization
 
@@ -494,7 +494,7 @@ source `0x1018d980`, destination `0xc838d980` and residual `0x17267f`; this is
 not a complete clone or successful-remap receipt. The first actual new failure
 was CPU3 at `0x100898aa`, writing word `0xf` to private PA `0x28000000`.
 The subsequent abort path's NOR command is a consequence of that failure.
-Ignored receipts are `work/gui/functional/{early.log,gdb.log,qemu.log}` in the
+Ignored receipts are `run gui/functional/{early.log,gdb.log,qemu.log}` in the
 observer worktree. The run quit before any binary replacement.
 
 The SOURCE11 official Listing supplies the complete `0x100897e4..0x10089b32`
@@ -651,7 +651,7 @@ COPY remained active with status0 and residual `0x136b8f` at the final
 snapshot. The known package prefix at `0xc8220000` matched only partially;
 neither a complete clone nor a successful remap is established. One ordinary
 continue entered the NOR abort consequence, after which QMP quit released the
-binary. Ignored receipts stay in the observer's `work/gui/peripherals`.
+binary. Ignored receipts stay in the observer's `run gui/peripherals`.
 
 ## Whole private provider layer
 
@@ -673,11 +673,11 @@ The official incremental ARM build and both full-system unit links passed
 after the results API was given its independent namespace. The new readout
 protocol unit passed one case in0.65s; the lookup unit passed four cases in0.65s.
 The new private pairs case and concentrated provider-topology case each passed
-in1.34s. Receipts are `work/readoutprotocolnativereceipt.log`,
-`work/lookupprotocolnativereceipt.log`, `work/slapairsnativereceipt.log` and
-`work/slaprovidertopologynativereceipt.log`; the successful build is
-`work/providerlayerfixedbuild.log`. The first API-collision build failure is
-preserved separately in `work/providerlayerbuild.log`.
+in1.34s. Receipts are `run readoutprotocolnativereceipt.log`,
+`run lookupprotocolnativereceipt.log`, `run slapairsnativereceipt.log` and
+`run slaprovidertopologynativereceipt.log`; the successful build is
+`run providerlayerfixedbuild.log`. The first API-collision build failure is
+preserved separately in `run providerlayerbuild.log`.
 
 The topology case checks all eight actual private children and configuration,
 plus six real event-input paths through the private GIC and their ACKs.
@@ -706,9 +706,9 @@ The host only controls the VM and reads observation RAM; it injects neither
 an IRQ nor a completion flag.
 
 Official incremental ARM/fixture compile and link passed in
-`work/slasecuretickbuild.log`. The new secure-tick case passed in1.42s exit0
-(`work/slasecureticknativereceipt.log`). The changed loaded-domain IIDR
-contract passed in0.41s exit0 (`work/slagicprofileloadednativereceipt.log`).
+`run slasecuretickbuild.log`. The new secure-tick case passed in1.42s exit0
+(`run slasecureticknativereceipt.log`). The changed loaded-domain IIDR
+contract passed in0.41s exit0 (`run slagicprofileloadednativereceipt.log`).
 No unrelated old device groups were rerun. These results qualify the
 functional controller profile; original software time progress and GUI startup
 remain separate runtime observations.
@@ -732,8 +732,8 @@ not populate this later region. No package bytes, PTEs or completion flags are
 supplied by the host.
 
 Official incremental ARM/fixture compile and link passed in
-`work/sladeferredbuild.log`. The sole new `/nikon/sla/deferred-copy` case
-passed in1.49s exit0 (`work/sladeferrednativereceipt.log`). Synthetic data
+`run sladeferredbuild.log`. The sole new `/nikon/sla/deferred-copy` case
+passed in1.49s exit0 (`run sladeferrednativereceipt.log`). Synthetic data
 spanning the complete source extent is copied through the actual private
 COPY controller and compared byte for byte, with IRQ45 and reset retention
 checked. Transfers into either adjacent gap report bus error and full residual.

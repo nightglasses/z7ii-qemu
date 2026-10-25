@@ -1,6 +1,6 @@
 # Worker exit and the rear-panel resource
 
-Status, 2026-10-21: on the current multi-thread baseline, manager state 3
+Scope: on the current multi-thread baseline, manager state 3
 waits for **worker 0** to finish exiting before starting worker 4 in mode
 `0x15`. Its stop event arrives. Worker 0 then waits for a rear-display
 configuration request whose handler takes a data abort through a null panel
@@ -157,7 +157,7 @@ added here.
 
 ## Receipts and limits
 
-Ignored receipts are in `work/runs/handoff-20261021/`: actual argv, manager,
+Ignored receipts are in `run handoff/`: actual argv, manager,
 cleanup, subsystem, completion, abort, confirm, resource and resourcewait probes, filtered
 instruction traces, and static decompilations. Each accepted probe uses at
 most one hardware breakpoint at a time. `confirm` joins the worker wait,

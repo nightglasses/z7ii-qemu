@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: hdmacflags-20261023
+Original log: native-guards.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_dma OK              1.04s   3 subtests passed
+Ok:                1
+Fail:              0

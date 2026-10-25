@@ -9,13 +9,13 @@ first error at that checkpoint is the Audio getter at PA2c080154. The later
 graphics stream parser rejection. Older receipts below retain
 their original checkpoints and validation scope.
 
-Review correction: exact C`7b4327d74677dae537e4834e4533508448a37bea` built natively and passed22 HDMAC fixtures at `work/issue331/hdmac-state-7b4327d/result.json`. No original run was repeated for this correction; the original execution evidence below remains exact C`84c9e02`, not relabeled as7b.
+Review correction: exact C`7b4327d74677dae537e4834e4533508448a37bea` built natively and passed22 HDMAC fixtures at `run startup/hdmac-state-7b4327d/result.json`. No original run was repeated for this correction; the original execution evidence below remains exact C`84c9e02`, not relabeled as7b.
 
 CA, CB, source/destination changes while EB is armed now share a pure candidate preflight, including width/address alignment. DE enable preflights all armed channels before mutating control or timers. Rejected changes preserve the old state. New soft and external-request negative sequences arm unaligned byte addresses with DE off, then attempt a word-width update: both fail and monitor readback verifies original CA/CB/SA/DA. A positive sequence fixes the addresses before changing width and then completes a real word copy.
 
 Every DMA operation carries a generation. Cancel, reset or a new operation changes it; the callback checks both generation and running state immediately after each synchronous bus read/write, before handling the result or continuing. A genuine DMA write to its own global DE0 retains SS2/EB-clear and never emits CI completion. A two-beat DMA write to its own CA clears EB on the first beat and never issues the second beat. These are real bus side effects, not a blanket ban on MMIO sinks. The five new regressions and17 prior HDMAC contracts passed against exact7b, with old failure/passing receipts preserved.
 
-This stage continues [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326). Exact C`84c9e020000519fba01529414309cb24bfcaf4e8` built natively against fixed QEMU`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`, passed seventeen focused synthetic checks and ran unchanged MAS to the next CPU1 access: `PC1036d334 / WRITE32 PA2c018028=2ff`. Same-run CPU0 later aborted on a separate `12e00004` source access. Menu/whole boot, valid NV data and original DMA transfers are not established.
+This stage continues [unchanged-firmware startup](/startup/first). Exact C`84c9e020000519fba01529414309cb24bfcaf4e8` built natively against fixed QEMU`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`, passed seventeen focused synthetic checks and ran unchanged MAS to the next CPU1 access: `PC1036d334 / WRITE32 PA2c018028=2ff`. Same-run CPU0 later aborted on a separate `12e00004` source access. Menu/whole boot, valid NV data and original DMA transfers are not established.
 
 The [bounded original HDMAC contract, e90a97e](https://github.com/mashiro01/nightglass/blob/e90a97e/research/z7ii/qemu-hdmac-contract.md) contains700 bytes/281 instructions, two banks/eight channels each, sixteen36-byte objects and sixteen register-pointer tables. Historical native coverage is26/94 and296/606 bytes; remaining method sections are bounded original-byte candidates. Original selector argument0 chooses`2c020000`, nonzero chooses`2c030000`. Bootstrap sets priority PR28 and DE31 in each global. The original object table joins bank0 to IRQ150..157 and bank1 to IRQ142..149, and real guest ISR wrappers/callbacks; host code never invokes those callbacks.
 
@@ -29,21 +29,21 @@ An independent official Clock48MHz provides one nominal tick per configured beat
 
 CB readback preserves guest configuration and device-produced SS. Writes may preserve existing SS or clear it, never create arbitrary nonzero completion. The original ISR's CB&~`1f0000` clears SS/CI/EI and deasserts the real GIC line. No read callback manufactures completion, source data or IRQ. Stateful devices use official unmigratable VMState.
 
-`work/issue331/hdmac-84c9e02/result.json` records twelve checks: real word copy/ack, fixed source, disconnected external wait, cancel-before-copy, both bank/channel7 geometries, causal source/destination bus errors and five refusals. Unknown DMA endpoints retain the board debug stop; tests then read CB through the monitor to verify SS3/4 instead of expecting guest continuation across that stop. An earlier `hdmac-d333da0` attempt preserved the incorrect harness expectation and failed on the first unknown source endpoint; its raw logs are not a passing batch. `hdmac-extra-84c9e02/result.json` adds five checks: fixed versus rotating arbitration, actual GIC IAR150/EOI, byte/halfword counts and true QMP reset/second entry. All seventeen successful checks bind exact C`84c9e02`. Later C line wrapping and fixture registration do not imply another native/original run.
+`run startup/hdmac-84c9e02/result.json` records twelve checks: real word copy/ack, fixed source, disconnected external wait, cancel-before-copy, both bank/channel7 geometries, causal source/destination bus errors and five refusals. Unknown DMA endpoints retain the board debug stop; tests then read CB through the monitor to verify SS3/4 instead of expecting guest continuation across that stop. An earlier `hdmac-d333da0` attempt preserved the incorrect harness expectation and failed on the first unknown source endpoint; its raw logs are not a passing batch. `hdmac-extra-84c9e02/result.json` adds five checks: fixed versus rotating arbitration, actual GIC IAR150/EOI, byte/halfword counts and true QMP reset/second entry. All seventeen successful checks bind exact C`84c9e02`. Later C line wrapping and fixture registration do not imply another native/original run.
 
-The original receipt `work/issue331/original-hdmac-84c9e02/receipt.json` records QEMU exit0, host0.243680167 seconds, full38,239,096-byte input equality, debug stop and `whole_boot_verified=false`. First uncovered log entry6074 is CPU1 `PC1036d334 / WRITE32 PA2c018028=2ff`; lines6075..6078 show its Data Abort with DFSR1808/DFAR2c018028. Lines6080..6083 then show CPU0's Data Abort with DFSR1008/DFAR12e00004. The once-only shared uncovered-access logger does not list the second CPU's access separately; absence of that second MMIO line is not success. Final CPU0 PC10100010/LR102a7d9c is an abort context, not proof of valid NV data. Neither exception is bypassed.
+The original receipt `run startup/original-hdmac-84c9e02/receipt.json` records QEMU exit0, host0.243680167 seconds, full38,239,096-byte input equality, debug stop and `whole_boot_verified=false`. First uncovered log entry6074 is CPU1 `PC1036d334 / WRITE32 PA2c018028=2ff`; lines6075..6078 show its Data Abort with DFSR1808/DFAR2c018028. Lines6080..6083 then show CPU0's Data Abort with DFSR1008/DFAR12e00004. The once-only shared uncovered-access logger does not list the second CPU's access separately; absence of that second MMIO line is not success. Final CPU0 PC10100010/LR102a7d9c is an abort context, not proof of valid NV data. Neither exception is bypassed.
 
 Next dependencies are the complete `2c018000` device and CPU0's independently bound source/consumer near`12e00000`. Hardware request endpoint wiring, protection transactions, real reset and physical DMA timing remain unverified. The model does not measure EXPEED performance or establish flash/BootROM/calibration health.
 
-## Issue397 lifecycle extension and remaining dependencies
+## DMA lifecycle and remaining dependencies
 
-[QEMU：整批闭合 DMA 与音频的启动协议](https://github.com/mashiro01/nightglass/issues/397) audits this class together with copy, fill and Audio against the saved contracts. The author [pause/resume implementation](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/Project/DeviceDriver/Peripheral/src/dd_hdmac0.c#L635-L705) writes PB1, then PB0/EB1; [bank halt/resume](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/Project/DeviceDriver/Peripheral/src/dd_hdmac0.c#L1049-L1065) writes DH1/0. These source operations justify a preserved-request lifecycle, without establishing Nikon pause status7, interrupt or EB-clear timing.
+the saved DMA and audio lifecycle audit audits this class together with copy, fill and Audio against the saved contracts. The author [pause/resume implementation](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/Project/DeviceDriver/Peripheral/src/dd_hdmac0.c#L635-L705) writes PB1, then PB0/EB1; [bank halt/resume](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/Project/DeviceDriver/Peripheral/src/dd_hdmac0.c#L1049-L1065) writes DH1/0. These source operations justify a preserved-request lifecycle, without establishing Nikon pause status7, interrupt or EB-clear timing.
 
 The named functional model holds remaining beats, addresses, EB, existing SS and the unelapsed nominal timer delay. PB, DH and a deasserted DREQ are conjunctive gates: clearing one cannot override another. Holding does not emit status or an IRQ. If a real DMA bus write changes PB or DH, the accepted beat commits once and the next beat waits. Cancel/reset still invalidate the generation and cannot resume a stale request. Completion and error IRQs retain the existing causal bus rules. CA configuration changes during an active transfer still reject, except PB and EB lifecycle operations; global enable retains the all-channel preflight.
 
 Native test content `tests/qtest/nikon/dma.c` supplies seven synthetic cases: all sixteen channel/IRQ geometries, both-bank halt, held cancel/reset, self-MMIO PB/DH writes and an Audio FIFO freeing a real DREQ while PB remains asserted. Registration, compilation and execution belong to the build owner; this document does not claim those new tests have run. All older receipts above retain their original code identities. No original payload execution is repeated for this extension.
 
-The first integrated native run compiled but failed the first resume destination check (`work/validation/gui/dma.log` in the build owner's `native-qemu-source` worktree). Its command passed `-S` with the qtest accelerator. Upstream `system/cpus.c` disables the virtual clock when pausing CPUs, and `util/qemu-timer.c` advances qtest time through timer lists that honor that enable state. The fixture now leaves the qtest virtual clock enabled; qtest does not execute guest instructions. Resume and reentrant-start checks advance to the next actual timer deadline, while held/canceled-state observations still advance a positive interval and Audio completion spans its real repeated clock events. This corrects the fixture's timer eligibility rather than changing device status or transfer semantics. Native validation of this child remains the sole build owner's task.
+The first integrated native run compiled but failed the first resume destination check (`run validation/gui/dma.log` in the build owner's `native-qemu-source` worktree). Its command passed `-S` with the qtest accelerator. Upstream `system/cpus.c` disables the virtual clock when pausing CPUs, and `util/qemu-timer.c` advances qtest time through timer lists that honor that enable state. The fixture now leaves the qtest virtual clock enabled; qtest does not execute guest instructions. Resume and reentrant-start checks advance to the next actual timer deadline, while held/canceled-state observations still advance a positive interval and Audio completion spans its real repeated clock events. This corrects the fixture's timer eligibility rather than changing device status or transfer semantics. Native validation of this child remains the sole build owner's task.
 
 Wrap/protection/DS/transform semantics remain future protocol work, rather than counted as additional devices. The later [reload extension](reload.md) closes RC/RS/RD separately. Disconnected peripheral requests require a real producer or declared external input. The only currently bound Audio wires are bank1 selectors3/7; input5 has no samples. No source joins these DMA signals to the separate event/EXIU interfaces, so no frame-completion signal is inferred.
 
@@ -110,9 +110,9 @@ guesses this wiring nor emits demand or completion on behalf of a producer.
 
 The sole builder compiled and linked the device and independent native fixture.
 All four cases passed across their focused runs: private RAM and read-only
-destination in `work/hdmacprivatefirst.log`, all31 request selectors with actual
-pending-timer cancel/reset in `work/hdmacrequestsfinalreceipt.log` (0.17 seconds),
-and the real selected Audio FIFO in `work/hdmacfifocapacityfinalreceipt.log`
+destination in `run hdmacprivatefirst.log`, all31 request selectors with actual
+pending-timer cancel/reset in `run hdmacrequestsfinalreceipt.log` (0.17 seconds),
+and the real selected Audio FIFO in `run hdmacfifocapacityfinalreceipt.log`
 (0.69 seconds). The first receipt contains passing private/read-only TAP cases
 followed by a failed FIFO case; the whole first run is not reported as PASS.
 Those paths
@@ -126,7 +126,7 @@ were retained throughout.
 The separate SLA owner fixture also passed its entire eleven-port TX/RX group
 using private HDMAC banks, real SPI FIFO/demand wires, actual
 SSI input and a distinct MAS sentinel, recorded in
-`work/slaspidmafinalreceipt.log`. Its native duration is 0.71 seconds; the
+`run slaspidmafinalreceipt.log`. Its native duration is 0.71 seconds; the
 0.85-second tool wall time is not the native test duration. These fixtures establish
 functional address-space and protocol isolation, not original SLA boot, a
 completed GUI or physical DMA timing. No older passing case was rerun solely
@@ -156,12 +156,12 @@ device finalization also precedes the final RCU drain.
 The sole builder compiled and linked the actual full ARM system-library unit.
 Both new error families passed across their focused runs. The six boundary
 combinations and their live permission transitions passed in
-`work/memoryunitrootreceipt.log`; that run subsequently aborted in the
+`run memoryunitrootreceipt.log`; that run subsequently aborted in the
 lifecycle fixture and is not a whole-run PASS. Its actual cause was attempting
 `qdev_realize()` on a device whose QOM unrealize had retained its parent bus.
 The corrected fixture uses the standard `realized=true` property to re-realize
 that same attached device. The focused lifecycle run passed in
-`work/memoryunitlifecyclereceipt.log`, exit0, 0.79 seconds. It exercised all32
+`run memoryunitlifecyclereceipt.log`, exit0, 0.79 seconds. It exercised all32
 alternate-root retirements, real copy/fill after prior RCU callbacks, canceled
 old timers, and finalization before the last deferred callbacks. These paths
 belong to the canonical `qemu-submodule` worktree. Earlier source-SS3 and bus

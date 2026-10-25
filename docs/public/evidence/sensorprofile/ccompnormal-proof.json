@@ -1,0 +1,133 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "0x102422ec": [
+    [
+      "0x41",
+      "0x1",
+      "0x102422ed",
+      "0x1"
+    ],
+    [
+      "0x41",
+      "0x1",
+      "0x102422ed",
+      "0x1"
+    ]
+  ],
+  "0x10242302": [
+    [
+      "0x2",
+      "0x1",
+      "0x102422ed",
+      "0x1"
+    ]
+  ],
+  "0x10241ed8": [
+    [
+      "0x1",
+      "0x10241ed9",
+      "0xffffffff",
+      "0x0"
+    ],
+    [
+      "0x2",
+      "0x10241ed9",
+      "0xffffffff",
+      "0x0"
+    ],
+    [
+      "0x10",
+      "0x10241ed9",
+      "0xffffffff",
+      "0x0"
+    ],
+    [
+      "0x2",
+      "0x10241ed9",
+      "0xffffffff",
+      "0x0"
+    ],
+    [
+      "0x20",
+      "0x10241ed9",
+      "0xffffffff",
+      "0x0"
+    ]
+  ],
+  "0x10394b44": [
+    [
+      "0x12",
+      "0x0",
+      "0x60000013",
+      "0x0"
+    ]
+  ],
+  "0x1039a3c4": [
+    [
+      "0x1",
+      "0x0",
+      "0xbb8",
+      "0x401c"
+    ]
+  ],
+  "0x10395ac0": [],
+  "0x1035ed5c": [
+    [
+      "0x44",
+      "0x0",
+      "0x1",
+      "0x0"
+    ]
+  ],
+  "event10": [
+    [
+      "0xb186832c",
+      "0x10",
+      "0x60000013",
+      "0x0"
+    ]
+  ],
+  "qmp": [
+    {
+      "return": {},
+      "id": 1
+    },
+    {
+      "timestamp": {
+        "seconds": 1792833648,
+        "microseconds": 706977
+      },
+      "event": "RESUME"
+    },
+    {
+      "return": {},
+      "id": 2
+    },
+    {
+      "return": {},
+      "id": 3
+    },
+    {
+      "return": {
+        "status": "running",
+        "running": true
+      },
+      "id": 4
+    },
+    {
+      "id": 10,
+      "error": {
+        "class": "GenericError",
+        "desc": "Device display (head 0) is not bound to a QemuConsole"
+      }
+    },
+    {
+      "return": {},
+      "id": 11
+    }
+  ],
+  "property6433": {
+    "omitted": "binary snapshot",
+    "bytes": 280
+  }
+}

@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: sysconfig-20261022
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+not ok /arm/nikon/memory/sysconfig-controls - ERROR:../../config/source/tests/qtest/nikon/memory.c:984:test_sysconfig_controls: assertion failed (qtest_readl(t.qts, addr) == value): (0x00000000 == 0x00000010)
+ERROR:../../config/source/tests/qtest/nikon/memory.c:984:test_sysconfig_controls: assertion failed (qtest_readl(t.qts, addr) == value): (0x00000000 == 0x00000010)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           1.09s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

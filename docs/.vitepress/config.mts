@@ -1,15 +1,46 @@
 import { defineConfig } from 'vitepress'
 import { render as renderPele } from 'pele'
+import { copyFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import evidence from './evidence.json'
 
 export default defineConfig({
     title: 'Nikon Z7II Emulation Handbook',
     description: 'Diagnostic QEMU virtual machine for unchanged Nikon Z7II (C1.70) firmware',
     cleanUrls: true,
+    appearance: 'force-dark',
     outDir: '../work/handbook/dist',
     cacheDir: '../work/handbook/cache',
+    buildEnd: (site) => {
+      for (const page of Object.values(evidence)) {
+        for (const record of page.records) {
+          if (!existsSync(resolve(site.srcDir, 'public', record.href.slice(1)))) {
+            throw new Error(`Missing published evidence: ${record.href}`)
+          }
+        }
+      }
+      copyFileSync(resolve(site.srcDir, 'refmap/REFS.tsv'), resolve(site.outDir, 'refmap/REFS.tsv'))
+      copyFileSync(resolve(site.srcDir, '.vitepress/theme/LICENSE.txt'), resolve(site.outDir, 'theme-license.txt'))
+    },
     markdown: {
+      theme: 'dark-plus',
       lineNumbers: true,
       config: (md) => {
+        md.core.ruler.before('normalize', 'public-handbook', (state) => {
+          const path = state.env.relativePath
+          if (/\p{Script=Han}/u.test(state.src)) {
+            throw new Error(`Public handbook page must be English: ${path}`)
+          }
+          if (/\bissue[\s#_-]*\d+\b|github\.com\/[^\s)]+\/issues\//i.test(state.src)) {
+            throw new Error(`Document the technical topic instead of a work ticket: ${path}`)
+          }
+          if (/\b20\d{2}-[01]\d-[0-3]\d\b|\b2026[01]\d[0-3]\d\b/.test(state.src)) {
+            throw new Error(`Qualify the article by source revision and input profile: ${path}`)
+          }
+          if (/work\/(?:runs|issue\d+|research|docsfix|ida|gui|validation)\//.test(state.src)) {
+            throw new Error(`Embed or publish the evidence instead of citing a private capture: ${path}`)
+          }
+        })
         const defaultFence = md.renderer.rules.fence!
         md.renderer.rules.fence = (tokens, idx, options, env, self) => {
           const token = tokens[idx]
@@ -300,6 +331,11 @@ export default defineConfig({
             items: [
               { text: 'Display Readiness Producers', link: '/runtime/display' },
               { text: 'GUI Chain Architecture', link: '/runtime/guichain' },
+              { text: 'EX power qualification and GUI admission', link: '/runtime/guiqualification' },
+              { text: 'EX startup, status checks and host transport', link: '/runtime/exstartup' },
+              { text: 'Application stages and GUI event producers', link: '/runtime/appstages' },
+              { text: 'Display workers, kernel waits and request dispatch', link: '/runtime/displaywait' },
+              { text: 'Application dispatch and EX key transport', link: '/runtime/guidispatch' },
               { text: 'Ordinary GUI Update Route', link: '/runtime/guiupdate' },
               { text: 'Inline A8 Image Modulation', link: '/runtime/image' },
               { text: 'Filled Glyph Paths', link: '/runtime/path' },
@@ -418,6 +454,12 @@ export default defineConfig({
             items: [
               { text: 'Synthetic Deadlines & Budgets', link: '/validation/budgets' },
               { text: 'Firmware Startup Frontier', link: '/validation/frontier' },
+              { text: 'Capture service and cold-neutral input', link: '/validation/capture' },
+              { text: 'Graphics publication and timing qualification', link: '/validation/graphics' },
+              { text: 'Battery and external-input startup profiles', link: '/validation/inputprofiles' },
+              { text: 'EX report publication and host commands', link: '/validation/exreports' },
+              { text: 'Display publication and kernel waits', link: '/validation/publication' },
+              { text: 'Published Execution Evidence', link: '/validation/evidence' },
               { text: 'Native Integration Tests', link: '/validation/native' },
               { text: 'Peripheral Test Layer', link: '/validation/peripherals' },
               { text: 'Controller Test Layer', link: '/validation/controllers' },

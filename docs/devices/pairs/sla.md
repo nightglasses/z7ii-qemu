@@ -1,7 +1,7 @@
 # SLA paired banks and sampling families
 
 This audit consumes the existing official SOURCE11 `sla.S` and original
-`sla-rows.jsonl` in `zero-domain-source/work/sla-whole-source-11`. It does not
+`sla-rows.jsonl` in `zero-domain-source/run sla-whole-source-11`. It does not
 decode gaps or treat registry objects as executable method pointers. The models
 are reused by their finite protocol, not by coincident IRQ numbers.
 
@@ -113,6 +113,6 @@ They cover actual initialization/configuration, finite table endpoints, bank
 independence, default disconnected providers, fresh complete sample publication,
 partial W1C retention and reset. The sole builder executed the private pairs
 case and full provider-topology case with exit0 in1.34s each;
-`work/slapairsnativereceipt.log` and `work/slaprovidertopologynativereceipt.log`
+`run slapairsnativereceipt.log` and `run slaprovidertopologynativereceipt.log`
 record those separate invocations. The four unchanged event protocols were
 not rerun; topology exercises their real private-GIC event/ACK paths.

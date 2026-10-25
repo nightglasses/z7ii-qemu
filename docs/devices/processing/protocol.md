@@ -140,7 +140,7 @@ slots, chunk boundaries and mask/W1C behavior, cancellation after a partial
 write, default disconnection, short-file/MMIO/unmapped/ROM/zero-address rejection,
 configuration snapshot isolation, and independent indexed input roles. The sole
 builder compiled/linked that batch and observed all eight passing in
-`work/processingfinal.log`. That prior receipt used sector-aligned file fixtures
+`run processingfinal.log`. That prior receipt used sector-aligned file fixtures
 and did not prove exact byte-file length.
 
 The exact-file fix adds two focused cases: 51-byte success plus 511-byte rejection

@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: hdmacflags-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/dma/reload/matrix - ERROR:../../config/source/tests/qtest/nikon/dma.c:246:test_reload_matrix: assertion failed (qtest_readl(q, channel + 4) == cb): (0x00180000 == 0x00380000) FAIL
+▶ 1/1                                      ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_dma ERROR           4.04s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/dma.c:246:test_reload_matrix: assertion failed (qtest_readl(q, channel + 4) == cb): (0x00180000 == 0x00380000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_dma ERROR           4.04s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

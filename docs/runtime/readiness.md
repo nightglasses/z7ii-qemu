@@ -3,16 +3,16 @@
 ## Current normal-input observation
 
 The earlier gate investigation below is historical. The normal-input runs in
-`work/runs/readinessnormal-20261023/` now establish a guest error-GUI frame
+`run readinessnormal/` now establish a guest error-GUI frame
 despite gate/pending3/display-ready all0. Those words gate particular software
 routes; they are not universal prerequisites for the ordinary bank output.
 The [bank YUVA profile](../devices/banks/image.md#format17-yuva-provider)
 records native validation and the separate original-frame receipt.
 The later visible-area correction uses the source's132c/1328 dimensions;
-`moduleinput-20261024/visible` now publishes the complete1024x682 dialog.
+`moduleinput/visible` now publishes the complete1024x682 dialog.
 The earlier780x780 screenshot was clipped by a model geometry error.
 
-The subsequent normal20-second `sensorprofile-20261024/ccompnormal` run
+The subsequent normal20-second `sensorprofile/ccompnormal` run
 adds the [finite CComp GPIO peer](../devices/ccomp/protocol.md), retaining
 all inputs and using no descriptor32 file. Original EXIU0/GIC65 callback
 `102422ec` dispatches state2 through the CComp task and original `10394b44`
@@ -63,12 +63,12 @@ is not an operation number accepted by `104a94fe`, whose domain is0..15.
 
 The subsequent [cold-neutral resource80 profile](../inputs/nor/virtual.md)
 now passes this guard through the original loader. In the unchanged
-`capturebanks-20261024/neutral` run, packed version150 returns0 at
+`capturebanks/neutral` run, packed version150 returns0 at
 `102d7254` and property6433 is empty. The later unchanged
-`capturegroup-20261024/green` run confirms those results after crossing the
+`capturegroup/green` run confirms those results after crossing the
 [PA`2006b800` configuration group](../devices/capturegroup/protocol.md). It stops
 at PC`10208e14`, READ32 PA`2006bb70`. The subsequent
-`captureresults-20261024/green` run uses the explicit eight-word cold-empty
+`captureresults/green` run uses the explicit eight-word cold-empty
 result assumption, invalidated at group commit/effective run. Its first force1
 getter returns, commit/run executes, and the new first uncovered access is
 PC`102090bc`, WRITE32 PA`20069514=6`; guard0/property6433 empty is confirmed.
@@ -85,7 +85,7 @@ The final snapshot still has guard0/property6433 empty and no display console;
 completion of all interpolation records is not established.
 The subsequent [grid pool](grid.md) supplies kind18's exact six-unit storage,
 with cold-zero RAM explicitly assumed and statistics DMA absent at that checkpoint.
-Unchanged `gridstorage-20261024/verified` crosses the grid consumer and again
+Unchanged `gridstorage/verified` crosses the grid consumer and again
 records guard0/property6433 empty. The next rejection is CPU0 PC`10208e14`,
 READ32 PA`2006bb70`, on the force0 incremental path after commit/run has
 invalidated the cold-empty packet. There is still no display console or
@@ -176,13 +176,13 @@ changed to obtain this result.
 
 All code and data addresses here are C1.70 MAS CPU VAs. The primary source is
 the unchanged original MAS payload mapped at `10020000`, retained under
-`work/runs/descriptor17-z7cross-mac1/`. Bounded source receipts and the
-parent-owned read-only runtime probes are under `work/runs/readiness-20261026/`.
+`run descriptor17-z7cross-mac1/`. Bounded source receipts and the
+parent-owned read-only runtime probes are under `run readiness/`.
 This is a control-flow result, not a GUI first-frame or complete-startup claim.
 
 ## Direct original execution
 
-The preceding `work/runs/reproducible-20261026/mainline.json` records main
+The preceding `run reproducible/mainline.json` records main
 mode1, manager current3/target5/mode1/state2 and GUI class1/mode1 after the
 record5 fill callback `10389dc2` and successful waiter return `10389e2e=1`.
 Gate `b181a6ec` and pending3 `b201bf6c` remain0 in its bounded continuation.

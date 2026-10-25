@@ -14,7 +14,7 @@ words with paired set/clear state. It supplies no capture completion or frame.
 All code addresses are original C1.70 MAS VA. Register offsets below are
 relative to capture-control board PA `20068000`. The source recovery, actual
 arguments, native logs and unchanged-bundle runs remain under parent-owned
-`work/runs/capturemask-20261022/`.
+`run capturemask/`.
 
 ## Producer and complete control family
 

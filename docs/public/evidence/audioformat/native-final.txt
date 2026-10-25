@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: audioformat-20261023
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/3 nikon+qtest+qtest-arm - qemu:nikon_audio OK              1.80s   4 subtests passed
+2/3 nikon+qtest+qtest-arm - qemu:nikon_dma   OK              1.22s   7 subtests passed
+3/3 nikon+qtest+qtest-arm - qemu:nikon_hdmac OK              0.70s   4 subtests passed
+Ok:                3
+Fail:              0

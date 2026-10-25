@@ -109,7 +109,7 @@ read-only snapshot and bounded TCG register trace show:
 - The battery peer rejects no request. GUI gate, pending3 and display-ready
   remain0; no GUI first frame or physical timing correctness is established.
 
-Ignored receipts: `work/runs/routerfunctional-20261022/`, including native
+Ignored receipts: `run routerfunctional/`, including native
 red/staggered-red, `native-final-receipt.log`, `final-argv.json`, `final.trace`,
 `final.json`, `final-process.json` and `final-callchain.json`. The earlier
-`router-20261022` run remains the paired-control-only checkpoint.
+`router` run remains the paired-control-only checkpoint.

@@ -3,13 +3,13 @@
 The `nikonvr` CPU profile uses existing RX TCG and EXTB. Its chip part number
 has not been proved. Register names and bit positions are checked against the
 [official Renesas RX Driver Package](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx64m/register_access/ccrx/iodefine.h),
-retrieved on 2026-10-09. That reference is a register protocol reference; it is
+used as a pinned protocol reference. That reference is a register protocol reference; it is
 not evidence that Nikon used an RX64M. SYSTEM and RTC are separate devices.
 
 The observed RSPI1 address `d0140`, three-bit ADADC and sampling registers at
 `890e0` are additionally checked against the
 [official RX65N register header](https://github.com/renesas/rx-driver-package/blob/master/source/r_bsp/r_bsp_vx.xx/r_bsp/mcu/rx65n/register_access/ccrx/iodefine.h),
-retrieved on 2026-10-09. This matches peripheral capabilities and still does
+used as a pinned protocol reference. This matches peripheral capabilities and still does
 not identify the Nikon part. MTU3a extended clock selection is described in
 tables 24.7–24.9 of the [Renesas RX65N/RX651 hardware manual](https://www.renesas.com/en/document/mah/rx65n-group-rx651-group-users-manual-hardware).
 
@@ -79,7 +79,7 @@ followed by a chained byte write to SPCR; the last performs a byte SPCR write
 with WBDIS. These values are evidence for the implemented protocol and are
 not embedded firmware rules in the device. The bit semantics are checked
 against the [Renesas DTC migration guide](https://www.renesas.com/en/document/apn/rx65n-h8sx1668-dtc-migration-guide-h8sx1668-rx65n-rev100),
-R01AN6775EJ0100 revision 1.00, 2023-03-27.
+R01AN6775EJ0100 revision 1.00.
 
 RSPI0/1/2 have independent upstream SSI buses and transfer timers, sequence
 commands, TX/RX holding registers, status and DMA/DTC events. SPDCR determines
@@ -215,7 +215,7 @@ synthetic guest registers and does not
 execute Nikon's ISR. Sole-builder qualification passed the focused ninth case
 after the busless reset registration repair (`8819090`), in 0.83 seconds with
 exit 0; the preceding eight cases passed in the original batch. The receipt is
-`work/vrpeerresetreceipt.log` in the canonical `qemu-submodule` worktree.
+`run vrpeerresetreceipt.log` in the canonical `qemu-submodule` worktree.
 
 The complete original image remains strictly stopped at bootstrap
 `fff00167`, reading the four-byte external function-pointer slot `fffc8008`.
@@ -279,9 +279,9 @@ passed focused qualification: the sole builder compiled/linked
 production input source `1706171` and qualified all five focused cases after
 fixture corrections `9401ec3`/`b6be0d8`. External-span, flash-overlay,
 flash-cancel-bounds and external-conflict exited 0 in 0.52/0.66/0.52/0.60
-seconds (`work/vrinputscalar0receipt.log` through
-`work/vrinputscalar3receipt.log`); external-rejection exited 0 in 1.44 seconds
-(`work/vrinputrejectionreceipt.log`). These receipts belong to the canonical
+seconds (`run vrinputscalar0receipt.log` through
+`run vrinputscalar3receipt.log`); external-rejection exited 0 in 1.44 seconds
+(`run vrinputrejectionreceipt.log`). These receipts belong to the canonical
 `qemu-submodule` worktree and qualified source snapshot `615a8a94d05dd44986b2fab28a66f3dc1ab7231c`.
 The existing nine peripheral cases were not rerun or changed by this group.
 
@@ -418,9 +418,9 @@ after shutdown, opens a new instance, and rejects a stream crossing the body
 boundary before either write. Untouched body bytes and full metadata are
 checked. The sole builder compiled/linked production `155e36b` and passed
 only this focused case in 1.25 seconds with exit 0; its receipt is
-`work/vrstoresectorreceipt.log` in the canonical `qemu-submodule` worktree.
+`run vrstoresectorreceipt.log` in the canonical `qemu-submodule` worktree.
 Staging independently passed with fixture `0d40bc3` in 0.44 seconds with
-exit 0 (`work/vruploadstagingdeclaredreceipt.log`). The already qualified
+exit 0 (`run vruploadstagingdeclaredreceipt.log`). The already qualified
 external-input five and peripheral nine were not rerun.
 
 QEMU's `block.c:bdrv_co_getlength()` returns sector-rounded lengths, always
@@ -479,7 +479,7 @@ production machine continues to map RAM from the input's real startup table;
 it has no added RAM alias. The sole builder compiled/linked exact production
 and fixture `3eecfaa` (RX build session 38012, exit 0), then passed only this
 focused case in 0.81 seconds with exit 0. Its receipt is
-`work/vrrecordprogressreceipt.log`, canonical snapshot
+`run vrrecordprogressreceipt.log`, canonical snapshot
 `d2d94c46c0c56a083197e5595918d150e6b0e3a0`. Prior staging and persistence
 passes were retained, and the external-input five and peripheral nine were
 not rerun. These results do not claim original firmware boot or an original

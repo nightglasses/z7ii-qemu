@@ -404,11 +404,11 @@ This exposed the fixed-one-tick freeze race described above. The explicit kind4
 quiesce implementation and source caller freeze-mode correction were then
 qualified at `3935ace9`: all sixteen native fixture functions exited0, retaining
 eleven expected negative boundaries and the architectural-fault assertion.
-The ignored receipt is `work/tpjfreezemodenative.log`. A separate unchanged
+The ignored receipt is `run tpjfreezemodenative.log`. A separate unchanged
 whole-ELF probe with an explicit fourteen-record startup stream reached the
 2,000,000-tick budget at PC8ec8 with normal9/capture2/reference2/BUFFER4/quiesce1,
 status0 and no boundary. It executed no wire command or guest reply; see
-`peer-transport/work/runtime/touch/startup.log`. This does not establish complete
+`run runtime/touch/startup.log`. This does not establish complete
 startup, physical input values or original touch packet execution.
 
 The whole CFG permission audit retained all5040 memory sites, with2696 proven

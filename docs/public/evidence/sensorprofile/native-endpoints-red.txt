@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: sensorprofile-20261024
+Original log: native-endpoints-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/endpoints - ERROR:../../config/source/tests/qtest/nikon/sensor.c:880:test_capture_endpoints: assertion failed (qtest_readl(q, base + 0x14) == 0x80000003): (0x00000000 == 0x80000003) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.96s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/sensor.c:880:test_capture_endpoints: assertion failed (qtest_readl(q, base + 0x14) == 0x80000003): (0x00000000 == 0x80000003)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           0.96s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

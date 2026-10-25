@@ -668,7 +668,7 @@ From the MAS side the protocol is now characterised end to end:
 What the *arguments mean to the device* is not derivable from this image: the
 registers `0x18`, `0x52` and `0x90` and the bit patterns `0x1FF0`, `0x2000`,
 `0x2080` and `0x0080` are decided by the sequencer and interpreted by the VR. A
-useful lead for that half is the file `work/ida/3_vr1840_010100.bi.bin`, which is
+useful lead for that half is the file `3_vr1840_010100.bi.bin`, which is
 exactly `3201 * 262 = 838662` bytes - the size the update note gives for the
 complete VR upload stream - so that component is the VR payload in update-record
 form. Its body can be extracted for the standalone RX profile, but the stream
@@ -724,7 +724,7 @@ establish is that the context-write instrument works and reports the job type.
 ### What the cycle is preparing for (verified)
 
 The `F2` block writes of the cycle only make sense as preparation, and the payload
-they prepare for turns out to be present in the bundle. `work/ida/3_vr1840_010100.bi.bin`
+they prepare for turns out to be present in the bundle. `3_vr1840_010100.bi.bin`
 is 838,662 bytes, which is `3201 * 262`, and decoding it as the update stream the
 [update note](../devices/update/protocol.md) describes gives:
 
