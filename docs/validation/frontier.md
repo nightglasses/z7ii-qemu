@@ -1,6 +1,33 @@
 # Original-firmware startup frontier
 
-## Current: original clear at PA `625219bc`
+## Current: processing scratch at PA `b0100000`
+
+The [kind41 workspace](../runtime/storage.md#kind41-processing-workspace)
+joins ROM pool metadata, the runtime allocation object and original PTEs.
+`1026fbb0` owns a complete `400000`-byte unit at board PA `62221800` and
+constructs128 records beginning at offset `300000`. The old write at
+`625219bc` is a decimal24-byte clear inside the first record; its sampled
+scratch register was not the entry length. The board now backs exactly
+`[62221800,62621800)` without changing any declared pool boundary, page table
+or firmware byte. Cold zero remains a functional board assumption.
+
+The [workspace receipt](/evidence/imagerequest/workspace.json) records native
+red→green,34 memory and37 sensor cases, including every page, actual TCG
+CPU/bus sharing, cross-page HDMAC and negative bounds. With the same explicit
+region/cold-neutral profile, unchanged firmware crosses the record clear.
+The60-host-second run records128 main acquisitions and413 statistics jobs,
+with no statistics rejection/cancellation and an empty error list.
+
+Its next first uncovered transaction is CPU1 PC `10361044`, WRITE32 PA
+`b0100000=0`, inside another original clear. Saved return `10271ae9` joins
+consumer `10271abe`, which clears a decimal200-byte processing record.
+The existing arena object at VA `b1808c98` stores this base at field `10`;
+the separate scratch allocator and its complete ranges must be admitted on
+their own source contract. QMP is debug/stopped, neither head has a console,
+and GUI readiness/information remain zero. No normal live-view or physical
+camera claim follows from this storage correction.
+
+## Previous: original clear at PA `625219bc`
 
 The [published-result latch](../devices/capturegroup/protocol.md#published-result-lifecycle)
 separates actual automatic-TG results from later generator configuration and

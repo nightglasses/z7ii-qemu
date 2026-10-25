@@ -36,6 +36,11 @@ persist across machine reset. There is no physical bus mirror at VA`36d59800`,
 no page-table installation, no allocation-result injection and no MXIC class
 expansion. The guest remains responsible for allocation, clearing and content.
 
+The later [kind41 workspace](storage.md#kind41-processing-workspace) starts
+at its exact upper boundary. It is a separate source-owned pool, not an
+extension of kind40. Historical outer-hole observations below predate that
+independent mapping; current fixtures preserve distinct values on both sides.
+
 The native old-model test fails on the first RAM readback. All19 cases in
 `nikon_memory` then pass, including first/middle/last independent cells, exact
 outer holes, no physical VA mirror and reset retention. Qtest checks physical

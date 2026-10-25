@@ -96,6 +96,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
 #define Z7II_KIND40_BASE 0x62059800ULL
 #define Z7II_KIND40_SIZE 0x1c8000ULL
+#define Z7II_KIND41_BASE 0x62221800ULL
+#define Z7II_KIND41_SIZE 0x400000ULL
 #define Z7II_READOUT_PRIMARY_BASE 0x61654800ULL
 #define Z7II_READOUT_PRIMARY_SIZE 0x603000ULL
 #define Z7II_READOUT_SECONDARY_BASE 0x61c57800ULL
@@ -226,6 +228,7 @@ struct Z7IIMachineState {
     Z7IIRAM lcd_composition;
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
+    Z7IIRAM kind41_buffer;
     Z7IIRAM readout_primary;
     Z7IIRAM readout_secondary;
     Z7IIRAM interpolation_pool;
@@ -984,6 +987,14 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
              Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
+    /*
+     * 1026fbb0 acquires kind41 for its workspace/record pools. ROM11983488
+     * and the original allocation record own one complete 400000-byte unit
+     * at 62221800. Record constructors start at logical base+300000; the
+     * guest's own PTEs translate those accesses into this exact pool.
+     */
+    z7ii_ram(&s->kind41_buffer, "z7ii.kind41-buffer",
+             Z7II_KIND41_BASE, Z7II_KIND41_SIZE);
     /*
      * ROM11982938 kinds38/39 select11983440/58, with no mode overrides.
      * 1023cb62 requests201000 bytes from each; 1023869e publishes their

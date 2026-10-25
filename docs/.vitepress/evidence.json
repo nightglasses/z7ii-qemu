@@ -12,7 +12,14 @@
     "records": []
   },
   "runtime/storage.md": {
-    "records": []
+    "records": [
+      {
+        "run": "sensorstorage",
+        "title": "Kind41 source ownership, RAM backing and original record clear",
+        "href": "/evidence/imagerequest/workspace.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "runtime/seed.md": {
     "records": []

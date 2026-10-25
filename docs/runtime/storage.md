@@ -9,6 +9,9 @@ share the same cells, including after reset and MXIC decoder changes.
 The additional exact [kind40 allocation](kind40.md) at
 `[62059800,62221800)` is backed separately. Its original VA conversion and
 section PTE are verified; the surrounding address class remains uncovered.
+The independently owned [kind41 workspace](#kind41-processing-workspace)
+continues at `[62221800,62621800)`; it does not grant backing to the rest of
+the conversion class.
 The [resource11/12 phased loader](rows.md) additionally owns contiguous
 destination capacities `[50300000,50640000)`. NOR inputs populate only flash;
 the original guest produces this RAM's content.
@@ -51,6 +54,58 @@ ends at `bd1e0000`. Their complete classes extend to `bc100000` and `bd200000`.
 Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
+
+### Kind41 processing workspace
+
+The C1.70 MAS initializer VA `1026fbb0`, called lazily by `102712e6`, requests
+`1030d96e(0,41,355600)` and stores the returned object at VA `b186ac88`.
+Kind41 is decimal; addresses, masks and layout offsets here are hexadecimal.
+ROM VA `11982938[41]` selects `11983488`, whose six words are
+`{8,400000,400000,0,62221800,700}`. The source pool has one `400000`-byte
+unit; all five mode override entries for this kind are NULL.
+
+The [workspace receipt](/evidence/imagerequest/workspace.json) joins this
+declaration to unchanged execution: the holder returns object `b2c8766c`,
+whose buffer record contains PA `62221800` and capacity `400000`. The request
+fits this owned unit; its smaller requested length does not shrink the
+allocated capacity. The existing converter `103c5a7a` returns VA `36f21800`
+using record15's `34600000 + PA -5f900000` formula. Original section PTEs
+`62214426` and `62514426` independently map the logical base and later
+record access back to this physical pool.
+
+The initializer's complete declared layout is bounded by its request:
+
+| Pool-relative interval, exclusive end | Source use |
+|---|---|
+| `[0,300000)` | Workspace passed by later `10270f1c` |
+| `[300000,311600)` | 128 records of size `22c`, initialized by `102ed14c` |
+| `[311600,311d68)` | Three elements of size `278` |
+| `[311d80,3555d0)` | Four elements of size `10e14` |
+| End `355600` | Requested extent including alignment slack |
+
+The first constructor calls `102ebe2a(record+1bc,...)`, which invokes
+`10361034(record+1bc,24)` with a decimal24-byte length. At the old fault,
+`record=37221800`, so VA `372219bc` maps to PA `625219bc`. This is the first
+small record clear, not a request to clear2GiB: the helper subtracts32 then
+shifts its scratch length register left28 before the failing tail store,
+producing the later sampled `r1=80000000` from entry length24.
+
+The board backs exactly `[62221800,62621800)` through the existing
+offset-adjusted QEMU RAM helper, with one shared cell for CPU and DMA.
+Cold zero and persistence across machine reset are functional board choices,
+not recovered physical power-on contents. The guest owns allocation,
+construction and all later data. There is no PA mirror at either logical VA,
+page-table installation, replacement allocation result, broader conversion
+aperture, produced frame or completion event. Kind40 remains an independent
+lower neighbor; the upper address at `62621800` remains uncovered.
+
+The native case first fails at the original fault address on the preceding
+model. Its passing scope covers every4KiB page, exact endpoints, neighbor
+independence, reset persistence, actual HDMAC4099-byte cross-page DMA and
+logical/upper-bound HMP transaction errors. The existing real-TCG RAM fixture
+also checks four points from first byte-page to last word with CPU/bus
+visibility across reset. These fixtures establish backing, separately from
+the original continuation recorded in the receipt and startup frontier.
 
 ### Resource57 record0, record1 and record7 GUI slots
 

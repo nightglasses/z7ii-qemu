@@ -102,23 +102,23 @@ physical calibration or a universal block-disable setting.
 Resource31's erased timing parameter
 is a separate input limitation. Earlier checkpoints below retain their scope.
 
-The later [bounded statistics storage](docs/devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+The [bounded statistics storage](docs/devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
 and [explicit region input](docs/inputs/nor/descriptor.md#resource35-first-read-region-input)
-now cross the first-read acquisition and its erased-parameter consumer. The
-unchanged cold-neutral continuation requests two64-frame phases, performs
-actual input/output work and binds display head1 with original GUI widgets
-and an ID63 error overlay. Native99-case device and38-case input-tool/memory
-batches pass. Automatic storage reuse and virtual region coefficients remain
-explicit hypotheses. Normal live view is still incomplete; the
-[current frontier](docs/validation/frontier.md) records the Sensor wait that
-previously produced ID63, separately from complete-boot or physical-camera
-evidence. The [sequence start/stop model](docs/devices/sensor/protocol.md#global-sequence-start-and-stop)
-subsequently crosses that error branch through normal router IRQ87 delivery;
-69 sensor/memory cases pass. The later result-latch correction preserves
-actual published capture-group packets through restart, with70 sensor/memory
-cases passing. The next stop is an original clear at PA `625219bc`, whose
-allocation owner and extent still require recovery. Normal live view remains
-incomplete.
+support the original first-read acquisition and its region consumers. The
+[sequence start/stop model](docs/devices/sensor/protocol.md#global-sequence-start-and-stop)
+supplies normal router IRQ87 completion, while the result latch preserves
+actually published capture-group packets across restart. Storage reuse,
+virtual region coefficients and lifecycle timing remain explicit hypotheses.
+No guest event or requested cursor is forced.
+
+The [kind41 workspace](docs/runtime/storage.md#kind41-processing-workspace)
+backs its source-owned 4 MiB unit and crosses the original record clear.
+The latest 71 memory/sensor cases pass. Unchanged firmware with the same
+region/cold-neutral inputs reaches a new original clear at PA `b0100000`,
+with an empty error list but no bound display console. The earlier ID63 error
+frame is separately archived; normal live view remains incomplete. The
+[current frontier](docs/validation/frontier.md) distinguishes these results
+from complete-boot and physical-camera evidence.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
