@@ -23,6 +23,22 @@
   "runtime/image.md": {
     "records": []
   },
+  "runtime/imagerequest.md": {
+    "records": [
+      {
+        "run": "imagerequest",
+        "title": "Image admission and activation observation",
+        "href": "/evidence/imagerequest/admission.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "imagephase",
+        "title": "Image prerequisites, callback backlog and enable producers",
+        "href": "/evidence/imagerequest/phase.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "runtime/batteryreport.md": {
     "records": []
   },
