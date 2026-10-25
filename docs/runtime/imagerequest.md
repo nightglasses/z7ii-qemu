@@ -15,6 +15,31 @@ The [published admission summary](/evidence/imagerequest/admission.json)
 contains the critical observations and omissions. Raw disassembly, argv,
 snapshots and traces remain private and are not shipped with the handbook.
 
+## Image-information admission
+
+The branch labels are source conditions. Only the early-exit branch was
+observed for the 15 selector4 jobs in the `cadence` window; the remaining
+path has further checks and is not demonstrated by a statistics completion.
+All code addresses in these diagrams are MAS VAs.
+
+```mermaid
+flowchart TD
+  Job["Image task 1026a312<br/>Observed type2 job"] --> Pair["103f6b90 reads selector pair<br/>Observed selector4: period 2, phase 0"]
+  Pair --> Test{"103f6bb2<br/>period != 0 and sequence % period == phase?"}
+  Test -->|"No: observed sequences 5, 7, ..., 33"| Exit["Return before image submission"]
+  Test -->|"yes"| Work["Remaining checks, allocation and processing"]
+  Work --> Mask{"Nonzero completion mask<br/>equals requested mask?"}
+  Mask -->|"yes"| Event["041b0040 to capture adapter 103284d0"]
+  Other["Other source-defined producers<br/>1026aa50 / 103cda56"] --> Event
+  Event --> Builder["1035a2d8 builds image information"]
+  Builder --> Registry["Registered callbacks forward 04380001<br/>106d103c through four subscriber slots"]
+  Registry --> GUI["GUI subscriber 104be876<br/>Copy information; GUI record92 / primary80"]
+```
+
+The early-exit result explains these jobs only. Other job types and other
+publishers retain their separate branches; the period/phase pair is software
+data and is not a hardware-ready register.
+
 ## Verified producers and conditions
 
 | Edge | Source condition and effect |
@@ -32,6 +57,25 @@ The packet paths above are original software producers. A processing-statistics
 completion, or a raw0.bit6 interrupt, is not interchangeable with `041b0040`.
 
 ## Verified display activation path
+
+```mermaid
+flowchart TD
+  Info["04380001 reaches GUI subscriber"] --> Copy["Copy information and call 1057fdf8"]
+  Copy --> Gate{"Valid information geometry<br/>and active, unpaused target?"}
+  Gate -->|"yes"| Request["106b84ba builds upper image request"]
+  Gate -->|"no"| Blocked["No upper request on this route"]
+  Info -->|"Only if switch-pending and completion predicate pass"| Primary["10631c7e posts primary400"]
+  Primary --> Phase["Phase18 dispatch<br/>105424e8 to 105409f2"]
+  Phase -->|"Activation decision selects operation5"| Enable["105801ce stores requested mask<br/>and posts owner event4"]
+  Enable --> Owner["105804fc enables target<br/>OR active mask; clear paused bits"]
+  Owner --> Complete["Completion 05040003"]
+  Owner -->|"Supplies target state, not image information"| Gate
+```
+
+An information event does not guarantee primary400 or activation. The diagram
+shows the operation5 branch; policy operation0 and the separate owner-event80
+activation handler remain distinct source paths described below. No activation
+handler was observed in the focused window.
 
 Primary400 dispatches `1053d0ec -> 106ddbfc(...,18) -> 105424e8 -> 105409f2`.
 At its final activation decision, `10631f22()` true sends `104a94fe(5)`;

@@ -11,6 +11,34 @@ These are unchanged-firmware software observations, not a physical-camera
 receipt or a GUI first frame. The execution profile and battery publication
 are recorded in [battery.md](battery.md).
 
+## Erased-input wait chain
+
+This sequence describes the erased descriptor17 observation below, not the
+later cold-neutral startup boundary. The reply and exit-acknowledgement arrows
+are conditional source paths; the observed fault prevents them in this run.
+
+```mermaid
+sequenceDiagram
+  participant M as MAS worker manager
+  participant W as Worker 0
+  participant D as Display request handler
+  participant G as Generic worker wrapper
+  M->>W: Stop method posts primary bit 1
+  Note over M: State 3: wait for old worker exit
+  W->>D: Rear-display configuration 42060004
+  Note over W: Wait on completion mask 0x20
+  alt Observed erased-input path
+    Note over D: ID24 panel table was not installed
+    D->>D: Command 5 reads VA 0x11e and aborts
+    Note over M,W: No configuration completion or exit acknowledgement
+  else Source path if configuration completes
+    D-->>W: Callback 1057d2c4 posts mask 0x20
+    W-->>G: Main loop returns and teardown completes
+    G-->>M: Phase 3 through the original application event
+    Note over M: State 1: start target worker 4, mode 0x15
+  end
+```
+
 ## Which worker and which acknowledgement
 
 The one-breakpoint manager probe observes phases `1` five times, `2` once

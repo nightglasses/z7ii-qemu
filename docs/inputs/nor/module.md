@@ -16,6 +16,31 @@ property uses the existing physical mapping; resource80's observed RAM base
 is MAS VA `b7d00000`. Source projections and parent execution receipts are in
 `run moduleinput/`.
 
+## Validation and load boundaries
+
+The outer slot footer, copied module body and version guard are separate
+checks. Phase selection comes from original code; the diagram does not impose
+a phase order. Phase9 fills are source-established behavior and were not
+executed in the structural observation described below.
+
+```mermaid
+flowchart TD
+  Slot["Descriptor32 NOR slot<br/>PA 0x13e80000..0x14000000"] --> Footer{"ENDM at PA 0x13fffffc?"}
+  Footer -->|"no"| Reject["Validation fails before copy/publication"]
+  Footer -->|"yes"| Manifest["Original eight-row manifest<br/>Select rows for requested phase"]
+  Manifest -->|"Six COPY rows"| Copy["COPY DMA with original completion wait<br/>source = NOR base + offset"]
+  Manifest -->|"Phase9 fill rows"| Fill["Fill00 / fillFF through original loader"]
+  Copy --> Body["Resource80 RAM<br/>MAS VA base 0xb7d00000 + offset"]
+  Fill --> Body
+  Body --> Guard{"Version guard and consumer checks"}
+  Guard -->|"Rejected"| Error["ID68 / module-input error path"]
+  Guard -->|"Accepted inspected profile"| Consumers["Selected records and script consumers"]
+```
+
+Marker acceptance alone proves neither copied-byte equality nor complete
+module semantics. The cold-neutral profile supplies explicit synthetic bytes;
+it does not replace any of these guest checks.
+
 ## Slot validation
 
 The11-word descriptor32 at ROM VA `123f8ad8` has primary `13e80000`, no

@@ -9,6 +9,34 @@ VAs, offsets/masks are hexadecimal, and dimensions/C indices are decimal.
 Source projections and raw runs remain in
 `run capturecompletion/`.
 
+## One processing generation
+
+The solid arrows describe the implemented finite transaction. The dashed
+input association, grayscale arithmetic and 1ms latency are functional
+hypotheses. Hardware completion and software root retirement remain distinct;
+the device does not invoke the guest consumer itself.
+
+```mermaid
+flowchart TD
+  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, eligible TG,<br/>fresh input, no pending raw6?"}
+  CMOS["Successfully completed CMOS bytes"] -. "immutable functional input association" .-> Input["Retained input generation"]
+  Input --> Eligible
+  Eligible -->|"yes"| Job["Own config revision, input, cursors<br/>and running-bank mask"]
+  Job --> Validate{"All output layouts, RAM extents<br/>and overlap checks valid?"}
+  Validate -->|"no"| Reject["Reject job; publish no completion"]
+  Validate -->|"yes"| DMA["1ms virtual latency<br/>Ten configured output DMAs"]
+  DMA -->|"Every required DMA succeeds"| Results["Replace running-bank 12-word results<br/>and four global scalars; advance owned rings"]
+  DMA -->|"Transfer failure"| Reject
+  Results --> Raw["Set capture raw0.bit6<br/>Existing IRQ94 / W1C path"]
+  Raw --> Ack["Original software acknowledges raw6"]
+  Ack -->|"Next fresh input / TG may run"| Eligible
+  Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel ownership and timer<br/>No completion for the cancelled job"]
+```
+
+While raw6 is pending, the next job is backpressured. ACK permits a later job
+even if software did not read the preceding results; empty queues can discard
+a completed frame.
+
 ## Established protocol and geometry
 
 `1023c998 -> 1023a6c6/1023a07e -> 1020c802` programs the output family,

@@ -8,6 +8,37 @@ The storage-only checkpoints below precede the implemented
 [finite statistics transaction](../devices/statistics/protocol.md), which
 now produces DMA/results/raw6 under explicit arithmetic/input assumptions.
 
+## IRQ, queue and retirement flow
+
+Queue links below describe guest-owned records, not a one-to-one mapping of
+hardware frames to roots. The owner pops at most one entry from each nonempty
+queue, and an empty queue can discard a completion. Addresses in this diagram
+are MAS VAs; event and pending masks are hexadecimal.
+
+```mermaid
+flowchart TD
+  Lane0["Separate lane0 producer 1023c916"] -->|"Participation bit0"| Q0["Q0: 0xb26b3924<br/>Optional lane0 record"]
+  Submit["Original request preparation"]
+  Submit --> Q1["Q1: 0xb26b3944<br/>Statistics record, root + 0xe8"]
+  Submit --> Q2["Q2: 0xb26b3964<br/>Conditional kind18 scalar destination"]
+  Submit --> Q3["Q3: 0xb26b3984<br/>Upper completion root"]
+  IRQ["IRQ94 raw0.bit6"] --> Count["102391b2 increments 0xb1888164<br/>and posts owner bit2"]
+  Count --> Owner["10238d4a calls 10238c40<br/>Pop nonempty queues under mutex"]
+  Q0 --> Owner
+  Q1 --> Owner
+  Q2 --> Owner
+  Q3 --> Owner
+  Owner --> Read["Bank/scalar MMIO reads when selected<br/>then unlock original mutex"]
+  Read -->|"Participation bit1 + registered callback"| Callback["041a0002 with Q3 root"]
+  Callback --> Pending["Original backend clears pending 0x40000"]
+  Pending --> Deliver{"Root belongs to delivery queue<br/>and all pending bits are zero?"}
+  Deliver -->|"yes"| Done["Remove root; original callback 041a0008"]
+  Deliver -->|"no"| Wait["No upper delivery yet"]
+```
+
+The model supplies DMA, results and the interrupt cause. Queue removal,
+pending-word changes and callbacks are performed only by original firmware.
+
 ## Established producer and consumer chain
 
 IRQ94 callback `102391b2`, event41072800, treats raw0.bit6 (`40`) separately

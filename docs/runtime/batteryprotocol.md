@@ -4,6 +4,31 @@ This is a source inventory and finite virtual-peer design, not a completed-batte
 
 Existing observed auth/class1/0c/0e and command02 acceptance remain separate evidence in [batterypeer.md](batterypeer.md), [seed.md](seed.md) and [batterycontrol.md](batterycontrol.md). The historical0b boundary has now been implemented with the full inventory below; the newer original continuous-query acceptance and its host serial pacing are recorded in batterypeer.md. Static inventory and original execution are separate evidence.
 
+## Initialization branches
+
+This is the source-defined initializer for the two documented classes, not
+an assertion that every periodic or shutdown command has executed. Retry
+limits belong to the original upper orchestrator, not to each packet helper.
+The wire peer must deliver actual UART replies before the guest can advance.
+
+```mermaid
+flowchart TD
+  Start["08023e04: generate challenge once"] --> Attention["Attention 00<br/>No reply"]
+  Attention --> Auth["Authentication 02/01<br/>Up to 3 attempts, same challenge"]
+  Auth -->|"Accepted"| Identity["Query 0c<br/>Up to 3 attempts"]
+  Auth -->|"Attempts exhausted"| Failure["Original error handler 08024ac0"]
+  Identity -->|"Attempts exhausted"| Failure
+  Identity -->|"Class 1"| State2["State 2: copy identity"]
+  State2 --> Blocked{"Identity equals blocked ROM bytes?"}
+  Blocked -->|"yes"| Rejected["Initializer rejects this identity"]
+  Blocked -->|"no"| Enable["Command 0e, argument 1<br/>Up to 3 attempts"]
+  Enable -->|"Attempts exhausted"| Failure
+  Enable -->|"Accepted"| Success["Original initializer stores byte0 = 1"]
+  Identity -->|"Class 3"| State5["State 5: skip identity / 0e block"]
+  State5 --> Success
+  Success --> Next["Later workflow has its own state gates<br/>and per-step query retries"]
+```
+
 ## Complete direct transport map
 
 Hex command/header bytes below are wire bytes. Every multi-byte query/control packet ends in XOR of preceding bytes. `ACK` means the generic receive envelope only: byte1=6 and last byte=XOR of all earlier bytes. Byte0/2 are not extra original predicates. All successful receives require actual original UART completion; ACK is not permission to fabricate device events. Timeouts are kernel ticks.

@@ -331,6 +331,7 @@ export default defineConfig({
             items: [
               { text: 'Display Readiness Producers', link: '/runtime/display' },
               { text: 'GUI Chain Architecture', link: '/runtime/guichain' },
+              { text: 'Image Information & Display Activation', link: '/runtime/imagerequest' },
               { text: 'EX power qualification and GUI admission', link: '/runtime/guiqualification' },
               { text: 'EX startup, status checks and host transport', link: '/runtime/exstartup' },
               { text: 'Application stages and GUI event producers', link: '/runtime/appstages' },
