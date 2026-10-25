@@ -136,6 +136,11 @@ does execute. Their physical-control/UI meaning is not established, and
 this mode9 conditional delivery path is not proven necessary for the normal
 GUI main image. No guest state is set to enter it.
 
+The later [image request audit](../../runtime/imagerequest.md) identifies
+separate normal information-publication and display-activation producers.
+Its observed image tasks fail a software period/phase check before submission;
+that result does not justify setting AF6 or forcing service state9.
+
 ## Validation scope
 
 The scoped old-model fixture fails because `/machine/capture-statistics`

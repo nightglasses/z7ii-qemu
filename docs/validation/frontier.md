@@ -1,6 +1,35 @@
 # Original-firmware startup frontier
 
-## Current: finite processing-data completion
+## Current: image-information admission and display activation
+
+The [image request audit](../runtime/imagerequest.md) separates the normal
+GUI/display producer from AF6's state9 request. Original drawing and valid
+layer programming run; operation10 now unpauses successfully with ID68 absent.
+Display active/requested-enable masks and bank port/layer enables remain0.
+Phase18's final enable and the image-information04380001 publication have
+not executed in their focused cold-neutral windows.
+
+The new concrete software boundary is1026a312's cadence admission:
+103f6b90 reads selector4's pair `{2,0}`, and103f6bb2 requires
+`(job[0]-1) % 2 == 0`. All15 observed inputs5,7,...,33 fail and return0
+before image submission/publication. The normal producer chain would be
+041b0040 ->103284d0 ->1035a2d8 ->106d103c ->104be876 ->GUI record92.
+Its callbacks are registered, but no information payload reaches this subscriber
+in the focused window.
+AF6=0/service2 explains a separate conditional route; state9 is not established
+as a prerequisite for these normal display functions.
+
+The [unchanged-firmware admission observation](/evidence/imagerequest/admission.json)
+retains cold-neutral input, compares
+all six COPY ranges, records guard0/version150 and property6433 empty, and
+remains running with no uncovered access, peer rejection or console. Sequential
+QMP reads report1874/1873 readout requests/completions and527 statistics jobs,
+with0 rejection/cancellation. The next evidence is the source job-selection
+phase and the initial switch/phase18 producer. No period, sequence, software
+event, AF6 state or display enable is forced; no new hardware model is justified
+by these observations alone.
+
+## Finite processing-data completion
 
 Published records for this checkpoint:
 [original execution summary](/evidence/capturecompletion/finalreview-proof.json),
@@ -47,8 +76,9 @@ root[8]/root[16] were0 in `final`, and both runs have service
 `103f27ba -> 10328ca6` requires state9/property1053=1 before enqueuing
 `10323a7e`, which sets AF6=1. Root[8] separately requires B0C=2. Neither
 AF6 request function appears in the focused trace. These conditions explain
-why those conditional routes are unselected; their necessity for normal GUI
-and the upstream normal display request remain unresolved. No mode is forced.
+why those conditional routes are unselected. The later image request audit
+above identifies separate normal information and display activation producers;
+the full startup prerequisite relationship remains unresolved. No mode is forced.
 
 
 ## Related analysis

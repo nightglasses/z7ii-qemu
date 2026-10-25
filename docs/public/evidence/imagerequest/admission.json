@@ -1,0 +1,85 @@
+{
+  "scope": "Curated unchanged C1.70 firmware observation under the existing functional model; no hardware implementation change",
+  "input": {
+    "resource80": "cold-neutral descriptor32",
+    "rng": 0,
+    "battery": "healthy paced UART peer",
+    "cold_key": "held F4",
+    "extra_input": false,
+    "cpus": 5,
+    "execution": "MTTCG",
+    "window_host_seconds": 20,
+    "debugger": "read-only snapshot after the window; no in-transaction pause"
+  },
+  "validation": {
+    "six_original_loader_copy_ranges_equal_input": true,
+    "guard_return": 0,
+    "guard_version_hex": "150",
+    "property6433_empty": true,
+    "qmp_running": true,
+    "uncovered_access_observed": false,
+    "battery_peer_rejection_observed": false,
+    "display_console": false
+  },
+  "image_admission": {
+    "address_domain": "MAS CPU VA",
+    "task": "1026a312",
+    "selector_getter": "103f6b90",
+    "predicate": "103f6bb2",
+    "observed_selector": 4,
+    "software_table_base": "b18a9540",
+    "period_phase": [2, 0],
+    "predicate_law": "period != 0 && (job[0]-1) % period == phase",
+    "observed_sequence_minus_one": [5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33],
+    "observed_resume_results_at_1026a3e4": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "registers_r0_r1_r2_r3_at_each_observed_resume": [0, 0, 1, 2],
+    "focused_entry_observations": {
+      "103284d0": 2,
+      "1035a2d8": 0,
+      "106d103c": 0,
+      "104be876": 0,
+      "105409f2": 0,
+      "105804fc": 0,
+      "10328ca6": 0,
+      "10323a7e": 0
+    },
+    "adapter_events_observed": ["04180203", "04180203"],
+    "registered_callback_pointers": {
+      "b1866d88": "106d103d",
+      "b25d874c": "104be877",
+      "b1864d64": "103284d1"
+    },
+    "zero_information_buffers": ["b201c038", "b1fa375c"],
+    "information_buffer_bytes_each": 1124
+  },
+  "display_observations": {
+    "operations_observed": [8, 10, 13],
+    "active_mask_b181a56c": 0,
+    "paused_mask_b181a570": 0,
+    "requested_enable_mask_b181a574": 0,
+    "target_mask_b181b484": 1,
+    "switch_pending_words_b181b470_474_478": [0, 0, 0],
+    "bank1_main_pa20145200_hex": "13",
+    "bank_port_starts": [0, 0],
+    "bank_layer_enables": [0, 0],
+    "separate_entry_filter_gui_draw_observations": 168,
+    "separate_entry_filter_layer_writer_observations": 142
+  },
+  "sequential_qmp_reads": {
+    "readout_accepted": 1874,
+    "readout_completed": 1873,
+    "readout_rejected": 0,
+    "statistics_completed": 527,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0
+  },
+  "limitations": [
+    "Trace entry observations are not exact call counts because of TCG chaining; only monitored ranges support absence claims.",
+    "QMP counters are sequential reads, not an atomic snapshot or physical frame-rate measurement.",
+    "Why the opposite sequence phase is selected upstream remains unresolved; the observations do not justify changing period, phase or job numbering.",
+    "The initial switch/phase18 trigger remains unresolved. No AF6/state9 prerequisite for normal GUI startup is established.",
+    "No guest event/state/callback/PC/IRQ injection or forced display activation was used.",
+    "This archive omits firmware bytes, disassembly, complete traces, argv and snapshots; it is a curated summary, not a replacement for raw captures or complete-boot evidence.",
+    "No new native test run is claimed; the existing statistics model and its prior 81-case receipt are unchanged."
+  ]
+}

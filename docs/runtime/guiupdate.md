@@ -1,5 +1,12 @@
 # Ordinary GUI input and update route
 
+The current [cold-neutral image request audit](imagerequest.md) supersedes
+the ID68/operation10 checkpoint below: operation10 now reaches the original
+unpause. GUI drawing and layer programming execute, but final activation and
+the traced image-information-to-record92 route remain unobserved. The observed
+image tasks fail a specific period/phase admission before submission. AF6's state9 route has separate
+guards and is not established as the missing normal GUI request.
+
 The later [normal-input readiness trace](readiness.md#current-normal-input-observation)
 establishes an original error-GUI frame through the actual bank head1 while
 gate/pending3/display-ready remain0. ID68 suppresses software operation10;
@@ -905,8 +912,11 @@ The only identified direct record92 publisher is callback `104be876` for
 event `04380001`. At `104be8c8` it copies1124 bytes from the incoming
 payload to `b201c038`; `104be8d0` publishes record92 and it posts ordinary
 event80. Its pending word is `b201bf40`, pointer word `b201caf4`.
-Registration `104bf278` passes this callback to `10551b62`. The upstream
-event producer has not been resolved.
+Registration `104bf278` passes this callback to `10551b62`. The later
+[image admission audit](imagerequest.md) resolves the upstream producer as
+`041b0040 -> 103284d0 -> 1035a2d8 -> 106d103c`, and isolates the observed
+task's period/phase rejection before publication. This earlier checkpoint
+did not establish that chain.
 
 Phase9 helper `1053f42a` consumes record92 at `1053f444`, compares fields
 against cached data at `b202c578`, and can request an update. When a changed
