@@ -994,6 +994,79 @@ static void test_statistics_stage_completion(void)
     unlink(bundle);
 }
 
+static void test_statistics_storage_period(void)
+{
+    static const unsigned slots[] = { 6, 255, 6, 6, 6, 4, 4, 4, 4, 4 };
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    statistics_configure(q);
+    qtest_writel(q, CAPTURE + 0x200, 0);
+    qtest_writel(q, CAPTURE + 0x260, 0x80);
+    for (unsigned n = 0; n < ARRAY_SIZE(slots); n++) {
+        uint32_t port = 0x2006a400 + n * 0x100;
+        uint32_t base = RAM + (n + 1) * 0x100000;
+
+        qtest_writel(q, port + 0x44, 0);
+        qtest_writel(q, port + 0x48, 254);
+        for (unsigned bank = 0; bank < 2; bank++) {
+            unsigned addresses = (n >= 2 && n <= 4) || n == 9 ? 4 : 1;
+
+            for (unsigned a = 0; a < addresses; a++) {
+                qtest_writel(q, port + 0x50 + bank * 16 + a * 4, base);
+            }
+        }
+        qtest_memset(q, base, 0xa5, (slots[n] + 1) * 0x1000);
+    }
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    for (unsigned frame = 0; frame < 255; frame++) {
+        for (unsigned n = 0; n < ARRAY_SIZE(slots); n++) {
+            if (frame == slots[n]) {
+                qtest_writel(q, RAM + (n + 1) * 0x100000, 0xa5a5a5a5);
+            }
+        }
+        statistics_input(q, NULL);
+        statistics_rise(q);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                     "completed"), ==, frame + 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==,
+                        frame == 254 ? 0x80 : 0);
+        for (unsigned n = 0; n < ARRAY_SIZE(slots); n++) {
+            uint32_t base = RAM + (n + 1) * 0x100000;
+
+            if (frame == slots[n]) {
+                /* A real new result replaces the first slot on wrap. */
+                g_assert_cmphex(qtest_readl(q, base), !=, 0xa5a5a5a5);
+            }
+            g_assert_cmphex(qtest_readl(q, base + slots[n] * 0x1000), ==,
+                            0xa5a5a5a5);
+        }
+    }
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "rejected"), ==, 0);
+    /* The finite model restarts storage phase with the completion sequence. */
+    qtest_writel(q, CAPTURE + 0x270, 0x80);
+    for (unsigned n = 0; n < ARRAY_SIZE(slots); n++) {
+        qtest_writel(q, RAM + (n + 1) * 0x100000, 0xa5a5a5a5);
+    }
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 256);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
+    for (unsigned n = 0; n < ARRAY_SIZE(slots); n++) {
+        uint32_t base = RAM + (n + 1) * 0x100000;
+
+        g_assert_cmphex(qtest_readl(q, base), !=, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, base + slots[n] * 0x1000), ==,
+                        0xa5a5a5a5);
+    }
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 static void test_statistics_ring_completion(void)
 {
     g_autofree char *bundle = NULL;
@@ -1894,6 +1967,8 @@ int main(int argc, char **argv)
                    test_statistics_stage_completion);
     qtest_add_func("/nikon/cmos/statistics/ring-completion",
                    test_statistics_ring_completion);
+    qtest_add_func("/nikon/cmos/statistics/storage-period",
+                   test_statistics_storage_period);
     qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);

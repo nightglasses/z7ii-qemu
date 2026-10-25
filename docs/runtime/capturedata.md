@@ -181,7 +181,7 @@ Sequential queries report392 statistics completions versus380 auxiliary
 completions, consistent with additional main-input processing; these are not
 atomic per-channel accounting measurements.
 
-**Observed next boundary:** endpoint4's calculated PA `5d4be000`, span10,
+**Historical storage-only boundary:** endpoint4's calculated PA `5d4be000`, span10,
 is outside kind19's six declared36000-byte slots. The model computes it as
 `5d200000 + 13 * 36000`; endpoint2/3/4 retain count-minus1 `fe` and stride36000.
 But their original producer `1023b86c ->1030af00` requests exactly6 kind19
@@ -196,6 +196,14 @@ addressing. No larger kind19 extent, modulo-six wrap, skipped RGB
 output or ring event is inferred from the failure alone. The next required
 evidence is the relationship between the completion count, address control
 fields and each output's actual producer.
+
+The later [cyclic-storage profile](../devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+uses those source-declared storage periods independently of the existing
+completion sequence. Automatic reuse and phase remain functional hypotheses.
+It removes the RGB rejection without expanding a pool; unchanged execution
+then consumes the completed first-read data. The next failure is a CPU read
+at PC `10218d7e`, PA `5df453be`, from a negative region coordinate in the
+subsequent statistics consumer, not a destination DMA fault.
 
 ## GUI relationship and unchanged execution
 

@@ -86,6 +86,10 @@ static bool statistics_ram(uint64_t address, uint64_t bytes)
 
 static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
 {
+    /* C1.70's constructors reserve six/four slots, independent of work count.
+     * Endpoint1 alone selects a large-count pool. Cyclic reuse is a finite
+     * functional hypothesis, not a recovered physical counter encoding. */
+    static const unsigned storage_slots[] = { 6, 256, 6, 6, 6, 4, 4, 4, 4, 4 };
     const uint32_t *w = s->job;
     bool any = false;
 
@@ -135,7 +139,8 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
         bpp = n == 0 ? 16 : n <= 4 ? 2 : 1;
         out[n].pitch = ROUND_UP(out[n].width * bpp, 16);
         uint64_t bytes = (uint64_t)out[n].pitch * out[n].height;
-        uint64_t address = (uint64_t)base + (uint64_t)s->job_cursor[n] * stride;
+        unsigned slot = s->job_cursor[n] % MIN(count, storage_slots[n]);
+        uint64_t address = (uint64_t)base + (uint64_t)slot * stride;
 
         if (!out[n].width || !out[n].height || out[n].height > 4096 ||
             (stride && bytes > stride) || bytes > 0x1000000 ||

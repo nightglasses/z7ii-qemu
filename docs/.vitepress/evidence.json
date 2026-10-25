@@ -1071,6 +1071,12 @@
         "title": "FE AND-wait semantics and source-associated statistics stage completion",
         "href": "/evidence/imagerequest/fence.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "storageperiod",
+        "title": "Bounded output storage, complete first-read acquisition and erased region parameters",
+        "href": "/evidence/imagerequest/storage.json",
+        "kind": "Execution observation"
       }
     ]
   },

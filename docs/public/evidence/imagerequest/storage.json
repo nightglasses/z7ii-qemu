@@ -1,0 +1,61 @@
+{
+  "scope": "Finite separation of output storage period from completion sequence, native regressions and unchanged C1.70 first-read continuation; not physical counter semantics or GUI boot",
+  "dependency_baseline": "e085fdff",
+  "source_facts": {
+    "fixed_storage": "Original Thumb callers request6 kind17 slots at1023b8ee,6 kind19 at1023b87e,4 kind20 at1023b852,4 kind21 at1023b81a and4 kind22 at1023b7e2",
+    "large_storage": "1030ad70 alone selects large kind32 for requested count>6; endpoint1's255 slots fit the complete declared pool",
+    "first_read": "1023a6c6 ->1023a63c applies requested255 count to endpoints1/2/3/4 independently of those allocations; word44 receives source descriptor slot index,48 count-minus1 and80 stride"
+  },
+  "functional_hypothesis": {
+    "sequence": "Existing completion cursor initialized by44, modulo48+1",
+    "storage_periods": [6, 256, 6, 6, 6, 4, 4, 4, 4, 4],
+    "address": "selected base + (sequence modulo min(configured count, storage period)) * stride; endpoint1 supports the full8-bit count",
+    "phase": "No independent storage phase. A completion-cycle wrap also resets storage phase, including non-divisible255/6 periods",
+    "unchanged_laws": "All real required DMA precedes numerical results and existing stage/data/ring events; no new event source, callback, guest state, destination whitelist, RAM extent or firmware change",
+    "unknown": "Source capacity constrains available storage; it does not prove physical auto-cycling, phase or bit encoding"
+  },
+  "native": {
+    "red": "storage-period: first required four-slot reuse expected first slot replaced, actual a5a5a5a5 retained; old address arithmetic writes the next slot instead",
+    "green": {
+      "memory_cases": 33,
+      "CMOS_cases": 33,
+      "sensor_cases": 33,
+      "failures": 0,
+      "coverage": "255 actual input/statistics transactions across all ten outputs; wrapped first slots replaced with real data; guard immediately after each period untouched; endpoint1 ring bit7 only on completion255; existing short-count/nonzero-start, bank/zero-stride, failed-DMA, staging/revision/cancel/reset fixtures pass",
+      "expanded_fixture": "Additional256th real transaction verifies completion-cycle phase reset, fresh first-slot writes, unchanged guards and no early tail; focused native invocation PASS"
+    }
+  },
+  "original_execution": {
+    "input": "Same unchanged cold-neutral resource80, explicit PGM quadrants32/192/64/224, healthy paced UART, RNG0, acceleration0/0/1024, held F4, five CPUs MTTCG",
+    "host_seconds": 60,
+    "in_window_GDB_pause": false,
+    "snapshot": "Read-only GDB after sequential QMP queries; separate45s read-only window inspects region parameters and fault registers",
+    "auxiliary_completed": 290,
+    "main_completed": 510,
+    "main_rejected": 0,
+    "main_cancelled": 1,
+    "cancellation_scope": "Normal first-read stop lowers run gates while another main CMOS job is owned; no completion is fabricated for that cancelled job",
+    "statistics_completed": 799,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "statistics_blocked": 0,
+    "end": {
+      "status": "debug/stopped at explicit CPU RAM fault",
+      "capture_reset": "0x10",
+      "capture_run_enable": [0, 0],
+      "queued_roots": 0,
+      "post_first_read_consumer": "10218f84 ->10218d24, corroborated by saved return10219035",
+      "fault": "READ16 PC10218d7e PA5df453be; no address aperture added",
+      "region_resource": "Decimal resource35 getter10248880 caches pointer b7f58400; inspected bound/count fields are FFFFFFFF. FirstC00 bytes are FF, C00..CFF are zero, D00..FFF (next resource) are FF",
+      "coordinate_producer": "10218bca selects bounds from resource35 offsets24/124/224/324; signed values all-1",
+      "address_calculation": "LE16 base5df45400, pitch32 samples; (-1*32 + -1)*2=-66 bytes ->5df453be; r9/r11/r7/r2=-1,r10=-32,r12=-33",
+      "GUI_readiness": 0,
+      "information_record": "still zero",
+      "display_console": false
+    },
+    "battery_peer_rejections": []
+  },
+  "measurement_limit": "Sequential QMP counts and later debugger snapshots are not atomic or physical rates. Main510, source tail handling, normal stop and actual subsequent consumer identify two255-frame processing phases; upper first-read consumer and GUI remain incomplete. No long-term stability claim.",
+  "next_boundary": "Resource35 parent input and valid finite region parameters, not extending memory before kind32 base",
+  "omissions": "Original binaries, raw disassembly, full debugger state, traces and local paths remain ignored."
+}

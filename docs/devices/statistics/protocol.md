@@ -160,6 +160,46 @@ count-minus1 also publishes raw3.bit7. Other endpoint completion bits and
 physical bank timing are not inferred. This corrects the earlier profile's
 use of bits2:1 as the address-set selector.
 
+### Completion sequence and bounded output storage
+
+**Source facts:** the original constructors independently reserve6 kind17
+slots (`1023b8ee`),6 kind19 slots (`1023b87e`),4 kind20 slots (`1023b852`),
+4 kind21 slots (`1023b81a`) and4 kind22 slots (`1023b7e2`). Their full RAM
+extents and plane displacements are unchanged. Only endpoint1's `1030ad70`
+chooses the large kind32 pool when the requested count exceeds6. In contrast,
+`1023a6c6 ->1023a63c` passes the first-read request count255 to several
+endpoints, including RGB, while retaining the source descriptor slot index
+in word44 and the allocation stride in word80. Thus that configuration does
+not allocate255 RGB slots.
+
+**Finite cyclic-storage hypothesis:** retain the existing completion sequence
+modulo `word48+1`, initialized by word44. For address generation only, use
+`slot = sequence % min(word48+1, storage period)`. The source-associated
+storage periods are6 for endpoint0 and RGB endpoints2/3/4,4 for endpoints5..9,
+and the configured count for endpoint1 (up to the8-bit field's256 slots).
+The resulting address remains `selected base + slot * stride`; zero stride
+continues to reuse the selected base. All geometry, address-set, RAM,
+overlap and actual DMA checks still precede numerical results and events.
+No destination address, guest queue, callback or IRQ mask selects this rule.
+
+The source bounds justify the available storage, not physical automatic
+cycling, phase or control-bit encoding. Word44 still initializes the entire
+completion sequence; this model does not introduce an independent storage
+phase. When a non-divisible completion cycle such as255/6 ends, sequence
+wrap also restarts storage phase. Those are explicit functional choices,
+not recovered physical hardware semantics. Endpoint1's tail event still
+requires the full configured completion count and successful work; wrapping
+a four- or six-slot output cannot generate it early.
+
+The [storage-period receipt](/evidence/imagerequest/storage.json) records a
+native red at the first required four-slot reuse, then99 passing applicable
+cases. The fixture processes255 real input generations across all ten outputs,
+checks that wrapped slots receive new data while the next slot stays untouched,
+and sees ring bit7 only on the255th completion. Its expanded256th-frame check
+also verifies the chosen completion-cycle phase reset. Existing short-count,
+nonzero-start, bank/zero-stride, failed-DMA, cancellation and reset fixtures
+remain passing. These fixtures establish the finite model, not hardware fidelity.
+
 The event uses the owned job configuration and cursor, independent of staging,
 IRQ masks and guest wait state. A new commit alone publishes nothing. The
 existing W1C/mask behavior applies independently to raw3.bit5/bit7 and raw0.bit6.

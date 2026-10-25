@@ -1,6 +1,38 @@
 # Original-firmware startup frontier
 
-## Current: RGB address progression during the first read
+## Current: erased region parameters after first-read processing
+
+The [bounded output-storage profile](../devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+separates the configured completion sequence from each source-declared output
+storage period. Four/six-slot outputs reuse real DMA storage while endpoint1
+retains its large pool and full count. This is an explicit functional hypothesis;
+physical counter encoding, autonomous cycling and phase remain unverified.
+No RAM extent, firmware byte, queue, callback or completion source is extended.
+
+The [storage receipt](/evidence/imagerequest/storage.json) records native
+red→green,99 passing memory/CMOS/sensor cases and an expanded phase-reset
+fixture. In the60-host-second unchanged cold-neutral continuation, sequential
+queries report290 auxiliary completions,510 main acquisitions and799 statistics
+completions, with no statistics rejection/cancellation. The two255-frame
+first-read sequences finish, capture run/enable become0, unit16 resets and
+the queued root is consumed. This reaches the original post-first-read
+consumer, beyond the preceding input and RGB DMA boundaries.
+
+That consumer `10218f84 ->10218d24` reads LE16 samples using region bounds
+selected by `10218bca` from resource35 (decimal). The read-only snapshot
+finds its pointer `b7f58400`; inspected bounds and count fields containFF.
+Bounds at offsets24/124/224/324 hex are signed -1, as are the region counts.
+With input pitch32 samples and base `5df45400`, the first coordinate(-1,-1)
+computes `base +2*(-32-1) =5df453be`. Original PC `10218d7e` faults there;
+QMP is debug/stopped. This is an erased-parameter consumer boundary, not
+evidence for expanding the kind32 pool before its source-declared beginning.
+
+The next work is resource35's parent input, original load path and a bounded
+self-consistent virtual region configuration. GUI readiness and the information
+record remain zero; both heads still lack a display console. Normal GUI
+output and physical-camera fidelity remain unverified.
+
+## Previous: RGB address progression during the first read
 
 The [large-count grid pool](../runtime/capturedata.md#large-count-grid-storage-and-the-remaining-address-contract)
 now backs kind32's complete source-declared PA range `5df45400..5f8d23ff`.
