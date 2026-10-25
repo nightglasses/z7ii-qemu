@@ -2,9 +2,11 @@
 
 The finite model retains11 source-identified configuration words in each of
 two independent banks. SysBus region0 is mapped by the board at PA`2006a000`,
-region1 at PA`2006be00`; each region is exactly44 hex bytes. Aligned
+region1 at PA`2006be00`; each region is exactly130 hex bytes. Aligned
 little-endian32-bit access is accepted only at the offsets below. The model
-has no frame provider, DMA, timer, status output or IRQ.
+also accepts externally published twelve-word numerical results at100..12c.
+It has no DMA, timer or IRQ producer of its own; the complete-bundle
+[statistics coordinator](../statistics/protocol.md) owns that processing transaction.
 
 ## Objects and original producers
 
@@ -60,11 +62,15 @@ return the retained value. Cold-zero configuration readback is an explicit
 functional convention; physical reset values and general physical register
 readability have not been established. Reset and unrealize clear both banks.
 
-Offsets28..3c are unknown holes. `10209ffa` consumes the status at44, and
-`10209f4a` consumes results at100..12c; their data producers remain unknown.
-Those reads and writes are errors. In particular, storing a value at40 does
-not produce a status bit or completion. The exact44-byte mappings do not
-extend through the result ranges or join the unrelated intervening devices.
+Offsets28..3c and44..fc remain holes, including the unimplemented status
+consumed by `10209ffa` at44. `10209f4a` consumes results at100..12c;
+aligned32-bit reads succeed only after the external provider publishes that
+bank. Result writes always fail. Reset invalidates both banks; commits,
+staging and stop retain published values until replacement. The provider
+updates only effectively running banks selected by capture units40/80.
+Read masks are observation-only QOM properties and do not gate new jobs.
+Storing a value at40 produces no status bit or completion. The130-byte
+regions do not join the unrelated intervening devices.
 
 The service objects' capture-unit masks40/80 belong to the existing separate
 capture-control reset/enable/disable interface. They do not equate bank
@@ -80,7 +86,7 @@ projections and runtime objects are retained separately in
 `work/runs/capturebanks-20261024/`. The first discovered original bank1 write
 and the native fixture's arbitrary bank0 value have distinct purposes.
 
-The parent's scoped old-model receipt`native-banks-red.log` records the new
+The historical configuration-only receipt`native-banks-red.log` records the new
 fixture writing `2006a000=1234` and reading0 from the uncovered model. The
 fixture `/arm/nikon/sensor/capture/banks` then checks both banks' complete
 fields across five data patterns, every bounded field's reserved upper bits,

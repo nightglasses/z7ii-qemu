@@ -100,9 +100,11 @@ not hardware commands to erase the remaining retained words. Each accepted
 MMIO store changes only that word; no hidden batch clearing is added.
 
 The original global status helper `1020af08`/wrapper `1020c876` reads
-`3e0/3e4/3e8/3ec`. The consumer `10238a62` selects one of these four words;
-no result producer is established. These addresses and all other gaps from
-374 through3fc remain errors.
+`3e0/3e4/3e8/3ec`. The consumer `10238a62` selects one of these four words.
+They are externally published read-only results from the complete-bundle
+[statistics coordinator](../statistics/protocol.md). They remain errors before
+publication or after reset. Other gaps from374 through3fc remain errors;
+no configuration write supplies a result.
 
 ## State and event boundary
 
@@ -113,12 +115,14 @@ claimed. RMW at endpoint3c is directly observed. Unknown widths, alignment,
 offsets and upper bits are rejected before mutation. There is no compatibility
 layout or fallback for holes.
 
-The device has no IRQ, timer, DMA, request output or provider. Configuration
+The device has no IRQ, timer, DMA or request output. Configuration
 values are never interpreted as readiness or capture completion. Original
 start/stop/commit traffic remains at the separate capture-control interface:
 `1023c998` subsequently uses `1020c802` and `20068100/104`, while endpoint
 switching uses `1020bfaa(8)`. Those consumers do not turn retained endpoint
-or global words into new hardware events.
+or global words into new hardware events. The coordinator separately
+snapshots selected commits, executes DMA and publishes scalar values;
+staging/commit/stop do not erase the last successful scalar package.
 
 The later [kind18 grid investigation](../../runtime/grid.md) connects the
 original endpoint1 address sets at`2006a550/560` to PA`5d170000`, with stride
@@ -130,8 +134,9 @@ The later [capture data audit](../../runtime/capturedata.md) adds the entire
 source-declared neighboring pool family, traces queued results and corrects
 two possible inferences: configured word48 is count-minus1 and word80 is
 unit stride in this family, while global result selector0 does not identify
-endpoint0 or establish a scalar value. Numerical result publication remains
-outside this configuration device.
+endpoint0 or establish a scalar value. Numerical production remains outside
+this parameter/result sink. The coordinator's scalar arithmetic is an explicit
+functional assumption, independent of the source-established selector ordering.
 
 ## Native validation scope
 

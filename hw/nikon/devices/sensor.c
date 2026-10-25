@@ -15,6 +15,7 @@
 #include "system/dma.h"
 #include "system/reset.h"
 #include "hw/nikon/sensor.h"
+#include "hw/nikon/statistics.h"
 #include "hw/nikon/devices.h"
 
 #define SENSOR_CHUNK 4096
@@ -993,6 +994,11 @@ static void nikon_capture_run_state(NikonCaptureControl *s)
     for (unsigned i = 0; i < ARRAY_SIZE(s->run_state); i++) {
         qemu_set_irq(s->run_state[i], !!(s->configuration[8 / 4] & (1U << i)));
     }
+}
+
+bool nikon_capture_data_pending(DeviceState *dev)
+{
+    return NIKON_CAPTURE_CONTROL(dev)->pending[0] & 0x40;
 }
 
 bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
