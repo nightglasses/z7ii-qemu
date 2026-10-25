@@ -198,6 +198,10 @@ and computation latency are declared functional assumptions. Publication
 follows successful DMA, respects cancellation and raw6 W1C backpressure,
 and never edits software queues. Original request retirement now runs;
 the normal GUI image/display join is still unverified.
+The same successful statistics job also publishes its source-associated
+unit8 stage cause through raw3.bit5/IRQ96. This finite completion hypothesis
+does not satisfy the other stages or FE synchronization; see the
+[processing fence](devices/statistics/protocol.md#processing-stage-completion).
 
 Image-bank composition and console publication already exist independently;
 the missing acceptance is the original guest's natural producer/commit path,

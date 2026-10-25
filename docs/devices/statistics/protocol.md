@@ -2,7 +2,8 @@
 
 `statistics.c` supplies a complete-bundle-only functional processing profile.
 It connects original unit16 commit/run, ten configured output routes,
-completed CMOS input bytes, numerical result sinks and capture raw0.bit6.
+completed CMOS input bytes, numerical result sinks, capture raw0.bit6 and
+its own processing-stage completion raw3.bit5.
 It does not write software roots, queues, event objects, callbacks or GUI
 pixels. Addresses below are board PAs, code/data symbols are original MAS
 VAs, offsets/masks are hexadecimal, and dimensions/C indices are decimal.
@@ -36,6 +37,9 @@ flowchart TD
 While raw6 is pending, the next job is backpressured. ACK permits a later job
 even if software did not read the preceding results; empty queues can discard
 a completed frame.
+The diagram follows the data-consumer IRQ94 route. The separate stage-fence
+IRQ96 below belongs to the same successful transaction; it does not submit a
+second processing job.
 
 ## Established protocol and geometry
 
@@ -78,6 +82,34 @@ The latter may pop empty queues and return without reading either result
 family. Therefore result-read masks cannot gate the next processing job.
 Only actual queued roots can be retired through041a0002, pending40000 and
 041a0008; a produced frame and a retired root are not interchangeable counts.
+
+## Processing-stage completion
+
+The original software unit8 path closes a specific configuration/consumer
+relationship. `1023aed8` selects `1023a07e`, sets shared commit mask8, and
+the latter calls `1020c862/c86c/c880/c894/c89e`. These write the same global
+and ten-endpoint configuration family used by this model. `10239480` handles
+capture event `41072802`; raw word3 bit5 marks processed unit8 at
+`b26b38c4` and sets event flag800000 at `b188814c`. These are MAS VAs;
+word indices are zero-based and masks/addresses hexadecimal.
+
+**Functional completion hypothesis:** after every required DMA and numerical
+result publication succeeds, publish only raw3.bit5 through the existing
+capture device's third event (IRQ96), in addition to raw0.bit6/IRQ94. This
+joins actual work to its source-associated stage consumer; physical completion
+granularity remains unverified. The immutable input/configuration revision,
+generation consumption, failure and cancellation laws are unchanged. Commit,
+TG, missing input, invalid destinations and cancelled jobs cannot publish it.
+Existing capture masks and W1C independently control both causes. A blocked
+data job cannot replay a cleared stage cause, and stage ACK does not ACK raw6.
+No other processing stage or FE synchronization bit is inferred from this work.
+
+The [fence receipt](/evidence/imagerequest/fence.json) records native red→green
+and original-firmware consumption:734 completed processing jobs correspond to
+734 observed original event setters from `102394c9` in the30-host-second
+`end` window. The full05b00000 fence still times out because this stage alone
+does not satisfy the other requested causes. This is an observed ISR join,
+not GUI startup or proof of a complete physical processing pipeline.
 
 ## Explicit functional assumptions
 
@@ -139,7 +171,8 @@ is transferred by QEMU DMA; a transfer failure produces no result packet or
 completion, even if earlier RAM writes occurred.
 
 Only after every required DMA succeeds are the bank/scalar packages replaced
-and raw6 ORed into the existing IRQ94 pending/W1C path. Published packages
+and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
+Published packages
 survive staging, commit and stop until a new successful replacement or reset.
 While raw6 is pending, a new TG is backpressured. Once software ACKs it,
 a new input/TG may replace unread values: an empty software queue may discard
@@ -180,6 +213,12 @@ reset, selected-bank stop/restart cancellation, independent bank replacement,
 output conflict/ROM/overflow/layout/extent rejection, and signed24/
 unsigned29/unsigned17 saturation with an explicit image input. The Sensor
 configuration/negative suite and exact-memory suite remain separate checks.
+The added stage-completion fixture first fails on the old model with raw3=0
+after real DMA. It covers no-input/commit silence, pre-completion timing, real
+RAM and numerical results before stage publication, mask/W1C independence,
+data backpressure, invalid-ROM rejection, cancellation, subsequent valid work,
+reset and cancellation by reset before completion. The applicable batch passes
+18 CMOS and33 Sensor cases; this supersedes no historical receipt's scope.
 The A-to-B-to-A cursor fixture first fails against byte-equality ownership,
 then all four statistics cases pass with revision ownership. The final
 unchanged-firmware run also uses that corrected implementation.

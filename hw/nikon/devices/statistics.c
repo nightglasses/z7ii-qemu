@@ -245,7 +245,11 @@ static void statistics_complete(void *opaque)
     nikon_capture_banks_results(s->banks, s->job_banks, results);
     nikon_capture_endpoints_results(s->endpoints, scalars);
     uint32_t causes[2] = { 0x40, 0 };
+    uint32_t stage[2] = { 0x20, 0 };
 
+    /* sw8 configures these outputs; its fence follows this job's real work. */
+    nikon_capture_publish(s->capture, NIKON_CAPTURE_THIRD_EVENT,
+                          stage, 2, &error_abort);
     nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
                           causes, 2, &error_abort);
     s->completed++;

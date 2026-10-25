@@ -29,10 +29,32 @@ OnVd `10325ff6 ->103250f2 ->10233570` repeatedly fails FE event mask5 at
 **old-cycle fence before new configuration/commit**, not a new-commit ACK.
 The callbacks and seven stage causes are source-established in the
 [runtime audit](../runtime/imagerequest.md#onvd-waits-and-processing-stage-ownership).
-Their actual stage work/results remain to be joined; existing statistics DMA
-does not authorize all these completion causes. FE bit4's producer also needs
-a source/runtime join. The literal100/200 timeout arguments have unverified
-extended-ABI units. The waits return on failure; no permanent OnVd lock is proven.
+The kernel confirms an AND wait for FE masks1/4 with requested-bit clearing.
+The bounded FE scan finds no mask4 producer; the event snapshot has pattern3b,
+with1 present and4 absent. OnVd immediately overwrites the wait return, so
+failure alone does not establish a hardware-ready gate. Indirect provenance and
+the independently guarded calculation entry remain open. Literal100/200 timeout
+arguments retain unverified extended-ABI units.
+
+The [per-stage audit](../runtime/imagerequest.md#work-and-result-ownership-across-the-fence-family)
+separates front-end packets, group cursor metadata, paired parameter results
+and actual statistics work. The accepted
+[statistics completion](../devices/statistics/protocol.md#processing-stage-completion)
+now publishes its own raw3.bit5/IRQ96 only after the owned ten-output processing
+and numerical results succeed. The added fixture fails on baseline raw3=0
+after actual DMA;18 CMOS plus33 Sensor cases pass. No other stage or FE bit is
+inferred from it.
+
+In the30-host-second cold-neutral `end` run,735 auxiliary DMAs and734 statistics
+jobs complete, with734 original event800000 setters from102394c9. FE mask5
+and the aggregate05b00000 still fail in50 matched waits each. A30-second
+guest-error-only run completes725/724. Both naturally end in service4/queue0,
+with caches1/2 unpublished, display masks0 and no console; reported rejection,
+statistics cancellation and peer rejection remain0. Front-end work, group
+buffer processing and PA2006953c-family result production remain open.
+The [fence receipt](/evidence/imagerequest/fence.json) separates source, native
+and unchanged-firmware observations; accepted configuration does not justify
+all requested completions.
 
 The normal information producer remains registered without an observed
 publication. An additional first-enable candidate is now source-joined:
@@ -61,7 +83,7 @@ completes818/817. Both end in service4 with empty queues, unpublished caches1/2,
 zero display masks and no console; no readout/statistics rejection, statistics
 cancellation or peer rejection is reported. Different trace filters affect
 throughput, so these are coordination observations, not rates or a complete
-stability claim. The next boundary is genuine FE/processing-stage completion
+stability claim. The next boundary is genuine FE/remaining-processing-stage completion
 and computed-input publication before the GUI information notification.
 The earlier [admission receipt](/evidence/imagerequest/admission.json) and
 six-range COPY comparisons retain their original scope. CPU0 at10100008 alone

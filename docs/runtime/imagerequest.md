@@ -9,8 +9,8 @@ have not been published in the observed windows. Short focused traces find a
 full service callback queue, but longer runs consume the transition and empty
 it. OnVd repeatedly times out on FE synchronization and an old-cycle processing
 fence. The finite model now admits auxiliary transport on the existing automatic
-input clock; that corrects acquisition cadence but does not supply the missing
-processing-stage completions. AF6's state9 request is a separate conditional route;
+input clock. Actual statistics work also supplies its own stage8 completion;
+the other requested stages remain distinct. AF6's state9 request is a separate conditional route;
 forcing it is not justified as a normal GUI prerequisite.
 
 Addresses below are original C1.70 MAS CPU VA unless explicitly marked PA.
@@ -268,7 +268,83 @@ Software unit1 is required repeatedly although its initialization commit1 is
 separate from later configuration; one commit cannot justify one universal
 completion. Each unresolved cause needs its own actual work, result extent,
 generation and cancellation contract. Existing ten-output statistics DMA and
-raw0.bit6 do not complete every stage. No new fence causes are fabricated.
+raw0.bit6 do not complete every stage. Its source-associated stage8 completion
+is now modelled separately below; the other causes are not filled in.
+
+### FE mask semantics and the missing producer
+
+The [fence audit](/evidence/imagerequest/fence.json), based on `f7383be5` and
+the accompanying statistics change, resolves the original kernel contract.
+Wrapper `103611b2` supplies wait mode20hex; handler `10111410` at
+`10111608..1011165c` requires all requested bits when mode bit0 is clear.
+Mode20 clears only those requested bits after success. Thus mask5 really
+requires masks1 and4 together; “bit4” here means mask04, not bit index4.
+Constructor `10361082` creates the event with pattern0 and attribute8.
+
+The bounded source audit covers96 functions referenced by the nearby FE
+global literals and direct setter calls in `1022de00..10236000`. It identifies
+mask1/2/8/10/20 producers, but no mask4 producer. This is not a claim that no
+indirect producer exists anywhere in the firmware. The30-second cold-neutral
+baseline `stages` snapshot has FE handle01000038, pattern3b: mask1 is still
+present while mask4 is absent. The changed-model `end` snapshot agrees.
+An additional8-second snapshot rules out three concrete indirect aliases at
+that sample: EX callback10206576 uses event-object pointer `b18a79e8` from
+`b18a7a60`;104aee2e uses `b188bb98` from `b188bb9c`;1037156a uses handle
+01000095 from `b180943c`. None is the FE object/handle. This does not exclude
+other callbacks or later pointer changes.
+
+At `102339dc`, immediately after the wait, the original code overwrites R0
+from its stack rather than testing the wait result. The following branches
+use independently prepared state, including the root and synchronization
+conditions described above. This is a timeout-tolerant synchronization wait;
+its failure does not alone establish a missing hardware-ready prerequisite.
+The evidence also does not establish that it is deliberately unused or obsolete.
+The next producer search must follow indirect notification registrations and
+shared tails, while tracing the actual gate into calculation. No capture-stage
+completion below is translated into this separate FE object's mask4.
+
+### Work and result ownership across the fence family
+
+The observed reconfiguration request mask2eb selects software units
+1/2/8/20/40/80/200. `10238974` maps only1/2/8/40/200 into05b00000;
+the statistics-bank and auxiliary-readout units20/80 have separate lifecycles.
+The complete seven-entry fence family is classified below. Values are
+hexadecimal; board addresses are PAs and function addresses MAS VAs.
+
+| Software unit | Configuration and actual result boundary |
+|---|---|
+| `1` | `1023aafe ->1020c444`: initialization commit1/run1 and capture packet. Existing mode0 auxiliary DMA can produce raw0.bit3 under its finite profile, but mode1 produces bit5; neither commits nor another stage's DMA justify replaying unit1's fence. The independent front-end work/input join remains unresolved. |
+| `2` | `1023a9d2 ->1020c3ec/c3fa`, commit4, run units4/8: front-end packet and controls. Configuration is retained; complete image transfer/result ownership is not established. |
+| `4` | `1023a984 ->1020c6ac`, commit200: five fields at PA20069200..20069210. No result producer is implemented; this unit is not selected by the observed2eb request. |
+| `8` | `1023a07e ->1020c862/c86c/c880/c894/c89e`, commit8/run10: existing ten output DMAs, twelve bank words and four scalars. This closes a specific actual-work contract; see below. |
+| `40` | `10239dc6 ->1020c17a`, commit10/run20: eight group result words at PA2006bb70..2006bd7c. The finite automatic-TG model produces address/cursor metadata, not writes to the referenced image buffers; that does not prove a completed pixel stage. |
+| `100` | `10239bcc ->1020c2c8`, commit100/run400: five-word PA20069500 record; result getter10209186 reads9534/9538/9544/954c. Those result meanings/production remain unimplemented; this unit is not selected by2eb. |
+| `200` | `10239820` and initial1023994c through1020c2d4, commit80/run200: six-word PA20069514 record; getter102091a8 reads953c/9540/9548/9550. The normal kind3 incremental producer can return without rewriting its retained packet. Neither that no-op nor acceptance of the initial parameters establishes the four result fields. |
+
+**Implemented functional hypothesis:** the unit8 configuration family is the
+same family consumed by the existing statistics coordinator. Only after that
+owned job's required DMAs and numerical results succeed does it publish
+raw word3 bit5. Original `10239480` then owns processed8 and event800000.
+This is an additional completion cause of real work, not an event on commit
+or TG. The [statistics contract](../devices/statistics/protocol.md#processing-stage-completion)
+defines its inherited ownership, cancellation and failure boundaries.
+
+In the30-host-second `end` trace,735 auxiliary transfers and734 statistics
+jobs complete. There are734 observed original event setters with object
+`b188814c`, mask800000 and LR `102394c9`; the source-associated ISR therefore
+consumes the newly modelled cause naturally. FE mask5 and the full05b00000
+still return `ffce0000` in50 matched waits each. The model does not supply
+the other requested causes100000/200000/1000000/4000000 merely to satisfy
+the aggregate mask. Service ends in4 with queue occupancy0, caches1/2
+unpublished, display masks0 and no console. No readout/statistics rejection,
+statistics cancellation or battery-peer rejection is reported. This remains
+the processing/input-publication boundary, not a new unsupported access or
+normal GUI output. A final processed-shadow sample of0 does not negate the
+observed earlier ISR/event setters.
+The30-second guest-error-only `quiet` run completes725 auxiliary transfers and
+724 statistics jobs with the same final boundary and zero reported rejections
+or statistics cancellations. Its CPU setters are not measured. Different trace
+filters preclude treating these counts as physical rates or speed comparisons.
 
 ## Acquisition on the normal input clock
 

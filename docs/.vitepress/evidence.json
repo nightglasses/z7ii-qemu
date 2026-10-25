@@ -42,6 +42,12 @@
         "title": "OnVd waits, input admission and first-enable notification",
         "href": "/evidence/imagerequest/coordination.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "fefence",
+        "title": "FE AND-wait semantics and source-associated statistics stage completion",
+        "href": "/evidence/imagerequest/fence.json",
+        "kind": "Execution observation"
       }
     ]
   },
@@ -417,6 +423,12 @@
         "run": "guicoordination",
         "title": "OnVd waits, input admission and first-enable notification",
         "href": "/evidence/imagerequest/coordination.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "fefence",
+        "title": "FE AND-wait semantics and source-associated statistics stage completion",
+        "href": "/evidence/imagerequest/fence.json",
         "kind": "Execution observation"
       }
     ]
@@ -1023,6 +1035,12 @@
         "title": "capturecompletion/native-revision-red.txt",
         "href": "/evidence/capturecompletion/native-revision-red.txt",
         "kind": "Native test excerpt"
+      },
+      {
+        "run": "fefence",
+        "title": "FE AND-wait semantics and source-associated statistics stage completion",
+        "href": "/evidence/imagerequest/fence.json",
+        "kind": "Execution observation"
       }
     ]
   },

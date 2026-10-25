@@ -642,6 +642,84 @@ static uint64_t statistics_sum(const uint8_t *bytes, unsigned x0, unsigned y0,
     return sum;
 }
 
+static void test_statistics_stage_completion(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_irq_intercept_out_named(q, "/machine/capture-control", "sysbus-irq");
+    statistics_configure(q);
+    qtest_writel(q, CAPTURE + 0x260, 0x20);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 999999);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x101000), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x101000), !=, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, 0x2006a110), ==, 128);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290), ==, 0);
+    g_assert_true(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+
+    /* Masking and W1C retain the existing independent data/stage causes. */
+    qtest_writel(q, CAPTURE + 0x260, 0);
+    g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
+    qtest_writel(q, CAPTURE + 0x260, 0x20);
+    g_assert_true(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    qtest_writel(q, CAPTURE + 0x270, 0x20);
+    g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0x40);
+
+    /* Neither a new commit nor a blocked/failed/cancelled job replays it. */
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    qtest_writel(q, 0x2006a450, 0x10020000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "rejected"), ==, 1);
+    qtest_writel(q, 0x2006a450, RAM + 0x100000);
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_writel(q, CAPTURE + 0xc, 0x10);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "cancelled"), ==, 1);
+    qtest_writel(q, CAPTURE + 8, 0x10);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
+    qtest_system_reset(q);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    statistics_configure(q);
+    statistics_input(q, NULL);
+    statistics_rise(q);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 static void test_statistics_transaction(void)
 {
     g_autofree char *bundle = NULL;
@@ -973,6 +1051,8 @@ int main(int argc, char **argv)
                    test_pipeline_cancel_and_reset);
     qtest_add_func("/nikon/cmos/statistics/transaction",
                    test_statistics_transaction);
+    qtest_add_func("/nikon/cmos/statistics/stage-completion",
+                   test_statistics_stage_completion);
     qtest_add_func("/nikon/cmos/statistics/saturation",
                    test_statistics_saturation);
     qtest_add_func("/nikon/cmos/statistics/lifecycle",
