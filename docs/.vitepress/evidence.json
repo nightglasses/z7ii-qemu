@@ -60,6 +60,12 @@
         "title": "Explicit scene DMA, statistics and remaining GUI boundary",
         "href": "/evidence/imagerequest/scene.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "frontnotification",
+        "title": "Shared acquisition synchronization, original notification route and remaining processing guard",
+        "href": "/evidence/imagerequest/notification.json",
+        "kind": "Execution observation"
       }
     ]
   },

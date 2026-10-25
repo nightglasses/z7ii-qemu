@@ -160,3 +160,44 @@ PC/task. Unsupported profiles or non-RAM destinations remain rejected, with a
 diagnostic reason and no completion.
 
 Without the bundle the provider remains disconnected: configuration, commit/run and request observation do not perform DMA or publish an IRQ. Native pipeline fixtures cover first-run with `b400` still0, selected commit/staging isolation, mode0/1 completion causes, repeated high, busy ownership, format/geometry/RAM rejection and cancellation by stop/reset/disable. The input-boundary fixture additionally covers pending ownership, immutable mapping/mode, no-input silence, ignored unrelated DONE, discarded early/busy edges, pending cancellation/reset and actual automatic-TG board wiring versus forced levels. It fails on the former immediate-submit model; the scoped17 CMOS,33 Sensor and1 readout-unit batch passes. These tests establish the finite contract, separately from unchanged-firmware progress and physical fidelity. [Readout ownership](../../runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join) records the original source chain; the [coordination audit](../../runtime/imagerequest.md#acquisition-on-the-normal-input-clock) and [receipt](/evidence/imagerequest/coordination.json) qualify original-firmware execution.
+
+### Shared acquisition input synchronization
+
+The C1.70 source route `102391b2 -> owner1 ->10238d4a ->041a000f ->1022f318`
+reaches the shared tail `1022f526 ->1022f37c`, setting mask `4` on FE wait
+object MAS VA `b1887d9c`. This resolves the software producer of the OnVd
+AND wait for mask `5`. It is not the property notification's worker mask `20`,
+and it is not a unit1/2 processing-completion cause.
+
+**Functional hypothesis, implemented:** the bundle's virtual camera acquisition
+supplies both the existing auxiliary transport and input synchronization. The
+capture controller's effective physical run bit0 reaches pipeline `input-run`.
+Qualification starts at successful CMOS submission on a fresh automatic TG
+edge, **not** at earlier request reservation. Only a qualified generation's
+actual successful DMA, immutable snapshot and accepted readout completion can
+add raw word0 bit0 to the existing auxiliary cause. A falling run0 revokes the
+current generation permanently; restarting or starting during DMA cannot
+restore it. That revocation does not cancel auxiliary work owned by run bit1.
+A start while merely waiting for acquisition may qualify the next fresh edge.
+
+CMOS submission now returns a nonzero producer-generation token. Before a DONE
+signal consumes its request, the pipeline requires the same token and actual
+CMOS DONE phase. A premature external DONE is ignored without retiring the
+live transfer; cancellation, error, reset and a newer provider generation do
+not become success. No input status is generated from an old frame, run intent,
+commit, elapsed time, repeated/forced/busy TG, invalid input or a failed snapshot.
+Reset clears in-flight qualification and tokens; the existing input GPIO levels
+and monotonic diagnostic counters follow the established pipeline lifecycle.
+The read-only `input-notifications` count measures qualified status publications,
+including masked ones, rather than guest callback invocations.
+
+The additional native `pipeline/input-sync` case is red on baseline raw0=`20`
+instead of `21`. A further red catches premature DONE during active acquisition.
+The passing 22-CMOS/33-Sensor batch verifies actual RAM before sync, mask enable/
+W1C, no added frontend processing bits, stop/restart and late-start revocation,
+fresh-input requalification, unbound input, cancellation and reset. Existing
+no-input, busy/stale, DMA-error and statistics cases also pass. The
+[runtime audit](../../runtime/imagerequest.md#notification-routing-and-actual-submission)
+records original ISR delivery and successful FE synchronization separately.
+Neither those observations nor this shared virtual input identify the physical
+main stream, unit1/2 pixel operations, their result buffers or complete GUI boot.

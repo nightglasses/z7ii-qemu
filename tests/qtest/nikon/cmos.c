@@ -664,6 +664,97 @@ static void test_pipeline_run_completion(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+static void test_pipeline_input_sync(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle);
+
+    qtest_irq_intercept_out_named(q, "/machine/capture-control", "sysbus-irq");
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 1U << 16);
+    qtest_writel(q, CAPTURE + 0x10, 1);
+    qtest_writel(q, CAPTURE + 8, 1);
+    qtest_memset(q, RAM, 0xa5, 0x200);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_clock_step(q, 10000);
+    /* A run request, elapsed time or unrelated DONE is not acquired input. */
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 1);
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    pipeline_input(q);
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 1);
+    qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
+                     NIKON_CMOS_PIPELINE_DONE, 0);
+    /* Even during acquisition, the provider token must actually be DONE. */
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
+    /* Input sync and auxiliary completion; no frontend-processing ACK. */
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x21);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE + 0x200, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE + 0x210, 1);
+    g_assert_false(qtest_get_irq(q, 0));
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
+    qtest_writel(q, CAPTURE + 0x210, 0x20);
+
+    /* Stopping and restarting unit1 cannot qualify an older transfer. */
+    pipeline_request(q);
+    qtest_writel(q, CAPTURE + 0xc, 1);
+    qtest_writel(q, CAPTURE + 8, 1);
+    qtest_clock_step(q, 100);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
+    qtest_writel(q, CAPTURE + 0x210, 0x20);
+
+    /* A late start cannot turn previously acquired input into a sync. */
+    qtest_writel(q, CAPTURE + 0xc, 1);
+    pipeline_request(q);
+    qtest_writel(q, CAPTURE + 8, 1);
+    qtest_clock_step(q, 100);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
+    qtest_writel(q, CAPTURE + 0x210, 0x20);
+
+    pipeline_request(q);
+    qtest_clock_step(q, 100);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x21);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
+    qtest_writel(q, CAPTURE + 0x210, 0x21);
+
+    pipeline_request(q);
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    qtest_clock_step(q, 100);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE + 8, 2);
+    pipeline_request(q);
+    /* Reset a separately qualified active transfer, without prior cancel. */
+    qtest_system_reset(q);
+    pipeline_input(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 1U << 16);
+    qtest_writel(q, CAPTURE + 0x10, 3);
+    qtest_writel(q, CAPTURE + 8, 3);
+    pipeline_request(q);
+    qtest_clock_step(q, 100);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
 static void test_pipeline_unit_cancellation(void)
 {
     static const unsigned cancel[] = { 0xc, 0, 0x14 };
@@ -1226,6 +1317,7 @@ int main(int argc, char **argv)
                    test_pipeline_input_boundary);
     qtest_add_func("/nikon/cmos/pipeline/run-completion",
                    test_pipeline_run_completion);
+    qtest_add_func("/nikon/cmos/pipeline/input-sync", test_pipeline_input_sync);
     qtest_add_func("/nikon/cmos/pipeline/unit-cancellation",
                    test_pipeline_unit_cancellation);
     qtest_add_func("/nikon/cmos/pipeline/rejections",

@@ -7,10 +7,11 @@ The image-task branch rejects the surviving sequence phase before image DMA.
 An upstream task cancels the eligible phase because two computed-input caches
 have not been published in the observed windows. Short focused traces find a
 full service callback queue, but longer runs consume the transition and empty
-it. OnVd repeatedly times out on FE synchronization and an old-cycle processing
-fence. The finite model now admits auxiliary transport on the existing automatic
-input clock. Actual statistics work also supplies its own stage8 completion;
-the other requested stages remain distinct. AF6's state9 request is a separate conditional route;
+it. The finite model admits auxiliary transport on the existing automatic
+input clock and now closes OnVd's FE synchronization through a qualified shared
+acquisition notification. The old-cycle processing fence still fails. Actual
+statistics work supplies its own stage8 completion; the other requested stages
+remain distinct. AF6's state9 request is a separate conditional route;
 forcing it is not justified as a normal GUI prerequisite.
 
 Addresses below are original C1.70 MAS CPU VA unless explicitly marked PA.
@@ -281,7 +282,7 @@ Mode20 clears only those requested bits after success. Thus mask5 really
 requires masks1 and4 together; “bit4” here means mask04, not bit index4.
 Constructor `10361082` creates the event with pattern0 and attribute8.
 
-The bounded source audit covers96 functions referenced by the nearby FE
+The historical bounded source audit covers96 functions referenced by the nearby FE
 global literals and direct setter calls in `1022de00..10236000`. It identifies
 mask1/2/8/10/20 producers, but no mask4 producer. This is not a claim that no
 indirect producer exists anywhere in the firmware. The30-second cold-neutral
@@ -299,9 +300,10 @@ use independently prepared state, including the root and synchronization
 conditions described above. This is a timeout-tolerant synchronization wait;
 its failure does not alone establish a missing hardware-ready prerequisite.
 The evidence also does not establish that it is deliberately unused or obsolete.
-The next producer search must follow indirect notification registrations and
-shared tails, while tracing the actual gate into calculation. No capture-stage
-completion below is translated into this separate FE object's mask4.
+The later [notification audit](#notification-routing-and-actual-submission)
+follows the indirect registration and shared tail, resolving the missing mask4
+software producer. Its finite acquisition association is separately labelled;
+processing-stage completion alone is not translated into this FE mask.
 
 ### Work and result ownership across the fence family
 
@@ -464,6 +466,123 @@ calculation, `1035a2d8` information builder or `105801ce` enable entry.
 The stable scene therefore does not repair the missing front-end/calculation
 join. Counts from different durations are not a rate or stability comparison.
 No additional stage, FE flag or display enable is synthesized by this change.
+
+### Notification routing and actual submission
+
+The [notification audit](/evidence/imagerequest/notification.json) separates
+three status/worker namespaces on baseline `9594e980`, and validates the
+accompanying finite input-synchronization model with unchanged C1.70 and the
+same cold-neutral scene input. Addresses below are
+MAS VAs except the explicitly labelled board PAs; identifiers and masks are
+hexadecimal. These are source-established software routes, not recovered
+physical pixel-event definitions.
+
+| Capture status and owner | Original callback | FE worker effect |
+|---|---|---|
+| Raw word 0 bit 0 -> owner `1` | `10238d4a -> b188816c(041a000f,0) ->1022f318` | Shared tail `1022f526 ->1022f37c` sets mask `4` on FE wait object `b1887d9c`. This is the previously unresolved half of the OnVd mask `5` AND wait, not a direct FECLCTRK submission or cache1/2 publication. |
+| Raw word 0 bit 7 -> owner `10` | `10238d4a ->1023c6ec -> b1888168(041a0001,root)` when lane flag bit0 selects the queue path | `1022e2e0` posts `10000`, dispatched to `1022ff20`. This is **not** worker bit `8` and does not directly call `10230368`. Other `1023c6ec` branches can send `041a0004` instead. |
+| FE worker bit `8` | Producer not closed by this audit | `1023162c ->10230368` consumes queue `b25eebc4`; only a nonempty root reaches its stop/callback path and sets synchronization latch `b1887dc8=1`. No row above establishes the producer of this bit. |
+
+The worker-`20` path through `10235944` belongs instead to notification
+`04400044` with argument low byte `21`. It clears auxiliary `80` participation
+before testing transition state. Its shared instruction tail must not be
+confused with `041a000f`. The raw bit0 route establishes the missing FE mask4
+**software producer**, but not the hardware work that should originate it.
+
+`102389dc` explicitly adds raw word 0 mask `80` to the normal `79` packet
+on its guarded retirement path. The input notification and this retirement
+notification therefore must not be conflated, or supplied after every auxiliary
+DMA. In the instrumented active configuration the raw word 0 mask is
+`10000079`; at the final changed-lane snapshot it is `10000020`. A missing
+owner entry alone does not establish that its cause should be enabled and
+produced in every phase.
+
+The submission side is positively identified. `1022fca6 ->1023ad8e(1)` first
+initializes unit1 with an empty eight-entry stage-input packet, calls
+`1023aafe ->1020c444`, submits both commit commands with mask `1`, and requests
+physical run mask `1` (bit0). Dynamic `1023912c` updates follow. The probes see unit1
+control PA `20068500=0` and a temporary parameter PA `20068708=1`, later
+overwritten to zero. This does not establish a complete bypass or a no-work
+mode.
+
+`10232040` subsequently adds software mask `2ea`. Unit2's actual kind/subtype
+is `3/0`; its ROM-selected policy reaches the packet writers and both mask `4`
+commit commands before physical run masks `8` and `4`. Thus the normal producer
+is executing, rather than waiting for a host-supplied packet. Later
+`1023b00e(2eb)` calls the old-cycle fence with clear requested, then falls
+through to `1023aed8` **without branching on its return**. That updater can
+retain unit2's packet when the kind is unchanged, updates the other selected
+units and issues shared commit `9e` through `1020bfaa`. The pause-free trace
+observes that commit and the normal auxiliary/statistics owners. A fence
+timeout by itself is not a sufficient explanation for absent new submissions.
+
+A separate read-only breakpoint probe samples eight selected roots, sequences
+4 through 11, at `102314e6`. Each has `b1887db0=0`, `b1887dc0=0`,
+`b1887dc8=0`, mode byte `b1887d72=0` and metadata byte `+10132=0`.
+This is the exact source branch that bypasses `10235afe`, rather than a
+calculation blocked inside unit1/2. In sequences 5 through 11 the two expected
+and observed exposure pairs at metadata `+11580/+11856` and `+11588/+11864`
+already match. The preceding mode/metadata guard prevents those comparisons
+from being attempted in this branch; matching them does not set the latch.
+This probe does not establish which upstream request should change that guard.
+
+The pause-free 40-host-second `join` window completes 733 auxiliary DMAs and
+732 statistics jobs. There are no reported transport/statistics rejections,
+statistics cancellations or battery-peer rejections. The final service queue
+is empty, caches1/2 remain unpublished, and neither display head has a console.
+The focused filter sees no `10230368`, `10235afe`, `10273268`, `10272d62` or
+`1035a2d8` entry. Three additional 40-second breakpoint windows establish the
+configuration and root fields above; their scheduling is instrumented and is
+not pooled with the pause-free observation.
+
+**Implemented functional hypothesis:** a shared virtual acquisition delivers
+the auxiliary samples and an input-synchronization observation. When physical
+capture run bit0 is high at successful CMOS submission on the fresh automatic
+TG boundary, that generation can publish raw0.bit0 after its actual DMA,
+snapshot and readout completion succeed. A falling run bit permanently revokes
+that generation's qualification without cancelling its still-valid auxiliary
+DMA. A later start does not qualify input already being acquired. Reservation,
+commit, TG alone, unbound input, cancellation/reset and premature or stale DONE
+do not publish it. The provider now returns an actual CMOS generation token;
+DONE must match that token and the completed DMA phase. This also fixes the
+previous premature-DONE acceptance boundary.
+
+This explicitly associates one virtual camera acquisition with two consumers;
+it does not recover the physical origin of raw0.bit0, identify a main-stream
+format or produce unit1/2 processing results. Mask/GIC/W1C and original ISR/
+owner/callback code deliver the notification. No host code sets the FE event.
+The [device contract](../devices/sensor/protocol.md#shared-acquisition-input-synchronization)
+defines the model and native boundaries.
+
+The changed-model 40-second `sync` window completes 375 auxiliary DMAs and
+374 statistics jobs, with 375 qualified input status publications. The trace
+now observes owner1 and the original FE mask4 setter with LR `10238d65`.
+All 41 observed OnVd resume points at `102339dc` have wrapper return1, instead
+of the historical failed mask5 waits. That closes this synchronization edge
+through normal guest code. It does not prove the physical association: this
+is acceptance of the declared functional model, not camera measurement.
+
+The next processing boundary remains explicit. One unit1-only fence
+(`100000`) and 39 aggregate fences (`05b00000`) return0 in the same trace.
+The observed data-stage setter is still only `800000` from `102394c9`.
+Cache1/2 remain unpublished, with no `10235afe`, `10273268`, `10272d62`,
+`1035a2d8` or first-enable entry observed. Both heads still lack a console.
+The trace is much wider than `join`; its counters are not a throughput
+comparison. Rejection, statistics cancellation and peer rejection remain0.
+A separate 40-second guest-error-only `steady` window completes 345 auxiliary
+DMAs and 345 statistics jobs, with 345 qualified input status publications.
+It also has no reported rejection/cancellation, no console and unpublished
+caches1/2. This verifies the low-observation boundary without measuring FE wait
+returns or establishing complete runtime stability.
+
+**Unresolved processing boundary:** unit1/2's actual stream operation and owned
+outputs are not identified by this input-synchronization model. In particular,
+control zero is not yet a proven whole-stage bypass, and the source does not
+associate raw bit7 with the unwritten secondary buffer. Group and paired-result
+work remains separate. The next discriminating evidence is a bounded streaming
+input/output operation for the submitted stages and the normal guard transition
+that admits FECLCTRK. No new external-record or real-camera requirement has been
+established. Those unknown completions are not supplied by the new input sync.
 
 ## Acquisition on the normal input clock
 

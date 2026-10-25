@@ -509,15 +509,17 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
     timer_del(s->timer);
     s->active = s->configuration;
     s->row = s->column = 0;
-    s->generation++;
+    if (!++s->generation) {
+        s->generation++;
+    }
     s->status = 0;
     nikon_cmos_phase(s, NIKON_CMOS_EXPOSING);
     nikon_cmos_schedule(s, s->active.exposure_ns);
     return true;
 }
 
-bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
-                       Error **errp)
+uint64_t nikon_cmos_submit(DeviceState *dev,
+                           const NikonCmosSubmission *submission, Error **errp)
 {
     NikonCmosState *s = NIKON_CMOS(dev);
     NikonCmosConfig previous = s->configuration;
@@ -525,7 +527,7 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
 
     if (!submission || submission->format != NIKON_CMOS_FORMAT_FUNCTIONAL_C170) {
         error_setg(errp, "CMOS submission format is unsupported");
-        return false;
+        return 0;
     }
     config.width = submission->width;
     config.height = submission->height;
@@ -544,9 +546,17 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
     s->configuration = config;
     if (!nikon_cmos_begin(s, errp)) {
         s->configuration = previous;
-        return false;
+        return 0;
     }
-    return true;
+    return s->generation;
+}
+
+bool nikon_cmos_completed(DeviceState *dev, uint64_t generation)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    return generation && generation == s->generation &&
+           s->phase == NIKON_CMOS_DONE;
 }
 
 static void nikon_cmos_start(NikonCmosState *s)

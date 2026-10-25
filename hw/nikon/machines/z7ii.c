@@ -1322,6 +1322,8 @@ static void z7ii_init(MachineState *machine)
         /* One input boundary clocks transport admission and processing. */
         qdev_connect_gpio_out(input_split, 2,
             qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
+        qdev_connect_gpio_out_named(capture, "run-state", 0,
+            qdev_get_gpio_in_named(pipeline, "input-run", 0));
         object_property_set_link(OBJECT(statistics), "endpoints",
                                  OBJECT(endpoints), &error_fatal);
         object_property_set_link(OBJECT(statistics), "banks", OBJECT(banks),

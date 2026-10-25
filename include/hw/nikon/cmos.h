@@ -49,10 +49,12 @@ typedef struct NikonCmosSubmission {
     uint64_t readout_ns;
 } NikonCmosSubmission;
 
-/* The direct producer contract uses the diagnostic aperture's validation,
- * DMA, timing, cancellation, and completion state machine. */
-bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
-                       Error **errp);
+/* Submission returns its nonzero provider generation, or zero on failure.
+ * DONE is qualified against that token and the actual completed DMA phase.
+ */
+uint64_t nikon_cmos_submit(DeviceState *dev,
+                           const NikonCmosSubmission *submission, Error **errp);
+bool nikon_cmos_completed(DeviceState *dev, uint64_t generation);
 
 /* Cancellation is a guest command; no physical sensor pin or IRQ number is
  * assigned here.  A machine may wire the single SysBus IRQ if a source-bound

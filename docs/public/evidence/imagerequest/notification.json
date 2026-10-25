@@ -1,0 +1,128 @@
+{
+  "scope": "C1.70 software route and finite shared virtual acquisition synchronization; FE wait closes, frontend processing and GUI remain unresolved",
+  "baseline": "9594e980",
+  "implementation": "accompanying cmos.c token, readoutpipeline.c input synchronization and z7ii.c run0 wiring changes",
+  "notation": "MAS function/data VAs and board PAs explicitly distinguished; addresses/masks hexadecimal; sequences/counters/durations decimal",
+  "input": {
+    "firmware": "unchanged original C1.70 bundle",
+    "descriptor32": "same cold-neutral input",
+    "scene": "explicit P5 2x2, maxval255, pixels32/192/64/224; fixture-provider false",
+    "other_inputs": "existing TEMP3 descriptor17, descriptor18, empty descriptor12, acceleration(0,0,1024), RNG0, healthy paced UART battery, held F4",
+    "execution": "five CPUs with MTTCG",
+    "loader_COPY_comparison": "not repeated"
+  },
+  "source_routes": {
+    "raw0_bit0": "102391b2 posts owner1;10238d4a calls b188816c(041a000f,0);1022f318 sharedtail1022f526 ->1022f37c sets mask4 on FE wait objectb1887d9c. This closes the software producer missing from the earlier bounded mask4 scan, not its hardware work producer.",
+    "distinct_worker20": "04400044 with argument lowbyte21 posts worker20;1023162c calls10235944, clearing auxiliary80 participation before transition guards. It is not the041a000f branch.",
+    "raw0_bit7": "102391b2 posts owner10;10238d4a calls1023c6ec; the lane-bit0 queue branch sends041a0001;1022e2e0 posts worker10000 ->1023162c ->1022ff20, not10230368",
+    "FE_worker8": "1023162c calls10230368; a nonempty b25eebc4 queue is necessary for its processing path and b1887dc8=1. Producer not established here.",
+    "mask_transition": "102389dc conditionally ORs raw0 mask80 into normal79 packet on its retirement path; bit7 is not universally enabled",
+    "unit1": "1022fca6 ->1023ad8e(1) ->1023aafe ->1020c444 -> shared commands1/1 and physical run mask1(bit0); dynamic1023912c is a separate parameter producer",
+    "unit2": "10232040 adds software mask2ea;1023a9d2 uses kind3/subtype0 ROM policy;1020c3c0 commits4/4 then starts physical run masks8/4",
+    "incremental": "1023b00e(2eb) ignores the fence return before1023aed8; unchanged kind can retain unit2 policy; shared commit9e follows the selected updates"
+  },
+  "pause_free_join": {
+    "host_seconds": 40,
+    "observation": "cpu,nochain with focused boundary filters; read-only end snapshot; no in-transaction GDB pauses or injected guest state",
+    "completed_auxiliary_dma": 733,
+    "completed_statistics": 732,
+    "readout_rejections": 0,
+    "statistics_rejections": 0,
+    "statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "owner_entry_observations": {"20000000": 764, "4": 740, "10000000": 1},
+    "entry_observation_limit": "TCG entry observations are not asserted to be distinct calls or physical rates",
+    "positive": "unit1 and unit2 initialization, dynamic unit1 commits, incremental commit9e, 102313ea and owner auxiliary/statistics dispatch",
+    "not_observed": "owner1,owner10,10230368,10235afe,10273268,10272d62,1035a2d8 within the declared filters/window",
+    "filter_MAS_VA": "10238d4a..10238d52,1023162c..10231634,1022f318..1022f320,1022e2e0..1022e2e8,10230368..10230370,102313ea..102313f2,10235afe..10235b06,10235b96..10235b9e,10210334..1021033c,1022da7a..1022da82,1023abaa..1023abb2,1023aafe..1023ab06,1023a9d2..1023a9da,1020ab20..1020ab30,1020a50c..1020a530,1020a538..1020a568,1020a550..1020a558,10273268..10273270,10272d62..10272d6a,1035a2d8..1035a2e0",
+    "final_run_PA20068008": "1d",
+    "final_mask_PA20068200": "10000020",
+    "final_service_queue_occupancy": 0,
+    "cache1_and_cache2_published": false,
+    "display_console": false
+  },
+  "instrumented_windows": {
+    "scope": "Three separate40-host-second runs with read-only auto-continuing GDB breakpoints; same input and implementation; scheduling affected",
+    "inspect": {
+      "completed_auxiliary_dma": 750,
+      "completed_statistics": 749,
+      "qualification": "control/parameter samples valid; initial r2 pointer decoding was signed, so request-memory reads failed and are excluded"
+    },
+    "gates": {
+      "completed_auxiliary_dma": 803,
+      "completed_statistics": 802,
+      "qualification": "unsigned register decoding; observes first empty eight-entry stage-input packet and later2ea pointer packet; all request-memory reads succeed; function-entry queue samples do not identify the selected root"
+    },
+    "roots": {
+      "completed_auxiliary_dma": 757,
+      "completed_statistics": 756,
+      "probe_MAS_VA": "102314e6, R4 selected root",
+      "sequences": [4,5,6,7,8,9,10,11],
+      "all_samples": {"b1887db0": 0,"b1887dc0": 0,"b1887dc8": 0,"b1887d72": 0,"root_metadata_byte10132": 0},
+      "exposure_pairs_sequences5_to11": "metadata+11580 equals+11856; +11588 equals+11864; preceding mode/metadata guard still bypasses comparison and calculation submission"
+    },
+    "configuration_observations": {
+      "unit1_PA20068500": "0",
+      "unit1_temporary_PA20068708": "1 then0; not evidence of whole-stage bypass",
+      "active_run_PA20068008": "2bf",
+      "active_mask_PA20068200": "10000079",
+      "unit2_enable_PA20069f00": "11"
+    },
+    "all_windows": "running at query, zero reported readout/statistics rejection, statistics cancellation and peer rejection; caches1/2 unpublished and no console at end"
+  },
+  "model_contract": {
+    "classification": "implemented functional hypothesis, not recovered physical input producer",
+    "meaning": "one shared virtual camera acquisition supplies auxiliary samples and input synchronization; it does not supply unit1/2 processing completion",
+    "qualification_start": "capture physical run bit0 high at successful CMOS submission on fresh automatic TG, not request reservation",
+    "completion": "actual CMOS generation token and DONE phase, successful DMA snapshot and accepted readout completion, then add raw0.bit0 to existing auxiliary cause",
+    "revocation": "run0 fall permanently revokes sync for current acquisition without cancelling auxiliary DMA; late/repeated rises cannot restore it",
+    "negative_boundaries": "no sync from reservation/commit/TG alone, unbound input, premature or stale DONE, cancellation/reset/error/failed snapshot",
+    "counter": "input-notifications counts qualified status publications, including masked ones, not callback invocations"
+  },
+  "native": {
+    "baseline_red": "pipeline/input-sync: actual raw0=20, expected21 after completed mode1 DMA with run0 qualified",
+    "additional_red": "first repair still accepted an injected DONE during acquisition; actual raw0=21, expected0 before actual CMOS DONE",
+    "command": "make check MTESTARGS='nikon_cmos nikon_sensor'",
+    "result": "PASS:22 CMOS and33 Sensor subtests",
+    "additional_reset_check": "PASS: final input-sync fixture separately resets an active qualified transfer after its cancellation case; same implementation",
+    "coverage": "actual RAM before input sync, no frontend processing ACK, mask/W1C, silent reservation/time/unrelated or premature DONE, run0 stop/restart and late-start revocation, fresh-input requalification, unbound input, cancellation and reset; existing statistics/DMA/input-boundary cases pass"
+  },
+  "changed_sync_window": {
+    "host_seconds": 40,
+    "instrument": "pause-free cpu,nochain focused original-boundary trace plus read-only end snapshot",
+    "completed_auxiliary_dma": 375,
+    "completed_statistics": 374,
+    "input_status_publications": 375,
+    "positive_route": "owner1 and mixed owner20000001 observed; original FE wait-object mask4 setter seen with LR10238d65",
+    "FE_mask5_resume_PC102339dc": {"wrapper_return1_observations": 41,"wrapper_return0_observations": 0},
+    "processing_fence_resume_PC102389c6": {"mask100000_return0_observations": 1,"mask05b00000_return0_observations": 39},
+    "observed_processing_setter": "800000, LR102394c9:374 TCG entry observations; not a distinct-call guarantee",
+    "not_observed": "10235afe,10230368,10273268,10272d62,1035a2d8,105801ce entries in focused window/filter",
+    "final_cache1_and_cache2_published": false,
+    "display_console": false,
+    "readout_or_statistics_rejections": 0,
+    "statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "final_run_PA20068008": "1d",
+    "final_service_queue_occupancy": 0,
+    "scope_limit": "wider trace than baseline join; counts are not a throughput comparison; successful FE synchronization does not prove physical producer binding"
+  },
+  "changed_steady_window": {
+    "host_seconds": 40,
+    "instrument": "guest_errors only; no in-transaction GDB pauses; read-only end snapshot",
+    "completed_auxiliary_dma": 345,
+    "completed_statistics": 345,
+    "input_status_publications": 345,
+    "readout_or_statistics_rejections": 0,
+    "statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "final_run_PA20068008": "1d",
+    "final_service_queue_occupancy": 0,
+    "final_cache1_and_cache2_published": false,
+    "display_console": false,
+    "limit": "does not measure FE setters or wait returns; no complete runtime-stability claim"
+  },
+  "next_discriminating_evidence": "Bounded stream operation and owned outputs for submitted unit1/2, separate group/paired results, and normal guard transition admitting FECLCTRK; no new external-record or real-camera requirement established",
+  "validation": "Native red/green and55-case batch plus final active-reset check PASS; documentation build recorded with accompanying change.",
+  "limits": "No source-bound physical frontend pixel model, normal GUI output, complete boot or stability proof. Independent windows are not pooled or compared as rates. Curated summary omits raw firmware/disassembly and full debugger/CPU captures."
+}

@@ -24,16 +24,17 @@ the later [coordination audit](/evidence/imagerequest/coordination.json) observe
 `10323198(10,2)` and naturally reaches service4 with queue occupancy0 in both
 the baseline and the changed model. Backlog is not a permanent transition block.
 
-OnVd `10325ff6 ->103250f2 ->10233570` repeatedly fails FE event mask5 at
+In the historical baseline, OnVd `10325ff6 ->103250f2 ->10233570` fails FE event mask5 at
 `102339d8` and processing-unit mask05b00000 at `102389c2`. The latter is an
 **old-cycle fence before new configuration/commit**, not a new-commit ACK.
 The callbacks and seven stage causes are source-established in the
 [runtime audit](../runtime/imagerequest.md#onvd-waits-and-processing-stage-ownership).
 The kernel confirms an AND wait for FE masks1/4 with requested-bit clearing.
-The bounded FE scan finds no mask4 producer; the event snapshot has pattern3b,
+The historical bounded FE scan found no mask4 producer; the event snapshot has pattern3b,
 with1 present and4 absent. OnVd immediately overwrites the wait return, so
-failure alone does not establish a hardware-ready gate. Indirect provenance and
-the independently guarded calculation entry remain open. Literal100/200 timeout
+failure alone does not establish a hardware-ready gate. The notification audit
+below now resolves the mask4 software route and models qualified input sync;
+the independently guarded calculation entry remains open. Literal100/200 timeout
 arguments retain unverified extended-ABI units.
 
 The [per-stage audit](../runtime/imagerequest.md#work-and-result-ownership-across-the-fence-family)
@@ -76,6 +77,24 @@ Four buffer samples and all four scalars match the supplied2x2 scene exactly.
 The54-case native batch separately verifies the finite data path. Cache1/2
 remain unpublished and there is still no console: usable auxiliary image data
 alone does not close the front-end input or calculation-production boundary.
+
+The [notification/submission audit](../runtime/imagerequest.md#notification-routing-and-actual-submission)
+closes `041a000f -> FE wait mask4` through its shared instruction tail. This
+supersedes the earlier bounded search that found no mask4 producer. The separate
+`041a0001 -> FE worker10000` does not dispatch the FE8 completed-queue consumer.
+Unit1 initialization, unit2 policy
+submission and incremental commit `9e` execute. Eight selected roots still take
+the mode0/metadata0/synchronization0 branch before calculation submission.
+The implemented shared virtual acquisition hypothesis now publishes input sync
+only after actual owned CMOS DMA, snapshot and completion, with continuously
+qualified capture run bit0. A55-case native batch covers token validation,
+revocation, cancellation/reset and mask/W1C behavior. In the changed-model
+40-second explicit-scene run,375 auxiliary DMAs and374 statistics jobs complete.
+Owner1 and the original FE mask4 setter execute, and all41 observed OnVd mask5
+resume points return1. The unit1-only fence and39 aggregate processing fences
+still return0. Cache1/2 and GUI output remain absent; input synchronization
+does not substitute for unit1/2, group or paired-result work. The physical
+association remains an explicit hypothesis.
 
 The normal information producer remains registered without an observed
 publication. An additional first-enable candidate is now source-joined:
