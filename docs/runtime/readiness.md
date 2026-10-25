@@ -102,6 +102,13 @@ finds the missing initial unit2 run request and closes its primary DMA/IRQ/
 owner-marker loop. Two cold-neutral runs now complete over1500 functional
 transfers each without a console. The separate raw0.bit6/owner-bit2 data
 consumer remains absent; its connection to GUI is not yet established.
+The [capture data audit](capturedata.md) then traces that cause through four
+queues to pending40000 retirement. All33 sampled queued roots have root[16]=0,
+which bypasses the upper image-delivery branch even after retirement. The
+direct setter `103250f2 -> 10324f04(root+8)` requires `b1868af6=1`
+and unequal counters `b1868b94/b1868b98`; the snapshot has that state byte0.
+The complete capture-pool RAM family is now backed, but processing results and
+the separate bit6 producer remain absent; no new GUI progress is claimed.
 This closes the ID68 condition for the declared cold
 profile; it does not imply that the erased-input baseline below is valid,
 that the GUI gate changed, or that normal-menu output has been reached.

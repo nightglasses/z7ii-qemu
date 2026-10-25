@@ -372,6 +372,11 @@ primary-completion profile does not produce that separate cause or the
 secondary plane. Global041a0002 occurs through other producers, so neither
 its presence nor absence identifies this owner path. Recovering the data
 producer for raw0.bit6 is the next readout boundary; its relationship to the
-remaining GUI condition still needs evidence. The AFHI/AFPX debug-file names
+remaining GUI condition still needs evidence. The subsequent
+[data-completion audit](capturedata.md) establishes queue submission,
+statistics/scalar dependencies and pending40000 retirement, and backs the
+whole source-declared capture-pool family. All33 sampled roots have root[16]=0
+and therefore bypass upper image delivery; storage alone supplies no bit6.
+The AFHI/AFPX debug-file names
 in original `1023c67c` also caution against identifying these buffers as the
 main display image merely because the functional CMOS counter advances.

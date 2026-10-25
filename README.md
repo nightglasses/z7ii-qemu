@@ -62,7 +62,14 @@ and mode-selected capture completion. It backs the complete kind38/39 pools.
 Two20-second cold-neutral runs now complete about1500–1650 functional
 transfers through the original IRQ/owner/marker loop, with no request rejection
 or console; all99 applicable CMOS/Sensor/memory/SLA cases pass. The separate
-owner data-consumer bit2/raw0.bit6 path remains unproduced. Statistics DMA,
+owner data-consumer bit2/raw0.bit6 path remains unproduced. The subsequent
+[capture data audit](docs/runtime/capturedata.md) traces its four queues,
+statistics/scalar readers and pending40000 retirement callback. All33 sampled
+requests have root[16]=0, so their upper image-delivery branch is not selected.
+The complete source-declared capture pools17..23 now have exact RAM (kind18
+was already mapped); all32 memory cases pass. Storage alone supplies neither
+processing results nor bit6, and unchanged cold-neutral runs still have no
+console. Statistics DMA,
 the secondary-plane producer and the normal display join remain unresolved.
 Physical result semantics,
 normal-menu startup and later mode coverage remain unverified. Zero-valued
