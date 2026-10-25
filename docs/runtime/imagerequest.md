@@ -435,6 +435,36 @@ not proof of a single steady state or complete runtime stability. They do not
 repeat the earlier six-range loader COPY comparison. No new completion,
 software event, frame, firmware patch or memory aperture is introduced.
 
+### Explicit scene input through actual DMA and statistics
+
+The subsequent [scene-input receipt](/evidence/imagerequest/scene.json) closes
+the existing auxiliary input's file/geometry/encoding contract. The
+[image profile](../inputs/camera/image.md) now binds an explicit source without
+fixture bytes, preserves raster whitespace, retains a scene until explicit
+replacement, and maps it through guest sensor/crop coordinates. C170 output
+is functional LE16 grayscale; a PPM is converted to luma rather than placing
+R/G bytes into one unrelated16-bit sample. These choices are implemented and
+tested; they do not identify a physical sensor or unit1/2 algorithm.
+
+In the60-host-second `scene` original-firmware run, the same cold-neutral
+descriptor32 is combined with an explicit2x2 PGM containing32/192/64/224.
+The actual readout is8320x34. QOM reports provider-bound true and
+fixture-provider false. Four CPU-VA reads at the addresses of the submitted
+primary buffer contain `2020/c0c0/4040/e0e0`; the four actual statistics scalars
+are the same numerical values. There are814 completed auxiliary transfers and
+813 statistics jobs, with no reported rejection, statistics cancellation or
+battery-peer rejection. This is data reaching the existing model through
+normal requested DMA and computation, not host-prefilled output memory.
+
+The separate30-second `control` uses the default deterministic source and
+completes812/811. Both windows finish with empty service queues and unpublished
+cache1/2; neither has a console. The scene filter observes no `10230368`
+completed-read consumer, `10273268` calculation request, `10272d62` cache
+calculation, `1035a2d8` information builder or `105801ce` enable entry.
+The stable scene therefore does not repair the missing front-end/calculation
+join. Counts from different durations are not a rate or stability comparison.
+No additional stage, FE flag or display enable is synthesized by this change.
+
 ## Acquisition on the normal input clock
 
 Previously the auxiliary producer submitted CMOS immediately after every

@@ -141,7 +141,7 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
     uint64_t parsed_width, parsed_height, parsed_maxval;
     unsigned channels;
 
-    if (!s->image_path || !s->image_path[0]) {
+    if (!s->image_path || !s->image_path[0] || s->image_data) {
         return true;
     }
     if (!g_file_get_contents(s->image_path, &contents, &size, &local_err)) {
@@ -167,7 +167,13 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
                    "with valid dimensions");
         return false;
     }
-    while (offset < size && g_ascii_isspace(((uint8_t *)contents)[offset])) {
+    /* The raster may itself start with whitespace or '#'. */
+    if (offset == size || !g_ascii_isspace(((uint8_t *)contents)[offset])) {
+        error_setg(errp, "CMOS image header needs a raster separator");
+        return false;
+    }
+    if (contents[offset++] == '\r' && offset < size &&
+        contents[offset] == '\n') {
         offset++;
     }
     channels = !strcmp(magic, "P6") ? 3 : 1;
@@ -192,7 +198,7 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
 
 static bool nikon_cmos_get_provider_bound(Object *obj, Error **errp)
 {
-    return NIKON_CMOS(obj)->fixture_provider;
+    return nikon_cmos_provider_bound(DEVICE(obj));
 }
 
 static bool nikon_cmos_get_fixture_provider(Object *obj, Error **errp)
@@ -235,7 +241,9 @@ static void nikon_cmos_set_image(Object *obj, const char *value, Error **errp)
 
 bool nikon_cmos_provider_bound(DeviceState *dev)
 {
-    return NIKON_CMOS(dev)->fixture_provider;
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    return s->fixture_provider || (s->image_path && s->image_path[0]);
 }
 
 static bool nikon_cmos_writable(hwaddr address, uint64_t length)
@@ -322,11 +330,18 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
     uint32_t sy = s->active.crop_y +
         (uint64_t)y * s->active.crop_height / s->output_height;
     if (s->image_data) {
-        uint32_t ix = MIN(sx, s->image_width - 1);
-        uint32_t iy = MIN(sy, s->image_height - 1);
+        uint32_t ix = (uint64_t)sx * s->image_width / s->active.width;
+        uint32_t iy = (uint64_t)sy * s->image_height / s->active.height;
         size_t index = ((size_t)iy * s->image_width + ix) *
                        s->image_channels;
 
+        if (s->active.format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+            s->image_channels == 3) {
+            /* Functional grayscale LE16: duplicate the rounded 8-bit luma. */
+            return (77u * s->image_data[index] +
+                    150u * s->image_data[index + 1] +
+                    29u * s->image_data[index + 2] + 128) >> 8;
+        }
         return s->image_data[index + MIN(channel, s->image_channels - 1)];
     }
 
@@ -420,17 +435,15 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     if (!nikon_cmos_load_image(s, errp)) {
         return false;
     }
-    if (s->image_data && (s->image_width != c->width ||
-                          s->image_height != c->height)) {
-        error_setg(errp, "CMOS image dimensions (%ux%u) must match configured "
-                   "sensor dimensions (%ux%u)", s->image_width,
-                   s->image_height, c->width, c->height);
-        return false;
-    }
     if (!c->scale_x || !c->scale_y || !c->bytes_per_pixel ||
         c->bytes_per_pixel > 16 || !c->buffer_count || c->buffer_count > 4 ||
         !c->stride || !c->exposure_ns || !c->readout_ns) {
         error_setg(errp, "CMOS transport geometry and timing are incomplete");
+        return false;
+    }
+    if (c->format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+        c->bytes_per_pixel != 2) {
+        error_setg(errp, "CMOS C1.70 grayscale transport requires LE16 samples");
         return false;
     }
     output_width = ((uint64_t)c->crop_width * c->scale_x) >> 16;
@@ -473,7 +486,7 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
 {
     int64_t now;
 
-    if (!s->fixture_provider) {
+    if (!nikon_cmos_provider_bound(DEVICE(s))) {
         error_setg(errp, "CMOS frame provider is not bound");
         return false;
     }

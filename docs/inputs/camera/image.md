@@ -10,12 +10,22 @@ about the physical sensor.
 | --- | --- |
 | Machine property | `cmos-image=<absolute path>` |
 | Format | binary PGM (`P5`) or PPM (`P6`), 8-bit, `maxval 255` |
-| Size | the guest's own readout geometry, not this image's |
+| Size | any nonempty input geometry; the guest's descriptor supplies transport geometry |
 | Identity | `NIKON_CMOS_FORMAT_FUNCTIONAL_C170` (`0x43313730`, the ASCII tag `C170`) |
 
-The file is read once when the machine realizes.  The device refuses anything
-that is not binary 8-bit PGM/PPM, and refuses a change while a capture is
-active.
+The file is read at the first transport preparation and retained until the
+`image` property is reassigned, including reassignment to the same path.
+Changes to the host file alone do not change the retained scene. Device reset
+clears transport state and preserves this configured external input. The device
+refuses malformed or truncated binary8-bit PGM/PPM, and refuses source changes
+during exposure/readout. An image path binds the source without requiring
+`fixture-provider`; an invalid image never falls back to random fixture bytes.
+The complete-bundle machine chooses the explicit image when supplied and uses
+its existing deterministic fixture source only when no image was selected.
+
+The parser consumes one raster separator, treating CRLF as one separator.
+Whitespace and `#` inside the raster are pixel bytes. Header comments are
+supported before tokens; a comment in place of the final separator rejects.
 
 ## What the model does with it
 
@@ -33,6 +43,20 @@ The guest supplies the descriptor and destination. The finite C1.70 mapping
 derives geometry from stride/span and supplies explicit two-byte encoding and
 timing assumptions. It samples the input through normal DMA and publishes
 completion only after the transfer; it does not preset guest software state.
+
+**Functional scene/encoding choices:** for each output sample, first map through
+the guest's crop/scale into configured sensor coordinates `(sx,sy)`. Sample the
+scene at `(sx * image_width / sensor_width, sy * image_height / sensor_height)`
+with integer division. Thus an image need not have the dimensions inferred
+from the readout stride. The mapping retains the same crop coordinate system
+when a guest selects a different mode; it does not clamp most pixels to an
+image edge.
+
+The `C170` profile requires two bytes per sample. PGM intensity `v` becomes
+LE16 `257*v`. PPM becomes `v=(77*R+150*G+29*B+128)>>8`, then the same LE16
+encoding. These are explicit grayscale-model choices, not Nikon demosaic,
+color science, Bayer order or recovered sensor packing. Generic diagnostic
+format words keep their independent opaque byte-channel behavior.
 
 ## Measured behaviour (this model, unchanged firmware)
 
@@ -75,7 +99,17 @@ cmos-image=/absolute/path/testimage.ppm ...
 
 ## Verification
 
-`tests/unit/nikon/transfer.c`-style fixtures do not cover this profile; the
-current receipt is the runtime counter read above plus the CMOS unit fixtures
-that assert rejection of non-binary, truncated and overdrawn inputs.  Do not read
-this profile as evidence of a sensor, of real exposure, or of a natural boot.
+The `image-source` native case fails on baseline `9403f26b`: a configured
+image with fixture-provider disabled reports provider-bound false. The final
+scoped batch passes21 CMOS and33 Sensor subtests. New cases cover source
+binding/removal, active replacement rejection, retained file contents and
+explicit reload failure, header/raster separation, CRLF, malformed/truncated
+and missing files without fixture fallback, and invalid C170 sample width.
+
+The integrated `pipeline/image-gray` case samples a2x2 RGB scene into128x2
+LE16 samples through an owned readout request. It compares every sample with
+literal red/green/blue/white levels77/149/29/255, then runs the actual statistics
+coordinator. All four scalar results, a guest DMA output and stage8 completion
+are checked. This validates the finite image-to-DMA-to-statistics contract,
+not the unresolved front-end unit1/2 or group processing stages, physical
+sensor fidelity, normal GUI output or complete boot.

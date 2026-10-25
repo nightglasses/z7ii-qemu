@@ -54,6 +54,12 @@
         "title": "Front-end input, group payload and paired-result boundaries",
         "href": "/evidence/imagerequest/frontend.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "sceneinput",
+        "title": "Explicit scene DMA, statistics and remaining GUI boundary",
+        "href": "/evidence/imagerequest/scene.json",
+        "kind": "Execution observation"
       }
     ]
   },

@@ -1302,7 +1302,7 @@ static void z7ii_init(MachineState *machine)
             qdev_prop_set_string(cmos, "image", s->cmos_image);
         }
         qdev_prop_set_bit(cmos, "fixture-provider",
-                          s->bundle || !!s->cmos_image);
+                          s->bundle && !s->cmos_image);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
         /* Diagnostic transport aperture; no C1.70 physical MMIO is claimed. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);

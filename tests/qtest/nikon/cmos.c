@@ -20,6 +20,9 @@
 static char *image;
 static char *source;
 
+static void statistics_configure(QTestState *q);
+static void statistics_rise(QTestState *q);
+
 static uint64_t property_at(QTestState *q, const char *path,
                             const char *property)
 {
@@ -391,6 +394,185 @@ static void test_image_provider(void)
     g_assert_cmphex(output[3], ==, 255);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     qtest_quit(q);
+}
+
+static void test_image_source_contract(void)
+{
+    static const uint8_t pnm[] = {
+        'P', '5', '\n', '2', ' ', '2', '\n', '2', '5', '5', '\n',
+        '\n', '\r', ' ', '#',
+    };
+    g_autofree char *path = NULL;
+    QTestState *q = start();
+    QDict *reply;
+    uint8_t output[4];
+    uint8_t cropped[8];
+    static const uint8_t expected_crop[] = { 10, 13, 0xa5, 0xa5,
+                                            32, 35, 0xa5, 0xa5 };
+    int fd = g_file_open_tmp("nikon-cmos-source-XXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)pnm,
+                                     sizeof(pnm), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':'/machine/cmos',"
+        "'property':'provider-bound'}}");
+    g_assert_true(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+    configure(q, 2, 2, 1, 2);
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+    qtest_memread(q, RAM, output, sizeof(output));
+    g_assert_cmpmem(output, sizeof(output), pnm + sizeof(pnm) - 4, 4);
+    g_assert_true(g_file_set_contents(path, "invalid", 7, NULL));
+    /* Sensor coordinates differ from both scene and output coordinates. */
+    configure(q, 4, 4, 1, 4);
+    qtest_writel(q, CMOS + 0x00c, 1);
+    qtest_writel(q, CMOS + 0x010, 1);
+    qtest_writel(q, CMOS + 0x014, 2);
+    qtest_writel(q, CMOS + 0x018, 2);
+    qtest_memset(q, RAM + 0x10000, 0xa5, sizeof(cropped));
+    /* Changing source during exposure cannot replace this frame's bytes. */
+    qtest_writel(q, CMOS + 0x060, 1);
+    reply = qtest_qmp(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':''}}");
+    g_assert_true(qdict_haskey(reply, "error"));
+    qobject_unref(reply);
+    qtest_clock_step(q, 10000);
+    qtest_memread(q, RAM + 0x10000, cropped, sizeof(cropped));
+    g_assert_cmpmem(cropped, sizeof(cropped), expected_crop,
+                    sizeof(expected_crop));
+    /* Explicit reassignment reloads; malformed input cannot use the old image. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    qtest_memset(q, RAM, 0xa5, 4);
+    qtest_writel(q, CMOS + 0x060, 1);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':''}}");
+    reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':'/machine/cmos',"
+        "'property':'provider-bound'}}");
+    g_assert_false(qdict_get_bool(reply, "return"));
+    qobject_unref(reply);
+    qtest_writel(q, CMOS + 0x060, 1);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
+    qtest_quit(q);
+    unlink(path);
+}
+
+static void test_image_gray_transport(void)
+{
+    static const char header[] = "P6\r\n2 2\r\n255\r\n";
+    static const uint8_t colors[][3] = {
+        { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 255 },
+    };
+    static const uint8_t expected[] = { 77, 149, 29, 255 };
+    g_autofree char *bundle = NULL;
+    g_autofree char *path = NULL;
+    QTestState *q = pipeline_start(&bundle);
+    uint8_t ppm[sizeof(header) - 1 + 4 * 3];
+    uint8_t output[512];
+    int fd = g_file_open_tmp("nikon-cmos-gray-XXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(ppm, header, sizeof(header) - 1);
+    for (unsigned i = 0; i < 4; i++) {
+        memcpy(ppm + sizeof(header) - 1 + 3 * i, colors[i], 3);
+    }
+    g_assert_true(g_file_set_contents(path, (const char *)ppm,
+                                     sizeof(ppm), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    statistics_configure(q);
+    pipeline_configure(q, RAM, 256, 512, NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    qtest_memread(q, RAM, output, sizeof(output));
+    for (unsigned i = 0; i < 256; i++) {
+        g_assert_cmphex(lduw_le_p(output + 2 * i), ==,
+                        expected[i / 64] * 257u);
+    }
+    statistics_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmphex(qtest_readl(q, 0x2006a3e0 + i * 4), ==,
+                        expected[i] * 257u);
+    }
+    g_assert_cmphex(qtest_readl(q, RAM + 0x111000), ==, 0x4d4d4d4d);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
+    configure(q, 128, 2, 1, 128);
+    qtest_writel(q, CMOS + 0x024, NIKON_CMOS_FORMAT_FUNCTIONAL_C170);
+    qtest_writel(q, CMOS + 0x060, 1);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
+    qtest_quit(q);
+    unlink(bundle);
+    unlink(path);
+}
+
+static void test_image_raster_boundaries(void)
+{
+    static const char *const data[] = {
+        "P5\n# header\n2 2\n255\n\n\r #",
+        "P5\r\n2 2\r\n255\r\n\n\r #",
+        "P5\n2 2\n255#\n\r #",
+        "P5\n2 2\n255\n\n\r ",
+        "P5\n2 2\n65535\n\n\r #",
+        "P7\n2 2\n255\n\n\r #",
+        "P5\n2 2\n255\n\n\r #",
+    };
+    static const uint8_t pixels[] = { 10, 13, 32, 35 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(data); i++) {
+        g_autofree char *path = NULL;
+        QTestState *q = start();
+        uint8_t output[4];
+        int fd = g_file_open_tmp("nikon-cmos-raster-XXXXXX", &path, NULL);
+
+        g_assert_cmpint(fd, >=, 0);
+        close(fd);
+        g_assert_true(g_file_set_contents(path, data[i], strlen(data[i]), NULL));
+        if (i == ARRAY_SIZE(data) - 1) {
+            unlink(path);
+        }
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'image','value':%s}}", path);
+        configure(q, 2, 2, 1, 2);
+        qtest_memset(q, RAM, 0xa5, sizeof(output));
+        qtest_writel(q, CMOS + 0x060, 1);
+        qtest_clock_step(q, 10000);
+        qtest_memread(q, RAM, output, sizeof(output));
+        if (i < 2) {
+            g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+            g_assert_cmpmem(output, sizeof(output), pixels, sizeof(pixels));
+        } else {
+            g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
+            g_assert_cmphex((uint32_t)ldl_le_p(output), ==, 0xa5a5a5a5);
+        }
+        qtest_quit(q);
+        unlink(path);
+    }
 }
 
 static void test_period(void)
@@ -1034,6 +1216,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/invalid-cancel", test_invalid_and_cancel);
     qtest_add_func("/nikon/cmos/provider-required", test_provider_required);
     qtest_add_func("/nikon/cmos/image-provider", test_image_provider);
+    qtest_add_func("/nikon/cmos/image-source", test_image_source_contract);
+    qtest_add_func("/nikon/cmos/image-raster", test_image_raster_boundaries);
+    qtest_add_func("/nikon/cmos/pipeline/image-gray", test_image_gray_transport);
     qtest_add_func("/nikon/cmos/period", test_period);
     qtest_add_func("/nikon/cmos/pipeline/valid-silent",
                    test_pipeline_valid_and_silent);

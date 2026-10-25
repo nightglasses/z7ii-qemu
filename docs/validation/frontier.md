@@ -68,6 +68,15 @@ and742/741 auxiliary/statistics operations without reported rejection, but
 end in different lane/run states and still have no console. No additional
 completion model is accepted from configuration or these negative observations.
 
+The [explicit image-input continuation](../runtime/imagerequest.md#explicit-scene-input-through-actual-dma-and-statistics)
+repairs source binding, raster parsing, scene sampling and C170 grayscale
+encoding. Under the same cold-neutral descriptor32, a60-second original run
+with fixture-provider false completes814 auxiliary DMAs and813 statistics jobs.
+Four buffer samples and all four scalars match the supplied2x2 scene exactly.
+The54-case native batch separately verifies the finite data path. Cache1/2
+remain unpublished and there is still no console: usable auxiliary image data
+alone does not close the front-end input or calculation-production boundary.
+
 The normal information producer remains registered without an observed
 publication. An additional first-enable candidate is now source-joined:
 `1035a2d8 ->04380001 ->104be876 ->record92 ->1053f42a`.

@@ -1,0 +1,74 @@
+{
+  "scope": "Functional explicit image -> owned auxiliary DMA -> actual statistics; original C1.70 GUI boundary remains unresolved",
+  "baseline": "9403f26b",
+  "implementation": "accompanying cmos.c, z7ii.c and native fixture changes",
+  "notation": "addresses, masks and sample words hexadecimal; dimensions, input intensities, counters and host durations decimal",
+  "model_changes": [
+    "An explicit image path binds without fixture-provider; invalid input cannot fall back to fixture bytes.",
+    "Consume one raster separator, including CRLF; retain leading raster whitespace/# as pixels.",
+    "Retain a loaded scene until image property reassignment; active reassignment rejects.",
+    "Nearest-neighbor scene sampling uses the configured sensor coordinate system after guest crop/scale.",
+    "C170 requires LE16 grayscale: PGM v*257; PPM ((77R+150G+29B+128)>>8)*257.",
+    "No new request, IRQ, event, firmware modification, memory aperture or display enable."
+  ],
+  "native": {
+    "red": "Baseline image-source case fails: image configured, fixture-provider false, provider-bound incorrectly false.",
+    "batch_command": "make check MTESTARGS='nikon_cmos nikon_sensor'",
+    "batch_result": "PASS:21 CMOS and33 Sensor subtests",
+    "additional_crop_check": "PASS: final image-source case adds sensor4x4 / scene2x2 / cropped output2x2 with padded rows; same implementation",
+    "pixel_to_statistics_case": "2x2 PPM red/green/blue/white ->128x2 actual LE16 DMA; compare every sample, all four statistics scalars, one statistics DMA output and raw3.bit5 completion",
+    "coverage": "binding/removal, active replacement rejection, immutable loaded file, explicit reload failure, raster whitespace and CRLF, malformed/truncated/missing input with fixture enabled, unsupported C170 sample width, crop coordinates and padding; existing reset/cancel/stale/input-boundary cases also pass",
+    "excluded_trials": "initial -p filter omitted /arm and selected no case; two image-gray fixture revisions used geometry below the existing256-byte readout minimum; a negative-fixture assertion needed an unsigned cast. None is a passing device receipt."
+  },
+  "original_input": {
+    "firmware": "unchanged original C1.70 bundle",
+    "descriptor32": "same cold-neutral file",
+    "other_inputs": "existing TEMP3 descriptor17, descriptor18, empty descriptor12, acceleration(0,0,1024), RNG0, healthy paced UART battery, held F4",
+    "execution": "five CPUs, MTTCG; cpu,nochain filtered logging",
+    "debugger": "read-only final snapshot; no in-transaction pause or software-state injection",
+    "scene": "explicit P5,2x2,maxval255, row-major pixels32/192/64/224",
+    "loader_COPY_comparison": "not repeated in these windows"
+  },
+  "scene_window": {
+    "host_seconds": 60,
+    "provider_bound": true,
+    "fixture_provider": false,
+    "requested_transport": "8320x34 LE16, stride4100hex, primary board PA61654800",
+    "buffer_reads": {
+      "address_domain": "CPU0 MAS VA; requested DMA PA has the same numeric base; no new page-table comparison claimed",
+      "61654800": "2020",
+      "61656880": "c0c0",
+      "61699900": "4040",
+      "6169b980": "e0e0"
+    },
+    "statistics_scalars_PA2006a3e0": ["2020", "c0c0", "4040", "e0e0"],
+    "completed_auxiliary_dma": 814,
+    "completed_statistics": 813,
+    "readout_or_statistics_rejections": 0,
+    "statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "final_service_queue_occupancy": 0,
+    "cache1_and_cache2_published": false,
+    "display_console": false
+  },
+  "control_window": {
+    "host_seconds": 30,
+    "provider_bound": true,
+    "fixture_provider": true,
+    "completed_auxiliary_dma": 812,
+    "completed_statistics": 811,
+    "readout_or_statistics_rejections": 0,
+    "statistics_cancellations": 0,
+    "battery_peer_rejections": 0,
+    "final_service_queue_occupancy": 0,
+    "cache1_and_cache2_published": false,
+    "display_console": false
+  },
+  "scene_trace": {
+    "filter": "102313ea..102313f0,102314e8..102315fe,1022f318..1022f320,10230368..10230370,10273268..10273270,10272d62..10272d6a,1026a312..1026a31a,1026a3e0..1026a3e8,1035a2d8..1035a2e0,105801ce..105801d6,10238d4a..10238d52,103610cc..103610d2",
+    "positive": "102313ea and1026a312 execute; owner20000000 and4 observed",
+    "not_observed": "10230368,10273268,10272d62,1035a2d8,105801ce entries within this window/filter",
+    "meaning": "stable usable auxiliary samples do not alone supply the missing front-end/calculation join; absence does not establish global unreachability"
+  },
+  "limits": "This repairs the existing explicit auxiliary image contract. It does not implement front-end unit1/2, group payload processing, paired parameter results, a physical sensor, normal GUI output, complete boot or full runtime stability. Different-duration counters are not physical rates."
+}

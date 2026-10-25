@@ -59,10 +59,11 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
  * consumer is recovered later. */
 void nikon_cmos_cancel(DeviceState *dev);
 
-/* The diagnostic CMOS transport is inert until a source provider is bound.
- * `image` accepts an explicit binary PGM/PPM input; the guest still supplies
- * geometry, Bayer order, packing, timing and destination buffers. The fixture
- * qtests opt in to the deterministic byte source through `fixture-provider`.
+/* An image path or explicit fixture provider binds the transport; malformed
+ * image inputs still reject before DMA. PGM/PPM scenes are sampled in the
+ * configured sensor coordinate system. C170 is functional grayscale LE16,
+ * not a physical Bayer/packing claim. Generic diagnostic formats stay opaque.
+ * Fixture qtests opt in to deterministic bytes through `fixture-provider`.
  */
 bool nikon_cmos_provider_bound(DeviceState *dev);
 
