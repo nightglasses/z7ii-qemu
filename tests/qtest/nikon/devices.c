@@ -611,20 +611,18 @@ static void test_fill(void)
 static void test_fill_gui(void)
 {
     static const struct {
-        uint32_t width;
-        uint32_t stride;
+        uint32_t pitch;
+        uint32_t row_bytes;
         uint32_t rows;
         uint32_t destination;
     } rejected[] = {
-        { 0x0b3f, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { 0x0b41, 0x0b41, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01df, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01e1, GUI_FILL_DESTINATION },
+        { 0, 0, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH - 1, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+          GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0, GUI_FILL_DESTINATION },
         { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-          GUI_FILL_DESTINATION + 4 },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-          RESOURCE57_RECORD0_END - GUI_FILL_LENGTH / 2 },
+          GUI_FILL_DESTINATION + 1 },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS, 0xfffffff0 },
     };
     const uint32_t draw_end = GUI_FILL_DESTINATION + GUI_FILL_LENGTH;
     g_autofree uint8_t *bytes = g_malloc(GUI_FILL_LENGTH);
@@ -638,18 +636,25 @@ static void test_fill_gui(void)
     qtest_writel(q, RESOURCE57_RECORD0_END - 4, 0xdec0ad02);
 
     for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
-        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+        fill_request(q, FILL, rejected[i].pitch, rejected[i].row_bytes,
                      rejected[i].rows, rejected[i].destination);
         g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
         g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
         g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
     }
 
-    /* This runtime profile is observed only on engine0. */
+    /* The common software producer configures either engine identically. */
     fill_request(q, FILL + 0x40, GUI_FILL_WIDTH, GUI_FILL_WIDTH,
                  GUI_FILL_ROWS, GUI_FILL_DESTINATION);
-    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 1);
+    g_assert_true(qtest_get_irq(q, 104 - 32));
+    qtest_memread(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_LENGTH, zero, GUI_FILL_LENGTH);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0xdec0ad01);
+    qtest_writel(q, FILL + 0x48, 1);
+    g_assert_false(qtest_get_irq(q, 104 - 32));
+    memset(bytes, 0xa5, GUI_FILL_LENGTH);
+    qtest_memwrite(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
 
     g_assert_false(qtest_get_irq(q, 103 - 32));
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
@@ -690,16 +695,27 @@ static void test_fill_gui_record7(void)
     qtest_writel(q, draw_end, 0x57070001);
     qtest_writel(q, RESOURCE57_RECORD7_END - 4, 0x57070002);
 
-    /* Only the exact firmware-published base is this second GUI profile. */
+    /* Unaligned requests reject; aligned row geometry has no base whitelist. */
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-                 GUI_FILL_RECORD7 + 4);
+                 GUI_FILL_RECORD7 + 1);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
     g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
     g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
                  RESOURCE57_RECORD7_END);
-    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
-    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 1U << 16);
+    g_assert_true(qtest_get_irq(q, 103 - 32));
+    qtest_writel(q, FILL + 8, 0x11);
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, 1,
+                 GUI_FILL_RECORD7 + 4);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0x57070001);
+    qtest_writel(q, FILL + 8, 1);
 
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
                  GUI_FILL_RECORD7);
@@ -731,23 +747,20 @@ static void test_fill_gui_record7(void)
 static void test_fill_gui_record1(void)
 {
     static const struct {
-        uint32_t width;
-        uint32_t stride;
+        uint32_t pitch;
+        uint32_t row_bytes;
         uint32_t rows;
         uint32_t destination;
     } rejected[] = {
-        { 0x0eff, 0x0eff, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
-        { 0x0f01, 0x0f01, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, 0x0eff, GUI_FILL_RECORD1_ROWS,
-          GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021b,
-          GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021d,
+        { 0, 0, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH - 1, GUI_FILL_RECORD1_WIDTH,
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0,
           GUI_FILL_RECORD1 },
         { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
-          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 + 4 },
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 + 1 },
         { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
-          GUI_FILL_RECORD1_ROWS, GUI_FILL_DESTINATION },
+          GUI_FILL_RECORD1_ROWS, 0xfffffff0 },
     };
     g_autofree uint8_t *bytes = g_malloc(GUI_FILL_RECORD1_LENGTH);
     g_autofree uint8_t *zero = g_malloc0(GUI_FILL_RECORD1_LENGTH);
@@ -760,19 +773,28 @@ static void test_fill_gui_record1(void)
     qtest_writel(q, RESOURCE57_RECORD1_END, 0x57010001);
 
     for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
-        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+        fill_request(q, FILL, rejected[i].pitch, rejected[i].row_bytes,
                      rejected[i].rows, rejected[i].destination);
         g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
         g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
         g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
     }
 
-    /* The recovered request selects engine0, not the identical engine1 bank. */
+    /* Engine1 executes the same byte-row operation and acknowledges alone. */
     fill_request(q, FILL + 0x40, GUI_FILL_RECORD1_WIDTH,
                  GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_ROWS,
                  GUI_FILL_RECORD1);
-    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 1);
+    g_assert_true(qtest_get_irq(q, 104 - 32));
+    qtest_memread(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_RECORD1_LENGTH,
+                    zero, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1 - 4), ==, 0x57010000);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD1_END), ==, 0x57010001);
+    qtest_writel(q, FILL + 0x48, 1);
+    g_assert_false(qtest_get_irq(q, 104 - 32));
+    memset(bytes, 0x1a, GUI_FILL_RECORD1_LENGTH);
+    qtest_memwrite(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
 
     g_assert_false(qtest_get_irq(q, 103 - 32));
     fill_request(q, FILL, GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,

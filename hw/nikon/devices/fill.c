@@ -15,19 +15,9 @@
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 
-#define NIKON_FILL_STARTUP_WIDTH 0x4000U
-#define NIKON_FILL_GUI_WIDTH 0x0b40U
-#define NIKON_FILL_GUI_ROWS 0x01e0U
-#define NIKON_FILL_GUI_RECORD0 0xbec5f200U
-#define NIKON_FILL_GUI_RECORD5 0xbf309600U
-#define NIKON_FILL_GUI_RECORD7 0xc175d600U
-#define NIKON_FILL_GUI_RECORD1_WIDTH 0x0f00U
-#define NIKON_FILL_GUI_RECORD1_ROWS 0x021cU
-#define NIKON_FILL_GUI_RECORD1 0xbf10f200U
-
 typedef struct NikonFillEngine {
     uint32_t control, mask, flags, pattern, parameter, destination;
-    uint32_t dimension, width, stride, count;
+    uint32_t dimension, pitch, row_bytes, count;
     uint32_t status, error, command;
     unsigned configured;
     bool busy;
@@ -96,10 +86,10 @@ static MemTxResult nikon_fill_read(void *opaque, hwaddr offset,
         *value = e->dimension;
         break;
     case 0x20:
-        *value = e->width;
+        *value = e->pitch;
         break;
     case 0x24:
-        *value = e->stride;
+        *value = e->row_bytes;
         break;
     case 0x28:
         *value = e->count;
@@ -117,67 +107,73 @@ static MemTxResult nikon_fill_read(void *opaque, hwaddr offset,
     return MEMTX_OK;
 }
 
+static MemTxResult nikon_fill_zero(NikonFillState *s, hwaddr destination,
+                                  uint64_t length, MemTxAttrs attrs)
+{
+    while (length) {
+        MemoryRegionSection section = memory_region_find(s->dma->root,
+                                                        destination, length);
+        MemTxResult result;
+        uint64_t span;
+
+        if (!section.mr) {
+            return MEMTX_ERROR;
+        }
+        span = int128_get64(section.size);
+        if (!span || span > length ||
+            section.offset_within_address_space != destination ||
+            !memory_region_is_ram(section.mr) || section.readonly ||
+            !memory_access_is_direct(section.mr, true, attrs)) {
+            memory_region_unref(section.mr);
+            return MEMTX_ERROR;
+        }
+        memory_region_unref(section.mr);
+        result = dma_memory_set(s->dma, destination, 0, span, attrs);
+        if (result != MEMTX_OK) {
+            return result;
+        }
+        destination += span;
+        length -= span;
+    }
+    return MEMTX_OK;
+}
+
 static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                                  hwaddr offset, MemTxAttrs attrs)
 {
-    uint64_t length = (uint64_t)e->width * e->count;
-    bool startup_profile = e->width == NIKON_FILL_STARTUP_WIDTH &&
-                           e->stride == e->width && e->count &&
-                           e->count < NIKON_FILL_STARTUP_WIDTH;
-    bool gui_canvas_profile = e == &s->engine[0] &&
-                              e->mask == 0x11 &&
-                              e->width == NIKON_FILL_GUI_WIDTH &&
-                              e->stride == NIKON_FILL_GUI_WIDTH &&
-                              e->count == NIKON_FILL_GUI_ROWS &&
-                              (e->destination == NIKON_FILL_GUI_RECORD0 ||
-                               e->destination == NIKON_FILL_GUI_RECORD5 ||
-                               e->destination == NIKON_FILL_GUI_RECORD7);
-    bool gui_record1_profile = e == &s->engine[0] &&
-                               e->mask == 0x11 &&
-                               e->width == NIKON_FILL_GUI_RECORD1_WIDTH &&
-                               e->stride == NIKON_FILL_GUI_RECORD1_WIDTH &&
-                               e->count == NIKON_FILL_GUI_RECORD1_ROWS &&
-                               e->destination == NIKON_FILL_GUI_RECORD1;
+    uint64_t bytes = (uint64_t)e->row_bytes * e->count;
+    uint64_t extent = e->count ?
+        (uint64_t)(e->count - 1) * e->pitch + e->row_bytes : 0;
     MemTxResult result;
 
+    /*
+     * MAS10389e3a: destination=base+x+pitch*y. MAS102dba60 writes
+     * pitch/row bytes/rows at20/24/28 for either engine. The finite zero
+     * mode interprets these as byte rows, without destination whitelists.
+     */
     if (e->control || e->configured != 127 || e->flags != 1 ||
         e->pattern || e->dimension || e->parameter ||
-        (!startup_profile && !gui_canvas_profile && !gui_record1_profile) ||
+        !e->row_bytes || !e->count || e->pitch < e->row_bytes ||
         (e->destination & 3) ||
-        (uint64_t)e->destination + length > (1ULL << 32)) {
+        (uint64_t)e->destination + extent > (1ULL << 32)) {
         return nikon_fill_error(s, offset, 4, true, 1,
                               "fill-request-profile-not-supported");
     }
     e->busy = true;
     e->command = 1;
-    /* Preserve existing synchronous byte-count zero mode. RAM-only official
-     * DMA transactions reject device MMIO and produce genuine bus results. */
     attrs.memory = true;
-    result = MEMTX_OK;
-    for (hwaddr destination = e->destination; length;) {
-        MemoryRegionSection section = memory_region_find(s->dma->root,
-                                                        destination, length);
-        uint64_t span;
-
-        if (!section.mr) {
-            result = MEMTX_ERROR;
-            break;
+    if (e->pitch == e->row_bytes) {
+        result = nikon_fill_zero(s, e->destination, bytes, attrs);
+    } else {
+        result = MEMTX_OK;
+        for (unsigned row = 0; row < e->count; row++) {
+            result = nikon_fill_zero(s,
+                                    e->destination + (uint64_t)row * e->pitch,
+                                    e->row_bytes, attrs);
+            if (result != MEMTX_OK) {
+                break;
+            }
         }
-        span = int128_get64(section.size);
-        if (!span || section.offset_within_address_space != destination ||
-            !memory_region_is_ram(section.mr) || section.readonly ||
-            !memory_access_is_direct(section.mr, true, attrs)) {
-            memory_region_unref(section.mr);
-            result = MEMTX_ERROR;
-            break;
-        }
-        memory_region_unref(section.mr);
-        result = dma_memory_set(s->dma, destination, 0, span, attrs);
-        if (result != MEMTX_OK) {
-            break;
-        }
-        destination += span;
-        length -= span;
     }
     e->busy = false;
     e->command = 0;
@@ -189,7 +185,7 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                   "nikon-fill: engine=%u destination=0x%08x bytes=0x%" PRIx64
                   " bus-result=%u status=0x%x\n",
                   (unsigned)(e - s->engine), e->destination,
-                  (uint64_t)e->width * e->count,
+                  bytes,
                   result, e->status);
     return MEMTX_OK;
 }
@@ -259,10 +255,10 @@ static MemTxResult nikon_fill_write(void *opaque, hwaddr offset,
         if (reg == 0x1c) {
             e->dimension = value;
         } else if (reg == 0x20) {
-            e->width = value;
+            e->pitch = value;
             e->configured |= 8;
         } else if (reg == 0x24) {
-            e->stride = value;
+            e->row_bytes = value;
             e->configured |= 16;
         } else {
             e->count = value;

@@ -4,7 +4,16 @@ Source is `nightglass` **85e98d8ad9d3ce1983414d6b55db2e3d24e074fb**, `research/z
 
 The same modular FILL class now has exactly two40hex engines at20070000/20070040, ending20070080, with only finite aligned32-bit words00..30 supported. The per-engine holes34..3f reject. Source registration connects their independent real outputs to officialGIC103/104. Each retains its own control00, mask04, result08, error0c, command10 and finite configuration; neither read/stop/ACK can change the other engine.
 
-Source-shaped configurations save actual guest values: flags14 bits0/4, pattern18 low24+2formatbits, fourhalfwords1c/20/24/28, and wholewords2c/30. These are generated software shapes, not recovered hardware writable masks. Unspecified high bits reject under the named cold-zero profile. Configuration may be saved without its activation being implemented. Whole activation preflight requires original exact zero profile: control0, all seven existing required fields supplied,flags1,pattern0,dimension1c=0,parameter2c=0,width=stride4000,positive directcount<4000, aligned destination and no32-bit wrap. Unknown patterns/formats/bit4/other dimensions, nonzero1c/2c and zero-count reject without changing result/command/IRQ or target bytes.
+Source-shaped configurations save actual guest values: flags14 bits0/4,
+pattern18 low24+2formatbits, fourhalfwords1c/20/24/28, and wholewords2c/30.
+These are generated software shapes, not recovered hardware masks. The
+[current byte-row contract](protocol.md#source-produced-byte-rows) requires
+control0, complete configuration, flags1, pattern0, dimension1c=0 and
+parameter2c=0. Registers20/24/28 are pitch/active row bytes/row count, with
+positive width/count, pitch at least width, aligned destination and no32-bit
+wrap. The earlier exact4000 startup profile is historical. Unknown patterns,
+other dimensions and zero-count encoding still reject without changing results
+or target bytes.
 
 The supported transfer preserves the existing **synchronous** official `dma_memory_set` with RAM-only transaction attributes, byte width/count and zero pattern. There is no new timer, deferred callback, physical timing or overlap claim. Busy protects configuration/second activation while that transaction runs; unsupported normal-memory destinations produce actual bus failure and may have partially written memory. Only all successful writes latch resultbit0; failure latchesbit4 and no success. Error0c uses named virtual destination-bus code1 atbits16..17 and0 at20..21; those numbers are not physical Nikon error codes. The host does not write the guest ISR packet, callback or flags.
 

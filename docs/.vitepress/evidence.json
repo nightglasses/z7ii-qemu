@@ -1270,7 +1270,14 @@
     "records": []
   },
   "devices/fill/protocol.md": {
-    "records": []
+    "records": [
+      {
+        "run": "pairedfill",
+        "title": "Source-produced byte rows and real DMA results",
+        "href": "/evidence/imagerequest/fill.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "devices/input/protocol.md": {
     "records": []

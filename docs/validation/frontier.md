@@ -1,6 +1,25 @@
 # Original-firmware startup frontier
 
-## Current: ordinary row fill after initialized path graphics
+## Current: GUI storage after source-produced row fill
+
+The [two-engine byte-row contract](../devices/fill/protocol.md#source-produced-byte-rows)
+corrects pitch/active-width register names and replaces target/size whitelists
+with the complete source-produced zero operation. Four selected-domain fill
+subtests and four scoped startup/GUI cases pass; the
+[row receipt](/evidence/imagerequest/fill.json) qualifies unsuccessful broader
+and repeated-filter test invocations separately.
+
+Unchanged60-host-second region/cold-neutral execution now performs the request
+at PA `bff44340`, reporting a real bus error rather than successful completion.
+It later reaches CPU1 VA PC `1051e322`, WRITE8 PA `bff43ac2=80`,
+`uncovered-address`. The next boundary is the complete owner of these GUI
+addresses, not another zero-fill tuple. Imports/captures remain18/649/9; this
+window has128 main acquisitions and517 statistics jobs, no rejection, one main
+cancellation and no statistics cancellation. Head1 screendump succeeds and the
+two information records are populated; GUI readiness stays zero. Normal live
+view and actual paired processing remain unverified.
+
+## Previous: ordinary row fill after initialized path graphics
 
 The [initialized indirect-path family](../devices/transfer/prefix.md#initialized-indirect-path-batches)
 recognizes complete global state before the existing1..256-record path parser.
