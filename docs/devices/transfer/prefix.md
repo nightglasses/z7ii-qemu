@@ -1,5 +1,9 @@
 # Cached state prefixes on retained graphics
 
+The later [initialized path batches](#initialized-indirect-path-batches) extend
+the same finite state treatment to a complete global prefix. Historical image
+and rectangle checkpoints below retain their original scope.
+
 The normal GUI's216/344-byte A8 image now completes through original IRQ129.
 The model handles the independently optional cached matrix and color-transform
 disable prefixes on the retained image body, using the existing rasterizer and
@@ -277,3 +281,52 @@ not injected readiness. The final application bytes are01/03; manager
 current/target/mode/state are3/5/1/2 and BatCk is00000001. GUI gate, pending3
 and display-ready remain0. A bounded run without an uncovered access and
 ongoing graphics do not establish a displayed GUI first frame.
+
+## Initialized indirect path batches
+
+After paired request admission and legal graph-parameter reload, unchanged
+C1.70 MAS submits complete664/1032-byte streams at board PA `bd0dff90` and
+`bd15ff90`. CPU0 VA PC `106ee3c6` writes START at PA `201810e0=1`. The old
+dispatcher reports `transfer-stream-truncated` because setup begins with
+`00691004=80`, rather than the retained path's `005ef00e` header, and falls
+through to a fixed-length LUT parser. Neither source buffer is truncated.
+
+The setup contains two global words followed by four existing41-word indirect
+fill records. Draw contains20 global words, the first fill's24-word prefix,
+15 further global words and that fill's remaining31 words, then three55-word
+fills, ending and padding. The20+15 fields exactly match the established
+single-path global initialization, including720×480 geometry, clip and disabled
+color transform. Original initializer VA `106454b2` and dirty-state flush
+`106b55a2` establish those state producers; the higher-level caller's UI
+meaning is not independently recovered here.
+
+All four paths use identity transforms, opaque `ff464646`, keys `10001..10004`
+and target PA `bf309600`. Their geometry is `(719,36,1,407)`, `(0,36,1,407)`,
+`(0,36,720,1)` and `(0,442,720,1)`, forming a thin border. Every indirect segment
+sequence has the existing move/relative-horizontal/relative-vertical/close
+grammar. This establishes geometry, not a claim about the border's UI role.
+
+The finite parser recognizes this family by setup commands before size-based
+converter dispatch. It validates the full global prefix and first-record seam,
+then reuses the existing whole-batch path parser and rasterizer. The supported
+family contains1..256 fill/stroke records; later full fills independently admit
+the already-established `01848004=0` disable prefix. Existing initialized single
+and two-path profiles keep their original parser. Unknown state, active color
+transforms, unsupported paint/format and malformed records remain errors.
+
+Reusing the complete initialization to establish the shared720 profile is a
+source-backed functional inference. Original stream extents still govern
+overlap checks, including normalized bytes; all records and indirect operands
+are checked before target writes. Deferred mapping validation, reset/unrealize
+cancellation, actual output-before-IRQ and successful-only context publication
+remain unchanged. No generic GPU interpreter or supplied framebuffer is added.
+
+The new synthetic fixture fails the old model at the first664/1032 submission.
+After the correction, all26 transfer subtests pass in2.20s. Its26 variants cover
+cold initialization,1/256 records, independent later prefixes, a1736-byte
+converter-length collision, mixed fill/stroke, repeat/immutable capture,
+initial-to-retained context, malformed early/late state and indirect data,
+mapping loss, reset and cancellation. Full target pixels and guards are checked
+against an independent integer rectangle reference. The
+[receipt](/evidence/imagerequest/graphics.json) distinguishes these fixtures
+from unchanged-firmware continuation and its next boundary.

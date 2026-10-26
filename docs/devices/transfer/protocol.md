@@ -1,6 +1,15 @@
 # Graphics packet transfer
 
-## Current normal-startup frontier
+## Current initialized path family
+
+The later [initialized indirect-path contract](prefix.md#initialized-indirect-path-batches)
+crosses a complete664/1032-byte four-path initialization using command-family
+recognition and the existing rasterizer. All26 transfer subtests pass. Original
+region/cold-neutral execution reaches a later fill request, with head1 status
+widgets and an error overlay but no established normal live view. The
+[startup frontier](../../validation/frontier.md) owns the current system state.
+
+## Earlier normal-startup graphics checkpoints
 
 The [inline rectangle model](rectangles.md), [RAM backing fix](../../startup/ram.md)
 and [context continuation](continuation.md) now cross both the 856/1088 and

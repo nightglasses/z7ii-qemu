@@ -1,6 +1,28 @@
 # Original-firmware startup frontier
 
-## Current: graphics initialization after paired admission
+## Current: ordinary row fill after initialized path graphics
+
+The [initialized indirect-path family](../devices/transfer/prefix.md#initialized-indirect-path-batches)
+recognizes complete global state before the existing1..256-record path parser.
+It removes a LUT/converter dispatch collision without a new size whitelist.
+The [graphics receipt](/evidence/imagerequest/graphics.json) records an old-model
+red and all26 transfer subtests passing, including independent output pixels,
+context/cancellation and a1736-byte converter-length collision.
+
+Unchanged60-host-second region/cold-neutral execution crosses the664/1032-byte
+rejection and reaches CPU1 VA PC `102dbba2`, WRITE32 PA `20070010=1`,
+`fill-request-profile-not-supported`. The new request is an ordinary zero fill:
+48 bytes per row,42 rows, PA `[bff44340,bff44b20)`. Source must establish the
+whole row operation rather than add another framebuffer address.
+
+This window has18 imports/649 words, nine parameter captures, no graph-node
+start and paired bank0 awaiting input. Main acquisitions reach129 and statistics
+539, with no rejection/cancellation. Head1 screendump succeeds, head0 is
+unbound; the two image-information records are populated and equal, while GUI
+readiness remains zero. This is graphics continuation under declared virtual
+inputs, not a completed live-view or paired-operator result.
+
+## Previous: graphics initialization after paired admission
 
 The [stream-request contract](../devices/pairs/requests.md) admits both paired
 banks and all42 configured graph ports without generating completion. It backs

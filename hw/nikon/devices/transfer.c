@@ -7,6 +7,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/log.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
@@ -757,6 +758,29 @@ out:
     return alias;
 }
 
+static bool nikon_transfer_path_initial(const uint32_t *draw)
+{
+    unsigned field = 0;
+
+    /*
+     * 106454b2/106b55a2 split global initialization around the first paint.
+     * Reuse the established initialized RGBA state, without constraining
+     * that first path's operands or its later draw state.
+     */
+    for (unsigned i = 0; i < 59; i++) {
+        uint32_t expected = 0;
+
+        if (field < ARRAY_SIZE(rgba_single_draw_fields) &&
+            rgba_single_draw_fields[field].word == i) {
+            expected = rgba_single_draw_fields[field++].value;
+        }
+        if ((i < 20 || i >= 44) && le32_to_cpu(draw[i]) != expected) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
                                        uint32_t *output, const char **reason)
 {
@@ -765,18 +789,31 @@ static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
     size_t setup_bytes, draw_bytes;
     unsigned sa = 0, da = 0, count = 0, segment_count = 0;
     uint32_t first_key = 0, target;
+    bool initial;
     const uint32_t target_bytes = 4 * NIKON_PATH_MASK_BYTES;
     g_autofree uint8_t *mask = overlay ? g_malloc(NIKON_PATH_MASK_BYTES) : NULL;
 
     setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
     draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    initial = setup_bytes >= 2 * 4 &&
+              le32_to_cpu(setup[0]) == 0x00691004;
+    if (initial) {
+        if (setup_bytes < 43 * 4 || draw_bytes < 92 * 4 ||
+            le32_to_cpu(setup[1]) != 0x80 ||
+            !nikon_transfer_path_initial(draw)) {
+            *reason = "transfer-path-initial-state-not-supported";
+            return false;
+        }
+        sa = 2;
+        da = 20;
+    }
     if (setup_bytes < 41 * 4 || draw_bytes < 57 * 4 ||
-        le32_to_cpu(setup[0]) != 0x005ef00e) {
+        le32_to_cpu(setup[sa]) != 0x005ef00e) {
         *reason = "transfer-path-batch-count-not-supported";
         return false;
     }
-    target = le32_to_cpu(draw[13]);
-    if (s->rgba720_target != target) {
+    target = le32_to_cpu(draw[da + 13]);
+    if (!initial && s->rgba720_target != target) {
         *reason = "transfer-stream-context-not-established";
         return false;
     }
@@ -814,7 +851,16 @@ static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
             *reason = "transfer-path-batch-count-not-supported";
             return false;
         }
-        if (!stroked && le32_to_cpu(b[24]) == 0x01848004) {
+        if (initial && count == 1) {
+            if (draw_bytes / 4 - da < bw + 15) {
+                *reason = "transfer-path-initial-state-not-supported";
+                return false;
+            }
+            memcpy(draw_state, b, 24 * sizeof(*b));
+            memcpy(draw_state + 24, b + 39, (bw - 24) * sizeof(*b));
+            b = draw_state;
+            bw += 15;
+        } else if (!stroked && le32_to_cpu(b[24]) == 0x01848004) {
             if (draw_bytes / 4 - da < bw + 2 || b[25]) {
                 *reason = "transfer-path-color-transform-not-supported";
                 return false;
@@ -842,7 +888,8 @@ static bool nikon_transfer_paths_parse(NikonTransferState *s, uint8_t *overlay,
         if (count == 1) {
             first_key = key;
         }
-        if ((first_key >> 16) != 1 || !(first_key & 0xffff) ||
+        if ((initial && first_key != 0x10001) ||
+            (first_key >> 16) != 1 || !(first_key & 0xffff) ||
             (first_key & 0xffff) == 0xffff) {
             *reason = "transfer-path-key-not-supported";
             return false;
@@ -1867,6 +1914,21 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
     const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, NULL);
 
+    if (g_bytes_get_size(s->stream[0].bytes) >= 43 * 4 &&
+        le32_to_cpu(setup[0]) == 0x00691004 &&
+        le32_to_cpu(setup[2]) == 0x005ef00e) {
+        /*
+         * Keep the established single/two-path initialization profiles.
+         * Other batches are identified by commands, before size-based LUT
+         * or conversion dispatch can misclassify them.
+         */
+        if (draw_bytes == NIKON_TRANSFER_RGBA_DRAW_BYTES ||
+            draw_bytes == NIKON_TRANSFER_RGBA_SINGLE_DRAW_BYTES) {
+            return nikon_transfer_rgba_parse(s, program, reason);
+        }
+        program->kind = TRANSFER_PROGRAM_PATH_FILL;
+        return nikon_transfer_paths_parse(s, NULL, NULL, reason);
+    }
     /* Retained conversions also begin with an f24 sampling matrix. */
     if (draw_bytes == 1736 || draw_bytes == 1552) {
         program->kind = TRANSFER_PROGRAM_RGBA_YUV;
@@ -2322,6 +2384,15 @@ static bool nikon_transfer_stream_execute(NikonTransferState *s,
     return true;
 }
 
+static void nikon_transfer_stream_reject_log(NikonTransferState *s)
+{
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "nikon-transfer: rejected streams source0=0x%08x "
+                  "bytes0=%u source1=0x%08x bytes1=%u\n",
+                  s->stream[0].source, 8 * s->stream[0].units64,
+                  s->stream[1].source, 8 * s->stream[1].units64);
+}
+
 static void nikon_transfer_stream_complete(void *opaque)
 {
     NikonTransferState *s = opaque;
@@ -2333,6 +2404,9 @@ static void nikon_transfer_stream_complete(void *opaque)
         return;
     }
     success = nikon_transfer_stream_execute(s, &rgba720_target, &yuva107, &reason);
+    if (!success) {
+        nikon_transfer_stream_reject_log(s);
+    }
     nikon_transfer_stream_clear(s);
     if (!success) {
         nikon_transfer_error(s, 0x10e0, 4, true, 1, reason);
@@ -2461,6 +2535,7 @@ static MemTxResult nikon_transfer_stream_write(NikonTransferState *s,
         const char *reason = NULL;
 
         if (!nikon_transfer_stream_parse(s, &program, &reason)) {
+            nikon_transfer_stream_reject_log(s);
             nikon_transfer_stream_clear(s);
             return nikon_transfer_error(s, offset, 4, true, value, reason);
         }

@@ -1551,6 +1551,12 @@
         "title": "timingextra/native-transfer-final.txt",
         "href": "/evidence/timingextra/native-transfer-final.txt",
         "kind": "Native test excerpt"
+      },
+      {
+        "run": "pairedgraphics",
+        "title": "Initialized indirect path family and original continuation",
+        "href": "/evidence/imagerequest/graphics.json",
+        "kind": "Execution observation"
       }
     ]
   },

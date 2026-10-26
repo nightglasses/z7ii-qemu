@@ -1,0 +1,50 @@
+{
+  "scope": "Initialized indirect path batches after paired request admission; functional graphics, not normal live view",
+  "dependency_baseline": "6bfd962f plus the request/capture contract in requests.json",
+  "source": {
+    "component": "Original C1.70 MAS; code VA, command/data PA; hexadecimal addresses/commands and decimal counts",
+    "state_producers_VA": ["106454b2", "106b55a2"],
+    "setup": "00691004=80 global initialization followed by four existing 41-word indirect path records",
+    "draw": "20 global words, first path24 words,15 global seam words, remaining31 path words, then three55-word fills and ending/padding",
+    "state_match": "20+15 initialization words match the established initialized single-path fields; active record operands remain separately checked",
+    "geometry_decimal": [[719,36,1,407],[0,36,1,407],[0,36,720,1],[0,442,720,1]],
+    "paint_hex": "ff464646",
+    "target_PA": "bf309600",
+    "keys_hex": "10001..10004",
+    "limit": "Thin-border geometry is observed; exact upper UI caller/role not independently recovered"
+  },
+  "model": {
+    "family": "Command-header recognition precedes converter/LUT length dispatch;1..256 records reuse existing strict path validation and execution",
+    "prefixes": "Complete initialized20+15 state only; subsequent full fills independently admit01848004=0",
+    "context": "Successful full initialization establishes the shared720x480 RGBA profile; functional source-backed inference, not physical precision",
+    "negative_boundary": "No generic GPU interpreter, color transform, unsupported paint or resolution expansion; complete stream alias/backing and deferred mapping checks preserved",
+    "ordering": "Whole batch validates before writes; successful output precedes context publication and completion IRQ; reset/unrealize cancel"
+  },
+  "native": {
+    "red": "Old dispatcher rejects first structurally equivalent664/1032 fixture with MEMTX_ERROR instead of MEMTX_OK",
+    "green": {"transfer_subtests":26,"new_fixture_variants":26,"seconds":2.20,"failures":0},
+    "coverage": "Independent whole-surface integer rectangle oracle and guards; cold1/4/256 records, independent prefixes,1736-byte converter collision, mixed fill/stroke, repeat/immutable, initialized-to-retained state, malformed early/late state/operands, map loss, reset/unrealize"
+  },
+  "original_execution": {
+    "profile": "Same unchanged region/cold-neutral firmware/input profile as requests.json; guest_errors only; no GDB inside60-host-second window",
+    "loaded_packets":18,
+    "loaded_words":649,
+    "parameter_valid_decimal":318,
+    "parameter_commits":9,
+    "graph_nodes_started":0,
+    "paired_bank0_active":1,
+    "paired_bank0_pending":0,
+    "main_completed":129,
+    "main_rejected":0,
+    "main_cancelled":0,
+    "statistics_completed":539,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "uncovered": "CPU1 VA PC102dbba2 WRITE32 PA20070010=1,fill-request-profile-not-supported; no graphics rejection in this continuation",
+    "display": "head1 screendump succeeds,head0 unbound",
+    "GUI_readiness":0,
+    "information_records": "Both1124-byte records equal and populated,173 nonzero bytes each; no independent notification proof",
+    "QMP_status":"debug/stopped"
+  },
+  "limits": "This normal window crosses the old graphics rejection and reaches a different device request; no isolated original before/after border pixel comparison or IRQ129 trace was collected. Native pixel/IRQ checks remain separate. Main/reference encoding, actual paired processing and stable normal live view remain unverified. Sequential QMP/GDB reads are not atomic or physical rates; raw streams/firmware remain ignored."
+}

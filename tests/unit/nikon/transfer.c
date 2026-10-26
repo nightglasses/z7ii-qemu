@@ -1663,6 +1663,244 @@ static void test_path_fill(void)
     qemu_free_irq(f.irq);
 }
 
+static void build_initialized_paths(uint8_t *data, unsigned count,
+                                    uint32_t color_prefixes,
+                                    unsigned *setup_bytes, unsigned *draw_bytes)
+{
+    uint8_t initial_setup[NIKON_TRANSFER_RGBA_SETUP_BYTES];
+    uint8_t initial_draw[NIKON_TRANSFER_RGBA_DRAW_BYTES];
+    uint8_t path_setup[NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES];
+    uint8_t path_draw[NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES];
+    unsigned sa = 2, da = 20;
+
+    build_rgba_program(initial_setup, initial_draw, 0x451000, 0x450000, true);
+    build_rgba_gray_program(path_setup, path_draw);
+    memcpy(data, initial_setup, 2 * 4);
+    memcpy(data + 0x20000, initial_draw, 20 * 4);
+    for (unsigned i = 0; i < count; i++) {
+        uint8_t *a = data + sa * 4, *b = data + 0x20000 + da * 4;
+        uint32_t key = 0x10001 + i;
+
+        memcpy(a, path_setup, 41 * 4);
+        stl_le_p(a + 20 * 4, 0x451000 + i * 0x20);
+        stl_le_p(a + 24 * 4, 0x450000 + i * 8);
+        stl_le_p(a + 40 * 4, key);
+        memcpy(b, path_draw, 24 * 4);
+        stl_le_p(b + 13 * 4, 0xbf309600);
+        da += 24;
+        if (!i) {
+            /*
+             * Initialization's clip/flags seam precedes the first path latch.
+             */
+            memcpy(data + 0x20000 + da * 4, initial_draw + 44 * 4, 15 * 4);
+            da += 15;
+        } else if (color_prefixes & (1U << (i % 32))) {
+            stl_le_p(data + 0x20000 + da++ * 4, 0x01848004);
+            stl_le_p(data + 0x20000 + da++ * 4, 0);
+        }
+        b = data + 0x20000 + da * 4;
+        memcpy(b, path_draw + 24 * 4, 31 * 4);
+        stl_le_p(b + 17 * 4, 0xff464646);
+        stl_le_p(b + 28 * 4, key);
+        memcpy(data + 0x50000 + i * 8, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
+        path_floats(data + 0x51000 + i * 0x20,
+                    (float[]) { 10 + 20 * (i % 4), 10, 30, 20, -30 }, 5);
+        sa += 41;
+        da += 31;
+    }
+    stl_le_p(data + 0x20000 + da++ * 4, 0x00081004);
+    stl_le_p(data + 0x20000 + da++ * 4, 1);
+    *setup_bytes = ROUND_UP(sa, 2) * 4;
+    *draw_bytes = ROUND_UP(da, 2) * 4;
+}
+
+static MemTxResult submit_initialized_paths(TransferFixture *f,
+                                            unsigned setup_bytes,
+                                            unsigned draw_bytes)
+{
+    const uint32_t packet[][2] = {
+        { 0x1214, 0x100ffff }, { 0x1298, 0 },
+        { 0x10d4, 0x400000 }, { 0x10dc, setup_bytes / 8 }, { 0x10d0, 1 },
+        { 0x10e4, 0x420000 }, { 0x10ec, draw_bytes / 8 },
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmpint(write_register(f, packet[i][0], packet[i][1]), ==,
+                        MEMTX_OK);
+    }
+    return write_register(f, 0x10e0, 1);
+}
+
+static void test_initialized_paths(void)
+{
+    enum { EXTENT = 720 * 480 * 4, GUARDS = EXTENT + 8 };
+    enum {
+        SUCCESS, ONE, LIMIT, PREFIX_ONE, PREFIX_ALL, PREFIX_MIXED, COLLISION,
+        STROKE, REPEAT, IMMUTABLE, RETAINED, BAD_GLOBAL, BAD_SETUP, BAD_CLIP,
+        BAD_DISABLE,
+        BAD_FLAGS, LATE_BAD, SHORT_SETUP, SHORT_DRAW, BAD_PADDING,
+        BAD_ENDING, FOREIGN_TARGET, BAD_COORDINATES, MAP_LOSS, RESET, CANCEL,
+        CASES,
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(),
+                              "transfer-init-path[*]", OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.init-path-command", 0x60000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+        "test.init-path-surface", GUARDS, 0, &error_abort);
+    memory_region_add_subregion(root, 0xbf309600 - 4, &surface);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned count = test == ONE ? 1 : test == LIMIT ? 256 :
+                         test == COLLISION ? 7 : test == STROKE ? 2 : 4;
+        unsigned setup_bytes, draw_bytes;
+        uint32_t prefixes = test == PREFIX_ONE ? 2 :
+                            test == PREFIX_ALL || test == COLLISION ?
+                            UINT32_MAX :
+                            test == PREFIX_MIXED ? 10 : 0;
+        bool complete = test <= RETAINED;
+        bool accepted = complete || test >= MAP_LOSS;
+        g_autofree uint8_t *expected = g_malloc(GUARDS);
+
+        g_test_message("initialized path case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x60000);
+        memset(pixels, 0xa5, GUARDS);
+        memcpy(expected, pixels, GUARDS);
+        build_initialized_paths(data, count, prefixes,
+                                &setup_bytes, &draw_bytes);
+        if (test == STROKE) {
+            uint8_t fill[41 * 4], *stroke = data + 43 * 4;
+
+            memcpy(fill, stroke, sizeof(fill));
+            memset(stroke, 0, 29 * 4);
+            memcpy(stroke, fill + 19 * 4, 8 * 4);
+            stl_le_p(stroke + 8 * 4, 0x005af01e);
+            stl_le_p(stroke + 13 * 4, 0x00654004);
+            stl_le_p(stroke + 15 * 4, 0x00653004);
+            stl_le_p(stroke + 16 * 4, 0x2000);
+            memcpy(stroke + 17 * 4, fill + 29 * 4, 12 * 4);
+            memmove(data + 0x20000 + 90 * 4,
+                    data + 0x20000 + 114 * 4, 31 * 4);
+            stl_le_p(data + 0x20000 + 121 * 4, 0x00081004);
+            stl_le_p(data + 0x20000 + 122 * 4, 1);
+            stl_le_p(data + 0x20000 + 123 * 4, 0);
+            setup_bytes = 72 * 4;
+            draw_bytes = 124 * 4;
+            count = 1; /* The inherited zero-width stroke changes no pixels. */
+        }
+        if (test == SUCCESS) {
+            g_assert_cmpuint(setup_bytes, ==, 664);
+            g_assert_cmpuint(draw_bytes, ==, 1032);
+        } else if (test == COLLISION) {
+            g_assert_cmpuint(draw_bytes, ==, 1736);
+        }
+        switch (test) {
+        case BAD_GLOBAL:
+            data[0x20000] ^= 1;
+            break;
+        case BAD_SETUP:
+            data[4] ^= 1;
+            break;
+        case BAD_CLIP:
+            data[0x20000 + 45 * 4] ^= 1;
+            break;
+        case BAD_DISABLE:
+            stl_le_p(data + 0x20000 + 56 * 4, 0x01000000);
+            break;
+        case BAD_FLAGS:
+            data[0x20000 + 58 * 4] ^= 1;
+            break;
+        case LATE_BAD:
+            data[0x20000 + (90 + 2 * 55 + 43) * 4] ^= 1;
+            break;
+        case SHORT_SETUP:
+            setup_bytes -= 8;
+            break;
+        case SHORT_DRAW:
+            draw_bytes -= 8;
+            break;
+        case BAD_PADDING:
+            data[0x20000 + draw_bytes - 4] = 1;
+            break;
+        case BAD_ENDING:
+            data[0x20000 + (draw_bytes / 4 - 3) * 4] ^= 1;
+            break;
+        case FOREIGN_TARGET:
+            stl_le_p(data + 0x20000 + 103 * 4, 0xbf309604);
+            break;
+        case BAD_COORDINATES:
+            data[0x50000 + 3 * 8] = 0xff;
+            break;
+        default:
+            break;
+        }
+        if (complete) {
+            for (unsigned i = 0; i < count; i++) {
+                for (unsigned y = 10; y < 30; y++) {
+                    for (unsigned x = 10 + 20 * (i % 4);
+                         x < 40 + 20 * (i % 4); x++) {
+                        stl_le_p(expected + 4 + (y * 720 + x) * 4, 0xff464646);
+                    }
+                }
+            }
+        }
+        g_assert_cmpint(submit_initialized_paths(&f, setup_bytes, draw_bytes),
+                        ==, accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        if (test == IMMUTABLE) {
+            memset(data, 0xff, setup_bytes);
+            memset(data + 0x20000, 0xff, draw_bytes);
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels, GUARDS, expected, GUARDS);
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        if (test == REPEAT || test == RETAINED) {
+            if (test == RETAINED) {
+                memmove(data, data + 8, setup_bytes - 8);
+                memmove(data + 0x20000, data + 0x20000 + 20 * 4, 24 * 4);
+                memmove(data + 0x20000 + 24 * 4,
+                        data + 0x20000 + 59 * 4, draw_bytes - 59 * 4);
+                setup_bytes -= 8;
+                draw_bytes = ROUND_UP(55 * count + 2, 2) * 4;
+            }
+            g_assert_cmpint(submit_initialized_paths(&f, setup_bytes,
+                                                    draw_bytes),
+                            ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpmem(pixels, GUARDS, expected, GUARDS);
+        }
+    }
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 static MemTxResult submit_clear(TransferFixture *f, unsigned draw_bytes)
 {
     const uint32_t packet[][2] = {
@@ -5166,6 +5404,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rgba-single-clear", test_rgba_single_clear);
     g_test_add_func("/nikon/transfer/rgba-gray", test_rgba_gray);
     g_test_add_func("/nikon/transfer/path-fill", test_path_fill);
+    g_test_add_func("/nikon/transfer/initialized-paths",
+                    test_initialized_paths);
     g_test_add_func("/nikon/transfer/image-fill", test_image_fill);
     g_test_add_func("/nikon/transfer/rgba-yuv", test_rgba_yuv);
     g_test_add_func("/nikon/transfer/scaled-yuva", test_scaled_yuva);
