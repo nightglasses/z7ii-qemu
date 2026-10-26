@@ -12,6 +12,7 @@
 #include "hw/core/irq.h" /* IWYU pragma: keep */
 #include "hw/core/split-irq.h"
 #include "hw/core/qdev.h"
+#include "hw/core/qdev-clock.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h" /* IWYU pragma: keep */
@@ -799,6 +800,7 @@ static void z7ii_init(MachineState *machine)
 {
     Z7IIMachineState *s = Z7II_MACHINE(machine);
     DeviceState *gic;
+    DeviceState *clock;
     DeviceState *mxic;
     DeviceState *gpio;
     DeviceState *exiu;
@@ -1108,7 +1110,7 @@ static void z7ii_init(MachineState *machine)
     }
 
     s->memc = sysbus_create_simple(TYPE_NIKON_MEMC, MEMC_BASE, NULL);
-    sysbus_create_simple(TYPE_NIKON_CLOCK_GATES, CLOCK_BASE, NULL);
+    clock = sysbus_create_simple(TYPE_NIKON_CLOCK_GATES, CLOCK_BASE, NULL);
 
     sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
@@ -1554,6 +1556,8 @@ static void z7ii_init(MachineState *machine)
         spi_ports[i] = spi;
         qdev_prop_set_uint32(spi, "channel", i);
         qdev_prop_set_bit(spi, "dma", i >= 2 && i <= 4);
+        qdev_connect_clock_in(spi, "spi-clock",
+            qdev_get_clock_out(clock, i == 8 ? "spi8-clock" : "spi-clock"));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
         /*

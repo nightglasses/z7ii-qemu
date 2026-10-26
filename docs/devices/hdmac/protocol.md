@@ -1,6 +1,32 @@
 # Paired HDMAC functional DMA model
 
-Current extension: [descriptor reload](reload.md) supports all8 RC/RS/RD
+## Peripheral demand and delayed dispatch
+
+An asserted peripheral DREQ now services actual accepted beats until its wire,
+PB, DH, remaining count or generation stops the request. A bank-level guard
+serializes reentrant requests and re-arbitrates after each beat. Reads and
+writes still use the selected real AddressSpace, and success still requires
+every requested bus transaction. No timer or poll supplies missing FIFO data.
+
+This finite functional choice gives peripheral handshakes no additional bus
+latency or contention. Software-triggered memory copies retain their existing
+Clock/timer delay. The former per-demand `now + tick` timer accumulated host
+dispatch delay while SPI caught up its intended word deadlines. The native
+37-halfword late-dispatch regression failed before this change; both37- and
+3713-halfword duplex cases now complete through real SPI FIFOs and HDMAC.
+
+Before reading a source, HDMAC checks both endpoints over the whole beat for
+QEMU's active MemoryRegion reentrancy guard. An occupied endpoint defers work
+through the ordinary main-loop bottom half, which rechecks current state after
+the producer's MMIO returns. It never disables QEMU's guard, pops a source in
+advance or retains a stale beat. Reset/unrealize cancel this deferred work.
+Native coverage includes a high-DREQ DH pause/resume, DE cancellation and
+arming Audio DMA before enabling its FIFO. Physical bus throughput is not
+established by these fixtures.
+
+## Protocol and earlier receipts
+
+The [descriptor reload](reload.md) extension supports all8 RC/RS/RD
 combinations with selected-field restoration at normal completion, EB-clear,
 real bus/DREQ lifecycle and explicit cancel/error conventions. The original
 microphone setup now reaches input enable and its return sequence; the next
@@ -25,7 +51,7 @@ The model uses two finite SysBus instances: global+0 and eight channels at+10+in
 
 DE and EB arm a request; IS0 additionally requires software ST. Nonzero IS remains armed with no completion while no DREQ producer is connected. Implemented transfers support byte/halfword/word beats, fixed or incrementing source/destination, block/burst/demand field encodings0..2, all8 RC/RS/RD reload combinations and ordinary non-wrap beat types. Channel PB and global DH1 suspend the same request; DH0 resumes the bank. Protection fields, wrapped bursts, DH2..15, DS and transform encodings remain explicitly unsupported when requested. TT must be0, width/mode3 are refused; unknown registers/widths/reserved fields fail. Unsupported requests cannot become successful linear copies.
 
-An independent official Clock48MHz provides one nominal tick per configured beat. A software request waits that many virtual ticks, then its finite transfer runs through official `dma_memory_read/write` in one event. External requests accept one beat per event and recheck their actual wire. Other CPUs do not observe an intermediate streaming timing model. Sources and sinks are the existing real board address space, not debugger writes or private successful memory. Each beat honors fixed addresses and width; source/destination bus failure produces SS3/4, address wrap SS1, success SS5. CI gates successful IRQ and EI gates errors. Completion clears EB and restores RC-selected initial counters (otherwise zero); RS/RD independently restore initial addresses. Error/cancel retain the request counter fields without reload. This readback convention and DE-disable/EB-clear cancellation→SS2 are explicit functional assumptions; physical partial-transfer count/retry details remain unverified. Real bus writes completed before an error are not rolled back. Reset and cancel remove pending timer callbacks.
+An independent official Clock48MHz provides one nominal tick per configured beat for software requests. A software request waits that many virtual ticks, then its finite transfer runs through official `dma_memory_read/write` in one event. External requests use the immediate, rechecked handshakes described above. Other CPUs do not observe an intermediate streaming timing model. Sources and sinks are the existing real board address space, not debugger writes or private successful memory. Each beat honors fixed addresses and width; source/destination bus failure produces SS3/4, address wrap SS1, success SS5. CI gates successful IRQ and EI gates errors. Completion clears EB and restores RC-selected initial counters (otherwise zero); RS/RD independently restore initial addresses. Error/cancel retain the request counter fields without reload. This readback convention and DE-disable/EB-clear cancellation→SS2 are explicit functional assumptions; physical partial-transfer count/retry details remain unverified. Real bus writes completed before an error are not rolled back. Reset and cancel remove pending timer callbacks.
 
 CB readback preserves guest configuration and device-produced SS. Writes may preserve existing SS or clear it, never create arbitrary nonzero completion. The original ISR's CB&~`1f0000` clears SS/CI/EI and deasserts the real GIC line. No read callback manufactures completion, source data or IRQ. Stateful devices use official unmigratable VMState.
 

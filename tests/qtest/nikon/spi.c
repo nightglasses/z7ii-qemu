@@ -137,6 +137,16 @@ static void spi_wait_rx(QTestState *q, unsigned port)
     }
 }
 
+static void spi_wait_dma(QTestState *q, uint64_t address, uint16_t value)
+{
+    int64_t deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+
+    while (qtest_readw(q, address) != value) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+}
+
 static QTestState *spi_start(void)
 {
     QTestState *q = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 "
@@ -384,13 +394,13 @@ static void test_dma(void)
     g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_WORD), ==, 0xa1b2);
     g_assert_cmphex(qtest_readl(t.q, RAM + 0x2000), ==, 0);
     spi_wire_send(&t, 0, frame, 0x1234);
-    spi_wait_rx(t.q, 4);
+    spi_wait_dma(t.q, RAM + 0x2000, 0x1234);
     qtest_clock_step(t.q, FRAME_NS);
     spi_wire_read(&t, 0, frame);
     g_assert_cmphex(ldl_le_p(frame + NIKON_WIRE_WORD), ==, 0xc3d4);
     g_assert_cmphex(qtest_readw(t.q, RAM + 0x2000), ==, 0x1234);
     spi_wire_send(&t, 0, frame, 0x5678);
-    spi_wait_rx(t.q, 4);
+    spi_wait_dma(t.q, RAM + 0x2002, 0x5678);
     qtest_clock_step(t.q, FRAME_NS);
     g_assert_cmphex(qtest_readw(t.q, RAM + 0x2002), ==, 0x5678);
     g_assert_cmphex(qtest_readl(t.q, base + 0x2c), ==, 0);
@@ -458,6 +468,87 @@ static void test_select(void)
     spi_wire_quit(&t);
 }
 
+static void test_selected_clock(void)
+{
+    static const struct {
+        unsigned port;
+        uint32_t selector;
+        int64_t duration;
+    } cases[] = {
+        { 3, 0x100000, 2240 }, { 3, 0, 2800 },
+        { 8, 0x10000, 2240 }, { 8, 0x20000, 3640 },
+    };
+    QTestState *q = spi_start();
+    uint64_t base = BASE + 3 * 0x100;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cases); i++) {
+        uint64_t address = BASE + cases[i].port * 0x100;
+
+        qtest_writel(q, 0x04281014, cases[i].selector);
+        spi_setup(q, cases[i].port, 16);
+        qtest_writel(q, address + 8, 6);
+        qtest_writel(q, address + 0xc, 0x22);
+        qtest_writel(q, address, 0x1234);
+        qtest_writel(q, address + 0x3c, 1);
+        qtest_clock_step(q, cases[i].duration - 1);
+        g_assert_cmpuint(qtest_readl(q, address + 0x30), ==, 0);
+        qtest_clock_step(q, 1);
+        g_assert_cmpuint(qtest_readl(q, address + 0x30), ==, 1);
+        qtest_readl(q, address + 4);
+        qtest_writel(q, address + 0x3c, 0);
+    }
+
+    /* An unbound source selection cannot complete queued data at 1 ns. */
+    qtest_writel(q, 0x04281014, 0x300000);
+    spi_setup(q, 3, 16);
+    qtest_writel(q, base + 8, 6);
+    qtest_writel(q, base + 0xc, 0x22);
+    qtest_writel(q, base, 0x5678);
+    qtest_writel(q, base + 0x3c, 1);
+    qtest_clock_step(q, FRAME_NS);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 0);
+    g_assert_cmpuint(qtest_readl(q, base + 0x2c), ==, 1);
+    qtest_writel(q, 0x04281014, 0x100000);
+    qtest_clock_step(q, 2240);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 1);
+    g_assert_cmpuint(qtest_readl(q, base + 0x2c), ==, 0);
+    qtest_readl(q, base + 4);
+    qtest_writel(q, base + 0x3c, 0);
+
+    /* Rate changes sample at word boundaries, preserving an active word. */
+    qtest_writel(q, base, 0x1234);
+    qtest_writel(q, base, 0x5678);
+    qtest_writel(q, base + 0x3c, 1);
+    qtest_clock_step(q, 1000);
+    qtest_writel(q, 0x04281014, 0);
+    qtest_clock_step(q, 1239);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 1);
+    qtest_clock_step(q, 2799);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 2);
+    qtest_readl(q, base + 4);
+    qtest_readl(q, base + 4);
+    qtest_writel(q, base + 0x3c, 0);
+
+    qtest_writel(q, 0x04281014, 0x100000);
+    qtest_writel(q, base, 0x1234);
+    qtest_writel(q, base, 0x5678);
+    qtest_writel(q, base + 0x3c, 1);
+    qtest_clock_step(q, 1000);
+    qtest_writel(q, 0x04281014, 0x300000);
+    qtest_clock_step(q, FRAME_NS);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 1);
+    g_assert_cmpuint(qtest_readl(q, base + 0x2c), ==, 1);
+    qtest_writel(q, 0x04281014, 0x100000);
+    qtest_clock_step(q, 2240);
+    g_assert_cmpuint(qtest_readl(q, base + 0x30), ==, 2);
+    g_assert_cmpuint(qtest_readl(q, base + 0x2c), ==, 0);
+    qtest_quit(q);
+}
+
 void nikon_spi_add_tests(const char *image)
 {
     bios = image;
@@ -470,4 +561,5 @@ void nikon_spi_add_tests(const char *image)
     qtest_add_func("/nikon/spi/offline", test_offline);
     qtest_add_func("/nikon/spi/dma", test_dma);
     qtest_add_func("/nikon/spi/select", test_select);
+    qtest_add_func("/nikon/spi/selected-clock", test_selected_clock);
 }

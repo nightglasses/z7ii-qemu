@@ -222,6 +222,47 @@ static void test_audio_pause(void)
     qtest_quit(q);
 }
 
+static void test_audio_enable_armed(void)
+{
+    QTestState *q = start();
+    uint64_t channel = HDMAC + 0x10010;
+    const uint32_t source = RAM + 0x1000;
+
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_writel(q, source + i * 4, 0x12340010 + i);
+    }
+    qtest_writel(q, AUDIO + 0x10c, 1U << 25);
+    qtest_writel(q, HDMAC + 0x10000, 0x90000000);
+    setup(q, channel, source, AUDIO + 0x104, 0x29180000, 0x83000003);
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, source);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x29180000);
+    g_assert_cmphex(qtest_readl(q, AUDIO + 0x120), ==, 0);
+    g_assert_false(qtest_get_irq(q, 142 - 32));
+
+    /* CPU MMIO raises DREQ while Audio's own region is still guarded. */
+    qtest_writel(q, AUDIO + 0x108, (1U << 13) | (1U << 15));
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, channel + 8), ==, source + 16);
+    g_assert_cmphex(qtest_readl(q, channel + 12), ==, AUDIO + 0x104);
+    g_assert_cmphex(qtest_readl(q, channel + 4), ==, 0x291d0000);
+    g_assert_cmphex(qtest_readl(q, channel) & EB, ==, 0);
+    g_assert_cmphex(qtest_readl(q, AUDIO + 0x120), ==, 0xff);
+    g_assert_true(qtest_get_irq(q, 142 - 32));
+
+    /* Drain the real FIFO and verify every transferred word, in order. */
+    qtest_writel(q, AUDIO + 0x114, 1U << 30);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_clock_step_next(q);
+        g_assert_cmphex(qtest_readl(q, AUDIO + 0x15c), ==, 0x10 + i);
+        g_assert_cmphex(qtest_readl(q, AUDIO + 0x160), ==, 0x1234);
+    }
+    g_assert_cmphex(qtest_readl(q, AUDIO + 0x120), ==, 0);
+    qtest_writel(q, channel + 4, 0x29180000);
+    g_assert_false(qtest_get_irq(q, 142 - 32));
+    qtest_quit(q);
+}
+
 static void test_reload_matrix(void)
 {
     QTestState *q = start();
@@ -398,6 +439,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/dma/reentrant/pause", test_reentrant_pause);
     qtest_add_func("/nikon/dma/reentrant/halt", test_reentrant_halt);
     qtest_add_func("/nikon/dma/audio/pause", test_audio_pause);
+    qtest_add_func("/nikon/dma/audio/enable-armed", test_audio_enable_armed);
     qtest_add_func("/nikon/dma/reload/matrix", test_reload_matrix);
     qtest_add_func("/nikon/dma/reload/lifetime", test_reload_lifetime);
     qtest_add_func("/nikon/dma/reload/reentrant", test_reload_reentrant);

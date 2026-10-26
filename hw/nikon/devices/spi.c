@@ -91,13 +91,12 @@ static void nikon_spi_schedule(NikonSPIState *s)
         return;
     }
     if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
-        fifo32_is_empty(&s->tx)) {
+        fifo32_is_empty(&s->tx) || !clock_get_hz(s->clock)) {
         s->next_deadline_ns = 0;
         return;
     }
     /*
-     * Independent virtual input clock; no external clock is invented for
-     * slave mode. Master frames use the public divider formula.
+     * Sample the input clock per word. No external slave clock is invented.
      */
     s->shifting = true;
     period_ns = MAX(1, clock_ticks_to_ns(s->clock, cycles + s->delay));
@@ -107,6 +106,14 @@ static void nikon_spi_schedule(NikonSPIState *s)
         s->next_deadline_ns += period_ns;
     }
     timer_mod(s->timer, s->next_deadline_ns);
+}
+
+static void nikon_spi_clock_update(void *opaque, ClockEvent event)
+{
+    NikonSPIState *s = opaque;
+
+    /* An active word keeps its sampled rate; changes apply to its successor. */
+    nikon_spi_schedule(s);
 }
 
 static void nikon_spi_complete(NikonSPIState *s, uint32_t received,
@@ -499,7 +506,9 @@ static void nikon_spi_reset(DeviceState *dev)
     s->div = s->ctrl = s->aux = s->select = s->polarity = s->ien = 0;
     s->dma_timeout = s->delay = s->watermark = 0;
     s->reported_error = false;
-    clock_update_hz(s->clock, SPI_HZ);
+    if (!clock_has_source(s->clock)) {
+        clock_update_hz(s->clock, SPI_HZ);
+    }
 }
 
 static void nikon_spi_init(Object *obj)
@@ -509,7 +518,8 @@ static void nikon_spi_init(Object *obj)
     fifo32_create(&s->tx, SPI_DEPTH);
     fifo32_create(&s->rx, SPI_DEPTH);
     s->bus = ssi_create_bus(DEVICE(obj), "spi");
-    s->clock = qdev_init_clock_out(DEVICE(obj), "nominal-spi-clock");
+    s->clock = qdev_init_clock_in(DEVICE(obj), "spi-clock",
+                                 nikon_spi_clock_update, s, ClockUpdate);
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_spi_shift, s);
     memory_region_init_io(&s->regs, obj, &nikon_spi_ops, s, "nikon.spi", 0x100);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);

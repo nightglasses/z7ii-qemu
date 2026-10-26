@@ -4,10 +4,14 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/main-loop.h"
+#include "qemu/rcu.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-clock.h"
+#include "qemu/bswap.h"
+#include "system/address-spaces.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/peer.h"
 #include "system/cpu-timers.h"
@@ -70,6 +74,7 @@ static void write_word(SPIFixture *f, hwaddr offset, uint32_t value)
                         f->regs, offset, value, MO_32,
                         MEMTXATTRS_UNSPECIFIED),
                     ==, MEMTX_OK);
+    aio_poll(qemu_get_aio_context(), false);
 }
 
 static uint32_t read_word(SPIFixture *f, hwaddr offset)
@@ -323,6 +328,202 @@ static void test_slave_guards(void)
     cleanup(f);
 }
 
+static void dma_write(MemoryRegion *regs, hwaddr offset, uint32_t value)
+{
+    g_assert_cmpint(memory_region_dispatch_write(regs, offset, value, MO_32,
+                                                MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_OK);
+    aio_poll(qemu_get_aio_context(), false);
+}
+
+static uint32_t dma_read(MemoryRegion *regs, hwaddr offset)
+{
+    uint64_t value;
+
+    g_assert_cmpint(memory_region_dispatch_read(regs, offset, &value, MO_32,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_OK);
+    return value;
+}
+
+static void dma_cadence(unsigned words, bool late)
+{
+    const hwaddr spi_address = 0x2c0a0300, ram_address = 0x80000000;
+    SPIFixture *f = fixture(true);
+    DeviceState *dma = qdev_new(TYPE_NIKON_HDMAC);
+    MemoryRegion ram, *regs;
+    uint8_t *bytes;
+    int64_t start, deadline;
+    const int64_t period = 2240; /* 16 bits, DIV6, explicit 100 MHz input. */
+    const unsigned rx_offset = 0x2000;
+
+    object_property_add_child(object_get_objects_root(), "hdmac[*]",
+                              OBJECT(dma));
+    qdev_prop_set_uint32(dma, "bank", 1);
+    memory_region_init_ram_flags_nomigrate(&ram, OBJECT(dma), "spi-dma-ram",
+                                           0x4000, 0, &error_abort);
+    memory_region_add_subregion(get_system_memory(), ram_address, &ram);
+    memory_region_add_subregion(get_system_memory(), spi_address, f->regs);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(dma), &error_abort));
+    device_cold_reset(dma);
+    regs = sysbus_mmio_get_region(SYS_BUS_DEVICE(dma), 0);
+    qdev_connect_gpio_out_named(f->dev, "dma", 0,
+                                qdev_get_gpio_in(dma, 9));
+    qdev_connect_gpio_out_named(f->dev, "dma", 1,
+                                qdev_get_gpio_in(dma, 10));
+    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    bytes = memory_region_get_ram_ptr(&ram);
+    memset(bytes, 0xff, 0x4000);
+    for (unsigned i = 0; i < words; i++) {
+        stw_le_p(bytes + 2 * i, 0x1200 + i);
+    }
+    prepare(f);
+    write_word(f, 8, 6);
+    write_word(f, 0xc, 0x43b);
+    write_word(f, 0x4c, 0x1004);
+    /* Prime the real FIFO so demand starts low before either timer runs. */
+    for (unsigned i = 0; i < 32; i++) {
+        write_word(f, 0, lduw_le_p(bytes + 2 * i));
+    }
+    dma_write(regs, 0, 0x90000000);
+    dma_write(regs, 0x18, ram_address + 64);
+    dma_write(regs, 0x1c, spi_address);
+    /* Halfwords, fixed peripheral destination. */
+    dma_write(regs, 0x14, 0x05180000);
+    dma_write(regs, 0x10, 0x89000000 | (words - 33));
+    dma_write(regs, 0x28, spi_address + 4);
+    dma_write(regs, 0x2c, ram_address + rx_offset);
+    dma_write(regs, 0x24, 0x06180000); /* Halfwords, fixed peripheral source. */
+    dma_write(regs, 0x20, 0x8a000000 | (words - 1));
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    deadline = start + period * (words + 2);
+    write_word(f, 0x3c, 1);
+    if (late) {
+        /* Dispatch was delayed, not the independent SPI/DMA hardware clocks. */
+        cpus_set_virtual_clock(deadline);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    } else {
+        for (int64_t now = start + 10; now <= deadline; now += 10) {
+            cpus_set_virtual_clock(now);
+            qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        }
+    }
+    /* Verify actual data and DMA termination, without TX-DONE assumptions. */
+    g_assert_cmphex(dma_read(regs, 0x14) & 0x70000, ==, 0x50000);
+    g_assert_cmphex(dma_read(regs, 0x24) & 0x70000, ==, 0x50000);
+    g_assert_cmphex(dma_read(regs, 0x18), ==, ram_address + 2 * words);
+    g_assert_cmphex(dma_read(regs, 0x2c), ==,
+                    ram_address + rx_offset + 2 * words);
+    g_assert_cmpuint(read_word(f, 0x2c), ==, 0);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    g_assert_cmphex(read_word(f, 0x14) & 0x100, ==, 0);
+    for (unsigned i = 0; i < 2 * words; i++) {
+        /* Disconnected SSI MISO. */
+        g_assert_cmphex(bytes[rx_offset + i], ==, 0);
+    }
+    g_assert_cmphex(bytes[rx_offset + 2 * words], ==, 0xff);
+    qdev_connect_gpio_out_named(f->dev, "dma", 0, NULL);
+    qdev_connect_gpio_out_named(f->dev, "dma", 1, NULL);
+    qdev_unrealize(dma);
+    memory_region_del_subregion(get_system_memory(), f->regs);
+    memory_region_del_subregion(get_system_memory(), &ram);
+    drain_call_rcu();
+    object_unparent(OBJECT(dma));
+    object_unref(OBJECT(dma));
+    drain_call_rcu();
+    cleanup(f);
+}
+
+static void test_dma_fine(void)
+{
+    dma_cadence(37, false);
+}
+
+static void test_dma_late_tail(void)
+{
+    dma_cadence(37, true);
+}
+
+static void test_dma_late_long(void)
+{
+    dma_cadence(3713, true);
+}
+
+static void dma_reentrant_control(bool cancel)
+{
+    const hwaddr ram_address = 0x80000000, dma_address = 0x2c030000;
+    DeviceState *dma = qdev_new(TYPE_NIKON_HDMAC);
+    MemoryRegion ram, *regs;
+    uint8_t *bytes;
+    qemu_irq demand;
+    uint32_t stopped_source;
+
+    object_property_add_child(object_get_objects_root(), "hdmac[*]",
+                              OBJECT(dma));
+    qdev_prop_set_uint32(dma, "bank", 1);
+    memory_region_init_ram_flags_nomigrate(&ram, OBJECT(dma), "dma-control-ram",
+                                           0x1000, 0, &error_abort);
+    memory_region_add_subregion(get_system_memory(), ram_address, &ram);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(dma), &error_abort));
+    device_cold_reset(dma);
+    regs = sysbus_mmio_get_region(SYS_BUS_DEVICE(dma), 0);
+    memory_region_add_subregion(get_system_memory(), dma_address, regs);
+    bytes = memory_region_get_ram_ptr(&ram);
+    stl_le_p(bytes, cancel ? 0 : 0x91000000); /* DE cancellation or DH pause. */
+    stl_le_p(bytes + 4, 0x90000000);
+    dma_write(regs, 0, 0x90000000);
+    dma_write(regs, 0x18, ram_address);
+    dma_write(regs, 0x1c, dma_address);
+    /* Two words to fixed own control MMIO. */
+    dma_write(regs, 0x14, 0x09180000);
+    dma_write(regs, 0x10, 0x89000001);
+    demand = qdev_get_gpio_in(dma, 9);
+    qemu_set_irq(demand, 1);
+
+    stopped_source = dma_read(regs, 0x18);
+    if (cancel) {
+        g_assert_cmphex(dma_read(regs, 0), ==, 0);
+        g_assert_cmphex(dma_read(regs, 0x14) & 0x70000, ==, 0x20000);
+        g_assert_cmphex(dma_read(regs, 0x10) & 0x80000000, ==, 0);
+        /* Still-high demand must not resurrect cancelled work. */
+        qemu_set_irq(demand, 1);
+        cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 100000);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        g_assert_cmphex(dma_read(regs, 0), ==, 0);
+        g_assert_cmphex(dma_read(regs, 0x18), ==, stopped_source);
+        g_assert_cmphex(dma_read(regs, 0x14) & 0x70000, ==, 0x20000);
+    } else {
+        g_assert_cmphex(dma_read(regs, 0), ==, 0x91000000);
+        g_assert_cmphex(stopped_source, ==, ram_address + 4);
+        g_assert_cmphex(dma_read(regs, 0x10) & 0x80000000, ==, 0x80000000);
+        g_assert_cmphex(dma_read(regs, 0x14) & 0x70000, ==, 0);
+        /* DH clear resumes the same high request, without a new DREQ edge. */
+        dma_write(regs, 0, 0x90000000);
+        g_assert_cmphex(dma_read(regs, 0), ==, 0x90000000);
+        g_assert_cmphex(dma_read(regs, 0x18), ==, ram_address + 8);
+        g_assert_cmphex(dma_read(regs, 0x10) & 0x80000000, ==, 0);
+        g_assert_cmphex(dma_read(regs, 0x14) & 0x70000, ==, 0x50000);
+    }
+    qemu_set_irq(demand, 0);
+    qdev_unrealize(dma);
+    memory_region_del_subregion(get_system_memory(), regs);
+    memory_region_del_subregion(get_system_memory(), &ram);
+    drain_call_rcu();
+    object_unparent(OBJECT(dma));
+    object_unref(OBJECT(dma));
+    drain_call_rcu();
+}
+
+static void test_dma_reentrant_pause(void)
+{
+    dma_reentrant_control(false);
+}
+
+static void test_dma_reentrant_cancel(void)
+{
+    dma_reentrant_control(true);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -348,6 +549,12 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/spi/slave/rx-only", test_slave_rx_only);
     g_test_add_func("/nikon/spi/slave/backpressure", test_slave_backpressure);
     g_test_add_func("/nikon/spi/slave/guards", test_slave_guards);
+    g_test_add_func("/nikon/spi/dma/fine", test_dma_fine);
+    g_test_add_func("/nikon/spi/dma/late-tail", test_dma_late_tail);
+    g_test_add_func("/nikon/spi/dma/late-long", test_dma_late_long);
+    g_test_add_func("/nikon/spi/dma/reentrant-pause", test_dma_reentrant_pause);
+    g_test_add_func("/nikon/spi/dma/reentrant-cancel",
+                    test_dma_reentrant_cancel);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

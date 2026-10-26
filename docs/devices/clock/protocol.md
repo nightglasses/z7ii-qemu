@@ -1,4 +1,28 @@
-# Clock-stop bank diagnostic contract
+# Clock sources and stop banks
+
+## SPI source selection
+
+The current clock device publishes two QEMU Clock outputs for the SPI family.
+C1.70 MAS VA `10370c32 → 103b0540` reads selector5 at PA `04281014`, ORs
+`00880008`, and interprets bits20..23 as8→80 MHz or9→100 MHz for ordinary
+channels. Channel8 instead uses bits16..19, with8→80 MHz,9→100 MHz and
+A→61.53 MHz. The board connects all eleven SPI inputs to the corresponding
+output. Selector writes and reset update these outputs; an unknown selection
+has frequency zero and cannot silently shift queued words.
+
+This reproduces the driver's declared frequency relationship. It does not
+recover physical PLL multipliers or establish measured silicon frequencies.
+The SPI device samples the input per word, so a running word retains its
+deadline and later words observe a changed or stopped source. Other nominal
+bus clocks are unchanged. The focused native selected-clock fixture validates
+divider deadlines, mid-word changes and stop/restart; it is synthetic device
+evidence, separate from original lens initialization.
+
+## Historical stop-bank diagnostic
+
+The following observations describe the earlier stop-bank-only implementation
+and its original execution boundary. They do not describe the current SPI
+outputs or establish the current startup frontier.
 
 This layer serves [MEMC and early peripheral startup](/startup/memc). It implements six shared stop-state banks and their SET/CLEAR mask aliases. It supplies no PLL reset value, counter frequency, clock output, completion bit or interrupt. The original first read at PA `0x0428102c` remains unsupported.
 

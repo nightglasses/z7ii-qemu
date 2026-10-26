@@ -220,11 +220,10 @@ static void test_requests(void)
         qtest_set_irq_in(q, device, NULL, selector, 1);
         qtest_clock_step_next(q);
         qtest_set_irq_in(q, device, NULL, selector, 0);
-        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
+        /* A continuously available real request accepts both beats. */
+        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 8);
         qtest_clock_step(q, 100000);
-        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
-        qtest_set_irq_in(q, device, NULL, selector, 1);
-        qtest_clock_step_next(q);
+        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 8);
         result(q, 5);
         qtest_set_irq_in(q, device, NULL, selector, 0);
     }
@@ -267,13 +266,6 @@ static void test_reload_requests(void)
 
     request(q, SOURCE, DESTINATION, cb, 0x85000001);
     qtest_clock_step(q, 100000);
-    g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb);
-    qtest_set_irq_in(q, device, NULL, 5, 1);
-    qtest_clock_step_next(q);
-    qtest_set_irq_in(q, device, NULL, 5, 0);
-    qtest_clock_step(q, 100000);
-    g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
-    g_assert_cmphex(qtest_readl(q, HDMAC + 0x1c), ==, DESTINATION + 4);
     g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb);
     qtest_set_irq_in(q, device, NULL, 5, 1);
     qtest_clock_step_next(q);

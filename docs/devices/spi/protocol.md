@@ -93,6 +93,23 @@ reset and cancellation discard that cadence. Completion from an asynchronous
 peer also discards it because external backpressure, rather than the local
 clock, determines when the next word can begin.
 
+## Source-selected input clocks
+
+The board connects each controller's `spi-clock` input to the clock device.
+C1.70 MAS VA `10370c32` queries selector5 through `103b0540`, reading PA
+`04281014` with mask `00880008`. The common selector nibble at bits20..23
+declares80 MHz for8 and100 MHz for9. Channel8 instead uses bits16..19:
+8 declares80 MHz,9 declares100 MHz and A declares61.53 MHz. These are the
+original driver's declared frequencies, not measured physical PLL outputs.
+An unrecognized selector supplies no clock; queued words wait for a supported
+source. An isolated, unconnected unit fixture retains its explicit48 MHz input.
+
+The divider remains `input / (2*(DIV+1))` when enabled. A word samples its
+clock on start; a source change or stop affects its successor. This atomic-word
+choice is a functional timing assumption. The native selected-clock fixture
+checks all three declared rates, a stopped source, restart and changes while
+two words are queued. Older48 MHz receipts below retain their historical scope.
+
 The unchanged-firmware EX transport exposed the prior scheduling error. With
 the same 48 MHz, 16-bit, divide-by-two guest configuration, its first 256-byte
 descriptor was split when an EX receive window ended with NDTR96: only 160
