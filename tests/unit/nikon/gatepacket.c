@@ -59,6 +59,8 @@ static void layouts(void)
         { 6, 3, 356, { 0, 0x200, 0x400 }, { 4, 81, 4 } },
         { 7, 6, 248, { 0, 0x64, 0x80, 0xc0, 0x100, 0x22c },
                       { 22, 5, 10, 10, 10, 5 } },
+        { 8, 2, 128, { 0, 0x78 }, { 28, 4 } },
+        { 9, 1, 136, { 0 }, { 34 } },
         { 10, 3, 140, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 11, 3, 140, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 12, 8, 176, { 0, 0x20, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0 },
@@ -138,11 +140,61 @@ static void type5(void)
     }
 }
 
+static void type89(void)
+{
+    uint8_t data[136] = { 0 };
+    NikonGatePacket packet, saved;
+    unsigned length, bit, i;
+
+    stl_le_p(data, 0x01220000);
+    stl_le_p(data + 4, 0x6a);
+    stl_le_p(data + 0x58, 0xc326b400);
+    g_assert_true(nikon_gate_packet_decode(9, data, 136, &packet));
+    g_assert_cmphex(packet.value[0], ==, 0x6a);
+    g_assert_cmphex(packet.value[0x54 / 4], ==, 0xc326b400);
+    saved = packet;
+    for (length = 0; length < 136; length++) {
+        g_assert_false(nikon_gate_packet_decode(9, data, length, &packet));
+        g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+    }
+    for (bit = 0; bit < 32; bit++) {
+        stl_le_p(data, 0x01220000 ^ (1U << bit));
+        g_assert_false(nikon_gate_packet_decode(9, data, 136, &packet));
+        g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+    }
+    memset(data, 0, sizeof(data));
+    stl_le_p(data, 0x111c0000);
+    stl_le_p(data + 112, 0x01040078);
+    stl_le_p(data + 124, 0x89abcdef);
+    g_assert_true(nikon_gate_packet_decode(8, data, 128, &packet));
+    g_assert_cmphex(packet.value[0x80 / 4], ==, 0x89abcdef);
+    for (i = 0; i < NIKON_GATE_REGISTERS; i++) {
+        g_assert_cmpint(packet.present[i], ==, i < 27 || (i >= 30 && i <= 32));
+    }
+    saved = packet;
+    for (length = 0; length < 128; length++) {
+        g_assert_false(nikon_gate_packet_decode(8, data, length, &packet));
+        g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+    }
+    for (i = 0; i < 2; i++) {
+        unsigned offset = i ? 112 : 0;
+        uint32_t header = i ? 0x01040078 : 0x111c0000;
+
+        for (bit = 0; bit < 32; bit++) {
+            stl_le_p(data + offset, header ^ (1U << bit));
+            g_assert_false(nikon_gate_packet_decode(8, data, 128, &packet));
+            g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+        }
+        stl_le_p(data + offset, header);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/nikon/gatepacket/type4", type4);
     g_test_add_func("/nikon/gatepacket/layouts", layouts);
     g_test_add_func("/nikon/gatepacket/type5", type5);
+    g_test_add_func("/nikon/gatepacket/type89", type89);
     return g_test_run();
 }

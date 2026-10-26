@@ -1,6 +1,36 @@
 # Original-firmware startup frontier
 
-## Current: downstream type9 command reset at PA `20100914`
+## Current: type18/resource34 initialization at PA `201002c0`
+
+The [linked type8/type9 streams](../devices/gate/linked.md) add all eight
+source-selected ports, their128/136-byte layouts and strict reset/RAM-DMA/atomic
+import. Type9's source ancestor8 is distinct from its type5 input stream4;
+its downstream routes and borrowed kind74 interpolation reference are located.
+Pixel/table equations and complete input/output DMA association remain open.
+No identity transform, automatic completion or slot release is inferred.
+
+The [linked receipt](/evidence/imagerequest/linked.json) records27 passing
+native decoder/SLA subtests, including all37 ports and64-bit configured-mask
+reset isolation. In the unchanged60-host-second region/cold-neutral run,
+imports rise to17 packets/628 words. Type9/resource45, type8 resources41..43
+and subsequent supported nodes cross configuration. Slots1/2/8 remain busy;
+no actual processing activation is reached.
+
+The first uncovered transaction becomes CPU1 PC `103bddd2`, WRITE32 PA
+`201002c0=1`, in callback `103bdd8c` for type18/resource34, backend `20100920`.
+It clears SYS41..44, tests `20100148.bit8` and conditionally writes this
+control before CPU initialization of the4096-byte workspace and common
+reset/import. The next boundary is that complete initialization/command
+contract, with graph processing and its terminal result still pending.
+
+The run completes128 main acquisitions and529 statistics jobs, with zero
+rejections/statistics cancellations and two main cancellations. Error
+property6433, GUI readiness and both information records remain zero; neither
+head has a console. No debugger pause occurs inside the window; sequential
+QMP/read-only GDB observations are not atomic or physical rates. Normal GUI
+publication and processing-slot reuse remain unverified.
+
+## Previous: downstream type9 command reset at PA `20100914`
 
 The [type5/type6 stream contract](../devices/gate/fanout.md) separates the
 356-byte register prefix from the396-byte software allocation's CPU-consumed

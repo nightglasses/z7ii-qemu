@@ -38,6 +38,12 @@ untouched. The first packet's destinations are spaced`370` bytes,22 records.
 Its first write is100hex and tag306hex. These are software records, not a
 framebuffer or an emulated hardware completion.
 
+The later [type9 input association](../devices/gate/linked.md) retains a
+reference at PA `c326b400` inside this same pool. Its bounded original
+cold-neutral observation finds16 records with the40-byte stride and tag306.
+That associates the generated record family with a processing input; it does
+not establish the hardware interpolation equation or output DMA contract.
+
 ## Conversion and finite model
 
 `103c5a7a` selects row27 at`b2b415a0`: PA class base`bd200000`, type1,

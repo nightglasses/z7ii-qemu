@@ -30,6 +30,8 @@ static size_t gate_program(unsigned kind, uint8_t *data)
         { 6, 3, { 0, 0x200, 0x400 }, { 4, 81, 4 } },
         { 7, 6, { 0, 0x64, 0x80, 0xc0, 0x100, 0x22c },
                  { 22, 5, 10, 10, 10, 5 } },
+        { 8, 2, { 0, 0x78 }, { 28, 4 } },
+        { 9, 1, { 0 }, { 34 } },
         { 10, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 11, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 12, 8, { 0, 0x20, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0 },
@@ -70,6 +72,8 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
         { 0xd60, 11 }, { 0xd80, 11 }, { 0xda0, 11 }, { 0xdc0, 11 },
         { 0xde0, 11 }, { 0xe00, 11 }, { 0xe20, 11 },
         { 0xe60, 5 }, { 0xe80, 6 },
+        { 0x8a0, 8 }, { 0x8c0, 8 }, { 0x8e0, 8 }, { 0xc80, 8 },
+        { 0x900, 9 }, { 0xac0, 9 }, { 0xcc0, 9 }, { 0xce0, 9 },
     };
     const uint32_t source = 0xc1004000;
     uint64_t words = 0;
@@ -80,6 +84,10 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
         uint8_t data[NIKON_GATE_PACKET_MAX];
         size_t length = gate_program(engines[i].kind, data);
 
+        if (engines[i].kind == 9) {
+            /* Import retains logical54 without dereferencing its value. */
+            stl_le_p(data + 0x58, 0x20100000);
+        }
         qtest_memwrite(q, source, data, length);
         if (engines[i].kind == 5 || engines[i].kind == 6) {
             uint8_t trailer[40];
@@ -110,7 +118,7 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
         g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i + 1);
         g_assert_cmpuint(gate_property(q, path, "loaded-words"), ==, words);
         g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
-                        (1U << (i + 1)) - 1);
+                        (UINT64_C(1) << (i + 1)) - 1);
         qtest_writel(q, port, 1); /* Unimplemented execution rejects. */
         qtest_clock_step(q, 100000);
         g_assert_cmphex(qtest_readl(q, port), ==, 0);
@@ -120,12 +128,23 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
             g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * j), ==, 0);
         }
     }
+    /* Port37 crosses the old32-bit mask boundary; isolate its reset. */
+    qtest_writel(q, base + engines[i - 1].offset + 0x14, 1);
+    g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
+                    ((UINT64_C(1) << i) - 1) &
+                    ~(UINT64_C(1) << (i - 1)));
+    g_assert_cmphex(qtest_readl(q, base + engines[i - 1].offset + 0x10), ==, 0);
+    for (j = 0; j + 1 < i; j++) {
+        g_assert_cmphex(qtest_readl(q, base + engines[j].offset + 0x10), ==,
+                        source);
+    }
     /* Rejected late commands retain every already configured engine. */
     qtest_writel(q, base + 0x810, source);
     g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i);
     qtest_writel(q, base + 0x814, 1);
     g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
-                    ((1U << i) - 1) & ~1U);
+                    ((UINT64_C(1) << i) - 1) & ~UINT64_C(1) &
+                    ~(UINT64_C(1) << (i - 1)));
     qtest_writel(q, base + 0x814, 0);
     {
         uint8_t data[72];
@@ -206,6 +225,12 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     {
         g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
                                           base + 0xe74);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+    }
+    {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          base + 0x914);
 
         g_assert_null(strstr(reply, "Cannot access memory"));
     }

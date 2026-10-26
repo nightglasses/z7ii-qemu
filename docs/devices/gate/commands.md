@@ -12,9 +12,10 @@ unsupported. See the [execution receipt](/evidence/imagerequest/commands.json)
 and [startup frontier](../../validation/frontier.md).
 
 The later [type5/type6 stream contract](fanout.md) adds two source-selected
-ports and their356-byte prefix layout to this shared importer. The maintained
-port set has29 entries; the original seven-type/27-port observation below
-retains its historical scope.
+ports and their356-byte prefix layout. The [linked type8/type9 contract](linked.md)
+adds eight more ports and their128/136-byte streams. The maintained port set
+has37 entries; the original seven-type/27-port observation below retains its
+historical scope.
 
 Code, ROM and software objects below are original C1.70 MAS virtual addresses
 (VA); device addresses are board physical addresses (PA). Addresses, offsets
@@ -46,6 +47,8 @@ layouts; all current original graph packets agree with their headers.
 | 4 | `4/2`, `10/16` | 72 |
 | 5, 6 | `0/4`, `200/81`, `400/4` | 356 |
 | 7 | `0/22`, `64/5`, `80/10`, `c0/10`, `100/10`, `22c/5` | 248 |
+| 8 | `0/28`, `78/4` | 128 |
+| 9 | `0/34` | 136 |
 | 10, 11 | `0/10`, `40/8`, `80/17` | 140 |
 | 12 | `0/7`, `20/2`, `30/6`, `50/6`, `70/6`, `90/6`, `b0/6`, `d0/5` | 176 |
 | 15 | `0/3`, `10/14` | 68 |
@@ -69,6 +72,8 @@ PA `20100000`.
 | 5 | `35→e60` |
 | 6 | `36→e80` |
 | 7 | `40→880` |
+| 8 | `41→8a0`, `42→8c0`, `43→8e0`, `44→c80` |
+| 9 | `45→900`, `46→ac0`, `47→cc0`, `48→ce0` |
 | 10 | `49→940`, `50→960`, `51→980`, `52→9a0`, `53→9c0`, `54→9e0`, `55→ba0`, `56→bc0` |
 | 11 | `57→d40`, `58→d60`, `59→d80`, `60→da0`, `61→dc0`, `62→de0`, `63→e00`, `64→e20` |
 | 12 | `65→a40` |
@@ -94,8 +99,8 @@ readback, cold empty state, pulse cancellation and this one-import arm are
 explicit functional conventions; source establishes the successful ordering,
 not all physical error/reset behavior.
 
-The model exposes read-only QOM import counters and a configured mask for
-inspection. Backend+`0` reads `0` as an explicit incomplete-state convention.
+The model exposes read-only QOM import counters and a64-bit configured mask
+for all37 ports. Backend+`0` reads `0` as an explicit incomplete-state convention.
 Source predicate `103bdbbe` checks `(status & 3) != 3`; it does not establish
 bit1 alone as busy. No successful completion encoding is returned. Processor
 activation at backend+`0` is an explicit error until the actual data operation

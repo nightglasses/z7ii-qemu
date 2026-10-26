@@ -17,7 +17,7 @@ typedef struct GateLayout {
 } GateLayout;
 
 /*
- * MAS103b2fa8/3172/3226/3f04/4214/4346/46ec/49b0 and the observed client
+ * MAS103b2fa8/3172/3226/35d6/39e8/3f04/4214/4346/46ec/49b0 and the client
  * structures. These finite layouts do not decode the register arithmetic.
  */
 static const GateLayout layouts[] = {
@@ -27,6 +27,8 @@ static const GateLayout layouts[] = {
     { 6, 3, { { 0, 4 }, { 0x200, 81 }, { 0x400, 4 } } },
     { 7, 6, { { 0, 22 }, { 0x64, 5 }, { 0x80, 10 }, { 0xc0, 10 },
               { 0x100, 10 }, { 0x22c, 5 } } },
+    { 8, 2, { { 0, 28 }, { 0x78, 4 } } },
+    { 9, 1, { { 0, 34 } } },
     { 10, 3, { { 0, 10 }, { 0x40, 8 }, { 0x80, 17 } } },
     { 11, 3, { { 0, 10 }, { 0x40, 8 }, { 0x80, 17 } } },
     { 12, 8, { { 0, 7 }, { 0x20, 2 }, { 0x30, 6 }, { 0x50, 6 },

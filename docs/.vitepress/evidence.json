@@ -2055,6 +2055,16 @@
       }
     ]
   },
+  "devices/gate/linked.md": {
+    "records": [
+      {
+        "run": "type9streams",
+        "title": "Type8/type9 import, linked input references and terminal ownership",
+        "href": "/evidence/imagerequest/linked.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/gate/fanout.md": {
     "records": [
       {

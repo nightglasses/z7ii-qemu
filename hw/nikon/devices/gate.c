@@ -35,7 +35,11 @@ static const struct {
     { 0xd60, 11 }, { 0xd80, 11 }, { 0xda0, 11 }, { 0xdc0, 11 },
     { 0xde0, 11 }, { 0xe00, 11 }, { 0xe20, 11 },
     { 0xe60, 5 }, { 0xe80, 6 },
+    { 0x8a0, 8 }, { 0x8c0, 8 }, { 0x8e0, 8 }, { 0xc80, 8 },
+    { 0x900, 9 }, { 0xac0, 9 }, { 0xcc0, 9 }, { 0xce0, 9 },
 };
+
+G_STATIC_ASSERT(ARRAY_SIZE(command_ports) <= 64);
 
 typedef struct GateCommand {
     NikonGatePacket packet;
@@ -57,7 +61,7 @@ struct NikonEventGateState {
     uint16_t table[TABLE_SIZE / 4];
     uint32_t work[WORKSPACE_SIZE / 4], workspace_written;
     bool work_written[WORKSPACE_SIZE / 4];
-    uint32_t configured;
+    uint64_t configured;
     uint64_t loaded, loaded_words;
     QEMUTimer *stop_timer;
     bool stopping, stop_ack, submit_pending;
@@ -271,7 +275,7 @@ static bool nikon_event_gate_load(NikonEventGateState *s, unsigned index,
     command->packet = decoded;
     command->address = address;
     command->armed = false;
-    s->configured |= 1U << index;
+    s->configured |= UINT64_C(1) << index;
     s->loaded++;
     s->loaded_words += length / 4;
     return true;
@@ -378,7 +382,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
                 command->address = 0;
                 command->armed = false;
                 command->reset = true;
-                s->configured &= ~(1U << index);
+                s->configured &= ~(UINT64_C(1) << index);
             } else {
                 command->reset = false;
                 command->armed = true;
@@ -615,7 +619,7 @@ static void nikon_event_gate_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->workspace);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_event_gate_input, "pending-bit", 96);
-    object_property_add_uint32_ptr(obj, "configured-mask", &s->configured,
+    object_property_add_uint64_ptr(obj, "configured-mask", &s->configured,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-packets", &s->loaded,
                                    OBJ_PROP_FLAG_READ);

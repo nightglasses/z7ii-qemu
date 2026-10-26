@@ -5,8 +5,10 @@ C1.70 MAS type5/resource35 uses backend PA `20100e60`; type6/resource36 uses
 The observed 396-byte software structure contains a 356-byte register stream
 and a separate 40-byte CPU-consumed trailer. The finite model imports only
 the stream, retaining the original routing/table parameters without creating
-pixels or completion. Original cold-neutral execution now crosses type5 import
-and stops at downstream type9/resource45 configuration. See the
+pixels or completion. At this checkpoint original cold-neutral execution
+crosses type5 import and stops at downstream type9/resource45 configuration.
+The later [linked-stream contract](linked.md) crosses that historical stop
+while keeping actual processing unsupported. See the
 [receipt](/evidence/imagerequest/fanout.json) and
 [startup frontier](../../validation/frontier.md).
 
