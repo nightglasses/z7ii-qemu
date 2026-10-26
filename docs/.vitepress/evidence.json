@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "lensoperating",
+        "title": "Whole fixed-lens protocol, operating state and50/51 processing",
+        "href": "/evidence/lens/operating.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "pairedaffine",
         "title": "Four-lane affine source, native vectors and original GUI observation",
         "href": "/evidence/paired/affine.json",
@@ -2999,6 +3005,12 @@
   },
   "devices/lens/protocol.md": {
     "records": [
+      {
+        "run": "lensoperating",
+        "title": "Whole fixed-lens protocol, operating state and50/51 processing",
+        "href": "/evidence/lens/operating.json",
+        "kind": "Execution observation"
+      },
       {
         "run": "lensmodel",
         "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",

@@ -1,0 +1,75 @@
+{
+  "scope": "Whole finite fixed-lens protocol audit and actual operating/mode-query repairs; unchanged firmware execution distinct from native fixtures",
+  "baseline": "a9db8bed",
+  "source": {
+    "addresses": "C1.70 MAS VA unless board PA stated; byte offsets and lengths decimal",
+    "operating": "10345810 selects1037a8c6 for12404;20:00[216]&3 maps0/1 to1,2 to2,3 to3.10349e42 publishes40000500 using logical3;10357ee8/1033f312 and1035e7f0/10344fea/10330fb0 consume eligibility for capture/liveview",
+    "capabilities": "10378a46/10378a64 decode10:00[12] bits1/0, and10311b58 requires both with high6bits0;12:00[25]=1 is decoded by10378dfe. These are initialization requirements, not fields to clear to hide a message",
+    "mode_request": "119d8280 software23 selects50/4B;103130aa/1030e65a/1037bd1a/10377b0c emit byte1 selectors0/1/2 and byte2zero. No13/config reset or stream stop is established by50; preceding original state20 uses16",
+    "mode_query": "119d8298 software24 selects51/4B;1031306a/1031305c query before20;10312e64 consumes51 byte1.bit7 busy/bit6 fault/bit0 following branch.00 permits completion,bit0zero valid,not selector echo",
+    "history": "103834e0 validates55marker and42Bchecksum;10383506 consumes sequence andsigned32position.10348c8c/1021e664/103c54f0/10348d38 interpretbyte7low2bits1/2 as opposite limits,0 as neither",
+    "capture_mode": "1034f918 namescapturefamily100 LvStill,200 LvStillSilent,400 LvMovieRec,800 LvMovie;1034ca9e publishesB2951140/family andB2951148/label.102324cc selectsusingcaptureconfigbytes0/24/263;app main_mode alone is not the photo/movie enum"
+  },
+  "model": {
+    "fixed_optics": "20:00[216]=3 always for fixed nonretracting optics; actual configuration pending/commit remains15,169,203. No guest eligibility/GUI/cache patched",
+    "mode": "50 whole packet validation, independent2ms processing, committed/requested selectors andmode-generation;51 busy from actual pending, fault0,normal branchbit0=0. Selectors have no recovered physical names and are not body photo/movie selection",
+    "lifecycle": "Mode/reset/unrealize timers canceled; mode requests preserve configuration, stream and optical operating state; retained fixed aperture and normal histories",
+    "profile_audit": "All current positive capabilities, static/dynamic optical joins, calibration math, configuration, sync, stream/history,11zero-aperture variants and50/51 inspected together. No unsupported lens feature advertised",
+    "unknowns": "Main20:00 offsets19/23/27/89/91 are known biased rationals, selectedraw0\u2192-2; absolute iris vs correction semantics unresolved. They are explicit virtual inputs, not reserved and not blindly rewritten960. Remaining history flags lack complete physical names",
+    "fidelity": "Finite protocol for fixed50mmF2.8; not physical autofocus, retracting zoom, variable iris, complete lens fidelity or a3Dbridge"
+  },
+  "native": {
+    "command": "make check MTESTARGS='nikon_lens_unit'",
+    "subtests": 15,
+    "seconds": 0.54,
+    "red": [
+      "Old full status after successful configuration returns216=0, expected3",
+      "Old50 header has no successful completion edge in mode-exchange fixture"
+    ],
+    "coverage": "Full initialization, capability predicates and optical values; operating independently of configuration; complete packets/checksums; selectors0/1/2 busy\u2192done; configuration/stream isolation; malformed selectors/reserved data; pending reset and held-object unrealize; existing aperture/history/backpressure coverage",
+    "development": "Initial cold-state wire assertion was narrowed to the actual getter mapping before final stationary-optics convention; first nested ignored run copied a relative argv path at wrong depth and failed before launchingQEMU, corrected. No guest progress credited to these setup trials",
+    "review": "Independent read-only protocol and implementation review found no remaining blocker; unknown physical selector names and2ms processing explicitly classified",
+    "style": "Pinned QEMUcheckpatch0errors0warnings"
+  },
+  "original": {
+    "profile": "Complete unchanged decoded bundle, cold-neutral/region descriptors, selected complete paired tuple with interpreted slotszero,2x2PGM,blank8GiBslot0,healthy paced batteryUART RNG0,5CPU MTTCG; no in-windowGDB",
+    "held_C5": {
+      "external_input": "heldF4 drivesEXC5low",
+      "window_host_seconds": 15,
+      "app_mode": 1,
+      "capture_family": "800",
+      "capture_label": "LvMovie",
+      "actively_recording": false,
+      "lens_rejected": 0,
+      "optical_state_cache": 3,
+      "paired_completed": 0,
+      "heads": "bothunbound",
+      "stop": "CPU0 VA106ee3c6 WRITE32 PA201810e0=1;744/920B mixedrectangle/fill/stroke program unsupported; no panic"
+    },
+    "released_C5": {
+      "external_input": "all front-panel keys released",
+      "window_host_seconds": 60,
+      "qmp_samples": [
+        "running",
+        "running",
+        "running",
+        "running"
+      ],
+      "app_mode": 5,
+      "capture_family": 0,
+      "lens_completed": 22,
+      "lens_rejected": 0,
+      "configuration_generation": 1,
+      "mode_generation": 1,
+      "committed_selector": 2,
+      "stream_enabled": false,
+      "wire50_packets": 1,
+      "wire51_packets": 2,
+      "head0": "unbound",
+      "head1": "bound status console",
+      "paired_completed": 0,
+      "scope": "Different idle application branch, not a photo-mode acceptance receipt"
+    },
+    "next": "Actual photo/movie selector still traced upstream of captureconfig; mixed graphics requires orderedSRC clears/SRC_OVER fill+stroke andrelativeQUAD. No normal liveview/photo/movie recording claim"
+  }
+}

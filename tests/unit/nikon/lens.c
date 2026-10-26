@@ -152,13 +152,19 @@ static void test_initialization(void)
                bytes, requests[i].size);
         if (requests[i].command == 0x13) {
             advance(2000000);
+        } else if (requests[i].command == 0x10) {
+            g_assert_cmphex(lduw_le_p(bytes + 1), ==, 0x7ffe);
+            /* Both original normal-family initialization conditions hold. */
+            g_assert_cmphex(bytes[12], ==, 3);
         } else if (requests[i].command == 0x12) {
             g_assert_cmpuint(lduw_le_p(bytes + 1), ==, 960);
             g_assert_cmpuint(lduw_le_p(bytes + 3), ==, 960);
             g_assert_cmpuint(lduw_le_p(bytes + 7), ==, 50);
             g_assert_cmpuint(lduw_le_p(bytes + 11), ==, 50);
+            g_assert_cmpuint(bytes[25], ==, 1);
         } else if (requests[i].command == 0x20 && !requests[i].subcommand) {
             g_assert_cmphex(bytes[169] & 0x60, ==, 0x40);
+            g_assert_cmphex(bytes[216], ==, 3);
         } else if (requests[i].command == 0x20) {
             g_assert_cmpuint(lduw_le_p(bytes + 7), ==, 50);
         }
@@ -179,6 +185,38 @@ static void test_rejected_header(void)
     g_assert_cmpuint(f->falling, ==, 0);
     device_cold_reset(f->lens);
     g_assert_false(f->level);
+    cleanup(f);
+}
+
+static void test_operating_state(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[258] = { 0 };
+
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmphex(bytes[216], ==, 3);
+    g_assert_cmphex(bytes[169], ==, 0x20);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x13, 0, bytes, 14);
+    /* This reply is snapshotted before the two-millisecond commit. */
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmphex(bytes[216], ==, 3);
+    g_assert_cmphex(bytes[169], ==, 0x20);
+    g_assert_cmphex(bytes[203], ==, 8);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    /* Original getter12404 and admission40000500 require logical state3. */
+    g_assert_cmphex(bytes[216], ==, 3);
+    g_assert_cmphex(bytes[169], ==, 0x40);
+    g_assert_cmphex(bytes[203], ==, 0);
+    g_assert_cmpuint(lduw_le_p(bytes + 1), ==, 960);
+    device_cold_reset(f->lens);
+    advance(10000000);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmphex(bytes[216], ==, 3);
+    g_assert_cmphex(bytes[169], ==, 0x20);
     cleanup(f);
 }
 
@@ -334,6 +372,84 @@ static void test_state_and_sync(void)
     advance(2000000);
     g_assert_cmpuint(count(f, "configuration-generation"), ==, 0);
     g_assert_cmpuint(count(f, "completed"), ==, 0);
+    cleanup(f);
+}
+
+static void test_mode_exchange(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[258] = { 0 };
+    g_autofree char *runtime = NULL;
+
+    for (unsigned mode = 0; mode < 3; mode++) {
+        memset(bytes, 0, sizeof(bytes));
+        bytes[1] = mode;
+        packet(f, 0x50, 0, bytes, 4);
+        g_assert_cmpuint(count(f, "mode-generation"), ==, mode);
+        memset(bytes, 0, sizeof(bytes));
+        packet(f, 0x51, 0, bytes, 4);
+        g_assert_cmphex(bytes[1], ==, 0x80);
+        g_assert_cmpuint(count(f, "mode-generation"), ==, mode + 1);
+        memset(bytes, 0, sizeof(bytes));
+        packet(f, 0x51, 0, bytes, 4);
+        g_assert_cmphex(bytes[1], ==, 0);
+        g_assert_cmpuint(count(f, "configuration-generation"), ==, 0);
+    }
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    memset(bytes, 0, sizeof(bytes));
+    bytes[1] = 1;
+    packet(f, 0x16, 0, bytes, 4);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x50, 0, bytes, 4);
+    advance(2000000);
+    g_assert_cmpuint(count(f, "configuration-generation"), ==, 1);
+    g_assert_cmpuint(count(f, "mode-generation"), ==, 4);
+    runtime = object_property_get_str(OBJECT(f->lens), "runtime", &error_abort);
+    g_assert_nonnull(strstr(runtime, "configured=1 pending=0 stream=1"));
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmphex(bytes[169], ==, 0x40);
+    g_assert_cmphex(bytes[216], ==, 3);
+    cleanup(f);
+}
+
+static void test_mode_boundaries(void)
+{
+    static const uint8_t invalid[][2] = { { 3, 0 }, { 4, 0 },
+                                         { 0x80, 0 }, { 0, 1 } };
+    LensFixture *f = fixture();
+    uint8_t bytes[4] = { 0 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+        uint8_t header[] = { 0x55, 0, 1, 0x50, 0, 1, 0, 0 };
+        uint8_t invalid_bytes[] = { 0x55, invalid[i][0], invalid[i][1], 0 };
+        unsigned falling;
+
+        device_cold_reset(f->lens);
+        checksum(header, sizeof(header));
+        exchange(f, header, sizeof(header));
+        advance(1000000);
+        falling = f->falling;
+        checksum(invalid_bytes, sizeof(invalid_bytes));
+        exchange(f, invalid_bytes, sizeof(invalid_bytes));
+        advance(10000000);
+        g_assert_cmpuint(f->falling, ==, falling);
+        g_assert_cmpuint(count(f, "rejected"), ==, 1);
+        g_assert_cmpuint(count(f, "mode-generation"), ==, 0);
+    }
+    device_cold_reset(f->lens);
+
+    packet(f, 0x50, 0, bytes, sizeof(bytes));
+    device_cold_reset(f->lens);
+    advance(10000000);
+    g_assert_cmpuint(count(f, "mode-generation"), ==, 0);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x50, 0, bytes, sizeof(bytes));
+    qdev_unrealize(f->lens);
+    advance(10000000);
+    g_assert_cmpuint(count(f, "mode-generation"), ==, 0);
     cleanup(f);
 }
 
@@ -534,10 +650,13 @@ int main(int argc, char **argv)
     qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
     vm_start();
     g_test_add_func("/nikon/lens/initialization", test_initialization);
+    g_test_add_func("/nikon/lens/operating-state", test_operating_state);
     g_test_add_func("/nikon/lens/header-rejection", test_rejected_header);
     g_test_add_func("/nikon/lens/reset-partial", test_reset_partial);
     g_test_add_func("/nikon/lens/phase-deadline", test_phase_deadline);
     g_test_add_func("/nikon/lens/state-and-sync", test_state_and_sync);
+    g_test_add_func("/nikon/lens/mode-exchange", test_mode_exchange);
+    g_test_add_func("/nikon/lens/mode-boundaries", test_mode_boundaries);
     g_test_add_func("/nikon/lens/unrealize-pending", test_unrealize_pending);
     g_test_add_func("/nikon/lens/fixed-aperture", test_fixed_aperture);
     g_test_add_func("/nikon/lens/aperture-rejection", test_aperture_rejection);

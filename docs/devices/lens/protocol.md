@@ -61,6 +61,8 @@ must be zero modulo256. The native SSI endpoint exchanges 16-bit words.
 | `a0:00..07` |24| Validate the complete zero-travel aperture request and zero tail |
 | `a1:00` |10| Validate zero aperture travel and zero additional parameters |
 | `a3:00..01` |4| Validate zero-travel aperture requests |
+| `50:00` |4| Validate and process the source-selected mode request independently of configuration |
+| `51:00` |4| Report actual mode processing busy/done state |
 
 `10311c84` selects the pre-identification path through `10311442` when its
 connection provider has not already admitted the lens. `1037bbfc` builds
@@ -82,6 +84,59 @@ The original status consumers remain responsible for progression. In particular,
 `15:00` byte1 reports pending operation work, byte2 distinguishes unconfigured
 state, and `20:00` bytes169/203 reflect the same configuration and pending work.
 Configuration receipt does not immediately publish completed status.
+
+The optical operating state is independent of that configuration handshake.
+The original getter VA `1037a8c6`, selected for property12404 by `10345810`,
+reads `20:00[216] & 3`: wire0/1 become logical1, wire2 becomes2 and wire3
+becomes3. VA `10349e42` compares this state to3 for the ordinary lens family
+and publishes `40000500`. VA `10357ee8` copies that property into admission
+array element5, which `1033f312` requires for capture. The separate
+`1035e7f0 → 10344fea → 10330fb0` path rejects ordinary lens families1/3
+when the same property is false, recording exclusion reason1. These are
+original capture/live-view dependencies, not host-selected GUI flags.
+
+The virtual fixed optics have no retracting barrel. Their operating encoding
+is therefore3 throughout reset, configuration and idle operation; this is a
+declared finite mechanical input. Configuration busy still comes from actual
+`13:00` processing and remains visible through `15:00`, `169` and `203`.
+The old allzero reserved-field initialization incorrectly supplied wire0 at216,
+which the original getter interpreted as logical1 and hence unavailable. The
+native operating-state fixture checks independent optical availability and
+configuration pending/commit/reset states through complete checksum-valid
+wire replies. This does not implement autofocus or nonzero aperture travel.
+
+## Mode request and completion query
+
+This lens protocol's mode selector is not the body's photo/movie selection.
+Its physical names are unresolved. The C1.70 software command table at VA
+`119d8280/119d8298` selects wire `50/51`, each with four-byte TX/RX payloads.
+VA `103130aa → 1030e65a(23) → 1037bd1a → 10377b0c` constructs byte1 as
+`((4*arg0)&7)|(arg1&3)`. The inspected producer fixes arg0=0 and maps cached
+values to arg1 in the complete set0/1/2. Byte2 is zero in this finite input
+family; other selectors or nonzero byte2 reject without a completion edge.
+
+The model records the requested selector after the whole valid packet, processes
+it for a declared2 ms, then commits the selector and increments `mode-generation`.
+There is no motor travel in this stationary virtual profile. A second request
+during active processing rejects. The processing latency is a functional input,
+not a physical lens measurement. Runtime diagnostics show both requested and
+committed selectors; neither assigns an unsupported physical meaning.
+
+VA `1031306a/1031305c` query51 and then the ordinary status page. VA `10312e64`
+reads properties8204/8203/8205 from byte1 bits7/6/0. Busy7=1 with fault6=0
+waits; other nonzero busy/fault combinations take the original error path.
+Both clear permit completion. Bit0 selects a subsequent branch; zero is an
+accepted normal branch, not the mode selector echoed back. The finite model
+sets bit7 only while its actual mode timer is pending, leaves fault6 clear
+and selects the explicit normal bit0=0 branch.
+
+These commands do not clear configuration, stop history or modify the fixed
+optical operating state. In the inspected sequence, the original state20
+already calls `16:00` to stop streaming before state21 sends50. Configuration
+and history therefore retain their separate contracts. Reset/unrealize cancel
+mode processing even while the object remains referenced. Native fixtures
+cover all three selectors, header-time busy snapshots, completion, independent
+configuration/stream state, reserved fields and timer cancellation.
 
 `13:00` preserves the 12 configuration bytes produced by the original packed
 bitfields and two 32-bit parameters. This is a virtual configuration commit,
@@ -139,6 +194,15 @@ tables. The following source paths qualify their chosen virtual contents:
 |216-byte response block, representation1 | Three blocks encode higher-order radial polynomial coefficients. `1040e1d6` computes `r' = r × (1+d)`; zero coefficients give `d=0` and `r'=r`. The normal fit uses15 distinct nonzero source samples and a nonzero denominator. No identity-matrix guess is involved. |
 | Secondary coefficient page | The page retains its full3456-byte finite coefficient storage and zero lens-specific polynomials. Header0 is not described as a proven disable flag. Original metadata/default/offset selection remains in the firmware. |
 
+The secondary zero polynomial has a numerical source join: VA `102f8a72`
+evaluates zero coefficients to zero; `102f8722/102f8494` select equal metadata
+endpoints and take the branch without division, producing six zero polynomial
+outputs. VA `102f833c` then produces two zero17-entry correction tables.
+The alternative `102f86e6` default retains its geometric linear baseline while
+adding zero correction. Thus the page does not erase body geometry or user
+processing, and its finite zero input does not require a fabricated identity
+table or factory coefficient array.
+
 This is a coherent virtual calibration input for the cold-neutral functional
 profile, not physical calibration accuracy or proof that every user correction
 setting is equivalent to no correction. The original parsers and numerical
@@ -157,7 +221,50 @@ The whole record contains marker55 and a zero byte sum. Byte1 is a wrapping
 history sequence. Bytes2..5 hold the stationary int32 motor coordinate0;
 bytes6/7 contain coherent stationary status and no direction-limit assertion.
 Byte8 and the two opaque32-bit fields at13/17 are defined zero for this virtual
-stationary profile. Remaining reserved bytes are zero and checksum-covered.
+stationary profile. Other bytes use the declared zero stationary input and are
+checksum-covered; their physical roles are not all recovered.
+
+VA `103834e0` validates history using marker55 and the complete checksum;
+VA `10383506` consumes signed position bytes2..5 and the sequence. Position0
+is not rejected. VA `10348c8c` decodes byte7 low two bits; the consumer
+`1021e664 → 103c54f0 → 10348d38` treats1/2 as opposite direction limits and0
+as neither limit. The selected stationary position0 and limit enum0 therefore
+do not mean an invalid record or a forced completion. Physical meanings of
+the remaining status subfields are not all recovered.
+
+## Whole-profile coverage and unresolved fields
+
+The normal profile covers identification and negotiation, static/dynamic optical
+coordinates, actual configuration pending/commit, synchronization, both complete
+calibration pages, stream control/history, eleven zero-travel aperture variants
+and the50/51 request/query family together. Required normal capability bits at
+`10:00[12]` are both set and all other bits clear: getters `10378a46/10378a64`
+and initialization consumer `10311b58` require this value3. Clearing them to
+hide a warning would break initialization. The CPU-family code at `12:00[25]`
+is1, as decoded by `10378dfe`. Optional capability fields remain unadvertised;
+unsupported commands and nonzero actuator travel remain errors.
+
+The dynamic dispatcher contains known coordinates whose physical meaning is
+still unresolved. They are not called reserved or silently equated with the
+fixed iris:
+
+| `20:00` byte offset | Property | Verified conversion of selected raw0 |
+| --- | --- | --- |
+|19|`10003000`|signed16(raw−384)/192 = −2|
+|91|`10003001`|signed16(raw−384)/192 = −2|
+|89|`10003002`|signed16(raw−384)/192 = −2|
+|27|`10003003`|(raw−384)/192 = −2|
+|23|`10003004`|(raw−384)/192 = −2|
+
+VA `103468ea` and its getters establish these conversions. A conversion alone
+does not prove absolute aperture: relative zero would encode384, while Av3
+encodes960. These fields remain explicit virtual zero inputs with unresolved
+physical semantics; no claim of complete physical lens fidelity is made.
+The seven supported biased optical coordinates and four unbiased travel fields
+listed above retain their independent consumer evidence. In particular, the
+getter at offset162 uses unsigned16 subtraction; the selected960 avoids its
+underflow domain. Additional physical names or features require a discriminating
+consumer before changing these inputs.
 `10348c8c` and `1037b886..1037b94e` establish the original field projection.
 Motor coordinate is distinct from scene distance, focal length and aperture.
 

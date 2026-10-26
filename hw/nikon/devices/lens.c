@@ -18,6 +18,7 @@
 #define LENS_MAX_PACKET 7426
 #define LENS_PHASE_NS 1000000
 #define LENS_CONFIG_NS 2000000
+#define LENS_MODE_NS 2000000
 #define LENS_STREAM_NS 1000000
 #define LENS_WORD_NS 4000
 OBJECT_DECLARE_SIMPLE_TYPE(NikonLensState, NIKON_LENS)
@@ -33,7 +34,7 @@ struct NikonLensState {
     DeviceState *gpio, *stream;
     uint32_t notify_pin;
     qemu_irq notify;
-    QEMUTimer *phase_timer, *operation_timer, *stream_timer;
+    QEMUTimer *phase_timer, *operation_timer, *stream_timer, *mode_timer;
     uint8_t header[8], input[LENS_MAX_PACKET], output[LENS_MAX_PACKET];
     uint8_t configuration[12], history[42];
     unsigned offset, size;
@@ -46,8 +47,11 @@ struct NikonLensState {
     uint64_t completed, rejected, configuration_generation;
     uint64_t stream_frames;
     uint64_t aperture_noops;
+    uint64_t mode_generation;
+    uint8_t mode, requested_mode;
     uint64_t header_counts[256], packet_counts[256];
     bool configured, pending, stream_enabled, notify_level, reported;
+    bool mode_pending;
 };
 
 static void lens_notify(NikonLensState *s, bool level)
@@ -124,6 +128,8 @@ static unsigned lens_packet_size(uint8_t command, uint8_t subcommand)
     case 0x1f: return 4;
     case 0x21: return 6;
     case 0x27: return 6;
+    case 0x50:
+    case 0x51: return 4;
     case 0xa1: return 10;
     default: return 0;
     }
@@ -133,7 +139,7 @@ static void lens_response(NikonLensState *s)
 {
     uint8_t *out = s->output;
 
-    /* Unadvertised optional pages and reserved virtual fields are zero. */
+    /* Explicit virtual inputs; unnamed zero coordinates are documented. */
     memset(out, 0, s->size);
     switch (s->header[3]) {
     case 0x10:
@@ -169,6 +175,8 @@ static void lens_response(NikonLensState *s)
             /* All relative aperture ranges remain zero for the fixed iris. */
             out[169] = s->configured ? 0x40 : 0x20;
             out[203] = s->pending ? 8 : 0;
+            /* Fixed optics remain usable; configuration busy is separate. */
+            out[216] = 3;
         } else {
             stw_le_p(out + 1, 960);
             stw_le_p(out + 3, 960);
@@ -177,6 +185,9 @@ static void lens_response(NikonLensState *s)
         break;
     case 0x27:
         stl_le_p(out + 1, s->sync_anchor);
+        break;
+    case 0x51:
+        out[1] = s->mode_pending ? 0x80 : 0;
         break;
     case 0x24:
         /*
@@ -200,6 +211,15 @@ static void lens_operation_done(void *opaque)
     s->pending = false;
     s->configured = true;
     s->configuration_generation++;
+}
+
+static void lens_mode_done(void *opaque)
+{
+    NikonLensState *s = opaque;
+
+    s->mode = s->requested_mode;
+    s->mode_pending = false;
+    s->mode_generation++;
 }
 
 static void lens_stream_word(void *opaque)
@@ -280,6 +300,17 @@ static bool lens_process(NikonLensState *s)
         break;
     case 0x21:
         s->sync_anchor = ldl_le_p(in + 1);
+        break;
+    case 0x50:
+        /* 103130aa emits selectors0/1/2, independently of configuration. */
+        if (in[1] > 2 || in[2] || s->mode_pending) {
+            lens_error(s, "mode-request-not-supported");
+            return false;
+        }
+        s->requested_mode = in[1];
+        s->mode_pending = true;
+        timer_mod(s->mode_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + LENS_MODE_NS);
         break;
     case 0xa0:
     case 0xa1:
@@ -369,6 +400,7 @@ static void lens_reset(DeviceState *dev)
     timer_del(s->phase_timer);
     timer_del(s->operation_timer);
     timer_del(s->stream_timer);
+    timer_del(s->mode_timer);
     s->phase = LENS_HEADER;
     s->offset = s->size = s->sync_anchor = 0;
     s->probe = 0;
@@ -376,6 +408,9 @@ static void lens_reset(DeviceState *dev)
     s->completed = s->rejected = s->configuration_generation = 0;
     s->stream_frames = s->history_offset = s->history_sequence = 0;
     s->aperture_noops = 0;
+    s->mode = s->requested_mode = 0;
+    s->mode_pending = false;
+    s->mode_generation = 0;
     memset(s->configuration, 0, sizeof(s->configuration));
     memset(s->header_counts, 0, sizeof(s->header_counts));
     memset(s->packet_counts, 0, sizeof(s->packet_counts));
@@ -392,6 +427,7 @@ static void lens_unrealize(DeviceState *dev)
     timer_del(s->phase_timer);
     timer_del(s->operation_timer);
     timer_del(s->stream_timer);
+    timer_del(s->mode_timer);
     s->stream_enabled = false;
     lens_notify(s, true);
 }
@@ -417,6 +453,10 @@ static char *lens_runtime(Object *obj, Error **errp)
         s->phase, s->offset, s->size, s->header[3], s->header[4],
         s->header[2], s->notify_level, s->configured, s->pending,
         s->stream_enabled, s->history_offset, s->probe);
+    g_string_append_printf(text,
+        "mode-state=%u requested-mode=%u mode-pending=%u mode-generation=%"
+        PRIu64 "\n", s->mode, s->requested_mode, s->mode_pending,
+        s->mode_generation);
     for (unsigned i = 0; i < ARRAY_SIZE(s->header_counts); i++) {
         if (s->header_counts[i]) {
             g_string_append_printf(text,
@@ -436,6 +476,7 @@ static void lens_init(Object *obj)
     s->operation_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                      lens_operation_done, s);
     s->stream_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_stream_word, s);
+    s->mode_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_mode_done, s);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,
@@ -447,6 +488,8 @@ static void lens_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "aperture-noops", &s->aperture_noops,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "mode-generation", &s->mode_generation,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_str(obj, "runtime", lens_runtime, NULL);
 }
 
@@ -457,6 +500,7 @@ static void lens_finalize(Object *obj)
     timer_free(s->phase_timer);
     timer_free(s->operation_timer);
     timer_free(s->stream_timer);
+    timer_free(s->mode_timer);
 }
 
 static const Property lens_properties[] = {

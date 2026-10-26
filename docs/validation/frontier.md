@@ -1,6 +1,45 @@
 # Original-firmware startup frontier
 
-## Current: dynamic paired color and a bound status GUI
+## Current: coherent fixed-lens operating and mode-query state
+
+The [whole fixed-lens protocol](../devices/lens/protocol.md) now separates
+stationary optical availability, configuration pending/commit, streaming and
+mode-request processing. The original getter decoded the former zero at status
+byte216 to logical1, making `40000500` unavailable for capture/live-view
+admission. The fixed nonretracting optics now publish logical3. This is a
+declared device input, not a guest eligibility or display-cache write.
+
+The audit also adds the complete50/51 request/query group: three source-produced
+selectors, whole-packet validation, independent2 ms processing and actual
+pending status. It retains required normal capability bits, correct optical
+coordinates and valid stationary history. Five additional biased coordinates
+have unresolved physical semantics and remain explicitly qualified virtual
+inputs; they are not blindly set to the iris value.
+
+In the unchanged15-host-second cold-neutral run with F4 held, the original
+capture policy at MAS VA `b2951140` is `800`, and its source-named label is
+`LvMovie`. It is movie live view, not the `400` movie-recording family. The
+optical state cache reaches3 with no lens rejection. Execution reaches a new
+744/920-byte mixed graphics program: two SRC rectangle clears followed by
+SRC_OVER fill and stroke of one rounded rectangle. CPU0 VA `106ee3c6`, WRITE32
+PA `201810e0=1`, rejects this unsupported ordered batch. Both display heads
+are unbound and paired work is0 at this earlier graphics stop; no panic is
+present. The historical bound status GUI below belongs to the former
+unavailable-optics input, not the corrected profile.
+
+With F4 released, a separate60-host-second run stays running in application
+mode5, completes22 lens packets without rejection, processes one50 request
+and two51 queries, commits selector2 once and stops history through the
+original16 command. Configuration remains committed. Head1 binds a status
+console and capture family is0. This is a different idle application branch,
+not proof of a photo-mode transition. The actual photo/movie selector is
+upstream of capture configuration bytes0/24/263 and remains under investigation.
+
+The [operating receipt](/evidence/lens/operating.json) separates15 native
+subtests, old-model failures, these original runs and the remaining boundaries.
+Neither normal live view nor photo/movie capture is yet accepted.
+
+## Previous: dynamic paired color and a bound status GUI
 
 The [paired pixel operator](../devices/pairs/pixels.md#four-lane-color-correction)
 now executes the complete four-lane gain/offset/pedestal/bound packet at
