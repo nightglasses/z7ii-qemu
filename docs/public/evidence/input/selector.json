@@ -1,0 +1,69 @@
+{
+  "scope": "Maintained EX capture-selector input; source facts, native fixture, original execution and diagnostic probes separated",
+  "baseline": "c90af87a ordered vectors plus fixed-lens operating protocol",
+  "source": {
+    "domains": "C1.70 EX and MAS CPU virtual code/data addresses; I2C 7bit address0x22 and pad0 are finite board contract",
+    "EX": "0803E52A..53A bit0\u2192logical37;0803D950..9B2 inversion\u2192aggregate83;0803D65E packet+4 produces124B byte87. PowMg may merge same-input edge history via0803805C/08037ED8",
+    "MAS": "104343AA raw87\u2192normalized+38;1038B47E\u2192372B packet+124/changed128;1029EB8A bool(value==1)\u2192typedsetting3;1023FFB4 generates4;1033E6C4 chooses effective5772 using conditional policy and1032B854 publishes",
+    "policy": "Withoutoverride5772=setting4; source gate can force0,preserveold orselectanotherdependentinput.1035963C uses5772 inconfig0/24;102324CC combines0/24/263 to choosefamily",
+    "separate_fields": "Expanderbit10\u2192raw83\u2192normalSW2mask100000; lens50 selector andappmain_mode are notbodyphoto/movie"
+  },
+  "model": {
+    "default": "photo, externalpad0high",
+    "control": "F13 press toggles maintainedcontact;repeat/up/reset do nottoggle; contact andheld-keylatch surviveboardreset",
+    "ownership": "Input frontend only; removed oldstaticboardpad0low;unrealize releaseshighimpedance and unregisters handlers",
+    "boundary": "No guest setting/cache/callback/framebuffer write; EX/MAS sampling,transport,derivation andcapture policy execute normally;host keyassignment/defaultphoto are functional choices"
+  },
+  "native": {
+    "command": "make check MTESTARGS=nikon_input_unit",
+    "subtests": 2,
+    "seconds": 0.54,
+    "red": "Oldnikon-input lacks capture-selector output",
+    "coverage": "17 actual GPIOreceivers andglobalreset ordering;selector default,press,repeat,release,retainedmovie+heldkeyacrossreset,backtophoto,unmappedkey,directpadisolation,unregister,release andrecreation",
+    "review": "Independentread-onlyreview foundnoblocker;expander reset preserves external driver",
+    "scope": "Selector fixture observes electrical IRQoutput, not fullfirmware. Originalruns validate actualexpander path"
+  },
+  "diagnostics": {
+    "first124B_report": "Hardwarebreakpoint10433EBC seesr0B25DA11C len124,raw83=1/raw87=1; EX18450=f4fbff;aggregate/shadow/merge83=1. MASproperty stilluninitialized atfirstreport; notrelabeled5772=0",
+    "alternative_input": "Beforefrontendimplementation,onlyexpanderpad0 drivenhigh throughQEMU existingqtestset_irq_in withTCG unchanged:scalar0/property5772=0/LvStill versuslow1/1/LvMovie. No guestmemory writes",
+    "failed_probes": "Firstlatebreakpoint missedinitialreport andtimedout;firstEXreadusingglobalphysicaladdressspace returnedE14. CorrectedEXprivateCPUvirtualreadcapturedreport. No startupcreditassignedtofailedprobes"
+  },
+  "original": {
+    "common": "UnchangedC1.70 decodedbundle,cold-neutral/region,virtualfixed50mmF2.8,selectedpairedtuple,2x2scene,blank8GiBslot0,pacedhealthyUARTbatteryRNG0,heldF4,fiveCPU MTTCG;noin-windowGDB",
+    "photo": {
+      "input": "Newfrontenddefaulthigh,noF13",
+      "window_host_seconds": 60,
+      "qmp15_30_45_60": [
+        "running",
+        "debug",
+        "debug",
+        "debug"
+      ],
+      "scalar": 0,
+      "property5772": 0,
+      "capture_family": "0x100 LvStill",
+      "appmain_mode": 1,
+      "lens_completed": 609,
+      "lens_rejected": 0,
+      "paired_completed": 0,
+      "heads": "bothunbound",
+      "panic_length": 0,
+      "stop": "CPU1MASVA103bd2d2 WRITE32 PA20102680=1: event-gate routeconfiguration application unsupported"
+    },
+    "movie": {
+      "input": "F13down/upthroughordinaryQMPbeforeinitialEXsampling",
+      "window_host_seconds": 15,
+      "qmp": "running",
+      "scalar": 1,
+      "property5772": 1,
+      "capture_family": "0x800 LvMovie, not movie recording",
+      "appmain_mode": 1,
+      "lens_completed": 313,
+      "lens_rejected": 0,
+      "paired_completed": 0,
+      "heads": "bothunbound at15seconds",
+      "panic_length": 0
+    }
+  },
+  "remaining": "Photo routeapplication group20102680/2684/2690; movie dynamicpairedparameters598..5dc. Notnormal scene-bearingliveview,shuttercapture,recording,filesavingorphysicalcameraacceptance"
+}

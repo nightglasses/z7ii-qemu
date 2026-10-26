@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "captureselector",
+        "title": "Maintained photo/movie input, source chain and original mode selection",
+        "href": "/evidence/input/selector.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "solidvector",
         "title": "Ordered vector native validation, lens-warning-free GUI and remaining paired boundary",
         "href": "/evidence/transfer/vector.json",
@@ -2535,6 +2541,12 @@
   },
   "devices/gpio/input.md": {
     "records": [
+      {
+        "run": "captureselector",
+        "title": "Maintained photo/movie input, source chain and original mode selection",
+        "href": "/evidence/input/selector.json",
+        "kind": "Execution observation"
+      },
       {
         "run": "storagepresence",
         "title": "Whole GPIO source audit and absent SD input",

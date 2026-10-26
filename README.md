@@ -6,7 +6,7 @@ The [handbook](docs/index.md) organizes architecture, startup, device contracts,
 runtime, explicit inputs, address references and validation. Start with the
 [current startup frontier](docs/validation/frontier.md) for the latest result.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. The latest declared-input run completes 108 numerical RAW jobs, displays a status GUI and performs an original 512-byte NVMe media read. Normal live view and file saving remain unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. Declared-input profiles reach numerical RAW processing, a status GUI and an original NVMe media read. The maintained input now selects the original photo/movie policies; their separate startup boundaries are recorded in the current frontier. Normal live view and file saving remain unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -168,10 +168,13 @@ initialization/calibration replies and receiver-bound history. Scene pixels
 remain a separate CMOS/RAW input; a future 3D application adapter must feed that
 acquisition boundary and coordinate capture metadata with the lens state.
 No 3D application bridge or variable optical actuator is implemented yet.
-With the virtual lens and a matching complete paired input, original firmware
-initializes the lens and completes eight pixel jobs before a changing opaque
-parameter group stops processing. The current frontier records this boundary;
+The complete fixed-lens protocol and ordered vector batches produce a status
+GUI without the former lens-extension warning in the movie-input profile. The
+current frontier records the distinct photo/movie startup boundaries;
 normal live view remains incomplete.
+The [maintained capture selector](docs/devices/gpio/input.md#maintained-photomovie-selector)
+starts in photo and toggles with F13. It drives the original EX I2C input path;
+the guest chooses photo/movie policy. F4 remains a separate application input.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

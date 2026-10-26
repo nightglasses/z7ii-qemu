@@ -86,3 +86,54 @@ Six native GPIO cases pass, including the new absent-card case across reset,
 pull changes and output/input direction changes. The existing IRQ fixture now
 expects both its driven ACK bit and the independent absent-SD bit in whole-port
 readback. Historical five-case results above are not relabeled as this run.
+
+## Maintained photo/movie selector
+
+The complete-bundle input frontend owns EX I2C expander `0x22` pad0. High
+selects photo live view; low selects movie live view. A new frontend starts
+high. F13 toggles this maintained contact once per press; release and keyboard
+repeat leave it unchanged. These host key and initial-position choices are a
+functional input profile, not recovered physical keyboard wiring. F1–F12 and
+1–5 retain the separate seventeen direct EX GPIO scan inputs. F4/EX C5 is not
+the photo/movie selector.
+
+The C1.70 source chain uses EX VA `0803E52A..0803E53A` to sample expander
+bit0 into logical input37; `0803D950..0803D9B2` inverts it into aggregate
+byte83. VA `0803D65E` copies that record after a four-byte header, making
+the field byte87 of the 124-byte transport report. A PowMg edge snapshot may
+also feed the aggregate through the same input's source history. Its callback
+VA `0803805C` receives event `020D0008`, calculates the changed 24-bit pattern
+and supplies the flag word consumed by VA `08037ED8`. This is original input
+processing, not an endpoint-synthesized report.
+
+MAS VA `104343AA`, inside parser `10433EBC`, reads byte87 into normalized
+u16 offset38. VA `1038B47E` carries this scalar into the 372-byte input packet
+at offset124, with its changed indicator at128. VA `1029EB8A` maps scalar1
+to true and submits typed setting3; the setting engine derives setting4 and
+dispatches its dependent policy handler VA `1033E6C4`, which publishes property
+5772 after selecting its effective value. This policy is conditional, not an
+unconditional byte copy. `1035963C` consumes5772 for capture config bytes0/24;
+`102324CC` later combines bytes0/24/263 to select the capture family.
+
+A separate unchanged-firmware diagnostic drove only this external pad high
+through QEMU's existing input-line API: normalized scalar and5772 became0,
+and the source-named policy became `100` / `LvStill`. With the former low input,
+they were1 and `800` / `LvMovie`. Application main_mode remained1 in both
+profiles. This directly distinguishes the selector from the lens's50 command
+and the F4-selected application branch. Expander bit10 is another field:
+report byte83 becomes a normal switch mask, not this scalar. The mapping must
+not be copied from a different body without checking its original consumers.
+
+The board's obsolete static pad0 publication is removed, leaving one external
+driver. Reset retains both the maintained position and the held-key latch;
+reset exit republishes the level without inventing a key transition. Unrealize
+unregisters the input handler and releases the expander line to high impedance.
+The existing expander supplies resolution, latching and interrupts; original
+EX/MAS code owns filtering, messages, setting derivation and capture policy.
+
+The two native input subtests pass in 0.54 seconds. They cover all seventeen
+direct-pad receivers and the maintained selector's default, toggle, repeat,
+release, reset ordering, unchanged direct pads, unregister and recreation.
+The selector fixture observes its electrical output; original executions
+separately establish its expander and firmware connection. Normal live view,
+shutter capture and file saving are separate acceptance boundaries.

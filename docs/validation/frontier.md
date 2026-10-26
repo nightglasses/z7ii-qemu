@@ -1,6 +1,35 @@
 # Original-firmware startup frontier
 
-## Current: fixed-lens status GUI and dynamic paired-parameter boundary
+## Current: original photo/movie selection through the maintained input
+
+The [capture selector](../devices/gpio/input.md#maintained-photomovie-selector)
+now drives EX I2C expander `0x22` pad0 through the normal input frontend.
+A new frontend starts in photo; F13 toggles the maintained contact once per
+press. Keyboard repeat, release and board reset do not toggle it. The former
+static low publication is removed. Original EX filtering, transport, MAS
+settings and capture policy remain responsible for the transition.
+
+The source join reaches typed settings3/4 and the conditional5772 policy
+handler. With unchanged firmware, cold-neutral inputs and the fixed lens, the
+default high input produces scalar0, property5772=0 and `100` / `LvStill`.
+The 60-host-second photo window is running at15 seconds and debug-stopped by30:
+CPU1 MAS VA `103bd2d2`, WRITE32 PA `20102680=1`, reaches the event gate's
+unsupported route-configuration application request. Lens exchanges complete
+609 times with zero rejection; no panic, paired job or display binding occurs
+before this earlier photo-path stop. This is correct photo-policy selection,
+not accepted photo live view or shutter capture.
+
+A separate15-host-second run presses and releases F13 through ordinary QMP
+keyboard input before initial EX sampling. It produces scalar1, property5772=1
+and `800` / `LvMovie`; QMP is running, 313 lens packets complete with zero
+rejection and no panic is present. This bounded window has no bound console
+yet. Both profiles retain application main_mode1, independently confirming
+that it is not the photo/movie enum. Two native input subtests pass, including
+reset, repeat, release and unregister coverage. The
+[selector receipt](/evidence/input/selector.json) separates native tests,
+diagnostic probes and these unchanged-firmware observations.
+
+## Previous: fixed-lens status GUI and dynamic paired-parameter boundary
 
 The [ordered vector model](../devices/transfer/vector.md) executes the complete
 mixed SRC clear / SRC_OVER fill-and-stroke family, including relative QUAD and
@@ -28,8 +57,9 @@ The source-named capture family is `800` / `LvMovie`, not `400` / `LvMovieRec`.
 A separate read-only hardware-breakpoint diagnostic at MAS VA `102324cc`
 captures config bytes0/24/263 as 0/1/0 and argument2 as zero: this secondary
 selection explains the movie-live-view family. Property5772 and its cache both
-hold1. The external selector's producer remains under investigation; neither
-the lens's50 selector nor application main_mode is the photo/movie enum.
+hold1. The external selector's producer was unresolved at that checkpoint; the
+maintained-input join above supersedes that limitation. Neither the lens's50
+selector nor application main_mode is the photo/movie enum.
 The [curated receipt](/evidence/transfer/vector.json) separates native, original
 and diagnostic evidence, explicit inputs and remaining limitations.
 

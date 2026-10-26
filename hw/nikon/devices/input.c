@@ -1,7 +1,8 @@
 /*
  * Host keys drive the seventeen GPIO inputs selected by original EX software.
- * Host key assignment and active-low switch levels are a functional profile;
- * camera button names, rotary/touch wiring and peer packets remain unbound.
+ * F13 toggles the maintained capture selector on the EX I2C expander.
+ * Host key assignments are a functional profile; the guest owns sampling,
+ * debounce, message construction and capture policy.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -32,7 +33,10 @@ struct NikonInputState {
     DeviceState parent_obj;
     QemuInputHandlerState *handler;
     qemu_irq pads[NIKON_INPUT_PADS];
+    qemu_irq capture_selector;
     bool down[NIKON_INPUT_PADS];
+    bool selector_down;
+    bool movie;
 };
 
 static void nikon_input_event(DeviceState *dev, QemuConsole *src,
@@ -42,6 +46,17 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
     unsigned int i;
 
     assert(event->type == INPUT_EVENT_KIND_KEY);
+    if (event->key.key == KEY_F13) {
+        if (event->key.down && !s->selector_down) {
+            s->movie = !s->movie;
+            qemu_set_irq(s->capture_selector, !s->movie);
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "nikon-input: capture-selector=%s ex-io=0 level=%u\n",
+                          s->movie ? "movie" : "photo", !s->movie);
+        }
+        s->selector_down = event->key.down;
+        return;
+    }
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         if (event->key.key == nikon_input_host_keys[i]) {
             if (s->down[i] != event->key.down) {
@@ -59,7 +74,7 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
 }
 
 static const QemuInputHandler nikon_input_handler = {
-    .name = "Nikon EX GPIO scan profile",
+    .name = "Nikon EX GPIO and capture selector profile",
     .mask = INPUT_EVENT_MASK_KEY,
     .event = nikon_input_event,
 };
@@ -71,6 +86,7 @@ static void nikon_input_publish(NikonInputState *s)
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         qemu_set_irq(s->pads[i], !s->down[i]);
     }
+    qemu_set_irq(s->capture_selector, !s->movie);
 }
 
 static void nikon_input_reset_exit(Object *obj, ResetType type)
@@ -103,6 +119,8 @@ static void nikon_input_unrealize(DeviceState *dev)
         s->down[i] = false;
         qemu_set_irq(s->pads[i], 1);
     }
+    s->selector_down = s->movie = false;
+    qemu_set_irq(s->capture_selector, -1);
 }
 
 static void nikon_input_init(Object *obj)
@@ -110,6 +128,8 @@ static void nikon_input_init(Object *obj)
     NikonInputState *s = NIKON_INPUT(obj);
 
     qdev_init_gpio_out_named(DEVICE(obj), s->pads, "pad", NIKON_INPUT_PADS);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->capture_selector,
+                             "capture-selector", 1);
 }
 
 static const VMStateDescription nikon_input_vmstate = {

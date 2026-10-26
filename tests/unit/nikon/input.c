@@ -33,8 +33,21 @@ typedef struct InputFixture {
     Clock *clock;
     DeviceState *input;
     DeviceState *gpio[7];
+    qemu_irq selector;
+    int selector_level;
+    unsigned selector_changes;
     unsigned int cycle;
 } InputFixture;
+
+static void selector_level(void *opaque, int pin, int level)
+{
+    InputFixture *f = opaque;
+
+    if (f->selector_level != level) {
+        f->selector_changes++;
+    }
+    f->selector_level = level;
+}
 
 static InputFixture *input_new(void)
 {
@@ -46,6 +59,9 @@ static InputFixture *input_new(void)
     clock_set_hz(f->clock, 1000000); /* Fixture clock, no camera frequency claim. */
     f->input = qdev_new(TYPE_NIKON_INPUT);
     object_property_add_child(f->owner, "frontend", OBJECT(f->input));
+    f->selector_level = -1;
+    f->selector = qemu_allocate_irq(selector_level, f, 0);
+    qdev_connect_gpio_out_named(f->input, "capture-selector", 0, f->selector);
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
         g_autofree char *name = g_strdup_printf("test.port%u", i);
 
@@ -79,6 +95,7 @@ static InputFixture *input_new(void)
 static void input_free(InputFixture *f)
 {
     qdev_unrealize(f->input);
+    g_assert_cmpint(f->selector_level, ==, -1);
     object_unparent(OBJECT(f->input));
     object_unref(OBJECT(f->input));
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
@@ -88,6 +105,7 @@ static void input_free(InputFixture *f)
     }
     object_unparent(f->owner);
     object_unref(f->owner);
+    qemu_free_irq(f->selector);
     g_free(f);
 }
 
@@ -175,6 +193,42 @@ static void test_receivers(void)
     }
 }
 
+static void test_selector(void)
+{
+    for (unsigned cycle = 0; cycle < 2; cycle++) {
+        InputFixture *f = input_new();
+        unsigned changes;
+
+        g_assert_cmpint(f->selector_level, ==, 1);
+        board_reset();
+        g_assert_cmpint(f->selector_level, ==, 1);
+        changes = f->selector_changes;
+        key(KEY_F13, false);
+        key(KEY_ESC, true);
+        key(KEY_ESC, false);
+        g_assert_cmpuint(f->selector_changes, ==, changes);
+        key(KEY_F13, true);
+        g_assert_cmpint(f->selector_level, ==, 0);
+        g_assert_cmpuint(f->selector_changes, ==, changes + 1);
+        key(KEY_F13, true);
+        receiver_holds_after_frontend(f);
+        board_reset();
+        key(KEY_F13, true);
+        g_assert_cmpint(f->selector_level, ==, 0);
+        g_assert_cmpuint(f->selector_changes, ==, changes + 1);
+        key(KEY_F13, false);
+        g_assert_cmpint(f->selector_level, ==, 0);
+        key(KEY_F13, true);
+        g_assert_cmpint(f->selector_level, ==, 1);
+        key(KEY_F13, false);
+        levels(f, 0, "selector-does-not-change-GPIO-scan-pads");
+        input_free(f);
+        board_reset();
+        key(KEY_F13, true);
+        key(KEY_F13, false);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -192,6 +246,7 @@ int main(int argc, char **argv)
     qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     vm_start();
     g_test_add_func("/nikon/input/receivers-reset-lifecycle", test_receivers);
+    g_test_add_func("/nikon/input/capture-selector", test_selector);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

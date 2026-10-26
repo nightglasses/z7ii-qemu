@@ -74,9 +74,11 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
      * not a recovered voltage measurement. */
     .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, 3500, 3500 },
     .adc_mask = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3),
-    /* The power-monitor expander setup leaves the four observed control
-     * pins low; an omitted pin remains electrically disconnected. */
-    .io_mask = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 10),
+    /*
+     * Remaining declared expander inputs. Pad0 belongs to the maintained
+     * capture selector below; omitted pins remain electrically disconnected.
+     */
+    .io_mask = (1u << 1) | (1u << 3) | (1u << 10),
     .io_high = 0,
     .power_good = true,
     .gpiod13 = true,
@@ -785,6 +787,9 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         qdev_connect_gpio_out_named(input, "pad", i,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
+    qdev_connect_gpio_out_named(
+        input, "capture-selector", 0,
+        qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", 0));
     qdev_realize_and_unref(input, NULL, &error_fatal);
     s->ex_input_dev = dev;
     s->ex_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
