@@ -36,8 +36,12 @@ static size_t gate_program(unsigned kind, uint8_t *data)
         { 11, 3, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 12, 8, { 0, 0x20, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0 },
                   { 7, 2, 6, 6, 6, 6, 6, 5 } },
+        { 13, 2, { 0, 0x80 }, { 4, 26 } },
+        { 14, 1, { 0 }, { 6 } },
         { 15, 2, { 0, 0x10 }, { 3, 14 } },
+        { 16, 1, { 0 }, { 8 } },
         { 17, 4, { 0, 0x20, 0x60, 0x80 }, { 2, 15, 5, 7 } },
+        { 18, 4, { 0, 0x10, 0x40, 0x60 }, { 3, 7, 2, 9 } },
     };
     unsigned p, b, j;
     size_t cursor = 0;
@@ -74,6 +78,8 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
         { 0xe60, 5 }, { 0xe80, 6 },
         { 0x8a0, 8 }, { 0x8c0, 8 }, { 0x8e0, 8 }, { 0xc80, 8 },
         { 0x900, 9 }, { 0xac0, 9 }, { 0xcc0, 9 }, { 0xce0, 9 },
+        { 0xa80, 13 }, { 0xaa0, 13 }, { 0xa60, 14 },
+        { 0xe40, 16 }, { 0x920, 18 },
     };
     const uint32_t source = 0xc1004000;
     uint64_t words = 0;
@@ -128,7 +134,7 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
             g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * j), ==, 0);
         }
     }
-    /* Port37 crosses the old32-bit mask boundary; isolate its reset. */
+    /* Isolate the last port's reset above the old32-bit mask boundary. */
     qtest_writel(q, base + engines[i - 1].offset + 0x14, 1);
     g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
                     ((UINT64_C(1) << i) - 1) &
@@ -184,6 +190,26 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
     }
     qtest_writel(q, 0x24010000, 0);
     qtest_writel(q, base + 0xa54, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0x100);
+    /* Type18 requests provisioning; only the following CPU writes supply it. */
+    qtest_writel(q, base + 0x2c0, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x24010ffc), ==, 0xa80003ff);
+    qtest_writel(q, 0x24010000, 0);
+    qtest_writel(q, 0x24010000, 0);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0);
+    for (i = 1; i < 0x1000 / 4; i++) {
+        qtest_writel(q, 0x24010000 + 4 * i, 0);
+        g_assert_cmphex(qtest_readl(q, base + 0x148), ==,
+                        i + 1 == 0x1000 / 4 ? 0x100 : 0);
+    }
+    qtest_writel(q, base + 0x2c0, 0);
+    qtest_writel(q, base + 0x2c0, 2);
+    qtest_writew(q, base + 0x2c0, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0x100);
+    qtest_writel(q, base + 0x934, 1);
+    qtest_writel(q, base + 0x934, 0);
     g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0x100);
     for (i = 0; i < 3; i++) {
         g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * i), ==, 0);
@@ -300,6 +326,9 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     qtest_writel(q, base + 0xe74, 0);
     qtest_writel(q, base + 0xe94, 1);
     qtest_writel(q, base + 0xe94, 0);
+    qtest_writel(q, base + 0x934, 1);
+    qtest_writel(q, base + 0x934, 0);
+    qtest_writel(q, base + 0x2c0, 1);
     for (i = 0; i < 16; i++) {
         g_assert_cmphex(qtest_readl(q, base + 0x2040 + 4 * i), ==, 1);
     }

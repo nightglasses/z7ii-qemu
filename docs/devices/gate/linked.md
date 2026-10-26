@@ -7,6 +7,8 @@ type9 and type8 layouts across all eight source-selected ports. It retains
 their routing and borrowed references; actual pixel processing and terminal
 publication remain unsupported. The unchanged cold-neutral continuation
 imports 17 packets/628 words before reaching type18/resource34 initialization.
+This is the linked-stream checkpoint; the [complete type-family continuation](family.md)
+crosses that initialization and retains the separate actual-processing boundary.
 See the [receipt](/evidence/imagerequest/linked.json) and
 [startup frontier](../../validation/frontier.md).
 
@@ -104,7 +106,7 @@ unarmed and repeated submissions reject without a partial installation.
 Import retains borrowed references without following them or claiming they
 are valid execution buffers. Activation still rejects explicitly.
 
-The maintained port set has37 entries. Its read-only QOM `configured-mask`
+At this checkpoint the port set has37 entries. Its read-only QOM `configured-mask`
 therefore uses64 bits, with 64-bit shifts and isolated reset clearing; this
 diagnostic width does not change the firmware's register widths or RAM bounds.
 Cold empty state, configuration readback and one-import admission remain

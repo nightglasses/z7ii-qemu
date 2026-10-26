@@ -37,6 +37,8 @@ static const struct {
     { 0xe60, 5 }, { 0xe80, 6 },
     { 0x8a0, 8 }, { 0x8c0, 8 }, { 0x8e0, 8 }, { 0xc80, 8 },
     { 0x900, 9 }, { 0xac0, 9 }, { 0xcc0, 9 }, { 0xce0, 9 },
+    { 0xa80, 13 }, { 0xaa0, 13 }, { 0xa60, 14 },
+    { 0xe40, 16 }, { 0x920, 18 },
 };
 
 G_STATIC_ASSERT(ARRAY_SIZE(command_ports) <= 64);
@@ -423,6 +425,12 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         s->written[value] = 0;
         return MEMTX_OK;
     }
+    if (offset == 0x2c0 && value == 1) {
+        /* 103bdd8c requests new provisioning before CPU workspace writes. */
+        memset(s->work_written, 0, sizeof(s->work_written));
+        s->workspace_written = 0;
+        return MEMTX_OK;
+    }
     if (offset == 0x2800) {
         /* 94996 submits one; no ready bit, completion, IRQ, guest write or
          * pixel producer is established at this boundary. */
@@ -476,7 +484,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         }
         s->config[offset / 4] = 0;
     } else {
-        /* Includes 2680/2800 requests and all unbound data/monitor words. */
+        /* Includes 2680 requests and all unbound data/monitor words. */
         return nikon_event_gate_error(s, offset, size, true, value);
     }
     nikon_event_gate_irq(s);

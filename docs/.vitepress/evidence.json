@@ -2055,6 +2055,16 @@
       }
     ]
   },
+  "devices/gate/family.md": {
+    "records": [
+      {
+        "run": "processingfamily",
+        "title": "Complete type inventory, remaining imports and workspace provisioning",
+        "href": "/evidence/imagerequest/family.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/gate/linked.md": {
     "records": [
       {

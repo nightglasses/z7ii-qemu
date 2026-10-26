@@ -17,8 +17,8 @@ typedef struct GateLayout {
 } GateLayout;
 
 /*
- * MAS103b2fa8/3172/3226/35d6/39e8/3f04/4214/4346/46ec/49b0 and the client
- * structures. These finite layouts do not decode the register arithmetic.
+ * MAS103b2fa8/3172/3226/35d6/39e8/3f04/4214/4346/444c/46ec/47f4/48f8/49b0
+ * and the client structures. These layouts do not decode register arithmetic.
  */
 static const GateLayout layouts[] = {
     { 4, 2, { { 4, 2 }, { 0x10, 16 } } },
@@ -33,8 +33,16 @@ static const GateLayout layouts[] = {
     { 11, 3, { { 0, 10 }, { 0x40, 8 }, { 0x80, 17 } } },
     { 12, 8, { { 0, 7 }, { 0x20, 2 }, { 0x30, 6 }, { 0x50, 6 },
                { 0x70, 6 }, { 0x90, 6 }, { 0xb0, 6 }, { 0xd0, 5 } } },
+    { 13, 2, { { 0, 4 }, { 0x80, 26 } } },
+    /*
+     * Bounded hypothesis: 103b45d6 edits a 24-byte payload but does not emit
+     * its header. Model one block; alternate templates remain unsupported.
+     */
+    { 14, 1, { { 0, 6 } } },
     { 15, 2, { { 0, 3 }, { 0x10, 14 } } },
+    { 16, 1, { { 0, 8 } } },
     { 17, 4, { { 0, 2 }, { 0x20, 15 }, { 0x60, 5 }, { 0x80, 7 } } },
+    { 18, 4, { { 0, 3 }, { 0x10, 7 }, { 0x40, 2 }, { 0x60, 9 } } },
 };
 
 static const GateLayout *gate_layout(unsigned kind)

@@ -114,6 +114,7 @@ export default defineConfig({
               { text: 'Gate Runtime', link: '/devices/gate/runtime' },
               { text: 'Gate Parameter Slots', link: '/devices/gate/slots' },
               { text: 'Gate Processing Commands', link: '/devices/gate/commands' },
+              { text: 'Gate Type Coverage', link: '/devices/gate/family' },
               { text: 'Gate Branch Streams', link: '/devices/gate/fanout' },
               { text: 'Gate Linked Streams', link: '/devices/gate/linked' },
               { text: 'Gate Stop Lifecycle', link: '/devices/gate/stop' },

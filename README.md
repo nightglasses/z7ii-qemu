@@ -129,8 +129,13 @@ subtests pass. Original type5 import raises the total to9 packets/358 words.
 The [linked type8/type9 streams](docs/devices/gate/linked.md) add all eight
 source-selected ports and retain type5 routing and kind74 references;27 native
 subtests pass. The unchanged cold-neutral continuation imports17 packets/628
-words, then stops in type18/resource34 initialization at PA `201002c0`.
-Slots1/2/8 remain busy; actual processing activation is unsupported and no
+words. The [complete graph-type inventory](docs/devices/gate/family.md) establishes
+19 types and76 resources, with15 processing types across42 command ports.
+The remaining four types/five ports now share the finite importer; type14's
+24-byte template is explicitly hypothetical. All28 decoder/SLA subtests pass.
+Original type18 workspace initialization/import increases totals to18 packets/649
+words, then reaches paired-bank table publication at PA `20381400`. Slots
+1/2/3/4/5/8 remain busy; actual processing activation is unsupported and no
 completion is invented.
 The error property is empty and neither display head has a console. The earlier ID63 error
 frame is separately archived; normal live view remains incomplete. The

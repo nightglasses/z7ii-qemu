@@ -1,6 +1,35 @@
 # Original-firmware startup frontier
 
-## Current: type18/resource34 initialization at PA `201002c0`
+## Current: paired-bank table publication at PA `20381400`
+
+The [complete type-family contract](../devices/gate/family.md) establishes19
+graph types and76 resources:15 processing types across42 command ports. It
+adds the remaining type13/14/16/18 streams and type18 workspace provisioning
+as a group. Type14's24-byte single-block form is a strict functional hypothesis,
+not a recovered original template. No actual pixel operator, completion or
+slot retirement follows from the expanded configuration coverage.
+
+The [family receipt](/evidence/imagerequest/family.json) records28 passing
+native decoder/SLA subtests and the unchanged60-host-second region/cold-neutral
+continuation. Original CPU workspace initialization sets the finite coverage
+flag `148=100`; type18 imports84 bytes. Totals become18 packets/649 words,
+and original code submits output slots3/4/5. Slots1/2/3/4/5/8 remain busy.
+Types13/14/16 remain unconfigured in this original window.
+
+The first uncovered transaction becomes CPU1 PC `1036ca8a`, WRITE32 PA
+`20381400=00f600fa`, a paired-bank table publication before processing start.
+The next boundary is that whole source-selected table family. Independently,
+reverse-start is known to begin with type18/resource34 at `20100920=1`; its
+input comes from type10/resource49. The graph's terminal wait mask is `c2`
+for resources49/54/55. Data, result and ownership conditions remain open.
+
+The run completes128 main acquisitions and453 statistics jobs, with no
+rejections/statistics cancellations and one main cancellation. Property6433,
+GUI readiness/information remain zero; neither head has a console. No GDB
+pause occurs inside the window; later sequential reads are not atomic or
+physical rates. Normal GUI and a completed processing-slot cycle remain unverified.
+
+## Previous: type18/resource34 initialization at PA `201002c0`
 
 The [linked type8/type9 streams](../devices/gate/linked.md) add all eight
 source-selected ports, their128/136-byte layouts and strict reset/RAM-DMA/atomic

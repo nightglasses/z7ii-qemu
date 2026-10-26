@@ -13,9 +13,10 @@ and [startup frontier](../../validation/frontier.md).
 
 The later [type5/type6 stream contract](fanout.md) adds two source-selected
 ports and their356-byte prefix layout. The [linked type8/type9 contract](linked.md)
-adds eight more ports and their128/136-byte streams. The maintained port set
-has37 entries; the original seven-type/27-port observation below retains its
-historical scope.
+adds eight more ports and their128/136-byte streams. The complete
+[type family](family.md) adds the remaining five ports, including a strictly
+bounded type14 layout hypothesis. The maintained port set has42 entries;
+the original seven-type/27-port observation below retains its historical scope.
 
 Code, ROM and software objects below are original C1.70 MAS virtual addresses
 (VA); device addresses are board physical addresses (PA). Addresses, offsets
@@ -51,8 +52,12 @@ layouts; all current original graph packets agree with their headers.
 | 9 | `0/34` | 136 |
 | 10, 11 | `0/10`, `40/8`, `80/17` | 140 |
 | 12 | `0/7`, `20/2`, `30/6`, `50/6`, `70/6`, `90/6`, `b0/6`, `d0/5` | 176 |
+| 13 | `0/4`, `80/26` | 120 |
+| 14 | `0/6` (hypothesis; real template unrecovered) | 24 |
 | 15 | `0/3`, `10/14` | 68 |
+| 16 | `0/8` | 32 |
 | 17 | `0/2`, `20/15`, `60/5`, `80/7` | 116 |
+| 18 | `0/3`, `10/7`, `40/2`, `60/9` | 84 |
 
 For type4 this means logical register `4` followed by fifteen words at
 `10..48`. The graph edge mapper `1038944a` supplies register `4`'s routing
@@ -77,8 +82,12 @@ PA `20100000`.
 | 10 | `49→940`, `50→960`, `51→980`, `52→9a0`, `53→9c0`, `54→9e0`, `55→ba0`, `56→bc0` |
 | 11 | `57→d40`, `58→d60`, `59→d80`, `60→da0`, `61→dc0`, `62→de0`, `63→e00`, `64→e20` |
 | 12 | `65→a40` |
+| 13 | `66→a80`, `67→aa0` |
+| 14 | `68→a60` |
 | 15 | `69→d00`, `70→d20` |
+| 16 | `71→e40` |
 | 17 | `72→a00`, `73→a20`, `74→b60`, `75→b80` |
+| 18 | `34→920` |
 
 ## Finite import lifecycle
 
@@ -100,7 +109,7 @@ explicit functional conventions; source establishes the successful ordering,
 not all physical error/reset behavior.
 
 The model exposes read-only QOM import counters and a64-bit configured mask
-for all37 ports. Backend+`0` reads `0` as an explicit incomplete-state convention.
+for all42 ports. Backend+`0` reads `0` as an explicit incomplete-state convention.
 Source predicate `103bdbbe` checks `(status & 3) != 3`; it does not establish
 bit1 alone as busy. No successful completion encoding is returned. Processor
 activation at backend+`0` is an explicit error until the actual data operation
@@ -139,6 +148,9 @@ physical status meaning. A later consumer requiring a different interpretation
 would falsify the hypothesis. The current original graph reads the word during
 LUT loading; it does not demonstrate the hypothesized bit8 transition. No
 clock, nominal delay, configuration write or processing result sets it.
+The later [type18 provisioning contract](family.md#type18-provisioning-and-result-ownership)
+handles the explicit `201002c0=1` request by invalidating write coverage before
+the original CPU clear; it does not generate the bytes or a processing result.
 
 ## Terminal completion and slot release
 

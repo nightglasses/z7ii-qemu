@@ -65,8 +65,12 @@ static void layouts(void)
         { 11, 3, 140, { 0, 0x40, 0x80 }, { 10, 8, 17 } },
         { 12, 8, 176, { 0, 0x20, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0 },
                       { 7, 2, 6, 6, 6, 6, 6, 5 } },
+        { 13, 2, 120, { 0, 0x80 }, { 4, 26 } },
+        { 14, 1, 24, { 0 }, { 6 } },
         { 15, 2, 68, { 0, 0x10 }, { 3, 14 } },
+        { 16, 1, 32, { 0 }, { 8 } },
         { 17, 4, 116, { 0, 0x20, 0x60, 0x80 }, { 2, 15, 5, 7 } },
+        { 18, 4, 84, { 0, 0x10, 0x40, 0x60 }, { 3, 7, 2, 9 } },
     };
     unsigned s, b, j;
 
@@ -189,6 +193,80 @@ static void type89(void)
     }
 }
 
+static void fixedblocks(void)
+{
+    static const struct {
+        unsigned kind, length, count;
+        unsigned header_at[4];
+        uint32_t header[4];
+    } shapes[] = {
+        { 13, 120, 2, { 0, 16 }, { 0x11040000, 0x011a0080 } },
+        { 14, 24, 1, { 0 }, { 0x01060000 } },
+        { 16, 32, 1, { 0 }, { 0x01080000 } },
+        { 18, 84, 4, { 0, 12, 40, 48 },
+          { 0x11030000, 0x11070010, 0x11020040, 0x01090060 } },
+    };
+    unsigned s, i, bit, length;
+
+    for (s = 0; s < ARRAY_SIZE(shapes); s++) {
+        uint8_t data[121];
+        NikonGatePacket packet, saved;
+
+        memset(data, 0xa5, sizeof(data));
+        memset(&packet, 0xff, sizeof(packet));
+        for (i = 0; i < shapes[s].count; i++) {
+            stl_le_p(data + shapes[s].header_at[i], shapes[s].header[i]);
+        }
+        g_assert_true(nikon_gate_packet_decode(shapes[s].kind, data,
+                                               shapes[s].length, &packet));
+        for (i = 0; i < NIKON_GATE_REGISTERS; i++) {
+            bool present;
+            unsigned offset = 4 * i;
+
+            if (shapes[s].kind == 13) {
+                present = offset <= 8 || (offset >= 0x80 && offset <= 0xe0);
+            } else if (shapes[s].kind == 14) {
+                present = offset <= 0x10;
+            } else if (shapes[s].kind == 16) {
+                present = offset <= 0x18;
+            } else {
+                present = offset <= 4 ||
+                    (offset >= 0x10 && offset <= 0x24) || offset == 0x40 ||
+                    (offset >= 0x60 && offset <= 0x7c);
+            }
+            g_assert_cmpint(packet.present[i], ==, present);
+            g_assert_cmphex(packet.value[i], ==, present ? 0xa5a5a5a5 : 0);
+        }
+        saved = packet;
+        for (length = 0; length < shapes[s].length; length++) {
+            g_assert_false(nikon_gate_packet_decode(shapes[s].kind, data,
+                                                    length, &packet));
+            g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+        }
+        g_assert_false(nikon_gate_packet_decode(shapes[s].kind, data,
+                                                shapes[s].length + 1, &packet));
+        g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+        for (i = 0; i < shapes[s].count; i++) {
+            for (bit = 0; bit < 32; bit++) {
+                stl_le_p(data + shapes[s].header_at[i],
+                         shapes[s].header[i] ^ (1U << bit));
+                g_assert_false(nikon_gate_packet_decode(shapes[s].kind, data,
+                                                        shapes[s].length,
+                                                        &packet));
+                g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+            }
+            stl_le_p(data + shapes[s].header_at[i], shapes[s].header[i]);
+        }
+        if (shapes[s].kind == 14) {
+            /* Equal extent does not admit an alternate two-block template. */
+            stl_le_p(data, 0x11030000);
+            stl_le_p(data + 12, 0x01030010);
+            g_assert_false(nikon_gate_packet_decode(14, data, 24, &packet));
+            g_assert_cmpmem(&packet, sizeof(packet), &saved, sizeof(saved));
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -196,5 +274,6 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/gatepacket/layouts", layouts);
     g_test_add_func("/nikon/gatepacket/type5", type5);
     g_test_add_func("/nikon/gatepacket/type89", type89);
+    g_test_add_func("/nikon/gatepacket/fixedblocks", fixedblocks);
     return g_test_run();
 }
