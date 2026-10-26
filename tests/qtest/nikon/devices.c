@@ -702,7 +702,7 @@ static void test_fill_gui_record7(void)
     g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
     g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-                 RESOURCE57_RECORD7_END);
+                 GUI_FILL_DESTINATION - 4);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
     g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 1U << 16);
     g_assert_true(qtest_get_irq(q, 103 - 32));
@@ -736,11 +736,11 @@ static void test_fill_gui_record7(void)
     g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END - 4), ==,
                     0x57070002);
 
-    /* Record8 starts at this exact boundary and remains an unmapped hole. */
+    /* Records6 and8 are valid neighbors inside the complete GUI owner. */
     qtest_writel(q, GUI_FILL_RECORD7 - 4, 0x12345678);
     qtest_writel(q, RESOURCE57_RECORD7_END, 0x87654321);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 - 4), ==, 0);
-    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END), ==, 0x87654321);
     qtest_quit(q);
 }
 

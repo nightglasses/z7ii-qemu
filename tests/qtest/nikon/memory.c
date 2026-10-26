@@ -82,7 +82,9 @@ static void test_cpu_ram(void)
         0xbec5f200, 0xbec5f400, 0xbed661c8, 0xbf10f1fc,
         0xbf10f200, 0xbf10f400, 0xbf3095fc,
         0xbf309600, 0xbf309800, 0xbf7b95fc,
+        0xbf7b9600, 0xbff43ac0, 0xbff44340, 0xc175d5fc,
         0xc175d600, 0xc175d800, 0xc1c0d5fc,
+        0xc1c0d600, 0xc1c0e000, 0xc24cb2fc, 0xc24cb3fc,
         0xc24cb400, 0xc24cc000, 0xc33ab400, 0xc33cb3fc,
         0x5d170000, 0x5d171000, 0x5d181ffc, 0x5d1dbffc,
         0x5df45400, 0x5df46000, 0x5f8d23fc,
@@ -374,17 +376,18 @@ static void test_lcd_composition(void)
     qtest_writel(t.qts, draw_end, 0x1cd00001);
     qtest_writel(t.qts, end - 4, 0x1cd00002);
 
-    /* Record1 ends at index5's exact base; the index5 right edge is a hole. */
+    /* Records1 and6 are independent partitions of the same owner pool. */
     qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x87654321);
     g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
-    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
 
     qtest_system_reset(t.qts);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x1cd00000);
     g_assert_cmphex(qtest_readl(t.qts, draw_end), ==, 0x1cd00001);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x1cd00002);
     g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
     memory_quit(&t);
 }
 
@@ -455,16 +458,18 @@ static void test_resource57_record7(void)
     qtest_writel(t.qts, fill_end, 0x57070001);
     qtest_writel(t.qts, end - 4, 0x57070002);
 
-    /* Record7 is exact; record8 begins at its end and remains a hole. */
+    /* Records6 and8 are independently published neighbors within kind57. */
     qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x87654321);
-    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
-    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
 
     qtest_system_reset(t.qts);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57070000);
     g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0x57070001);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57070002);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
     memory_quit(&t);
 }
 
@@ -483,13 +488,67 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
 }
 
+static void test_gui_pool(void)
+{
+    const uint32_t base = 0xbec5f200, end = 0xc24cb400;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = {
+        base, 0xbf7b9600, 0xbff43ac0, 0xc175d5fc,
+        0xc1c0d600, 0xc24cb2fc, end - 4,
+    };
+    const uint32_t copies[] = {
+        0xbf7b95f0, 0xbff44340, 0xc175d5f0, 0xc1c0d5f0,
+    };
+    const uint32_t holes[] = { base - 1, 0xc33cb400, 0x38e5f200 };
+    uint8_t expected[0x7e0], actual[sizeof(expected)];
+    MemoryTest t = memory_init("");
+
+    /* The complete pool includes both large partitions and its100-byte tail. */
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x57000000 | i);
+    }
+    qtest_writeb(t.qts, 0xbff43ac2, 0x80);
+    g_assert_cmphex(qtest_readb(t.qts, 0xbff43ac2), ==, 0x80);
+    qtest_writel(t.qts, end, 0x74000000);
+    for (unsigned i = 0; i < ARRAY_SIZE(copies); i++) {
+        g_test_message("GUI pool COPY%u destination=0x%08x", i, copies[i]);
+        for (unsigned j = 0; j < sizeof(expected); j++) {
+            expected[j] = j * 29 + i * 17;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        /* COPY retains completion until ACK; each submission needs it clear. */
+        qtest_writel(t.qts, 0x04251030, 0);
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 0);
+        prefix_copy(t.qts, source, copies[i], sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, copies[i], actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57000000);
+    g_assert_cmphex(qtest_readb(t.qts, 0xbff43ac2), ==, 0x80);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57000006);
+    /* Kind74 begins at the exact pool end and keeps its own bytes. */
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x74000000);
+    qtest_memread(t.qts, copies[ARRAY_SIZE(copies) - 1], actual,
+                  sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    memory_quit(&t);
+}
+
 static void test_interpolation_pool(void)
 {
     const uint32_t base = 0xc24cb400, end = 0xc33cb400;
     const uint32_t record = 0xc33ab400, length = 0x19c80;
     const uint32_t source = 0xb1804000;
     const uint32_t cells[] = { base, base + 0xc00, record, end - 4 };
-    const uint32_t holes[] = { base - 1, end, 0x3c6cb400, 0x3d5ab400 };
+    const uint32_t holes[] = { end, 0x3c6cb400, 0x3d5ab400 };
     g_autofree uint8_t *expected = g_malloc(length);
     g_autofree uint8_t *actual = g_malloc(length);
     MemoryTest t = memory_init("");
@@ -499,6 +558,9 @@ static void test_interpolation_pool(void)
         qtest_writel(t.qts, cells[i], 0x74000000 + i);
         g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x74000000 + i);
     }
+    /* The preceding byte belongs to kind57's declared100-byte tail. */
+    qtest_writel(t.qts, base - 4, 0x5700ffff);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
     for (unsigned i = 0; i < length; i++) {
         expected[i] = (i * 29 + (i >> 8) * 11 + 7) & 0xff;
     }
@@ -519,6 +581,7 @@ static void test_interpolation_pool(void)
     g_assert_cmpmem(actual, length, expected, length);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x74000000);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x74000003);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
     memory_quit(&t);
 }
 
@@ -1590,6 +1653,7 @@ int main(int argc, char **argv)
                    test_resource57_record1);
     qtest_add_func("/nikon/memory/resource57-record7",
                    test_resource57_record7);
+    qtest_add_func("/nikon/memory/gui-pool", test_gui_pool);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);

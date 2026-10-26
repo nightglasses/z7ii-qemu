@@ -87,13 +87,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_DISPLAY_BUFFER_BASE 0xcb4a7000ULL
 #define Z7II_DISPLAY_BUFFER_SIZE 0x1194000ULL
 #define Z7II_LCD_COMPOSITION_BASE 0xbf309600ULL
-#define Z7II_LCD_COMPOSITION_SIZE 0x4b0000ULL
-#define Z7II_RESOURCE57_RECORD0_BASE 0xbec5f200ULL
-#define Z7II_RESOURCE57_RECORD0_SIZE 0x4b0000ULL
-#define Z7II_RESOURCE57_RECORD1_BASE 0xbf10f200ULL
-#define Z7II_RESOURCE57_RECORD1_SIZE 0x1fa400ULL
-#define Z7II_RESOURCE57_RECORD7_BASE 0xc175d600ULL
-#define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
+#define Z7II_GUI_POOL_BASE 0xbec5f200ULL
+#define Z7II_GUI_POOL_SIZE 0x386c200ULL
 #define Z7II_KIND40_BASE 0x62059800ULL
 #define Z7II_KIND40_SIZE 0x1c8000ULL
 #define Z7II_KIND41_BASE 0x62221800ULL
@@ -230,10 +225,7 @@ struct Z7IIMachineState {
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
     Z7IIRAM storage[ARRAY_SIZE(z7ii_storage)];
-    Z7IIRAM resource57_record0;
-    Z7IIRAM resource57_record1;
-    Z7IIRAM resource57_record7;
-    Z7IIRAM lcd_composition;
+    Z7IIRAM gui_pool;
     Z7IIRAM display_buffers;
     Z7IIRAM kind40_buffer;
     Z7IIRAM kind41_buffer;
@@ -951,35 +943,15 @@ static void z7ii_init(MachineState *machine)
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
     /*
-     * ROM table123b73ec record0 publishes a 4b0000-byte resource57 slot.
-     * The natural runtime fill clears a 720x480x4 prefix at BEC5F200. Back
-     * only this cold-zero slot; the guest owns its metadata and contents.
+     * ROM11982938[57] selects11983530: one386c200-byte unit at BEC5F200,
+     * with no mode override. The enabled rows of123b73ec partition386c100
+     * bytes; their six runtime pointer cells agree, including record6's
+     * BF7B9600..C175D600 and record8's C1C0D600..C24CB300. The final100 bytes
+     * remain owned storage, ending exactly at the independent kind74 pool.
+     * Cold zero is a functional assumption; firmware owns all contents.
      */
-    z7ii_ram(&s->resource57_record0, "z7ii.resource57-record0",
-             Z7II_RESOURCE57_RECORD0_BASE, Z7II_RESOURCE57_RECORD0_SIZE);
-    /*
-     * Record1 publishes an exact 1fa400-byte slot through b181d390. The next
-     * natural engine0 fill clears all 960x540x4 bytes at BF10F200. Its end is
-     * the separately published record5 base, so neither neighbor is padding.
-     */
-    z7ii_ram(&s->resource57_record1, "z7ii.resource57-record1",
-             Z7II_RESOURCE57_RECORD1_BASE, Z7II_RESOURCE57_RECORD1_SIZE);
-    /*
-     * The same table's record7 publishes a second 4b0000-byte slot through
-     * b181d38c. The next natural request clears the same 720x480x4 prefix at
-     * C175D600. Keep record8 at the exact record7 end uncovered.
-     */
-    z7ii_ram(&s->resource57_record7, "z7ii.resource57-record7",
-             Z7II_RESOURCE57_RECORD7_BASE, Z7II_RESOURCE57_RECORD7_SIZE);
-    /*
-     * ROM table123b73ec record5 requests 4b0000 bytes and publishes its
-     * resource57 allocation through b181d388. Original writer10634b04/06
-     * stores BF309600 and advances the exact slot end to BF7B9600. Backing
-     * this one cold-zero slot is a functional-board storage assumption; the
-     * guest owns allocation metadata, contents, rendering and later reuse.
-     */
-    z7ii_ram(&s->lcd_composition, "z7ii.lcd-composition",
-             Z7II_LCD_COMPOSITION_BASE, Z7II_LCD_COMPOSITION_SIZE);
+    z7ii_ram(&s->gui_pool, "z7ii.gui-pool",
+             Z7II_GUI_POOL_BASE, Z7II_GUI_POOL_SIZE);
     /*
      * Original image-memory acquire requests publish six contiguous physical
      * buffers. The first triplet starts at CB4A7000 with 384000-byte spacing;
@@ -1770,9 +1742,7 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
-                 "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
-                 "resource57-record1-base=0xbf10f200 bytes=0x1fa400 cold-zero; "
-                 "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
+                 "gui-pool-base=0xbec5f200 bytes=0x386c200 source-owned cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
                  "capture-pools=16,17,19,20,21,22,23,25,26,31,32 "

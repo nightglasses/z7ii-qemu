@@ -24,6 +24,12 @@
         "title": "Processing scratch capacities, original allocator and input availability frontier",
         "href": "/evidence/imagerequest/arenas.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "guipool",
+        "title": "Complete kind57 GUI arena and unchanged-firmware continuation",
+        "href": "/evidence/imagerequest/guipool.json",
+        "kind": "Execution observation"
       }
     ]
   },

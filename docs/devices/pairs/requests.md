@@ -69,7 +69,7 @@ The separate [type0 capture contract](../gate/slots.md) atomically installs
 thirteen staged words at selector2c. Configuration-only worker
 `103b4e1e(a2=4)` calls the graph configurator and returns `421930e4` without
 starting a processor. Normal execution later reloads an already allocated
-slot before any graph-node request. This falsifies the old busy-on-publication
+slot in this configuration-only path. This falsifies the old busy-on-publication
 hypothesis, rather than proving a missing pixel-completion event.
 
 Committed parameters, CPU staging and active-frame ownership are separate.
@@ -173,8 +173,9 @@ The unchanged60-host-second continuation uses bounded NOR resource35 via
 descriptor17, cold-neutral resource80, a quadrant PGM, paced healthy9600-baud
 UART, RNG0, acceleration(0,0,1024), held F4 and five-CPU MTTCG. It imports18
 packets/649 words and performs nine parameter captures; valid mask `13e`
-selects slots1/2/3/4/5/8. Slots3/4/5 are legally reloaded before any graph-node
-start. Paired bank0 remains awaiting input, bank1 quiescent, with no raw pending.
+selects slots1/2/3/4/5/8. Slots3/4/5 are legally reloaded through the
+configuration-only path. All graph nodes are inactive at the snapshot;
+paired bank0 awaits input, bank1 is quiescent, with no raw pending.
 This crosses the old start and permanent-busy boundaries without completing
 the still-unmodeled image operator.
 

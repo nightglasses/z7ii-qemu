@@ -1,5 +1,11 @@
 # Mode1 composition clear boundary
 
+This page preserves the earlier exact-tuple checkpoint. The current
+[source-produced byte-row operation](../devices/fill/protocol.md#source-produced-byte-rows)
+supports both engines and separates pitch from active width; the complete
+[kind57 arena](storage.md#kind57-gui-arena) replaces the old fragment backing.
+Neither correction changes the observed composition-clear extent below.
+
 The preceding original early-F4 mode1 run stopped at CPU1 `102dbba2`, submitting engine0 at `20070010` with value1. `run timingpreset/frontier.json` records mask11hex, flags1, pattern/dimension/parameter0, width=stride0b40hex, rows01e0hex, destination`bf309600`. This is an observed request, not a successful fill or completed GUI startup.
 
 ## Original producer and owner
@@ -14,13 +20,13 @@ The destination ownership is independently established by the original resource5
 
 The original upper callback `10389dc2` accepts event`41050c01`: saved configuration byte24 bit0 sets eventbit1 through`103854c4`; bit4 copies error-detail bytes28/29 into`b1809695/96` and sets eventbit64. It also calls an optional upper callback with the event and status word. Waiter`1038a3c6` clears eventbit256 and waits through`103854dc` for mask69 decimal (bits0/2/6), timeout3000. It additionally checks cancellation/control through`103854f4`; condition1 invokes stop`102dbb42`. This is the source completion-to-wait consumer, not permission to set guest events directly. That checkpoint had not yet demonstrated this request's ISR/ACK/callback completion; the accepted follow-up is below.
 
-## Minimal finite extension
+## Historical minimal extension
 
 Add only destination`bf309600` to the existing engine0 exact720x480 zero-clear tuple. Retain mask11hex, flags1, all seven required configuration fields, control0, zero pattern/dimension/parameter, width=stride0b40hex, count01e0hex and ordinary writable-RAM DMA. No general dimension, stride, nonzero-pattern or address facility follows from this request. Preserve existing result, IRQ103, raw ACK, stop/reset and selected-address-space laws; real backing failure must remain error, not done. Native checks should cover first/last active bytes, untouched slot tail/neighbors, rejected near dimensions/destination/engine1, missing/read-only backing and reset/ACK behavior. Native success and subsequent original execution must be reported separately.
 
 No final display/scanout or complete boot is established by this clear; the owned composition buffer is upstream of firmware-generated rendering and presentation.
 
-## Accepted finite extension and current boundary
+## Historical accepted extension and boundary
 
 The extension now adds only that destination to the existing engine0 tuple.
 `run reproducible/fill-red.json` records the preceding model's

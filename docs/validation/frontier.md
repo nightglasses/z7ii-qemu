@@ -1,6 +1,40 @@
 # Original-firmware startup frontier
 
-## Current: GUI storage after source-produced row fill
+## Current: running with GUI status output; paired pixels still pending
+
+The [complete kind57 arena](../runtime/storage.md#kind57-gui-arena) replaces
+four allocation fragments with the exact source-declared
+PA `[bec5f200,c24cb400)` owner. It includes both missing large partitions and
+the owned `100`-byte tail, ending at the independent kind74 pool. Original ROM
+and all six runtime pointer cells agree. No firmware allocation metadata,
+pixels, callback or completion is supplied by this RAM correction.
+
+The [arena receipt](/evidence/imagerequest/guipool.json) records a focused old-model
+red,36 memory/4 fill subtests passing and the scoped GUI record7 regression.
+In the unchanged60-host-second region/cold-neutral continuation, QMP stays
+running with zero uncovered accesses. The previously failing clear at PA
+`bff44340`, length `7e0`, performs real DMA with result0/status1. Head1 displays
+1024×682 status widgets, the thin border and a memory-card error overlay;
+head0 is unbound. Both1124-byte information records are equal and populated
+(173 nonzero bytes each), while GUI readiness remains zero.
+
+The remaining boundary is actual image processing, rather than another
+observed unsupported transaction: imports/captures remain18 packets/649 words
+and9 parameter captures. At the snapshot all graph nodes are inactive, paired
+bank0 awaits input with no raw pending and bank1 is quiescent. The
+[finite operator design](../devices/pairs/requests.md#finite-operator-design-and-discriminating-evidence)
+joins completed RAW DMA generation, one shared ring phase, real matrix
+coefficients and main/reference/grid consumers. Their actual arithmetic,
+output layout and result publication must be implemented together.
+
+This window completes128 main acquisitions and1714 statistics jobs, with no
+rejection, one main cancellation and no statistics cancellation. It establishes
+continued modeled execution and GUI status output under declared inputs;
+normal live view, long-duration stability and physical-camera fidelity remain
+unverified. No in-window GDB pause or forced event occurs. Sequential QMP and
+read-only GDB observations are not atomic snapshots or physical rates.
+
+## Previous: GUI storage after source-produced row fill
 
 The [two-engine byte-row contract](../devices/fill/protocol.md#source-produced-byte-rows)
 corrects pitch/active-width register names and replaces target/size whitelists
@@ -34,9 +68,9 @@ rejection and reaches CPU1 VA PC `102dbba2`, WRITE32 PA `20070010=1`,
 48 bytes per row,42 rows, PA `[bff44340,bff44b20)`. Source must establish the
 whole row operation rather than add another framebuffer address.
 
-This window has18 imports/649 words, nine parameter captures, no graph-node
-start and paired bank0 awaiting input. Main acquisitions reach129 and statistics
-539, with no rejection/cancellation. Head1 screendump succeeds, head0 is
+This window has18 imports/649 words and nine parameter captures. At the snapshot
+no graph node is active and paired bank0 awaits input. Main acquisitions reach129
+and statistics539, with no rejection/cancellation. Head1 screendump succeeds, head0 is
 unbound; the two image-information records are populated and equal, while GUI
 readiness remains zero. This is graphics continuation under declared virtual
 inputs, not a completed live-view or paired-operator result.
@@ -48,14 +82,15 @@ banks and all42 configured graph ports without generating completion. It backs
 the complete active kind25/26/31 pools and corrects type0 parameter capture:
 publication installs an actual thirteen-word snapshot, while later complete
 quiescent reloads may replace it. The old permanent busy-on-publication
-hypothesis is falsified by normal reconfiguration before any processor start.
+hypothesis is falsified by normal configuration-only reconfiguration.
 Active-use queries/publication remain errors until real ownership is modeled.
 
 The [request receipt](/evidence/imagerequest/requests.json) records four focused
 old-model regressions and35 memory/23 SLA subtests passing. With unchanged
 firmware and the same60-host-second region/cold-neutral profile, imports remain
 18 packets/649 words, but parameter captures reach9 with valid mask `13e`.
-Paired bank0 is awaiting input, bank1 quiescent; all graph nodes are unstarted.
+Paired bank0 is awaiting input, bank1 quiescent; all graph nodes are inactive at
+the snapshot.
 This crosses paired start and the slot3/4/5 reloads without inventing pixels,
 raw events or guest callbacks.
 

@@ -118,10 +118,10 @@ No new geometry, format or general destination rule is introduced.
 
 At these historical checkpoints the model admitted only the listed engine0
 tuples. Their neighboring geometry/address and engine1 refusals were model
-limitations, superseded by the source-produced row contract above. Record8's
-published base `c1c0d600`, equal to the record7 slot end, remains unmapped;
-valid geometry there now reaches the real bus-error path. No geometry match
-can turn absent backing into completion.
+limitations, superseded by the source-produced row contract above. The later
+[complete kind57 arena](../../runtime/storage.md#kind57-gui-arena) also backs
+records6/8 and the owned tail, replacing the former internal holes. Actual
+storage failures outside this owner still produce bus errors.
 
 Current native fixtures retain each exact clear extent, slot-tail and neighbor
 sentinels, IRQ/ACK/reset checks, writable/readonly selected address spaces and

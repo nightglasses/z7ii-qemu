@@ -128,14 +128,22 @@ parameters, and legal quiescent reloads replace the prior snapshot. Actual
 processing ownership and results remain separate, with no invented completion.
 All35 memory and23 SLA subtests pass. Unchanged region/cold-neutral execution
 imports18 packets/649 words and performs nine parameter captures, crossing
-paired start and slot3/4/5 reloads before any graph-node start. Pending paired
+paired start and slot3/4/5 configuration-only reloads. Pending paired
 input, its enabled correction arithmetic and real result publication remain
-the substantive processing boundary; the later graphics boundary is tracked
-in the frontier.
-The error property is empty. In that window head1 displays1024×682 status
-widgets and a memory-card error overlay, while head0 is unbound. Later diagnostic
-runs do not reproduce the binding; GUI readiness remains zero and normal live
-view remains incomplete. The earlier ID63 error frame is separately archived. The
+the substantive processing boundary. The
+[initialized path family](docs/devices/transfer/prefix.md#initialized-indirect-path-batches)
+and [two-engine byte-row fills](docs/devices/fill/protocol.md#source-produced-byte-rows)
+also cross the later graphics and clear requests. The
+[complete kind57 GUI arena](docs/runtime/storage.md#kind57-gui-arena) replaces
+four fragments with its exact declared owner. In the final60-host-second run,
+QMP stays running with no uncovered access and the formerly failing clear
+performs real DMA. Paired pixels and the downstream graph remain pending.
+The error property is empty. The final window displays1024×682 status widgets,
+a thin border and a memory-card error overlay on head1, while head0 is unbound.
+Both image-information records are populated; GUI readiness remains zero and
+normal live view remains incomplete. Earlier diagnostic windows did not all
+bind a console; this bounded result does not establish long-duration stability.
+The earlier ID63 error frame is separately archived. The
 [current frontier](docs/validation/frontier.md) distinguishes these results
 from complete-boot and physical-camera evidence.
 

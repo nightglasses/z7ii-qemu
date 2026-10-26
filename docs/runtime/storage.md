@@ -55,6 +55,41 @@ Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
 
+### Kind57 GUI arena
+
+Original C1.70 MAS ROM VA `11982938[57]` selects row `11983530`:
+`{8,386c200,386c200,0,bec5f200,700}`. All five mode overrides for kind57
+are NULL. This declares one complete PA `[bec5f200,c24cb400)` owner, not six
+unrelated allocations or a broad DDR class. Hexadecimal addresses, offsets and
+sizes below use exclusive ends; record indices are decimal.
+
+The enabled resource57 table at VA `123b73ec` partitions that one unit. Disabled
+rows consume no bytes; inserting space for disabled record2 would give wrong
+bases. Normal execution confirms all published pointer cells:
+
+| Record | Pointer-cell VA | Complete PA range | Bytes |
+|---|---|---|---|
+|0|`b181d384`|`[bec5f200,bf10f200)`|`4b0000`|
+|1|`b181d390`|`[bf10f200,bf309600)`|`1fa400`|
+|5|`b181d388`|`[bf309600,bf7b9600)`|`4b0000`|
+|6|`b181d394`|`[bf7b9600,c175d600)`|`1fa4000`|
+|7|`b181d38c`|`[c175d600,c1c0d600)`|`4b0000`|
+|8|`b181d398`|`[c1c0d600,c24cb300)`|`8bdd00`|
+
+The partitions sum to `386c100`, leaving the owned `100`-byte tail through
+`c24cb400`. The separately declared kind74 interpolation pool starts exactly
+there; it keeps its own MemoryRegion. Record6 owns both the48×42-byte zero
+request at PA `bff44340` and the original byte store at `bff43ac2`.
+
+The board replaces the four older record0/1/5/7 RAM fragments with one exact
+kind57 region through the existing offset-aware `z7ii_ram` helper. Cold zero
+and reset retention are explicit board conventions. No guest allocator,
+pointer cell, pixel or completion is supplied. CPU and DMA share the same
+bytes, and the guest retains all partition/heap ownership. The preceding byte,
+the end of the independent kind74 pool and the logical-view mirror remain
+unmapped. The [arena receipt](/evidence/imagerequest/guipool.json) separates
+source, native tests and unchanged-firmware continuation.
+
 ### Kind41 processing workspace
 
 The C1.70 MAS initializer VA `1026fbb0`, called lazily by `102712e6`, requests
