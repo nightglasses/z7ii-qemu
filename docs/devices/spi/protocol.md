@@ -110,13 +110,69 @@ drains all four into RX and raises the ordinary transfer-done cause. The same
 fixture checks idle restart, disable and reset boundaries. The focused native
 `/arm/nikon/spi` batch passes all nine subtests with the corrected device.
 
+## Explicit external slave clocks
+
+`nikon_spi_slave_clock()` accepts one externally supplied word only when the
+port is released, EN is set, CTRL master mask `20` is clear, the guest's slave
+request `64=1` is present and the supplied width exactly matches AUX bits8..12
+plus one. Register offsets and masks here are hexadecimal; bit indices and word
+counts are decimal. An outstanding internal/async shift cannot use this path.
+The call neither advances virtual time nor supplies a periodic clock or peer.
+The board and external producer own every requested clock edge.
+
+When the caller supplies `transmitted`, acceptance requires an actual TX FIFO
+word and returns that word masked to the configured width. A NULL pointer
+explicitly means that the external master does not sample outgoing data. This
+permits RX-only operation without manufacturing a TX word or assigning an
+unrecovered idle-line value. Source C1.70 MAS VA `10383388` constructs such a
+request: null TX pointer/count and a real RX buffer for21000 halfwords. Low
+driver `10243468` leaves TX count zero for null-TX slave requests; only the
+master branch derives a dummy TX count from the receive count. Its DMA setup
+calls `102436de`, whose original instructions write `64=1` only when CTRL's
+master bit is clear. These facts support receive-only clocking, rather than
+requiring a fabricated FIFO entry to deliver the42-byte streaming family.
+This API does not select a logical serial mapping or implement that lens stream.
+
+An accepted clock consumes a queued TX word when present and captures the real
+incoming word unless AUX mask `8` selects RX discard. Existing FIFO watermarks,
+pending bits, HDMAC demand and IRQ routing then follow their ordinary paths.
+Draining an actual TX FIFO word produces its existing transfer-done cause;
+RX-only clocking does not invent a TX completion or a receive-request length.
+The guest retains `64` until it changes that request. No guest callback, RAM
+packet, serial completion count or application acknowledgement is supplied.
+
+If RX capture is required and the RX FIFO is full, the call returns false
+before either FIFO changes. The external producer retains the unaccepted word;
+this is an explicit transaction/backpressure convention, not a claim that a
+physical SPI slave can stop an already clocking master. A refused transaction
+does not latch a fabricated receive-overflow event. RX discard can still send
+real TX data while RX is full; empty TX with RX discard is no work and refuses.
+All refusal paths preserve the caller's output word, FIFOs and IRQ/DMA levels.
+Disable, close/reset, master mode, width mismatch and absent slave request also
+refuse. Existing master timing and asynchronous-peer completion are unchanged.
+
+The system-linked native fixtures exercise actual MMIO configuration and the
+public clock API:16/32-bit word masking, time-only silence,21 RX-only halfwords,
+watermark IRQ and DMA demand, full-RX refusal without TX loss, RX-discard
+transmission, reset/recovery and disabled/master/width/request boundaries.
+These are synthetic device transactions. Their validation is separate from the
+earlier master receipts and does not establish original lens compatibility.
+
+The sole builder obtained a focused negative result with an API stub that
+refuses every external clock: `/nikon/spi/slave/word` fails its first accepted
+word assertion. With the implementation above, `nikon_spi_unit` passes all five
+subtests: the retained master-cadence case and four slave cases. The build
+reported no new errors. This verifies the finite FIFO/clock interface and its
+refusal boundaries, not the lens packet format, board channel mapping, original
+firmware consumption or a connected physical lens.
+
 | Virtual-board input | Modeled behavior and boundary |
 |---|---|
 | Eleven independent 32-word FIFOs | Depth is a positive declared parameter; count, empty/full and overflow are derived from actual queue state. Real physical capacity is unmeasured. |
 | Independent 48 MHz input | QEMU virtual time drives frame duration: AUX length plus one, enabled public divider or explicit no-divider bypass, with configured master-delay ticks. This is a nominal model, not an EXPEED performance estimate. |
 | Board reset: asserted, empty, configuration zero | Channel `60=1` cancels the timer, clears FIFOs/EN/pending/slave-request and deasserts IRQ; it preserves configuration/enable mask so guest close/reopen remains coherent. `60=0` releases it. These reset side effects are explicit assumptions. |
 | Common pending to first IRQ | Both original wrappers reach one ISR. All enabled pending events route to the first original IRQ `193+2*channel`; the second line stays disconnected. TX/RX physical routing is unproven. |
-| No external slave clock or peer | Master uses upstream SSI; slave `64=1` records its external request but does not manufacture clocks or data. It keeps waiting until guest cancellation/timeout. |
+| Explicit external slave clocks only | Master uses upstream SSI; slave `64=1` never manufactures clocks/data. An explicit clock provider can move real FIFO words through the API above; an unconnected slave keeps waiting. |
 
 CTRL/AUX support the actual constructed fields, including Nikon's AUX bit2 that the older header marks reserved. DMA requests on unbound ports fail; source-bound SPI2..4 use the demand wires above. EN includes the original channel8 selector exception. CS/polarity/framing configuration is retained; no physical chip-select topology or device response is invented on the disconnected bus. Unknown offsets, widths, reset commands and configuration bits return `MEMTX_ERROR` with the normal first-access stop. The device explicitly rejects migration/snapshot through upstream unmigratable VMState. The [whole protocol's exact field and unknown boundaries](https://github.com/mashiro01/nightglass/blob/e27bf43/research/z7ii/qemu-spi-protocol-contract.md) remain applicable apart from the now source-bound DMA path described above.
 

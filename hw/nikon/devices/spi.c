@@ -109,14 +109,17 @@ static void nikon_spi_schedule(NikonSPIState *s)
     timer_mod(s->timer, s->next_deadline_ns);
 }
 
-static void nikon_spi_complete(NikonSPIState *s, uint32_t received)
+static void nikon_spi_complete(NikonSPIState *s, uint32_t received,
+                                bool transmit)
 {
     unsigned bits = ((s->aux >> 8) & 31) + 1;
     uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
 
     s->shifting = false;
     s->waiting = s->submitted = false;
-    fifo32_pop(&s->tx);
+    if (transmit) {
+        fifo32_pop(&s->tx);
+    }
     if (!(s->aux & 8)) {
         if (fifo32_is_full(&s->rx)) {
             s->overflow = true;
@@ -125,8 +128,8 @@ static void nikon_spi_complete(NikonSPIState *s, uint32_t received)
             fifo32_push(&s->rx, received & mask);
         }
     }
-    if (fifo32_is_empty(&s->tx)) {
-        s->pending |= 0x10; /* Transfer done is produced by the timer action. */
+    if (transmit && fifo32_is_empty(&s->tx)) {
+        s->pending |= 0x10; /* A completed TX word drained the real FIFO. */
     }
     nikon_spi_events(s);
     nikon_spi_schedule(s);
@@ -171,7 +174,32 @@ static void nikon_spi_shift(void *opaque)
     }
     /* In-process upstream SSI retains its disconnected MISO-low behavior. */
     fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
-    nikon_spi_complete(s, ssi_transfer(s->bus, ldl_le_p(bytes) & mask));
+    nikon_spi_complete(s, ssi_transfer(s->bus, ldl_le_p(bytes) & mask), true);
+}
+
+bool nikon_spi_slave_clock(DeviceState *dev, uint32_t received, unsigned bits,
+                            uint32_t *transmitted)
+{
+    NikonSPIState *s = NIKON_SPI(dev);
+    bool have_tx = !fifo32_is_empty(&s->tx);
+    uint8_t bytes[4];
+
+    if (s->asserted || !(s->enable & 1) || (s->ctrl & 0x20) ||
+        !s->slave_request || bits != ((s->aux >> 8) & 31) + 1 ||
+        s->shifting || s->waiting ||
+        (!(s->aux & 8) && fifo32_is_full(&s->rx)) ||
+        (!have_tx && (transmitted || (s->aux & 8)))) {
+        return false;
+    }
+    if (transmitted) {
+        uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
+
+        fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
+        *transmitted = ldl_le_p(bytes) & mask;
+    }
+    /* Slave RX-only requests have no dummy TX count in MAS10243468. */
+    nikon_spi_complete(s, received, have_tx);
+    return true;
 }
 
 void nikon_spi_async_ready(DeviceState *dev)
@@ -187,7 +215,7 @@ void nikon_spi_async_complete(DeviceState *dev, uint64_t token,
     if (s->waiting && s->submitted && s->token == token) {
         /* External backpressure breaks the synchronous serial cadence. */
         s->next_deadline_ns = 0;
-        nikon_spi_complete(s, received);
+        nikon_spi_complete(s, received, true);
     }
 }
 

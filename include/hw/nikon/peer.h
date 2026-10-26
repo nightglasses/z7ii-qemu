@@ -21,6 +21,15 @@ void nikon_spi_detach_async(DeviceState *, void *owner);
 void nikon_spi_async_ready(DeviceState *);
 void nikon_spi_async_complete(DeviceState *, uint64_t token, uint32_t received);
 
+/*
+ * One external slave word, in the BQL context. False preserves FIFOs/outputs.
+ * A non-NULL transmitted requires and returns a real TX FIFO word. NULL means
+ * the external master does not sample output, permitting RX-only empty TX;
+ * no idle MOSI/MISO value is invented. AUX width and slave request must match.
+ */
+bool nikon_spi_slave_clock(DeviceState *, uint32_t received, unsigned bits,
+                            uint32_t *transmitted);
+
 /* I2C owner advances START/TX/RX/STOP only on an actual matching response. */
 typedef struct NikonI2CAsyncOps {
     bool (*request)(void *, uint64_t token, NikonI2CPhase, uint8_t value);

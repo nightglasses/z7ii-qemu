@@ -1,4 +1,4 @@
-/* Continuous SPI master cadence under a late virtual timer callback.
+/* Native master cadence and externally clocked slave FIFO transactions.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -6,7 +6,10 @@
 #include "qemu/main-loop.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/peer.h"
 #include "system/cpu-timers.h"
 #include "system/runstate.h"
 #include "system/system.h"
@@ -16,16 +19,35 @@ int (*qemu_main)(void);
 typedef struct SPIFixture {
     DeviceState *dev;
     MemoryRegion *regs;
+    qemu_irq observed[4];
+    bool level[4];
 } SPIFixture;
 
-static SPIFixture *fixture(void)
+static void observe(void *opaque, int n, int level)
+{
+    SPIFixture *f = opaque;
+
+    f->level[n] = !!level;
+}
+
+static SPIFixture *fixture(bool dma)
 {
     SPIFixture *f = g_new0(SPIFixture, 1);
 
     f->dev = qdev_new(TYPE_NIKON_SPI);
     object_property_add_child(object_get_objects_root(), "spi[*]",
                               OBJECT(f->dev));
+    qdev_prop_set_bit(f->dev, "dma", dma);
+    qdev_prop_set_uint32(f->dev, "channel", dma ? 2 : 0);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
+    for (unsigned i = 0; i < ARRAY_SIZE(f->observed); i++) {
+        f->observed[i] = qemu_allocate_irq(observe, f, i);
+        if (i < 2) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), i, f->observed[i]);
+        } else {
+            qdev_connect_gpio_out_named(f->dev, "dma", i - 2, f->observed[i]);
+        }
+    }
     device_cold_reset(f->dev);
     f->regs = sysbus_mmio_get_region(SYS_BUS_DEVICE(f->dev), 0);
     return f;
@@ -36,6 +58,9 @@ static void cleanup(SPIFixture *f)
     qdev_unrealize(f->dev);
     object_unparent(OBJECT(f->dev));
     object_unref(OBJECT(f->dev));
+    for (unsigned i = 0; i < ARRAY_SIZE(f->observed); i++) {
+        qemu_free_irq(f->observed[i]);
+    }
     g_free(f);
 }
 
@@ -75,7 +100,7 @@ static void enqueue(SPIFixture *f)
 
 static void test_late_callback(void)
 {
-    SPIFixture *f = fixture();
+    SPIFixture *f = fixture(false);
     int64_t start;
 
     prepare(f);
@@ -119,6 +144,185 @@ static void test_late_callback(void)
     cleanup(f);
 }
 
+static void slave_prepare(SPIFixture *f, unsigned bits, unsigned flags)
+{
+    write_word(f, 0x60, 0);
+    write_word(f, 0x0c, 0x400); /* Source-bound DMA, external slave clock. */
+    write_word(f, 0x10, ((bits - 1) << 8) | flags);
+    write_word(f, 0x4c, 1);
+    write_word(f, 0x20, 0x1ff);
+}
+
+static void slave_enable(SPIFixture *f)
+{
+    write_word(f, 0x3c, 1);
+    write_word(f, 0x64, 1);
+    write_word(f, 0x28, 0x1ff);
+}
+
+static void reject_clock(SPIFixture *f, unsigned bits, bool sample_tx)
+{
+    uint32_t transmitted = 0xfeedface;
+    uint32_t tx = read_word(f, 0x2c), rx = read_word(f, 0x30);
+    uint32_t status = read_word(f, 0x14), pending = read_word(f, 0x24);
+    bool levels[4];
+
+    memcpy(levels, f->level, sizeof(levels));
+    g_assert_false(nikon_spi_slave_clock(f->dev, 0xabcd, bits,
+                                         sample_tx ? &transmitted : NULL));
+    g_assert_cmphex(transmitted, ==, 0xfeedface);
+    g_assert_cmphex(read_word(f, 0x2c), ==, tx);
+    g_assert_cmphex(read_word(f, 0x30), ==, rx);
+    g_assert_cmphex(read_word(f, 0x14), ==, status);
+    g_assert_cmphex(read_word(f, 0x24), ==, pending);
+    g_assert_cmpmem(f->level, sizeof(f->level), levels, sizeof(levels));
+}
+
+static void test_slave_word(void)
+{
+    SPIFixture *f = fixture(true);
+    uint32_t transmitted = 0;
+
+    slave_prepare(f, 16, 0);
+    write_word(f, 0, 0xdead1234);
+    slave_enable(f);
+    g_assert_true(f->level[2]);
+    g_assert_false(f->level[3]);
+    /* Time alone never consumes an externally clocked FIFO. */
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmphex(read_word(f, 0x2c), ==, 1);
+    g_assert_cmphex(read_word(f, 0x30), ==, 0);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0xfeedbeef, 16, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0x1234);
+    g_assert_cmphex(read_word(f, 0x2c), ==, 0);
+    g_assert_cmphex(read_word(f, 0x30), ==, 1);
+    g_assert_cmphex(read_word(f, 0x24) & 0x10, ==, 0x10);
+    g_assert_true(f->level[0]);
+    g_assert_false(f->level[1]);
+    g_assert_true(f->level[3]);
+    g_assert_cmphex(read_word(f, 4), ==, 0xbeef);
+    g_assert_false(f->level[3]);
+    write_word(f, 0x28, 0x1ff);
+    g_assert_false(f->level[0]);
+    g_assert_cmphex(read_word(f, 0x64), ==, 1);
+    reject_clock(f, 16, true);
+
+    write_word(f, 0x3c, 0);
+    write_word(f, 0x10, 0x1f00);
+    write_word(f, 0, 0x11223344);
+    slave_enable(f);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0xffeeddcc, 32, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0x11223344);
+    g_assert_cmphex(read_word(f, 4), ==, 0xffeeddcc);
+    cleanup(f);
+}
+
+static void test_slave_rx_only(void)
+{
+    SPIFixture *f = fixture(true);
+
+    slave_prepare(f, 16, 0);
+    write_word(f, 0x4c, 21);
+    write_word(f, 0x20, 4);
+    slave_enable(f);
+    reject_clock(f, 16, true); /* No real transmit word can be sampled. */
+    for (unsigned i = 0; i < 21; i++) {
+        g_assert_true(nikon_spi_slave_clock(f->dev, 0x5500 + i, 16, NULL));
+        g_assert_cmphex(read_word(f, 0x30), ==, i + 1);
+        g_assert_cmpint(f->level[0], ==, i == 20);
+        g_assert_true(f->level[3]);
+    }
+    g_assert_cmphex(read_word(f, 0x2c), ==, 0);
+    g_assert_cmphex(read_word(f, 0x24) & 0x10, ==, 0);
+    for (unsigned i = 0; i < 21; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, 0x5500 + i);
+    }
+    g_assert_false(f->level[3]);
+    write_word(f, 0x28, 0x1ff);
+    g_assert_false(f->level[0]);
+    cleanup(f);
+}
+
+static void test_slave_backpressure(void)
+{
+    SPIFixture *f = fixture(true);
+    uint32_t transmitted;
+
+    slave_prepare(f, 8, 0);
+    slave_enable(f);
+    for (unsigned i = 0; i < 32; i++) {
+        g_assert_true(nikon_spi_slave_clock(f->dev, i, 8, NULL));
+    }
+    g_assert_cmphex(read_word(f, 0x14) & 0x180, ==, 0x80);
+    write_word(f, 0, 0x12345678);
+    reject_clock(f, 8, true);
+    g_assert_cmphex(read_word(f, 4), ==, 0);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0xfeed, 8, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0x78);
+    g_assert_cmphex(read_word(f, 0x30), ==, 32);
+
+    /* Explicit RX discard can transmit even while the receive FIFO is full. */
+    write_word(f, 0x3c, 0);
+    write_word(f, 0x10, 0x0708);
+    write_word(f, 0, 0x9abcdef0);
+    slave_enable(f);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0x12, 8, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0xf0);
+    g_assert_cmphex(read_word(f, 0x30), ==, 32);
+    reject_clock(f, 8, false); /* Empty TX plus RX discard is no transaction. */
+    for (unsigned i = 1; i < 32; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, i);
+    }
+    g_assert_cmphex(read_word(f, 4), ==, 0xed);
+    g_assert_cmphex(read_word(f, 0x14) & 0x100, ==, 0);
+    cleanup(f);
+}
+
+static void test_slave_guards(void)
+{
+    SPIFixture *f = fixture(true);
+    uint32_t transmitted;
+
+    reject_clock(f, 16, false); /* Board reset keeps the port closed. */
+    slave_prepare(f, 16, 0);
+    write_word(f, 0, 0x1234);
+    reject_clock(f, 16, true); /* Disabled. */
+    write_word(f, 0x3c, 1);
+    reject_clock(f, 16, true); /* No guest slave request. */
+    write_word(f, 0x64, 1);
+    reject_clock(f, 0, true);
+    reject_clock(f, 8, true);
+    reject_clock(f, 17, true);
+    reject_clock(f, 33, true);
+    write_word(f, 0x64, 0);
+    reject_clock(f, 16, true);
+    write_word(f, 0x64, 1);
+    write_word(f, 0x3c, 0);
+    write_word(f, 0x0c, 0x420);
+    write_word(f, 0x3c, 1);
+    reject_clock(f, 16, true); /* Master mode owns a timer, not this clock. */
+    write_word(f, 0x3c, 0);
+    write_word(f, 0x0c, 0x400);
+    slave_enable(f);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0xabcd, 16, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0x1234);
+    g_assert_cmphex(read_word(f, 4), ==, 0xabcd);
+    device_cold_reset(f->dev);
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    reject_clock(f, 16, true);
+    g_assert_cmphex(read_word(f, 0x2c), ==, 0);
+    g_assert_cmphex(read_word(f, 0x30), ==, 0);
+    slave_prepare(f, 16, 0);
+    write_word(f, 0, 0x5678);
+    slave_enable(f);
+    g_assert_true(nikon_spi_slave_clock(f->dev, 0xedcb, 16, &transmitted));
+    g_assert_cmphex(transmitted, ==, 0x5678);
+    g_assert_cmphex(read_word(f, 4), ==, 0xedcb);
+    cleanup(f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -140,6 +344,10 @@ int main(int argc, char **argv)
     qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
     vm_start();
     g_test_add_func("/nikon/spi/late-callback-cadence", test_late_callback);
+    g_test_add_func("/nikon/spi/slave/word", test_slave_word);
+    g_test_add_func("/nikon/spi/slave/rx-only", test_slave_rx_only);
+    g_test_add_func("/nikon/spi/slave/backpressure", test_slave_backpressure);
+    g_test_add_func("/nikon/spi/slave/guards", test_slave_guards);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
