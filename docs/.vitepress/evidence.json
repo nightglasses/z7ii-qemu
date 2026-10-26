@@ -497,6 +497,12 @@
         "title": "FE AND-wait semantics and source-associated statistics stage completion",
         "href": "/evidence/imagerequest/fence.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "lensmodel",
+        "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
+        "href": "/evidence/lens/session.json",
+        "kind": "Execution observation"
       }
     ]
   },
@@ -2118,6 +2124,12 @@
         "title": "Finite numerical operator and original RAW data-chain evidence",
         "href": "/evidence/imagerequest/pixels.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "lensmodel",
+        "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
+        "href": "/evidence/lens/session.json",
+        "kind": "Execution observation"
       }
     ]
   },
@@ -2969,6 +2981,16 @@
         "run": "capturestream",
         "title": "Owned grayscale stream and remaining group completion",
         "href": "/evidence/imagerequest/stream.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
+  "devices/lens/protocol.md": {
+    "records": [
+      {
+        "run": "lensmodel",
+        "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
+        "href": "/evidence/lens/session.json",
         "kind": "Execution observation"
       }
     ]

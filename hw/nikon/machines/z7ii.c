@@ -207,6 +207,7 @@ struct Z7IIMachineState {
     DeviceState *ex_input_dev;
     QEMUTimer *ex_input_timer;
     bool frame_contract;
+    bool virtual_lens;
     char *descriptor11_input;
     char *descriptor12_input;
     char *descriptor17_input;
@@ -1569,6 +1570,18 @@ static void z7ii_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
                            qdev_get_gpio_in(gic, 192 + i * 2 - 32));
     }
+    if (s->virtual_lens) {
+        DeviceState *lens = qdev_new(TYPE_NIKON_LENS);
+
+        object_property_add_child(OBJECT(machine), "lens", OBJECT(lens));
+        object_property_set_link(OBJECT(lens), "gpio", OBJECT(gpio),
+                                  &error_fatal);
+        qdev_prop_set_uint32(lens, "notify", 96);
+        object_property_set_link(OBJECT(lens), "stream", OBJECT(spi_ports[2]),
+                                  &error_fatal);
+        ssi_realize_and_unref(lens,
+            (SSIBus *)qdev_get_child_bus(spi_ports[3], "spi"), &error_fatal);
+    }
     for (i = 0; i < 4; i++) {
         DeviceState *i2c = qdev_new(TYPE_NIKON_I2C);
         g_autofree char *name = g_strdup_printf("i2c%u", i);
@@ -1973,6 +1986,16 @@ static bool z7ii_get_frame_contract(Object *obj, Error **errp)
     return Z7II_MACHINE(obj)->frame_contract;
 }
 
+static bool z7ii_get_virtual_lens(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->virtual_lens;
+}
+
+static void z7ii_set_virtual_lens(Object *obj, bool value, Error **errp)
+{
+    Z7II_MACHINE(obj)->virtual_lens = value;
+}
+
 static void z7ii_set_frame_contract(Object *obj, bool value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -2073,6 +2096,10 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
         "BlockBackend ID for the NVMe card in source slot 0; omitted means absent");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
+    object_class_property_add_bool(oc, "virtual-lens", z7ii_get_virtual_lens,
+                                   z7ii_set_virtual_lens);
+    object_class_property_set_description(oc, "virtual-lens",
+        "Explicit normal-family virtual 50 mm F2.8 lens on CSIO3/2");
     object_class_property_set_description(oc, "frame-contract",
         "Diagnostic-only CMOS/processing/display descriptor aperture; disabled by default");
 }

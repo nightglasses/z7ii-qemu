@@ -1,6 +1,41 @@
 # Original-firmware startup frontier
 
-## Current: selected media access and continuing paired pixels
+## Current: virtual lens initialization and dynamic paired parameters
+
+The explicit [virtual lens](../devices/lens/protocol.md) completes ordinary
+identification, optical/configuration/calibration exchange, zero-travel aperture
+control and receiver-bound history through the original SPI/GPIO/DMA path.
+Its fixed 50 mm F2.8 iris, neutral calibration and timing are declared functional
+inputs. The [SPI clocks](../devices/spi/protocol.md#source-selected-input-clocks)
+follow the recovered MAS selectors; [HDMAC demands](../devices/hdmac/protocol.md#peripheral-demand-and-delayed-dispatch)
+service real FIFO opportunities without accumulating host callback delay.
+
+In the unchanged 60-host-second cold-neutral run with selected 8 GiB card,
+healthy UART battery peer, held F4 and five-CPU MTTCG, lens configuration commits
+once. It completes 535 packets, rejects zero, and clocks 14,389 complete history
+records into the actual receiver. Two A0 and one A3 zero-travel aperture
+requests complete. The complete paired calibration input matches the
+guest-produced fixed-lens tuple, preserving the existing exact-comparison
+boundary; this is a different declared input from the earlier absent endpoint.
+
+Eight paired jobs write 21,290,880 bytes before CPU1 VA PC `1036a4a2`, WRITE32
+PA `20380010=1`, rejects the dynamic field at bank offset `70c`: input
+`020002f8`, guest `020002f9`. It belongs to the complete config[13] parameter
+span `700..778`, whose control words are `101/0`. Its arithmetic is not
+implemented, so another static tuple or an ignored-field admission is
+insufficient. The next numerical evidence is the record+24 producer, control
+semantics and an independently checked finite pixel operator.
+
+QMP is running at 15 seconds and debug-stopped by 30; the 60-second observation
+does not establish 60 seconds of continued execution. Both display heads are
+unbound and GUI readiness remains zero at this stop. The card receives one
+512-byte read with no failed I/O; no panic dump is present. Existing EX line
+warnings remain. The [lens receipt](/evidence/lens/session.json) separates 48
+native subtests, failed development trials, intermediate profiles and this
+original execution. A 3D application bridge, variable optics, normal live view
+and physical-camera fidelity remain outside the accepted result.
+
+## Previous: selected media access and continuing paired pixels
 
 The [paired operator](../devices/pairs/pixels.md) now handles the complete
 cycle-selected noise packet with mathematically validated primitive feedback,

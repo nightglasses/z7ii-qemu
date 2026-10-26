@@ -86,6 +86,19 @@ unreadable file, nonzero interpreted slot or nonzero reserved slot fails device
 realization. The file is a declared virtual profile, not a recovered
 physical-camera calibration dump.
 
+The fixed virtual lens selects a different complete opaque tuple from the
+earlier absent-endpoint profile. Selecting that input permits eight real jobs;
+it does not recover the opaque fields' algorithms. The next changing group is
+config[13] at root byte 52: `102e49fe` publishes its 109-byte consumed span through
+`1036b322`, `1036b35a` and the related setters into `700..778`. The word at
+`70c` packs the record's unsigned 16-bit values at 18/24 into high/low halves.
+Observed control words `700=101`, `704=0` do not establish a disabled operator.
+The low half changes from `02f8` to `02f9` while this group is active, so a
+matching static input cannot provide continuous support. Numerical meanings,
+record+24 construction and an independent pixel oracle are still needed;
+MMIO retention alone cannot make these live processing fields. The
+[lens receipt](/evidence/lens/session.json) records this bounded execution.
+
 The RAW ring addresses are live descriptor fields. Source VA `102bec2e`
 publishes descriptor byte 52 into either four slots at `218..224` or
 `228..234`, through `1036a56c`. VA `102beb6a` publishes the same descriptors

@@ -1,0 +1,166 @@
+{
+  "scope": "Explicit finite virtual lens over original SPI/GPIO and real receiver/DMA; original firmware bytes unchanged",
+  "dependency_baseline": "999b712",
+  "external_clock_api": "62b84a22",
+  "upstream_qemu": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
+  "source": {
+    "command_transport": "C1.70 MAS VA10382f02 selects logical3/CSIO3; observed low object points to PA2c0a0300. Resource93 maps to physical GPIO96, whose falling phase invokes VA1038305a.",
+    "history": "VA10383388 requests a null-TX slave transfer with a real21000-halfword receive ring;42-byte records enter native CSIO2 FIFO and normal DMA.",
+    "clock": "VA10370c32 ->103b0540 reads PA04281014 with OR00880008; common bits20..23 map8/9 to80/100MHz; channel8 bits16..19 additionally mapA to61.53MHz.",
+    "aperture": "VA10395052 ->1034ca9e selects named aperture policies; command37 ->10310f64 rescales to denominator192 and selects A0/A1/A3 encodings. Biased dynamic APEX fields use(raw-384)/192;199 is a positive-travel clamp.",
+    "paired": "VA102e49fe config[13] publishes a109-byte consumed span through1036b322/1036b35a and related setters into bank700..778.70c packs record u16 at18/24; control700=101 does not prove disabled work."
+  },
+  "model": {
+    "selection": "machine virtual-lens=on; absent by default; virtual identity7ffe; fixed50mm F2.8 focal length and iris",
+    "coverage": "13 ordinary initialization/status wire variants plus11 zero-travel aperture variants, complete lengths/checksums and explicit unsupported boundaries",
+    "aperture": "All7 biased dynamic coordinates960; all4 relative fields0. Zero-target and zero-parameter requests require configured idle state and leave aperture unchanged; nonzero motion/opaque parameters reject.",
+    "calibration": "Full virtual neutral pages with source-qualified unity/no-apply/radial-zero interpretations; no factory optical accuracy claim",
+    "latency": "Uniform1ms header/payload processing,2ms configuration; history nominal1ms with4us16-bit clocks. Functional inputs, not measured hardware rates.",
+    "dma": "Actual peripheral demand beats service synchronously with per-beat wire/state/generation checks and bank arbitration. Busy MMIO endpoints defer before source reads through an ordinary BH. Software-copy clock delay retained.",
+    "lifecycle": "Partial history record retained across pause/re-enable; blocked receiver cannot consume another word; reset/unrealize cancel phase/configuration/stream work",
+    "prohibited_shortcuts": "No firmware, guest callback, event object, GUI cache, readiness flag or framebuffer patched"
+  },
+  "native": {
+    "commands": [
+      "make check MTESTARGS='nikon_spi_unit nikon_lens_unit'",
+      "make check MTESTARGS='nikon --test-args=\"-p /arm/nikon/spi\"'",
+      "make check MTESTARGS='nikon_dma nikon_hdmac'",
+      "make check MTESTARGS='nikon_lens_unit'"
+    ],
+    "accepted": [
+      {
+        "target": "nikon_spi_unit",
+        "subtests": 10,
+        "seconds": 0.55
+      },
+      {
+        "target": "nikon SPI qtest",
+        "subtests": 10,
+        "seconds": 1.67
+      },
+      {
+        "target": "nikon_dma",
+        "subtests": 11,
+        "seconds": 2.28
+      },
+      {
+        "target": "nikon_hdmac",
+        "subtests": 5,
+        "seconds": 1.21
+      },
+      {
+        "target": "nikon_lens_unit",
+        "subtests": 12,
+        "seconds": 0.88
+      }
+    ],
+    "red": [
+      "Old source clock missed the selected100MHz divider deadline.",
+      "Late dispatch left TX DMA unfinished in the37-halfword native duplex fixture; fine dispatch passed.",
+      "Without endpoint-guard deferral, arm-before-Audio-enable produced QEMU reentrant IO rejection and source address did not advance.",
+      "Discarding partial history during stream restart produced a nonzero record checksum.",
+      "Unimplemented ordinary aperture headers produced no phase completion in the new zero-travel fixture.",
+      "The earlier10us phase violated the declared1ms pre-deadline high-level contract."
+    ],
+    "coverage": "Real SSI/native SPI and HDMAC; rates/stop/restart/mid-word source changes, RX-only/backpressure, short/long delayed duplex transfer, DH pause/high-demand resume and DE cancel, Audio guarded MMIO, full lens transcript, malformed packets, allzero-travel variants, optical fields and partial record preservation. Pending phase/configuration/stream timers cancel on unrealize while the object remains referenced.",
+    "development_trials": [
+      "Initial new fixture compilation used removed memory_region_destroy; changed to owner/RCU lifecycle.",
+      "An old qtest invocation accidentally selected the broader main binary; one later broad attempt was SIGKILL, not a passing full suite.",
+      "An Audio monitor expectation incorrectly included high16 in its low16 register; corrected to independently check both lanes.",
+      "Old artificial constant-high demand fixtures assumed one timer event per beat; updated to the explicit continuous-level contract.",
+      "One post-window GDB observer failed on a helper-name typo; corrected capture retained separately. No guest failure inferred from it.",
+      "A profile-difference sanity check expected fewer changed words and aborted before producing an input; complete matching profile instead contains42 changed opaque words."
+    ],
+    "review": "Independent read-only reviews of transport/clock, whole-beat guarded demand, lifecycle, optical coordinates and zero-travel aperture boundaries found no remaining P1/P2.",
+    "total_unique_subtests": 48
+  },
+  "original": {
+    "profile": "Complete unchanged decoded bundle; cold-neutral/region descriptors; explicitPGM and complete paired tuple;8GiB blank raw slot0 card; healthy paced battery UART RNG0; heldF4; five-CPU MTTCG.",
+    "window_host_seconds": 60,
+    "sampling": "No in-window GDB. QMP every15host seconds; post-window read-only GDB is sequential, not atomic.",
+    "intermediate": [
+      "With independent48MHz/10us phase, transfer tails and header RX residue interrupted initialization.",
+      "Correcting selector clocks alone did not eliminate partial74-byte payload.",
+      "Demand timing correction completed ordinary initialization in a bounded5-second run, but 10us phases still showed header-residue retries.",
+      "With coherent fixed-iris state and1ms phases, old absent-endpoint paired input rejected598=1a6a1a6a.",
+      "A complete new24064-byte opaque input differs in42 words; exact profile comparison remains active. It is a declared virtual input, not recovered processing arithmetic."
+    ],
+    "final": {
+      "status_samples_15_30_45_60": [
+        "running",
+        "debug",
+        "debug",
+        "debug"
+      ],
+      "lens_packets": [
+        426,
+        535,
+        535,
+        535
+      ],
+      "lens_rejected": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "configuration_generation": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "complete_history_records_clocked": [
+        11079,
+        14389,
+        14389,
+        14389
+      ],
+      "aperture_noops": [
+        2,
+        3,
+        3,
+        3
+      ],
+      "paired_jobs": [
+        0,
+        8,
+        8,
+        8
+      ],
+      "paired_payload_bytes": 21290880,
+      "paired_rejections": 1,
+      "stop": {
+        "cpu": 1,
+        "va_pc": "1036a4a2",
+        "operation": "WRITE32",
+        "pa": "20380010",
+        "value": "1",
+        "reason": "paired-frame-profile-or-memory-not-supported",
+        "offset": "70c",
+        "expected": "020002f8",
+        "actual": "020002f9",
+        "group_controls": [
+          "101",
+          "0"
+        ]
+      },
+      "display": "Both heads unbound; GUI readiness0. Earlier absent-endpoint status GUI belongs to its separate input profile.",
+      "backend": {
+        "read_operations": 1,
+        "read_bytes": 512,
+        "write_operations": 0,
+        "failed_io": 0
+      },
+      "panic_dump_length": 0,
+      "warnings": "Existing EX external-line warnings remain."
+    }
+  },
+  "next_boundary": "Recover config[13] record+24 producer,700 control meanings and a finite numerical operator with nonconstant RAW and adjacent-parameter pixel oracles. Do not chase successive static tuples or ignore700..778.",
+  "limits": [
+    "No normal live view or complete boot",
+    "The60-host-second observation includes a debug stop before30seconds",
+    "No variable iris/focus/zoom mechanics or3D application bridge",
+    "No physical camera/optics/DMA throughput fidelity"
+  ]
+}

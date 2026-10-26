@@ -13,6 +13,7 @@
 #define TYPE_NIKON_FILL "nikon-fill-functional"
 #define TYPE_NIKON_USIO "nikon-usio-functional"
 #define TYPE_NIKON_SPI "nikon-spi-functional"
+#define TYPE_NIKON_LENS "nikon-lens-functional"
 #define TYPE_NIKON_SYSCONFIG "nikon-sysconfig-functional"
 #define TYPE_NIKON_GPIO "nikon-gpio-functional"
 #define TYPE_NIKON_CCOMP "nikon-ccomp-functional"

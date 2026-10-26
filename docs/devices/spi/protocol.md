@@ -102,7 +102,9 @@ declares80 MHz for8 and100 MHz for9. Channel8 instead uses bits16..19:
 8 declares80 MHz,9 declares100 MHz and A declares61.53 MHz. These are the
 original driver's declared frequencies, not measured physical PLL outputs.
 An unrecognized selector supplies no clock; queued words wait for a supported
-source. An isolated, unconnected unit fixture retains its explicit48 MHz input.
+source. Unconnected controllers, including standalone fixtures and private
+components, retain their declared nominal48 MHz profile. The connected MAS
+board does not fall back to that rate for an unknown selector.
 
 The divider remains `input / (2*(DIV+1))` when enabled. A word samples its
 clock on start; a source change or stop affects its successor. This atomic-word

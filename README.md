@@ -154,12 +154,24 @@ completed RAW buffers, applies bounded monochrome filtering and guest color
 parameters, writes main/work/grid outputs and publishes completion through
 normal IRQ handling. Select its explicit `paired-calibration` input alongside
 the scene and cold-neutral inputs. Cycle-selected noise and both source-selected
-address groups now have finite numerical models. In the latest selected-card
-window, original firmware completes 108 jobs and 287,426,880 payload bytes while
+address groups now have finite numerical models. In the earlier selected-card
+profile with no virtual lens, original firmware completes 108 jobs and 287,426,880 payload bytes while
 reading its first NVMe sector. This establishes the connected numerical data
 path; the empty-slot profile's continuation pause and continuous normal live
 view remain unresolved. See the [storage input](docs/devices/storage/protocol.md#explicit-media-input)
 for `slot0-drive`, raw images and the host-folder boundary.
+
+The explicit `virtual-lens=on` input attaches the
+[normal-family virtual lens](docs/devices/lens/protocol.md) to its original
+SPI and GPIO paths. It supplies a coherent fixed 50 mm F2.8 profile, complete
+initialization/calibration replies and receiver-bound history. Scene pixels
+remain a separate CMOS/RAW input; a future 3D application adapter must feed that
+acquisition boundary and coordinate capture metadata with the lens state.
+No 3D application bridge or variable optical actuator is implemented yet.
+With the virtual lens and a matching complete paired input, original firmware
+initializes the lens and completes eight pixel jobs before a changing opaque
+parameter group stops processing. The current frontier records this boundary;
+normal live view remains incomplete.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

@@ -6,7 +6,7 @@ The current clock device publishes two QEMU Clock outputs for the SPI family.
 C1.70 MAS VA `10370c32 → 103b0540` reads selector5 at PA `04281014`, ORs
 `00880008`, and interprets bits20..23 as8→80 MHz or9→100 MHz for ordinary
 channels. Channel8 instead uses bits16..19, with8→80 MHz,9→100 MHz and
-A→61.53 MHz. The board connects all eleven SPI inputs to the corresponding
+A→61.53 MHz. The MAS board connects all eleven SPI inputs to the corresponding
 output. Selector writes and reset update these outputs; an unknown selection
 has frequency zero and cannot silently shift queued words.
 

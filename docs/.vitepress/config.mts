@@ -259,6 +259,7 @@ export default defineConfig({
               { text: 'Audio Format & Blocks', link: '/devices/audio/format' },
               { text: 'Audio Observation Profile', link: '/devices/audio/monitor' },
               { text: 'Touch Controller', link: '/devices/touch/protocol' },
+              { text: 'Virtual Lens & Scene Input', link: '/devices/lens/protocol' },
               { text: 'Storage Protocol', link: '/devices/storage/protocol' },
               { text: 'Update Engine', link: '/devices/update/protocol' },
               { text: 'Lookup Table Engine', link: '/devices/lookup/protocol' },
