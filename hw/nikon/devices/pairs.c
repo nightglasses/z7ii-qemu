@@ -1,7 +1,7 @@
 /*
  * Original finite 2038/203c controls, configuration and raw event inputs.
  * Cold zero, retained readback, mask1 inhibition, W1C and rising fixture
- * inputs are virtual laws. No frame source, reset effects or ready is inferred.
+ * inputs are virtual laws. Request admission does not produce work or events.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -13,12 +13,20 @@
 #define BANK_SIZE 0x5e00
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPairedEventBanksState, NIKON_PAIRED_EVENT_BANKS)
 
+typedef enum NikonPairedRequestState {
+    PAIRED_QUIESCENT,
+    PAIRED_ARMED,
+    PAIRED_AWAIT_INPUT,
+    PAIRED_DRAIN_PENDING,
+} NikonPairedRequestState;
+
 typedef struct NikonPairedEventBanksBank {
     NikonPairedEventBanksState *parent;
     MemoryRegion regs;
     qemu_irq irq;
     uint32_t config[BANK_SIZE / 4];
     uint32_t mask, pending, inputs;
+    NikonPairedRequestState request;
     unsigned index;
 } NikonPairedEventBanksBank;
 
@@ -162,6 +170,10 @@ static MemTxResult nikon_paired_event_banks_read(void *opaque, hwaddr offset,
         *value = b->pending;
     } else if (offset == 0xe8) {
         *value = b->mask;
+    } else if (offset == 0x18) {
+        /* The original consumer distinguishes only zero from nonzero. */
+        *value = b->request == PAIRED_AWAIT_INPUT ||
+                 b->request == PAIRED_DRAIN_PENDING;
     } else if (nikon_paired_event_banks_config(offset, b->index)) {
         *value = b->config[offset / 4];
     } else {
@@ -179,16 +191,40 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         return nikon_paired_event_banks_error(b, offset, size, true, value);
     }
+    if (offset == 0x10 || offset == 8) {
+        NikonPairedRequestState required, next;
+
+        /*
+         * MAS10369faa arms with 10=1 before 08=1. Admission returns to the
+         * original software notification path; it is not a completion IRQ.
+         */
+        if (offset == 0x10) {
+            required = PAIRED_QUIESCENT;
+            next = PAIRED_ARMED;
+        } else {
+            required = PAIRED_ARMED;
+            next = PAIRED_AWAIT_INPUT;
+        }
+        if (value != 1 || b->request != required) {
+            return nikon_paired_event_banks_error(b, offset, size, true, value);
+        }
+        b->request = next;
+        return MEMTX_OK;
+    }
     if (offset == 0x24) {
         b->pending &= ~value;
     } else if (offset == 0xe8) {
         b->mask = value;
     } else if (nikon_paired_event_banks_config(offset, b->index) &&
                nikon_paired_event_banks_value(offset, value)) {
+        if (offset == 0xc && b->request == PAIRED_AWAIT_INPUT) {
+            /* 10369fc4: literal203800ec minus e0 is the finish request. */
+            b->request = PAIRED_DRAIN_PENDING;
+        }
         /* Opaque control inputs/configuration never clear pending or fields. */
         b->config[offset / 4] = value;
     } else {
-        /* 08/10/54/60/6c/78 requests have no recovered event source. */
+        /* 54/60/6c/78 cancellation and result production remain unsupported. */
         return nikon_paired_event_banks_error(b, offset, size, true, value);
     }
     nikon_paired_event_banks_irq(b);
@@ -211,6 +247,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
     for (i = 0; i < 2; i++) {
         memset(s->bank[i].config, 0, sizeof(s->bank[i].config));
         s->bank[i].mask = s->bank[i].pending = 0;
+        s->bank[i].request = PAIRED_QUIESCENT;
         /* Keep external levels; reset must not generate a new rising edge. */
         nikon_paired_event_banks_irq(&s->bank[i]);
     }

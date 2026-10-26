@@ -2055,6 +2055,16 @@
       }
     ]
   },
+  "devices/pairs/requests.md": {
+    "records": [
+      {
+        "run": "pairedwork",
+        "title": "Pending requests, atomic type0 capture and complete active pool ownership",
+        "href": "/evidence/imagerequest/requests.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/pairs/tables.md": {
     "records": [
       {

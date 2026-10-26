@@ -621,10 +621,14 @@ static void test_capture_pools(void)
         { 0x5d320000, 0x65400, 4 },
         { 0xafc3dc00, 0x18000, 4 },
         { 0x5d4b5000, 0xc00, 5 },
+        { 0x5f914400, 0xd800, 4 },
+        { 0xdec7fc00, 0x1a82a00, 2 },
+        { 0xe2185000, 0x248a00, 2 },
     };
     static const uint32_t holes[] = {
         0x548fffff, 0x5d4b8c00,
         0xaf8d3fff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
+        0x5f9143ff, 0x5f94a400, 0xdec7fbff, 0xe2616400,
     };
     const uint32_t source = 0xb1804000;
     uint8_t expected[259], actual[259];

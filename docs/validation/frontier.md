@@ -1,6 +1,41 @@
 # Original-firmware startup frontier
 
-## Current: paired-processing start at PA `20380010`
+## Current: graphics initialization after paired admission
+
+The [stream-request contract](../devices/pairs/requests.md) admits both paired
+banks and all42 configured graph ports without generating completion. It backs
+the complete active kind25/26/31 pools and corrects type0 parameter capture:
+publication installs an actual thirteen-word snapshot, while later complete
+quiescent reloads may replace it. The old permanent busy-on-publication
+hypothesis is falsified by normal reconfiguration before any processor start.
+Active-use queries/publication remain errors until real ownership is modeled.
+
+The [request receipt](/evidence/imagerequest/requests.json) records four focused
+old-model regressions and35 memory/23 SLA subtests passing. With unchanged
+firmware and the same60-host-second region/cold-neutral profile, imports remain
+18 packets/649 words, but parameter captures reach9 with valid mask `13e`.
+Paired bank0 is awaiting input, bank1 quiescent; all graph nodes are unstarted.
+This crosses paired start and the slot3/4/5 reloads without inventing pixels,
+raw events or guest callbacks.
+
+The first uncovered transaction becomes CPU0 VA PC `106ee3c6`, WRITE32 PA
+`201810e0=1`, reporting `transfer-stream-truncated`. Separate diagnostics capture
+complete664/1032-byte streams containing four indirect filled paths with a
+global initialization prefix. The error comes from family dispatch/validation,
+not proof of missing command bytes. Its finite graphics grammar is the next
+boundary; actual paired input processing remains independently unfinished.
+
+The request checkpoint completes128 main acquisitions and507 statistics jobs,
+with no rejections, one main cancellation and no statistics cancellation.
+GUI readiness remains zero; both1124-byte image-information records are equal
+and populated (173 nonzero bytes, leading word1). Head1 binds a1024×682 console with
+status widgets and a memory-card error overlay; head0 is unbound. Later
+diagnostic-only runs do not reproduce that binding, so stable first-enable
+timing remains open. There is no in-window GDB pause. Sequential QMP/read-only GDB observations are not
+atomic snapshots or physical rates. Normal GUI startup and frame retirement
+remain unverified.
+
+## Previous: paired-processing start at PA `20380010`
 
 The [paired-table contract](../devices/pairs/tables.md) now retains the whole
 source-selected family:22 tables of64 bytes and14 of68 bytes,590 words per

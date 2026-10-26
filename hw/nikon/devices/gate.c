@@ -2,8 +2,8 @@
  * Finite original 2010 configuration, masks and external pending inputs.
  * Cold zero, retained configuration readback, rising input latches, mask1
  * enable, external gate, deferred stop ACK, submit-pending state and W1C are
- * virtual laws, not pipeline semantics. Type0 parameter slots retain busy
- * ownership after submission; no unbound processor is treated as complete.
+ * virtual laws, not pipeline semantics. Type0 parameter capture is separate
+ * from processing; no unbound processor is treated as complete.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -46,7 +46,7 @@ G_STATIC_ASSERT(ARRAY_SIZE(command_ports) <= 64);
 typedef struct GateCommand {
     NikonGatePacket packet;
     uint32_t address, auxiliary[2];
-    bool reset, armed;
+    bool reset, armed, active;
 } GateCommand;
 
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEventGateState, NIKON_EVENT_GATE)
@@ -58,7 +58,9 @@ struct NikonEventGateState {
     uint32_t config[CONTROL_SIZE / 4];
     uint32_t mask[3], pending[3], inputs[3];
     uint32_t slot[INPUT_SLOTS][INPUT_WORDS];
-    uint16_t written[INPUT_SLOTS], busy;
+    uint32_t committed[INPUT_SLOTS][INPUT_WORDS], parameter_valid;
+    uint16_t written[INPUT_SLOTS];
+    uint64_t parameter_commits;
     GateCommand command[ARRAY_SIZE(command_ports)];
     uint16_t table[TABLE_SIZE / 4];
     uint32_t work[WORKSPACE_SIZE / 4], workspace_written;
@@ -283,6 +285,18 @@ static bool nikon_event_gate_load(NikonEventGateState *s, unsigned index,
     return true;
 }
 
+static bool nikon_event_gate_requested(NikonEventGateState *s)
+{
+    unsigned i;
+
+    for (i = 0; i < ARRAY_SIZE(s->command); i++) {
+        if (s->command[i].active) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
                                 uint64_t *value, unsigned size,
                                 MemTxAttrs attrs)
@@ -305,9 +319,9 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
         case 0:
             /*
              * 103bdbbe tests (status & 3) != 3. No completed result exists;
-             * zero is an explicit incomplete-state convention, not idle.
+             * active is a finite request state, not recovered status bits.
              */
-            *value = 0;
+            *value = command->active;
             return MEMTX_OK;
         case 0x10:
             *value = command->address;
@@ -324,11 +338,15 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
         return nikon_event_gate_error(s, offset, size, false, 0);
     }
     if (nikon_event_gate_slot(offset, &slot, &word)) {
-        *value = s->slot[slot][word];
+        *value = s->committed[slot][word];
         return MEMTX_OK;
     }
     if (offset >= 0x2040 && offset < 0x2080) {
-        *value = !!(s->busy & (1U << ((offset - 0x2040) / 4)));
+        /* Admission is known only while no unbound processor is requested. */
+        if (nikon_event_gate_requested(s)) {
+            return nikon_event_gate_error(s, offset, size, false, 0);
+        }
+        *value = 0;
         return MEMTX_OK;
     }
     if (offset == 0x148) {
@@ -383,6 +401,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
                 memset(&command->packet, 0, sizeof(command->packet));
                 command->address = 0;
                 command->armed = false;
+                command->active = false;
                 command->reset = true;
                 s->configured &= ~(UINT64_C(1) << index);
             } else {
@@ -399,14 +418,20 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
             command->auxiliary[(local - 8) / 4] = value;
             return MEMTX_OK;
         }
+        if (local == 0 && value == 1 && command->address &&
+            !command->reset && !command->active) {
+            /* 103bd07c starts configured nodes before their producers. */
+            command->active = true;
+            return MEMTX_OK;
+        }
         /*
-         * Actual processor activation is unsupported. Configuration import
-         * alone establishes neither an input dependency nor a completion.
+         * Unknown commands reject. An admitted start establishes no pixels,
+         * input dependency, terminal result or completion by itself.
          */
         return nikon_event_gate_error(s, offset, size, true, value);
     }
     if (nikon_event_gate_slot(offset, &slot, &word)) {
-        if ((s->busy & (1U << slot)) || (value & ~slot_masks[word])) {
+        if (value & ~slot_masks[word]) {
             return nikon_event_gate_error(s, offset, size, true, value);
         }
         s->slot[slot][word] = value;
@@ -414,14 +439,15 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     if (offset == 0x2c) {
-        if (value >= INPUT_SLOTS || (s->busy & (1U << value)) ||
+        if (value >= INPUT_SLOTS || nikon_event_gate_requested(s) ||
             s->written[value] != (1U << INPUT_WORDS) - 1 ||
             !(s->slot[value][0] & 1)) {
             return nikon_event_gate_error(s, offset, size, true, value);
         }
-        /* Parameter ownership only. Processing needs its real graph consumer;
-         * elapsed time, W1C and the existing stop ACK cannot retire this work. */
-        s->busy |= 1U << value;
+        /* 103bda1e publishes parameters without starting a data processor. */
+        memcpy(s->committed[value], s->slot[value], sizeof(s->slot[value]));
+        s->parameter_valid |= 1U << value;
+        s->parameter_commits++;
         s->written[value] = 0;
         return MEMTX_OK;
     }
@@ -591,7 +617,9 @@ static void nikon_event_gate_reset(DeviceState *dev)
     s->stopping = false;
     s->stop_ack = false;
     s->submit_pending = false;
-    s->busy = 0;
+    memset(s->committed, 0, sizeof(s->committed));
+    s->parameter_valid = 0;
+    s->parameter_commits = 0;
     memset(s->slot, 0, sizeof(s->slot));
     memset(s->written, 0, sizeof(s->written));
     memset(s->command, 0, sizeof(s->command));
@@ -629,6 +657,10 @@ static void nikon_event_gate_init(Object *obj)
     qdev_init_gpio_in_named(DEVICE(obj), nikon_event_gate_input, "pending-bit", 96);
     object_property_add_uint64_ptr(obj, "configured-mask", &s->configured,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "parameter-valid", &s->parameter_valid,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "parameter-commits",
+                                   &s->parameter_commits, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-packets", &s->loaded,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-words", &s->loaded_words,

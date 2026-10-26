@@ -104,7 +104,9 @@ one import. The exact complete prefix must come from readable RAM through
 QEMU DMA. Invalid extent, alignment, header/count/final marker, held reset,
 unarmed and repeated submissions reject without a partial installation.
 Import retains borrowed references without following them or claiming they
-are valid execution buffers. Activation still rejects explicitly.
+are valid execution buffers. Activation rejects at this historical checkpoint;
+the later [request contract](../pairs/requests.md) admits pending starts without
+pixel or completion production.
 
 At this checkpoint the port set has37 entries. Its read-only QOM `configured-mask`
 therefore uses64 bits, with 64-bit shifts and isolated reset clearing; this

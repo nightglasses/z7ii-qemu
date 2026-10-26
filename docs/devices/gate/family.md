@@ -5,8 +5,9 @@ and 76 distinct resources, numbered0..75. Fifteen types describe processing
 units with42 command ports. The finite importer covers all42 ports; type14's
 24-byte single-block layout is explicitly a hypothesis, while the other
 remaining layouts are constructor-established. This is configuration coverage,
-not15 completed pixel operators. Processing activation, result production and
-slot retirement remain a separate unsupported contract.
+not15 completed pixel operators. Actual data operations, result production and
+frame retirement remain unsupported; the later [request contract](../pairs/requests.md)
+admits pending starts without inventing completion and corrects type0 capture.
 The original observation below precedes the later
 [paired-table continuation](../pairs/tables.md), which crosses its configuration
 stop and reaches the separate paired-processing start.
@@ -29,7 +30,7 @@ confirms count1, so the padding does not add duplicate resource0 entries.
 
 | Type | Resource IDs | Interface and finite coverage |
 | --- | --- | --- |
-| 0 | 0..15 | Sixteen parameter slots, complete13-word submission and retained busy ownership |
+| 0 | 0..15 | Sixteen staged/committed13-word parameter slots; active data use remains unmodeled |
 | 1 | 16..23 | Eight paired endpoint configurations |
 | 2 | 24..27 | Software connection nodes, NULL backend/setter |
 | 3 | 28..33 | Software connection nodes, NULL backend/setter |
@@ -144,7 +145,10 @@ capture, timing and other historical stop labels also guard malformed inputs
 in already-supported models. Unknown accesses, alignment/width failures,
 invalid DMA and unrecognized command variants remain necessary explicit errors.
 
-## Validation and unchanged-firmware continuation
+## Historical validation and unchanged-firmware continuation
+
+These measurements precede the [request and capture correction](../pairs/requests.md).
+Their busy flags describe the old model, not established physical ownership.
 
 The old model fails a focused provisioning regression: after a complete
 workspace population, `2c0=1` leaves `148=100` instead of invalidating coverage.

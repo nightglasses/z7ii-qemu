@@ -60,7 +60,9 @@ The model adds no RAM, DMA source, guest callback, pending cause or slot release
 Actual start is separate: the [parameter/start contract](parameters.md#configuration-and-later-consumption-are-separate)
 locates `10369faa`, which writes selected-bank `10=1` and `08=1` after
 configuration. The data operation, input/output association, status/result
-conditions and original worker wait remain unsupported. Tables do not supply
+conditions and original worker wait remain unsupported. The later
+[request contract](requests.md) admits pending starts and finish requests;
+tables do not supply
 those results merely by being present.
 
 ## Native validation

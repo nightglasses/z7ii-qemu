@@ -1,5 +1,12 @@
 # Image information and display activation
 
+The traced admission/fence checkpoints below are historical. The later
+[paired request and parameter-capture correction](../devices/pairs/requests.md)
+reaches populated, equal image-information records and a1024×682 head1 status
+console under the same declared cold-neutral inputs. That later RAM/display
+observation does not independently trace record92 notification or prove normal
+live view; the [startup frontier](../validation/frontier.md) owns current status.
+
 The cold-neutral checkpoint reaches GUI drawing and display-layer programming,
 but has no active display target or observed publication through the traced
 image-information subscriber.

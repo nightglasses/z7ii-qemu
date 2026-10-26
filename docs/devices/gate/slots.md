@@ -1,12 +1,13 @@
-# Type0 parameter slots and processing ownership
+# Type0 parameter capture and processing ownership
 
-C1.70 MAS declares sixteen type0 resource slots. The finite event-gate model
-now retains complete thirteen-word packets and makes each committed slot busy.
-It does not retire a slot on elapsed time, configuration, W1C or the separate
-stop acknowledgment. The historical command-buffer stop below is superseded
-by the [processing command contract](commands.md); a normal completion/release
-cycle has not been demonstrated. See the [receipt](/evidence/imagerequest/slots.json)
-and [current startup frontier](../../validation/frontier.md).
+C1.70 MAS declares sixteen type0 parameter slots. A complete thirteen-word
+submission atomically installs configuration; it does not start pixel work or
+make that configuration permanently unwritable. Normal configuration-only
+execution reloads an already allocated slot before any processor starts,
+falsifying the earlier busy-on-configuration hypothesis. The model separates
+staging, committed parameters and the still-unmodeled active data-use contract.
+See the [request and storage contract](../pairs/requests.md) and
+[current startup frontier](../../validation/frontier.md).
 
 ## Original producers and consumers
 
@@ -60,21 +61,31 @@ convention. In particular, the original observed packet contains small offsets
 `0`, `12000` and `24000`; no standalone physical-buffer interpretation or DMA
 is inferred from those values.
 
-All thirteen words must have been written since reset before selector2c can
-submit an idle slot, and word0.bit0 must be set. Successful submission changes
-only that slot's ownership to busy. Repeated/invalid submission, partial
-packets, writes to a busy packet, reserved generated bits, query writes,
-unknown slots, holes, widths and unaligned accesses reject before changing
-packet or ownership state. Whole-model reset cancels every retained request,
-clears packets/staging and restores idle. The ordinary stop acknowledgment
-and pending W1C preserve these requests; neither is a data completion.
+All thirteen words must have been staged since the previous successful capture
+before selector2c can publish, and word0.bit0 must be set. A successful capture
+copies the actual packet into the selected committed snapshot and invalidates
+only its staging coverage. Reads return that committed snapshot, initially zero;
+partial or malformed reloads leave it unchanged. A subsequent complete packet
+can replace it before processing starts. Read-only QOM `parameter-valid` and
+`parameter-commits` expose installed slots and successful publication count.
 
-Cold idle, retained readback, full-packet admission, immutable busy ownership,
-the boolean0/1 query encoding and whole-model reset are bounded ownership
-hypotheses. Source establishes zero/nonzero admission, packet shape and submit
-ordering, but not physical busy encoding or reset timing. No processor or
-automatic completion timer is attached: once submitted, ownership remains busy
-because the downstream processing contract is still unsupported.
+This synchronous capture/readback is an explicit functional convention. Source
+proves the CPU writes, selector and eight-counter-tick settling wait, not a
+hardware latch latency. No timer clears a busy bit. Configuration publication
+does not release software resources, complete pixels or produce pending/IRQ.
+
+The query bank's quiescent zero is a functional availability hypothesis after
+actual parameter capture, not a recovered physical busy law: no processing
+node has an outstanding start. Once a node is requested, both
+hardware-availability queries and further parameter publication remain explicit
+errors until active frame ownership is modeled. This deliberately avoids
+reporting invented idle status for unmodeled work. Staging remains independent;
+resetting a node cannot complete that work or alter committed parameters.
+
+Incomplete/repeated capture without restaging, reserved generated bits, query
+writes, unknown slots, holes, widths and unaligned accesses reject without
+installing partial parameters. Whole-model reset clears staging, snapshots,
+validity and counters. Stop acknowledgment and W1C preserve configuration.
 
 ## Completion and release boundary
 
@@ -90,12 +101,12 @@ Callback `10388b3c` handles worker completion/termination notifications and
 calls `1038897e`, which clears the guest's allocated type masks and worker
 ownership. On the normal `421930f1` route it subsequently wakes the original
 resource waiter. This releases software resources; it does not write the
-hardware slot query bank. The hardware data-consumption condition that makes
-a type0 slot reusable still needs to be connected to the real graph processor.
+hardware slot query bank. Active frame-ownership transitions still need to be
+connected to the real graph processor, independently of parameter reload.
 There is no guessed callback, raw bit or guest-memory update for that missing
 edge.
 
-The baseline unchanged-firmware continuation submitted slot1, then stopped in graph
+The historical baseline continuation submitted slot1, then stopped in graph
 node1, type4/resource37: callback `103bdc72 ->103bded0` writes PA `20100814=1`
 before deasserting that command-buffer reset and supplying the payload pointer
 at `20100810`. The eleven-node graph is
@@ -107,7 +118,7 @@ cannot be justified by the already queued type0 packet or by a nominal delay.
 The next contract must recover the downstream command-buffer parser, its
 actual data operation and the terminal result/event path together.
 
-## Validation
+## Historical validation and corrected hypothesis
 
 The original unavailable-query symptom first fails a native HMP read check.
 After the change, the applicable `nikon_sla` batch passes all23 subtests. The
@@ -116,6 +127,10 @@ field family and full-word payload, complete versus partial staging, isolated
 busy transitions, immutable ownership, elapsed time, stop/W1C independence,
 reset cancellation and negative slot/width/bit/hole boundaries. This is a
 synthetic gate-contract fixture, not an original SLA boot or a processed frame.
+The [historical receipt](/evidence/imagerequest/slots.json) retains those exact
+measurements. Its busy-on-commit interpretation is superseded by the observed
+pre-start reconfiguration and corrected capture contract above; those old
+fixtures do not establish actual processing ownership.
 
 The historical slot-stage unchanged-firmware continuation uses the same bounded resource35,
 cold-neutral resource80, quadrant input, healthy paced battery peer and five-CPU

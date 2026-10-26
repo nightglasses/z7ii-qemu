@@ -109,11 +109,12 @@ explicit functional conventions; source establishes the successful ordering,
 not all physical error/reset behavior.
 
 The model exposes read-only QOM import counters and a64-bit configured mask
-for all42 ports. Backend+`0` reads `0` as an explicit incomplete-state convention.
+for all42 ports. The later [request contract](../pairs/requests.md) admits
+backend+`0=1` only after complete import and retains a pending node request.
+Readback0/1 is a finite incomplete-state convention, not physical status bits.
 Source predicate `103bdbbe` checks `(status & 3) != 3`; it does not establish
-bit1 alone as busy. No successful completion encoding is returned. Processor
-activation at backend+`0` is an explicit error until the actual data operation
-is modeled. No invented dependency on either input port is used to queue it.
+bit1 alone as busy. No successful completion encoding is returned. Request
+admission does not execute a data operation or invent either input dependency.
 Unknown packet variants, ports, local words, widths and commands remain errors.
 
 ## Paired endpoints and CPU-populated storage
@@ -178,7 +179,12 @@ The next required processing evidence is the real operation's input association,
 output DMA extent and terminal publication condition; successful packet import
 alone cannot establish them.
 
-## Validation and original execution
+## Historical validation and original execution
+
+This section preserves the command-import checkpoint. The later
+[request contract](../pairs/requests.md) admits configured starts and replaces
+the old busy-on-parameter-publication hypothesis; the counts below remain
+observations of that earlier model.
 
 At the original command-import checkpoint, the old device fails the focused
 reset read at `20100814`. The completed

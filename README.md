@@ -115,32 +115,27 @@ The [kind41 workspace](docs/runtime/storage.md#kind41-processing-workspace)
 backs its source-owned 4 MiB unit and crosses the original record clear.
 The complete [processing scratch arenas](docs/runtime/storage.md#processing-scratch-arenas)
 also support the original allocator's two block families; the latest72
-memory/sensor cases pass. The [sixteen type0 parameter slots](docs/devices/gate/slots.md)
-now retain complete packets and submitted busy ownership; all23 applicable SLA
-subtests pass. The [processing command contract](docs/devices/gate/commands.md)
-adds seven layouts across27 ports, six CPU-written LUT banks and paired
-configuration;25 decoder/SLA subtests pass. Unchanged firmware with the same
-region/cold-neutral inputs imports eight packets totaling269 words, submits
-slots1/2. The complete [paired-bank packet](docs/devices/pairs/parameters.md)
-now crosses PA `203800a8`; all23 SLA subtests pass. Original execution submits
-another slot8. The [type5/type6 stream contract](docs/devices/gate/fanout.md)
-now separates356 command bytes from the CPU-consumed trailer;26 decoder/SLA
-subtests pass. Original type5 import raises the total to9 packets/358 words.
-The [linked type8/type9 streams](docs/devices/gate/linked.md) add all eight
-source-selected ports and retain type5 routing and kind74 references;27 native
-subtests pass. The unchanged cold-neutral continuation imports17 packets/628
-words. The [complete graph-type inventory](docs/devices/gate/family.md) establishes
-19 types and76 resources, with15 processing types across42 command ports.
-The remaining four types/five ports now share the finite importer; type14's
-24-byte template is explicitly hypothetical. All28 decoder/SLA subtests pass.
-Original type18 workspace initialization/import increases totals to18 packets/649
-words. The [paired-table family](docs/devices/pairs/tables.md) now retains all36
-tables/590 words in both banks; all23 SLA subtests pass. Original execution
-crosses table publication and reaches actual paired start at PA `20380010`. Slots
-1/2/3/4/5/8 remain busy; actual processing activation is unsupported and no
-completion is invented.
-The error property is empty and neither display head has a console. The earlier ID63 error
-frame is separately archived; normal live view remains incomplete. The
+memory/sensor cases pass. The [complete graph-type inventory](docs/devices/gate/family.md)
+establishes19 types and76 resources, with15 processing types across42 command
+ports. All42 imports and pending starts share the finite command contract;
+type14's24-byte template remains explicitly hypothetical. The
+[paired-table family](docs/devices/pairs/tables.md) retains all36 tables/590
+words in both banks. The [stream-request contract](docs/devices/pairs/requests.md)
+adds both paired-bank request lifecycles and the complete active kind25/26/31
+RAM owners. It also corrects the earlier busy-on-parameter-publication model:
+all sixteen [type0 slots](docs/devices/gate/slots.md) atomically capture complete
+parameters, and legal quiescent reloads replace the prior snapshot. Actual
+processing ownership and results remain separate, with no invented completion.
+All35 memory and23 SLA subtests pass. Unchanged region/cold-neutral execution
+imports18 packets/649 words and performs nine parameter captures, crossing
+paired start and slot3/4/5 reloads before any graph-node start. Pending paired
+input, its enabled correction arithmetic and real result publication remain
+the substantive processing boundary; the later graphics boundary is tracked
+in the frontier.
+The error property is empty. In that window head1 displays1024×682 status
+widgets and a memory-card error overlay, while head0 is unbound. Later diagnostic
+runs do not reproduce the binding; GUI readiness remains zero and normal live
+view remains incomplete. The earlier ID63 error frame is separately archived. The
 [current frontier](docs/validation/frontier.md) distinguishes these results
 from complete-boot and physical-camera evidence.
 

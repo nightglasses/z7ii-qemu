@@ -126,6 +126,7 @@ export default defineConfig({
               { text: 'Pairs SLA Profile', link: '/devices/pairs/sla' },
               { text: 'Pairs Parameter Packets', link: '/devices/pairs/parameters' },
               { text: 'Pairs Table Publication', link: '/devices/pairs/tables' },
+              { text: 'Pairs Stream Requests', link: '/devices/pairs/requests' },
               { text: 'Event Router', link: '/devices/router/protocol' },
               { text: 'Router Runtime Requests', link: '/devices/router/runtime' },
               { text: 'Router Timing Producers', link: '/devices/router/timing' },

@@ -120,8 +120,10 @@ in that software release.
 The separate streaming worker `103b4e1e` also distinguishes graph configuration,
 input enable, stop/drain and status queries. Source status helper `103bdbbe`
 tests `(word & 3) != 3`; it does not itself produce a result or prove physical
-busy timing. The finite command model supplies no successful processor start,
-result DMA, raw event, host callback or automatic slot retirement. Import
+busy timing. At this checkpoint the finite command model supplies no processor
+start, result DMA, raw event, host callback or automatic slot retirement. The
+later [request contract](../pairs/requests.md) admits pending starts and corrects
+type0 parameter capture, while leaving data operations unsupported. Import
 success therefore cannot complete either worker path.
 
 ## Validation and unchanged-firmware continuation

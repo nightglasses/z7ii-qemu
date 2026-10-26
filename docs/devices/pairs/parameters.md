@@ -94,6 +94,9 @@ follow their own paths. None of those conditions follows merely from writing
 modeled data producer remain errors. In particular, this change does not
 implement the image operation behind `08/10`, a successful result read or
 hardware processing-slot retirement.
+The later [request contract](requests.md) admits `10 ->08`, preserves genuinely
+pending state and resolves the original software-start notification. It does
+not implement the data operator or a completion event.
 
 ## Finite state and assumptions
 
