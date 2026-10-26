@@ -7,6 +7,9 @@ units with42 command ports. The finite importer covers all42 ports; type14's
 remaining layouts are constructor-established. This is configuration coverage,
 not15 completed pixel operators. Processing activation, result production and
 slot retirement remain a separate unsupported contract.
+The original observation below precedes the later
+[paired-table continuation](../pairs/tables.md), which crosses its configuration
+stop and reaches the separate paired-processing start.
 
 The [receipt](/evidence/imagerequest/family.json) separates source, model choices,
 native checks and unchanged-firmware execution. Code/ROM/software addresses

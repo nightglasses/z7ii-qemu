@@ -1,6 +1,32 @@
 # Original-firmware startup frontier
 
-## Current: paired-bank table publication at PA `20381400`
+## Current: paired-processing start at PA `20380010`
+
+The [paired-table contract](../devices/pairs/tables.md) now retains the whole
+source-selected family:22 tables of64 bytes and14 of68 bytes,590 words per
+bank in `[1400,1d38)`. Both banks use the existing configuration/reset rules,
+with no added DMA, result, ready flag or event. Unknown widths, neighboring
+holes and unmodeled start/result semantics remain explicit errors.
+
+The [table receipt](/evidence/imagerequest/tables.json) records native red→green
+and23 passing SLA subtests. In the unchanged60-host-second region/cold-neutral
+continuation, bank0 has499 nonzero words in the full table extent and bank1
+stays zero. Graph imports remain18 packets/649 words; slots1/2/3/4/5/8 stay busy.
+
+The first uncovered transaction becomes CPU1 PC `10369fb4`, WRITE32 PA
+`20380010=1`. Original helper `10369faa` starts this paired operation with
+bank+`10=1` then+`08=1`, separately from configuration. The next capability is
+the actual input/operation/output and completion/cancellation contract, not
+another table value. The graph's independently known reverse-start sequence
+and terminal mask `c2` remain later, unexecuted requirements.
+
+The run completes128 main acquisitions and463 statistics jobs, with zero
+rejections/statistics cancellations and one main cancellation. Property6433,
+GUI readiness/information remain zero; neither head has a console. No in-window
+GDB pause occurs; sequential QMP/read-only GDB reads are not atomic or physical
+rates. Normal GUI and a completed processing-slot cycle remain unverified.
+
+## Previous: paired-bank table publication at PA `20381400`
 
 The [complete type-family contract](../devices/gate/family.md) establishes19
 graph types and76 resources:15 processing types across42 command ports. It

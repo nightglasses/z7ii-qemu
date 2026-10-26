@@ -55,10 +55,18 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
     static const unsigned packet[] = {
         0x88, 0x94, 0x98, 0x9c, 0xa0, 0xa8, 0x8c, 0x84,
     };
-    static const unsigned holes[] = { 0x80, 0x90, 0xa4, 0xb4 };
+    static const unsigned holes[] = {
+        0x80, 0x90, 0xa4, 0xb4, 0x139c, 0x13fc, 0x1e38,
+    };
     unsigned i;
 
     qtest_irq_intercept_out_named(q, path, "sysbus-irq");
+    {
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
+                                          first + 0x1400);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+    }
     {
         g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64,
                                           first + 0xa8);
@@ -101,6 +109,17 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
         g_assert_cmphex(qtest_readl(q, first + fields[i]), ==,
                         0xa5000000 | fields[i]);
     }
+    /* Both source-selected table families, including their unequal strides. */
+    for (i = 0x1400; i < 0x1d38; i += 4) {
+        retained(q, first, i, 0xa5000000 | i);
+        g_assert_cmphex(qtest_readl(q, second + i), ==, 0);
+        retained(q, second, i, 0x5a000000 | i);
+        g_assert_cmphex(qtest_readl(q, first + i), ==, 0xa5000000 | i);
+    }
+    qtest_writeb(q, first + 0x1400, 0);
+    qtest_writew(q, first + 0x1400, 0);
+    qtest_writel(q, first + 0x1401, 0);
+    g_assert_cmphex(qtest_readl(q, first + 0x1400), ==, 0xa5001400);
     qtest_clock_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 0);
     g_assert_cmphex(qtest_readl(q, second + 0x24), ==, 0);
@@ -117,6 +136,15 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
         retained(q, first, packet[i], i);
         retained(q, second, packet[i], UINT32_MAX - i);
     }
+    for (i = 0x1400; i < 0x1d38; i += 4) {
+        retained(q, first, i, 0x12340000 | i);
+        retained(q, second, i, 0xedcb0000 | i);
+    }
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, first + 0xe8), ==, 8);
+    g_assert_cmphex(qtest_readl(q, second + 0xe8), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    g_assert_true(qtest_get_irq(q, 1));
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 8);
     g_assert_cmphex(qtest_readl(q, second + 0x24), ==, 0x80000000);
     retained(q, first, 0xe8, 0);
@@ -132,6 +160,10 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
     for (i = 0; i < ARRAY_SIZE(packet); i++) {
         g_assert_cmphex(qtest_readl(q, first + packet[i]), ==, 0);
         g_assert_cmphex(qtest_readl(q, second + packet[i]), ==, 0);
+    }
+    for (i = 0x1400; i < 0x1d38; i += 4) {
+        g_assert_cmphex(qtest_readl(q, first + i), ==, 0);
+        g_assert_cmphex(qtest_readl(q, second + i), ==, 0);
     }
     g_assert_cmphex(qtest_readl(q, first + 0x5dfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, second + 0x5dfc), ==, 0);

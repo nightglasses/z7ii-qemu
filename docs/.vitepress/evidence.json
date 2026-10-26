@@ -2055,6 +2055,16 @@
       }
     ]
   },
+  "devices/pairs/tables.md": {
+    "records": [
+      {
+        "run": "pairedtables",
+        "title": "Complete paired-bank table publication and unchanged event ownership",
+        "href": "/evidence/imagerequest/tables.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/gate/family.md": {
     "records": [
       {

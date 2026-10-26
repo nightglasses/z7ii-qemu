@@ -4,6 +4,8 @@ The packet-stage observation below is superseded by the later
 [type5/type6 stream import](../gate/fanout.md), which crosses its historical
 downstream reset stop. The packet retention and start/wait boundary remain
 unchanged; the [frontier](../../validation/frontier.md) owns current startup.
+The separate [table-publication contract](tables.md) covers both complete
+source-selected table families before the same independent processing start.
 
 C1.70 MAS writes PA `203800a8` as one field of an eight-field parameter
 packet. The same-architecture SLA setter writes the identical group. The

@@ -134,7 +134,9 @@ words. The [complete graph-type inventory](docs/devices/gate/family.md) establis
 The remaining four types/five ports now share the finite importer; type14's
 24-byte template is explicitly hypothetical. All28 decoder/SLA subtests pass.
 Original type18 workspace initialization/import increases totals to18 packets/649
-words, then reaches paired-bank table publication at PA `20381400`. Slots
+words. The [paired-table family](docs/devices/pairs/tables.md) now retains all36
+tables/590 words in both banks; all23 SLA subtests pass. Original execution
+crosses table publication and reaches actual paired start at PA `20380010`. Slots
 1/2/3/4/5/8 remain busy; actual processing activation is unsupported and no
 completion is invented.
 The error property is empty and neither display head has a console. The earlier ID63 error

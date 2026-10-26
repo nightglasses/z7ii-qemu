@@ -1,0 +1,51 @@
+{
+  "scope": "Complete paired-bank CPU table publication,590 retained configuration words perbank; no data processing or completion",
+  "dependency_baseline": "a0b12054",
+  "source": {
+    "component": "OriginalC1.70MAS; code/ROMVA and devicePA; hexadecimal addresses/registeroffsets/masks,decimal softwareoffsets/counts/lengths",
+    "family1": {"setter_VA":"1036bf88","ROM_VA":"1078a688","table_count":22,"bytes_per_table":64,"bank_offset_formula":"1400+i*40","bank_range_exclusive":"[1400,1980)"},
+    "family2": {"setter_VA":"1036bfae","ROM_VA":"1078a6e0","table_count":14,"bytes_per_table":68,"bank_offset_formula":"1980+i*44","bank_range_exclusive":"[1980,1d38)"},
+    "writer": "1036ca74 copies raw32-bit CPU words toselecteddestination+(object.byte4<<18); nohardwareDMA/request/header/value mask",
+    "banks_PA":["20380000","203c0000"],
+    "upstream": "102e49fe loops22pointers fromjobdecimaloffset104,then14from108,skippingNULLrows,thenlaterconfiguration groups",
+    "start": "Separate10369faa writesselectedbank10=1 then08=1;102e4f5a/102e4724 andworker wait are distinctfromconfiguration"
+  },
+  "model": {
+    "implemented": "Exact bankrelative[1400,1d38),590alignedwords,bothbanks. Existingfull32 retainedreadback/coldzero/whole-resetclear conventions;nohostrollback forpartial CPUpublication",
+    "unchanged_ownership": "No change tootherfields,otherbank,pending,inhibition,IRQ;noDMA,pixelresult,guestcallback orbusy-slotretirement",
+    "strict_boundary": "139c..13fc and1e38 remainholes;adjacent1d38 beginsanexistingconfigurationgroup. Invalidwidth/alignment andunknownstart/resultcommands remainerrors",
+    "unresolved": "Numerical tablefunction andpairedinput/outputoperation,resultpublication/cancelconditions;00f600fa not labelledwidth/height"
+  },
+  "native": {
+    "red": "Olddevice focusedHMPREAD32first+1400 returnsCannotaccessmemory; /arm/nikon/sla/pairs assertionfails",
+    "green": {"SLA_subtests":23,"failures":0},
+    "coverage": "All590wordsbothbanks,distinctfull32patterns,crossbankisolation,allseamsincludingunequalstrides,resetclearsfullrange,invalidwidth/unaligned/holeboundaries. Bothgroupsrewrittenwithlatchedpending/mask/IRQthenelapsedtime preserveevents untilW1C"
+  },
+  "original_execution": {
+    "profile": "Unchangedfirmware,boundedNORresource35descriptor17/cold-neutralresource80,quadrantPGM,healthy paced9600baudUART/RNG0/acceleration0,0,1024/heldF4/fiveCPU MTTCG;guest_errors traceonly",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "bank0_table_nonzero_words":499,
+    "bank0_first_word":"00f600fa",
+    "bank0_last_word":"21f",
+    "bank1_table_nonzero_words":0,
+    "loaded_packets":18,
+    "loaded_words":649,
+    "configured_mask_decimal":2211530841881,
+    "slot_busy":[0,1,1,1,1,1,0,0,1,0,0,0,0,0,0,0],
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":463,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "uncovered":"CPU1 PC10369fb4 WRITE32 PA20380010=1,paired-event-banks-access-or-command-not-supported;actualstartin10369faa",
+    "error_property6433":"All280byteszero",
+    "GUI_readiness":0,
+    "information_records":"Both464-hex-byterecordszero",
+    "QMP_status":"debug/stopped",
+    "display":"NeitherheadboundtoQemuConsole",
+    "battery_peer_rejections":[]
+  },
+  "limits": "SequentialQMPthenreadonlyGDBafterwindow,notatomic/physicalrates. Source/native coverageofbothbanksisnotoriginalbank1execution. Nonzeroconfigisnotprocessedpixels,nocompletedoperator/slotreuse/normalGUIclaim. Rawfirmware,disassembly,fullcaptures remainignored"
+}
