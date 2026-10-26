@@ -17,11 +17,89 @@ static uint16_t paired_clamp(int32_t value)
 
 static int32_t paired_round(int32_t value, unsigned shift)
 {
-    int32_t half = 1U << (shift - 1);
-    int32_t scale = 1U << shift;
+    int32_t half, scale;
+
+    if (!shift) {
+        return value;
+    }
+    half = 1U << (shift - 1);
+    scale = 1U << shift;
 
     /* Symmetric nearest rounding, with half-way values away from zero. */
     return value < 0 ? -((-value + half) / scale) : (value + half) / scale;
+}
+
+static uint32_t paired_multiply(uint32_t a, uint32_t b, uint32_t polynomial)
+{
+    uint32_t result = 0;
+
+    while (b) {
+        uint32_t carry = a >> 31;
+
+        if (b & 1) {
+            result ^= a;
+        }
+        a <<= 1;
+        if (carry) {
+            a ^= polynomial;
+        }
+        b >>= 1;
+    }
+    return result;
+}
+
+static uint32_t paired_power(uint32_t polynomial, uint32_t exponent)
+{
+    uint32_t result = 1, x = 2;
+
+    while (exponent) {
+        if (exponent & 1) {
+            result = paired_multiply(result, x, polynomial);
+        }
+        x = paired_multiply(x, x, polynomial);
+        exponent >>= 1;
+    }
+    return result;
+}
+
+static bool paired_primitive(uint32_t feedback)
+{
+    static const uint32_t factors[] = { 3, 5, 17, 257, 65537 };
+    uint32_t polynomial = 0;
+
+    if (!(feedback & (1U << 31))) {
+        return false;
+    }
+    /* Reverse the Galois taps to the low32 terms of x^32 + p(x). */
+    for (unsigned bit = 0; bit < 32; bit++) {
+        polynomial |= ((feedback >> bit) & 1U) << (31 - bit);
+    }
+    if (paired_power(polynomial, UINT32_MAX) != 1) {
+        return false;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(factors); i++) {
+        if (paired_power(polynomial, UINT32_MAX / factors[i]) == 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool nikon_paired_noise_valid(const NikonPairedPixelConfig *p)
+{
+    if (!p || p->noise_negative > 1023 || p->noise_positive > 1023) {
+        return false;
+    }
+    for (unsigned i = 0; i < 3; i++) {
+        const NikonPairedNoise *n = &p->noise[i];
+
+        if (n->enabled > 1 || n->shift > 15 ||
+            (n->enabled && !n->feedback) ||
+            (n->feedback && !paired_primitive(n->feedback))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
@@ -50,7 +128,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         p->output_width > p->width - p->x ||
         p->output_height > p->height - p->y ||
         !p->grid_width || !p->grid_height ||
-        p->grid_width > p->width || p->grid_height > p->height) {
+        p->grid_width > p->width || p->grid_height > p->height ||
+        !nikon_paired_noise_valid(p)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -207,7 +286,7 @@ static void paired_matrix(const int16_t matrix[9], const uint16_t input[3],
 }
 
 static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
-                        uint16_t output[3])
+                        uint32_t noise_state[3], uint16_t output[3])
 {
     uint16_t rgb[3];
     uint16_t after_a[3], after_c[3];
@@ -225,8 +304,22 @@ static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
     }
     rgb[0] = rgb[1] = rgb[2] = mono;
     for (column = 0; column < 3; column++) {
+        const NikonPairedNoise *n = &p->noise[column];
+
         if (p->gain_enabled[column]) {
             rgb[column] = paired_clamp(paired_round(mono * p->gain[column], 8));
+        }
+        if (n->enabled) {
+            uint32_t *state = &noise_state[column];
+            int32_t noise;
+
+            *state = (*state >> 1) ^ ((0U - (*state & 1U)) & n->feedback);
+            noise = (int32_t)(*state >> 21) - 1024;
+            noise = CLAMP(noise, -(int32_t)p->noise_negative,
+                          (int32_t)p->noise_positive);
+            noise = paired_round(noise * n->gain, 10);
+            noise = paired_round(noise + n->offset, n->shift);
+            rgb[column] = paired_clamp((int32_t)rgb[column] + noise);
         }
     }
     paired_matrix(p->a, rgb, after_a);
@@ -251,6 +344,7 @@ static void paired_main(const uint16_t *filtered,
                          uint8_t *out_y, uint8_t *out_uv)
 {
     unsigned x, y, dx, dy;
+    uint32_t noise_state[] = { 1, 1, 1 };
 
     for (y = 0; y < p->output_height; y += 2) {
         for (x = 0; x < p->output_width; x += 2) {
@@ -262,7 +356,7 @@ static void paired_main(const uint16_t *filtered,
                                       p->x + x + dx;
                     uint16_t yuv[3];
 
-                    paired_yuv(p, filtered[source], yuv);
+                    paired_yuv(p, filtered[source], noise_state, yuv);
                     out_y[(y + dy) * p->output_width + x + dx] =
                         paired_byte(yuv[0]);
                     u += yuv[1];

@@ -2083,6 +2083,12 @@
   "devices/pairs/pixels.md": {
     "records": [
       {
+        "run": "pairednoise",
+        "title": "Noise arithmetic, selected groups and original processing profiles",
+        "href": "/evidence/imagerequest/noise.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "pairedpixels",
         "title": "Finite numerical operator and original RAW data-chain evidence",
         "href": "/evidence/imagerequest/pixels.json",

@@ -34,12 +34,13 @@ The important source-established joins are:
 | Producer | Established software behavior |
 | --- | --- |
 | `102e5826`, `1036a268` | Publish the source origin and extent at `44/48` |
-| `102beb6a`, `1036a672` | Publish four RAW addresses at `310..31c` and pitch at `30c` |
-| `102beaa8`, `1036a82a` | Publish grid addresses at `398..3a4` and pitch at `394` |
+| `102bec2e`, `102beb6a`, `1036a56c`, `1036a672` | Publish two four-slot RAW address groups and pitch at `30c` |
+| `102beaa8`, `1036a82a` | Publish two four-slot grid groups at `398..3b4` and pitch at `394` |
 | `102be8a0`, `1036ab28`, `1036ab54` | Publish the cropped geometry and work/main address groups |
 | `102e57a6`, `1036bb78`, `1036beaa`, `1036c02c` | Publish the A, B and C coefficient layouts |
 | `1036bb04` | Publish three unsigned 16-bit gains and four boolean control bytes at `9cc/9d0/9d4` |
 | `1036bb68` | Publish either of two 516-byte curve records at `2890` and `2a94` |
+| `103650c0`, `10364bd8`, `1036c862` | Select a cyclic feedback record, construct its scalars and publish the complete packet at `df4..e10` |
 | `102e4ce4`, `102e4d06`, `1036bf88`, `1036bfae`, `1036ca74` | Skip null table pointers; copy selected tables into `1400..1d37` |
 | `10369fc4`, `1036a4fa` | Request finish at `0c` and read the result word at `118` |
 | `102be68c` | Subscribe to raw events `1402`, comprising `2`, `400` and `1000` |
@@ -51,7 +52,7 @@ uses the actual RAW producer's bit depth and stride instead.
 
 The chosen operator accepts grayscale RAW12 samples, applies impulse, spatial
 and temporal filtering, then applies up to two Q10 gain curves, independent
-Q8 RGB gains and live A/C Q10 and B Q9 matrices to the main image. Its work
+Q8 RGB gains, bounded LFSR noise and live A/C Q10 and B Q9 matrices to the main image. Its work
 planes are half-resolution luma and residual; its grid contains area means.
 Those numerical meanings are hypotheses made explicit here so they
 can be tested and replaced when a discriminating consumer or physical record
@@ -75,15 +76,59 @@ four-byte words and includes both endpoints:
 b8, bc, c0, c4, c8, cc, d4, d8, dc, e0, e4
 f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 12c, 130, 134, 138, 13c, 140, 144, 204, 300, 3d8, 420
-30c..31c, 394..3a4, 400..410, 428..470, 488..4c8
+218..234, 30c..32c, 394..3b4, 400..410, 428..470, 488..4c8
 b00..b10, b64..b74, b94..ba4
-9cc, 9d0, 9d4, 2890..2c94
+9cc, 9d0, 9d4, df4..e10, 2890..2c94
 ```
 
 Every reserved or inaccessible file word must also be zero. A wrong length,
 unreadable file, nonzero interpreted slot or nonzero reserved slot fails device
 realization. The file is a declared virtual profile, not a recovered
 physical-camera calibration dump.
+
+The RAW ring addresses are live descriptor fields. Source VA `102bec2e`
+publishes descriptor byte 52 into either four slots at `218..224` or
+`228..234`, through `1036a56c`. VA `102beb6a` publishes the same descriptors
+through `1036a672`, at `310..31c` or `320..32c`. The shared software selection
+byte also reaches root configuration byte 39 and bank register `fc` through
+`102c0304` and `1036a3da`. The finite model interprets `fc=0/1` as selection of
+the primary/secondary address group, retaining four phases per batch. Source
+root bytes 42/43 separately produce `108=3` and `10c=0`; a second group does
+not establish eight independent processing phases.
+
+For the selected group, all four front RAW addresses must equal their back
+counterparts: `218..224/310..31c` for group 0, or `228..234/320..32c` for group
+1. Each group may name independent buffers. Actual completed RAW generation,
+RAM coverage, backing aliases and overlap are checked through the selected
+addresses before DMA. A group switch does not create a new input generation
+or allow replay. Third/fourth back groups `330..34c` remain zero, and `fc>1`
+rejects. Inactive RAW/grid/main staging is retained without executing it or
+cancelling active work. Its complete memory/profile checks apply when selected.
+
+The related output rings follow the same software selection byte but retain
+their own plane types. VA `102beaa8` and setter `1036a82a` publish the two grid
+groups. VA `102be8a0` and setter `1036ab54` publish both work and main plane
+groups. In the inspected work mode, the producer explicitly fills both work
+groups from the same descriptors. The supported relationships are:
+
+| Plane | Primary four slots | Secondary four slots | Finite relationship |
+| --- | --- | --- | --- |
+| Grid | `398..3a4` | `3a8..3b4` | Independent, complete selected group |
+| Work luma | `430..43c` | `450..45c` | Required slot-for-slot mirror |
+| Work residual | `440..44c` | `460..46c` | Required slot-for-slot mirror |
+| Main Y | `488..494` | `4a8..4b4` | Independent, complete selected group |
+| Main UV | `498..4a4` | `4b8..4c4` | Independent, complete selected group |
+
+Each grid group has four addresses; the main group has eight across its two
+planes. A partially published selected group rejects. Y is not equated with UV,
+nor luma with residual. Work groups remain required mirrors because the inspected
+producer unconditionally fills both from the same descriptors; independent work
+history surfaces are not inferred. Every selected plane receives full span,
+RAM/backing and overlap checks. Aliases do not generate additional bytes, phases
+or events. Independent selection is a functional interpretation of the shared
+software selector, not a physical register specification.
+The gap `3b8..3c0`, independent pointer `3c8` and status words `3cc..3d4` are
+not extra grid rings and are not generalized by this contract.
 
 For processing, every accessible opaque configuration word must equal the
 selected file word, including low fields such as `304`, `308`, `414` and `424`.
@@ -119,22 +164,20 @@ range means that every listed word has the stated value.
 | `84`, `f0` | `1`, `8e` |
 | `b8`, `bc`, `c0`, `c8`, `cc` | `1`, `1`, `0`, `0`, `0` |
 | `d4`, `d8`, `dc`, `e0`, `e4` | `0c060202`, `9`, `30300`, `158`, `0` |
-| `f8`, `fc`, `100`, `104`, `108`, `10c`, `110` | `1`, `0`, `1`, `0`, `3`, `0`, `0` |
+| `f8`, `fc`, `100`, `104`, `108`, `10c`, `110` | `1`, `0 or 1`, `1`, `0`, `3`, `0`, `0` |
 | `11c`, `120`, `124`, `128`, `12c`, `130`, `134`, `138`, `13c`, `140`, `144` | `1`, `1`, `1`, `0`, `1`, `0`, `0`, `0`, `0`, `0`, `0` |
 | `300`, `3d8`, `404`, `408`, `410`, `420`, `428`, `42c` | `0`, `2`, `1`, `1`, `1`, `1`, `1`, `3` |
 | `b14`, `b60`, `b90` | `80000000` each |
-| `320..34c`, `4a8..4c4` | Zero each |
+| `330..34c` | Zero each |
 
 Other accessible fields retain their register contract; retaining a word does
 not imply that an arbitrary processing mode is supported. Pixel production
 requires the normal `84=1`, `f0=8e` controls; the cold or stop configuration
 cannot produce an image merely because its other fields match.
 
-The interpreted fields above do not cover every opaque program. In particular,
-the arithmetic of the three 12-byte records associated with `df4..e10` remains
-unrecovered. Those fields still have to match the selected opaque profile;
-changed values are a strict processing boundary, not an implemented numerical
-record family.
+The interpreted fields above do not cover every opaque program. The
+[cycle-selected noise records](#cycle-selected-noise-records) have a declared
+numerical model; all remaining opaque words still constrain profile admission.
 
 ## Geometry, phases and memory
 
@@ -156,16 +199,16 @@ stream. The device snapshots the ROI from actual guest RAM before scheduling
 processing; later producer overwrites cannot change that snapshot.
 
 Phase `p` starts at zero and advances modulo four only after successful output.
-The next input must match `310+4p` and have a generation greater than that
+The next input must match `0x310+0x10*fc+4p` and have a generation greater than that
 producer slot's last consumed generation. The same phase selects every output:
 
 | Output | Address | Stride | Active row bytes and rows |
 | --- | --- | --- | --- |
-| Main Y | `488+4p` | `4c8` | `OW`, `OH` |
-| Main UV | `498+4p` | `4c8` | `OW`, `OH/2` |
-| Work luma | `430+4p` | `470` | `2*ceil(W/2)`, `ceil(H/2)` |
-| Work residual | `440+4p` | `470` | Same as work luma |
-| Grid | `398+4p` | `394` | 90 bytes, 34 rows |
+| Main Y | `0x488+0x20*fc+4p` | `4c8` | `OW`, `OH` |
+| Main UV | `0x498+0x20*fc+4p` | `4c8` | `OW`, `OH/2` |
+| Work luma | `0x430+0x20*fc+4p` | `470` | `2*ceil(W/2)`, `ceil(H/2)` |
+| Work residual | `0x440+0x20*fc+4p` | `470` | Same as work luma |
+| Grid | `0x398+0x10*fc+4p` | `394` | 90 bytes, 34 rows |
 
 The work address aliases at `450+4p` and `460+4p` must equal the selected luma
 and residual addresses. UV must immediately follow the full pitched Y extent;
@@ -245,7 +288,8 @@ the recovered publication sizes and packing do not prove the silicon equation.
    indexes the first stage's result. Replicate the resulting mono sample into
    RGB, then replace each enabled channel with
    `clamp12(round(m*channel_gain/256))`.
-6. **Main matrix conversion.** Apply A then C with Q10 division, then B with Q9
+6. **Noise.** Apply the bounded three-channel LFSR operation defined below.
+7. **Main matrix conversion.** Apply A then C with Q10 division, then B with Q9
    division. Each matrix stage rounds symmetrically to nearest, with ties away
    from zero. A/C outputs clamp
    to `[0,4095]`. B adds 2048 to its second and third channels before clamping.
@@ -317,14 +361,19 @@ events to advance a consumer.
 
 Batch continuation is distinct from initial `10/08` admission. The original
 helper VA `1036a49a` writes only `10=1`, independently of whether descriptor
-replacement succeeded. The model marks writes to each of `310..31c` during
-the batch pause. A subsequent `10` kick may reuse the complete unchanged ring
+replacement succeeded. The model tracks writes to each of `310..31c` and
+`320..32c` independently while awaiting input. A subsequent `10` kick checks
+only the selected group's four-bit refill mask and may reuse its unchanged ring
 (refill mask zero), or accept all four republished addresses (mask `f`). A
 partial update, masks `1..e`, remains paused. Neither the fourth address write
 nor W1C alone resumes processing. The kick must also observe acknowledged
 pending bits, no active job and no stop in progress. It retains the logical
 request, next phase, additive result, consumed generations and eligible numerical
-history; it clears only the batch seen/refill flags.
+history; it clears the batch seen flags and only the selected refill mask.
+Staged partial refills of the other group survive this operation. A changed
+`fc` after any successful phase and before the four-read pause rejects without
+changing selection, preventing a batch from splicing two groups. Selection at
+an empty-batch boundary remains subject to real RAW freshness and full preflight.
 
 Retained-ring continuation is a bounded functional choice: the recovered call
 path does not establish a hardware requirement to rewrite a stable ring after
@@ -346,6 +395,11 @@ attempts (`rejected`), cancelled active jobs (`cancelled`), peer-conflict attemp
 device-lifetime diagnostics retained across device reset. Per successful frame,
 the byte count adds `OW*OH*3/2 + ceil(W/2)*ceil(H/2)*4 + 3060`, excluding padding.
 These counters do not measure physical frame rate or electrical throughput.
+The read-only QOM string `runtime` reports each bank's request enum
+(`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active timer
+job, phase, batch/refill masks, pause/publication flags and consumed generations,
+plus the four actual RAW slots and source epoch. Unlike MMIO `18`, its `active`
+field describes an admitted timer job. Reading it performs no work or events.
 
 The original repeated worker's early `42190804` notification is software:
 `102e4724` sends it after admission, before waiting for results. This device
@@ -358,16 +412,21 @@ work. Only after all stop commands are accepted does the bank become quiescent
 and publish aggregate stop detail `014a0080`. Misordered or malformed stop
 commands reject. Stop acknowledgement is separate from a successful frame.
 
-A changed retained configuration word cancels an active job and invalidates
-its bank's numerical-history ownership, except for the dedicated `0c`, `f0`
-and `84` controls. First publication of a table/curve word also changes its
+A changed retained configuration word cancels an active job, except for inactive
+RAW/grid/main address staging and the dedicated `0c`, `f0` and `84` controls.
+It also invalidates its bank's
+numerical-history ownership unless it belongs to the main-only noise group
+`df4..e10`, RAW pointer groups `218..234/310..32c`, or main/grid target pointers
+`488..4c4/398..3b4`, or bounded selection `fc`. These target/source-address,
+selection and noise changes preserve pre-color work history; actual source-epoch
+withdrawal still prevents old history from being reused. First publication of a table/curve word also changes its
 coverage state and cancels work even when its value is zero. Rewriting an
 already covered word with the same value preserves work. These writes
 preserve already published pixels and pending results; they do not synthesize
 a replacement completion. Device reset preserves external GPIO levels and
 does not turn a retained high level into a new rising event.
 
-## Remaining correction-record boundary
+## Cycle-selected noise records
 
 MAS VA `102e563a` passes configuration index 40 plus 188 bytes to `1036c862`.
 That setter consumes a complete 40-byte packet: three 12-byte records followed
@@ -387,21 +446,70 @@ and index 40 at VA `b3c87d3c` minus 896 identify the same caller block
 three operands change from `f8200000/e8040002/e8080004` to
 `f8040000/e8040001/e8040002` after the first four computed phases.
 
-These facts establish the producer, full extent and register publication,
-rather than an arithmetic decoder. The inspected constructors copy core
-packets or bind other parameter blocks; they do not decode these operands.
-Neither signed-halfword coefficients, IEEE floats nor format opcodes are
-established. The existing explicit profile bounds the initial tuple; a changed
-tuple remains an error. Accepting both observed constants without implementing
-their operation would hide this boundary.
+The actual producer is VA `10364bd8`, called through `103650aa` after
+`102d3874` binds the output block. VA `103650c0` reads the low six bits of a
+counter at `*(context+236)+468`, then advances it modulo 64 on every call.
+The selected 48-byte row at ROM VA `11b07e9c + 48*index` supplies words 6..8
+to this packet, and words 9..11 to a second parameter packet. Thus the
+operand change is a deliberate cyclic sequence, independent of RAW intensity.
+A root configuration flag at byte 150 can instead supply explicit operand
+words. The model does not replace this producer or its counter.
+The second packet, at caller byte 1184, is bound through configuration index
+50 and reaches the same setter in the selected bank-1 branch. Both banks use
+the same generic numerical interpretation; it is not a second opcode family.
 
-The next discriminating source evidence is the actual producer of the bound
-caller block, including its record construction or transformation. The
-candidate ownership path `102c4598` obtains that block from an owner pointer
-at software byte offset 1268 plus 1684, but its live object association has not
-been captured. An unrelated matching structure offset in another object is
-insufficient evidence. No physical-camera capture has yet been established as
-necessary; the unresolved item is the operand encoding and its numerical role.
+The 384 operands in that table contain 64 unique masks. Each passes the same
+algebraic test: for `p(x) = x^32 + bitreverse32(mask)`,
+`x^(2^32-1) mod p = 1`, and `x^((2^32-1)/q) mod p != 1` for every prime
+factor `q` in `3, 5, 17, 257, 65537`. This identifies primitive degree-32
+polynomials, strongly supporting a Galois LFSR interpretation rather than
+independent floating-point coefficients or per-record opcodes. The native
+operator performs this mathematical validation, without a mask whitelist.
+
+Scalar generation is also source-established. Four selected parameter
+families each contain 19 rows of 14 unsigned halfwords. Their inspected rows
+all contain `[1,1,1,4,4,4,0,0,0,1020,1020,14,21,21]`. The producer interpolates
+adjacent rows with denominator 6 and nearest rounding. The first nine fields
+supply record bytes 6, 7 and 8; fields 9/10 supply the final two halfwords.
+Fields 11..13 are multiplied by a separate per-channel gain-table byte,
+divided by 128 with nearest rounding and saturated to an unsigned byte before
+being stored at record byte 4. Configuration byte 1 equal to 2 or 7 forces
+record 1/2 byte 6 to zero. A separate fixed-scalar path uses `4/8/8` in the
+three byte-4 fields, while retaining byte-6 values of one. It is not a proven
+hardware bypass.
+
+The finite numerical interpretation names record bytes 6/4/7/8
+`enabled/gain/shift/offset`, and the final halfwords negative/positive limits.
+Those names, unlike the packet construction above, are hypotheses. The model
+uses three independent unsigned 32-bit states initialized to one per job:
+
+```text
+state = (state >> 1) XOR ((0 - (state & 1)) AND feedback)
+r = clamp((state >> 21) - 1024, -negative_limit, positive_limit)
+d = round_away_from_zero(r * gain / 1024)
+d = round_away_from_zero((d + offset) / 2^shift)
+RGB12[channel] = clamp12(RGB12[channel] + d)
+```
+
+This operation runs after RGB gain and before matrix A. Enabled channels step
+once per main output pixel, in 2×2 chroma-block, row-within-block,
+column-within-block order. Disabled channels neither step nor alter pixels.
+Limits are unsigned 10-bit values; gain/offset are unsigned bytes, shift is
+0..15 and enabled is boolean. A nonzero feedback must be primitive even for a
+disabled channel; a zero feedback is permitted only while disabled. Top bytes
+of `df4/e04/e08/e0c` are reserved and reject when nonzero. Work and grid data
+remain pre-color results. With the observed shift 4 and zero offset, gain 255
+bounds the added term to about 16 RAW12 units; other shifts/offsets have their
+explicit configuration-dependent bound.
+
+Seed, stepping order, bit slice, normalization, stage placement and limit
+semantics remain functional assumptions, not recovered physical arithmetic.
+Every polynomial cycle is computed through the same operator. Noise state is
+job-local: a cancelled or rejected job cannot advance another job's state,
+publish pixels or produce completion. Changing this group cancels in-flight
+work but preserves already established pre-color history. No physical-camera
+capture is required to execute this declared model; such evidence could
+distinguish it from the actual hardware algorithm.
 
 ## Failure and validation scope
 
@@ -433,3 +541,23 @@ cancellation. Native fixtures do not establish complete startup. Effective RAM
 backing-alias guards were independently reviewed; the present qtest board has
 no decoder seam to inject a second alias, so that case is not claimed as an
 executed alias fixture.
+
+The later [noise and selected-group receipt](/evidence/imagerequest/noise.json)
+records 54 CMOS and 10 numerical subtests, alongside 23 SLA cases. It adds
+independent hard-coded LFSR output goldens, all three color channels, a valid
+primitive polynomial outside the inspected table, cancellation/reset and
+malformed feedback/scalar fields. Real RAW tests switch between independent
+source/main/grid groups, retain the shared work surfaces, reject a mid-batch
+selection change and preserve staged refill/history correctly.
+
+In an unchanged 120-host-second cold-neutral run with explicit PGM, paired
+profile and media, before the later signal-level correction, sequential QMP
+observations at 30/60/90/120 seconds count
+50/104/120/132 successful jobs. Actual payload reaches 351,299,520 bytes and
+result `118` reaches 139,450,080 main pixels, with no paired rejection or
+cancellation. The RAW generations keep increasing through sampled four-read
+pauses; those pauses are normal backpressure, not evidence of a frozen worker.
+Head1 binds a 1024×682 status GUI; the prior SD warning is replaced by the
+original absent/non-CPU-lens notice. Head0 and normal live view remain
+unverified. All graph ports are inactive at the snapshot, so parameter
+publication and GUI readiness zero do not justify inventing downstream work.

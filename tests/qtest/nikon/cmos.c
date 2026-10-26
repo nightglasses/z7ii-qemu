@@ -2007,6 +2007,8 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base)
 
         qtest_writel(q, base + 0x310 + 4 * phase,
                      WORK_BUFFER + slot * 0x1000);
+        qtest_writel(q, base + 0x218 + 4 * phase,
+                     WORK_BUFFER + slot * 0x1000);
         qtest_writel(q, base + 0x398 + 4 * phase,
                      PAIRED_GRID + phase * 0x1000);
         qtest_writel(q, base + 0x430 + 4 * phase, work);
@@ -2029,6 +2031,22 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base)
     qtest_writel(q, CAPTURE + 8, 0x20f);
     qtest_writel(q, CAPTURE + 0x100, 0x85);
     qtest_writel(q, CAPTURE + 0x104, 0x85);
+}
+
+static void paired_secondary(QTestState *q, uint32_t extra)
+{
+    for (unsigned i = 0; i < 4; i++) {
+        uint32_t raw = qtest_readl(q, PAIRED + 0x310 + 4 * i) + extra;
+
+        qtest_writel(q, PAIRED + 0x228 + 4 * i, raw);
+        qtest_writel(q, PAIRED + 0x320 + 4 * i, raw);
+        qtest_writel(q, PAIRED + 0x3a8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x398 + 4 * i) + extra);
+        qtest_writel(q, PAIRED + 0x4a8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x488 + 4 * i) + extra);
+        qtest_writel(q, PAIRED + 0x4b8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x498 + 4 * i) + extra);
+    }
 }
 
 static void paired_pixels(QTestState *q, uint32_t base, unsigned phase)
@@ -2424,6 +2442,18 @@ static void test_paired_matrix_encoding(void)
         { 0xb64, 0x00000f00 }, /* Negative B0 requires whole-word extension. */
         { 0xb94, 0xffff0400 }, /* Positive C0 has invalid upper bits. */
         { 0xb94, 0x00001f00 }, /* Negative C0 is not sign-extended. */
+        { 0xdf4, 0x01000000 }, /* Noise triplets have no fourth byte. */
+        { 0xdf4, 0x00020000 }, /* Channel enable is a boolean byte. */
+        { 0xdf8, 0x80000001 }, /* Reducible feedback. */
+        { 0xe04, 0x00100000 }, /* A shifrt above15 is unsuppoted. */
+        { 0xe10, 0x040003fc }, /* A noise limit exceeds ten bits. */
+        { 0x218, 0 },         /* The primary front/back ring must agree. */
+        { 0x228, PAIRED_MAIN }, /* Partial or unrelated second rings reject. */
+        { 0xfc, 1 },          /* Secondary selection needs every mirror. */
+        { 0xfc, 2 },          /* The selector is boolean. */
+        { 0x3a8, PAIRED_GRID }, /* A grid mirror needs all four slots. */
+        { 0x4a8, PAIRED_MAIN }, /* Main Y alone is not a complete Y/UV group. */
+        { 0x4b8, PAIRED_MAIN + 64 * 28 }, /* UV alone is also incomplete. */
     };
 
     for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
@@ -2431,6 +2461,23 @@ static void test_paired_matrix_encoding(void)
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
+        if (invalid[i].offset == 0x228 || invalid[i].offset == 0x3a8 ||
+            invalid[i].offset == 0x4a8 || invalid[i].offset == 0x4b8 ||
+            (invalid[i].offset == 0xfc && invalid[i].value == 1)) {
+            paired_secondary(q, 0);
+            if (invalid[i].offset == 0x3a8) {
+                for (unsigned p = 0; p < 4; p++) {
+                    qtest_writel(q, PAIRED + 0x3a8 + 4 * p, 0);
+                }
+            }
+            if (invalid[i].offset == 0x4a8 || invalid[i].offset == 0x4b8 ||
+                invalid[i].offset == 0xfc) {
+                for (unsigned p = 0; p < 8; p++) {
+                    qtest_writel(q, PAIRED + 0x4a8 + 4 * p, 0);
+                }
+            }
+            qtest_writel(q, PAIRED + 0xfc, 1);
+        }
         qtest_writel(q, PAIRED + invalid[i].offset, invalid[i].value);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -2453,7 +2500,8 @@ static void test_paired_source_history(void)
         'P', '5', '\n', '1', ' ', '1', '\n', '2', '5', '5', '\n', 129,
     };
 
-    for (unsigned invalidate = 0; invalidate < 2; invalidate++) {
+    for (unsigned mode = 0; mode < 4; mode++) {
+        bool invalidate = mode == 1;
         g_autofree char *bundle = NULL;
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, true);
@@ -2479,6 +2527,22 @@ static void test_paired_source_history(void)
             qtest_writel(q, CAPTURE + 0x100, 1);
             qtest_writel(q, CAPTURE + 0x500, 0);
             qtest_writel(q, CAPTURE + 0x100, 1);
+        } else if (mode == 2) {
+            /* Noise-only configuration must not discard pre-color history. */
+            qtest_writel(q, PAIRED + 0xdf8, 0xf8040000);
+        } else if (mode == 3) {
+            for (unsigned i = 0; i < 4; i++) {
+                uint32_t address = qtest_readl(q, PAIRED + 0x310 + 4 * i);
+
+                qtest_writel(q, PAIRED + 0x228 + 4 * i, address);
+                qtest_writel(q, PAIRED + 0x320 + 4 * i, address);
+                qtest_writel(q, PAIRED + 0x3a8 + 4 * i,
+                             qtest_readl(q, PAIRED + 0x398 + 4 * i));
+                qtest_writel(q, PAIRED + 0x4a8 + 4 * i,
+                             qtest_readl(q, PAIRED + 0x488 + 4 * i));
+                qtest_writel(q, PAIRED + 0x4b8 + 4 * i,
+                             qtest_readl(q, PAIRED + 0x498 + 4 * i));
+            }
         }
         g_assert_true(g_file_set_contents(scene, (const char *)gray,
                                           sizeof(gray), NULL));
@@ -2521,8 +2585,8 @@ static void test_paired_source_history(void)
     }
 }
 
-static void paired_main_oracle(QTestState *q, uint8_t luma,
-                               uint8_t u, uint8_t v)
+static void paired_main_at(QTestState *q, uint32_t address, uint8_t luma,
+                           uint8_t u, uint8_t v)
 {
     uint8_t expected[0xce0], actual[sizeof(expected)];
 
@@ -2536,8 +2600,14 @@ static void paired_main_oracle(QTestState *q, uint8_t luma,
             expected[16 + 64 * (28 + y) + x + 1] = v;
         }
     }
-    qtest_memread(q, PAIRED_MAIN - 16, actual, sizeof(actual));
+    qtest_memread(q, address - 16, actual, sizeof(actual));
     g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+}
+
+static void paired_main_oracle(QTestState *q, uint8_t luma,
+                               uint8_t u, uint8_t v)
+{
+    paired_main_at(q, PAIRED_MAIN, luma, u, v);
 }
 
 static void test_paired_gain(void)
@@ -2713,6 +2783,160 @@ static void test_paired_coverage_cancellation(void)
     }
 }
 
+static void paired_noise(QTestState *q, uint32_t feedback, unsigned channel)
+{
+    static const int identity[9] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+    int y_from_channel[9] = { 0 };
+    unsigned shift = 16 - 8 * channel;
+
+    y_from_channel[channel] = 512;
+    paired_matrix(q, PAIRED, 0xb00, identity, 13, false);
+    paired_matrix(q, PAIRED, 0xb64, y_from_channel, 12, false);
+    qtest_writel(q, PAIRED + 0xdf4, 1U << shift);
+    for (unsigned i = 0; i < 3; i++) {
+        qtest_writel(q, PAIRED + 0xdf8 + 4 * i,
+                     i == channel ? feedback : 0);
+    }
+    qtest_writel(q, PAIRED + 0xe0c, 0xffU << shift);
+    qtest_writel(q, PAIRED + 0xe10, 0x03fc03fc);
+}
+
+static void paired_noise_oracle(QTestState *q, unsigned phase, bool outside)
+{
+    static const uint8_t first_rows[][2][4] = {
+        { { 143, 128, 115, 114 }, { 120, 116, 113, 113 } },
+        { { 129, 137, 140, 126 }, { 125, 135, 135, 140 } },
+    };
+    uint8_t pixels[64 * 42];
+
+    qtest_memread(q, PAIRED_MAIN + (phase % 2) * 0x2000, pixels,
+                  sizeof(pixels));
+    for (unsigned y = 0; y < 2; y++) {
+        g_assert_cmpmem(pixels + 64 * y, 4, first_rows[outside][y], 4);
+    }
+    for (unsigned y = 0; y < 42; y++) {
+        for (unsigned x = 0; x < 64; x++) {
+            if (x >= 56) {
+                g_assert_cmphex(pixels[64 * y + x], ==, 0xa5);
+            } else if (y >= 28) {
+                g_assert_cmpuint(pixels[64 * y + x], ==, 128);
+            } else {
+                g_assert_cmpuint(pixels[64 * y + x], >=, 112);
+                g_assert_cmpuint(pixels[64 * y + x], <=, 145);
+            }
+        }
+    }
+    g_assert_cmphex(qtest_readl(q, PAIRED_MAIN +
+                     (phase % 2) * 0x2000 - 4), ==, 0xa5a5a5a5);
+    paired_pixels(q, PAIRED_WORK, phase % 2);
+    paired_pixels(q, PAIRED_GRID, phase % 4);
+}
+
+static void test_paired_noise(void)
+{
+    static const uint32_t masks[] = { 0xf8200000, 0xf8040000, 0x80200003 };
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+
+    paired_noise(q, masks[0], 0);
+    for (unsigned i = 0; i < 4; i++) {
+        uint32_t address = qtest_readl(q, PAIRED + 0x310 + 4 * i);
+
+        qtest_writel(q, PAIRED + 0x228 + 4 * i, address);
+        qtest_writel(q, PAIRED + 0x320 + 4 * i, address);
+        qtest_writel(q, PAIRED + 0x3a8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x398 + 4 * i));
+        qtest_writel(q, PAIRED + 0x4a8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x488 + 4 * i));
+        qtest_writel(q, PAIRED + 0x4b8 + 4 * i,
+                     qtest_readl(q, PAIRED + 0x498 + 4 * i));
+    }
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    for (unsigned batch = 0; batch < ARRAY_SIZE(masks); batch++) {
+        if (batch) {
+            paired_noise(q, masks[batch], batch);
+            if (batch == 1) {
+                /* An inactive ring's partial publication cannot block FC1. */
+                qtest_writel(q, PAIRED + 0x310,
+                             qtest_readl(q, PAIRED + 0x310));
+                qtest_writel(q, PAIRED + 0x320,
+                             qtest_readl(q, PAIRED + 0x320));
+            } else {
+                for (unsigned i = 1; i < 4; i++) {
+                    qtest_writel(q, PAIRED + 0x310 + 4 * i,
+                                 qtest_readl(q, PAIRED + 0x310 + 4 * i));
+                }
+            }
+            qtest_writel(q, PAIRED + 0xfc, batch == 1);
+            qtest_writel(q, PAIRED + 0x10, 1);
+        }
+        for (unsigned phase = 0; phase < 4; phase++) {
+            work_input(q);
+            work_rise(q);
+            qtest_clock_step(q, 2000000);
+            if (batch == 1 && phase == 0) {
+                /* The selected ring still needs all four publications. */
+                g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
+                                 ==, 4);
+                g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+                for (unsigned i = 1; i < 4; i++) {
+                    qtest_writel(q, PAIRED + 0x320 + 4 * i,
+                                 qtest_readl(q, PAIRED + 0x320 + 4 * i));
+                }
+                qtest_writel(q, PAIRED + 0x10, 1);
+                qtest_clock_step(q, 2000000);
+            }
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
+                             batch * 4 + phase + 1);
+            paired_noise_oracle(q, phase, batch == 2);
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==,
+                             0x1002 | (phase == 3 ? 0x400 : 0));
+            qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+            work_ack(q);
+        }
+    }
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x118), ==, 12 * 56 * 28);
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_paired_noise_cancel(void)
+{
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+
+    paired_noise(q, 0xf8200000, 0);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    work_input(q);
+    work_rise(q);
+    qtest_clock_step(q, 1000000);
+    qtest_writel(q, PAIRED + 0xdf8, 0x80200003);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+    paired_untouched(q);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    paired_noise_oracle(q, 0, true);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_clock_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0xdf8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0xe10), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    g_assert_false(qtest_get_irq(q, 99 - 32));
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
 static void paired_stop(QTestState *q, uint32_t base)
 {
     static const unsigned commands[] = { 0x54, 0x60, 0x6c, 0x78 };
@@ -2740,6 +2964,91 @@ static void paired_first_batch(QTestState *q, bool acknowledge_last)
         }
         work_ack(q);
     }
+}
+
+static void test_paired_selections(void)
+{
+    static const uint8_t gray[] = {
+        'P', '5', '\n', '1', ' ', '1', '\n', '2', '5', '5', '\n', 129,
+    };
+    const uint32_t extra = 0x4000;
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, true);
+
+    for (unsigned p = 0; p < 4; p++) {
+        qtest_memset(q, WORK_BUFFER + extra + p * 0x1000 - 16, 0xa5, 0xda0);
+        qtest_memset(q, PAIRED_GRID + extra + p * 0x1000 - 16, 0xa5, 0xce0);
+    }
+    for (unsigned p = 0; p < 2; p++) {
+        qtest_memset(q, PAIRED_MAIN + extra + p * 0x2000 - 16, 0xa5, 0xce0);
+    }
+    work_input(q);
+    work_rise(q);
+    qtest_clock_step(q, 1000000);
+    /* Inactive descriptor staging cannot cancel the snapshotted primary job. */
+    paired_secondary(q, extra);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 0);
+    paired_pixels(q, PAIRED_MAIN, 0);
+    /* Two partial batches cannot be spliced into one four-read watermark. */
+    qtest_writel(q, PAIRED + 0xfc, 1);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0xfc), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+    qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+    work_ack(q);
+    for (unsigned phase = 1; phase < 4; phase++) {
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
+                         ==, phase + 1);
+        paired_pixels(q, PAIRED_MAIN, phase % 2);
+        qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+        work_ack(q);
+    }
+    qtest_writel(q, PAIRED + 0xfc, 1);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
+    g_assert_cmphex(qtest_readl(q, PAIRED_MAIN + extra), ==, 0xa5a5a5a5);
+    for (unsigned i = 0; i < 4; i++) {
+        qtest_writel(q, 0x20069a50 + 4 * i, WORK_BUFFER + extra + 0x1000 * i);
+    }
+    qtest_writel(q, CAPTURE + 0x104, 0x80);
+    g_assert_true(g_file_set_contents(scene, (const char *)gray,
+                                      sizeof(gray), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    for (unsigned phase = 0; phase < 4; phase++) {
+        unsigned slot = (phase + 1) % 4;
+
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
+                         ==, phase + 5);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER + extra + slot * 0x1000),
+                        ==, 0x18818818);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER + slot * 0x1000),
+                        ==, 0x08808808);
+        paired_main_at(q, PAIRED_MAIN + extra + (phase % 2) * 0x2000,
+                       130, 144, 96);
+        g_assert_cmphex(qtest_readl(q, PAIRED_GRID + extra + phase * 0x1000),
+                        ==, 0x18818818);
+        g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + (phase % 2) * 0x2000),
+                        ==, 2072);
+        paired_pixels(q, PAIRED_MAIN, phase % 2);
+        paired_pixels(q, PAIRED_GRID, phase);
+        qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+        work_ack(q);
+    }
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
 }
 
 static void paired_second_batch(bool update)
@@ -2775,6 +3084,8 @@ static void paired_second_batch(bool update)
     if (update) {
         for (unsigned phase = 0; phase < 4; phase++) {
             qtest_writel(q, PAIRED + 0x310 + 4 * phase,
+                         WORK_BUFFER + ((phase + 1) % 4) * 0x1000);
+            qtest_writel(q, PAIRED + 0x218 + 4 * phase,
                          WORK_BUFFER + ((phase + 1) % 4) * 0x1000);
             if (phase != 3) {
                 /* A partial update never releases the next real RAW. */
@@ -3108,6 +3419,9 @@ int main(int argc, char **argv)
                    test_capture_geometry_reduction);
     qtest_add_func("/nikon/cmos/paired/calibration-rejected",
                    test_paired_calibration_rejected);
+    qtest_add_func("/nikon/cmos/paired/noise", test_paired_noise);
+    qtest_add_func("/nikon/cmos/paired/noise-cancel", test_paired_noise_cancel);
+    qtest_add_func("/nikon/cmos/paired/selections", test_paired_selections);
     result = g_test_run();
     unlink(image);
     g_free(image);

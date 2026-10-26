@@ -561,6 +561,95 @@ static void invalid(void)
     }
 }
 
+static void noise(void)
+{
+    static const uint8_t expected[][16] = {
+        { 77, 62, 49, 48, 54, 50, 47, 47,
+          47, 47, 47, 47, 47, 47, 47, 47 },
+        { 63, 71, 74, 60, 59, 69, 69, 74,
+          60, 69, 69, 74, 74, 60, 60, 69 },
+    };
+    /* The second primitive mask is outside the recovered64-row table. */
+    static const uint32_t masks[] = { 0xf8200000, 0x80200003 };
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    PairedOutputs out, again;
+
+    memset(p.b, 0, sizeof(p.b));
+    p.b[0] = 512;
+    p.noise_negative = p.noise_positive = 1020;
+    p.noise[0] = (NikonPairedNoise) { .enabled = 1, .gain = 255 };
+    fill(raw, ARRAY_SIZE(raw), 1000);
+    for (unsigned i = 0; i < ARRAY_SIZE(masks); i++) {
+        p.noise[0].feedback = masks[i];
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        g_assert_cmpmem(out.y, sizeof(out.y), expected[i], sizeof(expected[i]));
+        for (unsigned j = 0; j < ARRAY_SIZE(out.uv); j++) {
+            g_assert_cmpuint(out.uv[j], ==, 128);
+        }
+        for (unsigned j = 0; j < ARRAY_SIZE(out.half); j++) {
+            g_assert_cmpuint(out.half[j], ==, 1000);
+            g_assert_cmpuint(out.residual[j], ==, 0);
+            g_assert_cmpuint(out.grid[j], ==, 1000);
+        }
+        /* Job-local state cannot leak between calls, even after other masks. */
+        g_assert_true(run(&p, raw, NULL, NULL, &again));
+        g_assert_cmpmem(&out, sizeof(out), &again, sizeof(again));
+    }
+    for (unsigned channel = 1; channel < 3; channel++) {
+        NikonPairedNoise n = p.noise[0];
+
+        memset(p.noise, 0, sizeof(p.noise));
+        p.noise[channel] = n;
+        p.b[0] = 0;
+        p.b[channel] = 512;
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        g_assert_cmpmem(out.y, sizeof(out.y), expected[1], sizeof(expected[1]));
+        p.b[channel] = 0;
+        p.noise[0] = n;
+    }
+    memset(p.noise + 1, 0, sizeof(p.noise) - sizeof(p.noise[0]));
+    p.b[0] = 512;
+    p.noise[0].enabled = 0;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    constant_output(&out, 1000, 0, 63, 128);
+    p.noise[0].enabled = 1;
+    p.noise_negative = p.noise_positive = 0;
+    p.noise[0].offset = 128;
+    p.noise[0].shift = 4;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    constant_output(&out, 1000, 0, 63, 128);
+    p.noise[0].offset = 255;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    constant_output(&out, 1000, 0, 64, 128);
+}
+
+static void noise_invalid(void)
+{
+    static const uint32_t masks[] = { 0, 1, 0x80000000, 0x80000001 };
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, ARRAY_SIZE(raw), 1000);
+    p.noise[0].enabled = 1;
+    for (unsigned i = 0; i < ARRAY_SIZE(masks); i++) {
+        p.noise[0].feedback = masks[i];
+        rejected(&p, raw, NULL, NULL);
+    }
+    p.noise[0].feedback = 0xf8040000;
+    p.noise[0].shift = 16;
+    rejected(&p, raw, NULL, NULL);
+    p.noise[0].shift = 4;
+    p.noise[0].enabled = 2;
+    rejected(&p, raw, NULL, NULL);
+    p.noise[0].enabled = 1;
+    p.noise_negative = 1024;
+    rejected(&p, raw, NULL, NULL);
+    p.noise_negative = 1020;
+    p.noise_positive = 1024;
+    rejected(&p, raw, NULL, NULL);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -572,5 +661,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/gains", gains);
     g_test_add_func("/nikon/pairedpixels/curves", curves);
     g_test_add_func("/nikon/pairedpixels/invalid", invalid);
+    g_test_add_func("/nikon/pairedpixels/noise", noise);
+    g_test_add_func("/nikon/pairedpixels/noise-invalid", noise_invalid);
     return g_test_run();
 }

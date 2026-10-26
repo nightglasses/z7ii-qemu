@@ -1,0 +1,82 @@
+{
+  "scope": "Finite cycle-selected noise and independently selected RAW/main/grid groups; original firmware unchanged; separate from silicon ISP accuracy and stable normal live view",
+  "dependency_baseline": "81ebe330",
+  "source": {
+    "domain": "Z7II C1.70 MAS code/objects VA; bank offsets relative to PA20380000/203c0000",
+    "records": "102e563a config40+188 ->1036c862: three12-byte records plus4bytes, exact df4..e10 packing",
+    "producer": "102d3874 ->103650aa ->10364bd8;103650c0 advances context counter modulo64 and selects48-byte row at ROM11b07e9c",
+    "polynomial_audit": "384 table operands,64 unique; all primitive degree32 under p=x^32+bitreverse32(mask). Algebraic order2^32-1 checked with prime factors3,5,17,257,65537; no mask whitelist",
+    "scalar_audit": "Four19-row families of14 halfwords; denominator6 interpolation, byte gains/128 with saturation, explicit enable overrides; fixed-scalar path is not a proven bypass",
+    "address_groups": "102bec2e/102beb6a publish front/back RAW pairs;102beaa8 grids;102be8a0 work/main. Shared selection byte reaches root39 and fc through102c0304/1036a3da",
+    "work_boundary": "Inspected producer unconditionally mirrors both work groups. Independent work histories are not inferred"
+  },
+  "functional_assumptions": {
+    "noise": "Three job-local right-Galois states seeded1, post-step top11 minus1024, asymmetric clamp, Q10 gain and shift/offset, post-RGB-gain pre-A matrix; scan order2x2 blocks. Seed, slice, scales, placement and limit meanings are hypotheses",
+    "selection": "fc0/1 selects four RAW/front/back, grid and main phases. Selected groups fully validated; inactive staging retained without DMA or cancelling active work",
+    "lifecycle": "Independent4-bit refill masks per group, no mid-batch selection splice, no consumed-generation replay; work mirrors shared; noise/address/selection changes preserve pre-color history, actual source epoch still invalidates it",
+    "limits": "Other control modes, third/fourth RAW groups, full Bayer ISP and physical timing remain unimplemented"
+  },
+  "native": {
+    "red": [
+      "Before noise arithmetic, independent expected Y output differs",
+      "Noise-only configuration previously erased valid pre-color history",
+      "Scoped restoration of the old grid boundary rejects the complete selected output group; this was not a full-old-revision test"
+    ],
+    "accepted": {
+      "CMOS": {
+        "subtests": 54,
+        "seconds": 53.54
+      },
+      "numerical_unit": {
+        "subtests": 10,
+        "seconds": 0.03
+      },
+      "SLA": {
+        "subtests": 23,
+        "seconds": 10.65
+      },
+      "command": "make check MTESTARGS='nikon_cmos nikon_sla nikon_storage nikon_pairedpixels_unit'",
+      "failures": 0
+    },
+    "coverage": "Hard-coded independent goldens for all three channels, primitive feedback outside the table, malformed/reserved fields, cancellation/reset, history epochs, independent real RAW/main/grid groups, unchanged old output buffers, shared work output, selected partial rejection and mid-batch selection refusal",
+    "trial_limits": "An intermediate selector fixture had no matching real RAW and therefore never reached its intended negative profile check; corrected to supply selected input. Formatting-only edits followed acceptance. Later signal/storage tests have separate receipts",
+    "review": "Independent read-only reviews of arithmetic source binding, selection/refill, preflight, history and runtime diagnostics; parent owns all builds/runs"
+  },
+  "original_observations": [
+    {
+      "profile": "Unchanged complete bundle, region/cold-neutral inputs, explicit2x2 PGM and paired tuple, healthy pacedUART RNG0, heldF4, five-CPU MTTCG; explicit8GiB card selected, before later signal-level correction",
+      "window_host_seconds": 120,
+      "completed_at_30_60_90_120": [
+        50,
+        104,
+        120,
+        132
+      ],
+      "final_payload_bytes": 351299520,
+      "result118_main_pixels": 139450080,
+      "paired_rejected": 0,
+      "paired_cancelled": 0,
+      "status": "QMP running; RAW generations and consumed generations continue advancing; sampled waiting-refill pauses are batch boundaries",
+      "display": "Head1 status GUI1024x682 with absent/non-CPU lens notice; SD warning absent; head0 unbound",
+      "limits": "This run predates the corrected signal-level contract and is not evidence that inserted-card initialization works with it"
+    },
+    {
+      "profile": "Same cold-neutral image input after signal-level correction, slot0-drive omitted and SD absent",
+      "window_host_seconds": 120,
+      "completed_at_30_60_90_120": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "final_payload_bytes": 31936320,
+      "result118_main_pixels": 12677280,
+      "paired_rejected": 0,
+      "paired_cancelled": 0,
+      "state": "Await input, phase0, seen=f, refill0, waiting-refill1, no active job/pending; fresh RAW generations continue, consumed generations remain355/352/353/354",
+      "display": "Head1 status GUI and lens notice; head0 unbound; GUI readiness0",
+      "next_evidence": "Trace original continuation-kick producer and GUI admission branch. This profile does not establish continuous paired liveness; do not clear the pause or send completion automatically"
+    }
+  ],
+  "omissions": "Firmware, factory arrays, disassembly, raw logs, private argv and generated binaries omitted. Native synthetic fixtures, each original input profile and physical-camera fidelity are separate acceptance levels"
+}
