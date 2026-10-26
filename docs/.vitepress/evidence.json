@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "solidvector",
+        "title": "Ordered vector native validation, lens-warning-free GUI and remaining paired boundary",
+        "href": "/evidence/transfer/vector.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "lensoperating",
         "title": "Whole fixed-lens protocol, operating state and50/51 processing",
         "href": "/evidence/lens/operating.json",
@@ -3015,6 +3021,16 @@
         "run": "lensmodel",
         "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
         "href": "/evidence/lens/session.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
+  "devices/transfer/vector.md": {
+    "records": [
+      {
+        "run": "solidvector",
+        "title": "Ordered vector native validation, lens-warning-free GUI and remaining paired boundary",
+        "href": "/evidence/transfer/vector.json",
         "kind": "Execution observation"
       }
     ]

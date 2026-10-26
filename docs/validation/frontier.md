@@ -1,6 +1,39 @@
 # Original-firmware startup frontier
 
-## Current: coherent fixed-lens operating and mode-query state
+## Current: fixed-lens status GUI and dynamic paired-parameter boundary
+
+The [ordered vector model](../devices/transfer/vector.md) executes the complete
+mixed SRC clear / SRC_OVER fill-and-stroke family, including relative QUAD and
+full or inherited state. All 28 native transfer subtests pass, including 19
+mixed-batch variants. The whole batch is validated and rendered privately
+before committing; no guest completion, status or display pixels are patched.
+
+With the corrected fixed-lens operating profile, unchanged C1.70 firmware now
+binds the original 1024×682 GUI without the former request to extend the lens.
+The scene background remains black. In the 60-host-second cold-neutral window,
+QMP is running at 15/30 seconds and debug-stopped by 45 seconds; paired work
+advances through 0/36/76/76 jobs, writing 202,263,360 bytes. Lens exchanges
+complete 843 times with zero rejection. Head0 remains unbound, GUI readiness is
+zero and no panic dump is present. This is status-GUI progress, not normal
+live-view acceptance or 60 seconds of continued execution.
+
+![Original GUI without the lens-extension warning](/evidence/transfer/gui.png)
+
+The strict stop is CPU1 MAS VA `1036a4a2`, WRITE32 PA `20380010=1`, where the
+paired field at bank offset `598` changes from selected `1a6a1a6a` to
+`17c717c7`. Its dynamic numerical processing remains the next image boundary;
+the model does not silently ignore it or add another static tuple.
+
+The source-named capture family is `800` / `LvMovie`, not `400` / `LvMovieRec`.
+A separate read-only hardware-breakpoint diagnostic at MAS VA `102324cc`
+captures config bytes0/24/263 as 0/1/0 and argument2 as zero: this secondary
+selection explains the movie-live-view family. Property5772 and its cache both
+hold1. The external selector's producer remains under investigation; neither
+the lens's50 selector nor application main_mode is the photo/movie enum.
+The [curated receipt](/evidence/transfer/vector.json) separates native, original
+and diagnostic evidence, explicit inputs and remaining limitations.
+
+## Previous: coherent fixed-lens operating and mode-query state
 
 The [whole fixed-lens protocol](../devices/lens/protocol.md) now separates
 stationary optical availability, configuration pending/commit, streaming and

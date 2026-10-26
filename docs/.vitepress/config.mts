@@ -182,6 +182,7 @@ export default defineConfig({
               { text: 'Clear Mode Selection', link: '/devices/transfer/clearmode' },
               { text: 'Rectangle Geometry', link: '/devices/transfer/rectangles' },
               { text: 'Stroke & Fill State', link: '/devices/transfer/stroke' },
+              { text: 'Ordered Vector Batches', link: '/devices/transfer/vector' },
               { text: 'Target Buffer Contract', link: '/devices/transfer/target' },
               { text: 'Image Sampling', link: '/devices/transfer/image' },
               { text: 'SRC_OVER Composition', link: '/devices/transfer/over' },

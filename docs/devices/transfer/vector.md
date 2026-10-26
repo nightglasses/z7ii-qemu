@@ -92,11 +92,28 @@ absolute and relative forms under an affine transform, and rejects unknown
 segments and a relative control point outside the finite coordinate bound.
 The parent then ran the complete `nikon_transfer_unit` batch: all 28 subtests
 passed in 2.45 seconds, including all 19 vector-batch variants and the relative
-path checks. The native receipt is `work/runs/vectorbatch-20261026/native-green.txt`.
+path checks. The curated receipt below records their scope.
 An initial fixture-only failure came from signed extension in a literal pixel
 assertion; an explicit `uint32_t` cast corrected the assertion without changing
 the rendered pixels or product implementation.
 
-These are synthetic fixtures. Successful original submission, scanout, GUI
-progress and physical fidelity remain separate evidence; the original-firmware
-integration run was pending when this change was committed.
+These are synthetic fixtures, separate from the original execution below.
+
+## Original execution
+
+With the fixed lens's corrected operating state, the unchanged C1.70 bundle
+passes the captured mixed batch and binds a 1024×682 status GUI. The former
+request to extend the lens is absent. The complete cold-neutral profile uses
+the selected blank 8 GiB card, paced healthy UART battery, held F4/EX C5 input,
+five-CPU MTTCG and the declared 2×2 grayscale scene. No debugger accesses occur
+inside the 60-host-second observation window.
+
+QMP is running at 15 and 30 seconds, then debug-stopped at 45 and 60 seconds.
+Paired completion advances through 0, 36, 76 and 76 jobs; the new stop is the
+dynamic paired field at offset `598`, not a graphics rejection. Lens packets
+complete 843 times without rejection. The capture policy remains source-named
+`LvMovie` (`800`), not movie recording. Head0 remains unbound, the scene
+background is black and GUI readiness remains zero. This establishes a rendered
+status GUI without the former lens warning, not normal live view or photo/movie
+capture acceptance. The [curated receipt](/evidence/transfer/vector.json)
+records the native and original scopes separately.
