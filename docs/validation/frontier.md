@@ -12,12 +12,17 @@ settings and capture policy remain responsible for the transition.
 The source join reaches typed settings3/4 and the conditional5772 policy
 handler. With unchanged firmware, cold-neutral inputs and the fixed lens, the
 default high input produces scalar0, property5772=0 and `100` / `LvStill`.
-The 60-host-second photo window is running at15 seconds and debug-stopped by30:
-CPU1 MAS VA `103bd2d2`, WRITE32 PA `20102680=1`, reaches the event gate's
-unsupported route-configuration application request. Lens exchanges complete
-609 times with zero rejection; no panic, paired job or display binding occurs
-before this earlier photo-path stop. This is correct photo-policy selection,
-not accepted photo live view or shutter capture.
+The [shared route model](../devices/gate/routing.md#shared-route-application-request)
+now captures the original staged configuration at its application request,
+without a processing completion or event. The former photo stop at PA
+`20102680=1` is crossed: one request applies route1=0 and route2=`141`.
+In the updated60-host-second photo window, QMP is running at15 seconds and
+debug-stopped by30. The new stop is CPU1 MAS VA `10369fc0`, WRITE32 PA
+`20380008=1`, where the paired profile rejects bank offset `88=2`. Lens
+exchanges complete583 times with zero rejection. No panic, paired completion
+or display binding occurs before this photo-specific processing boundary.
+This establishes photo-policy selection and route submission, not accepted
+photo live view or shutter capture.
 
 A separate15-host-second run presses and releases F13 through ordinary QMP
 keyboard input before initial EX sampling. It produces scalar1, property5772=1
@@ -27,7 +32,9 @@ yet. Both profiles retain application main_mode1, independently confirming
 that it is not the photo/movie enum. Two native input subtests pass, including
 reset, repeat, release and unregister coverage. The
 [selector receipt](/evidence/input/selector.json) separates native tests,
-diagnostic probes and these unchanged-firmware observations.
+diagnostic probes and the initial input observations. The
+[route receipt](/evidence/gate/route.json) records the later photo continuation
+and the focused native staging/application/reset/IRQ-preservation checks.
 
 ## Previous: fixed-lens status GUI and dynamic paired-parameter boundary
 

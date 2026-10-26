@@ -61,6 +61,8 @@ struct NikonEventGateState {
     uint32_t committed[INPUT_SLOTS][INPUT_WORDS], parameter_valid;
     uint16_t written[INPUT_SLOTS];
     uint64_t parameter_commits;
+    uint32_t applied_route[2];
+    uint64_t route_commits;
     GateCommand command[ARRAY_SIZE(command_ports)];
     uint16_t table[TABLE_SIZE / 4];
     uint32_t work[WORKSPACE_SIZE / 4], workspace_written;
@@ -466,6 +468,20 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         s->submit_pending = true;
         return MEMTX_OK;
     }
+    if (offset == 0x2680) {
+        /*
+         * Finite snapshot model for the MAS103bd2cc application request.
+         * Teardown1038897e clears one family before the same commit. Record
+         * configuration, not data processing, pending, IRQ or slot release.
+         */
+        if (value != 1) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        s->applied_route[0] = s->config[0x2684 / 4];
+        s->applied_route[1] = s->config[0x2690 / 4];
+        s->route_commits++;
+        return MEMTX_OK;
+    }
     if (nikon_event_gate_config(offset, &mask)) {
         if ((value & ~mask) ||
             ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1)) {
@@ -510,7 +526,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         }
         s->config[offset / 4] = 0;
     } else {
-        /* Includes 2680 requests and all unbound data/monitor words. */
+        /* All unbound data/monitor words and unknown requests reject. */
         return nikon_event_gate_error(s, offset, size, true, value);
     }
     nikon_event_gate_irq(s);
@@ -620,6 +636,8 @@ static void nikon_event_gate_reset(DeviceState *dev)
     memset(s->committed, 0, sizeof(s->committed));
     s->parameter_valid = 0;
     s->parameter_commits = 0;
+    memset(s->applied_route, 0, sizeof(s->applied_route));
+    s->route_commits = 0;
     memset(s->slot, 0, sizeof(s->slot));
     memset(s->written, 0, sizeof(s->written));
     memset(s->command, 0, sizeof(s->command));
@@ -661,6 +679,12 @@ static void nikon_event_gate_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "parameter-commits",
                                    &s->parameter_commits, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "applied-route1", &s->applied_route[0],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "applied-route2", &s->applied_route[1],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "route-commits", &s->route_commits,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-packets", &s->loaded,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-words", &s->loaded_words,

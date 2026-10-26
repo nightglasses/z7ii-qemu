@@ -13,7 +13,10 @@ static uint64_t gate_property(QTestState *q, const char *path, const char *name)
 {
     QDict *response = qtest_qmp(q, "{'execute':'qom-get','arguments':"
                                "{'path':%s,'property':%s}}", path, name);
-    uint64_t value = qdict_get_int(response, "return");
+    uint64_t value;
+
+    g_assert_true(qdict_haskey(response, "return"));
+    value = qdict_get_int(response, "return");
 
     qobject_unref(response);
     return value;
@@ -226,6 +229,76 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
     g_assert_cmphex(qtest_readl(q, 0x24005ffc), ==, 0);
     g_assert_cmphex(qtest_readl(q, 0x24010ffc), ==, 0);
     g_assert_cmphex(qtest_readl(q, base + 0x148), ==, 0);
+}
+
+static void gate_routes(QTestState *q, const char *path, uint64_t base)
+{
+    g_autofree char *reply = NULL;
+    unsigned i;
+
+    qtest_system_reset(q);
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 0);
+    qtest_writel(q, base + 4, 1);
+    qtest_writel(q, base + 0xc, 1U << 30);
+    qtest_set_irq_in(q, path, "pending-bit", 30, 0);
+    qtest_set_irq_in(q, path, "pending-bit", 30, 1);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, base + 0x2684, 0x76543210);
+    qtest_writel(q, base + 0x2690, 0xabcd);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0);
+    g_assert_cmphex(gate_property(q, path, "applied-route2"), ==, 0);
+    qtest_writel(q, base + 0x2680, 1);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0x76543210);
+    g_assert_cmphex(gate_property(q, path, "applied-route2"), ==, 0xabcd);
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 1);
+
+    /* Source teardown clears one family; the other survives the next latch. */
+    qtest_writel(q, base + 0x2684, 0);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0x76543210);
+    qtest_writel(q, base + 0x2680, 1);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0);
+    g_assert_cmphex(gate_property(q, path, "applied-route2"), ==, 0xabcd);
+    qtest_writel(q, base + 0x2684, 0xfedcba98);
+    qtest_writel(q, base + 0x2690, 0x1234);
+    qtest_writel(q, base + 0x2680, 1);
+    qtest_writel(q, base + 0x2680, 1); /* Same snapshot, no processing event. */
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 4);
+
+    qtest_writel(q, base + 0x2680, 0);
+    qtest_writel(q, base + 0x2680, 2);
+    qtest_writel(q, base + 0x2680, 0x80000001);
+    qtest_writeb(q, base + 0x2680, 1);
+    qtest_writew(q, base + 0x2680, 1);
+    qtest_writel(q, base + 0x2681, 1);
+    qtest_writel(q, base + 0x2690, 0x10000);
+    qtest_writew(q, base + 0x2684, 0);
+    reply = qtest_hmp(q, "xp /1wx 0x%" PRIx64, base + 0x2680);
+    g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    qtest_clock_step(q, 1000000);
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 4);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0xfedcba98);
+    g_assert_cmphex(gate_property(q, path, "applied-route2"), ==, 0x1234);
+    g_assert_cmphex(qtest_readl(q, base + 0x2690), ==, 0x1234);
+    g_assert_cmpuint(gate_property(q, path, "parameter-valid"), ==, 0);
+    g_assert_cmpuint(gate_property(q, path, "configured-mask"), ==, 0);
+    g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, 0);
+    for (i = 0; i < 3; i++) {
+        uint32_t expected = i == 0 ? 1U << 30 : 0;
+
+        g_assert_cmphex(qtest_readl(q, base + 0xc + i * 4), ==, expected);
+        g_assert_cmphex(qtest_readl(q, base + 0x18 + i * 4), ==, expected);
+    }
+    g_assert_true(qtest_get_irq(q, 0));
+
+    qtest_system_reset(q);
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 0);
+    g_assert_cmphex(gate_property(q, path, "applied-route1"), ==, 0);
+    g_assert_cmphex(gate_property(q, path, "applied-route2"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x2684), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x2690), ==, 0);
+    qtest_writel(q, base + 0x2680, 1);
+    g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 1);
+    g_assert_false(qtest_get_irq(q, 0));
 }
 
 void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
@@ -577,4 +650,5 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     qtest_set_irq_in(q, path, "pending-bit", 95, 1);
     g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0);
     g_assert_false(qtest_get_irq(q, 0));
+    gate_routes(q, path, base);
 }

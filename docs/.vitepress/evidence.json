@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "gateroute",
+        "title": "Shared route staging/application and original photo paired-mode boundary",
+        "href": "/evidence/gate/route.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "captureselector",
         "title": "Maintained photo/movie input, source chain and original mode selection",
         "href": "/evidence/input/selector.json",
@@ -2095,7 +2101,14 @@
     "records": []
   },
   "devices/gate/routing.md": {
-    "records": []
+    "records": [
+      {
+        "run": "gateroute",
+        "title": "Shared route staging/application and original photo paired-mode boundary",
+        "href": "/evidence/gate/route.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "devices/gate/sla.md": {
     "records": []
