@@ -201,6 +201,7 @@ struct Z7IIMachineState {
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *cmos_image;
+    char *paired_calibration;
     DeviceState *ex_input_dev;
     QEMUTimer *ex_input_timer;
     bool frame_contract;
@@ -804,6 +805,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *readout;
     DeviceState *capture;
     DeviceState *work = NULL;
+    DeviceState *paired;
     DeviceState *pipeline = NULL;
     DeviceState *parameters;
     DeviceState *group;
@@ -1194,6 +1196,12 @@ static void z7ii_init(MachineState *machine)
         qdev_connect_gpio_out_named(channels, "stopped", 1,
             qdev_get_gpio_in_named(router, "external-pending", 11 + 10));
     }
+    paired = qdev_new(TYPE_NIKON_PAIRED_EVENT_BANKS);
+    if (s->paired_calibration) {
+        qdev_prop_set_string(paired, "calibration", s->paired_calibration);
+    }
+    object_property_add_child(OBJECT(machine), "paired-processing",
+                              OBJECT(paired));
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
@@ -1389,6 +1397,8 @@ static void z7ii_init(MachineState *machine)
                                  &error_fatal);
         object_property_set_link(OBJECT(work), "pipeline", OBJECT(pipeline),
                                  &error_fatal);
+        object_property_set_link(OBJECT(work), "paired", OBJECT(paired),
+                                 &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(work), &error_fatal);
         object_property_set_link(OBJECT(statistics), "endpoints",
                                  OBJECT(endpoints), &error_fatal);
@@ -1497,11 +1507,12 @@ static void z7ii_init(MachineState *machine)
         }
     }
     {
-        DeviceState *control = sysbus_create_simple(TYPE_NIKON_PAIRED_EVENT_BANKS,
-                              0x20380000, qdev_get_gpio_in(gic, 99 - 32));
-
-        sysbus_mmio_map(SYS_BUS_DEVICE(control), 1, 0x203c0000);
-        sysbus_connect_irq(SYS_BUS_DEVICE(control), 1,
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(paired), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(paired), 0, 0x20380000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(paired), 0,
+                           qdev_get_gpio_in(gic, 99 - 32));
+        sysbus_mmio_map(SYS_BUS_DEVICE(paired), 1, 0x203c0000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(paired), 1,
                            qdev_get_gpio_in(gic, 100 - 32));
     }
     {
@@ -1910,6 +1921,22 @@ static void z7ii_set_cmos_image(Object *obj, const char *value, Error **errp)
     s->cmos_image = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_paired_calibration(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->paired_calibration;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_paired_calibration(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->paired_calibration);
+    s->paired_calibration = g_strdup(value && *value ? value : NULL);
+}
+
 static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1949,6 +1976,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
+    g_free(s->paired_calibration);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -2010,6 +2038,11 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_cmos_image);
     object_class_property_set_description(oc, "cmos-image",
         "Explicit binary PGM/PPM image for the functional CMOS provider");
+    object_class_property_add_str(oc, "paired-calibration",
+        z7ii_get_paired_calibration, z7ii_set_paired_calibration);
+    object_class_property_set_description(oc, "paired-calibration",
+        "Exact 24064-byte calibration tuple accepted by the finite monochrome "
+        "paired operator; validates guest table publication without filling it");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
     object_class_property_set_description(oc, "frame-contract",

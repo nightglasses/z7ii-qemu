@@ -14,6 +14,7 @@
 #include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/statistics.h"
+#include "hw/nikon/paired.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
 
@@ -36,7 +37,7 @@ static const unsigned buffer_offsets[] = {
 
 struct NikonCaptureWork {
     SysBusDevice parent_obj;
-    DeviceState *capture, *parameters, *readout, *pipeline;
+    DeviceState *capture, *parameters, *readout, *pipeline, *paired;
     QEMUTimer *timer;
     bool selected[6], valid[3], running[4], active;
     uint32_t correction;
@@ -125,6 +126,9 @@ static void capture_work_commit(void *opaque, int n, int level)
         NikonCaptureInput input;
 
         capture_work_cancel(s);
+        if (s->paired) {
+            nikon_paired_frame(s->paired, NULL);
+        }
         /* A configuration epoch cannot replay an already delivered frame. */
         if (nikon_readout_pipeline_input(s->pipeline, &input)) {
             s->last_input = input.generation;
@@ -187,7 +191,10 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
         g->output_rows > g->rows || g->output_columns > g->columns ||
         (g->output_rows & 0xffff) || (g->output_columns & 0xffff) ||
         (p->words[0] & ~7u) || format > 2 ||
-        p->words[1] != g->output_columns || p->words[2] != g->output_rows ||
+        !p->words[1] || !p->words[2] ||
+        ((p->words[1] | p->words[2]) & 0xffff) ||
+        p->words[1] > g->output_columns || p->words[2] > g->output_rows ||
+        g->output_columns % p->words[1] || g->output_rows % p->words[2] ||
         p->words[3] || p->words[4] || p->words[5] || p->words[6] != 2 ||
         b[1] != 1 || b[2] != 1 || b[3] || (b[4] & ~2u) || bank > 1 ||
         b[5] != 1 || b[7] > 3 || b[6] > b[7] || s->cursor > b[7] ||
@@ -249,8 +256,20 @@ static void capture_work_complete(void *opaque)
     }
     g_autofree uint8_t *row = g_malloc(row_bytes);
     const CapturePacking *p = &s->packing;
+    NikonPairedRawFrame frame = {
+        .address = destination, .width = width, .height = height,
+        .stride = p->buffers[0], .bits = bits, .slot = s->cursor,
+    };
+
+    if (s->paired) {
+        nikon_paired_frame(s->paired, &frame);
+    }
 
     for (unsigned y = 0; y < height; y++) {
+        /*
+         * Independent descriptor geometry follows unit2 geometry. Integral
+         * reductions compose the two existing nearest sampling stages exactly.
+         */
         unsigned sy = (uint64_t)y * s->input.height / height;
         uint32_t accumulator = 0;
         unsigned available = 0, column = 0;
@@ -286,6 +305,10 @@ static void capture_work_complete(void *opaque)
     /* The owned stream was copied, geometrically sampled and packed into real
      * guest buffers. Never substitute input-sync/statistics for these causes.
      */
+    frame.generation = s->completed + 1;
+    if (s->paired) {
+        nikon_paired_frame(s->paired, &frame);
+    }
     uint32_t front[] = { 0x18, 0 };
     uint32_t paired[] = { 0, 0x80 };
 
@@ -337,6 +360,9 @@ static void capture_work_reset(DeviceState *dev)
     NikonCaptureWork *s = NIKON_CAPTURE_WORK(dev);
 
     capture_work_cancel(s);
+    if (s->paired) {
+        nikon_paired_frame(s->paired, NULL);
+    }
     memset(s->selected, 0, sizeof(s->selected));
     memset(s->valid, 0, sizeof(s->valid));
     memset(s->running, 0, sizeof(s->running));
@@ -394,6 +420,8 @@ static const Property capture_work_properties[] = {
                      TYPE_NIKON_READOUT_CONTROL, DeviceState *),
     DEFINE_PROP_LINK("pipeline", NikonCaptureWork, pipeline,
                      TYPE_NIKON_READOUT_PIPELINE, DeviceState *),
+    DEFINE_PROP_LINK("paired", NikonCaptureWork, paired,
+                     TYPE_NIKON_PAIRED_EVENT_BANKS, DeviceState *),
 };
 
 static const VMStateDescription capture_work_vmstate = {

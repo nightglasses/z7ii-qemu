@@ -34,6 +34,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/mxic.c',
   'devices/notifier.c',
   'devices/pairs.c',
+  'devices/pairedpixels.c',
   'devices/parameters.c',
   'devices/readout.c',
   'devices/router.c',

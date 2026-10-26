@@ -29,6 +29,12 @@ fixture = executable('nikon_gatepacket_unit',
 test('nikon_gatepacket_unit', fixture, env: test_env, args: ['--tap', '-k'],
   protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
 
+fixture = executable('nikon_pairedpixels_unit',
+  files('pairedpixels.c', '../../../hw/nikon/devices/pairedpixels.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_pairedpixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',

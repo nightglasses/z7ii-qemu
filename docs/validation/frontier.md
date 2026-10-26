@@ -1,6 +1,44 @@
 # Original-firmware startup frontier
 
-## Current: running with GUI status output; paired pixels still pending
+## Current: real RAW processing and the next correction-record boundary
+
+The [paired pixel operator](../devices/pairs/pixels.md) connects completed RAW
+DMA to selected-phase main, work and grid outputs, then publishes results
+through the existing IRQ/W1C/firmware callback route. Its explicit monochrome
+profile executes defect/spatial/temporal filtering, guest A/C/B matrices,
+three-channel gains and two published gain curves. Numerical formats, filters,
+rounding and retained-ring continuation are bounded functional choices.
+Opaque calibration parameters still require an explicit matching input tuple.
+
+The capture producer now accepts independent, nonexpanding integer RAW geometry.
+Original source supplies unit2 output 1380×1556 followed by RAW 1380×778; the old
+model's equality check rejected this normal mode. No descriptor is supplied
+until the actual packed RAW rows have been written. A new source epoch cannot
+reuse old history, and each processed phase requires a fresh completed RAW
+generation. Unchanged retained rings can continue on an original `10` kick;
+partial four-address updates cannot.
+
+With unchanged firmware, cold-neutral inputs and the declared paired profile,
+four actual phases now write 10,645,440 payload bytes. The cumulative main-pixel
+result is 4,225,760. Main Y, half-resolution work and packed grid RAM contain
+computed data; this is distinct from the earlier admission-only milestone.
+The [pixel receipt](/evidence/imagerequest/pixels.json) separates native fixtures,
+intermediate running observations and the final original execution.
+
+The next boundary is the complete 40-byte correction record submitted through
+MAS VA `102e563a` and `1036c862`, at bank-relative offsets `df4..e10`.
+Its three raw32-bit operands change when the original software continues past
+the first four phases. Their arithmetic has not been recovered. The model
+rejects this changed opaque tuple instead of adding another constant whitelist
+or returning completion without executing it. Normal live view and continuous
+startup remain unverified. In the final nominal 60-host-second window, this
+rejection stops QMP in `debug`: CPU1 VA PC `1036a4a2`, WRITE32 PA
+`20380010=1`, with offending retained offset `df8=f8040000`. Both heads are
+unbound and both image-information records remain zero at that earlier stop;
+the historical status-GUI output below is not reproduced by this stricter
+continuation. No firmware byte, guest callback or completion is patched.
+
+## Previous: running with GUI status output; paired pixels still pending
 
 The [complete kind57 arena](../runtime/storage.md#kind57-gui-arena) replaces
 four allocation fragments with the exact source-declared
@@ -22,7 +60,7 @@ The remaining boundary is actual image processing, rather than another
 observed unsupported transaction: imports/captures remain18 packets/649 words
 and9 parameter captures. At the snapshot all graph nodes are inactive, paired
 bank0 awaits input with no raw pending and bank1 is quiescent. The
-[finite operator design](../devices/pairs/requests.md#finite-operator-design-and-discriminating-evidence)
+[finite operator design](../devices/pairs/requests.md#numerical-interpretation-and-physical-limits)
 joins completed RAW DMA generation, one shared ring phase, real matrix
 coefficients and main/reference/grid consumers. Their actual arithmetic,
 output layout and result publication must be implemented together.

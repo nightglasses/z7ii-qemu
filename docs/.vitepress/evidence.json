@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "pairedpixels",
+        "title": "RAW processing, real output DMA and correction-record boundary",
+        "href": "/evidence/imagerequest/pixels.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "guicoordination",
         "title": "OnVd waits, input admission and first-enable notification",
         "href": "/evidence/imagerequest/coordination.json",
@@ -2070,6 +2076,16 @@
         "run": "processingcommands",
         "title": "Graph command import and terminal ownership boundary",
         "href": "/evidence/imagerequest/commands.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
+  "devices/pairs/pixels.md": {
+    "records": [
+      {
+        "run": "pairedpixels",
+        "title": "Finite numerical operator and original RAW data-chain evidence",
+        "href": "/evidence/imagerequest/pixels.json",
         "kind": "Execution observation"
       }
     ]

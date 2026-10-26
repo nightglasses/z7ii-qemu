@@ -59,11 +59,13 @@ The model adds no RAM, DMA source, guest callback, pending cause or slot release
 
 Actual start is separate: the [parameter/start contract](parameters.md#configuration-and-later-consumption-are-separate)
 locates `10369faa`, which writes selected-bank `10=1` and `08=1` after
-configuration. The data operation, input/output association, status/result
-conditions and original worker wait remain unsupported. The later
+configuration. The later [pixel contract](pixels.md) defines the finite data
+operation, input/output association, result and cancellation conditions. The
 [request contract](requests.md) admits pending starts and finish requests;
 tables do not supply
-those results merely by being present.
+those results merely by being present. Active-work cancellation and publication
+coverage are also governed by that pixel contract; a new coverage bit matters
+even when the stored parameter value remains zero.
 
 ## Native validation
 

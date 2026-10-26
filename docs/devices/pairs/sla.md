@@ -55,11 +55,15 @@ The indirect table selection at `10098A00/10098A20` additionally consumes the
 original pointer array `1016AF08`; destinations require its actual snapshot,
 not inference from adjacent table addresses.
 
-Status consumers use `100994E2`. Their result words, including `18`, `118`,
+Status consumers use `100994E2`. Their remaining result words, including
 `350..360`, `388..390`, `3B8..3C0`, `3CC..3D4`, `3E4`, `3F4..3FC`,
 `474..484`, `4CC..4DC`, `680`, `77C/780`, `9DC/9E0`, `BC0/BC4/BC8/BD0`,
 `E1C` and `F30`, have no recovered result producer and remain strict errors.
-Requests `08/10/54/60/6C/78` likewise remain unsupported. `580` is now proved
+The common device now provides finite `18` request status, `118` work count
+and `08/10/54/60/6c/78` processing/cancellation through the
+[pixel contract](pixels.md). The standalone SLA machine has no completed-RAW
+producer connection and does not acquire pixels merely by issuing a request.
+`580` is now proved
 as a full-word setter by `10097934`; the source does not prove an event side effect.
 
 The existing functional provider `pending-bit[0..31]` latches bank-0 causes;

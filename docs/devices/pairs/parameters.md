@@ -95,8 +95,9 @@ modeled data producer remain errors. In particular, this change does not
 implement the image operation behind `08/10`, a successful result read or
 hardware processing-slot retirement.
 The later [request contract](requests.md) admits `10 ->08`, preserves genuinely
-pending state and resolves the original software-start notification. It does
-not implement the data operator or a completion event.
+pending state and resolves the original software-start notification. The
+subsequent [pixel contract](pixels.md) separately connects completed RAW DMA,
+numerical output and real result publication under an explicit virtual profile.
 
 ## Finite state and assumptions
 

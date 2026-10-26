@@ -50,10 +50,14 @@ parameters, buffers and completed input. It adds no physical MMIO:
    reuses the declared shared virtual camera input, not a recovered physical
    main-stream wire.
 2. Zero correction flags mean identity forwarding. Unit2 performs nearest
-   sampling to its committed output geometry. ROM color/filter coefficients
+   sampling to its committed output geometry. The independently supplied RAW
+   descriptor may apply a further positive integer reduction on either axis;
+   both dimensions must be aligned, nonzero and no larger than unit2 output.
+   Composing these two nearest stages gives the existing whole-image sampler
+   exactly for integer reductions. ROM color/filter coefficients
    are retained without executing physical filtering or Bayer demosaic.
-   Nonzero correction flags, crop offsets, expansion, unmatched paired
-   geometry and unsupported enables do not qualify.
+   Nonzero correction flags, crop offsets, expansion, nonintegral further
+   reduction and unsupported enables do not qualify.
 3. Paired control bit2 enables a256-entry LE16 LUT indexed by the high sample
    byte. Otherwise output uses the high16/14/12 sample bits. Consecutive
    samples form a little-endian bit stream. LUT arithmetic, ordering and
@@ -78,7 +82,31 @@ geometry/LUT/format/ring/RAM/overlap/wrap rejects without completion.
 There is no group completion, guest callback, cache write, display enable or
 guessed953c-family result. Configuration retention alone remains silent.
 
-## Validation and remaining boundary
+The [paired pixel operator](../pairs/pixels.md) receives a typed RAW descriptor
+only after every row is written. It records the actual final width, height,
+pitch, packing, address, ring slot and monotonically increasing generation.
+The descriptor is withdrawn before overwriting that slot; changed committed
+configuration and reset invalidate all available descriptors. Already admitted
+paired work owns a RAW snapshot, rather than mutable producer RAM.
+
+### Independent geometry producers
+
+MAS VA `1023994c` obtains the final width and height from its input descriptor
+at software byte offsets40/42. Through `1020c2d4 ->102090a0`, these become PA
+`20069518/1c`. Unit2's separate ROM selection at VA `1023a9d2` reaches
+`102094aa/10209578` and PA `20069d00/04`, `20069e78/7c`. No source invariant
+requires the final RAW height to equal unit2 output height.
+
+The original paired-start mode supplies2760×1556 to1380×1556 at unit2, followed
+by1380×778 RAW12. The old equality check rejected every such input and could
+leave paired requests waiting despite earlier populated RAW RAM. Integer
+reduction removes that model restriction as a class. Nearest sampling over
+the whole image, its phase and omission of physical filtering remain explicit
+functional choices; source establishes the independent dimensions, not the
+physical decimation kernel. RAW metadata describes778 rows, each with2070
+payload bytes and10 preserved padding bytes at pitch2080.
+
+## Historical stream validation
 
 The old model fails the new fixture at the absent processing device. The
 kind16 fixture separately fails COPY with status1 instead of8 at PA549007f1.

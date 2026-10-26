@@ -1,0 +1,99 @@
+{
+  "scope": "Completed RAW DMA to finite paired arithmetic, main/work/grid DMA and original result routing; separate from complete startup or physical ISP fidelity",
+  "dependency_baseline": "4efbc335",
+  "source": {
+    "component": "Unchanged Z7II C1.70 MAS; code and software objects VA, device/RAM addresses PA; hexadecimal addresses and decimal counts",
+    "initial_start_VA": "10369faa: bank10=1 then08=1",
+    "continuation_VA": "1036a49a: bank10=1 only; 10268d10 can call it after unsuccessful descriptor dequeue",
+    "RAW_geometry": "1023994c reads descriptor width/height at software byte offsets40/42, independently of unit2 geometry; original unit2 output1380x1556 and RAW1380x778",
+    "gain_VA": "1036bb04 packs three u16 gains at9d0/9d4 and four independent control bytes at9cc",
+    "curves_VA": "1036bb68 selects two516-byte blocks at2890/2a94; current published table has257 unity1024 knots and zero padding",
+    "matrices": "A/C signed13-bit coefficients and B signed12-bit coefficients; source packing differs for C; current A/C diagonals1024 and B row sums512/0/0",
+    "table_publication": "102e4ce4/4d06 skip NULL pointers;22x64-byte and14x68-byte tables cover590 words",
+    "subscription_VA": "102be68c subscribes1402; normal inhibition maskffffff71 is complement8e",
+    "correction_records_VA": "102e563a config index40+188 ->1036c862; three12-byte records plus final4-byte word, published at relativedf4..e10",
+    "correction_binding": "Observed index21=b3c87c74 minus696 and index40=b3c87d3c minus896 identify caller blockb3c879bc; record beginsb3c87df8",
+    "unresolved": "CPU copies df8/dfc/e00 operands unchanged. Inspected constructors bind or copy parameters, without decoding their arithmetic. No signed-halfword/IEEE/opcode interpretation is established"
+  },
+  "model": {
+    "input": "Typed descriptor only after every actual capture-work RAW row is written; source reset/config invalidates available descriptors, overwrite withdraws its slot, admitted jobs own immutable snapshots",
+    "geometry": "Nonexpanding positive integral reduction after unit2; whole-image nearest composition, LSB-packed RAW12, actual final dimensions and pitch",
+    "arithmetic": "Bounded grayscale defect/spatial/temporal kernels; main color uses up to two interpolated257-knot Q10 gain curves, RGB Q8 gain, A/C Q10 then B Q9, with explicit rounding/clamping",
+    "outputs": "Cropped NV12 main; two half-resolution LE16 history/residual planes;60x34 packed12 grid. All are finite numerical format choices, not recovered physical formats",
+    "calibration_input": "Explicit exact24064-byte LE32 image[0,5e00); interpreted fields and holes zero; all remaining opaque words must match guest publication. Captured initial tuple is a declared specialization, not factory calibration recovery or guest state injection",
+    "publication": "Only successful full output DMA consumes a RAW generation, establishes current-epoch history, adds actual main pixels to118 and publishes1002; fourth real phase adds400",
+    "continuation": "Pending requires W1C. An original10 kick can continue an unchanged complete ring or four published addresses; partial address updates wait. Every operation still needs fresh RAW and whole-batch validation",
+    "lifecycle": "Actual drain publishes standalone2 after real work/pending clear; aggregate stop014a0080 requires84/f0/54/60/6c/78 sequence. Summary/cadence and1ms latency are explicit finite choices",
+    "memory": "Whole input/all-output-batch RAM, stride, wrap, cross-phase and effective backing-alias checks before admission and output; padding unchanged. No widened RAM or guest patch",
+    "coverage": "Touched opaque tables require complete publication; wholly omitted tables require a wholly zero expected profile. Curves require129 words and zero high padding. First coverage changes cancel active work even for equal zero data",
+    "strict_boundary": "Changed df4..e10 opaque records reject; no second-tuple whitelist or fabricated successful computation"
+  },
+  "native": {
+    "red": "Before the numerical operator, actual RAW DMA completes but main output remains A5 instead of expected129; source readiness alone is insufficient",
+    "accepted_batch": "make check MTESTARGS='nikon_cmos nikon_sla nikon_pairedpixels_unit -t 3'",
+    "green": {
+      "CMOS_subtests": 51,
+      "SLA_subtests": 23,
+      "numerical_unit_subtests": 8,
+      "total": 82,
+      "failures": 0
+    },
+    "coverage": "Real CMOS/capture-work RAW, all phase outputs and guards, history epochs, non-unit gains/curves, interpolation/clamp/order, both banks/peer release, stable and updated second batches, partial publication, same-zero coverage cancellation, actual geometry gradient, stop/drain ACK race, reset, ROM/hole/wrap/overlap, masks/W1C and malformed external input",
+    "review": "Independent production review identified and closed opaque-profile omissions, effective backing alias, source epoch/history, peer retry, stop/drain and same-value coverage cancellation defects",
+    "omissions": "Existing qtest board cannot introduce a second physical decoder alias or withdraw a mapping between synchronous preflight and row DMA; guards were reviewed, not claimed as injected alias/partial-bus-failure fixtures",
+    "development_trials": [
+      "Initial fixture mistakenly used hexadecimal0x35 for decimal height-minus-one35; corrected before the passing operator run",
+      "One expanded suite timed out at60 seconds while original MTTCG was running concurrently; excluded from acceptance. Final isolated batch requested timeout multiplier3, but the native wrapper appended multiplier1; all51 CMOS cases passed in45.89 seconds within the default60-second limit",
+      "A qtest-prefix filter skipped the numerical unit executable; its separate eight-case run and final complete batch both pass"
+    ],
+    "diagnostic_delta": "After the complete batch, diagnostics were corrected to retain the actual MMIO origin/value and to label asynchronous failure as a job error. The final original run verifies the initiating10 address; numerical/state behavior is unchanged"
+  },
+  "original_execution": {
+    "profile": "Unchanged original bundle; region descriptor17/resource35, cold-neutral resource80, explicit initial paired tuple;2x2 PGM32/192/64/224, healthy paced9600-baud UART, RNG0, acceleration0/0/1024, heldF4, five-CPU MTTCG",
+    "window": "Nominal60 host seconds without in-window GDB. The strict rejection stops guest execution before the window ends; later QMP/GDB reads are sequential and not atomic or physical rates",
+    "QMP_status": "debug, running=false",
+    "paired": {
+      "completed": 4,
+      "rejected": 1,
+      "cancelled": 0,
+      "blocked": 0,
+      "active_payload_bytes": 10645440,
+      "bank0_result118_main_pixels": 4225760,
+      "bank0_request_active": 1,
+      "bank0_pending": "0",
+      "bank0_mask": "ffffff71",
+      "bank1_request_active": 0,
+      "observed_output_prefixes": "All four grid slots contain packed464; both aliased main units beginY29; both history units beginLE16 sample464. Native fixtures independently compare complete active payloads and guards"
+    },
+    "upstream": {
+      "main_completed": 128,
+      "main_rejected": 0,
+      "main_cancelled": 1,
+      "RAW_completed": 374,
+      "RAW_rejected": 0,
+      "RAW_cancelled": 0,
+      "RAW_blocked": 1,
+      "statistics_completed": 502,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "imports": 18,
+      "import_words": 649,
+      "parameter_commits": 9
+    },
+    "next_boundary": {
+      "CPU": 1,
+      "PC_VA": "1036a4a2",
+      "transaction": "WRITE32 PA20380010=1",
+      "reason": "paired-frame-profile-or-memory-not-supported",
+      "offending_retained_offset": "df8=f8040000",
+      "previous_operands": "f8200000/e8040002/e8080004",
+      "new_operands": "f8040000/e8040001/e8040002",
+      "scope": "Gain toggles and published unity curve now have numerical models; the changed three-record arithmetic remains strict"
+    },
+    "software": "Bank0 callback102e468b, normal finish guards95f0/95f4 both0, subscriptions1402; original callback/ISR execution is not invoked by host",
+    "display": "Neither head is bound and both1124-byte information records are zero at this earlier strict stop. The earlier status-GUI observation belongs to its historical checkpoint",
+    "battery_peer_rejections": []
+  },
+  "intermediate_observation": "An earlier60-second diagnostic completed four phases with QMP running,1594 RAW jobs and status output, but used the subsequently removed mandatory-address-rewrite wait. It is not acceptance of continuous current processing. A separate read-only queue snapshot found16 main descriptors and9 optional descriptors, motivating actual-kick retained-ring continuation rather than invented queue entries",
+  "limits": "Connected finite numerical data path under declared synthetic inputs; not normal live view, long-duration stability, recovered factory calibration or silicon DSP fidelity. No forced guest event/callback/return/frame. Firmware, disassembly, private paths, raw logs/environment and generated binaries are omitted"
+}
