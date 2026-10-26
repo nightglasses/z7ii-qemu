@@ -1,4 +1,5 @@
-/* C1.70 MOVE/LINE/QUAD/CLOSE and relative H/V with affine fill and stroke.
+/*
+ * C1.70 absolute/relative MOVE/LINE/H/V/QUAD and CLOSE, affine fill/stroke.
  * Cairo supplies rasterization; no host font or text participates.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -35,6 +36,7 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
 {
     double m[9], points[NIKON_PATH_MAX_COORDINATES];
     double x = 0, y = 0, u = 0, v = 0;
+    double start_x = 0, start_y = 0, start_u = 0, start_v = 0;
     unsigned at = 0;
     bool open = false, success = false;
     cairo_surface_t *surface = NULL;
@@ -87,10 +89,17 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
     }
     for (unsigned i = 0; i < segment_count; i++) {
         unsigned operands;
+        unsigned op = segments[i] & ~1U;
+        bool relative = segments[i] & 1;
         double end_x = x, end_y = y, control_x = 0, control_y = 0;
+        double base_u = relative ? u : 0, base_v = relative ? v : 0;
 
-        switch (segments[i]) {
+        switch (op) {
         case 0:
+            if (relative) {
+                *reason = "transfer-path-segment-not-supported";
+                goto out;
+            }
             operands = 0;
             break;
         case 2:
@@ -100,8 +109,8 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
         case 10:
             operands = 4;
             break;
-        case 7:
-        case 9:
+        case 6:
+        case 8:
             operands = 1;
             break;
         default:
@@ -109,43 +118,52 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
             goto out;
         }
         if (at + operands > coordinate_count ||
-            (segments[i] == 2 ? open && !stroke : !open)) {
+            (op == 2 ? open && !stroke : !open)) {
             *reason = "transfer-path-topology-not-supported";
             goto out;
         }
         if (operands) {
-            if (segments[i] == 7) {
-                u += points[at];
-            } else if (segments[i] == 9) {
-                v += points[at];
+            if (op == 6) {
+                u = base_u + points[at];
+            } else if (op == 8) {
+                v = base_v + points[at];
             } else {
-                u = points[at + operands - 2];
-                v = points[at + operands - 1];
+                u = base_u + points[at + operands - 2];
+                v = base_v + points[at + operands - 1];
             }
             if (!nikon_path_point(m, u, v, &end_x, &end_y) ||
-                (segments[i] == 10 &&
-                 !nikon_path_point(m, points[at], points[at + 1],
+                (op == 10 &&
+                 !nikon_path_point(m, base_u + points[at],
+                                   base_v + points[at + 1],
                                    &control_x, &control_y))) {
                 *reason = "transfer-path-coordinate-not-supported";
                 goto out;
             }
         }
-        switch (segments[i]) {
+        switch (op) {
         case 0:
             if (cr) {
                 cairo_close_path(cr);
             }
+            x = start_x;
+            y = start_y;
+            u = start_u;
+            v = start_v;
             open = false;
             break;
         case 2:
             if (cr) {
                 cairo_move_to(cr, end_x, end_y);
             }
+            start_x = end_x;
+            start_y = end_y;
+            start_u = u;
+            start_v = v;
             open = true;
             break;
         case 4:
-        case 7:
-        case 9:
+        case 6:
+        case 8:
             if (cr) {
                 cairo_line_to(cr, end_x, end_y);
             }

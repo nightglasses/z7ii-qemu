@@ -8,6 +8,8 @@ The unchanged original now receives IRQ 129 for this submission. The later
 below. The later [context continuation](continuation.md) also completes ten
 rectangles in 2120/2368 bytes without this family's initialization prefix.
 The later [SRC_OVER extension](over.md) crosses the partial-alpha checkpoint;
+the [ordered vector walker](vector.md) also handles rectangle clears mixed
+with indirect solid fills and strokes in the same submission.
 see the [current frontier](../../validation/frontier.md). No GUI first frame
 is established.
 

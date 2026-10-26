@@ -9,7 +9,9 @@ submission, now handled by the [matrix overwrite correction](overwrite.md).
 See the [current frontier](../../validation/frontier.md); first frame remains
 unverified.
 
-The later [paint-state correction](paint.md) accepts optional color-transform
+The later [ordered vector contract](vector.md) also accepts complete stroke
+prefixes, translucent solid paints and interleaved SRC rectangle clears.
+The [paint-state correction](paint.md) accepts optional color-transform
 disable writes before full fill paint state and retains the shared RGBA context
 after clears. Original execution completes three840/1048 variants through
 IRQ129. The remaining55/31-word validation and inherited stroke grammar below
@@ -69,7 +71,7 @@ is removed; foreign or absent target context still rejects.
 
 At most256 operations are accepted. Class1 keys advance in command order with
 `fffe → 1` wrap. Both complete grammars, echoed scratch fields, final ending,
-zero alignment padding, formats, opaque paints, fill rules and finite affine
+zero alignment padding, formats, solid paints, fill rules and finite affine
 inputs stay checked. Whole-plane writable RAM, four-byte target/coordinate
 alignment,32-bit extents, command overlaps and effective backing aliases are
 validated before output. Indirect arrays are read/revalidated at deferred

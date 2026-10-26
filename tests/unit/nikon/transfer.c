@@ -1212,7 +1212,7 @@ static void test_rgba_gray(void)
     for (unsigned test = SUCCESS; test < CASES; test++) {
         unsigned setup_bytes = NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES;
         unsigned draw_bytes = NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES;
-        bool complete = test == SUCCESS || test == REPEAT;
+        bool complete = test == SUCCESS || test == REPEAT || test == COLOR;
         bool accepted = complete || test == MAP_LOSS ||
                         test == RESET_PENDING || test == CANCEL;
         g_autofree uint8_t *before = NULL;
@@ -1283,14 +1283,16 @@ static void test_rgba_gray(void)
             draw_bytes -= 8;
             break;
         case PATH:
-            command_data[0x2002] ^= 1;
+            command_data[0x2002] = 12;
             break;
         case COORDINATE:
             stl_le_p(command_data + 0x2108, 0x7fc00000);
             break;
         case COLOR:
-        case REJECT_INVALIDATE:
             stl_le_p(command_data + 0x1000 + 41 * 4, 0x7fb4b4b4);
+            break;
+        case REJECT_INVALIDATE:
+            stl_le_p(command_data + 0x1000 + 25 * 4, 0);
             break;
         case TARGET:
             stl_le_p(command_data + 0x1000 + 13 * 4, 0xc175d604);
@@ -1338,7 +1340,8 @@ static void test_rgba_gray(void)
                 for (unsigned x = 0; x < 720; x++) {
                     uint32_t expected = x >= 96 && x < 624 &&
                                         y >= 86 && y < 394 ?
-                                        0xffb4b4b4 : 0xff000000;
+                                        (test == COLOR ? 0xff5a5a5a :
+                                         0xffb4b4b4) : 0xff000000;
 
                     uint32_t actual = ldl_le_p(surface_data + 4 +
                                                (y * 720 + x) * 4);
@@ -1356,6 +1359,7 @@ static void test_rgba_gray(void)
         if (test == REPEAT || test == REJECT_INVALIDATE ||
             test == MAP_LOSS || test == RESET_PENDING) {
             stl_le_p(command_data + 0x1000 + 41 * 4, 0xffb4b4b4);
+            stl_le_p(command_data + 0x1000 + 25 * 4, 8);
             g_assert_cmpint(submit_rgba(&f, NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES,
                             NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES), ==,
                             test == REPEAT ? MEMTX_OK : MEMTX_ERROR);
@@ -1430,7 +1434,7 @@ static void test_path_fill(void)
     enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4 };
     enum {
         SUCCESS, COLD, COUNT_LIMIT, UNKNOWN, SHORT_DRAW, COORD_COUNT, SEG_COUNT,
-        RELATIVE, NAN_COORD, INF_MATRIX, PERSPECTIVE, KEY, MEMORY, OVERLAP,
+        CUBIC, NAN_COORD, INF_MATRIX, PERSPECTIVE, KEY, MEMORY, OVERLAP,
         LATE_BAD, FILL_RULE, COLOR, ALPHA, ALIAS, SAME_WINDING, EVEN_ODD,
         COLORS, CHANNELS, BAD_RELATIVE, CLIPPED, REPEAT,
         DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES,
@@ -1463,7 +1467,8 @@ static void test_path_fill(void)
         bool colored = test == COLORS || test == CHANNELS;
         bool complete = test == SUCCESS || test == SAME_WINDING ||
                         test == EVEN_ODD || colored ||
-                        test == CLIPPED || test == REPEAT || test == ALPHA;
+                        test == CLIPPED || test == REPEAT || test == ALPHA ||
+                        test == COLOR;
         bool accepted = complete || test == DATA_CHANGE || test == MAP_LOSS ||
                         test == RESET || test == CANCEL || test == ALPHA;
         g_autofree uint8_t *before = NULL;
@@ -1521,8 +1526,8 @@ static void test_path_fill(void)
         case SEG_COUNT:
             stl_le_p(data + 26 * 4, 0x10000009);
             break;
-        case RELATIVE:
-            data[0x2001] = 5;
+        case CUBIC:
+            data[0x2001] = 12;
             break;
         case NAN_COORD:
             stl_le_p(data + 0x2100, 0x7fc00000);
@@ -1626,7 +1631,8 @@ static void test_path_fill(void)
                 uint32_t body = ldl_le_p(pixels + 4 + (14 * 720 + 26) * 4);
                 uint32_t hole = ldl_le_p(pixels + 4 + (20 * 720 + 40) * 4);
 
-                g_assert_cmphex(body, ==, 0xff000000);
+                g_assert_cmphex(body, ==, test == COLOR ?
+                                0xff5b5a5a : 0xff000000);
                 g_assert_cmphex(hole, ==, test == SAME_WINDING ?
                                 0xff000000 : test == ALPHA ?
                                 0x80b4b4b4 : 0xffb4b4b4);
@@ -4718,7 +4724,7 @@ static void test_stroked_paths(void)
 {
     enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
     enum { SUCCESS, TWO, THREE, LIMIT, WRAP, ZERO_WIDTH, REPEAT, DATA_CHANGE,
-           MASKED, MASKED_ALL, MASKED_LIMIT, CLEAR_CONTINUE,
+           MASKED, MASKED_ALL, MASKED_LIMIT, SIZE_COLLISION, CLEAR_CONTINUE,
            COLD, FOREIGN, TOO_MANY, SHORT_SETUP, SHORT_DRAW, FIRST_STROKE,
            UNKNOWN, DASH, PHASE, NEGATIVE_WIDTH, NAN_WIDTH, INF_EXTENT,
            CAP, JOIN, STYLE_BITS, TYPE, COUNT, MATRIX, KEY, TARGET,
@@ -4758,6 +4764,7 @@ static void test_stroked_paths(void)
         unsigned count = test == TWO ? 2 :
                          test == THREE || test == MASKED ||
                          test == MASKED_ALL || test == MASK_LATE_ENABLED ? 3 :
+                         test == SIZE_COLLISION ? 5 :
                          test == LIMIT || test == MASKED_LIMIT ? 128 :
                          test == TOO_MANY ? 129 : 1;
         unsigned setup_bytes = count * 70 * 4;
@@ -4819,6 +4826,7 @@ static void test_stroked_paths(void)
                             test == TARGET_END ? 0xfff00004 : 0xbec5f200, key);
         stroke = data + 41 * 4;
         if (test == MASKED || test == MASKED_ALL || test == MASKED_LIMIT ||
+            test == SIZE_COLLISION ||
             test == CLEAR_CONTINUE ||
             test == REPEAT || test == DATA_CHANGE || test >= MASK_HEADER) {
             unsigned writes = test == MASKED_ALL || test == MASKED_LIMIT ||
@@ -5374,6 +5382,302 @@ static void test_yuv_matrix_overwrite(void)
     }
 }
 
+static void test_relative_paths(void)
+{
+    const uint8_t absolute[] = { 2, 4, 10, 4, 4, 0 };
+    const float reference[] = {
+        10, 10, 30, 10, 40, 10, 40, 20, 10, 20, 10, 10,
+    };
+    const uint8_t relative[] = { 3, 5, 11, 7, 9, 0 };
+    const float offsets[] = { 10, 10, 20, 0, 10, 0, 10, 10, -30, -10 };
+    const uint8_t axes[] = { 2, 4, 10, 6, 8, 0 };
+    const float axis_values[] = { 10, 10, 30, 10, 40, 10, 40, 20, 10, 10 };
+    const uint8_t invalid[] = { 1, 12, 13, 14, 15, 255 };
+    uint32_t points[ARRAY_SIZE(reference)], values[ARRAY_SIZE(reference)];
+    uint32_t matrix[9];
+    NikonPathStroke stroke = { 1, 1.7320508f, 0, 0 };
+    g_autofree uint8_t *expected = g_malloc0(720 * 480);
+    g_autofree uint8_t *actual = g_malloc0(720 * 480);
+    const char *reason = NULL;
+
+    path_floats((uint8_t *)points, reference, ARRAY_SIZE(reference));
+    path_floats((uint8_t *)matrix,
+                (float[]) { 2, 0, 0, 0, 3, 0, 4, 6, 1 }, 9);
+    for (unsigned i = 0; i < 4; i++) {
+        bool stroke_case = i & 1;
+        bool absolute_axes = i & 2;
+
+        memset(expected, 0, 720 * 480);
+        memset(actual, 0, 720 * 480);
+        path_floats((uint8_t *)values,
+                    absolute_axes ? axis_values : offsets,
+                    ARRAY_SIZE(offsets));
+        g_assert_true(nikon_path_mask(expected, 720, 480, absolute,
+            ARRAY_SIZE(absolute), points, ARRAY_SIZE(points), matrix, false,
+            stroke_case ? &stroke : NULL, &reason));
+        g_assert_true(nikon_path_mask(actual, 720, 480,
+            absolute_axes ? axes : relative, ARRAY_SIZE(relative), values,
+            ARRAY_SIZE(offsets), matrix, false,
+            stroke_case ? &stroke : NULL, &reason));
+        g_assert_cmpmem(actual, 720 * 480, expected, 720 * 480);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+        uint8_t segments[] = { 2, invalid[i], 0 };
+
+        g_assert_false(nikon_path_mask(NULL, 720, 480, segments,
+            ARRAY_SIZE(segments), points, ARRAY_SIZE(points), matrix, false,
+            NULL, &reason));
+    }
+    path_floats((uint8_t *)values,
+                (float[]) { 4090, 0, 10, 0, -1, 1 }, 6);
+    g_assert_false(nikon_path_mask(NULL, 720, 480,
+        (uint8_t[]) { 2, 11, 0 }, 3, values, 6, matrix, false, NULL, &reason));
+}
+
+static void build_vector_batch(uint8_t *data, bool inherited, uint32_t first,
+                               uint32_t fill, uint32_t stroke,
+                               unsigned *setup_bytes, unsigned *draw_bytes,
+                               unsigned *stroke_word)
+{
+    const InlineRectangle rectangles[] = {
+        { 2, 304, 80, 48, 0 }, { 2, 304, 80, 48, 0 },
+    };
+    const float coordinates[] = {
+        8, 305, 68, 5, 0, 5, 5, 36, 0, 5, -5, 5, -68,
+        -5, 0, -5, -5, -36, 0, -5, 5, -5,
+    };
+    g_autofree uint8_t *paths = g_malloc0(0x60000);
+    unsigned a, b, at;
+    uint32_t key = 0x10000 | ((first - 0x10001 + 2) % 0xfffe + 1);
+
+    build_inline_rectangles(data, data + 0x20000, rectangles, 2,
+                             0xbec5f200, false, first, &a, &b);
+    a = 106;
+    b = 118; /* Remove the rectangle batch ending, retaining both clears. */
+    build_stroked_paths(paths, 1, 0xbec5f200, key);
+    path_floats(paths + 10 * 4,
+                (float[]) { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, 9);
+    stl_le_p(paths + 4 * 4, 10);
+    stl_le_p(paths + 22 * 4, 0xd0000016);
+    stl_le_p(paths + 26 * 4, 0x1000000a);
+    stl_le_p(paths + (41 + 3) * 4, 0xd0000016);
+    stl_le_p(paths + (41 + 7) * 4, 0x1000000a);
+    stl_le_p(paths + 0x20000 + 41 * 4, fill);
+    stl_le_p(paths + 0x20000 + (55 + 17) * 4, stroke);
+    stl_le_p(paths + (41 + 12) * 4, 0x4077def6);
+    memcpy(data + a * 4, paths, 41 * 4);
+    a += 41;
+    memcpy(data + 0x20000 + b * 4, paths + 0x20000, 24 * 4);
+    b += 24;
+    inline_pair(data + 0x20000, &b, 0x01848004, 0);
+    memcpy(data + 0x20000 + b * 4, paths + 0x20000 + 24 * 4,
+           31 * 4);
+    b += 31;
+    if (!inherited) {
+        memcpy(data + a * 4, paths, 19 * 4);
+        a += 19;
+        memcpy(data + 0x20000 + b * 4, paths + 0x20000, 24 * 4);
+        b += 24;
+    }
+    *stroke_word = a;
+    memcpy(data + a * 4, paths + 41 * 4, 29 * 4);
+    a += 29;
+    memcpy(data + 0x20000 + b * 4, paths + 0x20000 + 55 * 4, 31 * 4);
+    b += 31;
+    at = b;
+    inline_pair(data + 0x20000, &at, 0x00081004, 1);
+    b = at;
+    if (a & 1) {
+        inline_word(data, &a, 0);
+    }
+    if (b & 1) {
+        inline_word(data + 0x20000, &b, 0);
+    }
+    *setup_bytes = a * 4;
+    *draw_bytes = b * 4;
+    memcpy(data + 0x50000,
+           (uint8_t[]) { 2, 7, 11, 9, 11, 7, 11, 9, 11, 0 }, 10);
+    path_floats(data + 0x50100, coordinates, ARRAY_SIZE(coordinates));
+}
+
+static void test_vector_batch(void)
+{
+    enum { EXTENT = 720 * 480 * 4, GUARDS = EXTENT + 8 };
+    enum { SUCCESS, INHERITED, UNCACHED_FIRST, STROKE_MATRIX, ZERO_ALPHA,
+           COLORED, WRAP, IMMUTABLE, REPEAT,
+           COLD, BAD_KEY, BAD_STROKE, BAD_SEGMENT, BAD_MATRIX, BAD_ALIAS,
+           LATE_SEGMENT, MAP_LOSS, RESET, CANCEL, CASES };
+    const uint8_t segments[] = { 2, 4, 10, 4, 10, 4, 10, 4, 10, 0 };
+    const float coordinates[] = {
+        8, 305, 76, 305, 81, 305, 81, 310, 81, 346, 81, 351, 76, 351,
+        8, 351, 3, 351, 3, 346, 3, 310, 3, 305, 8, 305,
+    };
+    uint32_t points[ARRAY_SIZE(coordinates)], matrix[9];
+    NikonPathStroke stroke = { 1, 3.8729835f, 0, 0 };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+    g_autofree uint8_t *fill_mask = g_malloc0(720 * 480);
+    g_autofree uint8_t *stroke_mask = g_malloc0(720 * 480);
+    const char *reason = NULL;
+
+    path_floats((uint8_t *)points, coordinates, ARRAY_SIZE(coordinates));
+    path_floats((uint8_t *)matrix,
+                (float[]) { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, 9);
+    g_assert_true(nikon_path_mask(fill_mask, 720, 480, segments,
+        ARRAY_SIZE(segments), points, ARRAY_SIZE(points), matrix, false,
+        NULL, &reason));
+    g_assert_true(nikon_path_mask(stroke_mask, 720, 480, segments,
+        ARRAY_SIZE(segments), points, ARRAY_SIZE(points), matrix, true,
+        &stroke, &reason));
+    object_property_add_child(object_get_objects_root(), "transfer-vector[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.vector-command", 0x60000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+        "test.vector-surface", GUARDS, 0, &error_abort);
+    memory_region_add_subregion(root, 0xbec5f200 - 4, &surface);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.vector-alias",
+                            &surface, 4, 128);
+    memory_region_add_subregion(root, 0x500000, &alias);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned test = SUCCESS; test < CASES; test++) {
+        unsigned a, b, at;
+        uint32_t fill = test == ZERO_ALPHA ? 0x00123456 :
+                        test == COLORED ? 0x604080c0 : 0x80000000;
+        uint32_t paint = test == ZERO_ALPHA ? 0x00010203 : 0xffa0a0a0;
+        bool complete = test <= REPEAT;
+        bool accepted = complete || test >= LATE_SEGMENT;
+        g_autofree uint8_t *before = NULL;
+        g_autofree uint8_t *expected = NULL;
+
+        g_test_message("vector batch case %u", test);
+        device_cold_reset(f.dev);
+        memset(data, 0, 0x60000);
+        memset(pixels, 0xa5, GUARDS);
+        if (test != COLD) {
+            const InlineRectangle clear = { 0, 0, 720, 480, 0 };
+
+            build_inline_rectangles(data, data + 0x20000, &clear, 1,
+                0xbec5f200, true, 0x10001, &a, &b);
+            g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, a, b,
+                                                    true), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        for (unsigned i = 0; i < EXTENT / 4; i++) {
+            stl_le_p(pixels + 4 + 4 * i, 0x7f204060);
+        }
+        memset(data, 0, 0x60000);
+        build_vector_batch(data, test == INHERITED,
+                           test == WRAP ? 0x1fffd : 0x1003e,
+                           fill, paint, &a, &b, &at);
+        switch (test) {
+        case UNCACHED_FIRST:
+            memmove(data, data + 10 * 4, a - 10 * 4);
+            a -= 10 * 4;
+            at -= 10;
+            memmove(data + 0x20000, data + 0x20008, b - 8);
+            b -= 8;
+            g_assert_cmpuint(a, ==, 744);
+            g_assert_cmpuint(b, ==, 920);
+            break;
+        case STROKE_MATRIX:
+            stl_le_p(data + (at - 19 + 16) * 4, 0x3f800000);
+            break;
+        case BAD_KEY:
+            stl_le_p(data + (at + 28) * 4, 0x10001);
+            break;
+        case BAD_STROKE:
+            stl_le_p(data + (at + 9) * 4, 1);
+            break;
+        case BAD_SEGMENT:
+            data[0x50002] = 12;
+            break;
+        case BAD_MATRIX:
+            stl_le_p(data + 106 * 4 + 10 * 4, 0x7fc00000);
+            break;
+        case BAD_ALIAS:
+            stl_le_p(data + (at + 1) * 4, 0x500000);
+            break;
+        default:
+            break;
+        }
+        before = g_memdup2(pixels, GUARDS);
+        expected = g_memdup2(pixels, GUARDS);
+        for (unsigned y = 0; y < 480; y++) {
+            for (unsigned x = 0; x < 720; x++) {
+                unsigned p = y * 720 + x;
+                uint32_t value = x >= 2 && x < 82 && y >= 304 && y < 352 ?
+                                 0 : 0x7f204060;
+
+                value = rgba_over_reference(fill, value, fill_mask[p]);
+                value = rgba_over_reference(paint, value,
+                    test == STROKE_MATRIX ? (x ? stroke_mask[p - 1] : 0) :
+                    stroke_mask[p]);
+                stl_le_p(expected + 4 + 4 * p, value);
+            }
+        }
+        g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, a, b, false),
+                        ==, accepted ? MEMTX_OK : MEMTX_ERROR);
+        g_assert_false(f.level);
+        g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+        if (test == IMMUTABLE) {
+            memset(data, 0xff, a);
+            memset(data + 0x20000, 0xff, b);
+        } else if (test == LATE_SEGMENT) {
+            data[0x50009] = 12;
+        } else if (test == MAP_LOSS) {
+            memory_region_set_readonly(&surface, true);
+        } else if (test == RESET) {
+            device_cold_reset(f.dev);
+        } else if (test == CANCEL) {
+            qdev_unrealize(f.dev);
+        }
+        advance();
+        memory_region_set_readonly(&surface, false);
+        g_assert_cmpint(f.level, ==, complete);
+        g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
+        if (complete) {
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            if (test == SUCCESS) {
+                g_assert_cmphex((uint32_t)ldl_le_p(pixels + 4 +
+                                                  4 * (328 * 720 + 40)),
+                                ==, 0x80000000);
+                g_assert_cmphex((uint32_t)ldl_le_p(pixels + 4 +
+                                                  4 * (304 * 720 + 40)),
+                                ==, 0xffa0a0a0);
+                g_assert_cmphex((uint32_t)ldl_le_p(pixels + 4 +
+                                                  4 * (304 * 720 + 2)),
+                                ==, 0);
+            }
+            if (test == REPEAT) {
+                g_assert_cmpint(submit_inline_rectangles(&f, 0x400000, a, b,
+                                                        false), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpmem(pixels, GUARDS, expected, GUARDS);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+            }
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -5420,6 +5724,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
     g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
+    g_test_add_func("/nikon/transfer/vector-batch", test_vector_batch);
+    g_test_add_func("/nikon/transfer/relative-paths", test_relative_paths);
     g_test_add_func("/nikon/transfer/stroke-mask", test_stroke_mask);
     g_test_add_func("/nikon/transfer/matrix-overwrite", test_matrix_overwrite);
     g_test_add_func("/nikon/transfer/yuv-matrix-overwrite", test_yuv_matrix_overwrite);

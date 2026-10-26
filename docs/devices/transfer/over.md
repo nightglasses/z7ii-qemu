@@ -66,12 +66,12 @@ Co = round((Cs * s + Cd * d) / t)
 ```
 
 Zero effective source alpha preserves all destination bytes. Colors are
-stored as straight RGBA. Existing path/image batches first build a
-premultiplied scratch overlay; for that input the source numerator is
-`Cs * M * 65025`. They now accept destination alpha0..255 and normalize the
-result, allowing them to consume this partially transparent context. Their
-source command grammar still requires opaque paint; A8/edge coverage may
-produce a partially transparent overlay.
+stored as straight RGBA. The [ordered vector walker](vector.md) applies each
+solid path directly to its private destination using these equations, including
+paint alpha0..255. Image batches retain their premultiplied scratch overlay;
+for that input the source numerator is `Cs * M * 65025`. They accept destination
+alpha0..255 and normalize the result. Image modulation still requires opaque
+paint; A8/edge coverage may produce a partially transparent overlay.
 
 The [fixed Z7 implementation](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L304-L435)
 corroborates packed RGBA, selector1 and straight-alpha SRC_OVER. The equations
