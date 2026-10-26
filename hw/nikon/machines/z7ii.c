@@ -202,6 +202,7 @@ struct Z7IIMachineState {
     char *mas_boot_prefix;
     char *cmos_image;
     char *paired_calibration;
+    char *slot0_drive;
     DeviceState *ex_input_dev;
     QEMUTimer *ex_input_timer;
     bool frame_contract;
@@ -1115,6 +1116,9 @@ static void z7ii_init(MachineState *machine)
     object_property_add_child(OBJECT(machine), "gpio", OBJECT(gpio));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(gpio), 0, 0x04282000);
+    /* Service91 reads active-low P5.14: no SD endpoint is attached. */
+    qemu_set_irq(qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 14),
+                 1);
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
 
@@ -1673,8 +1677,8 @@ static void z7ii_init(MachineState *machine)
                              qdev_get_gpio_in(gic, 237 - 32));
 
         object_property_add_child(OBJECT(machine), "storage", OBJECT(storage));
-        if (blk_by_name("storage")) {
-            qdev_prop_set_string(storage, "drive", "storage");
+        if (s->slot0_drive) {
+            qdev_prop_set_string(storage, "drive", s->slot0_drive);
         }
         object_property_set_link(OBJECT(storage), "memory",
                                  OBJECT(get_system_memory()), &error_fatal);
@@ -1686,7 +1690,7 @@ static void z7ii_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(storage), i,
                                qdev_get_gpio_in(gic, storage_irqs[i] - 32));
         }
-        qdev_connect_gpio_out_named(storage, "link", 0,
+        qdev_connect_gpio_out_named(storage, "present", 0,
                                    qdev_get_gpio_in_named(signal, "signal", 3));
     }
     /* The guest registers/enables IRQ250; this is its external SPI input. */
@@ -1937,6 +1941,21 @@ static void z7ii_set_paired_calibration(Object *obj, const char *value,
     s->paired_calibration = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_slot0_drive(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->slot0_drive;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_slot0_drive(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->slot0_drive);
+    s->slot0_drive = g_strdup(value && *value ? value : NULL);
+}
+
 static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1977,6 +1996,7 @@ static void z7ii_finalize(Object *obj)
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
     g_free(s->paired_calibration);
+    g_free(s->slot0_drive);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -2043,6 +2063,10 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "paired-calibration",
         "Exact 24064-byte calibration tuple accepted by the finite monochrome "
         "paired operator; validates guest table publication without filling it");
+    object_class_property_add_str(oc, "slot0-drive", z7ii_get_slot0_drive,
+                                  z7ii_set_slot0_drive);
+    object_class_property_set_description(oc, "slot0-drive",
+        "BlockBackend ID for the NVMe card in source slot 0; omitted means absent");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
     object_class_property_set_description(oc, "frame-contract",

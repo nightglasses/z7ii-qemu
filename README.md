@@ -6,7 +6,7 @@ The [handbook](docs/index.md) organizes architecture, startup, device contracts,
 runtime, explicit inputs, address references and validation. Start with the
 [current startup frontier](docs/validation/frontier.md) for the latest result.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. Earlier declared-input runs published an error-GUI frame through the bank display. The numerical RAW continuation now completes four actual phases before a strict correction-record boundary, preceding display binding in that run; normal-menu startup remains unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. The latest declared-input run completes 108 numerical RAW jobs, displays a status GUI and performs an original 512-byte NVMe media read. Normal live view and file saving remain unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -16,7 +16,7 @@ component or software-domain profiles and do not claim a complete camera boot.
 
 | Machine type | Domain and CPU | Current role | Status |
 |---|---|---|---|
-| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Four numerical RAW phases before a correction-record boundary; historical error-GUI output; complete boot unverified |
+| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Continuing numerical RAW processing, status GUI and first original NVMe sector read; complete boot unverified |
 | `nikonsla` | SLA software domain, Cortex-A7 | Standalone decoded SLA loading and private peripheral contracts | Supported standalone profile; not a complete camera board |
 | `nikonex` | EX component, Cortex-M4 | Independent EX firmware and device contract tests | Supported component profile |
 | `nikonvr` | VR software profile, RX62N | Independent RX software and peripheral tests | Supported software profile |
@@ -153,10 +153,13 @@ The [paired pixel model](docs/devices/pairs/pixels.md) now consumes actual
 completed RAW buffers, applies bounded monochrome filtering and guest color
 parameters, writes main/work/grid outputs and publishes completion through
 normal IRQ handling. Select its explicit `paired-calibration` input alongside
-the scene and cold-neutral inputs. Original firmware completes four real phases
-and 10,645,440 payload bytes before a changed 40-byte correction record reaches
-the strict arithmetic boundary. This establishes the connected numerical data
-path, while continuous normal live view remains unresolved.
+the scene and cold-neutral inputs. Cycle-selected noise and both source-selected
+address groups now have finite numerical models. In the latest selected-card
+window, original firmware completes 108 jobs and 287,426,880 payload bytes while
+reading its first NVMe sector. This establishes the connected numerical data
+path; the empty-slot profile's continuation pause and continuous normal live
+view remain unresolved. See the [storage input](docs/devices/storage/protocol.md#explicit-media-input)
+for `slot0-drive`, raw images and the host-folder boundary.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

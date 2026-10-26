@@ -1,6 +1,48 @@
 # Original-firmware startup frontier
 
-## Current: real RAW processing and the next correction-record boundary
+## Current: selected media access and continuing paired pixels
+
+The [paired operator](../devices/pairs/pixels.md) now handles the complete
+cycle-selected noise packet with mathematically validated primitive feedback,
+and both source-selected RAW/main/grid address groups. Work histories remain
+shared as the inspected producer requires. Seed, numerical scales, selected
+group interpretation and event cadence remain explicit functional assumptions;
+no firmware, callback or requested completion is patched.
+
+The [GPIO audit](../devices/gpio/input.md#whole-source-family-audit) covers all
+232 descriptors and 31 direct read sites. It preserves dynamic EX/CComp/SLA
+providers and supplies source-backed absence for SD P5.14. The
+[storage contract](../devices/storage/protocol.md) adds explicit `slot0-drive`,
+separates insertion from training, separates actual level status from event
+capture, and joins all twelve PCI wrappers to a finite root transaction-error
+latch. It preserves native NVMe/block operations and actual bus errors.
+
+In the latest unchanged 60-host-second cold-neutral run, an explicitly selected
+8 GiB blank raw card receives one original 512-byte read, zero writes/flushes
+and zero failed I/O. The linked host reaches PHY state `11`, insertion `404`
+and root errors `0`; no fatal exception dump is present. Paired jobs advance
+through 0/52/100/108 at 15/30/45/60 seconds, writing 287,426,880 bytes and adding
+114,095,520 main pixels. Paired rejection/cancellation remain zero. QMP stays
+running with no strict uncovered/unsupported transaction; existing EX external
+line warnings are not relabeled as warning-free execution.
+
+Head1 binds a 1024×682 status GUI with an absent/non-CPU-lens notice; the former
+SD warning is gone. Head0 remains unbound and GUI readiness is zero. All graph
+ports are inactive at the snapshot, so the next image evidence is the original
+graph submission/GUI-admission branch, not an assumed missing completion.
+The empty-slot profile separately holds at a four-read pause after 12 jobs
+despite fresh RAW; continuation-kick liveness is not established for every
+input profile. A prior 120-second window reaches 132 jobs, but predates the
+signal correction and is retained with that qualification.
+
+The [noise receipt](/evidence/imagerequest/noise.json) records 54 CMOS and 10
+numerical tests. The [storage receipt](/evidence/storage/presence.json) records
+10 storage, 23 SLA and six GPIO tests, old-model failures and the original
+execution profiles. These focused results establish neither original format/
+file-save nor stable normal live view or physical-camera accuracy. Sector image
+storage is primary; a host folder is an offline import/export boundary.
+
+## Previous: real RAW processing and the correction-record boundary
 
 The [paired pixel operator](../devices/pairs/pixels.md) connects completed RAW
 DMA to selected-phase main, work and grid outputs, then publishes results

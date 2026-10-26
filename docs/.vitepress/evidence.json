@@ -469,6 +469,18 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "pairednoise",
+        "title": "Cycle-selected noise, independent groups and qualified original liveness",
+        "href": "/evidence/imagerequest/noise.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "storagepresence",
+        "title": "Whole GPIO audit, selected media and first original sector read",
+        "href": "/evidence/storage/presence.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "pairedpixels",
         "title": "RAW processing, real output DMA and correction-record boundary",
         "href": "/evidence/imagerequest/pixels.json",
@@ -1722,7 +1734,14 @@
     "records": []
   },
   "devices/storage/protocol.md": {
-    "records": []
+    "records": [
+      {
+        "run": "storagepresence",
+        "title": "Insertion, native transaction errors and original media access",
+        "href": "/evidence/storage/presence.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "devices/timing/capture.md": {
     "records": []
@@ -2086,6 +2105,12 @@
         "run": "pairednoise",
         "title": "Noise arithmetic, selected groups and original processing profiles",
         "href": "/evidence/imagerequest/noise.json",
+        "kind": "Execution observation"
+      },
+      {
+        "run": "storagepresence",
+        "title": "Integrated paired processing alongside original NVMe sector access",
+        "href": "/evidence/storage/presence.json",
         "kind": "Execution observation"
       },
       {
@@ -2472,11 +2497,28 @@
   "devices/gpio/protocol.md": {
     "records": []
   },
+  "devices/gpio/input.md": {
+    "records": [
+      {
+        "run": "storagepresence",
+        "title": "Whole GPIO source audit and absent SD input",
+        "href": "/evidence/storage/presence.json",
+        "kind": "Execution observation"
+      }
+    ]
+  },
   "devices/usio/protocol.md": {
     "records": []
   },
   "devices/signal/input.md": {
-    "records": []
+    "records": [
+      {
+        "run": "storagepresence",
+        "title": "Five-route level sampling and event capture separation",
+        "href": "/evidence/storage/presence.json",
+        "kind": "Execution observation"
+      }
+    ]
   },
   "devices/signal/sla.md": {
     "records": []

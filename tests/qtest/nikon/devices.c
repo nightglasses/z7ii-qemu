@@ -254,6 +254,29 @@ static void test_gpio_input(void)
     qtest_quit(q);
 }
 
+static void test_gpio_card_absent(void)
+{
+    QTestState *q = start(false, 1);
+    const unsigned bit = 1U << 14;
+
+    for (unsigned reset = 0; reset < 2; reset++) {
+        if (reset) {
+            qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+        }
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x114) & bit, ==, 0);
+        qtest_writel(q, GPIO + 0x314, 0);
+        qtest_writel(q, GPIO + 0x414, 0);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
+        qtest_writel(q, GPIO + 0x114, bit);
+        qtest_writel(q, GPIO + 0x14, bit << 16);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, 0);
+        qtest_writel(q, GPIO + 0x114, 0);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
+    }
+    qtest_quit(q);
+}
+
 static void test_gpio_descriptors(void)
 {
     QTestState *q = start(false, 1);
@@ -349,7 +372,7 @@ static void test_gpio_irq(void)
     qtest_writel(q, EXIU, 0xfffe);
     qtest_writel(q, GPIO + 0x114, 0x80);
     qtest_writel(q, GPIO + 0x14, 0x00800080);
-    g_assert_cmphex(qtest_readl(q, GPIO + 0x14), ==, 0x80);
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x14), ==, 0x4080);
     g_assert_cmphex(qtest_readl(q, EXIU + 0xc), ==, 1);
     g_assert_true(qtest_get_irq(q, 65 - 32));
     /* CLR is a command register: read zero, acknowledge only selected bits. */
@@ -1305,6 +1328,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/gpio/irq", test_gpio_irq);
     qtest_add_func("/nikon/gpio/level", test_gpio_level);
     qtest_add_func("/nikon/gpio/input", test_gpio_input);
+    qtest_add_func("/nikon/gpio/card-absent", test_gpio_card_absent);
     qtest_add_func("/nikon/gpio/descriptors", test_gpio_descriptors);
     qtest_add_func("/nikon/gpio/mux", test_gpio_mux);
     qtest_add_func("/nikon/ccomp/pulses", test_ccomp_pulses);

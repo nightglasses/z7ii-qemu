@@ -6,11 +6,53 @@ The new original common ISR reads pending at `2b000008`, writes the same word ba
 
 Source correction **594e882bf3e387082a5a8a13dd5593aefe5123d9** distinguishes that producer-selector order from the ISR callback array: ISR pairs4/5 dispatch element3, and6/7 element4, while producer selectors3/4 configure6/7 and4/5 respectively. The software relation between these two original permutations remains unbound. The model preserves physical pending bits and original sampling selectors; it neither reorders guest callback storage nor calls those callbacks. Shared OR_IRQ aggregation is independent of that software indexing gap.
 
-The seven sampler words retain the prior complete input/gate/debounce/reset model. Pending now has aligned 32-bit read access as well as W1C writes. Reads expose the unfiltered ten private pending bits, preserve state and never sample an input or clear an interrupt. This read meaning is an explicit functional convention; original read/writeback establishes access and ACK use, not mask-filter polarity. Masks select each retained pair's output contribution. Official QEMU **OR_IRQ**, configured for five lines, combines the five SysBus outputs before a single connection to the mature GIC's IRQ237 input. Clearing one route cannot lower the shared wire while another masked-in route remains pending. Sampling/configuration still does not call guest callbacks or write guest flags; original ISR code performs those actions.
+Pending has aligned 32-bit read access as well as W1C writes. Reads expose the unfiltered ten private pending bits, preserve state and never sample an input or clear an interrupt. This read meaning is an explicit functional convention; original read/writeback establishes access and ACK use, not mask-filter polarity. Masks select each retained pair's output contribution. Official QEMU **OR_IRQ**, configured for five lines, combines the five SysBus outputs before a single connection to the mature GIC's IRQ237 input. Clearing one route cannot lower the shared wire while another masked-in route remains pending. Sampling/configuration does not call guest callbacks or write guest flags; original ISR code performs those actions.
 
 The separate aperture **[28000000,28000004)** is a named opaque configuration input. Only aligned 32-bit writes are accepted. The full guest value is retained, with virtual reset zero. Reads, other widths and neighboring addresses fail. This original consumer is not bound to a physical 280 IP, security/forwarding gate, ACK, clock, completion or IRQ producer. Its retained value has no event side effects. It is a distinct MemoryRegion on the sampler class, with dedicated access handlers; it does not widen the seven-word sampling window. Snapshot/migration remains explicitly unmigratable.
 
-The five external qdev inputs remain disconnected/low at cold start. Reset retains live provider levels, cancels debounce timers and clears controller pending/configuration. All prior named assumptions remain: zero configuration, zero-held reset, one-enabled gate/mask, raw-low/filtered-high status, W1C edge latch and a separate nominal 1 MHz debounce clock with 1/2/4/8 ticks. No physical external signal or GIC event is invented by the new initializer writes. Adjacent `2b001000`, distinct `2b100000`/`2b200000`, and all undisclosed 280 words remain unsupported.
+Disconnected external inputs start low. A board-owned storage backend now supplies
+the actual route-3 insertion level. Reset retains live providers, cancels
+debounce timers, clears pending/configuration and rebases sampled status without
+an edge. The neighboring request lanes and host PHY have separate contracts;
+the seven-word aperture does not acquire their behavior.
+
+## Level sampling and event capture
+
+The old conjunction of release and gate controls suppressed sampled status.
+New C1.70 MAS consumers contradict that assumption: VA `105162a2` reads route-3
+filtered insertion before power or PHY setup. Training VA `1051811e` clears its
+gate through `1051670c(service333,3,0)` and leaves it clear on success, while
+all twelve PCI config/MMIO/barrier methods at `105183d6..10518596` require the
+guard `105187f4` to read that same filtered insertion as true. Cancellation
+`105181ec/10518240` sets the gate again. Both gate values must therefore permit
+truthful card-present status; neither can make the external card disappear.
+
+The finite model separates levels from edge capture across all five routes:
+
+| Operation | Level/status effect | Pending/IRQ effect |
+| --- | --- | --- |
+| External transition | Update raw immediately; sampled follows immediately or after configured debounce | Latch an actual sampled edge only when capture controls permit it |
+| Word `00` release pulse or word `04` gate change | Cancel old deadline and rebase to actual raw input | No invented edge; disabled capture clears that route's pending pair |
+| Word `14` debounce change | Cancel old deadline and rebase to actual raw input | No invented edge; active capture retains already latched causes |
+| Masks and W1C | Do not change input levels | Select IRQ contribution or clear selected pending causes |
+| Reset | Preserve actual provider levels and rebase sampled status | Cancel timers; clear pending/configuration and outputs without an edge |
+| Status read | Return raw low bits and sampled high bits | No sampling, time advance or state change |
+
+Word `00` and `04` retain the declared one-enabled convention for **edge
+capture only**. Their physical polarity/function is not recovered. Raw/sampled
+bank interpretation, W1C, one-enabled masks and the separate 1 MHz clock with
+1/2/4/8 debounce ticks remain explicit functional assumptions. No constant
+ready value, read-triggered update or GPIO release write is added to the guest.
+
+The direct status audit covers seven MAS call sites: insertion readers
+`1049d68e/105162a2`, host guards `105187ae/105187f4`, route-2 reader `1051a6f8`,
+caller-selected `1051bbce`, and route-0/1 reader `107555d2`. The latter routes'
+physical roles remain unresolved. The complete SLA setter family retains the
+same field permutations. New native checks exercise all five pre-control
+levels, both gate/release states, disabled-capture debounce, live reset and
+original storage training with its gate cleared. The
+[storage receipt](/evidence/storage/presence.json) keeps these tests and original
+execution separate from the historical results below.
 
 ## Fixed validation
 

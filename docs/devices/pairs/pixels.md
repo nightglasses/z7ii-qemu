@@ -561,3 +561,14 @@ Head1 binds a 1024×682 status GUI; the prior SD warning is replaced by the
 original absent/non-CPU-lens notice. Head0 and normal live view remain
 unverified. All graph ports are inactive at the snapshot, so parameter
 publication and GUI readiness zero do not justify inventing downstream work.
+
+The profiles must remain distinct. With corrected signal levels and slot0
+omitted, a separate 120-second run stays at 12 completed jobs while fresh RAW
+continues: bank0 waits at the four-read pause without a new continuation kick.
+This is an unresolved liveness boundary, not permission to clear the pause.
+With slot0 explicitly inserted and the complete storage error-consumer model,
+the later 60-second run reaches 108 paired jobs, 287,426,880 payload bytes and
+114,095,520 main pixels while the original NVMe driver reads its first sector.
+The [storage receipt](/evidence/storage/presence.json) records that integrated
+result. Neither one progressing window nor a status console establishes stable
+normal live view across all input profiles.

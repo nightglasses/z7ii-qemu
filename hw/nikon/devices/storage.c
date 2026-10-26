@@ -69,15 +69,16 @@ struct NikonStorageHost {
     char *media_id;
     MemoryRegion *dma_memory;
     MemoryRegion dbi, config, memory, phy, platform;
-    MemoryRegion bar_alias, dma_root, dma_alias, msi;
-    AddressSpace dma;
+    MemoryRegion dma_root, dma_alias, msi;
+    AddressSpace dma, pci_memory;
     qemu_irq irq[4];
-    qemu_irq link;
+    qemu_irq present;
     qemu_irq intx_inputs[4];
     QEMUTimer *transition;
     StorageWindow window[2];
     uint32_t viewport, msi_address, msi_upper, msi_enable, msi_mask, msi_status;
     uint32_t dbi_168, dbi_80c, dbi_8a8, dbi_8bc;
+    uint32_t transaction_errors;
     uint32_t phy_registers[0x400 / 4];
     uint32_t platform_registers[4];
     uint32_t pending24, pending2c, cancel_event;
@@ -143,10 +144,17 @@ static bool storage_window_valid(NikonStorageHost *s, unsigned index)
                     w->limit == 0x2a80ffff && w->target == 0);
 }
 
-static void storage_windows(NikonStorageHost *s)
+static MemTxResult storage_result(NikonStorageHost *s, MemTxResult result)
 {
-    memory_region_set_enabled(&s->bar_alias, storage_window_valid(s, 1));
-    qemu_set_irq(s->link, s->state == 0x11);
+    /*
+     * 105187e4 checks bit14 after all twelve native config/BAR wrappers.
+     * Mapping a failed host transaction to this bit is a finite convention,
+     * not physical PCIe Completion Timeout or an NVMe command error.
+     */
+    if (result != MEMTX_OK) {
+        s->transaction_errors |= 1U << 14;
+    }
+    return result;
 }
 
 static void storage_intx(void *opaque, int pin, int level)
@@ -220,6 +228,8 @@ static bool storage_dbi_accepts(void *opaque, hwaddr addr, unsigned size,
         return false;
     }
     switch (addr) {
+    case 0x104:
+        return !is_write;
     case 0x168: case 0x80c:
     case 0x820: case 0x824: case 0x828: case 0x82c: case 0x830:
     case 0x8a8: case 0x8bc:
@@ -249,6 +259,7 @@ static uint64_t storage_dbi_read(void *opaque, hwaddr addr, unsigned size)
         return value;
     }
     switch (addr) {
+    case 0x104: return s->transaction_errors;
     case 0x168: return s->dbi_168;
     case 0x80c: return s->dbi_80c;
     case 0x820: return s->msi_address;
@@ -306,7 +317,6 @@ static void storage_dbi_write(void *opaque, hwaddr addr, uint64_t value,
     case 0x91c: w->target_upper = value; break;
     default: g_assert_not_reached();
     }
-    storage_windows(s);
     storage_irqs(s);
 }
 
@@ -325,7 +335,7 @@ static MemTxResult storage_config_read(void *opaque, hwaddr addr, uint64_t *data
     NikonStorageHost *s = opaque;
     if (!storage_window_valid(s, 0) || addr + size > 0x1000) {
         *data = 0;
-        return MEMTX_ERROR;
+        return storage_result(s, MEMTX_ERROR);
     }
     *data = pci_host_config_read_common(s->endpoint, addr, 0x1000, size);
     return MEMTX_OK;
@@ -336,7 +346,7 @@ static MemTxResult storage_config_write(void *opaque, hwaddr addr, uint64_t data
 {
     NikonStorageHost *s = opaque;
     if (!storage_window_valid(s, 0) || addr + size > 0x1000) {
-        return MEMTX_ERROR;
+        return storage_result(s, MEMTX_ERROR);
     }
     pci_host_config_write_common(s->endpoint, addr, 0x1000, data, size);
     return MEMTX_OK;
@@ -348,6 +358,47 @@ static const MemoryRegionOps storage_config_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid = { .min_access_size = 1, .max_access_size = 4 },
     .impl = { .min_access_size = 1, .max_access_size = 4 },
+};
+
+static MemTxResult storage_memory_read(void *opaque, hwaddr addr,
+                                      uint64_t *data, unsigned size,
+                                      MemTxAttrs attrs)
+{
+    NikonStorageHost *s = opaque;
+    uint64_t value = 0;
+    MemTxResult result;
+
+    *data = 0;
+    if (!storage_window_valid(s, 1)) {
+        return storage_result(s, MEMTX_ERROR);
+    }
+    result = address_space_read(&s->pci_memory, STORAGE_BAR_BASE + addr,
+                                attrs, &value, size);
+    *data = le64_to_cpu(value);
+    return storage_result(s, result);
+}
+
+static MemTxResult storage_memory_write(void *opaque, hwaddr addr,
+                                       uint64_t data, unsigned size,
+                                       MemTxAttrs attrs)
+{
+    NikonStorageHost *s = opaque;
+    uint64_t value = cpu_to_le64(data);
+
+    if (!storage_window_valid(s, 1)) {
+        return storage_result(s, MEMTX_ERROR);
+    }
+    return storage_result(s,
+        address_space_write(&s->pci_memory, STORAGE_BAR_BASE + addr,
+                            attrs, &value, size));
+}
+
+static const MemoryRegionOps storage_memory_ops = {
+    .read_with_attrs = storage_memory_read,
+    .write_with_attrs = storage_memory_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8 },
+    .impl = { .min_access_size = 1, .max_access_size = 8 },
 };
 
 static bool storage_phy_accepts(void *opaque, hwaddr addr, unsigned size,
@@ -376,7 +427,6 @@ static void storage_stop(NikonStorageHost *s)
     timer_del(s->transition);
     s->state = 0;
     s->cancelling = false;
-    storage_windows(s);
     if (s->endpoint) {
         /* Native NVMe reset cancels queued commands and block AIO before a
          * cancellation completion is published. No fabricated write success.
@@ -410,7 +460,6 @@ static void storage_transition(void *opaque)
     } else if (storage_training_requested(s)) {
         s->state = 0x11;
     }
-    storage_windows(s);
     storage_irqs(s);
 }
 
@@ -511,7 +560,10 @@ static void storage_reset(DeviceState *dev)
     s->cancel_event = 0;
     s->msi_enable = s->msi_mask = s->dbi_8a8 = s->dbi_8bc = 0;
     s->dbi_168 = s->dbi_80c = 0;
+    s->transaction_errors = 0;
     memory_region_set_enabled(&s->msi, false);
+    /* Original1051635a checks insertion before starting link training. */
+    qemu_set_irq(s->present, s->media && blk_is_inserted(s->media));
 }
 
 static void storage_realize(DeviceState *dev, Error **errp)
@@ -537,11 +589,6 @@ static void storage_realize(DeviceState *dev, Error **errp)
         return;
     }
     bus = PCI_HOST_BRIDGE(&s->bridge)->bus;
-    memory_region_init_alias(&s->bar_alias, OBJECT(s), "storage.bar",
-                             &s->bridge.parent_obj.io_mmio, STORAGE_BAR_BASE,
-                             STORAGE_BAR_SIZE);
-    memory_region_set_enabled(&s->bar_alias, false);
-    memory_region_add_subregion(&s->memory, 0, &s->bar_alias);
     memory_region_init(&s->dma_root, OBJECT(s), "storage.dma", UINT64_MAX);
     memory_region_init_alias(&s->dma_alias, OBJECT(s), "storage.identity",
                              s->dma_memory, 0, UINT64_MAX);
@@ -551,6 +598,8 @@ static void storage_realize(DeviceState *dev, Error **errp)
     memory_region_set_enabled(&s->msi, false);
     memory_region_add_subregion_overlap(&s->dma_root, 0, &s->msi, 1);
     address_space_init(&s->dma, &s->dma_root, "storage.pci");
+    address_space_init(&s->pci_memory, &s->bridge.parent_obj.io_mmio,
+                        "storage.pci-memory");
     s->dma_initialized = true;
     pci_setup_iommu(bus, &storage_iommu, s);
     for (i = 0; i < 4; i++) {
@@ -574,7 +623,8 @@ static void storage_init(Object *obj)
     memory_region_init_io(&s->dbi, obj, &storage_dbi_ops, s, "storage.dbi", 0x1000);
     memory_region_init_io(&s->config, obj, &storage_config_ops, s,
                           "storage.config", 0x10000);
-    memory_region_init(&s->memory, obj, "storage.memory", STORAGE_BAR_SIZE);
+    memory_region_init_io(&s->memory, obj, &storage_memory_ops, s,
+                          "storage.memory", STORAGE_BAR_SIZE);
     memory_region_init_io(&s->phy, obj, &storage_phy_ops, s, "storage.phy", 0x400);
     memory_region_init_io(&s->platform, obj, &storage_platform_ops, s,
                           "storage.platform", 0x10);
@@ -586,7 +636,7 @@ static void storage_init(Object *obj)
     for (i = 0; i < 4; i++) {
         sysbus_init_irq(sbd, &s->irq[i]);
     }
-    qdev_init_gpio_out_named(DEVICE(obj), &s->link, "link", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->present, "present", 1);
     s->transition = timer_new_ns(QEMU_CLOCK_VIRTUAL, storage_transition, s);
 }
 
@@ -597,6 +647,7 @@ static void storage_finalize(Object *obj)
     timer_free(s->transition);
     if (s->dma_initialized) {
         address_space_destroy(&s->dma);
+        address_space_destroy(&s->pci_memory);
     }
     for (i = 0; i < 4; i++) {
         qemu_free_irq(s->intx_inputs[i]);
