@@ -16,6 +16,9 @@ typedef struct NikonPairedNoise {
 typedef struct NikonPairedPixelConfig {
     unsigned width, height, x, y, output_width, output_height;
     unsigned grid_width, grid_height;
+    uint16_t quad_gain[4], quad_pedestal[4], quad_limit;
+    int16_t quad_offset[4];
+    bool quad_enabled;
     uint16_t gain[3];
     bool gain_enabled[3];
     uint16_t curve[2][257];
@@ -31,10 +34,15 @@ bool nikon_paired_noise_valid(const NikonPairedPixelConfig *config);
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
  * five-tap spatial filter, and bounded half-block history blending. Each
- * resulting mono sample passes through up to two Q10 gain curves (257 knots
- * at sample steps of16), then is replicated into RGB, optionally gained in
- * Q8, optionally perturbed by bounded LFSR noise, then transformed by A/C Q10
- * and B Q9. Curves/gains/noise affect main color
+ * resulting mono sample optionally passes through four affine lanes:
+ * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
+ * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are
+ * unsigned14-bit, offsets signed13-bit, pedestals unsigned16-bit and the
+ * shared limit unsigned15-bit. Lane order, RAW12 units and color-only placement
+ * are functional choices, not recovered CFA processing. RGB then passes through
+ * up to two Q10 gain curves (257 knots at sample steps of16), optionally gained
+ * in Q8, optionally perturbed by bounded LFSR noise, then transformed by
+ * A/C Q10 and B Q9. Curves/gains/noise affect main color
  * output only. These choices do not establish the silicon algorithm.
  *
  * raw contains width*height contiguous host-endian RAW12 samples. Optional

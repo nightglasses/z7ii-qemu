@@ -1,6 +1,48 @@
 # Original-firmware startup frontier
 
-## Current: virtual lens initialization and dynamic paired parameters
+## Current: dynamic paired color and a bound status GUI
+
+The [paired pixel operator](../devices/pairs/pixels.md#four-lane-color-correction)
+now executes the complete four-lane gain/offset/pedestal/bound packet at
+`708..720`. Original producers establish Q9 gain arithmetic, negative black
+offsets, interpolated pedestal values and the shared bound. Offset order,
+direct RAW12 units and lane-to-RGB mapping remain explicit monochrome functional
+hypotheses. Mode controls and the rest of `700..778` retain strict validation.
+No guest completion, ready flag or framebuffer is patched.
+
+The unchanged cold-neutral run uses the same fixed virtual lens, healthy UART
+battery peer, held F4, five-CPU MTTCG and selected blank 8 GiB card. The complete
+virtual tuple has zero slots for the newly interpreted packet. At 15/30/45/60
+host seconds, paired completion advances through 0/48/76/76 jobs. These write
+202,263,360 actual bytes, with zero cancellations. QMP runs through the 30-second
+sample, then debug-stops by45 seconds; this is not 60 seconds of stability.
+
+Head1 now binds the original 1024×682 status GUI. Its message says “Before
+taking photos, rotate the zoom ring to extend the lens,” exposing a remaining
+virtual-lens state mismatch. Head0 stays unbound and GUI readiness remains zero.
+Actual paired main outputs are 1372×770 NV12 at PA `dec7fc00/e0702600`, stride
+1376. The diagnostic RGB preview below reads those DMA bytes: four grayscale
+input levels produce tinted quadrants under the finite color model. It is an
+intermediate image, not the background of the bound GUI or calibrated imagery.
+
+![Original status GUI](/evidence/paired/gui.png)
+
+![Intermediate paired DMA pixels](/evidence/paired/pixels.png)
+
+The next strict stop is CPU1 VA PC `1036a4a2`, WRITE32 PA `20380010=1`:
+bank offset `598` changes from selected `1a6a1a6a` to `17c717c7`. That group
+still requires producer and numerical interpretation; the model does not ignore
+it or replace the tuple to hide the change. The lens completes826 packets,
+rejects zero and supplies25,023 complete history records; configuration commits
+once. The card receives one512-byte read with no failed I/O; no panic dump is
+present. Existing EX external-line warnings remain.
+
+The [affine receipt](/evidence/paired/affine.json) separates 33 native subtests,
+red/green history evidence, this bounded original execution and preview decoding.
+The next work is the dynamic `598` family and the normal producer of the lens
+extension state. Normal live view and a 3D application bridge remain unaccepted.
+
+## Previous: virtual lens initialization and dynamic paired parameters
 
 The explicit [virtual lens](../devices/lens/protocol.md) completes ordinary
 identification, optical/configuration/calibration exchange, zero-travel aperture

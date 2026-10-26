@@ -283,6 +283,9 @@ static bool paired_matrix_word(unsigned offset)
 /* Fields interpreted below, rather than opaque calibration profile words. */
 static bool paired_live_word(unsigned offset)
 {
+    if (offset >= 0x708 && offset <= 0x720) {
+        return true;
+    }
     if (paired_matrix_word(offset) ||
         (offset >= 0x30c && offset <= 0x31c) ||
         (offset >= 0x218 && offset <= 0x234) ||
@@ -454,6 +457,28 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     g->output_height = c[0x400 / 4] & 0xffff;
     g->grid_width = 60;
     g->grid_height = 34;
+    /* 103646fe/10363bc0 construct four gain/offset/pedestal lanes and a cap. */
+    if (c[0x704 / 4] || (c[0x700 / 4] && c[0x700 / 4] != 0x101)) {
+        return paired_profile_reject(b, 0x700);
+    }
+    g->quad_enabled = c[0x700 / 4] == 0x101;
+    for (unsigned i = 0; i < 4; i++) {
+        unsigned shift = (i % 2) ? 0 : 16;
+        uint32_t offset = c[0x710 / 4 + i / 2] >> shift;
+
+        g->quad_gain[i] = c[0x708 / 4 + i / 2] >> shift;
+        g->quad_offset[i] = sextract32(offset, 0, 13);
+        g->quad_pedestal[i] = c[0x718 / 4 + i / 2] >> shift;
+        if (g->quad_gain[i] > 16383 || (offset & 0xe000) ||
+            (!g->quad_enabled && (g->quad_gain[i] || offset ||
+                                  g->quad_pedestal[i]))) {
+            return paired_profile_reject(b, 0x708 + 4 * (i / 2));
+        }
+    }
+    if (c[0x720 / 4] > 32767 || (!g->quad_enabled && c[0x720 / 4])) {
+        return paired_profile_reject(b, 0x720);
+    }
+    g->quad_limit = c[0x720 / 4];
     if (!g->width || g->width > 4096 || g->height < 34 ||
         g->height > 4096 || g->width < 60 ||
         !g->output_width || !g->output_height ||
@@ -1036,8 +1061,9 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         if (changed && offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
             paired_cancel(b);
-            /* RAW ring addresses and main-only noise do not change history. */
+            /* RAW addresses and main-only color controls preserve history. */
             if (offset != 0xfc &&
+                !(offset >= 0x708 && offset <= 0x720) &&
                 !(offset >= 0xdf4 && offset <= 0xe10) &&
                 !(offset >= 0x218 && offset <= 0x234) &&
                 !(offset >= 0x310 && offset <= 0x32c) &&

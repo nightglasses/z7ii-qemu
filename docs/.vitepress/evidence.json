@@ -469,6 +469,12 @@
   "validation/frontier.md": {
     "records": [
       {
+        "run": "pairedaffine",
+        "title": "Four-lane affine source, native vectors and original GUI observation",
+        "href": "/evidence/paired/affine.json",
+        "kind": "Execution observation"
+      },
+      {
         "run": "pairednoise",
         "title": "Cycle-selected noise, independent groups and qualified original liveness",
         "href": "/evidence/imagerequest/noise.json",
@@ -2107,6 +2113,12 @@
   },
   "devices/pairs/pixels.md": {
     "records": [
+      {
+        "run": "pairedaffine",
+        "title": "Four-lane affine source, native vectors and original GUI observation",
+        "href": "/evidence/paired/affine.json",
+        "kind": "Execution observation"
+      },
       {
         "run": "pairednoise",
         "title": "Noise arithmetic, selected groups and original processing profiles",

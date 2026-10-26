@@ -39,6 +39,7 @@ The important source-established joins are:
 | `102be8a0`, `1036ab28`, `1036ab54` | Publish the cropped geometry and work/main address groups |
 | `102e57a6`, `1036bb78`, `1036beaa`, `1036c02c` | Publish the A, B and C coefficient layouts |
 | `1036bb04` | Publish three unsigned 16-bit gains and four boolean control bytes at `9cc/9d0/9d4` |
+| `10364894`, `103646fe`, `102f734e`, `1036b35a` | Construct and publish four Q9 gain/black-offset/pedestal lanes and a shared bound at `708..720` |
 | `1036bb68` | Publish either of two 516-byte curve records at `2890` and `2a94` |
 | `103650c0`, `10364bd8`, `1036c862` | Select a cyclic feedback record, construct its scalars and publish the complete packet at `df4..e10` |
 | `102e4ce4`, `102e4d06`, `1036bf88`, `1036bfae`, `1036ca74` | Skip null table pointers; copy selected tables into `1400..1d37` |
@@ -51,7 +52,8 @@ of every field. In particular, `300=0` is not proof of a 16-bit input format:
 uses the actual RAW producer's bit depth and stride instead.
 
 The chosen operator accepts grayscale RAW12 samples, applies impulse, spatial
-and temporal filtering, then applies up to two Q10 gain curves, independent
+and temporal filtering, then applies four-lane affine color correction,
+up to two Q10 gain curves, independent
 Q8 RGB gains, bounded LFSR noise and live A/C Q10 and B Q9 matrices to the main image. Its work
 planes are half-resolution luma and residual; its grid contains area means.
 Those numerical meanings are hypotheses made explicit here so they
@@ -77,7 +79,7 @@ b8, bc, c0, c4, c8, cc, d4, d8, dc, e0, e4
 f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 12c, 130, 134, 138, 13c, 140, 144, 204, 300, 3d8, 420
 218..234, 30c..32c, 394..3b4, 400..410, 428..470, 488..4c8
-b00..b10, b64..b74, b94..ba4
+708..720, b00..b10, b64..b74, b94..ba4
 9cc, 9d0, 9d4, df4..e10, 2890..2c94
 ```
 
@@ -87,17 +89,93 @@ realization. The file is a declared virtual profile, not a recovered
 physical-camera calibration dump.
 
 The fixed virtual lens selects a different complete opaque tuple from the
-earlier absent-endpoint profile. Selecting that input permits eight real jobs;
-it does not recover the opaque fields' algorithms. The next changing group is
-config[13] at root byte 52: `102e49fe` publishes its 109-byte consumed span through
-`1036b322`, `1036b35a` and the related setters into `700..778`. The word at
-`70c` packs the record's unsigned 16-bit values at 18/24 into high/low halves.
-Observed control words `700=101`, `704=0` do not establish a disabled operator.
-The low half changes from `02f8` to `02f9` while this group is active, so a
-matching static input cannot provide continuous support. Numerical meanings,
-record+24 construction and an independent pixel oracle are still needed;
-MMIO retention alone cannot make these live processing fields. The
-[lens receipt](/evidence/lens/session.json) records this bounded execution.
+earlier absent-endpoint profile. The historical [lens receipt](/evidence/lens/session.json)
+stops after eight jobs when `70c` changes. The live affine operator below
+replaces exact matching for `708..720`; these file slots must now be zero.
+Controls `700/704` and the remaining `724..778` still require the complete
+selected opaque profile. A different numeric gain never authorizes unrelated
+mode bits, coordinate groups or coefficients.
+
+## Four-lane color correction
+
+**Source facts.** C1.70 MAS VA `102e49fe` publishes config[13], root byte52,
+through `1036b322`, `1036b35a` and related setters. It consumes at least109
+bytes at pointer P. The relevant fields are:
+
+| Register | High half | Low half |
+| --- | --- | --- |
+| `708` | gain at P+6 | gain at P+12 |
+| `70c` | gain at P+18 | gain at P+24 |
+| `710` | offset at P+8, signed13 | offset at P+14, signed13 |
+| `714` | offset at P+20, signed13 | offset at P+26, signed13 |
+| `718` | pedestal at P+10 | pedestal at P+16 |
+| `71c` | pedestal at P+22 | pedestal at P+28 |
+| `720` | zero | shared bound at P+30 |
+
+Gain and pedestal fields are unsigned16-bit containers. VA `10364894`
+constructs three gains using rounded division by512 and saturation at16383;
+`103646fe` writes them to compact offsets388/394/400/406, duplicating the
+middle gain. It writes the negative input black level to offsets390/396/402/408.
+VA `102bf33c` selects compact+382 as P. Thus the changing low half of `70c`
+is a normal calculated gain, not an incomplete static configuration.
+
+VA `10363a6c` selects interpolation tables. VA `10363bc0` produces four
+pedestals in context[82]+40/42/44/46; all304 selectable rows contain300 for
+these fields. Its context[82]+48 bound is:
+
+```text
+min(32767, round(((16383 - black_level) * shared_scale
+                 + 64 * sum(four_pedestals)) / 256))
+```
+
+VA `102f78b0` calls that producer and then `102f734e`, which copies these
+five outputs to compact+392/398/404/410/412. This closes their relationship
+to `718/71c/720`. The formula supports an additive pedestal and an upper
+bound interpretation; it does not establish the physical per-pixel order.
+
+VA `102f8812` fixes P[0]=1, producing bit8 of `700`. VA `102f8ba6`
+constructs two mutually exclusive mode booleans, published as bit0 of
+`700/704`; the inspected normal branch is `101/0`. These bits are not
+claimed to be a recovered white-balance enable. The model requires that
+exact selected mode. Entirely zero controls and numeric fields are a separate
+synthetic neutral convention used by standalone fixtures.
+
+**Finite functional hypothesis.** For each filtered monochrome RAW12 sample,
+the model computes four lanes:
+
+```text
+lane[i] = clamp(round((mono + signed13_offset[i]) * gain[i] / 512)
+                + pedestal[i], 0, min(shared_bound, 4095))
+R = lane[0]; G = round((lane[1] + lane[2]) / 2); B = lane[3]
+```
+
+Signed rounding is nearest with ties away from zero. Offset-before-gain,
+direct RAW12 units, lane-to-RGB order and placement before the two curves
+are declared choices. Neither the actual Bayer phase nor the physical
+RAW14 arithmetic is recovered. This monochrome source does not establish
+color-sensor demosaicing. The existing Q8 RGB gains, noise and matrices follow
+the curves. Work/grid/residual planes remain pre-color; changing this group
+cancels active work but preserves previously published numerical history.
+Reset clears the configuration and cancels pending work through the existing
+device lifecycle. No completion is posted without successful RAW consumption,
+numerical processing and all output writes.
+
+The native vectors use unequal gains, signed offsets, unequal pedestals,
+clipping and subsequent curves; qtests check actual DMA pixels, padding,
+result flags, retained writes, changed-write cancellation, reset and negative
+encodings. [Affine evidence](/evidence/paired/affine.json) separates those
+fixtures from the unchanged-firmware observation.
+
+The next dynamic family is separate: root config[12] selects compact+98.
+VA `102e4914` calls `1036af16` for control `594`, then `1036af3a` for three
+24-byte records at compact+208/232/256. Each record contains twelve unsigned
+16-bit values, packed in six high/low pairs; channels interleave at four-byte
+spacing across `598..5dc`. VA `102f7a6c` interpolates the first eight values
+from 55-row tables with a step of2; `102f7960` fixes each record's last four
+values to 0/0/16/16. VA `102f7d2e` constructs control `594` as0 or6 from input
+mode fields. Zero is not proven bypass. These filter-like parameter values
+remain opaque until their numerical consumer is established; they are not
+relabeled as gains merely because the previous packet contained gains.
 
 The RAW ring addresses are live descriptor fields. Source VA `102bec2e`
 publishes descriptor byte 52 into either four slots at `218..224` or
@@ -258,7 +336,7 @@ The source-packed main-color gain fields are:
 
 A channel is gained only when both its own bit and the global bit are set.
 The global/R/G/B bytes come from source-record byte offsets 12/6/7/8,
-respectively. Disabled channels preserve the replicated mono sample. The source
+respectively. Disabled channels preserve the preceding RGB sample. The source
 family contains unity gain values of 256 (`0x100`); interpreting these as Q8
 multipliers is a functional choice. Changing an enable byte with a unity gain therefore remains
 a valid numerical configuration rather than an opaque-profile mismatch.
@@ -270,7 +348,7 @@ curve. A wholly omitted curve is disabled; any partial publication or nonzero
 last upper halfword rejects. Coverage resets with the device. These curves
 are interpreted live fields and must be zero in the calibration file, unlike
 the 36 opaque tables described above. A completely published zero-valued curve
-is enabled and yields zero mono output; omission does not mean a zero gain.
+is enabled and yields zero color output; omission does not mean a zero gain.
 
 The source family includes flat curves of 1024 (`0x400`). The model interprets
 knots as Q10 gains at input levels `0,16,...,4096`, not as replacement pixel values.
@@ -294,12 +372,13 @@ the recovered publication sizes and packing do not prove the silicon equation.
 4. **Grid.** Partition the entire filtered ROI into 60-by-34 cells using floor
    boundaries `floor(i*extent/cells)`. Each cell contains its rounded area mean,
    before the color matrices and independently of the main crop.
-5. **Main curves and gains.** For a cropped mono sample `m`, process enabled
+5. **Main color, curves and gains.** Apply the four-lane affine correction above
+   to each cropped mono sample, or replicate mono into RGB for the synthetic
+   neutral packet. For each resulting channel sample `m`, process enabled
    curve 0 then enabled curve 1. At each stage, set `i=m>>4`, `f=m&15` and
    `gain=(knot[i]*(16-f)+knot[i+1]*f+8)/16`. Replace `m` with
    `clamp12(round(m*gain/1024))` before the next curve, so the second stage
-   indexes the first stage's result. Replicate the resulting mono sample into
-   RGB, then replace each enabled channel with
+   indexes the first stage's result. Then replace each enabled channel with
    `clamp12(round(m*channel_gain/256))`.
 6. **Noise.** Apply the bounded three-channel LFSR operation defined below.
 7. **Main matrix conversion.** Apply A then C with Q10 division, then B with Q9

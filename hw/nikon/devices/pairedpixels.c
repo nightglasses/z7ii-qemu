@@ -139,6 +139,15 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
             return false;
         }
     }
+    if (p->quad_limit > 32767) {
+        return false;
+    }
+    for (i = 0; i < 4; i++) {
+        if (p->quad_gain[i] > 16383 || p->quad_offset[i] < -4096 ||
+            p->quad_offset[i] > 4095) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -292,22 +301,39 @@ static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
     uint16_t after_a[3], after_c[3];
     unsigned row, column;
 
-    /* Two source-published curves: Q10 gain knots at sample steps of16. */
-    for (unsigned table = 0; table < 2; table++) {
-        if (p->curve_enabled[table]) {
-            unsigned index = mono >> 4, fraction = mono & 15;
-            unsigned gain = (p->curve[table][index] * (16 - fraction) +
-                             p->curve[table][index + 1] * fraction + 8) / 16;
-
-            mono = paired_clamp(paired_round(mono * gain, 10));
-        }
-    }
     rgb[0] = rgb[1] = rgb[2] = mono;
+    if (p->quad_enabled) {
+        uint16_t lane[4];
+
+        for (unsigned i = 0; i < 4; i++) {
+            int32_t value = paired_round(((int32_t)mono + p->quad_offset[i]) *
+                                        p->quad_gain[i], 9);
+
+            lane[i] = CLAMP(value + p->quad_pedestal[i], 0,
+                            MIN(p->quad_limit, PAIRED_MAX_SAMPLE));
+        }
+        rgb[0] = lane[0];
+        rgb[1] = (lane[1] + lane[2] + 1) / 2;
+        rgb[2] = lane[3];
+    }
     for (column = 0; column < 3; column++) {
         const NikonPairedNoise *n = &p->noise[column];
 
+        /* Two source-published curves: Q10 gain knots at sample steps of16. */
+        for (unsigned table = 0; table < 2; table++) {
+            if (p->curve_enabled[table]) {
+                unsigned sample = rgb[column];
+                unsigned index = sample >> 4, fraction = sample & 15;
+                unsigned gain =
+                    (p->curve[table][index] * (16 - fraction) +
+                     p->curve[table][index + 1] * fraction + 8) / 16;
+
+                rgb[column] = paired_clamp(paired_round(sample * gain, 10));
+            }
+        }
         if (p->gain_enabled[column]) {
-            rgb[column] = paired_clamp(paired_round(mono * p->gain[column], 8));
+            rgb[column] = paired_clamp(paired_round(rgb[column] *
+                                                   p->gain[column], 8));
         }
         if (n->enabled) {
             uint32_t *state = &noise_state[column];

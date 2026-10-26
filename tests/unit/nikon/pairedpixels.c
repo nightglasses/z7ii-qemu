@@ -624,6 +624,70 @@ static void noise(void)
     constant_output(&out, 1000, 0, 64, 128);
 }
 
+static void quad(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    PairedOutputs out;
+
+    fill(raw, ARRAY_SIZE(raw), 1000);
+    p.quad_enabled = true;
+    p.quad_limit = 3000;
+    p.quad_gain[0] = 768;
+    p.quad_gain[1] = 512;
+    p.quad_gain[2] = 256;
+    p.quad_gain[3] = 1024;
+    p.quad_offset[0] = p.quad_offset[2] = -16;
+    p.quad_offset[1] = 16;
+    p.quad_pedestal[0] = 1632;
+    p.quad_pedestal[1] = 12;
+    p.quad_pedestal[2] = 20;
+    p.quad_pedestal[3] = 99;
+    memset(p.b, 0, sizeof(p.b));
+    p.b[0] = p.b[4] = p.b[8] = 512;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    for (unsigned i = 0; i < ARRAY_SIZE(out.y); i++) {
+        g_assert_cmpuint(out.y[i], ==, 188); /* R clipped at3000. */
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(out.uv); i += 2) {
+        g_assert_cmpuint(out.uv[i], ==, 176); /* G=(1028+512)/2=770. */
+        g_assert_cmpuint(out.uv[i + 1], ==, 255); /* B=2099, plus2048. */
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(out.half); i++) {
+        g_assert_cmpuint(out.half[i], ==, 1000);
+        g_assert_cmpuint(out.grid[i], ==, 1000);
+        g_assert_cmpuint(out.residual[i], ==, 0);
+    }
+    p.curve_enabled[0] = true;
+    fill(p.curve[0], 257, 512);
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    g_assert_cmpuint(out.y[0], ==, 94);
+    g_assert_cmpuint(out.uv[0], ==, 152);
+    g_assert_cmpuint(out.uv[1], ==, 194);
+    p.curve_enabled[0] = false;
+    p.quad_offset[0] = -1001;
+    p.quad_gain[0] = 256;
+    p.quad_pedestal[0] = 1;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    g_assert_cmpuint(out.y[0], ==, 0); /* Negative half rounds away from0. */
+    p.quad_limit = 0;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    constant_output(&out, 1000, 0, 0, 128);
+    p.quad_enabled = false;
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    g_assert_cmpuint(out.y[0], ==, 63);
+    p.quad_gain[3] = 16384;
+    rejected(&p, raw, NULL, NULL);
+    p.quad_gain[3] = 16383;
+    p.quad_offset[2] = -4097;
+    rejected(&p, raw, NULL, NULL);
+    p.quad_offset[2] = 4096;
+    rejected(&p, raw, NULL, NULL);
+    p.quad_offset[2] = 4095;
+    p.quad_limit = 32768;
+    rejected(&p, raw, NULL, NULL);
+}
+
 static void noise_invalid(void)
 {
     static const uint32_t masks[] = { 0, 1, 0x80000000, 0x80000001 };
@@ -663,5 +727,6 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/invalid", invalid);
     g_test_add_func("/nikon/pairedpixels/noise", noise);
     g_test_add_func("/nikon/pairedpixels/noise-invalid", noise_invalid);
+    g_test_add_func("/nikon/pairedpixels/quad", quad);
     return g_test_run();
 }
