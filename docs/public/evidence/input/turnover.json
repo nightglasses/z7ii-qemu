@@ -534,5 +534,132 @@
     "graph_errors": 0,
     "qmp_running_at_end": true,
     "qualification": "Independent diagnostic with debugger pauses, not ordinary input timing acceptance."
+  },
+  "async_processing_observation": {
+    "source_parent": "29fe035",
+    "model": "Detached immutable arithmetic in the QEMU thread pool; normal virtual-clock publication; source-backed staged selector/eight-address/10 commit",
+    "input_profile": "Same cold-neutral descriptors, original firmware and blank8GiB card; default50ms queued dial phases",
+    "in_window_debugger": false,
+    "guest_state_writes": false,
+    "controls": [
+      {
+        "label": "M naturally selected",
+        "host_seconds": 32.023348874994554,
+        "paired_completed": 14
+      },
+      {
+        "label": "M dial0 -1 consumed",
+        "host_seconds": 32.58466087499983,
+        "paired_completed": 15
+      },
+      {
+        "label": "M dial1 -1 consumed",
+        "host_seconds": 33.138559916988015,
+        "paired_completed": 16
+      },
+      {
+        "label": "M aperture after normal strategy",
+        "host_seconds": 38.17673820798518,
+        "paired_completed": 27
+      },
+      {
+        "label": "A naturally selected",
+        "host_seconds": 39.76942716698977,
+        "paired_completed": 31
+      },
+      {
+        "label": "A dial1 -1 consumed",
+        "host_seconds": 40.314458582986845,
+        "paired_completed": 32
+      },
+      {
+        "label": "A aperture after normal strategy",
+        "host_seconds": 45.364234249980655,
+        "paired_completed": 45
+      },
+      {
+        "label": "S naturally selected",
+        "host_seconds": 46.95299091699417,
+        "paired_completed": 48
+      },
+      {
+        "label": "S dial0 -1 consumed",
+        "host_seconds": 47.55276495797443,
+        "paired_completed": 50
+      },
+      {
+        "label": "P naturally selected",
+        "host_seconds": 49.167822666990105,
+        "paired_completed": 54
+      },
+      {
+        "label": "P dial0 -1 consumed",
+        "host_seconds": 49.76002558297478,
+        "paired_completed": 56
+      }
+    ],
+    "final_dial_counts": [
+      -3,
+      -2
+    ],
+    "tv_av_final": [
+      312,
+      24
+    ],
+    "accepted_exposure_change": false,
+    "menu_progress": [
+      {
+        "label": "live before MENU",
+        "host_seconds": 64.83101629198063,
+        "paired_completed": 95
+      },
+      {
+        "label": "f20 held",
+        "host_seconds": 67.8498299169878,
+        "paired_completed": 103
+      },
+      {
+        "label": "MENU open",
+        "host_seconds": 73.8961411670025,
+        "paired_completed": 117
+      },
+      {
+        "label": "down held",
+        "host_seconds": 76.92560804198729,
+        "paired_completed": 124
+      },
+      {
+        "label": "menu down",
+        "host_seconds": 82.96275254199281,
+        "paired_completed": 130
+      }
+    ],
+    "post_stop_gui_internal_state": 4,
+    "post_stop_menu_internal_state": 1,
+    "post_stop_control_backend_state": 4,
+    "post_stop_deferred_menu_request": 0,
+    "visible_menu_tree": false,
+    "next_stop": {
+      "cpu": 0,
+      "pc": "0x106ee3c6",
+      "write32": "0x201810e0=1",
+      "reason": "transfer-image-program-not-supported",
+      "stream_bytes": [
+        176,
+        336
+      ],
+      "full_streams_saved_privately": true
+    },
+    "qualification": "Bounded continued MAIN refresh and normal queued-input delivery, followed by a real graphics rejection. This is not an indefinite stability or menu-navigation PASS.",
+    "native": {
+      "paired_async_unit_subtests": 13,
+      "paired_pixels_subtests": 36,
+      "scope": "Both complete unit executables passed. Includes frozen input, pause/publication, cancellation, reset/unrealize, staged selection, partial/rewritten publication, first admission, stop, and global four-read watermark."
+    },
+    "qtest_limit": {
+      "whole_paired_suite_pass": false,
+      "observed_host_stack": "macOS qemu_cleanup -> do_vm_stop -> pause_all_vcpus, while a dummy CPU waits in sigwait; native qtest later kills QEMU after its exit deadline",
+      "qualification": "Successful individual TAP cases in interrupted batches are not reported as a complete suite PASS. Official upstream source remains unchanged."
+    }
   }
 }

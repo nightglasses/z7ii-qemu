@@ -444,11 +444,13 @@ acknowledgement or elapsed timer alone supplies a completed RAW buffer.
 | --- | --- |
 | `10=1` while quiescent | Arm one request |
 | `08=1` while armed | Await input; reset phase, batch and per-request result counters |
-| Matching fresh RAW, valid whole profile, no pending result or peer conflict | Snapshot input/history and schedule one job after 1 ms of virtual time |
+| Matching fresh RAW, valid whole profile, no pending result or peer conflict | Snapshot input/history and submit one host computation after 1 ms of virtual time |
 | Successful operator and every output DMA row | Consume that generation, record history, advance phase, add `OW*OH` to `118`, publish `1002` |
 | All four phases successfully read | Publish the functional `400` four-read watermark, reset the traversal mask and retain cyclic admission |
-| Any selected front/back RAW address write while awaiting input | Cancel an owned snapshot and stage a new address publication, including same-value writes |
-| `10=1` while awaiting input, with both complete selected address views published and no active job or stop | Commit the selected publication and retry eligible real input |
+| `fc=0/1` | Retain a staged view selection; preserve an owned snapshot and its phase/count state |
+| Any live front/back RAW address write while awaiting input | Cancel an owned snapshot and stage a new address publication, including same-value writes |
+| New-view RAW address write | Stage the next view without cancelling the current immutable job |
+| `10=1` while awaiting input, with both complete staged address views published and no stop | Commit immediately if idle, or after the current job publishes or is cancelled |
 | Premature `10=1` while awaiting input | Accept a no-op kick; preserve request and all work/freshness state |
 | `0c=1` while awaiting input | Enter drain pending; stop admitting new jobs |
 | Drain has a successful publication, no active job and all pending bits acknowledged | Become quiescent and publish final bit `2` once |
@@ -468,16 +470,61 @@ four-read watermark `400` are finite conventions tied to actual work, not
 physical timing measurements. Pixel processing does not invent `4` or `8`
 events to advance a consumer.
 
-Address publication is distinct from initial `10/08` admission. Both selected
-front (`218..234`) and back (`310..32c`) views have four slots, with a separate
-mask per group. Any selected address write starts a barrier, including writes
-of unchanged values. Both complete views and an explicit `10` commit are
-required to lift it. Inactive-group staging neither cancels nor blocks the
-selected work. A commit preserves phase, traversal count, pending results,
-consumed generations and eligible numerical history. Whole-profile, memory and
-overlap checks still run before any new job. A changed `fc` after a successful
-phase and before traversal wrap rejects, preventing two groups from being
-spliced into one watermark.
+The QEMU thread pool computes pixels and packs output bytes from a detached,
+immutable job: decoded parameters, RAW samples and qualified history are copied
+before submission. It never reads guest RAM, accesses device state, performs DMA
+or raises an IRQ. One physical task per bank bounds outstanding work, including
+cancelled tasks that have not returned. Completion returns to the main
+AioContext and schedules virtual-clock publication; a paused virtual clock does
+not publish an already computed result. The 1 ms interval is an earliest
+submission time, not a promise of completion within 1 ms or a physical frame rate.
+
+Before publication, the main thread checks the bank's cancellation token, phase
+and unconsumed RAW generation, current whole-batch memory/overlap constraints,
+peer ownership and downstream gate generation. Only then can actual DMA and the
+existing completion transition run. Source withdrawal still permits an immutable
+snapshot to finish, but cannot establish history for a newer source epoch.
+Cancellation or reset invalidates the task and releases logical ownership;
+the worker retains its private buffers until it returns, then discards its
+result without DMA, consumed-generation updates or completion events. Unrealize
+disables admission and drains these callbacks before device resources are freed.
+This separation removes long pixel computation from the BQL callback. It does
+not by itself establish the cause of missed host controls or normal GUI startup.
+
+Address publication is distinct from initial `10/08` admission. Both front
+(`218..234`) and back (`310..32c`) views have four slots, with a separate
+coverage mask per group. `fc` reads back the staged selection; the live selector
+used by an admitted job changes only after a complete publication and `10`.
+Changing `fc` to another live view starts a fresh eight-word publication for
+that target. The existing job keeps its immutable input, parameters and outputs;
+further admission waits for the new view to be committed. A same-value `fc`
+write preserves staged coverage and any already accepted commit. Values above
+one reject without changing state.
+
+A write to a live RAW address still cancels an owned snapshot and starts a
+barrier, including a same-value write. Writes to the next view do not cancel the
+old job. An incomplete publication and its `10` kick do not commit; supplying
+the missing word alone also does not commit. A later `10` is required. An
+accepted commit waits only for the current job to publish or be cancelled,
+not for the old four-phase traversal to wrap. Further RAW writes to its target
+invalidate the queued commit and begin another publication requiring all eight
+words and a new kick. No commit creates input, DMA or an event. Partial coverage
+also survives initial `08`, so an incomplete initial publication cannot evade
+this barrier by starting a request.
+
+A commit preserves the bank-global phase, traversal mask, additive result,
+pending results, consumed generations and eligible numerical history. The
+`400` watermark counts four real sequential phase reads even if the live view
+changes between them. C1.70 MAS VA `102637c2` consumes `400` as a refill latch,
+without checking selector or group identity. VA `10268d16..10268d62` obtains
+four descriptors, toggles its selection, calls `102c05ee` and issues `10`
+without `08`. VA `102c0650..102c067a` writes `fc` through `1036a434` before
+publishing the addresses. These calls establish live refill and selection;
+deferring its latch to one job boundary and retaining the global phase/count
+are finite functional choices. No source establishes that all four reads in a
+watermark must use one selector. Whole-profile, memory, alias, peer and gate
+checks still run before new work and before old-job publication. Changing a
+staged selector cannot reinterpret that old job's output ownership.
 
 The cyclic-ring interpretation replaces the earlier unconditional four-read
 pause hypothesis. C1.70 MAS VA `102637c2` handles `400` by setting the retry
@@ -505,10 +552,15 @@ device-lifetime diagnostics retained across device reset. Per successful frame,
 the byte count adds `OW*OH*3/2 + ceil(W/2)*ceil(H/2)*4 + 3060`, excluding padding.
 These counters do not measure physical frame rate or electrical throughput.
 The read-only QOM string `runtime` reports each bank's request enum
-(`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active timer
+(`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active admitted
 job, phase, traversal/publication masks, publication flags and consumed generations,
-plus the four actual RAW slots and source epoch. Unlike MMIO `18`, its `active`
-field describes an admitted timer job. Reading it performs no work or events.
+plus the four actual RAW slots, source epoch and physical `inflight` task count.
+Per-bank `compute` is `0` before host submission or after release, `1` while a
+task is queued/running and `2` after its callback has returned a result for
+virtual-clock publication. Unlike MMIO `18`, `active` describes an admitted job,
+including its host computation. Reading these fields performs no work or events.
+The same string distinguishes the live `selected` view from the `staged` `fc`
+readback; `commit` is its queued target, or `-1` if no complete commit is pending.
 
 The original repeated worker's early `42190804` notification is software:
 `102e4724` sends it after admission, before waiting for results. This device
@@ -520,8 +572,13 @@ The supported stop sequence is `84=0`, `f0=fc400`, then `54=1`, `60=1`, `6c=1`,
 work. Only after all stop commands are accepted does the bank become quiescent
 and publish aggregate stop detail `014a0080`. Misordered or malformed stop
 commands reject. Stop acknowledgement is separate from a successful frame.
+The first stop step and normal drain request discard a queued view commit and
+return the staged `fc` readback to the live selector. A kick during the stop
+sequence rejects. Reset clears both selectors to zero and invalidates any
+queued commit before releasing old work.
 
-A changed retained configuration word cancels an active job, except for inactive
+A changed retained configuration word cancels an active job, except for staged
+`fc` selection, inactive
 RAW/grid/main address staging and the dedicated `0c`, `f0` and `84` controls.
 It also invalidates its bank's
 numerical-history ownership unless it belongs to the main-only noise group
@@ -534,6 +591,16 @@ already covered word with the same value preserves work. These writes
 preserve already published pixels and pending results; they do not synthesize
 a replacement completion. Device reset preserves external GPIO levels and
 does not turn a retained high level into a new rising event.
+
+The later [EX/input receipt](/evidence/input/turnover.json) records the async
+ownership change separately from unchanged-firmware progress. All 13 direct
+paired lifecycle cases and 36 pixel arithmetic cases pass. A normal queued
+input session observes both dials, naturally selects M/A/S/P, and continues
+MAIN processing before a separate RGBA texture rejection. Tv/Av publication
+and visible menus are not established by that session. The whole CMOS qtest
+batch is not reported as passing: interrupted macOS runs expose a dummy-CPU
+shutdown wait in upstream `pause_all_vcpus`. No upstream source or guest state
+is changed to hide that validation limit.
 
 ## Cycle-selected noise records
 
