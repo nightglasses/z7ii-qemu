@@ -53,10 +53,22 @@ when a guest selects a different mode; it does not clamp most pixels to an
 image edge.
 
 The `C170` profile requires two bytes per sample. PGM intensity `v` becomes
-LE16 `257*v`. PPM becomes `v=(77*R+150*G+29*B+128)>>8`, then the same LE16
-encoding. These are explicit grayscale-model choices, not Nikon demosaic,
-color science, Bayer order or recovered sensor packing. Generic diagnostic
-format words keep their independent opaque byte-channel behavior.
+LE16 `257*v` with explicit mono encoding. PPM instead selects the R/Gr/Gb/B
+component on a virtual RGGB lattice and emits its actual LE16 sample. Fixed
+pre-realization `nikon-cmos-functional.red-response` and `blue-response`
+properties specify Q12 sensor responses in1..4096, with unity defaults and
+unity green. [CFA transport and color](../../devices/pairs/color.md) describes
+the phase-preserving reduction, actual packed RAW DMA and numerical consumer.
+These are explicit functional choices, not recovered Nikon sensor phase or
+calibration. Generic diagnostic format words retain their independent opaque
+byte-channel behavior.
+
+For moving input, set `/machine/cmos` property `image` to each complete P6 file
+through QMP `qom-set`. A successful replacement changes the input for the next
+normal capture. Retry an active-capture refusal after completion; do not cancel
+capture or write an output surface to display a new frame. Choose a source
+aspect ratio matching the intended sensor view, because the finite coordinate
+mapping samples the whole input rather than adding letterboxing.
 
 ## Measured behaviour (this model, unchanged firmware)
 
@@ -106,10 +118,10 @@ binding/removal, active replacement rejection, retained file contents and
 explicit reload failure, header/raster separation, CRLF, malformed/truncated
 and missing files without fixture fallback, and invalid C170 sample width.
 
-The integrated `pipeline/image-gray` case samples a2x2 RGB scene into128x2
-LE16 samples through an owned readout request. It compares every sample with
-literal red/green/blue/white levels77/149/29/255, then runs the actual statistics
-coordinator. All four scalar results, a guest DMA output and stage8 completion
-are checked. This validates the finite image-to-DMA-to-statistics contract,
-not the unresolved front-end unit1/2 or group processing stages, physical
-sensor fidelity, normal GUI output or complete boot.
+The historical `pipeline/image-gray` case checked the former RGB-to-gray
+mapping. Its replacement, `pipeline/image-cfa`, checks actual RGGB LE16 samples
+and the statistics consumer. `pipeline/cfa-response` checks unequal fixed
+responses, invalid-response rejection and reset. The paired CFA cases check
+every packed RAW sample after reduction, actual NV12 color, odd crop origins,
+padding and invalid geometry. These are native finite-model fixtures; original
+firmware progress and physical color fidelity require separate evidence.

@@ -1,8 +1,8 @@
-# Finite grayscale capture stream
+# Finite RAW capture stream
 
 The bundle's capture-work device consumes qualified camera input and writes
 the paired output ring before publishing unit1/2/200 processing causes. This
-is a finite grayscale model with explicit arithmetic assumptions; group
+is a finite mono/CFA model with explicit arithmetic assumptions; group
 payload work and physical DSP fidelity remain separate boundaries.
 
 ## Source-established submission and storage
@@ -45,7 +45,7 @@ Group raw3.bit0 / mask1000000 remains a separate producer.
 The bundle's separate `capture-processing` device joins existing capture,
 parameters, buffers and completed input. It adds no physical MMIO:
 
-1. It consumes a fresh immutable LE16 grayscale acquisition whose input
+1. It consumes a fresh immutable LE16 mono or explicitly encoded CFA acquisition whose input
    qualification held continuously from CMOS submission to completion. This
    reuses the declared shared virtual camera input, not a recovered physical
    main-stream wire.
@@ -53,8 +53,10 @@ parameters, buffers and completed input. It adds no physical MMIO:
    sampling to its committed output geometry. The independently supplied RAW
    descriptor may apply a further positive integer reduction on either axis;
    both dimensions must be aligned, nonzero and no larger than unit2 output.
-   Composing these two nearest stages gives the existing whole-image sampler
-   exactly for integer reductions. ROM color/filter coefficients
+   Mono uses the existing nearest sampler. CFA reduction selects complete
+   2×2 tiles and preserves each sample's phase; odd CFA dimensions reject.
+   [Color input](../pairs/color.md) describes the encoding metadata and real
+   packed RAW consumer. ROM color/filter coefficients
    are retained without executing physical filtering or Bayer demosaic.
    Nonzero correction flags, crop offsets, expansion, nonintegral further
    reduction and unsupported enables do not qualify.
