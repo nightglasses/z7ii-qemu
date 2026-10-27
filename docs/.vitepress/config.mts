@@ -136,6 +136,7 @@ export default defineConfig({
               { text: 'Pairs Radial Sampling', link: '/devices/pairs/radial' },
               { text: 'Pairs Color Filter', link: '/devices/pairs/colorfilter' },
               { text: 'Pairs MAIN Color Processing', link: '/devices/pairs/post' },
+              { text: 'Pairs Uniform Luma Gain', link: '/devices/pairs/luma' },
               { text: 'Pairs Capture Modes', link: '/devices/pairs/modes' },
               { text: 'Paired MAIN Transport', link: '/devices/gate/input' },
               { text: 'Gate Grid Pixels', link: '/devices/gate/pixels' },

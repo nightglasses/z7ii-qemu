@@ -55,7 +55,8 @@ The chosen operator accepts grayscale RAW12 samples, applies impulse, spatial
 and temporal filtering, then applies four-lane affine color correction,
 up to two Q10 gain curves, independent
 Q8 RGB gains, bounded LFSR noise, A Q10/B Q9 conversion and
-[signed-chroma C processing](post.md) to the main image. Its work
+[signed-chroma C processing](post.md), bounded MAIN processing and a
+[completely published uniform luma gain](luma.md) to the main image. Its work
 planes are half-resolution luma and residual; its grid contains area means.
 Those numerical meanings are hypotheses made explicit here so they
 can be tested and replaced when a discriminating consumer or physical record
@@ -84,6 +85,7 @@ f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 1200..1244
 900..9c4, 9cc, 9d0, 9d4, 9d8, df4..e10, 2890..2c94
 b58, bac, d28, dd4, dd8
+1900..197c
 ```
 
 Every reserved or inaccessible file word must also be zero. A wrong length,

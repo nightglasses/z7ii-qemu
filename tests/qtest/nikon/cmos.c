@@ -3817,9 +3817,11 @@ static void test_paired_main_gain_lifecycle(void)
         }
         if (test == 0) {
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+            work_ack(q);
             work_input(q);
             work_rise(q);
             qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
             g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);

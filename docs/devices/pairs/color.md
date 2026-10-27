@@ -69,7 +69,8 @@ neutral spectral response under arbitrary white balance.
    interpolated greens. Replicate borders on each same-phase lattice. Integer
    interpolation rounds to nearest with positive ties upward.
 5. Apply the two gain curves, RGB gains, noise and A/B matrices, followed by
-   [signed-chroma C/BAC and bounded MAIN processing](post.md), then NV12 output
+   [signed-chroma C/BAC and bounded MAIN processing](post.md), then the
+   [completely published uniform luma gain](luma.md) and NV12 output
    conversion. Chroma is centered at2048 in12-bit space, averaged
    over each2×2 output block and normalized to8-bit interleaved U then V.
 
