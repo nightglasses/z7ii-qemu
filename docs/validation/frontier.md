@@ -36,7 +36,11 @@ The [curated receipt](/evidence/color/capture.json) distinguishes successful
 unchanged execution, scoped native fixtures, diagnostics and failed attempts.
 The next acceptance work is reliable normal dial delivery and resulting
 shutter/aperture changes, while retaining bounded MAIN refresh and diagnosing
-the rare SLA startup rejection. Optical exposure, still capture, recording,
+the rare SLA startup rejection. Independent EX diagnostics already reach the
+negative input snapshot and aggregate, but observe the selected type2 send slot
+occupied by an older BatMg report. Later queue progress narrows the remaining
+input work to normal transport turnover and producer coordination, rather than
+inventing a dial event or releasing that slot. Optical exposure, still capture, recording,
 saving and indefinite stability remain open.
 
 ## Previous: cyclic MAIN processing with quadrant inputs

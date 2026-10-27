@@ -3351,5 +3351,15 @@
         "kind": "Model and execution observation"
       }
     ]
+  },
+  "devices/gpio/exposure.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Original M input decoding, aggregation and occupied type2 submission slot; separate instrumented diagnostics",
+        "href": "/evidence/color/capture.json",
+        "kind": "Execution diagnosis"
+      }
+    ]
   }
 }

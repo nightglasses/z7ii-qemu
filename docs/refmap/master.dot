@@ -510,7 +510,7 @@ digraph master {
   "0x08032000-0x080320c8" [label="0x08032000-0x080320c8\nEX transport manager enqueue (queues A/B/C by type)", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x8032000" [label="0x8032000\nEX transport enqueue", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x8032016" [label="0x8032016\nunknown", shape=box, style=filled, fillcolor="#d7f5d7"];
-  "0x803201e" [label="0x803201e\nEX enqueue queue-full error path", shape=box, style=filled, fillcolor="#d7f5d7"];
+  "0x803201e" [label="0x803201e\nEX enqueue channel-bound error path", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803202c" [label="0x803202c\nunknown", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x8032048" [label="0x8032048\nunknown", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803204a" [label="0x803204a\nEX enqueue unknown-type error path", shape=box, style=filled, fillcolor="#d7f5d7"];
@@ -698,7 +698,7 @@ digraph master {
   "0x803d1ee" [label="0x803d1ee\nEX merge + build trigger", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803d1f2" [label="0x803d1f2\nunknown", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803d290" [label="0x803d290\nEX local event dispatcher (event id in r0)", shape=box, style=filled, fillcolor="#d7f5d7"];
-  "0x803d292" [label="0x803d292\nEX dispatcher enabled gate (reads 2001148d, !=1 -> drop)", shape=box, style=filled, fillcolor="#d7f5d7"];
+  "0x803d292" [label="0x803d292\nEX dispatcher stop gate (reads 2001148d, ==1 -> drop)", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803d2d2" [label="0x803d2d2\nEX dispatcher drop (bx lr)", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803d2d4" [label="0x803d2d4\nunknown", shape=box, style=filled, fillcolor="#d7f5d7"];
   "0x803d2e8" [label="0x803d2e8\nEX merge OR (20011690-copy state into 200114e6)", shape=box, style=filled, fillcolor="#d7f5d7"];
@@ -2921,7 +2921,7 @@ digraph master {
   "0x2000f570" [label="0x2000f570\nunknown", shape=hexagon, style=filled, fillcolor="#ffffff"];
   "0x20010000" [label="0x20010000\nconfig[0]", shape=hexagon, style=filled, fillcolor="#e4e4e4"];
   "0x2001148c" [label="0x2001148c\nEX transport descriptor root", shape=ellipse, style=filled, fillcolor="#cfe2ff"];
-  "0x2001148d" [label="0x2001148d\nEX input enabled gate byte", shape=ellipse, style=filled, fillcolor="#d7f5d7"];
+  "0x2001148d" [label="0x2001148d\nEX input stop gate byte", shape=ellipse, style=filled, fillcolor="#d7f5d7"];
   "0x20011490" [label="0x20011490\nEX submit function pointer (= 0x08032000)", shape=ellipse, style=filled, fillcolor="#d7f5d7"];
   "0x2001149c" [label="0x2001149c\nEX local event object (handler 0803d180)", shape=ellipse, style=filled, fillcolor="#d7f5d7"];
   "0x200114e6" [label="0x200114e6\nEX input shadow state", shape=ellipse, style=filled, fillcolor="#cfe2ff"];

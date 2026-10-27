@@ -108,10 +108,10 @@ EX	0x8031e54	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/
 EX	0x8031e6a	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8031f28	code	EX provider callback (drains queues A/B/C, calls cb1/cb2)	ex-transport	observed	run analysis-input-roundtrip/receipt.md; docs/startup/ex.md; run analysis-input-roundtrip/receipt.md	0x080348bc 0x20017d40	installed at [20017d40+28]; invoked with (0x42010002,out)
 EX	0x8031f3d	code	EX system-kind2 completion caller (lr at 0x08033a00)	ex-system-chain	observed	run lcd-normal-parent/parent-app-service-chain-a546016/gdb.log	0x08033a00	observed lr with r0=0x100/0x201 tags
-EX	0x08032000-0x080320c8	code	EX transport manager enqueue (queues A/B/C by type)	ex-transport	observed	run analysis-input-roundtrip/receipt.md	0x20011754 0x200117a4	tag=seq|type<<8; errors 0xff00 (queue full, event 11001), 0xff01 (bad type, event 11002)
+EX	0x08032000-0x080320c8	code	EX transport manager enqueue (queues A/B/C by type)	ex-transport	observed	run analysis-input-roundtrip/receipt.md	0x20011754 0x200117a4	tag=seq|type<<8; errors 0xff00 (channel >= registered count, event 11001), 0xff01 (bad type, event 11002); occupied selected slot retains default 0xffff
 EX	0x8032000	code	EX transport enqueue	readout-input	verified	run analysis-readout-gate/receipt.md		queues type-2 descriptor
 EX	0x8032016	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
-EX	0x803201e	code	EX enqueue queue-full error path	ex-transport	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x08032000 0x8032016 0x803202c	returns r5=0xff00 + event 11001
+EX	0x803201e	code	EX enqueue channel-bound error path	ex-transport	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x08032000 0x8032016 0x803202c	returns r5=0xff00 + event 11001
 EX	0x803202c	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x8032048	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803204a	code	EX enqueue unknown-type error path	ex-transport	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x08032000 0x8032048 0x803205e	returns r5=0xff01 + event 11002
@@ -299,7 +299,7 @@ EX	0x803d180	code	EX input service event handler (dirty/merge -> builder)	ex-inp
 EX	0x803d1ee	code	EX merge + build trigger	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d180 0x0803d5fc 0x803d1f2	calls 0803d2e8 then 0803d5fc
 EX	0x803d1f2	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803d290	code	EX local event dispatcher (event id in r0)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-readout-gate/receipt.md	0x0803d292 0x2001148d	
-EX	0x803d292	code	EX dispatcher enabled gate (reads 2001148d, !=1 -> drop)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d2d2 0x2001148d 0x803d2d4	sole literal ref 0803d2d4
+EX	0x803d292	code	EX dispatcher stop gate (reads 2001148d, ==1 -> drop)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d2d2 0x2001148d 0x803d2d4	sole literal ref 0803d2d4
 EX	0x803d2d2	code	EX dispatcher drop (bx lr)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d290	
 EX	0x803d2d4	code	unknown	readout-input	hypothesis	run analysis-input-roundtrip/receipt.md		address mentioned in assigned readout/input source; role not further assigned here
 EX	0x803d2e8	code	EX merge OR (20011690-copy state into 200114e6)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x200114e6 0x20011690	
@@ -419,7 +419,7 @@ EX	0x20000000-0x2003ffff	ram	EX SRAM (256 KiB)	ex-firmware	verified	hw/nikon/mac
 EX	0x2000e738	data	EX in-flight sequence store (0xffff idle)	ex-transport	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d5d9 0x0803d5e5	builder gate reads this
 EX	0x2000e87c	data	EX battery builder gate (+4==1 required)	ex-battery	observed	run ex-battery-runtime/receipt.md	0x08025544	
 EX	0x2001148c	record	EX input install record ([+0]=kind byte, [+4]=submit fn)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md	0x20011490 0x0803cef0	sole literal refs 0803cefc/0803d2d4
-EX	0x2001148d	field	EX input enabled gate byte	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d292	must be 1 or dispatcher drops event
+EX	0x2001148d	field	EX input stop gate byte	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d292	value 1 drops; value 0 continues (corrected from source and original negative-count breakpoint)
 EX	0x20011490	field	EX submit function pointer (= 0x08032000)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x08032000 0x2001148c	
 EX	0x2001149c	record	EX local event object (handler 0803d180)	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md; run analysis-input-roundtrip/receipt.md	0x0803d044	
 EX	0x200114e6	record	EX 120-byte input shadow state	ex-input-builder	observed	run analysis-input-roundtrip/receipt.md	0x2001155e 0x20011504 0x20011507	edge bytes cleared by 0803ce84

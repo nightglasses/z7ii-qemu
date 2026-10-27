@@ -74,3 +74,65 @@ expose pixels. Observe the normal request mask, UART command, lens runtime and
 actual target separately. The [lens contract](../lens/protocol.md) defines
 finite travel and reporting; optical scene exposure remains an independent
 acquisition capability.
+
+## Bounded original-input diagnosis
+
+The [full-resolution execution receipt](/evidence/color/capture.json) separates
+the successful AUTO scene test from the ongoing M input diagnosis. A normal M
+session settles at property context 32, but one queued negative dial0 detent
+does not change the observed MAS cumulative count or Tv setting over about
+45.6 host seconds. Holding each raw contact phase for one host second also
+fails to deliver a count in a separate session; increasing the dwell alone is
+therefore not a justified model correction.
+
+A further independent stock GPIO trace observes both complete negative sequences
+on EX GPIOF IDR, masked by `0x4800`: `4800 → 4000 → 0000 → 0800 → 4800`.
+The three intermediate intervals contain respectively 12, 18 and 6 IDR reads
+for the queued input, and 247, 634 and 517 reads for the slower raw contacts.
+Those reads do not identify the caller or selected mask. A separate read-only
+hardware breakpoint at EX VA `0803e3b0` reaches the original negative count-store
+instruction with new state 2 and signed value −1. The raw counter is sampled
+before the store, so this establishes decoding and the intended write, not
+successful downstream delivery.
+
+The source chain continues through EX VA `0803df98`, which snapshots and clears
+the raw counts at EX SRAM `200186d1..d2` into `200186a3..a4`. The registered
+callback at `20018454` normally points to VA `0803d291`; it returns early if
+byte `2001148d` is 1. That stop byte is 0 in the separate trace run's final
+snapshot. The callback aggregates through VA `0803d710` into `200114ed..ee`
+and sends the normal input report. The exact source condition at VA `0803d296`
+is `BEQ 0803d2d2` after comparing that byte to 1. Older reference-map labels
+reversed this condition; they are corrected alongside this observation.
+
+A subsequent independent breakpoint chain captures the same negative input
+through snapshot bytes `ff 00` and VA `0803d766`'s aggregate result −1. The
+outgoing report contains dial0 byte `ff`, but VA `0803d68a` observes submission
+return `ffff`. The normal send guards are all satisfied: words `2001166c`,
+`20011670`, `20011678` and `20011688` are 1, byte `2001168c` is 13, and token
+`2000e738` is idle `ffff`. The negative MAS normalization breakpoint does not
+hit during this bounded instrumented window.
+
+Source VA `08032000` selects class2's write index at `2001176c` and slot
+`200117e4 + 4 * index`. At `08032092`, a nonzero selected slot branches to the
+unlock/return path, retaining default `ffff` without enqueueing or notifying
+the consumer. `ff00` instead means the descriptor channel is outside the
+registered count; `ff01` is an invalid type. The source's type1 queue has
+priority over type2.
+
+The next independent queue probe observes type2 read/write indices both 6,
+with selected slot `200117fc` occupied by BatMg descriptor `20015f18`:
+channel 4, type 2, length 8, body at `20015e66` beginning with status kind
+`0a`. Type1 is empty. This confirms the occupied-slot explanation for that
+input submission. A later post-window snapshot has type2 read/write indices
+5/4, a registered provider, stop = 0 and active = 1. The consumer has made
+progress; the observations establish congestion, not permanent stoppage.
+
+The original McuTx service starts SPI-DMA and at VA `08034b0a` AND-waits for
+both completion bits 4 and 8, with timeout 10 ticks. The later snapshot has
+not observed that transaction's bit8 callback; without the matching HAL state
+and wait result, it does not identify a missing hardware completion. The next
+discriminating evidence is the wait return at `08034b0e`, returned flags and
+the actual SPI HAL record at SRAM `20017eac`, together with normal producer
+rates. Final zero input counters alone cannot distinguish failed submission
+from later normal consumption and clearing. No input cadence, IRQ, queue slot
+or exposure value is forced to bypass this missing evidence.

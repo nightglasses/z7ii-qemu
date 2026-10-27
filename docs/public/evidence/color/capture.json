@@ -180,6 +180,124 @@
         24
       ],
       "result": "Mode selected; this queued detent and exposure change not accepted. Intermediate EX input counters were not captured."
+    },
+    "exposure_gpio_trace": {
+      "scope": "Separate54.65host-second original M run; stock GPIO trace during one queued detent and four slow raw-contact phases; no live-window debugger",
+      "gpio_domain": "EX GPIOF IDR, mask0x4800",
+      "sequences": [
+        [
+          "0x4800",
+          "0x4000",
+          "0x0",
+          "0x800",
+          "0x4800"
+        ],
+        [
+          "0x4800",
+          "0x4000",
+          "0x0",
+          "0x800",
+          "0x4800"
+        ]
+      ],
+      "IDR_reads_between_queued_changes": [
+        12,
+        18,
+        6
+      ],
+      "IDR_reads_between_slow_changes": [
+        247,
+        634,
+        517
+      ],
+      "total_IDR_reads_in_trace_window": 2411,
+      "limit": "Stock GPIO read trace does not identify caller PC or selected bit mask; reading the port alone does not establish quadrature decoding",
+      "final_input_callback": "0x0803d291",
+      "final_report_stop_byte_2001148d": 0,
+      "final_MAS_dial_counts": [
+        0,
+        0
+      ]
+    },
+    "exposure_breakpoint": {
+      "scope": "Separate read-only hardware-breakpoint diagnosis; pauses execution, excluded from no-debugger scanout acceptance",
+      "EX_PC": "0x0803e3b0",
+      "R0_new_state": 2,
+      "R1_count_to_store": -1,
+      "R2_counter_base": "0x200186a6",
+      "R3_old_state_base": "0x20018438",
+      "old_dial_state_bytes": [
+        0,
+        3
+      ],
+      "raw_count_bytes_before_STRB": [
+        0,
+        0
+      ],
+      "observation": "Original EX reaches the negative counter-store instruction with the expected operands; source decoding is working. Snapshot/aggregate/transport delivery is not established by this pre-store stop.",
+      "final_MAS_dial_counts": [
+        0,
+        0
+      ],
+      "runner_receipt_correction": "The common runner initially marked no_in_transaction_pause true; its diagnostic receipt is corrected to false with this explicit scope."
+    },
+    "exposure_chain": {
+      "scope": "Separate read-only hardware-breakpoint diagnosis, not the accepted no-debugger scene window",
+      "EX_store": "PC0803e3b0, new state2, count to store-1",
+      "EX_aggregate": "PC0803d766, result-1, actual snapshot bytesff00",
+      "EX_submit_return": "PC0803d68a, R0=0000ffff, actual aggregateff00, outgoing report dial0byteff",
+      "admission_guards": {
+        "2001166c": 1,
+        "20011670": 1,
+        "20011678": 1,
+        "20011688": 1,
+        "2001168c": 13,
+        "2000e738": "ffff idle"
+      },
+      "MAS_negative_normalization_breakpoint": "No hit during the bounded instrumented window; not a permanent-unreachability claim",
+      "source_condition": "08032092 branches on occupied selected class2 slot and returns defaultFFFF without enqueue/notification. FF00 is channel>=registeredcount, FF01 is bad type.",
+      "next_evidence": "Actual class2 write index, occupied slot descriptor and consumer progress. Do not forcibly clear the slot."
+    },
+    "exposure_queue": {
+      "scope": "Separate read-only chain/queue hardware-breakpoint diagnosis; excluded from no-debugger scene acceptance",
+      "selected_class2_write_index": 6,
+      "class2_read_index": 6,
+      "selected_slot": "0x200117fc",
+      "selected_descriptor": "0x20015f18",
+      "descriptor_channel": 4,
+      "descriptor_type": 2,
+      "descriptor_length": 8,
+      "descriptor_body": "0x20015e66",
+      "body_first8_hex": "0a00000000000100",
+      "producer": "Original BatMg status report, not the new input report",
+      "other_queued_descriptors": [
+        "0x20016b20",
+        "0x2000fb0c"
+      ],
+      "class1_read_write_indices": [
+        4,
+        4
+      ],
+      "class1_slots": "empty in that snapshot",
+      "post_window_class2_read_write_indices": [
+        5,
+        4
+      ],
+      "provider_post_window": {
+        "stop": 0,
+        "active": 1,
+        "callback": "0x08031f29",
+        "inflight_tag": "0x0204",
+        "inflight_callback": "0x080254bd",
+        "fragment_prepared_total": [
+          1,
+          1
+        ],
+        "completion8_flag": 0
+      },
+      "conclusion": "Input submission encountered a full type2 ring; subsequent different indices show progress, so this is bounded congestion, not evidence of a permanently stopped consumer",
+      "source_wait": "Original McuTxSvc starts SPI-DMA then AND-waits for both bits4 and8 with timeout10. Their actual HAL/RTOS completion state was not captured.",
+      "next_evidence": "Normal SPI-DMA completion/notification turnover and producer rates; source wait return08034b0e, returned flags on stack and HAL handle20017eac. No forced slot clearing or completion."
     }
   },
   "facts": [

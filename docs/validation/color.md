@@ -113,5 +113,12 @@ remain separate acceptance questions. A fresh M run settles at context 32, but
 one queued negative dial0 detent leaves the observed MAS count and shutter
 setting unchanged for about 45.6 host seconds. This does not identify which EX
 sampling/transport stage missed the input. It is not accepted shutter or aperture
-control. Optical exposure effects, still capture, recording, saving and indefinite
-stability remain unverified.
+control. Subsequent independent GPIO and breakpoint diagnostics reach the
+original EX negative count-store instruction, snapshot and aggregate with the
+expected values. The
+remaining [input investigation](../devices/gpio/exposure.md#bounded-original-input-diagnosis)
+is type2 transport congestion: the selected slot contains an older BatMg status
+report and the new input submission returns `ffff`. Later queue indices advance,
+so a permanently stopped consumer is not established. The breakpoint run pauses execution
+and is excluded from the no-debugger scene acceptance above. Optical exposure
+effects, still capture, recording, saving and indefinite stability remain unverified.
