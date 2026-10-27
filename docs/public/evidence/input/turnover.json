@@ -163,11 +163,11 @@
     "docs_build": "2checks passed and VitePress build succeeded."
   },
   "remaining": [
-    "Queued dial0 sampling remains unreliable despite the more conservative50ms virtual phase; dial1 deltas arrive.",
-    "GUI consumer admission and mode-specific Tv/Av control",
-    "Visible menu navigation and setting acceptance",
+    "Visible menu navigation and setting acceptance after graphics-prefix completion",
+    "Actual iris motor command and optical exposure following a setting change",
     "AF focus-actuator/statistics feedback loop",
-    "Physical ISP equivalence and full-resolution still acquisition"
+    "Physical ISP equivalence and full-resolution still acquisition",
+    "Indefinite stability, complete storage and still/save acceptance"
   ],
   "model_revision": "0c83bf5",
   "separate_instrumented_diagnostics": {
@@ -661,5 +661,284 @@
       "observed_host_stack": "macOS qemu_cleanup -> do_vm_stop -> pause_all_vcpus, while a dummy CPU waits in sigwait; native qtest later kills QEMU after its exit deadline",
       "qualification": "Successful individual TAP cases in interrupted batches are not reported as a complete suite PASS. Official upstream source remains unchanged."
     }
+  },
+  "formatted_media_observation": {
+    "source_parent": "cd0a03e4",
+    "copy_model": "5bddd34",
+    "profile": "Same original C1.70 firmware, cold-neutral descriptors, normal photo/lens/battery input and queued50ms dial phases; fresh preformatted8GiB slot0 card",
+    "external_media": {
+      "filesystem": "Host standard newfs_msdos FAT32;512-byte sectors,64-sector clusters; MBR type0c partition startsLBA2048",
+      "preflight": "fsck_msdos -n: empty filesystem valid; no mounted host folder or firmware filesystem shortcut",
+      "qualification": "Normal external media input; not guest format/save acceptance"
+    },
+    "in_window_debugger": false,
+    "guest_ram_or_pc_writes": false,
+    "forced_slots_or_events": false,
+    "controls": [
+      {
+        "label": "M naturally selected",
+        "host_seconds": 32.026700582995545,
+        "paired_completed": 26,
+        "tv_av": [
+          312,
+          24
+        ],
+        "program_shift514": 0,
+        "indices": [
+          121,
+          0,
+          30,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "M dial0 -1 consumed",
+        "host_seconds": 32.57227416700334,
+        "paired_completed": 28,
+        "tv_av": [
+          304,
+          24
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          30,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "M dial1 -1 consumed",
+        "host_seconds": 33.13123304198962,
+        "paired_completed": 29,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          32,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "M aperture after normal strategy",
+        "host_seconds": 38.18730499999947,
+        "paired_completed": 42,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          32,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "A naturally selected",
+        "host_seconds": 39.752553750004154,
+        "paired_completed": 46,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          32,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "A dial1 -1 consumed",
+        "host_seconds": 40.31740237501799,
+        "paired_completed": 47,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          34,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "A aperture after normal strategy",
+        "host_seconds": 45.35139229201013,
+        "paired_completed": 59,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          34,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "S naturally selected",
+        "host_seconds": 46.935521708015585,
+        "paired_completed": 63,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "indices": [
+          119,
+          0,
+          34,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "S dial0 -1 consumed",
+        "host_seconds": 47.497736582998186,
+        "paired_completed": 65,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": 0,
+        "indices": [
+          117,
+          0,
+          34,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "P naturally selected",
+        "host_seconds": 49.136017292010365,
+        "paired_completed": 69,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": 0,
+        "indices": [
+          117,
+          0,
+          34,
+          0,
+          20
+        ],
+        "running": true
+      },
+      {
+        "label": "P dial0 -1 consumed",
+        "host_seconds": 49.69935362500837,
+        "paired_completed": 70,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": -2,
+        "indices": [
+          117,
+          0,
+          34,
+          0,
+          19
+        ],
+        "running": true
+      }
+    ],
+    "accepted_setting_changes": {
+      "M_Tv": true,
+      "M_Av": true,
+      "A_Av": true,
+      "S_Tv": true,
+      "P_program_shift514": true
+    },
+    "iris": {
+      "new_commands_observed": false,
+      "lens_target_relative": 0,
+      "qualification": "Setting change and physical/optical application are separate. Full runtime samples retain aperture/target0 and no newa0/a3 commands."
+    },
+    "menus": [
+      {
+        "label": "live before MENU",
+        "host_seconds": 64.75923412499833,
+        "paired": 108
+      },
+      {
+        "label": "f20 held",
+        "host_seconds": 67.77693958301097,
+        "paired": 116
+      },
+      {
+        "label": "MENU open",
+        "host_seconds": 73.81313733299612,
+        "paired": 130
+      },
+      {
+        "label": "down held",
+        "host_seconds": 76.82777329199598,
+        "paired": 137
+      },
+      {
+        "label": "menu down",
+        "host_seconds": 82.85253408300923,
+        "paired": 139
+      }
+    ],
+    "post_window_panic_length": 0,
+    "post_window_storage_raw": "00000000",
+    "menu_handoff": {
+      "old_gui_internal": 4,
+      "menu_internal": 1,
+      "backend": 4,
+      "retained_request": 0,
+      "visible_menu_tree": false
+    },
+    "next_stop": {
+      "cpu": 1,
+      "pc": "0x106ee3c6",
+      "write32": "0x201810e0=1",
+      "reason": "transfer-image-prefix-not-supported",
+      "stream_bytes": [
+        176,
+        328
+      ],
+      "full_streams_saved_privately": true
+    },
+    "native_copy": {
+      "red": "Prior model rejects first legal copy submission",
+      "passed_groups": 6,
+      "host_seconds": 0.64,
+      "board_copy_case_added_but_not_executed": true
+    },
+    "qualification": "Natural input changes actual original exposure settings while MAIN increases26 to139 in the observed window. Menu worker handoff is accepted, but rendering/navigation is blocked by a separately captured graphics command; this is not a complete menu or iris PASS."
   }
 }

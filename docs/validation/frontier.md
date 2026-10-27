@@ -33,17 +33,22 @@ completion event is added. A separate93.94-host-second original M session
 advances from52 to156 MAIN completions between46.75 and92.81 seconds, with
 zero processing errors and post-window panic length zero.
 
-Normal MENU, arrows and OK contacts now reach the MAS switch snapshot. A slow
-raw negative dial detent separately reaches cumulative count−1. Those are
-input-delivery observations: the bounded sessions do not yet show menu
-navigation or a changed Tv/Av. A separate diagnostic reaches the original
-GUI's MENU action28 and accepted menu request. A later diagnostic observes
-request `0x20000` retained with flag135 set, but no record73 control result or
-worker-switch entry during the window. Exposure reaches the Av setter after
-the common permission check, but not index selection or publication. These
-are separate downstream conditions. See [exposure controls](../devices/gpio/exposure.md)
-for the separated source chain, input timing and acceptance limits. The old M
-numerical stop below is historical evidence, not this application-input gap.
+Normal MENU, arrows and OK contacts reach the MAS switch snapshot. Queued
+dials and mode-position inputs now select P/S/A/M. A separate source/read-only
+diagnosis finds a storage-policy bit rejecting exposure adjustment. With a
+fresh normal MBR/FAT32 card and source-backed two-dimensional DMA copies,
+an unpaused original run changes M Tv/Av, A Av, S Tv and P program shift514
+through the original application setters. MAIN completions increase26→139
+between32.03 and82.85 host seconds, with post-window panic length0. Actual
+iris commands and optical exposure are separate, still unaccepted levels.
+
+MENU also naturally completes its old-GUI worker handoff, starts Menu and
+clears the retained request. Rendering then stops on a captured176/328-byte
+graphics-prefix family; a visible menu tree and navigation are not yet
+accepted. See [exposure controls](../devices/gpio/exposure.md) and the
+[curated input receipt](/evidence/input/turnover.json) for source conditions,
+normal input profiles and distinct native/execution limits. The old M
+numerical stop below is historical evidence.
 
 The [photo receipt](/evidence/color/capture.json) preserves the earlier successful
 AUTO scene tests and the separate rare SLA fill rejection whose private failing

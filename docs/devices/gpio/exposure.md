@@ -197,8 +197,8 @@ The normal `04100012` control-result message produces record73,
 which admits the retained switch request. Immediate and deferred paths both
 require the manager to receive the old GUI worker's exit notification before
 starting the Menu worker and its tree constructor `1044eca8`. No such control
-result or exit notification is supplied by the host. The unpaused sessions
-have not yet shown a menu screen, and a longer continuation reaches a distinct
+result or exit notification is supplied by the host. Those earlier sessions
+did not show a menu screen, and a longer continuation reached a distinct
 unsupported176/336-byte image program. Electrical delivery, accepted menu
 request, worker handoff, drawing and setting changes remain separate acceptance
 levels.
@@ -211,3 +211,47 @@ failure to the Av setter's independent guards, rather than proving a common
 input-manager rejection. It does not establish command-dial0 delivery or a
 changed exposure setting. MAIN advances24→107 with zero graph errors in the
 session, which includes debugger pauses and is not timing acceptance.
+
+## Formatted media and natural setting changes
+
+The later diagnostic identifies the Av setter's actual guard: property6405 at
+MAS VA `b2551f50` is8, so bit3 causes `10299ef4` to reject adjustment through
+`1029b014`. The other sampled guards, properties6424/6916/5772, are1/0/0.
+The storage chain `104970e2` → `105077ea` → `10225b38` translates raw storage
+flag`40000` into property6405 bit3. VA `105062de` sets that raw flag if either
+storage object's state is2 or3; an absent slot's state0 alone does not set it.
+State2 can follow filesystem/path check error`043a0088`, while state3 also
+occurs during cancellation/unmount. These states must not all be labeled an
+unformatted card.
+
+A fresh normal8GiB MBR/FAT32 slot0 input removes that rejection. The board
+continues to use its normal BlockBackend, NVMe queues, DMA and original guest
+filesystem. No host folder serves guest filesystem operations. The next
+source-produced512-byte [two-dimensional copy](../fill/protocol.md#source-produced-two-dimensional-copy)
+is now executed as actual DMA, allowing the original consumer to continue.
+
+In the subsequent unpaused original run, ordinary mode-position and dial
+contacts settle in M/A/S/P and change actual settings:
+
+| Operation | Original value before → after |
+| --- | --- |
+| M main dial | Tv517:312 →304 |
+| M sub-command dial | Av518:24 →80 |
+| A sub-command dial | Av518:80 →88 |
+| S main dial | Tv517:304 →296 |
+| P main dial | Program shift514:0 →−2; index20 →19 |
+
+The M screen displays1/6400 andF3.2. MAIN completions rise26→139 between the
+32.03 and82.85-host-second observations, with QMP running at every control
+sample and post-window panic length0. The initial Av24 is outside the explicit
+F2.8 lens range; normal permission/strategy selection can clamp or skip rows,
+so these results do not imply one table index per detent.
+
+The lens runtime retains relative aperture/target0 and no new aperture
+commands during these changes. Actual iris application and optical exposure
+are therefore still unaccepted. MENU naturally advances the old GUI worker
+to internal4, Menu to1 and its backend to4, clearing the retained request.
+It then reaches a separate176/328-byte graphics-prefix rejection. Worker
+handoff is established; a rendered menu tree and navigation are not yet
+established. The [curated receipt](/evidence/input/turnover.json) separates
+these observations from the earlier diagnostics and native fixtures.
