@@ -27,6 +27,7 @@ static NikonPairedPixelConfig config(void)
         .radial = { .center_x = 2, .center_y = 2 },
         .colorfilter = { .shift = 2, .weight = 8 },
         .post = { .original = 256, .edge_strength = 3, .edge_limit = 5 },
+        .main_gain = 256,
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
@@ -2689,6 +2690,44 @@ static void post_invalid(void)
     }
 }
 
+static void main_gain(void)
+{
+    static const uint16_t gains[] = { 0, 128, 256, 512, 65535 };
+    static const uint16_t levels[] = { 0, 1, 17, 1024, 2056, 4095 };
+    static const int16_t a[] = { 1024, 0, 0, 0, 512, 0, 0, 0, 256 };
+    static const int16_t b[] = { 512, 0, 0, 0, 256, -256, -256, 256, 0 };
+
+    for (unsigned sample = 0; sample < ARRAY_SIZE(levels); sample++) {
+        NikonPairedPixelConfig p = config();
+        PairedOutputs reference;
+        uint16_t raw[16];
+
+        memcpy(p.a, a, sizeof(a));
+        memcpy(p.b, b, sizeof(b));
+        fill(raw, ARRAY_SIZE(raw), levels[sample]);
+        g_assert_true(run(&p, raw, NULL, NULL, &reference));
+        for (unsigned i = 0; i < ARRAY_SIZE(gains); i++) {
+            PairedOutputs actual;
+            uint64_t scaled = ((uint64_t)levels[sample] * gains[i] + 128) / 256;
+            unsigned expected = MIN(255, (MIN(scaled, 4095) + 8) / 16);
+
+            p.main_gain = gains[i];
+            g_assert_true(run(&p, raw, NULL, NULL, &actual));
+            for (unsigned at = 0; at < ARRAY_SIZE(actual.y); at++) {
+                g_assert_cmpuint(actual.y[at], ==, expected);
+            }
+            g_assert_cmpmem(actual.uv, sizeof(actual.uv),
+                            reference.uv, sizeof(reference.uv));
+            g_assert_cmpmem(actual.half, sizeof(actual.half),
+                            reference.half, sizeof(reference.half));
+            g_assert_cmpmem(actual.residual, sizeof(actual.residual),
+                            reference.residual, sizeof(reference.residual));
+            g_assert_cmpmem(actual.grid, sizeof(actual.grid),
+                            reference.grid, sizeof(reference.grid));
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -2726,5 +2765,6 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/adaptive-invalid", adaptive_invalid);
     g_test_add_func("/nikon/pairedpixels/post", post);
     g_test_add_func("/nikon/pairedpixels/post-invalid", post_invalid);
+    g_test_add_func("/nikon/pairedpixels/main-gain", main_gain);
     return g_test_run();
 }

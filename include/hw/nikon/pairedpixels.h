@@ -86,6 +86,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedRadial radial;
     NikonPairedColorFilter colorfilter;
     NikonPairedPost post;
+    uint16_t main_gain; /* Latest complete uniform 32-knot Q8 publication. */
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -218,6 +219,11 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * These post-color roles, scales and ordering are finite hypotheses. They do
  * not change pre-color WORK/grid/history. All groups are mandatory; the edge
  * strength3..18 and limit5 family has no invented wire bypass.
+ * After these passes, MAIN Y alone is multiplied by main_gain/256, rounded
+ * to nearest and clamped to12-bit before byte quantization. The unsigned16
+ * gain includes zero; no omitted-table identity or chroma gain is inferred.
+ * The role and placement of this uniform 0x1900/0x1940 double buffer are
+ * functional hypotheses.
  * Every supplied 16-bit sample must be in [0,4095]. Output buffers must not
  * overlap one another or input/history buffers. The caller supplies their
  * complete extents. Failure leaves all output buffers unchanged.

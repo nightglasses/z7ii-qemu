@@ -1013,7 +1013,10 @@ static void paired_main(const uint16_t *filtered,
                 for (dx = 0; dx < 2; dx++) {
                     size_t at = (size_t)(y + dy) * p->output_width + x + dx;
 
-                    out_y[at] = paired_byte(planes[at]);
+                    unsigned luma = ((uint64_t)planes[at] * p->main_gain +
+                                     128) / 256;
+
+                    out_y[at] = paired_byte(MIN(luma, 4095));
                     u += planes[pixels + at];
                     v += planes[2 * pixels + at];
                 }
