@@ -137,6 +137,7 @@ export default defineConfig({
               { text: 'Pairs Color Filter', link: '/devices/pairs/colorfilter' },
               { text: 'Pairs MAIN Color Processing', link: '/devices/pairs/post' },
               { text: 'Pairs Uniform Luma Gain', link: '/devices/pairs/luma' },
+              { text: 'Pairs Saturation Curve', link: '/devices/pairs/saturation' },
               { text: 'Pairs Capture Modes', link: '/devices/pairs/modes' },
               { text: 'Paired MAIN Transport', link: '/devices/gate/input' },
               { text: 'Gate Grid Pixels', link: '/devices/gate/pixels' },
@@ -222,6 +223,7 @@ export default defineConfig({
             items: [
               { text: 'GPIO 12-Port Mux', link: '/devices/gpio/protocol' },
               { text: 'GPIO Pad Inputs', link: '/devices/gpio/input' },
+              { text: 'Exposure Control Acceptance', link: '/devices/gpio/exposure' },
               { text: 'GPIO Pin Muxing', link: '/devices/gpio/mux' },
               { text: 'EXIU External Interrupt Unit', link: '/devices/exiu/protocol' },
               { text: 'EXIU Readback & Ack', link: '/devices/exiu/readback' },

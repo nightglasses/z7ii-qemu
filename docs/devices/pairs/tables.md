@@ -46,9 +46,10 @@ width/height interpretation or a physical processing format.
 ## Configuration lifetime and processing
 
 The later [uniform luma contract](luma.md) interprets entries20/21 of the
-64-byte family using complete, ordered publication rounds and immutable active
-job snapshots. Its staging and admission rules supersede generic table-change
-cancellation for that range. Other table roles retain their explicit profile
+64-byte family; the [saturation contract](saturation.md) interprets entries2/3
+of the68-byte family. Both use complete, ordered publication rounds and
+immutable active job snapshots. Their staging and admission rules supersede
+generic table-change cancellation for those ranges. Other table roles retain their explicit profile
 qualification; retaining arbitrary words does not establish a pixel algorithm.
 
 `hw/nikon/devices/pairs.c` retains aligned full32-bit words independently in

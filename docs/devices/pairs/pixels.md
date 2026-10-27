@@ -86,6 +86,7 @@ f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 900..9c4, 9cc, 9d0, 9d4, 9d8, df4..e10, 2890..2c94
 b58, bac, d28, dd4, dd8
 1900..197c
+1a08..1a8c
 ```
 
 Every reserved or inaccessible file word must also be zero. A wrong length,
@@ -102,6 +103,10 @@ Controls `700/704` still require the selected opaque profile. The complete
 [axial filter](adaptive.md) contracts. Their interpreted file slots must be
 zero. A different numeric gain never authorizes unrelated mode bits,
 coordinate groups or coefficients.
+
+The live [uniform luma tables](luma.md) and [saturation curves](saturation.md)
+have their own ordered-publication and frozen-job contracts. Their slots must
+be zero in the calibration file; source table writes supply the actual values.
 
 ## Four-lane color correction
 
