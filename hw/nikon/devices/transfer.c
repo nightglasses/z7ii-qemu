@@ -72,7 +72,7 @@ typedef struct NikonTransferProgram {
     uint32_t plane[2];
     uint32_t plane_bytes[2];
     uint32_t format;
-    bool over;
+    bool scaled, over;
     uint32_t image_source;
     uint32_t rgba_width, rgba_height, rgba_stride, rgba_paint;
     uint32_t rgba_coordinates[5];
@@ -1653,7 +1653,8 @@ static const NikonTransferField convert_draw_fields[] = {
 };
 
 static bool nikon_transfer_convert_fields(const uint32_t *words, bool setup,
-                                          bool scaled, bool over)
+                                          bool scaled, bool over,
+                                          uint32_t format)
 {
     static const uint16_t secondary[] = {
         0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192,
@@ -1712,12 +1713,14 @@ static bool nikon_transfer_convert_fields(const uint32_t *words, bool setup,
             }
         } else if (scaled) {
             switch (i) {
-            case 9: case 405: expected = 0x107; break;
             case 46: expected = 0x34fff8; break;
             case 54: expected = 0x3efffe; break;
             case 56: case 60: expected = 0x02d001e0; break;
             case 417: case 419: expected = 7; break;
             }
+        }
+        if (!setup && (i == 9 || i == 405)) {
+            expected = format;
         }
         if (over && !setup) {
             switch (i) {
@@ -1742,7 +1745,7 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
 {
     const uint32_t *setup, *draw;
     size_t setup_bytes, draw_bytes;
-    uint32_t key;
+    uint32_t key, format;
     uint64_t address[5], length[5];
     bool scaled, over;
     unsigned setup_start, draw_start;
@@ -1760,9 +1763,12 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
     }
     setup_start = over ? 12 : 0;
     draw_start = over ? 45 : 0;
-    scaled = over || le32_to_cpu(draw[9]) == 0x107;
-    if (!nikon_transfer_convert_fields(setup, true, scaled, over) ||
-        !nikon_transfer_convert_fields(draw, false, scaled, over)) {
+    format = over ? 0x107 : le32_to_cpu(draw[9]);
+    scaled = over || le32_to_cpu(draw[56]) == 0x02d001e0;
+    if ((format != 0x105 && format != 0x107) ||
+        (format == 0x107 && !scaled) ||
+        !nikon_transfer_convert_fields(setup, true, scaled, over, format) ||
+        !nikon_transfer_convert_fields(draw, false, scaled, over, format)) {
         *reason = "transfer-convert-program-not-supported";
         return false;
     }
@@ -1783,7 +1789,7 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
     length[0] = setup_bytes;
     length[1] = draw_bytes;
     length[2] = scaled ? NIKON_PATH_MASK_BYTES * 4 : TRANSFER_RGBA_TARGET_BYTES;
-    length[3] = TRANSFER_CLEAR_PLANE_BYTES * (scaled ? 2 : 1);
+    length[3] = TRANSFER_CLEAR_PLANE_BYTES * (format == 0x107 ? 2 : 1);
     length[4] = TRANSFER_CLEAR_PLANE_BYTES;
     if (address[4] != address[3] + length[3]) {
         *reason = "transfer-convert-plane-layout-not-supported";
@@ -1806,7 +1812,8 @@ static bool nikon_transfer_convert_parse(NikonTransferState *s,
         }
     }
     program->image_source = address[2];
-    program->format = scaled ? 0x107 : 0x105;
+    program->format = format;
+    program->scaled = scaled;
     program->over = over;
     for (unsigned i = 0; i < 2; i++) {
         program->plane[i] = address[3 + i];
@@ -2227,8 +2234,8 @@ static void nikon_transfer_yuv_rgb(const uint8_t *pair, unsigned x,
     rgb[2] = CLAMP((298 * c + 516 * d + 128) >> 8, 0, 255);
 }
 
-static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
-                                      bool over,
+static bool nikon_transfer_scaled_yuv(const uint8_t *input, uint8_t *output,
+                                      uint32_t format, bool over,
                                       const char **reason)
 {
     static const uint8_t segments[] = { 2, 7, 9, 7, 0 };
@@ -2237,7 +2244,8 @@ static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
                           0, 0x442bffff, 0x3f800000 };
     g_autofree uint8_t *mask = g_malloc0(TRANSFER_RGBA_WIDTH *
                                        TRANSFER_RGBA_HEIGHT);
-    uint8_t *alpha = output + 2 * TRANSFER_CLEAR_PLANE_BYTES;
+    bool alpha_plane = format == 0x107;
+    uint8_t *alpha = alpha_plane ? output + 2 * TRANSFER_CLEAR_PLANE_BYTES : NULL;
 
     for (unsigned i = 0; i < ARRAY_SIZE(coordinates); i++) {
         coordinates[i] = cpu_to_le32(coordinates[i]);
@@ -2255,8 +2263,16 @@ static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
 
         for (unsigned x = 0; x < TRANSFER_CLEAR_WIDTH; x += 2) {
             unsigned at = y * TRANSFER_CLEAR_WIDTH + x;
-            uint8_t *pair = output + 2 * at;
+            uint8_t separate[4], *pair = output + 2 * at;
             uint8_t yuv[2][3];
+
+            if (!alpha_plane) {
+                separate[0] = output[at];
+                separate[1] = output[at + 1];
+                separate[2] = output[TRANSFER_CLEAR_PLANE_BYTES + at];
+                separate[3] = output[TRANSFER_CLEAR_PLANE_BYTES + at + 1];
+                pair = separate;
+            }
 
             for (unsigned j = 0; j < 2; j++) {
                 unsigned sx = 131064ULL * (2 * (x + j) + 1) * 720 /
@@ -2266,7 +2282,7 @@ static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
                 const uint8_t *src = input + 4 * (sy * NIKON_PATH_WIDTH + sx);
                 /* Weights use 255^3 to retain fractional alpha until division. */
                 unsigned sa = src[3] * coverage * 255;
-                unsigned da = alpha[at + j] * (over ?
+                unsigned da = (alpha_plane ? alpha[at + j] : 255) * (over ?
                     65025 - src[3] * coverage : 255 * (255 - coverage));
                 unsigned sum = sa + da;
                 uint8_t rgb[3];
@@ -2276,13 +2292,21 @@ static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
                     rgb[c] = sum ? (src[c] * sa + rgb[c] * da + sum / 2) /
                                     sum : 0;
                 }
-                alpha[at + j] = (sum + 32512) / 65025;
+                if (alpha_plane) {
+                    alpha[at + j] = (sum + 32512) / 65025;
+                }
                 nikon_transfer_rgb_yuv(rgb, yuv[j]);
             }
             pair[0] = yuv[0][0];
             pair[1] = yuv[1][0];
             pair[2] = (yuv[0][1] + yuv[1][1] + 1) / 2;
             pair[3] = (yuv[0][2] + yuv[1][2] + 1) / 2;
+            if (!alpha_plane) {
+                output[at] = pair[0];
+                output[at + 1] = pair[1];
+                output[TRANSFER_CLEAR_PLANE_BYTES + at] = pair[2];
+                output[TRANSFER_CLEAR_PLANE_BYTES + at + 1] = pair[3];
+            }
         }
     }
     return true;
@@ -2291,7 +2315,7 @@ static bool nikon_transfer_scaled_yuva(const uint8_t *input, uint8_t *output,
 static bool nikon_transfer_convert_execute(NikonTransferProgram *program,
                                            const char **reason)
 {
-    bool scaled = program->format == 0x107;
+    bool scaled = program->scaled;
     unsigned input_bytes = scaled ? NIKON_PATH_MASK_BYTES * 4 :
                                     TRANSFER_RGBA_TARGET_BYTES;
     unsigned first_bytes = program->plane_bytes[0];
@@ -2316,7 +2340,8 @@ static bool nikon_transfer_convert_execute(NikonTransferProgram *program,
                 return false;
             }
         }
-        if (!nikon_transfer_scaled_yuva(input, output, program->over, reason)) {
+        if (!nikon_transfer_scaled_yuv(input, output, program->format,
+                                       program->over, reason)) {
             return false;
         }
     } else {
