@@ -140,6 +140,14 @@ bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *a)
            a->precision >= 8 && a->precision <= 10 && a->dose <= 15;
 }
 
+bool nikon_paired_radial_valid(const NikonPairedRadial *r)
+{
+    return r && r->center_x >= -4095 && r->center_x <= 65535 &&
+           r->center_y >= -4095 && r->center_y <= 65535 &&
+           r->red >= -128 && r->red <= 127 &&
+           r->blue >= -128 && r->blue <= 127;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -173,7 +181,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         !nikon_paired_filter_valid(&p->filter) ||
         !nikon_paired_denoise_valid(&p->denoise) ||
         !nikon_paired_detail_valid(&p->detail) ||
-        !nikon_paired_adaptive_valid(&p->adaptive)) {
+        !nikon_paired_adaptive_valid(&p->adaptive) ||
+        !nikon_paired_radial_valid(&p->radial)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -619,13 +628,59 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
     }
 }
 
-static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
+/* Coordinates are full-RAW pixel Q16 values. CFA interpolation stays on the
+ * requested half-resolution color lattice. Clamping precedes unsigned shifts;
+ * at most 4095 * 2^34 contributes to the sum, within unsigned64.
+ */
+static uint16_t paired_lattice_sample(const uint16_t *raw,
+                                      const NikonPairedPixelConfig *p,
+                                      unsigned lane, int64_t x, int64_t y)
+{
+    unsigned phase = p->encoding == NIKON_RAW_MONO ? 0 :
+                     lane ^ (p->encoding - 1);
+    unsigned px = phase & 1, py = phase >> 1;
+    unsigned step = p->encoding == NIKON_RAW_MONO ? 1 : 2;
+    unsigned bits = step == 1 ? 16 : 17;
+    uint64_t unit = UINT64_C(1) << bits;
+    uint64_t xx = CLAMP(x - ((int64_t)px << 16), 0,
+                        (int64_t)(p->width - step) << 16);
+    uint64_t yy = CLAMP(y - ((int64_t)py << 16), 0,
+                        (int64_t)(p->height - step) << 16);
+    unsigned x0 = px + step * (xx >> bits), y0 = py + step * (yy >> bits);
+    unsigned x1 = MIN(x0 + step, p->width - step + px);
+    unsigned y1 = MIN(y0 + step, p->height - step + py);
+    uint64_t fx = xx & (unit - 1), fy = yy & (unit - 1);
+    uint64_t sum = raw[y0 * p->width + x0] * (unit - fx) * (unit - fy) +
+                   raw[y0 * p->width + x1] * fx * (unit - fy) +
+                   raw[y1 * p->width + x0] * (unit - fx) * fy +
+                   raw[y1 * p->width + x1] * fx * fy;
+
+    return (sum + (UINT64_C(1) << (2 * bits - 1))) >> (2 * bits);
+}
+
+static uint16_t paired_radial_sample(const uint16_t *raw,
+                                     const NikonPairedPixelConfig *p,
+                                     unsigned lane, unsigned x, unsigned y)
+{
+    int coefficient = lane == 0 ? p->radial.red :
+                      lane == 3 ? p->radial.blue : 0;
+    int64_t sx = ((int64_t)x << 16) +
+                 ((int64_t)x - p->radial.center_x) * coefficient;
+    int64_t sy = ((int64_t)y << 16) +
+                 ((int64_t)y - p->radial.center_y) * coefficient;
+
+    return paired_lattice_sample(raw, p, lane, sx, sy);
+}
+
+static void paired_yuv(const NikonPairedPixelConfig *p, const uint16_t *raw,
+                        unsigned x, unsigned y,
                         uint32_t noise_state[3], uint16_t output[3])
 {
+    uint16_t mono = raw[y * p->width + x];
     uint16_t rgb[] = {
-        paired_quad(p, mono, 0),
+        paired_quad(p, paired_radial_sample(raw, p, 0, x, y), 0),
         (paired_quad(p, mono, 1) + paired_quad(p, mono, 2) + 1) / 2,
-        paired_quad(p, mono, 3),
+        paired_quad(p, paired_radial_sample(raw, p, 3, x, y), 3),
     };
 
     paired_rgb_yuv(p, rgb, noise_state, output);
@@ -638,20 +693,8 @@ static uint16_t paired_cfa_sample(const uint16_t *raw,
                                  const NikonPairedPixelConfig *p,
                                  unsigned lane, unsigned x, unsigned y)
 {
-    unsigned phase = lane ^ (p->encoding - 1);
-    unsigned px = phase & 1, py = phase >> 1;
-    unsigned xx = x > px ? x - px : 0;
-    unsigned yy = y > py ? y - py : 0;
-    unsigned x0 = px + 2 * (xx / 2), y0 = py + 2 * (yy / 2);
-    unsigned x1 = MIN(x0 + 2, p->width - 2 + px);
-    unsigned y1 = MIN(y0 + 2, p->height - 2 + py);
-    unsigned fx = xx & 1, fy = yy & 1;
-    unsigned sum = raw[y0 * p->width + x0] * (2 - fx) * (2 - fy) +
-                   raw[y0 * p->width + x1] * fx * (2 - fy) +
-                   raw[y1 * p->width + x0] * (2 - fx) * fy +
-                   raw[y1 * p->width + x1] * fx * fy;
-
-    return (sum + 2) / 4;
+    return paired_lattice_sample(raw, p, lane, (int64_t)x << 16,
+                                 (int64_t)y << 16);
 }
 
 static void paired_cfa_yuv(const uint16_t *raw, const NikonPairedPixelConfig *p,
@@ -688,12 +731,11 @@ static void paired_main(const uint16_t *filtered,
 
             for (dy = 0; dy < 2; dy++) {
                 for (dx = 0; dx < 2; dx++) {
-                    unsigned source = (p->y + y + dy) * p->width +
-                                      p->x + x + dx;
                     uint16_t yuv[3];
 
                     if (p->encoding == NIKON_RAW_MONO) {
-                        paired_yuv(p, filtered[source], noise_state, yuv);
+                        paired_yuv(p, filtered, p->x + x + dx,
+                                   p->y + y + dy, noise_state, yuv);
                     } else {
                         paired_cfa_yuv(filtered, p, p->x + x + dx,
                                        p->y + y + dy, noise_state, yuv);
@@ -739,10 +781,8 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         return false;
     }
     dpc = g_try_new(uint16_t, pixels);
-    if (config->encoding == NIKON_RAW_MONO) {
-        filtered = g_try_new(uint16_t, pixels);
-    }
-    if (!dpc || (config->encoding == NIKON_RAW_MONO && !filtered)) {
+    filtered = g_try_new(uint16_t, pixels);
+    if (!dpc || !filtered) {
         return false;
     }
     if (config->encoding == NIKON_RAW_MONO) {
@@ -778,10 +818,12 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                                 ((y & 1) * 2 + (x & 1));
                 unsigned at = y * config->width + x;
 
-                dpc[at] = paired_quad(config, dpc[at], lane);
+                filtered[at] = paired_quad(config,
+                    paired_radial_sample(dpc, config, lane, x, y), lane);
             }
         }
     }
-    paired_main(dpc, config, out_y, out_uv);
+    paired_main(config->encoding == NIKON_RAW_MONO ? dpc : filtered,
+                 config, out_y, out_uv);
     return true;
 }

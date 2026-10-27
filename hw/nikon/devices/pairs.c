@@ -59,8 +59,8 @@ typedef struct NikonPairedEventBanksBank {
     PairedJob job;
     uint64_t consumed[4], table_written[10];
     uint64_t curve_written[2][3];
-    uint32_t filter_written;
-    uint8_t denoise_written, detail_written, adaptive_written;
+    uint32_t filter_written, radial_table_written;
+    uint8_t denoise_written, detail_written, adaptive_written, radial_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
     NikonRawEncoding history_encoding[4];
@@ -305,6 +305,8 @@ static bool paired_live_word(unsigned offset)
         (offset >= 0x660 && offset <= 0x678) ||
         (offset >= 0x73c && offset <= 0x758) ||
         (offset >= 0x75c && offset <= 0x778) ||
+        (offset >= 0x724 && offset <= 0x738) ||
+        (offset >= 0x1200 && offset <= 0x1244) ||
         paired_filter_word(offset) >= 0) {
         return true;
     }
@@ -477,6 +479,52 @@ static bool paired_adaptive(NikonPairedEventBanksBank *b,
     return true;
 }
 
+static bool paired_radial(NikonPairedEventBanksBank *b,
+                           NikonPairedPixelConfig *pixels)
+{
+    const uint32_t *c = b->config;
+    uint32_t coefficient = c[0x730 / 4], scale = c[0x734 / 4];
+    uint32_t lanes = c[0x738 / 4];
+    int red = sextract32(coefficient, 16, 10);
+    int blue = sextract32(coefficient, 0, 10);
+
+    /* 102bf33c/102e4bbe omit1200/1224 for NULL config[14]. This bounded
+     * coefficient-only model requires that omission, not a zero LUT fallback.
+     */
+    if (b->radial_written != 0x3f || c[0x724 / 4] != 270) {
+        return paired_profile_reject(b, 0x724);
+    }
+    if (c[0x72c / 4] != 0x00030205) {
+        return paired_profile_reject(b, 0x72c);
+    }
+    if ((coefficient & 0xfc00fc00U) || red < -128 || red > 127 ||
+        blue < -128 || blue > 127) {
+        return paired_profile_reject(b, 0x730);
+    }
+    if ((scale >> 16) ||
+        (scale >> 8) < 5 || (scale >> 8) > 8 ||
+        (scale & 0xff) < 32 || (scale & 0xff) > 62) {
+        return paired_profile_reject(b, 0x734);
+    }
+    if (lanes < 0x101 || lanes > 0x303 ||
+        (lanes >> 8) != (lanes & 0xff)) {
+        return paired_profile_reject(b, 0x738);
+    }
+    for (unsigned offset = 0x1200; offset <= 0x1244; offset += 4) {
+        uint32_t bit = 1U << ((offset - 0x1200) / 4);
+
+        if ((b->radial_table_written & bit) || c[offset / 4]) {
+            return paired_profile_reject(b, offset);
+        }
+    }
+    pixels->radial = (NikonPairedRadial) {
+        .center_x = c[0x728 / 4] & 0xffff,
+        .center_y = c[0x728 / 4] >> 16,
+        .red = red, .blue = blue,
+    };
+    return true;
+}
+
 static bool paired_mode(NikonPairedEventBanksBank *b, PairedJob *job)
 {
     uint32_t *c = b->config;
@@ -628,7 +676,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         return paired_profile_reject(b, 0xfc);
     }
     if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g) ||
-        !paired_detail(b, g) || !paired_adaptive(b, g)) {
+        !paired_detail(b, g) || !paired_adaptive(b, g) || !paired_radial(b, g)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -840,6 +888,8 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     row_bytes = frame->width * 12 / 8;
     g->encoding = frame->encoding == NIKON_RAW_MONO ? NIKON_RAW_MONO :
         1 + ((frame->encoding - 1) ^ (x0 & 1) ^ ((y0 & 1) << 1));
+    g->radial.center_x -= (int32_t)x0;
+    g->radial.center_y -= (int32_t)y0;
     row = g_malloc(MAX(row_bytes, j->plane[2].row_bytes));
     j->raw = g_new(uint16_t, pixels);
     for (unsigned y = 0; y < g->height; y++) {
@@ -1354,12 +1404,26 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->adaptive_written & bit);
             b->adaptive_written |= bit;
         }
+        if (offset >= 0x724 && offset <= 0x738) {
+            uint8_t bit = 1U << ((offset - 0x724) / 4);
+
+            changed |= !(b->radial_written & bit);
+            b->radial_written |= bit;
+        }
+        if (offset >= 0x1200 && offset <= 0x1244) {
+            uint32_t bit = 1U << ((offset - 0x1200) / 4);
+
+            changed |= !(b->radial_table_written & bit);
+            b->radial_table_written |= bit;
+        }
         if (changed && offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
             paired_cancel(b);
             /* RAW addresses and main-only color controls preserve history. */
             if (offset != 0xfc &&
                 !(offset >= 0x708 && offset <= 0x720) &&
+                !(offset >= 0x724 && offset <= 0x738) &&
+                !(offset >= 0x1200 && offset <= 0x1244) &&
                 !(offset >= 0xdf4 && offset <= 0xe10) &&
                 !(offset >= 0x218 && offset <= 0x234) &&
                 !(offset >= 0x310 && offset <= 0x32c) &&
@@ -1416,6 +1480,8 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].denoise_written = 0;
         s->bank[i].detail_written = 0;
         s->bank[i].adaptive_written = 0;
+        s->bank[i].radial_written = 0;
+        s->bank[i].radial_table_written = 0;
         memset(s->bank[i].history_address, 0,
                sizeof(s->bank[i].history_address));
         memset(s->bank[i].history_epoch, 0, sizeof(s->bank[i].history_epoch));

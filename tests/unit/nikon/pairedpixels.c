@@ -1,5 +1,5 @@
 /*
- * Fixed numerical vectors for the functional monochrome RAW12 operator.
+ * Fixed numerical vectors for bounded mono/CFA RAW12 processing.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -20,6 +20,7 @@ static NikonPairedPixelConfig config(void)
         .detail = { .limit = 4, .strength = 0, .lane = 8 },
         .adaptive = { .base = 50, .slope = 60, .cap = 16, .weight = 100,
                       .precision = 10, .dose = 0 },
+        .radial = { .center_x = 2, .center_y = 2 },
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
@@ -1824,9 +1825,199 @@ static void adaptive_invalid(void)
     }
 }
 
+/* Independent floating-coordinate oracle: it does not share the production
+ * integer weights or Q16 clamping code. The source is a known filtered step.
+ */
+static uint16_t radial_reference(const uint16_t *image, unsigned width,
+                                  unsigned height, unsigned phase, bool cfa,
+                                  long double sx, long double sy)
+{
+    unsigned step = cfa ? 2 : 1, px = phase & 1, py = phase >> 1;
+    unsigned cols = width / step, rows = height / step;
+    long double x = (sx - px) / step, y = (sy - py) / step;
+    unsigned x0, x1, y0, y1;
+    long double fx, fy, sum;
+
+    x = CLAMP(x, 0, cols - 1);
+    y = CLAMP(y, 0, rows - 1);
+    x0 = x;
+    y0 = y;
+    x1 = MIN(x0 + 1, cols - 1);
+    y1 = MIN(y0 + 1, rows - 1);
+    fx = x - x0;
+    fy = y - y0;
+    sum = image[(step * y0 + py) * width + step * x0 + px] *
+          (1 - fx) * (1 - fy) +
+          image[(step * y0 + py) * width + step * x1 + px] * fx * (1 - fy) +
+          image[(step * y1 + py) * width + step * x0 + px] * (1 - fx) * fy +
+          image[(step * y1 + py) * width + step * x1 + px] * fx * fy;
+    return sum + 0.5L;
+}
+
+static uint16_t radial_reference_quad(uint16_t sample, bool quad)
+{
+    return quad ? CLAMP(filter_reference_round(((int)sample - 25) * 768,
+                                               512) + 10, 0, 2200) : sample;
+}
+
+static void radial(void)
+{
+    static const int coefficients[] = { -128, 0, 127 };
+    static const uint16_t step[] = { 0, 256, 1792, 2048 };
+    static const int centers[] = { -4095, 256, 65535 };
+
+    for (unsigned encoding = NIKON_RAW_MONO;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        bool cfa = encoding != NIKON_RAW_MONO;
+        unsigned width = cfa ? 8 : 4;
+
+        for (unsigned lane = 0; lane <= 3; lane += 3) {
+            unsigned phase = cfa ? lane ^ (encoding - 1) : 0;
+            unsigned px = phase & 1;
+
+            for (unsigned center = 0; center < ARRAY_SIZE(centers); center++) {
+                for (unsigned coefficient = 0;
+                     coefficient < ARRAY_SIZE(coefficients); coefficient++) {
+                    for (unsigned quad = 0; quad < 2; quad++) {
+                        NikonPairedPixelConfig p = config();
+                        uint16_t raw[32] = { 0 }, spatial[32] = { 0 };
+                        uint16_t corrected[32] = { 0 };
+                        uint16_t half[8], residual[8], grid[4];
+                        uint8_t yplane[32], uv[16];
+                        int k = coefficients[coefficient];
+
+                        p.encoding = encoding;
+                        p.width = p.output_width = width;
+                        p.radial.center_x = centers[center];
+                        p.radial.center_y = 2;
+                        p.radial.red = lane == 0 ? k : 0;
+                        p.radial.blue = lane == 3 ? k : 0;
+                        p.quad_enabled = quad;
+                        p.quad_limit = 2200;
+                        for (unsigned i = 0; i < 4; i++) {
+                            p.quad_gain[i] = 768;
+                            p.quad_offset[i] = -25;
+                            p.quad_pedestal[i] = 10;
+                        }
+                        memset(p.b, 0, sizeof(p.b));
+                        p.b[lane == 0 ? 0 : 2] = 512;
+                        for (unsigned y = 0; y < 4; y++) {
+                            for (unsigned x = 0; x < width; x++) {
+                                unsigned at = y * width + x;
+
+                                if (!cfa || ((y & 1) * 2 + (x & 1)) == phase) {
+                                    raw[at] = x >= width / 2 ? 2048 : 0;
+                                    spatial[at] = step[x / (cfa ? 2 : 1)];
+                                }
+                            }
+                        }
+                        /* CFA's radial sampling precedes per-site quad and the
+                         * existing demosaic; mono's sampling precedes quad.
+                         */
+                        if (cfa) {
+                            for (unsigned y = phase >> 1; y < 4; y += 2) {
+                                for (unsigned x = px; x < width; x += 2) {
+                                    long double sx = x + ((long double)x -
+                                        centers[center]) * k / 65536;
+                                    long double sy = y +
+                                        ((long double)y - 2) * k / 65536;
+                                    uint16_t sample = radial_reference(spatial,
+                                        width, 4, phase, true, sx, sy);
+
+                                    corrected[y * width + x] =
+                                        radial_reference_quad(sample, quad);
+                                }
+                            }
+                        }
+                        for (unsigned crop = 0; crop < 2; crop++) {
+                            p.x = p.y = crop;
+                            p.output_width = width - 2 * crop;
+                            p.output_height = 4 - 2 * crop;
+                            g_assert_true(nikon_paired_pixels(&p, raw, NULL,
+                                NULL, half, residual, grid, yplane, uv));
+                            for (unsigned i = 0; i < width; i++) {
+                                unsigned value = cfa ? step[i % 4] / 4 :
+                                                 (i % 2 ? 1920 : 128);
+
+                                g_assert_cmpuint(half[i], ==, value);
+                                g_assert_cmpuint(residual[i], ==, 0);
+                            }
+                            for (unsigned i = 0; i < 4; i++) {
+                                unsigned value = i % 2 ? 1920 : 128;
+
+                                g_assert_cmpuint(grid[i], ==,
+                                                 cfa ? value / 4 : value);
+                            }
+                            for (unsigned y = 0; y < p.output_height; y++) {
+                                for (unsigned x = 0; x < p.output_width; x++) {
+                                    unsigned xx = p.x + x, yy = p.y + y;
+                                    uint16_t sample;
+
+                                    if (cfa) {
+                                        sample = radial_reference(corrected,
+                                            width, 4, phase, true, xx, yy);
+                                    } else {
+                                        long double sx = xx + ((long double)xx -
+                                            centers[center]) * k / 65536;
+                                        long double sy = yy +
+                                            ((long double)yy - 2) * k / 65536;
+
+                                        sample = radial_reference(spatial,
+                                            width, 4, 0, false, sx, sy);
+                                        sample = radial_reference_quad(sample,
+                                                                        quad);
+                                    }
+                                    g_assert_cmpuint(
+                                        yplane[y * p.output_width + x], ==,
+                                        MIN(255, (sample + 8) / 16));
+                                }
+                            }
+                            unsigned bytes =
+                                p.output_width * p.output_height / 2;
+
+                            for (unsigned i = 0; i < bytes; i++) {
+                                g_assert_cmpuint(uv[i], ==, 128);
+                            }
+                            if (cfa && center == 1 && !quad && !crop) {
+                                /* At the high-side measured site, +/- residuals
+                                 * actually change112 to89/116, with fractional
+                                 * sampling; coefficient0 stays112.
+                                 */
+                                g_assert_cmpuint(yplane[4 + px], ==,
+                                    k == -128 ? 116 : k == 127 ? 89 : 112);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void radial_invalid(void)
+{
+    static const NikonPairedRadial invalid[] = {
+        { .red = -129 }, { .red = 128 }, { .blue = -129 }, { .blue = 128 },
+        { .center_x = -4096 }, { .center_y = -4096 },
+        { .center_x = 65536 }, { .center_y = 65536 },
+    };
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    g_assert_false(nikon_paired_radial_valid(NULL));
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+        p.radial = invalid[i];
+        g_assert_false(nikon_paired_radial_valid(&p.radial));
+        rejected(&p, raw, NULL, NULL);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add_func("/nikon/pairedpixels/radial", radial);
+    g_test_add_func("/nikon/pairedpixels/radial-invalid", radial_invalid);
     g_test_add_func("/nikon/pairedpixels/constant", constant);
     g_test_add_func("/nikon/pairedpixels/history", history);
     g_test_add_func("/nikon/pairedpixels/spatial", spatial);

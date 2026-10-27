@@ -35,6 +35,11 @@ typedef struct NikonPairedAdaptive {
     uint16_t base, slope, cap, weight;
     uint8_t precision, dose;
 } NikonPairedAdaptive;
+/* Functional coefficient-only radial magnification, not physical lens data. */
+typedef struct NikonPairedRadial {
+    int32_t center_x, center_y; /* Wire center minus the RAW ROI origin. */
+    int16_t red, blue;         /* Signed Q16 corrections in [-128,127]. */
+} NikonPairedRadial;
 
 typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
@@ -53,6 +58,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedDenoise denoise;
     NikonPairedDetail detail;
     NikonPairedAdaptive adaptive;
+    NikonPairedRadial radial;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -70,6 +76,7 @@ bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
 
 /* Dose zero is algebraically neutral; all other scalars remain mandatory. */
 bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *adaptive);
+bool nikon_paired_radial_valid(const NikonPairedRadial *radial);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -132,6 +139,16 @@ bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *adaptive);
  * greens at R/B sites. Existing curves/gains/noise/matrices follow. These CFA
  * geometry, arithmetic and history choices are explicit functional hypotheses.
  * MAIN crop x/y may be odd; interpolation uses the complete RAW ROI.
+ * A coefficient-only radial hypothesis modifies MAIN R/B coordinates before
+ * quad correction:
+ * source = destination + (destination-center)*coefficient/65536.
+ * G is the reference. Centers are wire unsigned16 values minus the RAW ROI
+ * origin, independent of the later MAIN crop. Immutable same-phase bilinear
+ * sampling replicates borders and rounds once with unsigned64-bit weights.
+ * MONO similarly samples R/B independently before quad correction. Coefficient0
+ * follows the same arithmetic and exactly preserves integer sampling. This
+ * bounded path has no published radial LUT; it does not interpret a nonzero,
+ * partially published or even explicitly zero published radial LUT.
  *
  * raw contains width*height contiguous host-endian RAW12 samples. Optional
  * history and mandatory half outputs contain ceil(width/2)*ceil(height/2)
