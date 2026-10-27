@@ -4710,10 +4710,15 @@ static void test_rgba_image_family(bool normal)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
 
-    for (unsigned test = INITIAL; test < CASES; test++)
-      for (unsigned phase = 0; phase < (normal &&
-           (test == RETAINED || test == CACHED || test == COLOR_PREFIX ||
-            test == BOTH_PREFIXES) ? 4 : 1); phase++) {
+    for (unsigned iteration = 0; iteration < CASES + (normal ? 12 : 0);
+         iteration++) {
+        unsigned extra = normal ? 12 : 0;
+        unsigned test = iteration < CANCEL ? iteration :
+            iteration < CANCEL + extra ?
+            (unsigned[]) { RETAINED, CACHED, COLOR_PREFIX, BOTH_PREFIXES }
+                [(iteration - CANCEL) / 3] : CANCEL;
+        unsigned phase = iteration >= CANCEL && iteration < CANCEL + extra ?
+                         (iteration - CANCEL) % 3 + 1 : 0;
         uint8_t *a = data, *b = data + 0x1000;
         unsigned setup_bytes = 176, draw_bytes = 336;
         unsigned width = 8, height = 4;

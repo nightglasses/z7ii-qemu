@@ -214,3 +214,70 @@ Ignored receipts: `run guiimage/`, including original `red`,
 `probe`, intermediate `initialized`, final `green`, physical source/preimage
 and output captures, complete next buffers, source projections, native
 red/mode-red/final logs, `initialized-pixels.json` and `verified-progress.json`.
+
+
+## Image sampling without paint
+
+An unchanged C1.70 MAS menu submission supplies a complete176/328-byte pair.
+The parser rejects CPU0 MAS VA`106ee3c6`, WRITE32 board PA`201810e0=1`, with
+`transfer-image-prefix-not-supported`. This is a distinct producer grammar,
+not a truncated336-byte modulation body. The source format is`001b0100`,
+active/allocation extent`00300028` (48 × 40), and source span7680 bytes.
+The inline40 × 40 path uses diagonal`(1,-1,1)` and translation`(12,50)`,
+covering`[12,52) × [10,50)` in the retained720 × 480 target. The source and
+target addresses remain validated operands.
+
+Relative to the336-byte body, the328-byte body omits exactly the
+`0185f004` paint header and its value after`0115c004=01000000`. Every later
+word moves two positions earlier. Its temporary`01841004` value is0 and
+its final value is2, followed by the same target, key, path latch, draw and
+completion commands. Its source matrix is f24
+`(1/48,0,-1/4,0,-1/40,5/4,0,0,1)`, subject to the submitted f24 rounding.
+Pixel-center nearest sampling selects columns0..39 and rows39..0 for this
+path; the eight remaining source columns are outside the selected path.
+
+The original MAS producer at VA`106b5198` selects internal image mode1
+when the compatibility helper returns false or the software mode field is
+`1f00`; mode`1f01` selects2 and the remaining branch selects3.
+`1068bb7c` checks its mode argument at`1068bb82`; mode1 branches at
+`1068bb8c` directly to its return at`1068bbe0`, skipping paint production.
+The same caller then invokes`10645c86`, which writes the selected mode into
+private offset192 and emits`01841004` as
+`(private191 ? 8 : 0) | (2 * mode) | (private188 != 0)`.
+The final2 and absent paint therefore agree with the mode1 branch.
+`10646062` uses the same packing while preserving the previous mode, before
+that final write replaces it. These are producer facts; treating the earlier
+write as having no eager sampling side effect remains the existing functional
+state-overwrite assumption.
+
+The finite parser supports this normal-image body for both existing A8 and
+straight RGBA source formats. The exact final mode is2, and the temporary
+mode may be0/2/4/6; bit0, bit3 and all higher bits remain errors. The modulation
+body still requires explicit paint, final mode0e and temporary8/10/12/14.
+Neither body accepts the other's state/paint combination. The normal-image
+body shares the same independently optional cached-matrix and color-disable
+prefixes:176/328,216/328,176/336 and216/336. Its initialized form is224/464,
+with the complete existing global prefix. These prefix combinations and the
+initialized form are source-composed fixture coverage, rather than additional
+original execution observations.
+
+Normal sampling uses the texture's own channels and alpha, followed by the
+existing path coverage and SRC_OVER. It never reads a previous job's paint.
+The parser represents this internally as identity modulation in its local
+validated command view; it writes no paint register or guest memory.
+Original command spans still participate in all range, overlap and backing
+alias checks. The established target/context rules, source-format words,
+geometry and work bounds, complete preflight, cancellation and IRQ publication
+are shared with modulation. The fixed Z7 implementation also samples mode2
+without applying paint; nearest/clamp, straight RGBA, Cairo coverage and
+integer precision remain functional assumptions rather than recovered silicon
+behavior.
+
+The native normal-image fixture exercises all four retained prefix combinations
+with all four temporary modes, both source formats, initialized/alternate
+output, and non-white paint from a preceding image job. It compares every
+output byte and guards against an independent integer oracle, including the
+captured48 × 40 sampling transform and a literal non-gray opaque pixel.
+Unknown modes/header shapes, formats/flags, dimensions, spans, source/output
+aliases, absent/foreign context, map loss, reset and cancellation remain
+negative cases. Fixture coverage does not establish original menu completion.
