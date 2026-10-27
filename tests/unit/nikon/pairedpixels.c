@@ -10,7 +10,7 @@ typedef struct PairedOutputs {
     uint8_t y[16], uv[8];
 } PairedOutputs;
 
-static int64_t filter_reference_round(int64_t value, unsigned divisor);
+static int64_t filter_reference_round(int64_t value, int64_t divisor);
 static void post_reference(const NikonPairedPost *p, unsigned channel,
                            uint16_t image[16]);
 
@@ -26,7 +26,9 @@ static NikonPairedPixelConfig config(void)
                       .precision = 10, .dose = 0 },
         .radial = { .center_x = 2, .center_y = 2 },
         .colorfilter = { .shift = 2, .weight = 8 },
-        .post = { .original = 256, .edge_strength = 3, .edge_limit = 5 },
+        .post = { .original = 256, .edge_strength = 3, .edge_limit = 5,
+                  .negative_base = 10, .positive_base = 10,
+                  .mix = 128, .radius = 1 },
         .main_gain = 256,
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
@@ -811,7 +813,7 @@ typedef struct FilterOutputs {
     uint8_t y[16], uv[8];
 } FilterOutputs;
 
-static int64_t filter_reference_round(int64_t value, unsigned divisor)
+static int64_t filter_reference_round(int64_t value, int64_t divisor)
 {
     lldiv_t q = lldiv(value, divisor);
 
@@ -833,7 +835,7 @@ static void post_reference_size(const NikonPairedPost *p, unsigned channel,
     size_t bytes = (size_t)width * height * sizeof(*image);
     g_autofree uint16_t *previous = g_malloc(bytes);
 
-    for (unsigned stage = 0; stage < 4; stage++) {
+    for (unsigned stage = 0; stage < 5; stage++) {
         const int (*offset)[2] = stage == 2 ? diagonal : cross;
 
         memcpy(previous, image, bytes);
@@ -848,7 +850,31 @@ static void post_reference_size(const NikonPairedPost *p, unsigned channel,
 
                     numerator += previous[width * yy + xx] - previous[at];
                 }
-                if (stage == 0) {
+                if (stage == 3) {
+                    int c = previous[at];
+                    int low = 16 * p->negative_base +
+                        filter_reference_round((int64_t)p->slope * c, 16);
+                    int high = 16 * p->positive_base +
+                        filter_reference_round((int64_t)p->slope * c, 16);
+
+                    numerator = 0;
+                    for (unsigned direction = 0; direction < 8; direction++) {
+                        const int *delta = direction < 4 ? cross[direction] :
+                                                           diagonal[direction - 4];
+                        int xx = CLAMP(x + delta[0] * p->radius,
+                                       0, (int)width - 1);
+                        int yy = CLAMP(y + delta[1] * p->radius,
+                                       0, (int)height - 1);
+                        int difference = CLAMP(previous[yy * width + xx] - c,
+                                               -low, high);
+
+                        numerator += (direction < 4 ? 16 - p->diagonal :
+                                                       p->diagonal) * difference;
+                    }
+                    numerator *= (31 - p->retain) * (int64_t)p->amount *
+                                  p->modifier * p->mix;
+                    divisor = INT64_C(64) * 31 * 256 * 512 * (128 + p->mix);
+                } else if (stage == 0) {
                     numerator *= -(int64_t)p->unsharp[!!channel];
                     divisor = 1024;
                 } else if (stage < 3) {
@@ -2605,6 +2631,8 @@ static void post(void)
                     .unsharp = { 192, 96 }, .original = 147,
                     .transformed = 109, .smooth = { 17, 9 },
                     .edge_strength = 12, .edge_limit = 5,
+                    .negative_base = 10, .positive_base = 10,
+                    .mix = 128, .radius = 1,
                 };
                 break;
             }
@@ -2665,13 +2693,147 @@ static void post(void)
     }
 }
 
+static void post_packet(void)
+{
+    static const uint16_t texture[16] = {
+        300, 2400, 800, 3500, 1700, 1100, 3100, 700,
+        3800, 600, 2000, 1300, 1000, 3300, 400, 2800,
+    };
+    bool changed[13] = { 0 };
+
+    for (unsigned pattern = 0; pattern < 4; pattern++) {
+        FilterOutputs baseline = { 0 };
+        uint16_t raw[16];
+
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = pattern == 0 ? texture[i] : pattern == 1 ?
+                1000 + texture[i] / 4 : pattern == 2 ? 1600 :
+                (i % 4 < 2 ? 500 : 3500);
+        }
+        for (unsigned variant = 0; variant < 14; variant++) {
+            NikonPairedPixelConfig p = config();
+            FilterOutputs actual = { 0 };
+            uint16_t planes[3][16];
+
+            p.grid_width = p.grid_height = 4;
+            p.a[4] = 512;
+            p.a[8] = 256;
+            memset(p.b, 0, sizeof(p.b));
+            p.b[0] = 512;
+            p.b[4] = 256;
+            p.b[5] = -256;
+            p.b[6] = -256;
+            p.b[7] = 256;
+            p.post.negative_base = 30;
+            p.post.positive_base = 60;
+            p.post.slope = 2;
+            p.post.retain = 4;
+            p.post.amount = 180;
+            p.post.modifier = 400;
+            switch (variant) {
+            case 1: p.post.negative_base = 10; break;
+            case 2: p.post.positive_base = 200; break;
+            case 3: p.post.slope = 0; break;
+            case 4: p.post.retain = 25; break;
+            case 5: p.post.amount = 80; break;
+            case 6: p.post.modifier = 100; break;
+            case 7: p.post.mix = 64; break;
+            case 8:
+                p.post.radius = 3;
+                p.post.diagonal = 16;
+                p.post.amount = 80;
+                break;
+            case 9: p.post.amount = 0; break;
+            case 10: p.post.modifier = 0; break;
+            case 11: p.post.retain = 31; break;
+            case 12:
+                p.post.amount = 360;
+                p.post.mix = 64;
+                p.post.modifier = 511;
+                break;
+            case 13:
+                p.post.unsharp[0] = 192;
+                p.post.unsharp[1] = 96;
+                p.post.smooth[0] = 17;
+                p.post.smooth[1] = 9;
+                p.post.edge_strength = 18;
+                break;
+            }
+            g_assert_true(nikon_paired_post_valid(&p.post));
+            g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, actual.half,
+                actual.residual, actual.grid, actual.y, actual.uv));
+            for (unsigned i = 0; i < 16; i++) {
+                int s = actual.grid[i];
+                int green = filter_reference_round(s, 2);
+                int blue = filter_reference_round(s, 4);
+
+                planes[0][i] = s;
+                planes[1][i] = 2048 + filter_reference_round(green - blue, 2);
+                planes[2][i] = 2048 + filter_reference_round(green - s, 2);
+            }
+            for (unsigned channel = 0; channel < 3; channel++) {
+                post_reference(&p.post, channel, planes[channel]);
+            }
+            for (unsigned i = 0; i < 16; i++) {
+                g_assert_cmpuint(actual.y[i], ==,
+                    MIN(255, filter_reference_round(planes[0][i], 16)));
+            }
+            for (unsigned block = 0; block < 4; block++) {
+                unsigned at = block / 2 * 8 + block % 2 * 2;
+
+                for (unsigned channel = 1; channel < 3; channel++) {
+                    unsigned mean = filter_reference_round(planes[channel][at] +
+                        planes[channel][at + 1] + planes[channel][at + 4] +
+                        planes[channel][at + 5], 4);
+
+                    g_assert_cmpuint(actual.uv[2 * block + channel - 1], ==,
+                        MIN(255, filter_reference_round(mean, 16)));
+                }
+            }
+            if (!variant) {
+                baseline = actual;
+            } else {
+                g_assert_cmpmem(actual.half, sizeof(actual.half),
+                                baseline.half, sizeof(baseline.half));
+                g_assert_cmpmem(actual.grid, sizeof(actual.grid),
+                                baseline.grid, sizeof(baseline.grid));
+                changed[variant - 1] |= memcmp(actual.y, baseline.y,
+                    sizeof(actual.y)) || memcmp(actual.uv, baseline.uv,
+                    sizeof(actual.uv));
+            }
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(changed); i++) {
+        g_assert_true(changed[i]);
+    }
+    for (unsigned level = 0; level <= 4095; level += 1365) {
+        NikonPairedPixelConfig p = config();
+        PairedOutputs actual;
+        uint16_t raw[16];
+
+        p.post.negative_base = 30;
+        p.post.positive_base = 60;
+        p.post.slope = 2;
+        p.post.amount = 180;
+        p.post.modifier = 511;
+        fill(raw, 16, level);
+        g_assert_true(run(&p, raw, NULL, NULL, &actual));
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(actual.y[i], ==, MIN(255, (level + 8) / 16));
+        }
+        for (unsigned i = 0; i < 8; i++) {
+            g_assert_cmpuint(actual.uv[i], ==, 128);
+        }
+    }
+}
+
 static void post_invalid(void)
 {
     uint16_t raw[16];
 
     fill(raw, 16, 1000);
     g_assert_false(nikon_paired_post_valid(NULL));
-    for (unsigned test = 0; test < 13; test++) {
+    for (unsigned test = 0; test < 25; test++) {
         NikonPairedPixelConfig p = config();
 
         switch (test) {
@@ -2688,6 +2850,25 @@ static void post_invalid(void)
         case 10: p.c[1] = 1; break;
         case 11: p.c[3] = 1; break;
         case 12: p.c[6] = 1; break;
+        case 13: p.post.negative_base = 9; break;
+        case 14: p.post.positive_base = 201; break;
+        case 15: p.post.slope = 5; break;
+        case 16: p.post.retain = 32; break;
+        case 17: p.post.amount = 236; break;
+        case 18: p.post.modifier = 512; break;
+        case 19: p.post.mix = 63; break;
+        case 20: p.post.radius = 0; break;
+        case 21: p.post.diagonal = 1; break;
+        case 22:
+            p.post.radius = 3; p.post.diagonal = 16; p.post.amount = 3;
+            break;
+        case 23:
+            p.post.radius = 3; p.post.diagonal = 16; p.post.amount = 101;
+            break;
+        case 24:
+            p.post.radius = 3; p.post.diagonal = 16;
+            p.post.amount = 80; p.post.mix = 64;
+            break;
         }
         rejected(&p, raw, NULL, NULL);
     }
@@ -2899,6 +3080,7 @@ static void saturation_cfa(void)
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add_func("/nikon/pairedpixels/post-packet", post_packet);
     g_test_add_func("/nikon/pairedpixels/saturation", saturation);
     g_test_add_func("/nikon/pairedpixels/saturation-cfa", saturation_cfa);
     g_test_add_func("/nikon/pairedpixels/colorfilter", colorfilter);

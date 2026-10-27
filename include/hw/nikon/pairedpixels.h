@@ -64,6 +64,9 @@ typedef struct NikonPairedPost {
     uint16_t original, transformed; /* BAC: complementary Q8 C blend. */
     uint8_t smooth[2]; /* D28: axial then diagonal Q5 mean blends. */
     uint8_t edge_strength, edge_limit; /* DD4/DD8: bounded final blend. */
+    uint8_t negative_base, positive_base, slope, retain;
+    uint16_t amount, modifier; /* DDC/DE0: hypothesized Q8/Q9 factors. */
+    uint8_t mix, radius, diagonal; /* Qualified DE4/DE8/DEC family. */
 } NikonPairedPost;
 
 typedef struct NikonPairedPixelConfig {
@@ -211,7 +214,12 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * input. A/C coefficients are signed 13-bit and B coefficients signed 12-bit.
  * MAIN uses three actual Q12 intermediate planes. B58 adds a Q8 axial unsharp
  * residual (Y strength0, shared chroma strength1). D28 then blends toward the
- * axial and diagonal means with its two Q5 strengths. DD4/DD8 finally add the
+ * axial and diagonal means with its two Q5 strengths. A complete DC0..DEC
+ * kernel then bounds negative/positive neighbor differences by16*base plus
+ * slope*center/16, mixes axial/diagonal means at the qualified radius, and
+ * scales the residual by the Q5 retention complement, Q8 amount, Q9 modifier
+ * and mix/(128+mix). Zero modifier is naturally neutral in this equation.
+ * DD4/DD8 finally add the
  * axial mean residual d, weighted by max(0,1-abs(d)/(16*edge_limit)) and
  * edge_strength/32. Keep d rational until the final correction rounding.
  * Every pass reads an immutable plane, replicates borders, rounds one exact

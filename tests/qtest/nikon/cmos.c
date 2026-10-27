@@ -2234,6 +2234,16 @@ static void paired_post_config(QTestState *q, uint32_t base, unsigned count)
             uint32_t value = offset == 0xbac ? 256 :
                              offset == 0xdd4 ? 3 : offset == 0xdd8 ? 5 : 0;
 
+            if (offset == 0xdc0 || offset == 0xdc4) {
+                value = 10 << 8;
+            } else if (offset == 0xdd0) {
+                value = 0x080401;
+            } else if (offset == 0xde4) {
+                value = 0x8080;
+            } else if (offset == 0xde8) {
+                value = 0x010101;
+            }
+
             if (word < count) {
                 qtest_writel(q, base + offset, value);
             }
@@ -2241,7 +2251,7 @@ static void paired_post_config(QTestState *q, uint32_t base, unsigned count)
     }
 }
 
-static int64_t post_round(int64_t value, unsigned divisor)
+static int64_t post_round(int64_t value, int64_t divisor)
 {
     lldiv_t q = lldiv(value, divisor);
 
@@ -2287,6 +2297,52 @@ static void paired_post_oracle(uint16_t *image, unsigned width, unsigned height,
                 }
                 image[at] = CLAMP(source[at] + post_round(n, divisor), 0, 4095);
             }
+        }
+    }
+}
+
+typedef struct PostPacketFixture {
+    unsigned negative, positive, slope, retain, amount, modifier;
+    unsigned mix, radius, diagonal;
+} PostPacketFixture;
+
+static void post_packet_oracle(uint16_t *image, unsigned width, unsigned height,
+                                const PostPacketFixture *p)
+{
+    static const int delta[8][2] = {
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+    };
+    g_autofree uint16_t *original = g_new(uint16_t, width * height);
+
+    memcpy(original, image, width * height * sizeof(*image));
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            unsigned at = y * width + x;
+            int center = original[at];
+            int brightness = post_round(p->slope * center, 16);
+            int negative = 16 * p->negative + brightness;
+            int positive = 16 * p->positive + brightness;
+            int64_t numerator = 0;
+            uint64_t denominator = UINT64_C(64) * 31 * 256 * 512 *
+                                   (128 + p->mix);
+
+            for (unsigned i = 0; i < 8; i++) {
+                int xx = CLAMP(x + delta[i][0] * (int)p->radius,
+                               0, (int)width - 1);
+                int yy = CLAMP(y + delta[i][1] * (int)p->radius,
+                               0, (int)height - 1);
+                int difference = CLAMP((int)original[yy * width + xx] - center,
+                                       -negative, positive);
+
+                numerator += (i < 4 ? 16 - p->diagonal : p->diagonal) *
+                             (int64_t)difference;
+            }
+            numerator *= (31 - p->retain) * (int64_t)p->amount *
+                         p->modifier * p->mix;
+            image[at] = CLAMP(center + post_round(numerator, denominator),
+                              0, 4095);
         }
     }
 }
@@ -3898,6 +3954,101 @@ static void test_paired_post(void)
     unlink(bundle);
 }
 
+static void test_paired_post_packet(void)
+{
+    static const uint8_t step[] = {
+        'P', '5', '\n', '2', ' ', '1', '\n', '2', '5', '5', '\n', 64, 192,
+    };
+    static const int identity[] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+
+    for (unsigned test = 0; test < 6; test++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+        bool gray = test >= 3;
+        unsigned family = test % 3;
+        PostPacketFixture p = {
+            .negative = 30, .positive = 60, .slope = 2, .retain = 4,
+            .amount = family == 0 ? 115 : family == 1 ? 360 : 80,
+            .modifier = 511, .mix = family == 1 ? 64 : 128,
+            .radius = family == 2 ? 3 : 1,
+            .diagonal = family == 2 ? 16 : 0,
+        };
+        uint16_t planes[3][56 * 28];
+        uint8_t expected[64 * 42], actual[sizeof(expected)];
+
+        g_assert_true(g_file_set_contents(scene, (const char *)step,
+                                          sizeof(step), NULL));
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'image','value':%s}}", scene);
+        if (gray) {
+            paired_matrix(q, PAIRED, 0xb00, identity, 13, false);
+        }
+        qtest_writel(q, PAIRED + 0xdc0, p.negative << 8 | p.slope);
+        qtest_writel(q, PAIRED + 0xdc4, p.positive << 8 | p.slope);
+        qtest_writel(q, PAIRED + 0xdc8, p.retain);
+        qtest_writel(q, PAIRED + 0xddc, p.amount << 8);
+        qtest_writel(q, PAIRED + 0xde0, p.modifier << 8);
+        qtest_writel(q, PAIRED + 0xde4, 0x8000 | p.mix);
+        qtest_writel(q, PAIRED + 0xde8,
+                     0x10000 | p.radius << 8 | p.radius);
+        qtest_writel(q, PAIRED + 0xdec, p.diagonal << 8 | p.diagonal);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+        for (unsigned y = 0; y < 28; y++) {
+            for (unsigned x = 0; x < 56; x++) {
+                unsigned at = y * 56 + x;
+                int s = x < 27 ? 1028 : x == 27 ? 1285 :
+                        x == 28 ? 2827 : 3084;
+                int green = gray ? s : post_round(s, 2);
+                int blue = gray ? s : post_round(s, 4);
+
+                planes[0][at] = s;
+                planes[1][at] = 2048 + post_round(green - blue, 2);
+                planes[2][at] = 2048 + post_round(green - s, 2);
+            }
+        }
+        for (unsigned channel = 0; channel < 3; channel++) {
+            post_packet_oracle(planes[channel], 56, 28, &p);
+            paired_post_oracle(planes[channel], 56, 28, 0, 0, 0, 3);
+        }
+        memset(expected, 0xa5, sizeof(expected));
+        for (unsigned y = 0; y < 28; y++) {
+            for (unsigned x = 0; x < 56; x++) {
+                expected[y * 64 + x] = MIN(255,
+                    post_round(planes[0][y * 56 + x], 16));
+            }
+        }
+        for (unsigned y = 0; y < 14; y++) {
+            for (unsigned x = 0; x < 56; x += 2) {
+                unsigned at = 2 * y * 56 + x;
+
+                for (unsigned channel = 1; channel < 3; channel++) {
+                    unsigned mean = post_round(planes[channel][at] +
+                        planes[channel][at + 1] + planes[channel][at + 56] +
+                        planes[channel][at + 57], 4);
+
+                    expected[64 * 28 + y * 64 + x + channel - 1] =
+                        MIN(255, post_round(mean, 16));
+                }
+            }
+        }
+        qtest_memread(q, PAIRED_MAIN, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        g_assert_cmphex(qtest_readl(q, PAIRED_WORK), ==, 0x04040404);
+        g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
 static void paired_main_gain(QTestState *q, unsigned table, uint16_t gain,
                               unsigned first, unsigned count)
 {
@@ -4135,7 +4286,9 @@ static void test_paired_main_gain_lifecycle(void)
 
 static void test_paired_post_boundaries(void)
 {
-    static const unsigned incomplete[] = { 8, 14, 51, 63 };
+    static const unsigned incomplete[] = {
+        8, 14, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+    };
     static const struct { unsigned offset, value; } invalid[] = {
         { 0xb58, 257 << 16 }, { 0xb58, 257 },
         { 0xbac, 257 }, { 0xbac, 0x00800081 },
@@ -4144,6 +4297,15 @@ static void test_paired_post_boundaries(void)
         { 0xb38, 1 }, /* Opaque profile words remain strictly compared. */
         { 0xd24, 1 }, { 0xdc0, 1 }, { 0xbb0, 1 },
         { 0xb94, 512 }, /* C cannot transform luma. */
+        { 0xdc0, 0x0900 }, { 0xdc4, 0xc900 },
+        { 0xdc0, 0x0a05 }, { 0xdc4, 0x0a01 },
+        { 0xdc0, 0x010a00 }, { 0xdc4, 0x010a00 },
+        { 0xdc8, 32 }, { 0xdcc, 1 }, { 0xdd0, 0x080400 },
+        { 0xddc, 1 }, { 0xddc, 236 << 8 }, { 0xddc, 0x01000000 },
+        { 0xde0, 1 }, { 0xde0, 512 << 8 },
+        { 0xde4, 0x7f80 }, { 0xde4, 0x803f }, { 0xde4, 0x018080 },
+        { 0xde8, 0x010201 }, { 0xde8, 0x010303 }, { 0xde8, 0x020101 },
+        { 0xdec, 0x0010 }, { 0xdec, 0x1010 }, { 0xdec, 0x010000 },
     };
 
     for (unsigned i = 0; i < ARRAY_SIZE(invalid) + ARRAY_SIZE(incomplete); i++) {
@@ -4180,6 +4342,8 @@ static void test_paired_post_lifecycle(void)
     static const struct { unsigned offset, value; } changes[] = {
         { 0xb58, 51 << 16 }, { 0xbac, 0x006d0093 },
         { 0xd28, 0x300 }, { 0xdd4, 4 },
+        { 0xdc0, 0x1400 }, { 0xdc8, 31 }, { 0xddc, 115 << 8 },
+        { 0xde0, 511 << 8 }, { 0xde4, 0x8040 },
     };
 
     for (unsigned test = 0; test < ARRAY_SIZE(changes) + 2; test++) {
@@ -6546,6 +6710,7 @@ int main(int argc, char **argv)
                    test_paired_main_gain_lifecycle);
     qtest_add_func("/nikon/cmos/paired/post/boundaries",
                    test_paired_post_boundaries);
+    qtest_add_func("/nikon/cmos/paired/post/packet", test_paired_post_packet);
     qtest_add_func("/nikon/cmos/paired/post/lifecycle",
                    test_paired_post_lifecycle);
     qtest_add_func("/nikon/cmos/paired/matrix-encoding",

@@ -330,6 +330,7 @@ static bool paired_live_word(unsigned offset)
         return true;
     }
     if ((offset >= 0x708 && offset <= 0x720) ||
+        (offset >= 0xdc0 && offset <= 0xdec) ||
         (offset >= 0x660 && offset <= 0x678) ||
         (offset >= 0x73c && offset <= 0x758) ||
         (offset >= 0x75c && offset <= 0x778) ||
@@ -431,9 +432,7 @@ static bool paired_post(NikonPairedEventBanksBank *b,
     static const uint32_t masks[] = { 0x1ff, 0x7ff, UINT32_MAX, 0xfff };
     static const unsigned bases[] = { 0xb38, 0xb94, 0xd20, 0xdc0 };
 
-    /* Complete source subpackets, including opaque profile-qualified words.
-     * Only the five dynamic words below leave the explicit calibration tuple.
-     */
+    /* Complete source subpackets, including the full DC0..DEC parameter family. */
     for (unsigned i = 0; i < ARRAY_SIZE(masks); i++) {
         if (b->post_written[i] != masks[i]) {
             return paired_profile_reject(b, bases[i]);
@@ -443,12 +442,28 @@ static bool paired_post(NikonPairedEventBanksBank *b,
         c[0xdd4 / 4] > 18 || c[0xdd8 / 4] != 5) {
         return paired_profile_reject(b, 0xd28);
     }
+    if ((c[0xdc0 / 4] & ~0xffffU) || (c[0xdc4 / 4] & ~0xffffU) ||
+        (c[0xdc0 / 4] & 0xff) != (c[0xdc4 / 4] & 0xff) ||
+        c[0xdc8 / 4] > 31 || c[0xdcc / 4] || c[0xdd0 / 4] != 0x080401 ||
+        (c[0xddc / 4] & ~0xffff00U) || (c[0xde0 / 4] & ~0x1ff00U) ||
+        (c[0xde4 / 4] >> 8) != 128 ||
+        (c[0xde8 / 4] >> 16) != 1 ||
+        ((c[0xde8 / 4] >> 8) & 0xff) != (c[0xde8 / 4] & 0xff) ||
+        (c[0xdec / 4] >> 8) != (c[0xdec / 4] & 0xff)) {
+        return paired_profile_reject(b, 0xdc0);
+    }
     pixels->post = (NikonPairedPost) {
         .unsharp = { c[0xb58 / 4] >> 16, c[0xb58 / 4] & 0xffff },
         .original = c[0xbac / 4] & 0xffff,
         .transformed = c[0xbac / 4] >> 16,
         .smooth = { (c[0xd28 / 4] >> 8) & 0xff, c[0xd28 / 4] & 0xff },
         .edge_strength = c[0xdd4 / 4], .edge_limit = c[0xdd8 / 4],
+        .negative_base = c[0xdc0 / 4] >> 8,
+        .positive_base = c[0xdc4 / 4] >> 8,
+        .slope = c[0xdc0 / 4] & 0xff, .retain = c[0xdc8 / 4],
+        .amount = c[0xddc / 4] >> 8, .modifier = c[0xde0 / 4] >> 8,
+        .mix = c[0xde4 / 4] & 0xff, .radius = c[0xde8 / 4] & 0xff,
+        .diagonal = c[0xdec / 4] & 0xff,
     };
     if (!nikon_paired_post_valid(&pixels->post)) {
         return paired_profile_reject(b, 0xb58);

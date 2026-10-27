@@ -209,7 +209,16 @@ bool nikon_paired_post_valid(const NikonPairedPost *p)
            p->original + p->transformed == 256 &&
            p->smooth[0] <= 31 && p->smooth[1] <= 31 &&
            p->edge_strength >= 3 && p->edge_strength <= 18 &&
-           p->edge_limit == 5;
+           p->edge_limit == 5 && p->negative_base >= 10 &&
+           p->negative_base <= 200 && p->positive_base >= 10 &&
+           p->positive_base <= 200 && p->slope <= 4 && p->retain <= 31 &&
+           p->modifier <= 511 &&
+           ((p->mix == 64 && p->radius == 1 && !p->diagonal &&
+             p->amount <= 360) ||
+            (p->mix == 128 && p->radius == 1 && !p->diagonal &&
+             p->amount <= 235) ||
+            (p->mix == 128 && p->radius == 3 && p->diagonal == 16 &&
+             p->amount >= 4 && p->amount <= 100));
 }
 
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
@@ -920,6 +929,40 @@ static int32_t paired_ratio(int64_t numerator, int64_t denominator)
                            (numerator + denominator / 2) / denominator;
 }
 
+static int32_t paired_post_kernel(const uint16_t *input, unsigned width,
+                                  unsigned height, unsigned x, unsigned y,
+                                  const NikonPairedPost *p)
+{
+    static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
+    static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
+    int center = input[y * width + x];
+    int slope = paired_ratio((int64_t)p->slope * center, 16);
+    int negative = 16 * p->negative_base + slope;
+    int positive = 16 * p->positive_base + slope;
+    int64_t residual = 0;
+
+    for (unsigned branch = 0; branch < 2; branch++) {
+        int sum = 0;
+
+        for (unsigned n = 0; n < 4; n++) {
+            unsigned xx = CLAMP((int)x + dx[branch][n] * p->radius,
+                                0, (int)width - 1);
+            unsigned yy = CLAMP((int)y + dy[branch][n] * p->radius,
+                                0, (int)height - 1);
+            int difference = (int)input[yy * width + xx] - center;
+
+            sum += CLAMP(difference, -negative, positive);
+        }
+        residual += (branch ? p->diagonal : 16 - p->diagonal) * sum;
+    }
+    /* Keep both neighborhood means and the complementary blend rational.
+     * The signed numerator stays below2^49, denominator below2^36.
+     */
+    return paired_ratio(residual * (31 - p->retain) * p->amount *
+                         p->modifier * p->mix,
+                         INT64_C(64) * 31 * 256 * 512 * (128 + p->mix));
+}
+
 static void paired_post_pass(const uint16_t *input, uint16_t *output,
                               unsigned width, unsigned height,
                               const NikonPairedPost *p, unsigned channel,
@@ -936,7 +979,11 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
             int n;
             int32_t correction;
 
-            if (pass == 2) {
+            if (pass == 3) {
+                correction = paired_post_kernel(input, width, height, x, y, p);
+                output[y * width + x] = paired_clamp(center + correction);
+                continue;
+            } else if (pass == 2) {
                 n = input[up * width + left] + input[up * width + right] +
                     input[down * width + left] + input[down * width + right];
             } else {
@@ -1002,14 +1049,13 @@ static void paired_main(const uint16_t *filtered,
     for (unsigned channel = 0; channel < 3; channel++) {
         uint16_t *plane = planes + channel * pixels;
 
-        paired_post_pass(plane, scratch, p->output_width, p->output_height,
-                          &p->post, channel, 0);
-        paired_post_pass(scratch, plane, p->output_width, p->output_height,
-                          &p->post, channel, 1);
-        paired_post_pass(plane, scratch, p->output_width, p->output_height,
-                          &p->post, channel, 2);
-        paired_post_pass(scratch, plane, p->output_width, p->output_height,
-                          &p->post, channel, 3);
+        for (unsigned pass = 0; pass < 5; pass++) {
+            paired_post_pass(pass & 1 ? scratch : plane,
+                              pass & 1 ? plane : scratch,
+                              p->output_width, p->output_height,
+                              &p->post, channel, pass);
+        }
+        memcpy(plane, scratch, pixels * sizeof(*plane));
     }
     for (y = 0; y < p->output_height; y += 2) {
         for (x = 0; x < p->output_width; x += 2) {
