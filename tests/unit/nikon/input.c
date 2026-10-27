@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/timer.h"
 #include "qapi/error.h"
 #include "hw/core/clock.h"
 #include "hw/core/irq.h"
@@ -11,6 +12,7 @@
 #include "hw/nikon/input.h"
 #include "standard-headers/linux/input-event-codes.h"
 #include "system/reset.h"
+#include "system/cpu-timers.h"
 #include "system/runstate.h"
 #include "system/system.h"
 #include "ui/input.h"
@@ -34,10 +36,23 @@ typedef struct InputFixture {
     DeviceState *input;
     DeviceState *gpio[7];
     qemu_irq selector;
+    qemu_irq mode;
+    int mode_level;
+    unsigned mode_changes;
     int selector_level;
     unsigned selector_changes;
     unsigned int cycle;
 } InputFixture;
+
+static void mode_level(void *opaque, int pin, int level)
+{
+    InputFixture *f = opaque;
+
+    if (f->mode_level != level) {
+        f->mode_changes++;
+    }
+    f->mode_level = level;
+}
 
 static void selector_level(void *opaque, int pin, int level)
 {
@@ -62,6 +77,9 @@ static InputFixture *input_new(void)
     f->selector_level = -1;
     f->selector = qemu_allocate_irq(selector_level, f, 0);
     qdev_connect_gpio_out_named(f->input, "capture-selector", 0, f->selector);
+    f->mode_level = -1;
+    f->mode = qemu_allocate_irq(mode_level, f, 0);
+    qdev_connect_gpio_out_named(f->input, "mode-adc", 0, f->mode);
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
         g_autofree char *name = g_strdup_printf("test.port%u", i);
 
@@ -82,13 +100,14 @@ static InputFixture *input_new(void)
                                     line);
         g_assert_true(qdev_get_gpio_out_connector(f->input, "pad", i) == line);
     }
-    g_assert_true(qdev_realize(f->input, NULL, &error_abort));
-    /* Real SysBus receivers are already reachable through their bus reset
-     * tree. Direct region access needs no mapping or private-AS alias.
+    /* Hotplug realization resets each GPIO and disconnects its inputs. Match
+     * the board's receiver-before-provider order; the late receiver hold case
+     * below separately checks publication after a subsequent reset.
      */
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
         g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->gpio[i]), &error_abort));
     }
+    g_assert_true(qdev_realize(f->input, NULL, &error_abort));
     return f;
 }
 
@@ -96,6 +115,7 @@ static void input_free(InputFixture *f)
 {
     qdev_unrealize(f->input);
     g_assert_cmpint(f->selector_level, ==, -1);
+    g_assert_cmpint(f->mode_level, ==, -1);
     object_unparent(OBJECT(f->input));
     object_unref(OBJECT(f->input));
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
@@ -106,6 +126,7 @@ static void input_free(InputFixture *f)
     object_unparent(f->owner);
     object_unref(f->owner);
     qemu_free_irq(f->selector);
+    qemu_free_irq(f->mode);
     g_free(f);
 }
 
@@ -229,6 +250,232 @@ static void test_selector(void)
     }
 }
 
+static void advance(int64_t ns)
+{
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ns);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+}
+
+static void property_reject(InputFixture *f, const char *name, int64_t value)
+{
+    Error *error = NULL;
+
+    g_assert_false(object_property_set_int(OBJECT(f->input), name, value,
+                                          &error));
+    g_assert_nonnull(error);
+    error_free(error);
+}
+
+static void step(InputFixture *f, unsigned dial, int value)
+{
+    const char *name = dial ? "dial1-step" : "dial0-step";
+
+    g_assert_true(object_property_set_int(OBJECT(f->input), name, value,
+                                         &error_abort));
+}
+
+static unsigned contact(InputFixture *f, unsigned id)
+{
+    MemoryRegion *regs = sysbus_mmio_get_region(
+        SYS_BUS_DEVICE(f->gpio[id >> 4]), 0);
+    uint64_t idr;
+
+    g_assert_cmpint(memory_region_dispatch_read(regs, 0x10, &idr, MO_32,
+                        MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    return (idr >> (id & 15)) & 1;
+}
+
+static void dial_state(InputFixture *f, unsigned dial, unsigned expected)
+{
+    unsigned first = dial ? 0x47 : 0x5b;
+    unsigned second = dial ? 0x4d : 0x5e;
+
+    g_assert_cmpuint((contact(f, first) << 1) | contact(f, second), ==,
+                     expected);
+}
+
+static void test_mode(void)
+{
+    static const int counts[] = {
+        115, 473, 975, 1506, 2057, 2604, 3136, 3747,
+    };
+    InputFixture *f = input_new();
+    DeviceState *input;
+    Error *error = NULL;
+    unsigned changes;
+
+    g_assert_cmpint(object_property_get_int(OBJECT(f->input), "mode-position",
+                                            &error_abort), ==, 7);
+    g_assert_cmpint(f->mode_level, ==, 3747);
+    property_reject(f, "mode-position", -1);
+    property_reject(f, "mode-position", 8);
+    property_reject(f, "mode-position", INT64_MAX);
+    g_assert_cmpint(f->mode_level, ==, 3747);
+    for (unsigned i = 0; i < ARRAY_SIZE(counts); i++) {
+        g_assert_true(object_property_set_int(OBJECT(f->input), "mode-position",
+                                             i, &error_abort));
+        g_assert_cmpint(f->mode_level, ==, counts[i]);
+        changes = f->mode_changes;
+        advance(10000000);
+        receiver_holds_after_frontend(f);
+        board_reset();
+        g_assert_cmpint(f->mode_level, ==, counts[i]);
+        g_assert_cmpuint(f->mode_changes, ==, changes);
+        levels(f, 0, "mode-does-not-drive-digital-pads");
+    }
+    key(KEY_F14, true); /* Position7 wraps to0, repeat is not another turn. */
+    key(KEY_F14, true);
+    g_assert_cmpint(f->mode_level, ==, 115);
+    board_reset();
+    key(KEY_F14, true);
+    g_assert_cmpint(f->mode_level, ==, 115);
+    key(KEY_F14, false);
+    key(KEY_F15, true);
+    g_assert_cmpint(f->mode_level, ==, 3747);
+    key(KEY_F15, true);
+    key(KEY_F15, false);
+    g_assert_cmpint(f->mode_level, ==, 3747);
+    input_free(f);
+
+    /* The maintained position can also be selected before realize. */
+    input = qdev_new(TYPE_NIKON_INPUT);
+    g_assert_true(object_property_set_int(OBJECT(input), "mode-position", 2,
+                                         &error_abort));
+    g_assert_cmpint(object_property_get_int(OBJECT(input), "mode-position",
+                                            &error_abort), ==, 2);
+    g_assert_false(object_property_set_int(OBJECT(input), "dial0-step", 1,
+                                          &error));
+    g_assert_nonnull(error);
+    error_free(error);
+    object_unref(OBJECT(input));
+}
+
+static void test_dial_phases(void)
+{
+    static const unsigned forward[] = { 2, 0, 1, 3 };
+    static const unsigned reverse[] = { 1, 0, 2, 3 };
+    InputFixture *f = input_new();
+
+    for (unsigned dial = 0; dial < 2; dial++) {
+        property_reject(f, dial ? "dial1-step" : "dial0-step", 2);
+        property_reject(f, dial ? "dial1-step" : "dial0-step", -2);
+        step(f, dial, 1);
+        dial_state(f, dial, 3);
+        for (unsigned phase = 0; phase < 4; phase++) {
+            advance(4999999);
+            dial_state(f, dial, phase ? forward[phase - 1] : 3);
+            advance(1);
+            dial_state(f, dial, forward[phase]);
+            dial_state(f, !dial, 3);
+        }
+        step(f, dial, -1);
+        for (unsigned phase = 0; phase < 4; phase++) {
+            advance(5000000);
+            dial_state(f, dial, reverse[phase]);
+        }
+    }
+    /* Independent simultaneous directions and preserved active deadline. */
+    step(f, 0, 1);
+    step(f, 1, -1);
+    advance(4000000);
+    step(f, 0, -1);
+    advance(1000000);
+    dial_state(f, 0, 2);
+    dial_state(f, 1, 1);
+    for (unsigned i = 1; i < 4; i++) {
+        advance(5000000);
+        dial_state(f, 0, forward[i]);
+        dial_state(f, 1, reverse[i]);
+    }
+    for (unsigned i = 0; i < 4; i++) {
+        advance(5000000);
+        dial_state(f, 0, reverse[i]);
+        dial_state(f, 1, 3);
+    }
+    input_free(f);
+}
+
+static void test_dial_queue(void)
+{
+    static const unsigned forward[] = { 2, 0, 1, 3 };
+    InputFixture *f = input_new();
+
+    for (unsigned dial = 0; dial < 2; dial++) {
+        for (unsigned i = 0; i < 8; i++) {
+            step(f, dial, 1);
+        }
+        property_reject(f, dial ? "dial1-step" : "dial0-step", -1);
+        dial_state(f, dial, 3);
+        for (unsigned i = 0; i < 32; i++) {
+            advance(5000000);
+            dial_state(f, dial, forward[i % 4]);
+        }
+        advance(5000000);
+        dial_state(f, dial, 3);
+        /* Queue slots are reusable after the full sequence, including wrap. */
+        step(f, dial, -1);
+        advance(5000000);
+        dial_state(f, dial, 1);
+        step(f, dial, 0);
+        advance(20000000);
+        dial_state(f, dial, 3);
+    }
+    input_free(f);
+}
+
+static void test_dial_ownership(void)
+{
+    InputFixture *f = input_new();
+
+    step(f, 0, 1);
+    step(f, 0, -1);
+    step(f, 1, -1);
+    advance(5000000);
+    key(KEY_F8, true); /* Cancel dial0 and yield both contacts to raw keys. */
+    dial_state(f, 0, 1);
+    property_reject(f, "dial0-step", 1);
+    advance(5000000);
+    dial_state(f, 0, 1);
+    dial_state(f, 1, 0);
+    key(KEY_F9, true);
+    dial_state(f, 0, 0);
+    step(f, 0, 0); /* Explicit cancel preserves the raw owner. */
+    dial_state(f, 0, 0);
+    receiver_holds_after_frontend(f);
+    board_reset();
+    dial_state(f, 0, 0);
+    key(KEY_F8, false);
+    key(KEY_F9, false);
+    dial_state(f, 0, 3);
+    step(f, 0, 1);
+    board_reset();
+    advance(50000000);
+    dial_state(f, 0, 3);
+    dial_state(f, 1, 3);
+    for (unsigned i = 0; i < 4; i++) {
+        unsigned code = KEY_F16 + i;
+        unsigned dial = i / 2;
+
+        key(code, true);
+        key(code, true);
+        advance(5000000);
+        dial_state(f, dial, i & 1 ? 1 : 2);
+        step(f, dial, 0);
+        advance(25000000);
+        dial_state(f, dial, 3); /* A repeated key did not queue another turn. */
+        board_reset();
+        key(code, true);
+        advance(25000000);
+        dial_state(f, dial, 3);
+        key(code, false);
+    }
+    step(f, 0, 1);
+    step(f, 1, -1);
+    input_free(f);
+    advance(50000000); /* Unrealize cancelled both timers. */
+    board_reset();
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -247,6 +494,10 @@ int main(int argc, char **argv)
     vm_start();
     g_test_add_func("/nikon/input/receivers-reset-lifecycle", test_receivers);
     g_test_add_func("/nikon/input/capture-selector", test_selector);
+    g_test_add_func("/nikon/input/mode-detents", test_mode);
+    g_test_add_func("/nikon/input/dial-phases", test_dial_phases);
+    g_test_add_func("/nikon/input/dial-queue", test_dial_queue);
+    g_test_add_func("/nikon/input/dial-ownership", test_dial_ownership);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

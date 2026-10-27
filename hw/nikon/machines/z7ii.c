@@ -72,8 +72,8 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
     /* The configured power path samples channel 0 against a firmware
      * threshold of 3819.  Full-scale is a finite synthetic board-rail input,
      * not a recovered voltage measurement. */
-    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, 3500, 3500 },
-    .adc_mask = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3),
+    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, -1, 3500 },
+    .adc_mask = (1u << 0) | (1u << 1) | (1u << 3),
     /*
      * Remaining declared expander inputs. Pad0 belongs to the maintained
      * capture selector below; omitted pins remain electrically disconnected.
@@ -790,6 +790,9 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
     qdev_connect_gpio_out_named(
         input, "capture-selector", 0,
         qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", 0));
+    /* Mode ladder ADC1/channel2 has one maintained mechanical source. */
+    qdev_connect_gpio_out_named(input, "mode-adc", 0,
+                               qdev_get_gpio_in_named(dev, "adc", 2));
     qdev_realize_and_unref(input, NULL, &error_fatal);
     s->ex_input_dev = dev;
     s->ex_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
