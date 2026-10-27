@@ -4671,16 +4671,17 @@ static void test_initialized_image(void)
     qemu_free_irq(f.irq);
 }
 
-static void test_rgba_image(void)
+static void test_rgba_image_family(bool normal)
 {
     enum { EXTENT = 720 * 480 * 4, GUARDS = EXTENT + 8,
            COMMAND_BYTES = 0x60000, SOURCE = 0x410000 };
     enum {
         INITIAL, INITIAL_ALTERNATE, RETAINED, CAPTURE, WIDE, MAX_AREA, TALL,
-        CLAMP, FLIP, MODULATE,
+        CLAMP, FLIP, MODULATE, A8,
         FRACTIONAL, TEMP10, TEMP12, TEMP14,
         CACHED, COLOR_PREFIX, BOTH_PREFIXES, DATA_CHANGE, COMMAND_CHANGE,
-        FORMAT, FLAGS, DIMENSION, AREA, ZERO_SIZE, SIZE_MISMATCH,
+        FORMAT, FLAGS, FINAL_MODE, TEMP_BITS, PAINT_SHAPE,
+        DIMENSION, AREA, ZERO_SIZE, SIZE_MISMATCH,
         SOURCE_BOUND, SOURCE_WRAP, COMMAND_OVERLAP, SOURCE_ALIAS,
         COLD, FOREIGN, MAP_LOSS, INPUT_LOSS, RESET, CANCEL, CASES,
     };
@@ -4709,19 +4710,25 @@ static void test_rgba_image(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
 
-    for (unsigned test = INITIAL; test < CASES; test++) {
+    for (unsigned test = INITIAL; test < CASES; test++)
+      for (unsigned phase = 0; phase < (normal &&
+           (test == RETAINED || test == CACHED || test == COLOR_PREFIX ||
+            test == BOTH_PREFIXES) ? 4 : 1); phase++) {
         uint8_t *a = data, *b = data + 0x1000;
         unsigned setup_bytes = 176, draw_bytes = 336;
         unsigned width = 8, height = 4;
         unsigned x0 = 10, y0 = 20, rw = 4, rh = 3;
-        uint32_t paint = test == MODULATE ? 0xff4080c0 : 0xffffffff;
+        uint32_t paint = !normal && test == MODULATE ?
+                         0xff4080c0 : 0xffffffff;
+        bool a8 = test == A8;
         uint32_t target = test == INITIAL_ALTERNATE ? 0x800004 : 0xc175d600;
         bool complete = test < FORMAT;
         bool accepted = complete || test >= MAP_LOSS;
         g_autofree uint8_t *before = NULL;
         g_autofree uint8_t *expected = NULL;
 
-        g_test_message("RGBA image case %u", test);
+        g_test_message("%s image case %u phase %u",
+                       normal ? "normal" : "modulated", test, phase);
         device_cold_reset(f.dev);
         memset(data, 0, COMMAND_BYTES);
         memset(pixels, 0xa5, GUARDS);
@@ -4730,6 +4737,15 @@ static void test_rgba_image(void)
             memcpy(data + 0x2000, (uint8_t[]) { 2, 7, 9, 7, 0 }, 5);
             path_floats(data + 0x2100, (float[]) { 0, 0, 720, 480, -720 }, 5);
             g_assert_cmpint(submit_rgba(&f, 176, 368), ==, MEMTX_OK);
+            advance();
+            g_assert_true(f.level);
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        }
+        if (normal && test != COLD) {
+            /* Establish a non-white paint in the preceding image job. */
+            build_image_program(a, b);
+            stl_le_p(b + 45 * 4, 0xff4080c0);
+            g_assert_cmpint(submit_rgba(&f, 176, 336), ==, MEMTX_OK);
             advance();
             g_assert_true(f.level);
             g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
@@ -4754,19 +4770,26 @@ static void test_rgba_image(void)
                 0, 0, 0x3f0000,
             };
 
-            width = 16;
-            height = 480;
-            x0 = 64;
-            y0 = 0;
-            rw = 3;
-            rh = 480;
+            width = normal ? 48 : 16;
+            height = normal ? 40 : 480;
+            x0 = normal ? 12 : 64;
+            y0 = normal ? 10 : 0;
+            rw = normal ? 40 : 3;
+            rh = normal ? 40 : 480;
             path_floats(a + 4,
-                (float[]) { 1, 0, 0, 0, -1, 0, 64, 480, 1 }, 9);
-            stl_le_p(a + 38 * 4, 3);
-            stl_le_p(a + 39 * 4, 480);
-            stl_le_p(a + 40 * 4, -3);
+                (float[]) { 1, 0, 0, 0, -1, 0,
+                            normal ? 12 : 64, normal ? 50 : 480, 1 }, 9);
+            stl_le_p(a + 38 * 4, rw);
+            stl_le_p(a + 39 * 4, rh);
+            stl_le_p(a + 40 * 4, -(uint32_t)rw);
             for (unsigned i = 0; i < 9; i++) {
                 stl_le_p(b + (i + 1) * 4, sample[i]);
+            }
+            if (normal) {
+                stl_le_p(b + 1 * 4, 0x395555);
+                stl_le_p(b + 3 * 4, 0xbd0000);
+                stl_le_p(b + 5 * 4, 0xb9999a);
+                stl_le_p(b + 6 * 4, 0x3f4000);
             }
         } else if (test == WIDE) {
             width = 480;
@@ -4788,13 +4811,18 @@ static void test_rgba_image(void)
         }
         stl_le_p(b + 11 * 4, width << 16 | height);
         stl_le_p(b + 15 * 4, width << 16 | height);
-        stl_le_p(b + 13 * 4, 0x001b0100);
+        stl_le_p(b + 13 * 4, a8 ? 0x001b0018 : 0x001b0100);
         stl_le_p(b + 25 * 4, SOURCE);
         stl_le_p(b + 45 * 4, paint);
         for (unsigned y = 0; y < height; y++) {
             for (unsigned x = 0; x < width; x++) {
                 uint8_t *p = data + (SOURCE - 0x400000) + 4 * (y * width + x);
 
+                if (a8) {
+                    data[SOURCE - 0x400000 + y * width + x] =
+                        (uint8_t[]) { 0, 64, 128, 255 }[(x + y) % 4];
+                    continue;
+                }
                 p[0] = 17 * x + 3 * y;
                 p[1] = 5 * x + 11 * y;
                 p[2] = 13 * x + 7 * y;
@@ -4811,11 +4839,17 @@ static void test_rgba_image(void)
             path_floats(a + 7 * 4, (float[]) { 10.5f }, 1);
             rw = 5;
         } else if (test >= TEMP10 && test <= TEMP14) {
-            stl_le_p(b + 29 * 4, 10 + 2 * (test - TEMP10));
+            stl_le_p(b + 29 * 4, (normal ? 2 : 10) + 2 * (test - TEMP10));
         } else if (test == FORMAT) {
             stl_le_p(b + 13 * 4, 0x001b0000);
         } else if (test == FLAGS) {
             stl_le_p(b + 13 * 4, 0x011b0100);
+        } else if (test == FINAL_MODE) {
+            stl_le_p(b + 49 * 4, 4);
+        } else if (test == TEMP_BITS) {
+            stl_le_p(b + 29 * 4, normal ? 1 : 9);
+        } else if (test == PAINT_SHAPE) {
+            stl_le_p(b + 44 * 4, 0x0185e004);
         } else if (test == SIZE_MISMATCH) {
             stl_le_p(b + 15 * 4, 0x00080005);
         } else if (test == SOURCE_BOUND) {
@@ -4830,6 +4864,23 @@ static void test_rgba_image(void)
         } else if (test == FOREIGN) {
             stl_le_p(b + 59 * 4, 0xc175d604);
         }
+        if (normal) {
+            /* The mode1 producer omits paint entirely; the preceding job's
+             * color must not modulate the source. Keep a malformed paint
+             * command as a negative grammar case. */
+            stl_le_p(b + 29 * 4, test == TEMP_BITS ? 1 :
+                test >= TEMP10 && test <= TEMP14 ?
+                2 + 2 * (test - TEMP10) : 2 * phase);
+            if (test != FINAL_MODE) {
+                stl_le_p(b + 49 * 4, 2);
+            }
+            memmove(b + 44 * 4, b + 46 * 4,
+                    (draw_bytes == 472 ? 37 : 38) * 4);
+            if (test == PAINT_SHAPE) {
+                stl_le_p(b + 44 * 4, 0x0185e004);
+            }
+            draw_bytes -= 8;
+        }
         if (test == CACHED || test == BOTH_PREFIXES) {
             memmove(data + 40, data, 176);
             stl_le_p(data, 0x0041f046);
@@ -4838,7 +4889,7 @@ static void test_rgba_image(void)
             setup_bytes += 40;
         }
         if (test == COLOR_PREFIX || test == BOTH_PREFIXES) {
-            memmove(data + 0x1000 + 8, data + 0x1000, 336);
+            memmove(data + 0x1000 + 8, data + 0x1000, draw_bytes);
             stl_le_p(data + 0x1000, 0x01848004);
             stl_le_p(data + 0x1000 + 4, 0);
             draw_bytes += 8;
@@ -4876,7 +4927,7 @@ static void test_rgba_image(void)
 
                     if (test == CAPTURE) {
                         tx = x - x0;
-                        ty = 479 - y;
+                        ty = normal ? 49 - y : 479 - y;
                     } else if (test == CLAMP) {
                         tx = width - 1;
                         ty = height - 1;
@@ -4884,8 +4935,8 @@ static void test_rgba_image(void)
                         ty = height * (2 * (22 - y) + 1) / 8;
                     }
                     sample = data + (SOURCE - 0x400000) +
-                             4 * (ty * width + tx);
-                    alpha = sample[3];
+                             (a8 ? 1 : 4) * (ty * width + tx);
+                    alpha = sample[a8 ? 0 : 3];
                     if (test == FRACTIONAL && (x == x0 || x == x0 + rw - 1)) {
                         alpha = (alpha * 128 + 127) / 255;
                     }
@@ -4897,7 +4948,8 @@ static void test_rgba_image(void)
                     for (unsigned c = 0; c < 3; c++) {
                         unsigned color = (paint >> (8 * c)) & 255;
                         unsigned associated =
-                            (sample[c] * color * alpha + 32512) / 65025;
+                            ((a8 ? 255 : sample[c]) * color * alpha +
+                             32512) / 65025;
                         uint64_t mixed = associated * 65025ULL +
                             p[c] * p[3] * (255 - alpha);
 
@@ -4906,7 +4958,10 @@ static void test_rgba_image(void)
                     p[3] = (2 * weight + 255) / 510;
                 }
             }
-            if (test == CAPTURE) {
+            if (test == CAPTURE && normal) {
+                g_assert_cmphex((uint32_t)ldl_le_p(expected + 4 +
+                    (10 * 720 + 12) * 4), ==, 0xff11ad75);
+            } else if (test == CAPTURE) {
                 /* Literal non-gray opaque and partial-alpha anchors. */
                 g_assert_cmphex((uint32_t)ldl_le_p(expected + 4 + 64 * 4), ==,
                                 0xff19959d);
@@ -4932,6 +4987,16 @@ static void test_rgba_image(void)
     object_unref(OBJECT(f.dev));
     drain_call_rcu();
     qemu_free_irq(f.irq);
+}
+
+static void test_rgba_image(void)
+{
+    test_rgba_image_family(false);
+}
+
+static void test_normal_image(void)
+{
+    test_rgba_image_family(true);
 }
 
 static void build_stroked_paths(uint8_t *data, unsigned count,
@@ -5986,6 +6051,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rgba-pair-targets", test_rgba_pair_targets);
     g_test_add_func("/nikon/transfer/initialized-image", test_initialized_image);
     g_test_add_func("/nikon/transfer/rgba-image", test_rgba_image);
+    g_test_add_func("/nikon/transfer/normal-image", test_normal_image);
     g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
     g_test_add_func("/nikon/transfer/vector-batch", test_vector_batch);
