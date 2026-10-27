@@ -1997,8 +1997,22 @@ static void paired_denoise(QTestState *q, uint32_t base, unsigned threshold,
     }
 }
 
+static void paired_detail(QTestState *q, uint32_t base, unsigned limit,
+                          unsigned strength, unsigned lane, unsigned count)
+{
+    uint32_t words[] = {
+        0x00060301, 0, 0x40000600 | (limit << 16) | strength,
+        0x04000000 | lane * 0x010101U,
+        0x00040010, 0, 0x001f0000, 0x1f100804,
+    };
+
+    for (unsigned i = 0; i < count; i++) {
+        qtest_writel(q, base + 0x73c + 4 * i, words[i]);
+    }
+}
+
 static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
-                             unsigned denoise_words)
+                             unsigned denoise_words, unsigned detail_words)
 {
     static const struct {
         unsigned offset;
@@ -2086,6 +2100,7 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
     paired_matrix(q, base, 0xb94, c, 13, true);
     /* Explicit finite neutral parameters; no omitted/zero NR bypass. */
     paired_denoise(q, base, 7, 1, 3, 1, 0, 31, denoise_words);
+    paired_detail(q, base, 4, 0, 8, detail_words);
     qtest_writel(q, base + 0xe8, UINT32_MAX);
     qtest_writel(q, CAPTURE + 0x10, 0x20f);
     qtest_writel(q, CAPTURE + 8, 0x20f);
@@ -2192,7 +2207,7 @@ static QTestState *paired_start_profile(char **bundle, char **scene,
         qtest_memset(q, PAIRED_MAIN + phase * 0x2000 - 16, 0xa5, 0xce0);
         qtest_memset(q, PAIRED_WORK + phase * 0x2000 - 16, 0xa5, 0xce0);
     }
-    paired_configure(q, table_mode, PAIRED, 7);
+    paired_configure(q, table_mode, PAIRED, 7, 8);
     if (arm) {
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -3537,7 +3552,7 @@ static void test_paired_denoise_boundaries(void)
             /* Reset must forget all seven publication bits, including zeros. */
             qtest_system_reset(q);
             paired_configure(q, true, PAIRED,
-                             mode == ARRAY_SIZE(invalid) ? 0 : 6);
+                             mode == ARRAY_SIZE(invalid) ? 0 : 6, 8);
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -3574,6 +3589,137 @@ static void test_paired_denoise_lifecycle(void)
         } else {
             paired_denoise(q, PAIRED, 103, 43, 17, 10, 12,
                             mode == 1 ? 9 : 8, 7);
+        }
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
+                         mode == 0);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
+                         mode != 0);
+        if (mode == 0) {
+            paired_pixels(q, PAIRED_MAIN, 0);
+            paired_pixels(q, PAIRED_WORK, 0);
+            paired_pixels(q, PAIRED_GRID, 0);
+        } else {
+            paired_untouched(q);
+        }
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_detail(void)
+{
+    static const char header[] = "P5\n64 36\n255\n";
+    const unsigned prefix = sizeof(header) - 1;
+
+    for (unsigned sign = 0; sign < 2; sign++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        g_autofree char *image = g_malloc(prefix + 64 * 36);
+        uint8_t pixels[64 * 28];
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        memcpy(image, header, prefix);
+        memset(image + prefix, sign ? 64 : 128, 64 * 36);
+        image[prefix + 17 * 64 + 31] = sign ? 62 : 130;
+        g_assert_true(g_file_set_contents(scene, image, prefix + 64 * 36,
+                                          NULL));
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'image','value':%s}}", scene);
+        paired_detail(q, PAIRED, 31, 32, 16, 8);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+        qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
+        for (unsigned row = 0; row < 28; row++) {
+            for (unsigned x = 0; x < 56; x++) {
+                g_assert_cmpuint(pixels[64 * row + x], ==, sign ? 64 : 129);
+            }
+            for (unsigned x = 56; x < 64; x++) {
+                g_assert_cmphex(pixels[64 * row + x], ==, 0xa5);
+            }
+        }
+        /* The source impulse gives MAIN130/63 without detail, versus129/64. */
+        g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 8 * 80 + 15 * 2),
+                         ==, sign ? 1024 : 2060);
+        g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + (8 + 18) * 80 + 15 * 2),
+                         ==, 0);
+        g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+        qtest_writel(q, PAIRED + 0xe8, 0);
+        g_assert_true(qtest_get_irq(q, 99 - 32));
+        qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+        g_assert_false(qtest_get_irq(q, 99 - 32));
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_detail_boundaries(void)
+{
+    static const struct { unsigned offset; uint32_t value; } invalid[] = {
+        { 0x73c, 0x00060300 }, { 0x73c, 0x01060301 }, { 0x740, 1 },
+        { 0x744, 0 }, { 0x744, 0x40030600 }, { 0x744, 0x40200600 },
+        { 0x744, 0x40040621 }, { 0x744, 0x41040600 },
+        { 0x744, 0x40040700 }, { 0x748, 0x04080809 },
+        { 0x748, 0x03080808 }, { 0x748, 0x04070707 },
+        { 0x748, 0x04111111 }, { 0x74c, 0x00040011 },
+        { 0x74c, 0x00050010 }, { 0x74c, 0xff040010 }, { 0x750, 1 },
+        { 0x754, 0x001e0000 }, { 0x754, 0x001f0001 },
+        { 0x758, 0x1f100805 },
+    };
+
+    for (unsigned mode = 0; mode < ARRAY_SIZE(invalid) + 2; mode++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        if (mode < ARRAY_SIZE(invalid)) {
+            qtest_writel(q, PAIRED + invalid[mode].offset, invalid[mode].value);
+        } else {
+            qtest_system_reset(q);
+            paired_configure(q, true, PAIRED, 7,
+                             mode == ARRAY_SIZE(invalid) ? 0 : 7);
+        }
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
+        paired_untouched(q);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_detail_lifecycle(void)
+{
+    for (unsigned mode = 0; mode < 3; mode++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        paired_detail(q, PAIRED, 31, 32, 16, 8);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 1000000);
+        if (mode == 2) {
+            qtest_system_reset(q);
+            for (unsigned offset = 0x73c; offset <= 0x758; offset += 4) {
+                g_assert_cmphex(qtest_readl(q, PAIRED + offset), ==, 0);
+            }
+        } else {
+            paired_detail(q, PAIRED, 31, mode == 1 ? 31 : 32, 16, 8);
         }
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
@@ -3793,7 +3939,7 @@ static void test_paired_stream_peer(void)
     QTestState *q = paired_start(&bundle, &scene, true, false);
     g_autofree char *gate = paired_gate_path(q);
 
-    paired_configure(q, true, peer, 7);
+    paired_configure(q, true, peer, 7, 8);
     for (unsigned i = 0; i < 4; i++) {
         qtest_writel(q, peer + 0x398 + i * 4, RAM + 0x160000 + i * 0x1000);
     }
@@ -4217,7 +4363,7 @@ static void test_paired_peer_release(void)
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
-    paired_configure(q, true, peer, 7);
+    paired_configure(q, true, peer, 7, 8);
     qtest_writel(q, peer + 0x10, 1);
     qtest_writel(q, peer + 8, 1);
     work_input(q);
@@ -4476,6 +4622,11 @@ int main(int argc, char **argv)
                    test_paired_denoise_boundaries);
     qtest_add_func("/nikon/cmos/paired/denoise/lifecycle",
                    test_paired_denoise_lifecycle);
+    qtest_add_func("/nikon/cmos/paired/detail/transaction", test_paired_detail);
+    qtest_add_func("/nikon/cmos/paired/detail/boundaries",
+                   test_paired_detail_boundaries);
+    qtest_add_func("/nikon/cmos/paired/detail/lifecycle",
+                   test_paired_detail_lifecycle);
     qtest_add_func("/nikon/cmos/paired/photo", test_paired_photo);
     qtest_add_func("/nikon/cmos/paired/stride", test_paired_stride);
     qtest_add_func("/nikon/cmos/paired/stream/transaction", test_paired_stream);

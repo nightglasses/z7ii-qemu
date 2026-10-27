@@ -17,6 +17,7 @@ static NikonPairedPixelConfig config(void)
         .grid_width = 2, .grid_height = 2,
         .denoise = { .threshold = 7, .low = 1, .high = 3,
                      .axial = 3, .diagonal = 1, .retain = 31 },
+        .detail = { .limit = 4, .strength = 0, .lane = 8 },
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
@@ -1398,6 +1399,197 @@ static void cfa_invalid(void)
     rejected(&p, raw, NULL, NULL);
 }
 
+static int detail_compare(const void *a, const void *b)
+{
+    return (int)*(const uint16_t *)a - *(const uint16_t *)b;
+}
+
+static void detail_reference(const NikonPairedDetail *d, uint16_t image[16])
+{
+    uint16_t source[16];
+
+    memcpy(source, image, sizeof(source));
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            uint16_t neighbors[9];
+            unsigned count = 0;
+            int64_t center = 4 * source[y * 4 + x], residual;
+
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    unsigned sx = CLAMP(x + dx, 0, 3);
+                    unsigned sy = CLAMP(y + dy, 0, 3);
+
+                    neighbors[count++] = source[sy * 4 + sx];
+                }
+            }
+            qsort(neighbors, count, sizeof(neighbors[0]), detail_compare);
+            residual = CLAMP(4 * neighbors[count / 2] - center,
+                             -(int64_t)d->limit, d->limit);
+            center += filter_reference_round(residual * d->strength * d->lane,
+                                              64 * 16);
+            image[y * 4 + x] = MIN(4095, filter_reference_round(
+                CLAMP(center, 0, 16383), 4));
+        }
+    }
+}
+
+static FilterOutputs detail_check(NikonPairedPixelConfig p,
+                                  const uint16_t raw[16], bool history)
+{
+    NikonPairedPixelConfig neutral = p;
+    const uint16_t prior[] = { 600, 1800, 1300, 2600 };
+    const uint16_t old_residual[] = { 0, 128, 256, 1 };
+    FilterOutputs before = { 0 }, actual = { 0 }, expected = { 0 };
+
+    p.grid_width = neutral.grid_width = 4;
+    p.grid_height = neutral.grid_height = 4;
+    neutral.detail = config().detail;
+    g_assert_true(nikon_paired_pixels(&neutral, raw, NULL, NULL, before.half,
+        before.residual, before.grid, before.y, before.uv));
+    memcpy(expected.grid, before.grid, sizeof(expected.grid));
+    detail_reference(&p.detail, expected.grid);
+    for (unsigned block = 0; block < 4; block++) {
+        unsigned first = (block / 2) * 8 + (block % 2) * 2;
+        unsigned sum = expected.grid[first] + expected.grid[first + 1] +
+                       expected.grid[first + 4] + expected.grid[first + 5];
+        unsigned current = filter_reference_round(sum, 4), weight = 0;
+
+        if (history) {
+            expected.residual[block] = abs((int)current - prior[block]);
+            if (expected.residual[block] <= 256) {
+                weight = filter_reference_round(64 *
+                    (256 - MIN(old_residual[block], 256)), 256);
+            }
+        }
+        sum = 0;
+        for (unsigned i = 0; i < 4; i++) {
+            unsigned at = first + (i / 2) * 4 + i % 2;
+
+            expected.grid[at] = filter_reference_round(
+                expected.grid[at] * (256 - weight) + prior[block] * weight,
+                256);
+            sum += expected.grid[at];
+        }
+        expected.half[block] = filter_reference_round(sum, 4);
+    }
+    for (unsigned i = 0; i < 16; i++) {
+        expected.y[i] = MIN(255, filter_reference_round(expected.grid[i], 16));
+    }
+    memset(expected.uv, 128, sizeof(expected.uv));
+    g_assert_true(nikon_paired_pixels(&p, raw, history ? prior : NULL,
+        history ? old_residual : NULL, actual.half, actual.residual,
+        actual.grid, actual.y, actual.uv));
+    g_assert_cmpmem(&actual, sizeof(actual), &expected, sizeof(expected));
+    return actual;
+}
+
+static void detail(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    FilterOutputs out;
+
+    p.detail = (NikonPairedDetail) { .limit = 31, .strength = 32, .lane = 16 };
+    for (unsigned sign = 0; sign < 2; sign++) {
+        fill(raw, 16, sign ? 1044 : 1016);
+        raw[5] = sign ? 1012 : 1048;
+        out = detail_check(p, raw, false);
+        /* +/-31*32*16/1024 are signed half ties, rounded to+/-16. */
+        g_assert_cmpuint(out.grid[5], ==, sign ? 1032 : 1028);
+        g_assert_cmpuint(out.grid[0], ==, sign ? 1042 : 1018);
+        g_assert_cmpuint(out.grid[6], ==, sign ? 1042 : 1018);
+        g_assert_cmpuint(out.y[5], ==, sign ? 65 : 64);
+        detail_check(p, raw, true);
+    }
+    fill(raw, 16, 1016);
+    raw[5] = 1048;
+    FilterOutputs baseline = detail_check(p, raw, false);
+
+    for (unsigned field = 0; field < 3; field++) {
+        NikonPairedPixelConfig other = p;
+        FilterOutputs changed;
+
+        switch (field) {
+        case 0: other.detail.limit = 4; break;
+        case 1: other.detail.strength = 0; break;
+        case 2: other.detail.lane = 8; break;
+        }
+        changed = detail_check(other, raw, false);
+        g_assert_cmpint(memcmp(baseline.grid, changed.grid,
+                               sizeof(baseline.grid)), !=, 0);
+    }
+    NikonPairedPixelConfig neutral = p;
+    uint64_t before_energy = 0, after_energy = 0;
+
+    neutral.detail = config().detail;
+    FilterOutputs before = detail_check(neutral, raw, false);
+
+    for (unsigned i = 0; i < 16; i++) {
+        int a = (int)before.grid[i] - 1016;
+        int b = (int)baseline.grid[i] - 1016;
+
+        before_energy += a * a;
+        after_energy += b * b;
+    }
+    g_assert_cmpuint(after_energy, <, before_energy);
+    for (unsigned value = 0; value <= 4095; value += 1365) {
+        fill(raw, 16, value);
+        out = detail_check(p, raw, false);
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.grid[i], ==, value);
+        }
+    }
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 0 : 4095;
+    }
+    out = detail_check(p, raw, false);
+    before = detail_check(neutral, raw, false);
+    g_assert_cmpmem(&out, sizeof(out), &before, sizeof(before));
+    for (unsigned strength = 0; strength <= 32; strength++) {
+        p.detail.strength = strength;
+        p.detail.limit = 4 + strength % 28;
+        p.detail.lane = 8 + strength % 9;
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = 1000 + ((i * 29 + i / 4 * 13 + strength) % 81) - 40;
+        }
+        detail_check(p, raw, false);
+        detail_check(p, raw, true);
+    }
+    p.detail = (NikonPairedDetail) { .limit = 31, .strength = 32, .lane = 16 };
+    p.denoise = denoise_config();
+    p.filter = (NikonPairedFilter) {
+        .enabled = true, .refine = true, .clipped = true,
+        .retain = 6087, .base = 50, .radius = 1, .slope = 50,
+    };
+    detail_check(p, raw, true);
+}
+
+static void detail_invalid(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    g_assert_false(nikon_paired_detail_valid(NULL));
+    g_assert_true(nikon_paired_detail_valid(&p.detail));
+    for (unsigned test = 0; test < 6; test++) {
+        p.detail = (NikonPairedDetail) {
+            .limit = 31, .strength = 32, .lane = 16,
+        };
+        switch (test) {
+        case 0: p.detail = (NikonPairedDetail) { 0 }; break;
+        case 1: p.detail.limit = 3; break;
+        case 2: p.detail.limit = 32; break;
+        case 3: p.detail.strength = 33; break;
+        case 4: p.detail.lane = 7; break;
+        case 5: p.detail.lane = 17; break;
+        }
+        g_assert_false(nikon_paired_detail_valid(&p.detail));
+        rejected(&p, raw, NULL, NULL);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -1420,5 +1612,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/cfa-color-history", cfa_color_history);
     g_test_add_func("/nikon/pairedpixels/cfa-edge", cfa_edge);
     g_test_add_func("/nikon/pairedpixels/cfa-invalid", cfa_invalid);
+    g_test_add_func("/nikon/pairedpixels/detail", detail);
+    g_test_add_func("/nikon/pairedpixels/detail-invalid", detail_invalid);
     return g_test_run();
 }

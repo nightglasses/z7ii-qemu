@@ -125,6 +125,12 @@ bool nikon_paired_denoise_valid(const NikonPairedDenoise *n)
            n->retain >= 8 && n->retain <= 31;
 }
 
+bool nikon_paired_detail_valid(const NikonPairedDetail *d)
+{
+    return d && d->limit >= 4 && d->limit <= 31 && d->strength <= 32 &&
+           d->lane >= 8 && d->lane <= 16;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -156,7 +162,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         p->grid_width > p->width || p->grid_height > p->height ||
         !nikon_paired_noise_valid(p) ||
         !nikon_paired_filter_valid(&p->filter) ||
-        !nikon_paired_denoise_valid(&p->denoise)) {
+        !nikon_paired_denoise_valid(&p->denoise) ||
+        !nikon_paired_detail_valid(&p->detail)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -333,6 +340,38 @@ static void paired_denoise(const uint16_t *input, uint16_t *output,
     }
 }
 
+static void paired_detail(const uint16_t *input, uint16_t *output,
+                          unsigned width, unsigned height,
+                          const NikonPairedDetail *d)
+{
+    for (unsigned y = 0; y < height; y++) {
+        unsigned ys[] = { y ? y - 1 : y, y, MIN(y + 1, height - 1) };
+
+        for (unsigned x = 0; x < width; x++) {
+            unsigned xs[] = { x ? x - 1 : x, x, MIN(x + 1, width - 1) };
+            unsigned at = y * width + x;
+            uint16_t neighborhood[9];
+            int center = input[at] * 4, residual, correction;
+
+            for (unsigned i = 0; i < 9; i++) {
+                unsigned j = i;
+                uint16_t value = input[ys[i / 3] * width + xs[i % 3]];
+
+                while (j && neighborhood[j - 1] > value) {
+                    neighborhood[j] = neighborhood[j - 1];
+                    j--;
+                }
+                neighborhood[j] = value;
+            }
+            residual = CLAMP(neighborhood[4] * 4 - center,
+                             -(int)d->limit, d->limit);
+            correction = paired_round(residual * d->strength * d->lane, 10);
+            output[at] = paired_clamp((CLAMP(center + correction, 0, 16383) +
+                                       2) / 4);
+        }
+    }
+}
+
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
                              const uint16_t *prior_luma,
                              const uint16_t *prior_residual,
@@ -423,10 +462,11 @@ static bool paired_cfa_filter(const uint16_t *raw, uint16_t *output,
             return false;
         }
         paired_denoise(filtered, dpc, width, height, &p->denoise);
+        paired_detail(dpc, filtered, width, height, &p->detail);
         for (unsigned y = 0; y < height; y++) {
             for (unsigned x = 0; x < width; x++) {
                 output[(2 * y + py) * p->width + 2 * x + px] =
-                    dpc[y * width + x];
+                    filtered[y * width + x];
             }
         }
     }
@@ -677,6 +717,12 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         }
         paired_denoise(filtered, dpc, config->width, config->height,
                         &config->denoise);
+        paired_detail(dpc, filtered, config->width, config->height,
+                       &config->detail);
+        uint16_t *swap = dpc;
+
+        dpc = filtered;
+        filtered = swap;
     } else if (!paired_cfa_filter(raw_contiguous_ROI, dpc, config)) {
         return false;
     }

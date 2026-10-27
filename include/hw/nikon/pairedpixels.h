@@ -25,6 +25,11 @@ typedef struct NikonPairedDenoise {
     uint8_t axial, diagonal, bias, retain;
 } NikonPairedDenoise;
 
+/* Hypothesized bounded median-residual correction, with no wire enable bit. */
+typedef struct NikonPairedDetail {
+    uint8_t limit, strength, lane;
+} NikonPairedDetail;
+
 typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
     unsigned width, height, x, y, output_width, output_height;
@@ -40,6 +45,7 @@ typedef struct NikonPairedPixelConfig {
     uint16_t noise_negative, noise_positive;
     NikonPairedFilter filter;
     NikonPairedDenoise denoise;
+    NikonPairedDetail detail;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -51,6 +57,9 @@ bool nikon_paired_filter_valid(const NikonPairedFilter *filter);
 
 /* No enable/bypass bit is inferred; all fields must describe a finite family. */
 bool nikon_paired_denoise_valid(const NikonPairedDenoise *denoise);
+
+/* Zero strength is valid; an omitted/zero parameter group is not valid. */
+bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -74,6 +83,15 @@ bool nikon_paired_denoise_valid(const NikonPairedDenoise *denoise);
  * Zero denoise fields are invalid. A synthetic neutral tuple is
  * {threshold7,low1,high3,axial3,diagonal1,bias0,retain31}; its correction
  * quantizes back to the original RAW12 through the same numerical operation.
+ * A mandatory detail stage follows denoise, before temporal history. Read an
+ * immutable replicated-edge3x3 neighborhood including the center. In the same
+ * sample*4 domain, clamp its median-minus-center residual to +/-limit, then
+ * multiply by strength*lane/1024. Round the signed correction to nearest,
+ * ties away from zero, clamp14-bit and round/clamp to RAW12. Limits4..31,
+ * strengths0..32 and common lanes8..16 are finite source-family bounds;
+ * their roles, scales and stage order are functional hypotheses. The explicit
+ * neutral tuple {limit4,strength0,lane8} runs the same arithmetic and produces
+ * zero correction. No wire bypass/enable or omitted-group identity is inferred.
  * The resulting mono sample optionally passes through four affine lanes:
  * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
  * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are
