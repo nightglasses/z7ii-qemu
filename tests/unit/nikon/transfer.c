@@ -1429,11 +1429,26 @@ static void build_path_program(uint8_t *data)
     path_floats(data + 0x2300, quadratic, ARRAY_SIZE(quadratic));
 }
 
-static void test_path_fill(void)
+static void path_prefix_mode(uint8_t *draw, unsigned bytes, uint32_t mode)
+{
+    for (unsigned i = 0; i + 24 <= bytes / 4; i++) {
+        uint8_t *b = draw + 4 * i;
+
+        if ((uint32_t)ldl_le_p(b) == 0x01aa1004 &&
+            (uint32_t)ldl_le_p(b + 2 * 4) == 0x01a04004 &&
+            (uint32_t)ldl_le_p(b + 4 * 4) == 0x01841004) {
+            stl_le_p(b + 5 * 4, mode);
+        }
+    }
+}
+
+static void test_path_fill_state(bool prior_image)
 {
     enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4 };
     enum {
-        SUCCESS, COLD, COUNT_LIMIT, UNKNOWN, SHORT_DRAW, COORD_COUNT, SEG_COUNT,
+        SUCCESS, SINGLE, COLD, TEMP_LOW, TEMP_IMAGE, TEMP_HIGH, TEMP_HEADER,
+        FINAL_MODE,
+        LATE_TEMP, COUNT_LIMIT, UNKNOWN, SHORT_DRAW, COORD_COUNT, SEG_COUNT,
         CUBIC, NAN_COORD, INF_MATRIX, PERSPECTIVE, KEY, MEMORY, OVERLAP,
         LATE_BAD, FILL_RULE, COLOR, ALPHA, ALIAS, SAME_WINDING, EVEN_ODD,
         COLORS, CHANNELS, BAD_RELATIVE, CLIPPED, REPEAT,
@@ -1464,7 +1479,7 @@ static void test_path_fill(void)
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned test = SUCCESS; test < CASES; test++) {
         unsigned setup_bytes = 82 * 4, draw_bytes = 112 * 4;
-        bool colored = test == COLORS || test == CHANNELS;
+        bool colored = test == SINGLE || test == COLORS || test == CHANNELS;
         bool complete = test == SUCCESS || test == SAME_WINDING ||
                         test == EVEN_ODD || colored ||
                         test == CLIPPED || test == REPEAT || test == ALPHA ||
@@ -1509,7 +1524,22 @@ static void test_path_fill(void)
             }
             path_floats(data + 41 * 4 + 16 * 4, (float[]) { 0, 0 }, 2);
         }
+        if (test == SINGLE) {
+            setup_bytes = 168;
+            draw_bytes = 232;
+            stl_le_p(data + 41 * 4, 0);
+            stl_le_p(data + 0x1000 + 55 * 4, 0x00081004);
+            stl_le_p(data + 0x1000 + 56 * 4, 1);
+            stl_le_p(data + 0x1000 + 57 * 4, 0);
+        }
+        path_prefix_mode(data + 0x1000, draw_bytes, prior_image ? 0 : 8);
         switch (test) {
+        case TEMP_LOW: stl_le_p(data + 0x1000 + 5 * 4, 1); break;
+        case TEMP_IMAGE: stl_le_p(data + 0x1000 + 5 * 4, 2); break;
+        case TEMP_HIGH: stl_le_p(data + 0x1000 + 5 * 4, 16); break;
+        case TEMP_HEADER: stl_le_p(data + 0x1000 + 4 * 4, 0x01842004); break;
+        case FINAL_MODE: stl_le_p(data + 0x1000 + 25 * 4, 0); break;
+        case LATE_TEMP: stl_le_p(data + 0x1000 + 60 * 4, 1); break;
         case COUNT_LIMIT:
             setup_bytes = ROUND_UP(41 * (NIKON_PATH_MAX_BATCH + 1), 2) * 4;
             draw_bytes = ROUND_UP(55 * (NIKON_PATH_MAX_BATCH + 1) + 2, 2) * 4;
@@ -1606,7 +1636,7 @@ static void test_path_fill(void)
                     uint32_t actual = ldl_le_p(pixels + 4 + (y * 720 + x) * 4);
                     bool first = test == CLIPPED ? x < 30 && y >= 13 && y < 33 :
                                      x >= 24 && x < 64 && y >= 13 && y < 33;
-                    bool second = colored ? x >= 40 && x < 60 && y >= 10 && y < 30 :
+                    bool second = test == SINGLE ? false : colored ? x >= 40 && x < 60 && y >= 10 && y < 30 :
                                             x >= 140 && x < 160 && y >= 10 && y < 30;
 
                     if (!first && !second) {
@@ -1737,7 +1767,7 @@ static MemTxResult submit_initialized_paths(TransferFixture *f,
     return write_register(f, 0x10e0, 1);
 }
 
-static void test_initialized_paths(void)
+static void test_initialized_paths_state(bool prior_image)
 {
     enum { EXTENT = 720 * 480 * 4, GUARDS = EXTENT + 8 };
     enum {
@@ -1805,6 +1835,7 @@ static void test_initialized_paths(void)
             draw_bytes = 124 * 4;
             count = 1; /* The inherited zero-width stroke changes no pixels. */
         }
+        path_prefix_mode(data + 0x20000, draw_bytes, prior_image ? 0 : 8);
         if (test == SUCCESS) {
             g_assert_cmpuint(setup_bytes, ==, 664);
             g_assert_cmpuint(draw_bytes, ==, 1032);
@@ -5053,12 +5084,13 @@ static void build_stroked_paths(uint8_t *data, unsigned count,
                 (float[]) { 10, 10, 30, 10, 30, 30, 10, 30 }, 8);
 }
 
-static void test_stroked_paths(void)
+static void test_stroked_paths_state(bool prior_image)
 {
     enum { SLOT = 0x4b0000, EXTENT = 720 * 480 * 4, GUARDS = SLOT + 8 };
     enum { SUCCESS, TWO, THREE, LIMIT, WRAP, ZERO_WIDTH, REPEAT, DATA_CHANGE,
-           MASKED, MASKED_ALL, MASKED_LIMIT, SIZE_COLLISION, CLEAR_CONTINUE,
-           COLD, FOREIGN, TOO_MANY, SHORT_SETUP, SHORT_DRAW, FIRST_STROKE,
+           FULL_STROKE, FULL_MASKED, MASKED, MASKED_ALL, MASKED_LIMIT, SIZE_COLLISION, CLEAR_CONTINUE,
+           COLD, FULL_LOW, FULL_IMAGE, FULL_HIGH, FULL_HEADER, FULL_FINAL,
+           FOREIGN, TOO_MANY, SHORT_SETUP, SHORT_DRAW, FIRST_STROKE,
            UNKNOWN, DASH, PHASE, NEGATIVE_WIDTH, NAN_WIDTH, INF_EXTENT,
            CAP, JOIN, STYLE_BITS, TYPE, COUNT, MATRIX, KEY, TARGET,
            TARGET_END, SOURCE_RANGE, SOURCE_ALIAS, COMMAND_ALIAS,
@@ -5108,6 +5140,8 @@ static void test_stroked_paths(void)
         g_autofree uint8_t *before = NULL;
         g_autofree uint8_t *expected = NULL;
         uint8_t *stroke;
+        bool full_stroke = test == FULL_STROKE || test == FULL_MASKED ||
+                           (test >= FULL_LOW && test <= FULL_FINAL);
 
         g_test_message("stroked path case %u", test);
         device_cold_reset(f.dev);
@@ -5158,7 +5192,22 @@ static void test_stroked_paths(void)
                             0xc175d600 :
                             test == TARGET_END ? 0xfff00004 : 0xbec5f200, key);
         stroke = data + 41 * 4;
-        if (test == MASKED || test == MASKED_ALL || test == MASKED_LIMIT ||
+        if (full_stroke) {
+            memmove(data + 19 * 4, stroke, 29 * 4);
+            memmove(data + 0x20000 + 24 * 4,
+                    data + 0x20000 + 55 * 4, 31 * 4);
+            setup_bytes = 48 * 4;
+            draw_bytes = 58 * 4;
+            stl_le_p(data + 0x20000 + 55 * 4, 0x00081004);
+            stl_le_p(data + 0x20000 + 56 * 4, 1);
+            stl_le_p(data + 0x20000 + 57 * 4, 0);
+            stroke = data + 19 * 4;
+            if (test == FULL_MASKED) {
+                stl_le_p(data + 0x20000 + 50 * 4, 0x40002);
+            }
+        }
+        if (test == FULL_MASKED || test == MASKED || test == MASKED_ALL ||
+            test == MASKED_LIMIT ||
             test == SIZE_COLLISION ||
             test == CLEAR_CONTINUE ||
             test == REPEAT || test == DATA_CHANGE || test >= MASK_HEADER) {
@@ -5184,7 +5233,13 @@ static void test_stroked_paths(void)
                 stl_le_p(data + 0x20000 + draw_bytes - 4, 2);
             }
         }
+        path_prefix_mode(data + 0x20000, draw_bytes, prior_image ? 0 : 8);
         switch (test) {
+        case FULL_LOW: stl_le_p(data + 0x20000 + 5 * 4, 1); break;
+        case FULL_IMAGE: stl_le_p(data + 0x20000 + 5 * 4, 2); break;
+        case FULL_HIGH: stl_le_p(data + 0x20000 + 5 * 4, 16); break;
+        case FULL_HEADER: stl_le_p(data + 0x20000 + 4 * 4, 0x01842004); break;
+        case FULL_FINAL: stl_le_p(data + 0x20000 + 25 * 4, 0); break;
         case ZERO_WIDTH: stl_le_p(stroke + 11 * 4, 0); break;
         case SHORT_SETUP: setup_bytes -= 8; break;
         case SHORT_DRAW: draw_bytes -= 8; break;
@@ -5223,7 +5278,7 @@ static void test_stroked_paths(void)
                     !(x >= 26 && x < 62 && y >= 39 && y < 93);
                 uint8_t *p = expected + 4 + 4 * (y * 720 + x);
 
-                if (fill) {
+                if (fill && !full_stroke) {
                     stl_le_p(p, 0xff0000ff);
                 }
                 if (outline && test != ZERO_WIDTH) {
@@ -5275,6 +5330,28 @@ static void test_stroked_paths(void)
     object_unref(OBJECT(f.dev));
     drain_call_rcu();
     qemu_free_irq(f.irq);
+}
+
+static void test_path_fill(void)
+{
+    test_path_fill_state(false);
+}
+
+static void test_initialized_paths(void)
+{
+    test_initialized_paths_state(false);
+}
+
+static void test_stroked_paths(void)
+{
+    test_stroked_paths_state(false);
+}
+
+static void test_path_state(void)
+{
+    test_path_fill_state(true);
+    test_initialized_paths_state(true);
+    test_stroked_paths_state(true);
 }
 
 static void test_stroke_mask(void)
@@ -6041,6 +6118,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rgba-single-clear", test_rgba_single_clear);
     g_test_add_func("/nikon/transfer/rgba-gray", test_rgba_gray);
     g_test_add_func("/nikon/transfer/path-fill", test_path_fill);
+    g_test_add_func("/nikon/transfer/path-state", test_path_state);
     g_test_add_func("/nikon/transfer/initialized-paths",
                     test_initialized_paths);
     g_test_add_func("/nikon/transfer/image-fill", test_image_fill);
