@@ -621,6 +621,11 @@ static bool nikon_transfer_path_fields(const uint32_t *words, bool setup,
         if (field < field_count && fields[field].word == i) {
             expected = fields[field++].value;
         }
+        /* 1068c416 preserves solid, then 1068b92a forces final mode8. */
+        if (!setup && !stroke && i == 5 &&
+            (le32_to_cpu(words[i]) & ~8U) == 0) {
+            continue;
+        }
         if (stroke ?
             (setup ? (i == 1 || i == 3 || i == 5 || i == 7 || i == 11 ||
                       i == 12 || i == 14 || i == 20 || i == 28) :
@@ -806,6 +811,9 @@ static bool nikon_transfer_path_prefix(const uint32_t *words, bool setup)
 
         if (fields[field].word == i) {
             expected = fields[field++].value;
+        }
+        if (!setup && i == 5 && (le32_to_cpu(words[i]) & ~8U) == 0) {
+            continue;
         }
         if (setup ? (i == 4 || (i >= 10 && i <= 18)) : i == 13) {
             continue;
