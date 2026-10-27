@@ -41,7 +41,7 @@ make bench
 
 Prerequisites include CMake 3.24 or newer, the official C compiler, Make, Meson/Ninja, pkg-config, GLib, pixman, Cairo 1.16+, and official Python build dependencies. Finite paths for the Nikon Z7II explicitly link Cairo via Meson, consuming only image/A8 coverage without invoking host font systems; Cairo 1.18.6 is verified without extra dependency installations. Use the default compiler or pass cross-toolchain parameters to QEMU's official configure script; build and test flows do not employ any custom Python runner.
 
-`hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, `tests/unit/nikon`, and `tools/nikon` are ordinary source trees maintained in this repository. CMake constructs a native source graph in ignored `work/config/source`: files link to both checkouts, the directory itself is writable, and Meson wrap downloads do not mutate the submodule. `hw/Kconfig`, `hw/meson.build`, `tests/qtest/meson.build`, and `tests/unit/meson.build` add native entry points for Nikon; there are no patches, copy overrides, or compatibility paths.
+`hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, `tests/unit/nikon`, and `tools/nikon` are ordinary source trees maintained in this repository. CMake constructs a native source graph in ignored `work/config/source`: ordinary files link to both checkouts, the directory itself is writable, and Meson wrap downloads do not mutate the submodule. `hw/Kconfig`, `hw/meson.build`, `tests/qtest/meson.build`, and `tests/unit/meson.build` add native entry points for Nikon. The bounded source adaptations in `cmake/rx.cmake` and `cmake/qtest.cmake` generate their declared files in that graph; each replacement must match one exact pinned-source seam. Generated source and diagnostic copies are not tracked or written through upstream symlinks.
 
 The original VR component utilizes the EXTB control register of RXv2, which the pinned upstream RX target lacks. All CPU increments are consolidated in `cmake/rx.cmake`: generating `target/rx/cpu.c`, `cpu.h`, `helper.c`, and `translate.c`, adding explicit `has-extb` profile flags, reset values, exception vector base addresses, and native TCG control register access to native RX types. Generated contents match compiled `4751c8b` CPU files byte-for-byte; source seams must uniquely match the pinned upstream checkout, or configuration fails immediately. The official submodule remains clean, and CPU source units compile through its standard RX Meson graph without creating separate CPUs or overriding symbols via external objects.
 
@@ -58,6 +58,61 @@ make check MTESTARGS='nikon --test-args="-p /arm/nikon/transfer/planes"'
 ```
 
 `MTESTARGS` is passed verbatim by recursive Make to QEMU's officially generated test targets; invoking `make check` without parameters runs the entire Nikon test suite. The physical build of the initial source-view migration is executed by a single builder; matching source code does not substitute for a completed native build.
+
+### Darwin qtest wake ownership
+
+Darwin qtest uses one `QemuSemaphore` per DUMMY vCPU to preserve the
+destination of a host wake. In the pinned dependency, DUMMY threads wait for
+the same `SIGUSR1` signal. On a macOS 27.0 (26A5378j) host, an isolated
+`pthread_kill`/`sigwait` control sent `SIGUSR1` to a thread which never waited;
+a different thread then received it from `sigwait` before receiving any signal
+of its own. This directly establishes cross-thread consumption on that host.
+Apple's published [XNU signal implementation](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_sig.c#L1242-L1291)
+provides a matching mechanism: `sigwait` searches pending sets across the
+process's threads and clears the selected thread's pending bit. That public
+XNU revision is source context, not a claim that it identifies the running
+macOS 27 kernel binary.
+
+The original five-CPU bundle fixture repeatedly hung during ordinary EX
+sampling and during process cleanup. Sampling waited in
+`ex_exception_poll` → `run_on_cpu` while DUMMY threads slept in `sigwait`.
+A cleanup snapshot found a CPU with `stop=1`, `stopped=0`,
+`thread_kicked=1`, `exit_request=1` and an empty work queue; subsequent kicks
+were coalesced. The affected CPU varied. Together with the host control,
+these observations explain how a wake consumed by another thread leaves a
+target's coalescing flag set and suppresses its next notification.
+
+`cmake/qtest.cmake` generates four source files from the pinned checkout:
+`include/hw/core/cpu.h`, `accel/dummy-cpus.h`, `accel/dummy-cpus.c` and
+`accel/qtest/qtest.c`. On Darwin, the existing qtest accelerator hooks
+initialize each semaphore during CPU realization, before thread creation,
+and post that CPU's semaphore from its kick hook. DUMMY consumes the token
+through QEMU's semaphore API. The existing `halt_cond` broadcast, CPU work
+queue, `thread_kicked` clearing, stop acknowledgement and virtual-clock
+handling retain their normal roles. Counting tokens cannot be consumed by
+another CPU's wait. TCG and the generic POSIX kick implementation retain
+their existing paths; this adaptation does not alter guest events or IRQs.
+
+Unrealization releases the semaphore after synchronous thread removal.
+If a target already called `cpu_remove_sync`, its `unplug` flag records that
+path; otherwise the qtest hook joins a created thread through that same
+upstream API. In the pinned source, `cpu_remove_sync` is the sole producer
+of `unplug=true`. Pause, resume and reset preserve the semaphore. Windows
+keeps its existing implementation.
+
+The upstream author's [unplug proposal](https://gitlab.com/farosas/qemu/-/commit/0ab6cea4d0e3f61caa51af15496aa0c89aad5df5)
+moves CPU event processing within the DUMMY loop. An isolated A/B trial of
+that proposal still hung in the Nikon fixture, so it is not included here.
+The semaphore adaptation is a local host-runtime correction, not a claimed
+fix from an official QEMU release.
+
+The native `/arm/nikon/cmos/pipeline/cpu-lifecycle` regression creates the
+synthetic five-CPU bundle, advances repeated EX millisecond polls, checks
+normal QMP stop/resume, resets, and requires libqtest's normal process exit.
+It does not disable timers, inject CPU work, force kicks, or accept a
+SIGKILL exit. Existing paired boundary fixtures remain separate device
+validation. Host-runtime fixture results do not establish original-firmware
+startup, normal GUI output, or physical-camera behavior.
 
 Host tools under `tools/nikon` compile through the same Meson graph and reuse `qemuutil`; their entry points register after the existing `pyvenv` subdirectory, preserving project tools even when upstream `--disable-tools` is specified. The default battery tool binary path is `work/build/qemu/tools/nikon/nikon-battery`; its interface and acceptance boundaries are documented in [batterytool.md](runtime/batterytool.md). Tools are not placed in the official submodule, and do not introduce separate compilation or test scripts.
 
