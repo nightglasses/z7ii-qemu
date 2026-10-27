@@ -1,5 +1,5 @@
 /*
- * Finite, explicitly virtual normal-family fixed lens.
+ * Finite, explicitly virtual normal-family 50 mm lens.
  * Contract and assumptions: docs/devices/lens/protocol.md.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -21,6 +21,10 @@
 #define LENS_MODE_NS 2000000
 #define LENS_STREAM_NS 1000000
 #define LENS_WORD_NS 4000
+#define LENS_APERTURE_OPEN 960
+#define LENS_APERTURE_RANGE 1152
+#define LENS_APERTURE_STEP_NS 20000000
+#define LENS_APERTURE_MIN_NS 2000000
 OBJECT_DECLARE_SIMPLE_TYPE(NikonLensState, NIKON_LENS)
 
 typedef enum LensPhase {
@@ -35,6 +39,7 @@ struct NikonLensState {
     uint32_t notify_pin;
     qemu_irq notify;
     QEMUTimer *phase_timer, *operation_timer, *stream_timer, *mode_timer;
+    QEMUTimer *aperture_timer;
     uint8_t header[8], input[LENS_MAX_PACKET], output[LENS_MAX_PACKET];
     uint8_t configuration[12], history[42];
     unsigned offset, size;
@@ -47,12 +52,41 @@ struct NikonLensState {
     uint64_t completed, rejected, configuration_generation;
     uint64_t stream_frames;
     uint64_t aperture_noops;
+    uint64_t aperture_generation;
+    uint16_t aperture, aperture_start, aperture_target;
+    int64_t aperture_begin, aperture_duration;
     uint64_t mode_generation;
     uint8_t mode, requested_mode;
     uint64_t header_counts[256], packet_counts[256];
     bool configured, pending, stream_enabled, notify_level, reported;
     bool mode_pending;
+    bool aperture_pending;
 };
+
+static uint16_t lens_aperture_position(NikonLensState *s)
+{
+    int64_t elapsed;
+    unsigned distance, moved;
+
+    if (!s->aperture_pending) {
+        return s->aperture;
+    }
+    elapsed = MIN(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - s->aperture_begin,
+                  s->aperture_duration);
+    distance = abs((int)s->aperture_target - s->aperture_start);
+    moved = distance * elapsed / s->aperture_duration;
+    return s->aperture_target >= s->aperture_start ?
+        s->aperture_start + moved : s->aperture_start - moved;
+}
+
+static void lens_aperture_done(void *opaque)
+{
+    NikonLensState *s = opaque;
+
+    s->aperture = s->aperture_target;
+    s->aperture_pending = false;
+    s->aperture_generation++;
+}
 
 static void lens_notify(NikonLensState *s, bool level)
 {
@@ -172,9 +206,13 @@ static void lens_response(NikonLensState *s)
             for (unsigned i = 0; i < ARRAY_SIZE(aperture); i++) {
                 stw_le_p(out + aperture[i], 960);
             }
-            /* All relative aperture ranges remain zero for the fixed iris. */
+            /* Source-joined current coordinates; other APEX fields stay fixed. */
+            stw_le_p(out + 9, LENS_APERTURE_OPEN + lens_aperture_position(s));
+            stw_le_p(out + 197, lens_aperture_position(s));
+            stw_le_p(out + 199, LENS_APERTURE_RANGE);
             out[169] = s->configured ? 0x40 : 0x20;
-            out[203] = s->pending ? 8 : 0;
+            out[203] = (s->pending ? 8 : 0) |
+                (s->aperture_pending ? 0x18 : 0);
             /* Fixed optics remain usable; configuration busy is separate. */
             out[216] = 3;
         } else {
@@ -315,19 +353,52 @@ static bool lens_process(NikonLensState *s)
     case 0xa0:
     case 0xa1:
     case 0xa3:
-        if (!s->configured || s->pending) {
+    {
+        unsigned target = lduw_le_p(in + 1);
+        unsigned distance;
+
+        if (!s->configured || s->pending || s->aperture_pending) {
             lens_error(s, "aperture-state-not-supported");
             return false;
         }
-        for (unsigned i = 1; i < s->size - 1; i++) {
-            if (in[i]) {
-                lens_error(s, "aperture-travel-or-parameters-not-supported");
+        if (target > LENS_APERTURE_RANGE) {
+            lens_error(s, "aperture-target-not-supported");
+            return false;
+        }
+        if (s->header[3] == 0xa1) {
+            unsigned parameter = lduw_le_p(in + 3);
+
+            /* 10310f64's default is ffff; other rates/times are unresolved. */
+            if ((parameter != UINT16_MAX &&
+                 (parameter || target || s->aperture)) ||
+                ldl_le_p(in + 5)) {
+                lens_error(s, "aperture-parameters-not-supported");
                 return false;
             }
+        } else {
+            for (unsigned i = 3; i < s->size - 1; i++) {
+                if (in[i]) {
+                    lens_error(s, "aperture-tail-not-supported");
+                    return false;
+                }
+            }
         }
-        /* The fixed iris has no travel, so no motor work is pending. */
-        s->aperture_noops++;
+        distance = abs((int)target - s->aperture);
+        if (!distance) {
+            s->aperture_noops++;
+            break;
+        }
+        s->aperture_start = s->aperture;
+        s->aperture_target = target;
+        s->aperture_begin = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        /* Explicit virtual mechanics: 20 ms/stop, minimum 2 ms per move. */
+        s->aperture_duration = MAX(LENS_APERTURE_MIN_NS,
+            (LENS_APERTURE_STEP_NS * (int64_t)distance + 191) / 192);
+        s->aperture_pending = true;
+        timer_mod(s->aperture_timer,
+                  s->aperture_begin + s->aperture_duration);
         break;
+    }
     default:
         break;
     }
@@ -401,6 +472,7 @@ static void lens_reset(DeviceState *dev)
     timer_del(s->operation_timer);
     timer_del(s->stream_timer);
     timer_del(s->mode_timer);
+    timer_del(s->aperture_timer);
     s->phase = LENS_HEADER;
     s->offset = s->size = s->sync_anchor = 0;
     s->probe = 0;
@@ -408,6 +480,10 @@ static void lens_reset(DeviceState *dev)
     s->completed = s->rejected = s->configuration_generation = 0;
     s->stream_frames = s->history_offset = s->history_sequence = 0;
     s->aperture_noops = 0;
+    s->aperture_generation = 0;
+    s->aperture = s->aperture_start = s->aperture_target = 0;
+    s->aperture_pending = false;
+    s->aperture_begin = s->aperture_duration = 0;
     s->mode = s->requested_mode = 0;
     s->mode_pending = false;
     s->mode_generation = 0;
@@ -428,6 +504,10 @@ static void lens_unrealize(DeviceState *dev)
     timer_del(s->operation_timer);
     timer_del(s->stream_timer);
     timer_del(s->mode_timer);
+    timer_del(s->aperture_timer);
+    s->aperture = lens_aperture_position(s);
+    s->aperture_start = s->aperture_target = s->aperture;
+    s->aperture_pending = false;
     s->stream_enabled = false;
     lens_notify(s, true);
 }
@@ -457,6 +537,10 @@ static char *lens_runtime(Object *obj, Error **errp)
         "mode-state=%u requested-mode=%u mode-pending=%u mode-generation=%"
         PRIu64 "\n", s->mode, s->requested_mode, s->mode_pending,
         s->mode_generation);
+    g_string_append_printf(text,
+        "aperture=%u target=%u aperture-pending=%u aperture-generation=%"
+        PRIu64 "\n", lens_aperture_position(s), s->aperture_target,
+        s->aperture_pending, s->aperture_generation);
     for (unsigned i = 0; i < ARRAY_SIZE(s->header_counts); i++) {
         if (s->header_counts[i]) {
             g_string_append_printf(text,
@@ -477,6 +561,7 @@ static void lens_init(Object *obj)
                                      lens_operation_done, s);
     s->stream_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_stream_word, s);
     s->mode_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_mode_done, s);
+    s->aperture_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_aperture_done, s);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,
@@ -488,6 +573,8 @@ static void lens_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "aperture-noops", &s->aperture_noops,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "aperture-generation",
+                                   &s->aperture_generation, OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "mode-generation", &s->mode_generation,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_str(obj, "runtime", lens_runtime, NULL);
@@ -501,6 +588,7 @@ static void lens_finalize(Object *obj)
     timer_free(s->operation_timer);
     timer_free(s->stream_timer);
     timer_free(s->mode_timer);
+    timer_free(s->aperture_timer);
 }
 
 static const Property lens_properties[] = {

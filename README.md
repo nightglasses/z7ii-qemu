@@ -163,18 +163,37 @@ for `slot0-drive`, raw images and the host-folder boundary.
 
 The explicit `virtual-lens=on` input attaches the
 [normal-family virtual lens](docs/devices/lens/protocol.md) to its original
-SPI and GPIO paths. It supplies a coherent fixed 50 mm F2.8 profile, complete
-initialization/calibration replies and receiver-bound history. Scene pixels
+SPI and GPIO paths. It supplies a coherent 50 mm F2.8 profile, complete
+initialization/calibration replies, receiver-bound history and bounded iris
+travel through six stops. Iris position and busy state follow actual modeled
+motion; command acknowledgement is independent of motor completion. Scene pixels
 remain a separate CMOS/RAW input; a future 3D application adapter must feed that
 acquisition boundary and coordinate capture metadata with the lens state.
-No 3D application bridge or variable optical actuator is implemented yet.
-The complete fixed-lens protocol and ordered vector batches produce a status
+No 3D application bridge or optical exposure simulation is implemented yet.
+The lens protocol and ordered vector batches produce a status
 GUI without the former lens-extension warning in the movie-input profile. The
 current frontier records the distinct photo/movie startup boundaries;
 normal live view remains incomplete.
 The [maintained capture selector](docs/devices/gpio/input.md#maintained-photomovie-selector)
 starts in photo and toggles with F13. It drives the original EX I2C input path;
-the guest chooses photo/movie policy. F4 remains a separate application input.
+the guest chooses photo/movie policy. F14/F15 move the eight-position mode ADC
+ladder; F16/F17 and F18/F19 drive the two quadrature command dials. The original
+EX and MAS firmware own mode selection, dial sampling, shutter/aperture policy
+and lens requests. These electrical inputs do not establish every exposure
+mode's processing or end-to-end exposure acceptance. F4 remains a separate
+application input.
+
+The [continuous graph](docs/devices/gate/processing.md) now consumes owned MAIN
+pixels, applies the neutral carrier, grid warp and three affine branches, and
+writes all three terminal images before publishing completion. The
+[primary scanout](docs/devices/banks/image.md#primary-yuv-view) consumes the
+original display queue's Y/UV view and programmed matrices before composing
+the GUI overlays. A cold-neutral original-firmware window now shows the
+computed quadrant scene in the original1024×682 GUI and remains running at
+15/30/45 seconds, with four actual frames and zero graph errors. Sustained
+acquisition and complete exposure control remain open. The
+[current frontier](docs/validation/frontier.md) separates actual DMA images,
+original GUI output, finite color hypotheses and native fixture evidence.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

@@ -12,6 +12,7 @@
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "qemu/bswap.h"
+#include "qemu/bitops.h"
 #include "qemu/timer.h"
 #include "ui/console.h"
 #include "ui/qemu-pixman.h" /* IWYU pragma: keep */
@@ -297,6 +298,224 @@ static uint32_t nikon_banks_yuva(const uint8_t *pair, unsigned column)
     return 0xff000000U | (red << 16) | (green << 8) | blue;
 }
 
+/* Neutral curves qualify the matrix-only law without ignoring table changes. */
+static bool nikon_banks_primary_curves(NikonDualEventBanksRegion *r)
+{
+    const uint32_t (*tables)[0x400 / 4] = r->parent->tables + r->index * 4;
+
+    for (unsigned family = 0; family < 2; family++) {
+        for (unsigned i = 0; i < 0x400 / 4; i++) {
+            if (tables[family][i]) {
+                return false;
+            }
+        }
+    }
+    for (unsigned bank = 0; bank < 2; bank++) {
+        for (unsigned plane = 0; plane < 3; plane++) {
+            for (unsigned i = 0; i <= 16; i++) {
+                unsigned lo = MIN(i * 16, 255);
+                unsigned hi = i == 16 ? 0 : i * 16 + 8;
+                unsigned word = (bank * 0x200 + plane * 0x80) / 4 + i;
+
+                if (tables[2][word] != (lo | (hi << 16))) {
+                    return false;
+                }
+            }
+        }
+        for (unsigned curve = 0; curve < 2; curve++) {
+            for (unsigned i = 0; i <= 16; i++) {
+                unsigned lo = curve ? 64 : MIN(i * 16, 255);
+                unsigned hi = i == 16 ? 0 : curve ? 64 : i * 16 + 8;
+                unsigned word = (bank * 0x100 + curve * 0x80) / 4 + i;
+
+                if (tables[3][word] != (lo | (hi << 16))) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+/*
+ * Unit0 receives the separate Y/UV view, before the two overlay ports.
+ * C3C2/C354 preserve its source rectangle, pitches and already cropped PAs.
+ * Q14/Q10 signed matrices, nearest scaling and global alpha are explicit
+ * functional color laws; table-update requests and effects stay unsupported.
+ */
+static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
+                                pixman_image_t *output, unsigned out_width,
+                                unsigned out_height, bool *supplied)
+{
+    const uint32_t *p = r->packet;
+    unsigned command = p[0x100 / 4] & 3;
+    unsigned mode = p[0x200 / 4] & 31;
+    unsigned width = p[0x204 / 4] & 0xffff;
+    unsigned height = p[0x204 / 4] >> 16;
+    unsigned pitch_y = p[0x240 / 4], pitch_uv = p[0x250 / 4];
+    unsigned x = p[0x600 / 4] & 0xffff, y = p[0x600 / 4] >> 16;
+    unsigned alpha = p[0x500 / 4];
+    unsigned a = 1, b = 1, e = 1, f = 1, scaled_w, scaled_h;
+    unsigned uv_height, row, col, i, j;
+    hwaddr base_y = p[0x210 / 4], base_uv = p[0x220 / 4];
+    int matrix[2][3][3];
+    g_autofree uint8_t *luma = NULL;
+    g_autofree uint8_t *chroma = NULL;
+    pixman_image_t *image;
+    pixman_transform_t transform;
+    uint32_t *pixels;
+    unsigned stride;
+
+    if (command != 1 && command != 3) {
+        return true;
+    }
+    if ((mode != 0 && mode != 4) ||
+        p[0x200 / 4] != (0x00300000U | mode) ||
+        !width || !height || (width & 1) || (height & 1) ||
+        (uint64_t)width * height > FRAME_PIXELS ||
+        pitch_y < width || pitch_uv < width || (pitch_uv & 1) ||
+        (base_uv & 1) || alpha > 255 || p[0x260 / 4] ||
+        p[0x604 / 4] || p[0x40c / 4] ||
+        (p[0x410 / 4] & 1) || (p[0x4c0 / 4] & 0x202) ||
+        p[0x4f0 / 4] > 1 || !nikon_banks_primary_curves(r)) {
+        return false;
+    }
+    /* Only the first PA in each four-entry array has a known live selector. */
+    for (i = 1; i < 4; i++) {
+        if (p[0x210 / 4 + i] || p[0x220 / 4 + i]) {
+            return false;
+        }
+    }
+    for (i = 0x430; i <= 0x478; i += 4) {
+        if (i != 0x454 && p[i / 4]) {
+            return false;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        uint32_t first = p[(0x4a0 + i * 8) / 4];
+        uint32_t last = p[(0x4a4 + i * 8) / 4];
+        uint32_t second = p[(0x4d0 + i * 8) / 4];
+        uint32_t tail = p[(0x4d4 + i * 8) / 4];
+
+        if ((last & 0xffff0000U) || (second & 0xf000f000U) ||
+            (tail & 0xfffff000U)) {
+            return false;
+        }
+        matrix[0][i][0] = (int16_t)first;
+        matrix[0][i][1] = (int16_t)(first >> 16);
+        matrix[0][i][2] = (int16_t)last;
+        matrix[1][i][0] = sextract32(second, 0, 12);
+        matrix[1][i][1] = sextract32(second, 16, 12);
+        matrix[1][i][2] = sextract32(tail, 0, 12);
+    }
+    if (p[0x400 / 4]) {
+        a = p[0x404 / 4] & 31;
+        b = (p[0x404 / 4] >> 8) & 31;
+        e = p[0x408 / 4] & 31;
+        f = (p[0x408 / 4] >> 8) & 31;
+        if (p[0x400 / 4] != 1 || !a || !b || !e || !f ||
+            (p[0x404 / 4] >> 24)) {
+            return false;
+        }
+    }
+    scaled_w = (uint64_t)width * a / b;
+    scaled_h = (uint64_t)height * e / f;
+    if (!scaled_w || !scaled_h ||
+        (uint64_t)scaled_w * scaled_h > FRAME_PIXELS) {
+        return false;
+    }
+    uv_height = mode == 4 ? height / 2 : height;
+    for (row = 0; row < height; row++) {
+        uint64_t address = (uint64_t)base_y + (uint64_t)row * pitch_y;
+
+        if (address + width > (1ULL << 32) ||
+            !nikon_banks_ram(address, width)) {
+            return false;
+        }
+    }
+    for (row = 0; row < uv_height; row++) {
+        uint64_t address = (uint64_t)base_uv + (uint64_t)row * pitch_uv;
+
+        if (address + width > (1ULL << 32) ||
+            !nikon_banks_ram(address, width)) {
+            return false;
+        }
+    }
+    luma = g_malloc((size_t)width * height);
+    chroma = g_malloc((size_t)width * uv_height);
+    for (row = 0; row < height; row++) {
+        if (dma_memory_read(&address_space_memory,
+                            base_y + (uint64_t)row * pitch_y,
+                            luma + (size_t)row * width, width,
+                            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            return false;
+        }
+    }
+    for (row = 0; row < uv_height; row++) {
+        if (dma_memory_read(&address_space_memory,
+                            base_uv + (uint64_t)row * pitch_uv,
+                            chroma + (size_t)row * width, width,
+                            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            return false;
+        }
+    }
+    image = pixman_image_create_bits(PIXMAN_a8r8g8b8, width, height, NULL, 0);
+    if (!image) {
+        return false;
+    }
+    pixels = pixman_image_get_data(image);
+    stride = pixman_image_get_stride(image) / 4;
+    for (row = 0; row < height; row++) {
+        unsigned uv_row = mode == 4 ? row / 2 : row;
+
+        for (col = 0; col < width; col++) {
+            const uint8_t *uv = chroma + (size_t)uv_row * width + (col & ~1U);
+            int input[3] = { luma[(size_t)row * width + col],
+                             uv[0] - 128, uv[1] - 128 };
+            int rgb[3], final[3];
+
+            for (i = 0; i < 3; i++) {
+                int64_t value = 0;
+
+                for (j = 0; j < 3; j++) {
+                    value += (int64_t)matrix[0][i][j] * input[j];
+                }
+                rgb[i] = CLAMP((value + 8192) >> 14, 0, 255);
+            }
+            for (i = 0; i < 3; i++) {
+                int64_t value = (int64_t)rgb[i] * 1024;
+
+                /* Profile byte22: finite bypass/apply interpretation. */
+                if (p[0x4f0 / 4]) {
+                    value = 0;
+                    for (j = 0; j < 3; j++) {
+                        value += (int64_t)matrix[1][i][j] * rgb[j];
+                    }
+                }
+                final[i] = CLAMP((value + 512) >> 10, 0, 255) * alpha / 255;
+            }
+            pixels[row * stride + col] = (alpha << 24) |
+                (final[0] << 16) | (final[1] << 8) | final[2];
+        }
+    }
+    pixman_transform_init_scale(&transform, ((int64_t)b << 16) / a,
+                                ((int64_t)f << 16) / e);
+    if (!pixman_image_set_transform(image, &transform) ||
+        !pixman_image_set_filter(image, PIXMAN_FILTER_NEAREST, NULL, 0)) {
+        pixman_image_unref(image);
+        return false;
+    }
+    if (x < out_width && y < out_height) {
+        pixman_image_composite32(PIXMAN_OP_OVER, image, NULL, output,
+                                 0, 0, 0, 0, x, y,
+                                 MIN(scaled_w, out_width - x),
+                                 MIN(scaled_h, out_height - y));
+    }
+    *supplied = true;
+    pixman_image_unref(image);
+    return true;
+}
+
 static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
                               pixman_image_t *output, unsigned port,
                               unsigned layer, unsigned out_width,
@@ -526,6 +745,10 @@ static void nikon_banks_frame(void *opaque)
     }
     output = pixman_image_create_bits(PIXMAN_a8r8g8b8, width, height, NULL, 0);
     if (!output) {
+        goto error;
+    }
+    if (!nikon_banks_primary(r, output, width, height, &supplied)) {
+        pixman_image_unref(output);
         goto error;
     }
     for (port = 0; port < 2; port++) {

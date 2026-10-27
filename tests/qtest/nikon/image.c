@@ -372,14 +372,14 @@ static void test_overlay(void)
     qtest_writel(q, BANK + 0x1c00, 2);
     qtest_writel(q, BANK + 0x4c0, 0x606);
     qtest_writel(q, BANK + 0x1510, 0x606);
-    qtest_writel(q, BANK + 0x100, 1);
+    qtest_writel(q, BANK + 0x2100, 1);
     g_assert_cmphex(qtest_readl(q, BANK + 0x4c0), ==, 0x606);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x100), ==, 1);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x2100), ==, 1);
     qtest_writel(q, BANK + 0x1200, 1);
     wait_completion(q);
     g_assert_cmphex(qtest_readl(q, BANK + 0x4c0), ==, 0x01010606);
     g_assert_cmphex(qtest_readl(q, BANK + 0x1510), ==, 0x01010606);
-    g_assert_cmphex(qtest_readl(q, BANK + 0x100), ==, 3);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x2100), ==, 3);
     image = pixels(q);
     for (y = 0; y < 8; y++) {
         for (x = 0; x < 8; x++) {
@@ -803,6 +803,309 @@ static void test_visible_area(void)
     qtest_quit(q);
 }
 
+static void primary_packet(QTestState *q, unsigned mode)
+{
+    /*
+     * Synthetic matrices: R=Y+V/2, G=Y-U/4-V/2, B=Y+U;
+     * the second produces (B-R/2, G, R). Both signed domains matter.
+     */
+    const int first[3][3] = {
+        { 16384, 0, 8192 }, { 16384, -4096, -8192 }, { 16384, 16384, 0 },
+    };
+    const int second[3][3] = {
+        { -512, 0, 1024 }, { 0, 1024, 0 }, { 1024, 0, 0 },
+    };
+    unsigned row;
+
+    qtest_writel(q, BANK + 0x1100, 1);
+    qtest_writel(q, BANK + 0x1328, 8);
+    qtest_writel(q, BANK + 0x132c, 8);
+    qtest_writel(q, BANK + 0x100, 1);
+    qtest_writel(q, BANK + 0x200, 0x00300000 | mode);
+    qtest_writel(q, BANK + 0x204, 0x00080008);
+    qtest_writel(q, BANK + 0x210, RAM + 2);
+    qtest_writel(q, BANK + 0x220, RAM + 0x4002);
+    qtest_writel(q, BANK + 0x240, 12);
+    qtest_writel(q, BANK + 0x250, 14);
+    qtest_writel(q, BANK + 0x500, 255);
+    /* Disabled adjustment retains its source-produced inactive parameters. */
+    qtest_writel(q, BANK + 0x410, 0x200);
+    qtest_writel(q, BANK + 0x414, 0xc00100);
+    qtest_writel(q, BANK + 0x418, 0xc0);
+    qtest_writel(q, BANK + 0x4c0, 0x404);
+    qtest_writel(q, BANK + 0x4f0, 1);
+    for (unsigned bank = 0; bank < 2; bank++) {
+        for (unsigned plane = 0; plane < 3; plane++) {
+            for (unsigned i = 0; i <= 16; i++) {
+                unsigned lo = MIN(i * 16, 255);
+                unsigned hi = i == 16 ? 0 : i * 16 + 8;
+
+                qtest_writel(q, 0x24045000 + bank * 0x200 + plane * 0x80 +
+                             i * 4, lo | (hi << 16));
+            }
+        }
+        for (unsigned curve = 0; curve < 2; curve++) {
+            for (unsigned i = 0; i <= 16; i++) {
+                unsigned lo = curve ? 64 : MIN(i * 16, 255);
+                unsigned hi = i == 16 ? 0 : curve ? 64 : i * 16 + 8;
+
+                qtest_writel(q, 0x24046000 + bank * 0x100 + curve * 0x80 +
+                             i * 4, lo | (hi << 16));
+            }
+        }
+    }
+    for (row = 0; row < 3; row++) {
+        qtest_writel(q, BANK + 0x4a0 + row * 8,
+                     (uint16_t)first[row][0] |
+                     ((uint32_t)(uint16_t)first[row][1] << 16));
+        qtest_writel(q, BANK + 0x4a4 + row * 8,
+                     (uint16_t)first[row][2]);
+        qtest_writel(q, BANK + 0x4d0 + row * 8,
+                     (second[row][0] & 0xfff) |
+                     ((second[row][1] & 0xfff) << 16));
+        qtest_writel(q, BANK + 0x4d4 + row * 8,
+                     second[row][2] & 0xfff);
+    }
+}
+
+static void primary_source(QTestState *q, unsigned mode,
+                           uint8_t luma[8 * 12], uint8_t uv[8 * 14])
+{
+    unsigned x, y;
+
+    memset(luma, 0xa5, 8 * 12);
+    memset(uv, 0xa5, 8 * 14);
+    for (y = 0; y < 8; y++) {
+        for (x = 0; x < 8; x++) {
+            luma[y * 12 + x + 2] = 48 + y * 4 + x * 2;
+        }
+    }
+    for (y = 0; y < (mode == 4 ? 4 : 8); y++) {
+        for (x = 0; x < 8; x += 2) {
+            uv[y * 14 + x + 2] = 160 + y * 4;
+            uv[y * 14 + x + 3] = 96;
+        }
+    }
+    qtest_memwrite(q, RAM, luma, 8 * 12);
+    qtest_memwrite(q, RAM + 0x4000, uv, 8 * 14);
+}
+
+static void test_primary(void)
+{
+    QTestState *q = start();
+    uint8_t luma[8 * 12], uv[8 * 14], observed[8 * 14];
+    unsigned mode, x, y;
+
+    for (mode = 0; mode <= 4; mode += 4) {
+        g_autofree char *image = NULL;
+
+        primary_source(q, mode, luma, uv);
+        primary_packet(q, mode);
+        qtest_writel(q, BANK + 0x1200, 1);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        wait_completion(q);
+        image = pixels(q);
+        for (y = 0; y < 8; y++) {
+            unsigned u = 32 + (mode == 4 ? y / 2 : y) * 4;
+
+            for (x = 0; x < 8; x++) {
+                unsigned luminance = 48 + y * 4 + x * 2;
+                const uint8_t *rgb = (uint8_t *)image + (y * 8 + x) * 3;
+
+                g_assert_cmpuint(rgb[0], ==, luminance / 2 + u + 8);
+                g_assert_cmpuint(rgb[1], ==, luminance - u / 4 + 16);
+                g_assert_cmpuint(rgb[2], ==, luminance - 16);
+            }
+        }
+        qtest_memread(q, RAM, observed, sizeof(luma));
+        g_assert_cmpmem(observed, sizeof(luma), luma, sizeof(luma));
+        qtest_memread(q, RAM + 0x4000, observed, sizeof(uv));
+        g_assert_cmpmem(observed, sizeof(uv), uv, sizeof(uv));
+        qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    }
+    /* A new live RAM frame needs no second master start. */
+    qtest_memset(q, RAM, 64, sizeof(luma));
+    qtest_memset(q, RAM + 0x4000, 128, sizeof(uv));
+    wait_completion(q);
+    {
+        g_autofree char *image = pixels(q);
+
+        assert_color(image, 32, 64, 64);
+    }
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    /* The special profile bypasses the nonidentity second matrix. */
+    qtest_writel(q, BANK + 0x4f0, 0);
+    wait_completion(q);
+    {
+        g_autofree char *image = pixels(q);
+
+        assert_color(image, 64, 64, 64);
+    }
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    qtest_writel(q, BANK + 0x500, 0);
+    wait_completion(q);
+    {
+        g_autofree char *image = pixels(q);
+
+        assert_color(image, 0, 0, 0);
+    }
+    qtest_quit(q);
+}
+
+static void test_primary_controls(void)
+{
+    const struct {
+        unsigned offset;
+        uint32_t value;
+    } invalid[] = {
+        { 0x200, 0x00300001 }, { 0x200, 0x00300104 },
+        { 0x204, 0x00080007 }, { 0x204, 0x00070008 },
+        { 0x204, 0x3ffe4000 }, { 0x240, 6 }, { 0x250, 7 },
+        { 0x210, 0xfffffffc }, { 0x220, 0xfffffff8 },
+        { 0x210, 0x10020000 }, { 0x220, 0x20140000 },
+        { 0x214, RAM }, { 0x224, RAM }, { 0x260, 1 },
+        { 0x604, 1 }, { 0x40c, 1 }, { 0x410, 0x201 },
+        { 0x430, 1 }, { 0x4c0, 0x406 }, { 0x4c0, 0x604 },
+        { 0x4f0, 2 }, { 0x4a4, 0x00010000 },
+        { 0x4d0, 0x1000 }, { 0x4d4, 0x1000 },
+        { 0x500, 256 }, { 0x400, 1 },
+    };
+    QTestState *q = start();
+    uint8_t luma[8 * 12], uv[8 * 14];
+    g_autofree char *before = NULL;
+    unsigned i;
+
+    primary_source(q, 4, luma, uv);
+    primary_packet(q, 4);
+    qtest_writel(q, BANK + 0x1200, 1);
+    wait_completion(q);
+    before = pixels(q);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    for (i = 0; i < G_N_ELEMENTS(invalid); i++) {
+        g_autofree char *after = NULL;
+
+        primary_packet(q, 4);
+        qtest_writel(q, BANK + invalid[i].offset, invalid[i].value);
+        qtest_writel(q, BANK + 0x1200, 1);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 0);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        after = pixels(q);
+        g_assert_cmpmem(after, 192, before, 192);
+        qtest_writel(q, BANK + invalid[i].offset, 0);
+    }
+    /* Unknown active-bank selection cannot hide a nonneutral table point. */
+    for (i = 0; i < 6; i++) {
+        static const uint32_t addresses[] = {
+            0x24040000, 0x24042000, 0x24045000,
+            0x24045200, 0x24046000, 0x24046180,
+        };
+        g_autofree char *after = NULL;
+        uint32_t prior;
+
+        primary_packet(q, 4);
+        prior = qtest_readl(q, addresses[i]);
+        qtest_writel(q, addresses[i], prior ^ 1);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 0);
+        g_assert_false(qtest_get_irq(q, 111 - 32));
+        after = pixels(q);
+        g_assert_cmpmem(after, 192, before, 192);
+        qtest_writel(q, addresses[i], prior);
+    }
+    primary_packet(q, 4);
+    qtest_writel(q, BANK + 0x1200, 2);
+    qtest_memset(q, RAM, 0xff, sizeof(luma));
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 0);
+    {
+        g_autofree char *paused = pixels(q);
+
+        g_assert_cmpmem(paused, 192, before, 192);
+    }
+    qtest_writel(q, BANK + 0x1200, 1);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x100), ==, 0);
+    g_assert_cmphex(qtest_readl(q, BANK + 0x1214), ==, 0);
+    g_assert_false(qtest_get_irq(q, 111 - 32));
+    qtest_quit(q);
+}
+
+static void test_primary_composite(void)
+{
+    QTestState *q = start();
+    uint8_t luma[8 * 12], uv[8 * 14];
+    g_autofree char *image = NULL;
+    unsigned x, y;
+
+    primary_source(q, 4, luma, uv);
+    primary_packet(q, 4);
+    qtest_writel(q, BANK + 0x204, 0x00040004);
+    qtest_writel(q, BANK + 0x400, 1);
+    qtest_writel(q, BANK + 0x404, 0x102);
+    qtest_writel(q, BANK + 0x408, 0x102);
+    qtest_writel(q, BANK + 0x500, 128);
+    qtest_writel(q, BANK + 0x600, 0x00020002);
+    /* A genuine RGBA overlay occupies the upper-left two pixels. */
+    packet(q, 0, 0);
+    qtest_writel(q, BANK + 0x2400, 0x00020002);
+    qtest_memset(q, RAM + 0x8000, 0, 8 * 40);
+    qtest_writel(q, RAM + 0x8000, 0xff00ff00);
+    qtest_writel(q, RAM + 0x8004, 0xff00ff00);
+    qtest_writel(q, RAM + 0x8028, 0xff00ff00);
+    qtest_writel(q, RAM + 0x802c, 0xff00ff00);
+    qtest_writel(q, BANK + 0x2440, RAM + 0x8000);
+    qtest_writel(q, BANK + 0x1200, 1);
+    wait_completion(q);
+    image = pixels(q);
+    for (y = 0; y < 8; y++) {
+        for (x = 0; x < 8; x++) {
+            unsigned sy = y >= 2 ? (y - 2) / 2 : 0;
+            unsigned sx = x >= 2 ? (x - 2) / 2 : 0;
+            unsigned u = 32 + (sy / 2) * 4;
+            unsigned value = 48 + sy * 4 + sx * 2;
+            const uint8_t *rgb = (uint8_t *)image + (y * 8 + x) * 3;
+
+            if (x < 2 && y < 2) {
+                g_assert_cmpuint(rgb[0], ==, 0);
+                g_assert_cmpuint(rgb[1], ==, 255);
+                g_assert_cmpuint(rgb[2], ==, 0);
+            } else if (x < 2 || y < 2) {
+                g_assert_cmpuint(rgb[0], ==, 0);
+                g_assert_cmpuint(rgb[1], ==, 0);
+                g_assert_cmpuint(rgb[2], ==, 0);
+            } else {
+                g_assert_cmpuint(rgb[0], ==,
+                                 (value / 2 + u + 8) * 128 / 255);
+                g_assert_cmpuint(rgb[1], ==, (value - u / 4 + 16) * 128 / 255);
+                g_assert_cmpuint(rgb[2], ==, (value - 16) * 128 / 255);
+            }
+        }
+    }
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    /* Pausing only unit0 leaves the independent overlay transaction valid. */
+    qtest_writel(q, BANK + 0x100, 2);
+    qtest_clock_step(q, 1000000);
+    g_assert_true(qtest_get_irq(q, 111 - 32));
+    g_clear_pointer(&image, g_free);
+    image = pixels(q);
+    g_assert_cmpuint((uint8_t)image[3 * 63], ==, 0);
+    g_assert_cmpuint((uint8_t)image[3 * 63 + 1], ==, 0);
+    g_assert_cmpuint((uint8_t)image[3 * 63 + 2], ==, 0);
+    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+    /* A disabled unit must not even inspect an invalid retained provider. */
+    qtest_writel(q, BANK + 0x100, 0);
+    qtest_writel(q, BANK + 0x210, 0xfffffffc);
+    qtest_clock_step(q, 1000000);
+    g_assert_true(qtest_get_irq(q, 111 - 32));
+    g_clear_pointer(&image, g_free);
+    image = pixels(q);
+    g_assert_cmpuint((uint8_t)image[1], ==, 255);
+    g_assert_cmpuint((uint8_t)image[3 * 63], ==, 0);
+    qtest_quit(q);
+}
+
 void nikon_image_add_tests(const char *bios)
 {
     bios_image = bios;
@@ -821,4 +1124,7 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/yuva-fault", test_yuva_fault);
     qtest_add_func("/nikon/image/yuva-frame", test_yuva_frame);
     qtest_add_func("/nikon/image/visible-area", test_visible_area);
+    qtest_add_func("/nikon/image/primary", test_primary);
+    qtest_add_func("/nikon/image/primary-controls", test_primary_controls);
+    qtest_add_func("/nikon/image/primary-composite", test_primary_composite);
 }

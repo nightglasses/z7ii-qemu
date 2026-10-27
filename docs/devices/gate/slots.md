@@ -5,7 +5,9 @@ submission atomically installs configuration; it does not start pixel work or
 make that configuration permanently unwritable. Normal configuration-only
 execution reloads an already allocated slot before any processor starts,
 falsifying the earlier busy-on-configuration hypothesis. The model separates
-staging, committed parameters and the still-unmodeled active data-use contract.
+staging, committed parameters and active data ownership. The current
+[continuous processing contract](processing.md) adds bounded data use for one
+connected graph; the historical slot-stage observations below precede it.
 See the [request and storage contract](../pairs/requests.md) and
 [current startup frontier](../../validation/frontier.md).
 
@@ -18,7 +20,8 @@ offsets and addresses are hexadecimal unless explicitly marked decimal.
 Initializer `10388c3a` sets type0's resource count at VA `b1d52252` to decimal16.
 Selector `103bd930(type,index,out)` copies a sixteen-byte ROM descriptor;
 type0 table `10789dc0..10789ebf` supplies slot numbers0..15. Its other three
-words are zero for every type0 slot, so these entries add no completion mask.
+words are zero for every type0 slot, so these entries add no secondary software
+allocation bits. These allocator words are not raw IRQ callback masks.
 This establishes a complete finite slot domain, rather than an index bound
 inferred from the first observed read.
 
@@ -80,12 +83,15 @@ Parameter capture alone still does not acquire ownership. This finite input
 occupancy does not establish downstream processor completion or software
 resource release.
 
-The query bank's quiescent zero is a functional availability hypothesis after
-actual parameter capture, not a recovered physical busy law: no processing
-node has an outstanding start. Once a node is requested, both
-hardware-availability queries and further parameter publication remain explicit
-errors until active frame ownership is modeled. This deliberately avoids
-reporting invented idle status for unmodeled work. Staging remains independent;
+At the historical request-admission checkpoint, the query bank's quiescent zero
+was a functional availability hypothesis after actual parameter capture,
+not a recovered physical busy law: no processing
+node had an outstanding start. Once a node was requested, both
+hardware-availability queries and further parameter publication remained explicit
+errors until active frame ownership was modeled. The current
+[input and processing ownership contract](input.md) extends that checkpoint
+with actual owned input and completed output DMA, under the bounded
+[continuous profile](processing.md). Staging remains independent;
 resetting a node cannot complete that work or alter committed parameters.
 
 Incomplete/repeated capture without restaging, reserved generated bits, query
@@ -95,8 +101,10 @@ validity and counters. Stop acknowledgment and W1C preserve configuration.
 
 ## Completion and release boundary
 
-The type0 descriptor's zero completion masks prevent assigning a task event or
-IRQ to selector2c. Worker `103b4adc` configures the graph through `103bd04a`,
+The type0 setter supplies configuration without a completion callback; its ROM
+allocation descriptor's zero words do not define raw IRQ routing. Selector2c
+therefore has no modeled task event or IRQ. Worker `103b4adc` configures the
+graph through `103bd04a`,
 then `103b4cea` starts later graph nodes and constructs its wait mask from the
 terminal nodes. Original IRQ102 handler `103bce38` reads/acknowledges three
 raw pending domains and calls `103bde3e`; that dispatcher invokes the original
@@ -107,10 +115,12 @@ Callback `10388b3c` handles worker completion/termination notifications and
 calls `1038897e`, which clears the guest's allocated type masks and worker
 ownership. On the normal `421930f1` route it subsequently wakes the original
 resource waiter. This releases software resources; it does not write the
-hardware slot query bank. Active frame-ownership transitions still need to be
-connected to the real graph processor, independently of parameter reload.
-There is no guessed callback, raw bit or guest-memory update for that missing
-edge.
+hardware slot query bank. At the historical slot-stage checkpoint, the graph
+processor and active frame-ownership transitions were still missing. The
+current [continuous contract](processing.md) requires all three actual output
+DMAs before its caller may publish the selected terminal causes; parameter
+reload alone still cannot complete work. Guest callback execution and software
+event updates remain guest-owned.
 
 The historical baseline continuation submitted slot1, then stopped in graph
 node1, type4/resource37: callback `103bdc72 ->103bded0` writes PA `20100814=1`

@@ -1,6 +1,76 @@
 # Original-firmware startup frontier
 
-## Current: photo MAIN input delivery and continuous graph boundary
+## Current: actual MAIN pixels in the original GUI
+
+The original AUTO photo GUI now displays the computed CMOS scene behind its
+own widgets. The complete path is RAW → paired MAIN → owned type0 slot8 →
+type5/resource35 → type9/resource45 → type11/resource62 → three affine
+branches and output DMAs → the original display queue → bank1 unit0 → scanout.
+The [continuous graph](../devices/gate/processing.md) retires input only after
+all three actual output DMAs. Original terminal and whole-frame callbacks
+carry the results through the guest's normal consumers; no additional event,
+forced slot release or guest-memory edit is used.
+
+![Original GUI with actual modeled MAIN scene](/evidence/continuous/scanout.png)
+
+With unchanged C1.70 firmware, cold-neutral regions, explicit quadrant PGM
+scene and paired calibration, healthy UART battery peer, virtual lens, held F4,
+blank8 GiB slot0 card and five-CPU MTTCG, the45-second window is running at all
+three samples. Head1 is not bound at15 seconds; at30 and45 seconds it displays
+the original1024×682 GUI over the actual quadrant scene. Paired and continuous
+processing both complete4 frames, with zero rejections/errors; paired writes
+7,558,224 bytes. The count remains4 between30 and45 seconds. This establishes
+the first real MAIN-to-GUI connection, not sustained live view, shutter capture,
+recording or saving. The final minimal snapshot does not sample GUI readiness
+or panic globals. Head0 remains unbound.
+
+Earlier windows completed4 or8 real continuous frames but showed a black
+central scene. Post-window source-state observations established that channel0
+was enabled, all display submission gates passed, and real phase-selected Y/UV
+PAs reached unit0. The old bank renderer consumed only the two overlay ports
+and objects. The [primary scanout model](../devices/banks/image.md#primary-yuv-view)
+now consumes the separate Y/UV provider before composing those overlays.
+The old [GUI capture](/evidence/continuous/display.png) and the diagnostic
+[LCD DMA decode](/evidence/continuous/scene.png) remain separate evidence.
+Neither image is substituted into the guest's GUI.
+
+Source facts establish packets, grid and affine packing, memory extents,
+terminal routes, display PAs, geometry and programmed coefficients. The zero
+type5 table's identity interpretation, interpolation, chroma convention,
+phase association, nominal work latency, matrix normalization/rounding,
+selector0/1 behavior, neutral constant64 curve and layer priority remain
+explicit finite hypotheses. Both internal curve banks are qualified; changed
+points, table-update requests and other unsupported color controls reject
+without replacing the last surface or publishing completion. False color
+reflects the finite monochrome/color model, not camera color calibration.
+
+A separate instrumented original run confirms raw1 bits0/5/6 reaching the
+terminal callbacks and tag42193082, and raw2 bit3 reaching whole-frame
+tag42193081. The original consumer at MAS VA10269d36 normally subtracts
+consumed counts. A later zero count does not justify another event. Initial
+input retirement, output computation and display publication are now connected;
+the next acquisition question is why the normal request/refill chain does not
+yet sustain processing beyond its initial phase batches.
+
+The [mechanical input](../devices/gpio/input.md) supplies the eight-position
+mode ADC and both quadrature dials; the [lens](../devices/lens/protocol.md)
+models finite iris travel and current/busy reporting. An original AUTO-started
+session switches through P/S/A/M and custom positions using normal inputs.
+Direct M startup selects an unresolved660..678 numerical noise-reduction
+tuple (660=15 versus23 in the admitted AUTO photo profile) and stops at the
+strict paired boundary. A mode label is not exposure-control acceptance.
+Original dial delivery remains inconsistent across observations; host inputs
+do not write shutter/aperture settings. Optical exposure of the scene is also
+a separate unimplemented acquisition boundary.
+
+The scoped native checks pass66 subtests:10 grid arithmetic,8 complete graph
+and lifecycle,6 input,18 lens,1 exact-pool memory,4 typed-stream,1 SLA gate,
+and18 bank-image checks including3 new primary fixtures. The
+[curated receipt](/evidence/continuous/capture.json) distinguishes native
+fixtures, original windows, instrumented diagnostics and remaining boundaries.
+Firmware bytes, guest callbacks, software slots and GUI pixels are unchanged.
+
+## Previous: photo MAIN input delivery and continuous graph boundary
 
 The [capture-mode model](../devices/pairs/modes.md) now decodes chunked photo
 `88=2` scheduling and independent WORK disable without treating `9c` as RAW

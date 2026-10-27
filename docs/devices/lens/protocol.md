@@ -7,8 +7,8 @@ enter the CMOS/readout path. A lens notification is not a rendered frame or GUI
 readiness, and replacing a warning cannot establish either path.
 
 `hw/nikon/devices/lens.c` implements an explicit, finite normal-family virtual
-50 mm F2.8 lens with fixed focal length and iris. Its identity `7ffe` is a
-virtual input, not a recovered
+50 mm lens with maximum aperture F2.8 and a finite virtual iris. Its identity
+`7ffe` is a virtual input, not a recovered
 physical product identifier. This profile does not advertise optional lens
 families or implement autofocus movement, variable zoom, physical optics or a
 3D application bridge. Unsupported packets fail at the endpoint boundary.
@@ -58,9 +58,9 @@ must be zero modulo256. The native SSI endpoint exchanges 16-bit words.
 | `20:01` |24| Ordinary secondary state page |
 | `27:00` |6| Virtual query of the stored anchor; physical meaning remains unresolved |
 | `16:00` |4| Validate/apply stream enable or disable |
-| `a0:00..07` |24| Validate the complete zero-travel aperture request and zero tail |
-| `a1:00` |10| Validate zero aperture travel and zero additional parameters |
-| `a3:00..01` |4| Validate zero-travel aperture requests |
+| `a0:00..07` |24| Process bounded relative aperture targets with a zero tail |
+| `a1:00` |10| Process the source-default aperture parameter family |
+| `a3:00..01` |4| Process bounded relative aperture targets |
 | `50:00` |4| Validate and process the source-selected mode request independently of configuration |
 | `51:00` |4| Report actual mode processing busy/done state |
 
@@ -75,8 +75,8 @@ The transmitted probe's byte2 must be zero in this finite profile. That is an
 explicit input boundary, not a proven silicon-reserved field.
 
 The model supports this group together rather than admitting one observed
-address or individual reply at a time. It does not acknowledge nonzero aperture
-travel, alternate-family commands or advertised capabilities without
+address or individual reply at a time. It does not acknowledge alternate-family
+commands or advertised capabilities without
 their processing models.
 
 `10311d02` and its completion handlers establish this initialization order.
@@ -96,14 +96,14 @@ when the same property is false, recording exclusion reason1. These are
 original capture/live-view dependencies, not host-selected GUI flags.
 
 The virtual fixed optics have no retracting barrel. Their operating encoding
-is therefore3 throughout reset, configuration and idle operation; this is a
+is therefore3 throughout reset, configuration and iris operation; this is a
 declared finite mechanical input. Configuration busy still comes from actual
 `13:00` processing and remains visible through `15:00`, `169` and `203`.
 The old allzero reserved-field initialization incorrectly supplied wire0 at216,
 which the original getter interpreted as logical1 and hence unavailable. The
 native operating-state fixture checks independent optical availability and
 configuration pending/commit/reset states through complete checksum-valid
-wire replies. This does not implement autofocus or nonzero aperture travel.
+wire replies. This does not implement autofocus.
 
 ## Mode request and completion query
 
@@ -130,7 +130,7 @@ accepted normal branch, not the mode selector echoed back. The finite model
 sets bit7 only while its actual mode timer is pending, leaves fault6 clear
 and selects the explicit normal bit0=0 branch.
 
-These commands do not clear configuration, stop history or modify the fixed
+These commands do not clear configuration, stop history or modify the
 optical operating state. In the inspected sequence, the original state20
 already calls `16:00` to stop streaming before state21 sends50. Configuration
 and history therefore retain their separate contracts. Reset/unrealize cancel
@@ -161,27 +161,55 @@ it does not interpret the constructor's `ffffffff` placeholder as a movement.
 `1034afbe` joins the static lens fields to the EXIF lens specification.
 The integer/fraction pairs at `12:00` offsets 7/5 and11/9 use a fraction
 denominator 65535. Both integers are 50 and fractions zero for this fixed lens.
-Offsets1/3 describe aperture at the two focal endpoints. Their APEX encoding
-is `(LE16-384)/192`; both are 960 for Av3/F2.8. The second value is **not** a
-closed-iris limit. The dynamic biased APEX fields at `20:00` offsets
-1/9/15/162/164 and `20:01` offsets 1/3 also report 960. The relative fields at
-`20:00` offsets197/199/201/204 report zero. Their exact consumers establish
-these encodings; not every coordinate's physical name has been recovered.
+Offsets1/3 describe maximum aperture at the two focal endpoints. Their APEX
+encoding is `(LE16-384)/192`; both remain 960 for Av3/F2.8 regardless of iris
+travel. The second value is **not** a closed-iris limit. The dynamic biased
+APEX fields at `20:00` offsets 1/15/162/164 and `20:01` offsets 1/3 retain 960.
+Their encodings are known, but not every coordinate's physical name has been
+recovered; they are not all rewritten to the current iris value.
 
 `10395052 → 1034ca9e` selects policies labeled `ApertureFailureValue`,
 `LvApexCalc` and `LvFirstAeCalc`. Command37 then reaches `10310f64`, rescales
 the aperture target to denominator 192 and dispatches A0/A1/A3 as alternative
 control encodings. These are ordinary aperture operations even with optional
-capabilities zero. Offset 199 supplies the positive travel clamp; zero forces
-zero closure travel for the fixed virtual iris. The finite model accepts only
-complete zero-target, zero-parameter requests after configuration. An observed
-original A0 buffer contains the full zero tail and valid checksum. Unknown
-nonzero A0 tail or A1 parameters remain explicit errors.
+capabilities zero. In this advertised ordinary family, getter `1037891e`
+reads clear `10:00[9].bit7`, selecting the 192 denominator path. Other families'
+12/24 denominators are outside this profile.
 
-Zero travel requires no actuator motion, changes no aperture coordinate and
-leaves action busy bits4/3 at `20:00[203]` clear. This is distinct from a
-nonzero motion acknowledged without processing. The original firmware still
-receives and validates the complete response and polls its own status path.
+`1031086a` computes nonnegative closure relative to its reference aperture,
+bounded by `20:00[199]/192`. Constructors `10377dea` and `10377e5a` put that
+unbiased numerator in payload LE16 bytes 1..2 for A0 and A3. A0's remaining
+bytes 3..22 must be zero in the supported family. A1 constructor `10377e0a`
+adds a second `/192` numerator in bytes 3..4 and a 32-bit parameter in bytes 5..8.
+`10310f64` replaces an unspecified second numerator with `ffff`; the model
+supports this default with the 32-bit parameter zero, plus the complete allzero
+request while already at full aperture. Other rate/time combinations remain
+unresolved and they reject explicitly.
+
+The declared virtual mechanical input spans F2.8 to F22: Av3..9, or relative
+travel 0..1152 in 1/192-stop units. Accordingly `20:00[199]` reports 1152. This
+range is a functional input assumption, not a recovered physical lens limit.
+Source cache setters `1037c9be/1037c9d0` join the actual relative coordinate at
+`20:00[197]` with biased aperture at offset 9: `960+travel`. Offsets 201/204 and
+the independent history motor coordinates retain their existing zero inputs.
+
+Each accepted target is a position in that range, rather than an increment.
+A distinct target starts linear virtual motion at 20 ms per stop, rounded up
+to whole nanoseconds with a minimum 2 ms. Queries snapshot the traveled
+coordinate when their header is accepted. Only the independent motion timer
+commits the endpoint and increments `aperture-generation`; it produces no
+GPIO transition. These rate and interpolation choices are explicit finite
+mechanical assumptions, not measured lens dynamics. A repeated idle target
+counts as a no-op; an overlapping request rejects without replacing a move.
+
+While motion is pending, action busy bits 4/3 at `20:00[203]` are set. The
+source cache marker `1037ca26` sets both before dispatch. Original initialization
+`10310f4c → state20 → 10310f14 → 10310806` queries these two bits, retrying
+every 5 ms while either is set, up to 100 attempts. The model's bits clear only
+when motion ends. Configuration retains its own busy bit 3, so finishing iris
+motion cannot clear an active configuration operation. SPI phase ACK remains
+independent of both operations. Reset cancels motion and restores full aperture;
+unrealize cancels motion at the traveled position without committing a target.
 
 The long calibration packets are complete initialized device replies. They
 contain finite coefficients, not shortened acknowledgements or copied factory
@@ -236,17 +264,17 @@ the remaining status subfields are not all recovered.
 
 The normal profile covers identification and negotiation, static/dynamic optical
 coordinates, actual configuration pending/commit, synchronization, both complete
-calibration pages, stream control/history, eleven zero-travel aperture variants
+calibration pages, stream control/history, eleven bounded aperture variants
 and the50/51 request/query family together. Required normal capability bits at
 `10:00[12]` are both set and all other bits clear: getters `10378a46/10378a64`
 and initialization consumer `10311b58` require this value3. Clearing them to
 hide a warning would break initialization. The CPU-family code at `12:00[25]`
 is1, as decoded by `10378dfe`. Optional capability fields remain unadvertised;
-unsupported commands and nonzero actuator travel remain errors.
+unsupported commands and unresolved aperture parameters remain errors.
 
 The dynamic dispatcher contains known coordinates whose physical meaning is
 still unresolved. They are not called reserved or silently equated with the
-fixed iris:
+current iris coordinate:
 
 | `20:00` byte offset | Property | Verified conversion of selected raw0 |
 | --- | --- | --- |
@@ -279,7 +307,9 @@ enters an explicit error state, reports the reason and produces no successful
 phase edge. Reset is required to recover that failed session.
 
 The read-only `completed`, `rejected`, `configuration-generation`,
-`stream-frames`, `aperture-noops` and `runtime` properties expose device work and packet phases.
+`stream-frames`, `aperture-noops`, `aperture-generation` and `runtime` properties
+expose device work and packet phases. Runtime includes current/target iris
+coordinates and actual motion pending state.
 They are diagnostics, not guest
 readiness or GUI completion.
 
@@ -310,7 +340,10 @@ is part of this design. No application-specific bridge is implemented here.
 The native lens fixtures exercise the complete ordinary command transcript,
 framing, optical endpoints, real configuration busy-to-complete processing,
 synchronization, malformed packet rejection, partial reset and receiver-bound
-stream lifecycle. They use the actual upstream SSI bus and native SPI receive
+stream lifecycle. Iris fixtures cover all A0/A3 selectors and default A1,
+nonzero target endpoints, intermediate/reverse motion, ACK versus actuator
+deadlines, repeated targets, bounds/parameter rejection, busy reentry and
+reset/unrealize cancellation. They use the actual upstream SSI bus and native SPI receive
 FIFO. These synthetic fixtures do not prove that unchanged original firmware
 has accepted the virtual lens, published its GUI cache or displayed scene pixels.
 The current original-run result is tracked separately in the

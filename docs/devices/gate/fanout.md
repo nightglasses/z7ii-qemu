@@ -3,12 +3,15 @@
 C1.70 MAS type5/resource35 uses backend PA `20100e60`; type6/resource36 uses
 `20100e80`. Both pulse backend+`14` before submitting a pointer at+`10`.
 The observed 396-byte software structure contains a 356-byte register stream
-and a separate 40-byte CPU-consumed trailer. The finite model imports only
-the stream, retaining the original routing/table parameters without creating
-pixels or completion. At this checkpoint original cold-neutral execution
+and a separate 40-byte CPU-consumed trailer. At this historical checkpoint,
+the finite model imported only the stream, retaining the original routing/table
+parameters without creating
+pixels or completion. Original cold-neutral execution at that checkpoint
 crosses type5 import and stops at downstream type9/resource45 configuration.
 The later [linked-stream contract](linked.md) crosses that historical stop
-while keeping actual processing unsupported. See the
+before the later [continuous processing contract](processing.md) adds one
+bounded data path. Its zero-table identity choice is a functional hypothesis,
+separate from the import observations below. See the
 [receipt](/evidence/imagerequest/fanout.json) and
 [startup frontier](../../validation/frontier.md).
 
@@ -69,7 +72,7 @@ collected values are `fe,fe,0`; source decoding predicts packed scalar
 not a separate MMIO readback measurement. In particular, `fe` is not promoted
 to a physical pixel-buffer address.
 
-## Finite implementation and actual-processing boundary
+## Historical import implementation and processing boundary
 
 `hw/nikon/devices/gatepacket.c` adds the shared fixed layout for both types.
 Its internal logical-register snapshot extends through `408`; this changes
@@ -92,21 +95,26 @@ installing a partial packet. Resetting either type5/6 port cannot clear any
 submitted type0 slot. Elapsed time, CPU trailer publication, W1C and the
 separate stop acknowledgment cannot retire processing ownership.
 
-The observed upstream slot8 retains a thirteen-word type0 packet, including
+At the import checkpoint, upstream slot8 retained a thirteen-word type0 packet,
+including
 `560` strides and an offset `102ac0`. The input-port address maps still contain
 the earlier slot1/2 addresses; they do not establish a complete slot8 physical
 input extent. No DMA is inferred from those small offsets. Implementing an
 actual pixel operation requires the source-selected base/plane association,
 the table/control transfer equations and the output contract of downstream
-resource45. Those semantics are unresolved; the current model does not copy
-arbitrary buffers, fill black output or assume an identity transform.
+resource45. Those semantics were unresolved at that checkpoint; no arbitrary
+copy, black fill or identity transform was supplied. The current
+[continuous profile](processing.md) binds one complete input/operation/output
+path, with the neutral table's identity interpretation explicitly identified
+as a model choice.
 
 ## Completion, callbacks and slot release
 
-Type5's resource record assigns raw-domain2 mask `80000`; type6 assigns
-`100000`. Domain indices are zero-based, so domain2 is pending PA `20100020`.
-Those source masks identify callback routing, not a license to assert an IRQ
-when configuration is imported.
+Type5's resource record assigns software allocation-group2 bitmask `80000`;
+type6 assigns `100000`. These words track software resource ownership. They
+are not raw-domain2 pending masks or callback routing, and do not identify an
+IRQ cause when configuration is imported. Actual completion routing must be
+joined separately to the registered callbacks and result-producing operation.
 
 Worker `103b4adc` first configures the whole graph through `103bd04a`.
 `103b4cea` then walks its nodes in reverse, starting processing resources
@@ -120,13 +128,14 @@ in that software release.
 The separate streaming worker `103b4e1e` also distinguishes graph configuration,
 input enable, stop/drain and status queries. Source status helper `103bdbbe`
 tests `(word & 3) != 3`; it does not itself produce a result or prove physical
-busy timing. At this checkpoint the finite command model supplies no processor
-start, result DMA, raw event, host callback or automatic slot retirement. The
+busy timing. At this historical checkpoint the finite command model supplied
+no processor start, result DMA, raw event, host callback or automatic slot retirement. The
 later [request contract](../pairs/requests.md) admits pending starts and corrects
-type0 parameter capture, while leaving data operations unsupported. Import
-success therefore cannot complete either worker path.
+type0 parameter capture, before the later [continuous contract](processing.md)
+adds bounded data operations and qualifies terminal publication only after
+successful output DMA. Import success alone cannot complete either worker path.
 
-## Validation and unchanged-firmware continuation
+## Historical validation and unchanged-firmware continuation
 
 The old device fails the focused HMP read at `20100e74`. The accepted native
 batch passes three decoder subtests and23 SLA subtests. It covers both new

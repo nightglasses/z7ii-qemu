@@ -1,4 +1,4 @@
-# Explicit GPIO pad input
+# Mechanical and GPIO pad input
 
 [IRQ and event dependency audit](/devices/gate/dependencies). The complete
 original GPIO getter at `10385d76` reads the object's PDR address, shifts by
@@ -137,3 +137,101 @@ release, reset ordering, unchanged direct pads, unregister and recreation.
 The selector fixture observes its electrical output; original executions
 separately establish its expander and firmware connection. Normal live view,
 shutter capture and file saving are separate acceptance boundaries.
+
+## Mode dial ADC input
+
+The frontend supplies the maintained eight-position mode dial through the
+named `mode-adc` output. Its level is a raw12-bit ADC count, not a Boolean;
+the board connects it to EX ADC1 channel2 (`adc` input index2). The former
+static channel2 provider is removed so the dial has one owner. QOM
+`mode-position` accepts integer0..7 before or after realization, initially7.
+F14 advances one position and F15 reverses one, wrapping at the ends. Only
+a fresh press turns the dial. Reset retains both its mechanical position and
+held-key latch, and republishes the count after receiver reset. Unrealize
+disconnects its ADC source with level−1.
+
+The original EX VA `0803DE88` reads ROM VA `0804EF84`=2 and resolves it through
+VA `08040314` and table VA `0804D9A8` to configuration ID129 hexadecimal.
+The original initialized ID127..12A records bind ADC1 channels0..3. VA
+`0803E2B0..0803E35C` reads this ADC descriptor, extracts the16-bit value after
+shifting two bits and classifies the following inclusive ranges. The chosen
+integer midpoints are explicit virtual mechanical positions, not recovered
+resistor values or voltages.
+
+| Position | Raw ADC interval | Supplied count | EX logical value | MAS setting0 |
+| --- | --- | --- | --- | --- |
+|0|0..230|115|0|0|
+|1|231..716|473|1|1|
+|2|717..1233|975|2|2|
+|3|1234..1779|1506|3|3|
+|4|1780..2334|2057|6|9|
+|5|2335..2874|2604|5|8|
+|6|2875..3398|3136|4|7|
+|7|3399..4095|3747|10|4|
+
+EX VA `0803E428` owns logical-input4 filtering. VA `0803D78C` puts the
+result in aggregate byte11; the four-byte transport header makes it report
+byte15. MAS VA `1043438E` reads that byte into normalized u16 offset32;
+VA `1038B47E` carries it to the372-byte input packet at offset100 with changed
+indicator104. VA `1029EB8A → 102A60FC` submits typed setting0 with the mapping
+above. This preserves the original mode and GUI policy. Human mode names and
+their original-execution effects require separate verification; the public
+interface deliberately names mechanical positions rather than guessing labels.
+
+## Command-dial contacts
+
+Two finite contact sequencers share the existing direct GPIO outputs. Dial0
+uses EX F11/F14 (raw host F8/F9); dial1 uses EX E7/E13 (raw host F6/F7). The
+first pin is bit1 and the second bit0. A positive detent produces raw levels
+`11 → 10 → 00 → 01 → 11`; a negative detent reverses that sequence. The first
+transition occurs after5ms, and every later transition also waits5ms. This
+virtual input timing is a functional assumption to give the unchanged EX
+polling loop time to sample each phase, not a measured rotary-encoder rate.
+Time advances the contacts only; it never emits a report, setting, GUI update
+or guest interrupt.
+
+Write-only QOM integer actions `dial0-step` and `dial1-step` accept+1 or−1
+for one detent, or0 to cancel that dial's active and queued sequence. F16/F17
+submit dial0 positive/negative turns; F18/F19 submit dial1 turns. Repeat and
+release do not submit another turn. Each dial has its own eight-detent FIFO,
+including its active turn. Full queues reject another action without changing
+the admitted sequence or deadline. Actions require a realized frontend.
+
+The sequencer owns both pins until it finishes or is cancelled. A changed raw
+F6..F9 key cancels the corresponding sequence and hands both contacts back to
+the held raw-key states. A detent request while either of its raw keys is held
+is rejected. Explicit cancellation also restores those raw levels. Reset
+cancels both queues and timers; sequenced contacts return to idle11 while raw
+held contacts retain their level. Unplug cancels the timers before releasing
+the pads. This single-owner rule prevents the two input interfaces from
+silently fighting over a contact.
+
+Original EX VA `0803E364` reads dial0: state2→0 increments its signed counter,
+and0→2 decrements it. VA `0803E3BC` reads dial1: state0→1 increments and1→0
+decrements. Both counters saturate at±127. The GPIO helper chain
+`0803CE34 → 08043ACC` reads raw IDR without inversion. VA `0803DF98` snapshots
+the counters at RAM VA `200186D1/200186D2` to aggregate offsets43/44 and clears
+the source counters. VA `0803D710` accumulates signed values at report aggregate
+offsets7/8; after the transport header these are report bytes11/12.
+
+MAS VA `10434378/1043437E` sign-extends those bytes into normalized offsets16/20.
+VA `1038B47E` places them at input-packet offsets84/88. VA `102A59E8` combines
+them with the auxiliary counters at92/96 and negates the second sum, then
+dispatches through VA `1029D28A` or `1029D05A`. Original settings4455/4456 can
+reverse or exchange their use. In the selected exposure-related contexts,
+VA `1029BA78` and `1029B9D0` submit the firmware's own typed settings rather
+than interpreting a contact as a fixed shutter or aperture assignment.
+Front/rear naming and GUI exposure behavior remain original-execution checks.
+
+The expanded native fixture exercises all eight ADC positions, invalid mode
+values, held/reset behavior, timed four-phase traces in both directions,
+independent concurrent dials, admission during an active turn, queue capacity
+and reuse, explicit/raw cancellation, held-key arbitration, reset and unplug.
+These synthetic electrical checks do not establish original mode acceptance,
+physical encoder timing, aperture movement or shutter operation. In particular,
+the [finite virtual iris](../lens/protocol.md#optical-fields-and-calibration)
+processes its own bounded targets and busy state; static maximum-aperture
+fields are not user-selected exposure values. Six native input groups and
+eighteen lens groups pass separately. Original mode switching and the remaining
+exposure-input boundary are reported in the
+[continuous receipt](/evidence/continuous/capture.json).

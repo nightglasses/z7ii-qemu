@@ -1,6 +1,6 @@
 # Startup IRQ and event dependencies
 
-This inventory relates device IRQ and event contracts to
+This historical inventory relates saved device IRQ and event contracts to
 [unchanged-firmware startup](/startup/first). It reads
 the eight device sources at QEMU `193ee98138c85c2b2848836952228078a64e4f20`
 and their saved firmware contracts. It describes every operation family in
@@ -12,10 +12,13 @@ was performed for this inventory.
 
 The later [type0 ownership contract](slots.md) supersedes this historical
 inventory's unbounded2040-query boundary: sixteen packet/submit/busy slots are
-implemented, while downstream processing and hardware slot retirement remain
-unsupported. It adds no completion producer to the event inventory below.
+implemented. The subsequent [continuous processing contract](processing.md)
+adds one bounded output-DMA path and its separately qualified terminal causes.
+The operation inventory and measurements below retain their earlier source
+scope; their unresolved processing entries are historical checkpoints, not
+the current continuous profile's capability list.
 
-## Saved consumers and current behavior
+## Saved consumers and historical behavior
 
 | Device / saved consumer family | Implemented operation families | Source-bound work still required |
 |---|---|---|
@@ -39,14 +42,19 @@ None establishes all consumers beyond its recorded scope.
 
 ## Producers and startup ordering
 
-The currently closed startup event is the [stop lifecycle](stop.md): original
+The closed startup event at this inventory checkpoint is the
+[stop lifecycle](stop.md): original
 `103bd4b2` writes global04=0; the explicitly virtual stop controller produces
 raw18.bit0; mask0.bit0 admits IRQ102; original ISR `103bce38` calls the guest
 service146 callback with R1.bit0; `10388c18` sets F0.bit2; the original ID88
 wait can return. Its nominal delay is a model input. This is not a frame,
 image-data or physical drain result. Ordinary activation04=1 produces no
 completion, and closing external admission cannot suppress the internal
-stop acknowledgment.
+stop acknowledgment. The later [continuous profile](processing.md) admits
+completion only after actual output DMA, uses source-selected terminal raw1
+causes separately from software allocation bits, and labels whole-frame raw2
+bit3 as a functional hypothesis. It does not turn stop acknowledgment into a
+frame result.
 
 The DMA/source lane independently binds Audio output to HDMAC DREQ3/7 and
 each engine's own completion IRQ (COPY45..48, FILL103/104, HDMAC150..157 and
