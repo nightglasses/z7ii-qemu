@@ -6565,8 +6565,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/paired/cycle", test_paired_cycle);
     qtest_add_func("/nikon/cmos/paired/cfa/reduction", test_paired_cfa_reduction);
     qtest_add_func("/nikon/cmos/paired/cfa/color", test_paired_cfa_color);
-    qtest_add_func("/nikon/cmos/paired/transfer", test_paired_transfer);
-    qtest_add_func("/nikon/cmos/paired/transfer-boundaries",
+    qtest_add_func("/nikon/cmos/paired/transfer/transaction", test_paired_transfer);
+    qtest_add_func("/nikon/cmos/paired/transfer/boundaries",
                    test_paired_transfer_boundaries);
     qtest_add_func("/nikon/cmos/paired/publication", test_paired_publication);
     qtest_add_func("/nikon/cmos/paired/stop-drain-race",
