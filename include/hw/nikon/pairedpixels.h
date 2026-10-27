@@ -77,6 +77,7 @@ typedef struct NikonPairedPixelConfig {
     bool gain_enabled[3];
     uint16_t curve[2][257];
     bool curve_enabled[2];
+    uint16_t saturation[33]; /* Mandatory Q8 MAIN chroma gain, Y step128. */
     NikonPairedNoise noise[3];
     uint16_t noise_negative, noise_positive;
     NikonPairedFilter filter;
@@ -227,6 +228,15 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * Every supplied 16-bit sample must be in [0,4095]. Output buffers must not
  * overlap one another or input/history buffers. The caller supplies their
  * complete extents. Failure leaves all output buffers unchanged.
+ *
+ * A mandatory33-knot unsigned16 Q8 saturation curve scales the signed mixed
+ * chroma after B/C/BAC and before adding2048 and clipping. Its index is clamped
+ * Y12/128, with linear interpolation and nearest rounding. Y itself is unchanged.
+ * Chroma products use signed64-bit arithmetic, nearest ties away from zero.
+ * All-zero knots explicitly desaturate; the neutral synthetic array is256 at
+ * every knot. No enable or omitted-array identity is inferred. Q8 gain has
+ * producer arithmetic support; the Y axis, spacing and placement are functional
+ * hypotheses. The later post-color neighborhood passes and NV12 averaging follow.
  *
  * Noise uses primitive degree-32 right-shift Galois feedback masks. Each main
  * job starts three states at1; enabled channels step once per emitted pixel,

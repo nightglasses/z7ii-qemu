@@ -64,12 +64,14 @@ typedef struct NikonPairedEventBanksBank {
     uint32_t post_written[4];
     uint16_t main_gain_written[2], main_gain;
     bool main_gain_valid;
+    uint8_t saturation_words[2];
     uint8_t denoise_written, detail_written, adaptive_written, radial_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
     NikonRawEncoding history_encoding[4];
     unsigned phase, seen, refill, stop;
     bool active, published, finish_pending;
+    bool saturation_published, saturation_updating;
     unsigned index;
 } NikonPairedEventBanksBank;
 
@@ -330,6 +332,7 @@ static bool paired_live_word(unsigned offset)
         (offset >= 0x75c && offset <= 0x778) ||
         (offset >= 0x724 && offset <= 0x738) ||
         (offset >= 0x900 && offset <= 0x9c4) || offset == 0x9d8 ||
+        (offset >= 0x1a08 && offset <= 0x1a8c) ||
         (offset >= 0x1200 && offset <= 0x1244) ||
         paired_filter_word(offset) >= 0) {
         return true;
@@ -773,6 +776,47 @@ static unsigned paired_refill_mask(NikonPairedEventBanksBank *b)
     return 0x0f0fU << (4 * (b->config[0xfc / 4] == 1));
 }
 
+static bool paired_saturation_decode(NikonPairedEventBanksBank *b,
+                                     uint16_t curve[33])
+{
+    unsigned selected;
+
+    /* No selector is inferred for two different retained curves. */
+    if ((!b->saturation_words[0] && !b->saturation_words[1]) ||
+        (b->saturation_words[0] && b->saturation_words[0] != 17) ||
+        (b->saturation_words[1] && b->saturation_words[1] != 17)) {
+        return false;
+    }
+    for (unsigned slot = 0; slot < 2; slot++) {
+        if (b->saturation_words[slot] &&
+            (b->config[(0x1a48 + 68 * slot) / 4] >> 16)) {
+            return false;
+        }
+    }
+    if (b->saturation_words[0] && b->saturation_words[1] &&
+        memcmp(&b->config[0x1a08 / 4], &b->config[0x1a4c / 4], 68)) {
+        return false;
+    }
+    selected = b->saturation_words[0] == 17 ? 0x1a08 : 0x1a4c;
+    for (unsigned i = 0; i < 33; i++) {
+        curve[i] = b->config[selected / 4 + i / 2] >> (16 * (i & 1));
+    }
+    return true;
+}
+
+static bool paired_saturation(NikonPairedEventBanksBank *b, PairedJob *job,
+                              bool admission)
+{
+    if (!admission) {
+        /* A new upload cannot mutate or disqualify the active snapshot. */
+        memcpy(job->pixels.saturation, b->job.pixels.saturation,
+               sizeof(job->pixels.saturation));
+        return true;
+    }
+    return paired_saturation_decode(b, job->pixels.saturation) ||
+           paired_profile_reject(b, 0x1a08);
+}
+
 static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
                             unsigned p, bool admission)
 {
@@ -814,7 +858,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         unsigned written = 0;
         bool nonzero = false;
 
-        if (table == 20 || table == 21) {
+        if (table == 20 || table == 21 || table == 24 || table == 25) {
             first += words;
             continue;
         }
@@ -850,7 +894,8 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     }
     if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g) ||
         !paired_detail(b, g) || !paired_adaptive(b, g) || !paired_radial(b, g) ||
-        !paired_colorfilter(b, g) || !paired_post(b, g)) {
+        !paired_colorfilter(b, g) || !paired_post(b, g) ||
+        !paired_saturation(b, job, admission)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -1241,6 +1286,19 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     if (!frame) {
         return;
     }
+    if (b->saturation_published &&
+        ((b->saturation_words[0] && b->saturation_words[0] < 17) ||
+         (b->saturation_words[1] && b->saturation_words[1] < 17) ||
+         (b->saturation_updating && b->saturation_words[0] == 17 &&
+          b->saturation_words[1] == 17 &&
+          !(b->config[0x1a48 / 4] >> 16) &&
+          !(b->config[0x1a8c / 4] >> 16) &&
+          memcmp(&b->config[0x1a08 / 4],
+                 &b->config[0x1a4c / 4], 68)))) {
+        /* A real producer is updating the curve; retain the unconsumed RAW. */
+        s->blocked++;
+        return;
+    }
     memset(&b->job, 0, sizeof(b->job));
     if (!paired_profile(b, &b->job, b->phase, true) ||
         !paired_batch(b, frame, true)) {
@@ -1469,6 +1527,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
          */
         if (offset == 0x10 && value == 1 &&
             b->request == PAIRED_AWAIT_INPUT) {
+            b->saturation_updating = false;
             if (refill == mask && !b->active && !b->stop) {
                 b->refill &= ~mask;
             }
@@ -1495,6 +1554,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
                 b->pending);
             return nikon_paired_event_banks_error(b, offset, size, true, value);
         }
+        b->saturation_updating = false;
         b->request = next;
         if (offset == 8) {
             b->phase = b->seen = b->refill = 0;
@@ -1539,6 +1599,27 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         unsigned post_bit;
         int post = paired_post_word(offset, &post_bit);
         bool main_gain = offset >= 0x1900 && offset <= 0x197c;
+        int saturation = offset >= 0x1a08 && offset <= 0x1a8c ?
+                         (int)((offset - 0x1a08) / 68) : -1;
+        bool saturation_complete = false;
+
+        if (saturation >= 0) {
+            unsigned word = ((offset - 0x1a08) % 68) / 4;
+            uint8_t *words = &b->saturation_words[saturation];
+
+            /* Ordered CPU uploads start a fresh round even for equal words. */
+            if (!word) {
+                *words = 1;
+                b->saturation_updating |= b->request == PAIRED_AWAIT_INPUT;
+            } else if (*words == word) {
+                (*words)++;
+                saturation_complete = *words == 17;
+            } else {
+                *words = UINT8_MAX;
+            }
+            /* Staging never cancels an immutable active image job. */
+            changed = false;
+        }
 
         if (post >= 0) {
             uint32_t bit = 1U << post_bit;
@@ -1551,7 +1632,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             b->request == PAIRED_AWAIT_INPUT && b->seen) {
             return nikon_paired_event_banks_error(b, offset, size, true, value);
         }
-        if (offset >= 0x1400 && offset < 0x1d38) {
+        if (offset >= 0x1400 && offset < 0x1d38 && saturation < 0) {
             unsigned word = (offset - 0x1400) / 4;
             uint64_t bit = UINT64_C(1) << (word % 64);
 
@@ -1655,6 +1736,22 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         if (main_gain) {
             paired_main_gain_write(b, offset);
         }
+        if (saturation_complete) {
+            uint16_t curve[33];
+
+            if (paired_saturation_decode(b, curve)) {
+                b->saturation_published = true;
+                b->saturation_updating = false;
+                if (b->active && memcmp(curve, b->job.pixels.saturation,
+                                       sizeof(curve))) {
+                    /* MAIN color changes preserve the pre-color history. */
+                    paired_cancel(b);
+                }
+                if (b->request == PAIRED_AWAIT_INPUT) {
+                    paired_try(b, b->regs.addr + offset, value);
+                }
+            }
+        }
         paired_finish(b);
         if (main_gain && b->main_gain_valid &&
             b->main_gain_written[(offset - 0x1900) / 64] == UINT16_MAX &&
@@ -1690,6 +1787,10 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         memset(s->bank[i].consumed, 0, sizeof(s->bank[i].consumed));
         memset(s->bank[i].table_written, 0, sizeof(s->bank[i].table_written));
         memset(s->bank[i].curve_written, 0, sizeof(s->bank[i].curve_written));
+        memset(s->bank[i].saturation_words, 0,
+               sizeof(s->bank[i].saturation_words));
+        s->bank[i].saturation_published = false;
+        s->bank[i].saturation_updating = false;
         s->bank[i].filter_written = 0;
         s->bank[i].denoise_written = 0;
         s->bank[i].detail_written = 0;

@@ -44,6 +44,9 @@ static NikonPairedPixelConfig config(void)
             }
         }
     }
+    for (unsigned i = 0; i < ARRAY_SIZE(p.saturation); i++) {
+        p.saturation[i] = 256;
+    }
     return p;
 }
 
@@ -2728,9 +2731,176 @@ static void main_gain(void)
     }
 }
 
+static void saturation(void)
+{
+    static const uint16_t levels[] = { 0, 127, 128, 129, 2047, 4095 };
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    bool changed[7] = { 0 };
+
+    p.grid_width = p.grid_height = 4;
+    p.a[4] = 512;
+    p.a[8] = 256;
+    memset(p.b, 0, sizeof(p.b));
+    p.b[0] = 512;
+    p.b[4] = 256;
+    p.b[5] = -256;
+    p.b[6] = -256;
+    p.b[7] = 256;
+    p.c[4] = p.c[8] = 0;
+    p.c[5] = -1024;
+    p.c[7] = 1024;
+    p.post.original = 147;
+    p.post.transformed = 109;
+    for (unsigned pattern = 0; pattern <= ARRAY_SIZE(levels); pattern++) {
+        FilterOutputs baseline = { 0 };
+
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = pattern < ARRAY_SIZE(levels) ? levels[pattern] :
+                     (i * 701 + i * i * 13) % 4096;
+        }
+        for (unsigned curve = 0; curve < 8; curve++) {
+            FilterOutputs actual = { 0 };
+            uint16_t planes[3][16];
+
+            for (unsigned i = 0; i < 33; i++) {
+                switch (curve) {
+                case 0: p.saturation[i] = 256; break;
+                case 1: p.saturation[i] = 0; break;
+                case 2: p.saturation[i] = 128; break;
+                case 3: p.saturation[i] = 384; break;
+                case 4: p.saturation[i] = i * 2047; break;
+                case 5: p.saturation[i] = i & 1 ? 512 : 0; break;
+                case 6: p.saturation[i] = 96 + MIN(160, 8 * i); break;
+                case 7: p.saturation[i] = UINT16_MAX; break;
+                }
+            }
+            g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, actual.half,
+                actual.residual, actual.grid, actual.y, actual.uv));
+            for (unsigned i = 0; i < 16; i++) {
+                int s = actual.grid[i];
+                int g = filter_reference_round(s, 2);
+                int blue = filter_reference_round(s, 4);
+                int u = filter_reference_round(g - blue, 2);
+                int v = filter_reference_round(g - s, 2);
+                int cu = filter_reference_round(p.post.original * u -
+                    (int)p.post.transformed * v, 256);
+                int cv = filter_reference_round(p.post.original * v +
+                    (int)p.post.transformed * u, 256);
+                unsigned first = s / 128, remainder = s % 128;
+                unsigned gain = filter_reference_round(
+                    p.saturation[first] * (128 - remainder) +
+                    p.saturation[first + 1] * remainder, 128);
+
+                planes[0][i] = s;
+                planes[1][i] = CLAMP(filter_reference_round(
+                    (int64_t)cu * gain, 256) + 2048, 0, 4095);
+                planes[2][i] = CLAMP(filter_reference_round(
+                    (int64_t)cv * gain, 256) + 2048, 0, 4095);
+            }
+            for (unsigned channel = 0; channel < 3; channel++) {
+                post_reference(&p.post, channel, planes[channel]);
+            }
+            for (unsigned i = 0; i < 16; i++) {
+                g_assert_cmpuint(actual.y[i], ==,
+                    MIN(255, filter_reference_round(planes[0][i], 16)));
+            }
+            for (unsigned block = 0; block < 4; block++) {
+                unsigned at = block / 2 * 8 + block % 2 * 2;
+
+                for (unsigned channel = 1; channel < 3; channel++) {
+                    unsigned mean = filter_reference_round(planes[channel][at] +
+                        planes[channel][at + 1] + planes[channel][at + 4] +
+                        planes[channel][at + 5], 4);
+
+                    g_assert_cmpuint(actual.uv[2 * block + channel - 1], ==,
+                        MIN(255, filter_reference_round(mean, 16)));
+                }
+            }
+            if (!curve) {
+                baseline = actual;
+            } else {
+                g_assert_cmpmem(actual.y, sizeof(actual.y),
+                                baseline.y, sizeof(baseline.y));
+                g_assert_cmpmem(actual.grid, sizeof(actual.grid),
+                                baseline.grid, sizeof(baseline.grid));
+                g_assert_cmpmem(actual.half, sizeof(actual.half),
+                                baseline.half, sizeof(baseline.half));
+                g_assert_cmpmem(actual.residual, sizeof(actual.residual),
+                                baseline.residual, sizeof(baseline.residual));
+                changed[curve - 1] |= memcmp(actual.uv, baseline.uv,
+                                             sizeof(actual.uv)) != 0;
+            }
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(changed); i++) {
+        g_assert_true(changed[i]);
+    }
+    /* Every knot is observable, including the4096 endpoint via Y4095. */
+    p.grid_width = p.grid_height = 2;
+    for (unsigned knot = 0; knot < 33; knot++) {
+        PairedOutputs before, actual;
+
+        for (unsigned i = 0; i < 33; i++) {
+            p.saturation[i] = 256;
+        }
+        fill(raw, 16, MIN(4095, knot * 128 + (knot ? 0 : 64)));
+        g_assert_true(run(&p, raw, NULL, NULL, &before));
+        p.saturation[knot] = 512;
+        g_assert_true(run(&p, raw, NULL, NULL, &actual));
+        g_assert_cmpint(memcmp(before.uv, actual.uv, sizeof(actual.uv)), !=, 0);
+    }
+}
+
+static void saturation_cfa(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    PairedOutputs out;
+
+    memset(p.b, 0, sizeof(p.b));
+    p.b[0] = 512;
+    p.b[4] = 256;
+    p.b[5] = -256;
+    p.b[6] = -256;
+    p.b[7] = 256;
+    for (unsigned i = 0; i < 33; i++) {
+        p.saturation[i] = 64 + 16 * i;
+    }
+    for (p.encoding = NIKON_RAW_RGGB;
+         p.encoding <= NIKON_RAW_BGGR; p.encoding++) {
+        for (unsigned i = 0; i < 16; i++) {
+            unsigned lane = (p.encoding - 1) ^ ((i / 4 % 2) * 2 + i % 2);
+
+            raw[i] = lane == 0 ? 3200 : lane == 3 ? 400 : 1200;
+        }
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.y[i], ==, 200);
+        }
+        for (unsigned i = 0; i < 8; i += 2) {
+            g_assert_cmpuint(out.uv[i], ==, 173);
+            g_assert_cmpuint(out.uv[i + 1], ==, 15);
+        }
+        fill(raw, 16, 1000);
+        for (unsigned gain = 0; gain <= 1; gain++) {
+            fill(p.saturation, 33, gain ? UINT16_MAX : 0);
+            g_assert_true(run(&p, raw, NULL, NULL, &out));
+            for (unsigned i = 0; i < 8; i++) {
+                g_assert_cmpuint(out.uv[i], ==, 128);
+            }
+        }
+        for (unsigned i = 0; i < 33; i++) {
+            p.saturation[i] = 64 + 16 * i;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add_func("/nikon/pairedpixels/saturation", saturation);
+    g_test_add_func("/nikon/pairedpixels/saturation-cfa", saturation_cfa);
     g_test_add_func("/nikon/pairedpixels/colorfilter", colorfilter);
     g_test_add_func("/nikon/pairedpixels/colorfilter-fields",
                      colorfilter_fields);

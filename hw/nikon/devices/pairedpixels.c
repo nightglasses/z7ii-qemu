@@ -808,12 +808,18 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
                         row ? 2047 : 4095);
     }
     output[0] = yuv[0];
+    unsigned index = yuv[0] >> 7, fraction = yuv[0] & 127;
+    unsigned gain = (p->saturation[index] * (128 - fraction) +
+                     p->saturation[index + 1] * fraction + 64) / 128;
+
     for (row = 1; row < 3; row++) {
         int32_t transformed = paired_round(p->c[3 * row + 1] * yuv[1] +
                                            p->c[3 * row + 2] * yuv[2], 10);
         int32_t mixed = paired_round(p->post.original * yuv[row] +
                                      p->post.transformed * transformed, 8);
 
+        /* One source Q8 curve scales signed chroma before bias/clipping. */
+        mixed = paired_divide((int64_t)mixed * gain, 256);
         output[row] = paired_clamp(mixed + 2048);
     }
 }
