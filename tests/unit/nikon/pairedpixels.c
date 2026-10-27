@@ -21,11 +21,23 @@ static NikonPairedPixelConfig config(void)
         .adaptive = { .base = 50, .slope = 60, .cap = 16, .weight = 100,
                       .precision = 10, .dose = 0 },
         .radial = { .center_x = 2, .center_y = 2 },
+        .colorfilter = { .shift = 2, .weight = 8 },
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
     };
 
+    for (unsigned i = 0; i < 2; i++) {
+        NikonPairedColorBlock *b = &p.colorfilter.block[i];
+
+        b->negative_limit = i ? 5 : 0;
+        b->positive_limit = i ? 9 : 0;
+        for (unsigned j = 0; j < 2; j++) {
+            for (unsigned d = 0; d < 4; d++) {
+                b->branch[j].shift[d] = i && !j && d == 2 ? 3 : 2;
+            }
+        }
+    }
     return p;
 }
 
@@ -2013,9 +2025,414 @@ static void radial_invalid(void)
     }
 }
 
+/* Gather/sort rational oracle, independent of the production traversal. */
+static void color_reference(const NikonPairedColorFilter *f, uint16_t *image,
+                            unsigned width, unsigned height, unsigned lane)
+{
+    size_t count = (size_t)width * height;
+    g_autofree uint16_t *source = g_new(uint16_t, count);
+
+    for (unsigned stage = 0; stage < 3; stage++) {
+        memcpy(source, image, count * sizeof(*image));
+        for (int y = 0; y < (int)height; y++) {
+            for (int x = 0; x < (int)width; x++) {
+                int at = y * width + x, center = source[at] * 4;
+                int64_t correction;
+
+                if (stage < 2) {
+                    const NikonPairedColorBlock *b = &f->block[stage];
+                    int common = b->base + filter_reference_round(
+                        (int64_t)b->slope * center, 16383);
+                    int means[2];
+                    unsigned strength = lane == 4 ?
+                        filter_reference_round(b->strength[0] +
+                            b->strength[1] + b->strength[2], 3) :
+                        b->strength[lane == 3 ? 2 : lane != 0];
+
+                    for (unsigned j = 0; j < 2; j++) {
+                        const NikonPairedColorBranch *n = &b->branch[j];
+                        int radius = n->radius + 1;
+                        int positions[2][4][2] = {
+                            { { x - radius, y }, { x + radius, y },
+                              { x, y - radius }, { x, y + radius } },
+                            { { x - radius, y - radius },
+                              { x + radius, y - radius },
+                              { x - radius, y + radius },
+                              { x + radius, y + radius } },
+                        };
+                        unsigned weights = 0;
+                        int64_t sum = 0;
+
+                        for (unsigned d = 0; d < 4; d++) {
+                            int nx = CLAMP(positions[j][d][0], 0, (int)width - 1);
+                            int ny = CLAMP(positions[j][d][1], 0, (int)height - 1);
+                            int delta = 4 * source[ny * width + nx] - center;
+                            unsigned base = delta < 0 ? n->negative_base :
+                                                        n->positive_base;
+                            int limit = common + base;
+                            unsigned slope = delta < 0 ? n->negative_slope :
+                                                         n->positive_slope;
+                            unsigned weight = 1U << n->shift[d];
+
+                            limit += filter_reference_round(
+                                (int64_t)slope * center, 16383);
+                            if (limit > abs(delta)) {
+                                int64_t numerator =
+                                    (int64_t)delta * (limit - abs(delta));
+
+                                sum += weight * filter_reference_round(numerator,
+                                                                         limit);
+                            }
+                            weights += weight;
+                        }
+                        means[j] = filter_reference_round(sum, weights);
+                    }
+                    correction = filter_reference_round(
+                        filter_reference_round(means[0] + means[1], 2) *
+                        strength, 31);
+                    correction = CLAMP(correction, -(int)b->negative_limit,
+                                        b->positive_limit);
+                } else {
+                    uint16_t values[9];
+                    unsigned i = 0;
+
+                    for (int ny = y - 1; ny <= y + 1; ny++) {
+                        for (int nx = x - 1; nx <= x + 1; nx++) {
+                            unsigned at = CLAMP(ny, 0, (int)height - 1) * width +
+                                          CLAMP(nx, 0, (int)width - 1);
+
+                            values[i++] = source[at];
+                        }
+                    }
+                    for (unsigned a = 0; a < 9; a++) {
+                        for (unsigned b = a + 1; b < 9; b++) {
+                            if (values[a] > values[b]) {
+                                uint16_t swap = values[a];
+
+                                values[a] = values[b];
+                                values[b] = swap;
+                            }
+                        }
+                    }
+                    int delta = CLAMP(values[4] * 4 - center,
+                                      -(int)f->negative, f->positive);
+
+                    correction = filter_reference_round(
+                        (int64_t)delta * f->strength * f->weight,
+                        31 * 4 * (1U << f->shift) * (1U << f->precision));
+                }
+                image[at] = MIN(4095, filter_reference_round(
+                    CLAMP(center + correction, 0, 16383), 4));
+            }
+        }
+    }
+}
+
+static NikonPairedColorFilter color_active(void)
+{
+    NikonPairedColorFilter f = config().colorfilter;
+
+    for (unsigned i = 0; i < 2; i++) {
+        NikonPairedColorBlock *b = &f.block[i];
+
+        b->base = 200;
+        b->slope = 200;
+        b->negative_limit = i ? 100 : 4095;
+        b->positive_limit = i ? 150 : 4095;
+        for (unsigned lane = 0; lane < 3; lane++) {
+            b->strength[lane] = 31;
+        }
+        for (unsigned j = 0; j < 2; j++) {
+            b->branch[j].negative_base = 50;
+            b->branch[j].negative_slope = 200;
+            b->branch[j].positive_base = 80;
+            b->branch[j].positive_slope = 200;
+        }
+    }
+    f.negative = 130;
+    f.positive = 200;
+    f.strength = 16;
+    f.weight = 12;
+    return f;
+}
+
+static void color_check(NikonPairedPixelConfig p, const uint16_t *raw,
+                        uint16_t *result)
+{
+    NikonPairedPixelConfig neutral = p;
+    size_t count = (size_t)p.width * p.height;
+    size_t halves = (size_t)((p.width + 1) / 2) * ((p.height + 1) / 2);
+    g_autofree uint16_t *before = g_new(uint16_t, count);
+    g_autofree uint16_t *half = g_new(uint16_t, halves);
+    g_autofree uint16_t *residual = g_new(uint16_t, halves);
+    g_autofree uint16_t *expected = g_new(uint16_t, count);
+    g_autofree uint8_t *y = g_new(uint8_t, count);
+    g_autofree uint8_t *uv = g_new(uint8_t, count / 2);
+
+    neutral.colorfilter = config().colorfilter;
+    p.grid_width = neutral.grid_width = p.width;
+    p.grid_height = neutral.grid_height = p.height;
+    p.b[0] = neutral.b[0] = 512;
+    memset(p.b + 1, 0, sizeof(p.b) - sizeof(p.b[0]));
+    memset(neutral.b + 1, 0, sizeof(neutral.b) - sizeof(neutral.b[0]));
+    g_assert_true(nikon_paired_pixels(&neutral, raw, NULL, NULL, half,
+        residual, before, y, uv));
+    memcpy(expected, before, count * sizeof(*expected));
+    if (p.encoding == NIKON_RAW_MONO) {
+        color_reference(&p.colorfilter, expected, p.width, p.height, 4);
+    } else {
+        g_autofree uint16_t *plane = g_new(uint16_t, count / 4);
+
+        for (unsigned phase = 0; phase < 4; phase++) {
+            for (unsigned i = 0; i < count / 4; i++) {
+                unsigned at = (2 * (i / (p.width / 2)) + phase / 2) * p.width +
+                              2 * (i % (p.width / 2)) + phase % 2;
+
+                plane[i] = before[at];
+            }
+            color_reference(&p.colorfilter, plane, p.width / 2, p.height / 2,
+                             phase ^ (p.encoding - 1));
+            for (unsigned i = 0; i < count / 4; i++) {
+                expected[(2 * (i / (p.width / 2)) + phase / 2) * p.width +
+                         2 * (i % (p.width / 2)) + phase % 2] = plane[i];
+            }
+        }
+    }
+    g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, half, residual,
+                                      result, y, uv));
+    g_assert_cmpmem(result, count * sizeof(*result), expected,
+                    count * sizeof(*expected));
+    for (unsigned hy = 0; hy < (p.height + 1) / 2; hy++) {
+        for (unsigned hx = 0; hx < (p.width + 1) / 2; hx++) {
+            unsigned sum = 0, n = 0;
+
+            for (unsigned row = 2 * hy;
+                 row < MIN(2 * hy + 2, p.height); row++) {
+                for (unsigned x = 2 * hx; x < MIN(2 * hx + 2, p.width); x++) {
+                    sum += expected[row * p.width + x];
+                    n++;
+                }
+            }
+            g_assert_cmpuint(half[hy * ((p.width + 1) / 2) + hx], ==,
+                             filter_reference_round(sum, n));
+        }
+    }
+    if (p.encoding == NIKON_RAW_MONO) {
+        for (unsigned i = 0; i < count; i++) {
+            g_assert_cmpuint(y[i], ==,
+                             MIN(255, filter_reference_round(expected[i], 16)));
+        }
+    }
+}
+
+static void colorfilter(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16], grid[16];
+
+    p.colorfilter.negative = 130;
+    p.colorfilter.positive = 200;
+    p.colorfilter.strength = 31;
+    p.colorfilter.weight = 16;
+    for (unsigned sign = 0; sign < 2; sign++) {
+        fill(raw, 16, 1000);
+        raw[5] = sign ? 976 : 1024;
+        color_check(p, raw, grid);
+        /* Spatial1012/988 becomes median1003/997 through the tail formula. */
+        g_assert_cmpuint(grid[5], ==, sign ? 997 : 1003);
+    }
+    p.colorfilter = color_active();
+    for (unsigned value = 0; value <= 4095; value += 4095) {
+        fill(raw, 16, value);
+        color_check(p, raw, grid);
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(grid[i], ==, value);
+        }
+    }
+    for (unsigned sign = 0; sign < 2; sign++) {
+        uint64_t prior_energy = 0, energy = 0;
+        NikonPairedPixelConfig neutral = p;
+        uint16_t before[16];
+
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = 1000 + (i % 3 == 0 ? 48 : -24);
+            if (sign) {
+                raw[i] = 4095 - raw[i];
+            }
+        }
+        neutral.colorfilter = config().colorfilter;
+        color_check(neutral, raw, before);
+        color_check(p, raw, grid);
+        for (unsigned i = 0; i < 16; i++) {
+            int center = sign ? 3095 : 1000;
+            int a = (int)before[i] - center, b = (int)grid[i] - center;
+
+            prior_energy += a * a;
+            energy += b * b;
+        }
+        g_assert_cmpuint(energy, <, prior_energy);
+    }
+    /* Large edges are outside both gates; the explicitly neutral tail is0. */
+    p.colorfilter.strength = 0;
+    uint16_t before[16];
+    NikonPairedPixelConfig neutral = p;
+
+    neutral.colorfilter = config().colorfilter;
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 0 : 4095;
+    }
+    color_check(neutral, raw, before);
+    color_check(p, raw, grid);
+    g_assert_cmpmem(grid, sizeof(grid), before, sizeof(before));
+}
+
+static void colorfilter_fields(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[1024], baseline[1024], actual[1024];
+
+    p.width = p.height = p.output_width = p.output_height = 32;
+    p.colorfilter = color_active();
+    for (unsigned i = 0; i < ARRAY_SIZE(raw); i++) {
+        raw[i] = 2000 + (i * 73 + i * i * 19) % 400;
+    }
+    color_check(p, raw, baseline);
+    /* Source-variable fields affect the oracle and the actual pixel path. */
+    for (unsigned block = 0; block < 2; block++) {
+        for (unsigned field = 0; field < 22; field++) {
+            NikonPairedPixelConfig q = p;
+            NikonPairedColorBlock *b = &q.colorfilter.block[block];
+            bool variable = true;
+
+            switch (field) {
+            case 0: b->base = 0; break;
+            case 1: b->slope = 0; break;
+            case 2: b->branch[0].negative_base = 0; break;
+            case 3: b->branch[0].negative_slope = 0; break;
+            case 4: b->branch[0].positive_base = 0; break;
+            case 5: b->branch[0].positive_slope = 0; break;
+            case 6: b->branch[1].negative_base = 0; break;
+            case 7: b->branch[1].negative_slope = 0; break;
+            case 8: b->branch[1].positive_base = 0; break;
+            case 9: b->branch[1].positive_slope = 80; break;
+            case 10: b->negative_limit = block ? 5 : 0; break;
+            case 11: b->negative_limit = block ? 5 : 0;
+                     b->positive_limit = block ? 9 : 0;
+                     break;
+            case 12: b->strength[0] = 0; break;
+            case 13: b->strength[1] = b->strength[2] = 0; break;
+            default: {
+                unsigned branch = (field - 14) / 4, d = (field - 14) % 4;
+                static const uint8_t maximum[2][2][4] = {
+                    { { 4, 3, 4, 4 }, { 4, 2, 2, 2 } },
+                    { { 4, 2, 4, 4 }, { 4, 2, 4, 4 } },
+                };
+
+                variable = maximum[block][branch][d] !=
+                           b->branch[branch].shift[d];
+                b->branch[branch].shift[d] = maximum[block][branch][d];
+                break;
+            }
+            }
+            if (!variable) {
+                continue;
+            }
+            g_assert_true(nikon_paired_colorfilter_valid(&q.colorfilter));
+            color_check(q, raw, actual);
+            g_assert_cmpint(memcmp(baseline, actual, sizeof(actual)), !=, 0);
+        }
+    }
+    for (unsigned field = 0; field < 7; field++) {
+        NikonPairedPixelConfig q = p;
+
+        switch (field) {
+        case 0: q.colorfilter.precision = 1; break;
+        case 1: q.colorfilter.negative = 0; break;
+        case 2: q.colorfilter.positive = 0; break;
+        case 3: q.colorfilter.strength = 0; break;
+        case 4: q.colorfilter.shift = 4; break;
+        case 5: q.colorfilter.weight = 16; break;
+        case 6:
+            q.colorfilter.block[0].branch[0].radius = 2;
+            q.colorfilter.block[0].branch[1].radius = 2;
+            q.colorfilter.block[1].branch[0].radius = 2;
+            break;
+        }
+        color_check(q, raw, actual);
+        g_assert_cmpint(memcmp(baseline, actual, sizeof(actual)), !=, 0);
+    }
+}
+
+static void colorfilter_cfa(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[256], actual[256];
+
+    p.width = p.height = p.output_width = p.output_height = 16;
+    p.colorfilter = color_active();
+    p.colorfilter.block[0].strength[0] = 8;
+    p.colorfilter.block[0].strength[1] = 24;
+    p.colorfilter.block[0].strength[2] = 24;
+    for (unsigned i = 0; i < ARRAY_SIZE(raw); i++) {
+        unsigned phase = (i / 16 % 2) * 2 + i % 2;
+
+        raw[i] = 400 + phase * 700 + (i * 37) % 240;
+    }
+    for (p.encoding = NIKON_RAW_RGGB;
+         p.encoding <= NIKON_RAW_BGGR; p.encoding++) {
+        color_check(p, raw, actual);
+    }
+}
+
+static void colorfilter_invalid(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    g_assert_false(nikon_paired_colorfilter_valid(NULL));
+    for (unsigned test = 0; test < 22; test++) {
+        p.colorfilter = config().colorfilter;
+        NikonPairedColorFilter *f = &p.colorfilter;
+
+        switch (test) {
+        case 0: memset(f, 0, sizeof(*f)); break;
+        case 1: f->block[0].base = 401; break;
+        case 2: f->block[1].slope = 601; break;
+        case 3: f->block[0].branch[0].negative_base = 101; break;
+        case 4: f->block[0].branch[1].positive_base = 1; break;
+        case 5: f->block[0].branch[1].shift[1] = 3; break;
+        case 6: f->block[1].branch[0].shift[2] = 2; break;
+        case 7: f->block[0].branch[0].radius = 1; break;
+        case 8: f->block[0].branch[1].radius = 2; break;
+        case 9: f->block[1].branch[1].radius = 2; break;
+        case 10: f->block[0].strength[0] = 32; break;
+        case 11: f->block[1].strength[1] = 1; break;
+        case 12: f->block[0].negative_limit = 1; break;
+        case 13: f->block[1].negative_limit = 4; break;
+        case 14: f->block[1].positive_limit = 151; break;
+        case 15: f->precision = 2; break;
+        case 16: f->negative = 131; break;
+        case 17: f->positive = 201; break;
+        case 18: f->strength = 32; break;
+        case 19: f->shift = 1; break;
+        case 20: f->weight = 7; break;
+        case 21: f->weight = 17; break;
+        }
+        g_assert_false(nikon_paired_colorfilter_valid(f));
+        rejected(&p, raw, NULL, NULL);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add_func("/nikon/pairedpixels/colorfilter", colorfilter);
+    g_test_add_func("/nikon/pairedpixels/colorfilter-fields",
+                     colorfilter_fields);
+    g_test_add_func("/nikon/pairedpixels/colorfilter-cfa", colorfilter_cfa);
+    g_test_add_func("/nikon/pairedpixels/colorfilter-invalid",
+                     colorfilter_invalid);
     g_test_add_func("/nikon/pairedpixels/radial", radial);
     g_test_add_func("/nikon/pairedpixels/radial-invalid", radial_invalid);
     g_test_add_func("/nikon/pairedpixels/constant", constant);

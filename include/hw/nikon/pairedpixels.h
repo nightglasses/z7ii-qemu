@@ -41,6 +41,24 @@ typedef struct NikonPairedRadial {
     int16_t red, blue;         /* Signed Q16 corrections in [-128,127]. */
 } NikonPairedRadial;
 
+/* Functional roles for the complete source-interpolated 900..9c4 family. */
+typedef struct NikonPairedColorBranch {
+    uint16_t negative_base, negative_slope, positive_base, positive_slope;
+    uint8_t shift[4], radius;
+} NikonPairedColorBranch;
+
+typedef struct NikonPairedColorBlock {
+    uint16_t base, slope, negative_limit, positive_limit;
+    NikonPairedColorBranch branch[2];
+    uint8_t strength[3];
+} NikonPairedColorBlock;
+
+typedef struct NikonPairedColorFilter {
+    NikonPairedColorBlock block[2];
+    uint16_t negative, positive;
+    uint8_t precision, strength, shift, weight;
+} NikonPairedColorFilter;
+
 typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
     unsigned width, height, x, y, output_width, output_height;
@@ -59,6 +77,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedDetail detail;
     NikonPairedAdaptive adaptive;
     NikonPairedRadial radial;
+    NikonPairedColorFilter colorfilter;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -77,6 +96,7 @@ bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
 /* Dose zero is algebraically neutral; all other scalars remain mandatory. */
 bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *adaptive);
 bool nikon_paired_radial_valid(const NikonPairedRadial *radial);
+bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *filter);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -116,6 +136,20 @@ bool nikon_paired_radial_valid(const NikonPairedRadial *radial);
  * and clamp to RAW12. Signed ties round away from zero. Dose0 is algebraically
  * neutral, not a recovered enable bit. All scalar roles, units and ordering are
  * functional hypotheses. CFA filtering runs this stage on each phase plane.
+ * Two mandatory color-filter blocks and a median tail then run before temporal
+ * blending. They use immutable same-phase neighborhoods and sample*4 arithmetic.
+ * A block gates signed neighbor residuals by positive/negative thresholds formed
+ * from common/branch base+slope*sample/16383. Four directional weights are powers
+ * of two; the branch radius is1+radius, with radius0 or2, not an enable. Average
+ * axial/diagonal corrections, scale by lane strength/31 and clamp to the signed
+ * limits. R/Gr/Gb/B use strengths R/G/G/B; MONO uses round((R+G+B)/3). The second
+ * block consumes the first block's completed image. The tail clamps the3x3
+ * median residual to [-negative,positive] and scales it by
+ * strength*weight/(31*4*2^shift*2^precision). Signed ties round away from zero;
+ * each pass clamps14-bit and rounds/clamps back to RAW12. All tap/field roles,
+ * scales and ordering are explicit functional hypotheses. Full parameter-family
+ * bounds and duplicate relationships are mandatory, including zero strength.
+ * No omitted-group bypass, guessed enable bit or nonzero kernel is supported.
  * The resulting mono sample optionally passes through four affine lanes:
  * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
  * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are

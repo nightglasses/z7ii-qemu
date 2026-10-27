@@ -148,6 +148,60 @@ bool nikon_paired_radial_valid(const NikonPairedRadial *r)
            r->blue >= -128 && r->blue <= 127;
 }
 
+bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *f)
+{
+    /* Convex interpolation bounds, not a table of accepted firmware packets. */
+    static const uint16_t maximum[2][10] = {
+        { 400, 300, 100, 500, 120, 300, 80, 800, 120, 300 },
+        { 480, 600, 480, 800, 540, 500, 500, 650, 320, 620 },
+    };
+    static const uint8_t shift_max[2][2][4] = {
+        { { 4, 3, 4, 4 }, { 4, 2, 2, 2 } },
+        { { 4, 2, 4, 4 }, { 4, 2, 4, 4 } },
+    };
+
+    if (!f || f->precision > 1 || f->negative > 130 || f->positive > 200 ||
+        f->strength > 31 || f->shift < 2 || f->shift > 4 ||
+        f->weight < 8 || f->weight > 16) {
+        return false;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        const NikonPairedColorBlock *b = &f->block[i];
+
+        if (b->base > maximum[i][0] || b->slope > maximum[i][1] ||
+            b->negative_limit > b->positive_limit ||
+            b->negative_limit > (i ? 100 : 4095) ||
+            b->positive_limit > (i ? 150 : 4095) ||
+            (i && (b->negative_limit < 5 || b->positive_limit < 9)) ||
+            b->strength[0] > 31 || b->strength[1] > 31 ||
+            b->strength[2] != b->strength[1]) {
+            return false;
+        }
+        for (unsigned j = 0; j < 2; j++) {
+            const NikonPairedColorBranch *n = &b->branch[j];
+            unsigned k = 2 + 4 * j;
+
+            if (n->negative_base > maximum[i][k] ||
+                n->negative_slope > maximum[i][k + 1] ||
+                n->positive_base > maximum[i][k + 2] ||
+                n->positive_slope > maximum[i][k + 3] ||
+                (j && n->positive_base > n->positive_slope) ||
+                (n->radius != 0 && n->radius != 2) ||
+                n->radius != (i && j ? 0 : f->block[0].branch[0].radius)) {
+                return false;
+            }
+            for (unsigned d = 0; d < 4; d++) {
+                unsigned minimum = i && !j && d == 2 ? 3 : 2;
+
+                if (n->shift[d] < minimum || n->shift[d] > shift_max[i][j][d]) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -182,7 +236,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         !nikon_paired_denoise_valid(&p->denoise) ||
         !nikon_paired_detail_valid(&p->detail) ||
         !nikon_paired_adaptive_valid(&p->adaptive) ||
-        !nikon_paired_radial_valid(&p->radial)) {
+        !nikon_paired_radial_valid(&p->radial) ||
+        !nikon_paired_colorfilter_valid(&p->colorfilter)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -422,6 +477,115 @@ static void paired_adaptive(const uint16_t *input, uint16_t *output,
     }
 }
 
+static int64_t paired_divide(int64_t value, unsigned divisor)
+{
+    return value < 0 ? -((-value + divisor / 2) / divisor) :
+                        (value + divisor / 2) / divisor;
+}
+
+static void paired_color_block(const uint16_t *input, uint16_t *output,
+                               unsigned width, unsigned height,
+                               const NikonPairedColorBlock *b, unsigned lane)
+{
+    static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
+    static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
+    unsigned strength = lane == 4 ?
+        (b->strength[0] + b->strength[1] + b->strength[2] + 1) / 3 :
+        b->strength[lane == 3 ? 2 : lane != 0];
+
+    for (unsigned y = 0; y < height; y++) {
+        for (unsigned x = 0; x < width; x++) {
+            unsigned at = y * width + x;
+            int center = 4 * input[at];
+            int common = b->base + paired_divide((int64_t)b->slope * center,
+                                                16383);
+            int mean[2];
+
+            for (unsigned branch = 0; branch < 2; branch++) {
+                const NikonPairedColorBranch *n = &b->branch[branch];
+                unsigned radius = 1 + n->radius, weights = 0;
+                int64_t sum = 0;
+                int negative = common + n->negative_base +
+                    paired_divide((int64_t)n->negative_slope * center, 16383);
+                int positive = common + n->positive_base +
+                    paired_divide((int64_t)n->positive_slope * center, 16383);
+
+                for (unsigned d = 0; d < 4; d++) {
+                    unsigned nx = CLAMP((int)x + dx[branch][d] * (int)radius,
+                                        0, (int)width - 1);
+                    unsigned ny = CLAMP((int)y + dy[branch][d] * (int)radius,
+                                        0, (int)height - 1);
+                    int difference = 4 * input[ny * width + nx] - center;
+                    int threshold = difference < 0 ? negative : positive;
+                    int gate = MAX(0, threshold - abs(difference));
+                    unsigned weight = 1U << n->shift[d];
+
+                    if (threshold) {
+                        sum += weight * paired_divide(
+                            (int64_t)difference * gate, threshold);
+                    }
+                    weights += weight;
+                }
+                mean[branch] = paired_divide(sum, weights);
+            }
+            int correction = paired_divide(
+                paired_divide(mean[0] + mean[1], 2) * strength, 31);
+
+            correction = CLAMP(correction, -(int)b->negative_limit,
+                                b->positive_limit);
+            output[at] = paired_clamp((CLAMP(center + correction, 0, 16383) +
+                                       2) / 4);
+        }
+    }
+}
+
+static void paired_color_tail(const uint16_t *input, uint16_t *output,
+                              unsigned width, unsigned height,
+                              const NikonPairedColorFilter *f)
+{
+    unsigned divisor = 31 * 4 * (1U << f->shift) * (1U << f->precision);
+
+    for (unsigned y = 0; y < height; y++) {
+        for (unsigned x = 0; x < width; x++) {
+            uint16_t neighbors[9];
+            int center = 4 * input[y * width + x];
+
+            for (unsigned i = 0; i < 9; i++) {
+                unsigned nx = CLAMP((int)x + (int)(i % 3) - 1,
+                                    0, (int)width - 1);
+                unsigned ny = CLAMP((int)y + (int)(i / 3) - 1,
+                                    0, (int)height - 1);
+                unsigned j = i;
+                uint16_t sample = input[ny * width + nx];
+
+                while (j && neighbors[j - 1] > sample) {
+                    neighbors[j] = neighbors[j - 1];
+                    j--;
+                }
+                neighbors[j] = sample;
+            }
+            int residual = CLAMP(4 * neighbors[4] - center,
+                                 -(int)f->negative, f->positive);
+            int correction = paired_divide(
+                (int64_t)residual * f->strength * f->weight, divisor);
+
+            output[y * width + x] = paired_clamp(
+                (CLAMP(center + correction, 0, 16383) + 2) / 4);
+        }
+    }
+}
+
+/* Each completed pass is immutable input to the next; no lane mixing. */
+static void paired_colorfilter(uint16_t *image, uint16_t *scratch,
+                               unsigned width, unsigned height,
+                               const NikonPairedColorFilter *f, unsigned lane)
+{
+    paired_color_block(image, scratch, width, height, &f->block[0], lane);
+    paired_color_block(scratch, image, width, height, &f->block[1], lane);
+    paired_color_tail(image, scratch, width, height, f);
+    memcpy(image, scratch, (size_t)width * height * sizeof(*image));
+}
+
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
                              const uint16_t *prior_luma,
                              const uint16_t *prior_residual,
@@ -514,6 +678,8 @@ static bool paired_cfa_filter(const uint16_t *raw, uint16_t *output,
         paired_denoise(filtered, dpc, width, height, &p->denoise);
         paired_detail(dpc, filtered, width, height, &p->detail);
         paired_adaptive(filtered, dpc, width, height, &p->adaptive);
+        paired_colorfilter(dpc, filtered, width, height, &p->colorfilter,
+                            phase ^ (p->encoding - 1));
         for (unsigned y = 0; y < height; y++) {
             for (unsigned x = 0; x < width; x++) {
                 output[(2 * y + py) * p->width + 2 * x + px] =
@@ -803,6 +969,8 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                        &config->detail);
         paired_adaptive(filtered, dpc, config->width, config->height,
                          &config->adaptive);
+        paired_colorfilter(dpc, filtered, config->width, config->height,
+                            &config->colorfilter, 4);
     } else if (!paired_cfa_filter(raw_contiguous_ROI, dpc, config)) {
         return false;
     }
