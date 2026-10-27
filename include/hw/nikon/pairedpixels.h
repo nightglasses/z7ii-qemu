@@ -18,6 +18,12 @@ typedef struct NikonPairedFilter {
     uint16_t retain, base, radius, slope;
 } NikonPairedFilter;
 
+/* Functional roles for the separate, source-interpolated scalar family. */
+typedef struct NikonPairedDenoise {
+    uint16_t threshold, low, high;
+    uint8_t axial, diagonal, bias, retain;
+} NikonPairedDenoise;
+
 typedef struct NikonPairedPixelConfig {
     unsigned width, height, x, y, output_width, output_height;
     unsigned grid_width, grid_height;
@@ -31,6 +37,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedNoise noise[3];
     uint16_t noise_negative, noise_positive;
     NikonPairedFilter filter;
+    NikonPairedDenoise denoise;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -39,6 +46,9 @@ bool nikon_paired_noise_valid(const NikonPairedPixelConfig *config);
 
 /* Disabled filters require zero fields; enabled scalars are unsigned14-bit. */
 bool nikon_paired_filter_valid(const NikonPairedFilter *filter);
+
+/* No enable/bypass bit is inferred; all fields must describe a finite family. */
+bool nikon_paired_denoise_valid(const NikonPairedDenoise *denoise);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -51,6 +61,17 @@ bool nikon_paired_filter_valid(const NikonPairedFilter *filter);
  * Each pass rounds signed corrections to nearest, ties away from zero, then
  * rounds/clamps back to RAW12. Radius0 or retain16383 is identity. These
  * scales, control meanings and processing order are functional hypotheses.
+ * A second, mandatory finite denoise stage uses immutable radius-one axial
+ * and diagonal neighbors. With s=sample*4, L=threshold+low+bias and
+ * U=threshold+high+bias, a neighbor residual d receives weight1 below L,
+ * (U-abs(d))/(U-L) between L/U and0 above U. The axial/diagonal means are
+ * weighted by their respective scalars and divided by retain+axial+diagonal.
+ * Round the correction to nearest, signed ties away from zero, clamp to14-bit,
+ * then round/clamp to RAW12. Replicate borders. Its role mapping and placement
+ * before temporal blending are functional hypotheses, not silicon semantics.
+ * Zero denoise fields are invalid. A synthetic neutral tuple is
+ * {threshold7,low1,high3,axial3,diagonal1,bias0,retain31}; its correction
+ * quantizes back to the original RAW12 through the same numerical operation.
  * The resulting mono sample optionally passes through four affine lanes:
  * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
  * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are

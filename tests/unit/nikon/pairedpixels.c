@@ -15,6 +15,8 @@ static NikonPairedPixelConfig config(void)
     NikonPairedPixelConfig p = {
         .width = 4, .height = 4, .output_width = 4, .output_height = 4,
         .grid_width = 2, .grid_height = 2,
+        .denoise = { .threshold = 7, .low = 1, .high = 3,
+                     .axial = 3, .diagonal = 1, .retain = 31 },
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
@@ -977,6 +979,262 @@ static void filter_invalid(void)
     }
 }
 
+static NikonPairedDenoise denoise_config(void)
+{
+    return (NikonPairedDenoise) {
+        .threshold = 103, .low = 43, .high = 45,
+        .axial = 17, .diagonal = 10, .bias = 12, .retain = 8,
+    };
+}
+
+static void denoise_reference(const NikonPairedDenoise *n, uint16_t image[16])
+{
+    static const int neighbors[8][2] = {
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+    };
+    uint16_t source[16];
+    unsigned lo = n->threshold + n->low + n->bias;
+    unsigned hi = n->threshold + n->high + n->bias;
+
+    memcpy(source, image, sizeof(source));
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            int64_t sums[2] = { 0 }, center = 4 * source[y * 4 + x];
+
+            for (unsigned k = 0; k < 8; k++) {
+                unsigned sx = CLAMP(x + neighbors[k][0], 0, 3);
+                unsigned sy = CLAMP(y + neighbors[k][1], 0, 3);
+                int64_t residual = source[sy * 4 + sx] * 4 - center;
+                unsigned distance = llabs(residual), numerator;
+
+                if (distance <= lo) {
+                    numerator = hi - lo;
+                } else if (distance >= hi) {
+                    numerator = 0;
+                } else {
+                    numerator = hi - distance;
+                }
+                sums[k / 4] += numerator * residual;
+            }
+            center += filter_reference_round(n->axial * sums[0] +
+                n->diagonal * sums[1], 4 * (hi - lo) *
+                (n->retain + n->axial + n->diagonal));
+            image[y * 4 + x] = MIN(4095, filter_reference_round(
+                CLAMP(center, 0, 16383), 4));
+        }
+    }
+}
+
+static FilterOutputs denoise_check(NikonPairedPixelConfig p,
+                                   const uint16_t raw[16], bool history)
+{
+    NikonPairedPixelConfig neutral = p;
+    const uint16_t prior[] = { 600, 1800, 1300, 2600 };
+    const uint16_t old_residual[] = { 0, 128, 256, 1 };
+    FilterOutputs before = { 0 }, actual = { 0 }, expected = { 0 };
+
+    p.grid_width = neutral.grid_width = 4;
+    p.grid_height = neutral.grid_height = 4;
+    neutral.denoise = config().denoise;
+    g_assert_true(nikon_paired_pixels(&neutral, raw, NULL, NULL, before.half,
+        before.residual, before.grid, before.y, before.uv));
+    memcpy(expected.grid, before.grid, sizeof(expected.grid));
+    denoise_reference(&p.denoise, expected.grid);
+    for (unsigned block = 0; block < 4; block++) {
+        unsigned first = (block / 2) * 8 + (block % 2) * 2;
+        unsigned sum = expected.grid[first] + expected.grid[first + 1] +
+                       expected.grid[first + 4] + expected.grid[first + 5];
+        unsigned current = filter_reference_round(sum, 4), weight = 0;
+
+        if (history) {
+            expected.residual[block] = abs((int)current - prior[block]);
+            if (expected.residual[block] <= 256) {
+                weight = filter_reference_round(64 *
+                    (256 - MIN(old_residual[block], 256)), 256);
+            }
+        }
+        sum = 0;
+        for (unsigned i = 0; i < 4; i++) {
+            unsigned at = first + (i / 2) * 4 + i % 2;
+
+            expected.grid[at] = filter_reference_round(
+                expected.grid[at] * (256 - weight) + prior[block] * weight,
+                256);
+            sum += expected.grid[at];
+        }
+        expected.half[block] = filter_reference_round(sum, 4);
+    }
+    for (unsigned i = 0; i < 16; i++) {
+        expected.y[i] = MIN(255, filter_reference_round(expected.grid[i], 16));
+    }
+    memset(expected.uv, 128, sizeof(expected.uv));
+    g_assert_true(nikon_paired_pixels(&p, raw, history ? prior : NULL,
+        history ? old_residual : NULL, actual.half, actual.residual,
+        actual.grid, actual.y, actual.uv));
+    g_assert_cmpmem(&actual, sizeof(actual), &expected, sizeof(expected));
+    return actual;
+}
+
+static void denoise(void)
+{
+    const uint16_t expected[] = { 1009, 1015, 1025, 1031 };
+    const uint16_t gate_edges[][4] = {
+        { 1002, 1005, 1048, 1051 }, /* Difference156 equals U. */
+        { 1002, 1010, 1043, 1051 }, /* Difference156 is halfway in L..U. */
+        { 1002, 1016, 1037, 1051 }, /* Difference156 equals L. */
+    };
+    const uint16_t signed_ties[] = { 1002, 1005, 1051, 1054 };
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    FilterOutputs out;
+
+    p.denoise = denoise_config();
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 1008 : 1032;
+    }
+    out = denoise_check(p, raw, false);
+    for (unsigned i = 0; i < 16; i++) {
+        g_assert_cmpuint(out.grid[i], ==, expected[i % 4]);
+    }
+    g_assert_cmpuint(out.y[3], ==, 64); /* Spatial-only produces65. */
+    denoise_check(p, raw, true);
+    for (unsigned edge = 0; edge < 3; edge++) {
+        p.denoise.threshold = 99 + edge;
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = i % 4 < 2 ? 1000 : 1052;
+        }
+        out = denoise_check(p, raw, false);
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.grid[i], ==, gate_edges[edge][i % 4]);
+        }
+    }
+    p.denoise = denoise_config();
+    p.denoise.axial = 10;
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 1000 : 1056;
+    }
+    out = denoise_check(p, raw, false);
+    for (unsigned i = 0; i < 16; i++) {
+        g_assert_cmpuint(out.grid[i], ==, signed_ties[i % 4]);
+    }
+    p.denoise = denoise_config();
+    for (unsigned level = 0; level <= 4095; level += 1365) {
+        fill(raw, 16, level);
+        out = denoise_check(p, raw, false);
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.grid[i], ==, level);
+        }
+    }
+    for (unsigned pattern = 0; pattern < 3; pattern++) {
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = pattern == 0 ? (i % 4 < 2 ? 0 : 4095) :
+                     pattern == 1 ? (i == 5 ? 2024 : 1000) :
+                     1000 + ((i * 29 + i / 4 * 13) % 81) - 40;
+        }
+        out = denoise_check(p, raw, false);
+        if (pattern == 0) {
+            NikonPairedPixelConfig neutral = p;
+
+            neutral.denoise = config().denoise;
+            FilterOutputs before = denoise_check(neutral, raw, false);
+
+            g_assert_cmpmem(out.grid, sizeof(out.grid), before.grid,
+                            sizeof(before.grid));
+        }
+        denoise_check(p, raw, true);
+    }
+    for (unsigned field = 0; field < 6; field++) {
+        bool changed = false;
+
+        for (unsigned amplitude = 1; amplitude <= 96; amplitude++) {
+            NikonPairedPixelConfig other = p;
+            FilterOutputs a, b;
+
+            p.denoise = (NikonPairedDenoise) {
+                .threshold = 90, .low = 30, .high = 32,
+                .axial = 17, .diagonal = 10, .bias = 6, .retain = 8,
+            };
+            other.denoise = p.denoise;
+            switch (field) {
+            case 0: other.denoise.threshold = 103; break;
+            case 1:
+                other.denoise.low = 43;
+                other.denoise.high = 45;
+                break;
+            case 2: other.denoise.axial = 10; break;
+            case 3: other.denoise.diagonal = 1; break;
+            case 4: other.denoise.bias = 12; break;
+            case 5: other.denoise.retain = 31; break;
+            }
+            for (unsigned i = 0; i < 16; i++) {
+                raw[i] = i % 4 < 2 ? 1000 : 1000 + amplitude;
+            }
+            a = denoise_check(p, raw, false);
+            b = denoise_check(other, raw, false);
+            changed |= memcmp(a.grid, b.grid, sizeof(a.grid)) != 0;
+        }
+        g_assert_true(changed);
+    }
+    p.denoise = denoise_config();
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 992 : 1008;
+    }
+    NikonPairedPixelConfig neutral = p;
+    uint64_t old_energy = 0, new_energy = 0;
+
+    neutral.denoise = config().denoise;
+    FilterOutputs before = denoise_check(neutral, raw, false);
+
+    out = denoise_check(p, raw, false);
+    for (unsigned i = 0; i < 16; i++) {
+        int a = (int)before.grid[i] - 1000, b = (int)out.grid[i] - 1000;
+
+        old_energy += a * a;
+        new_energy += b * b;
+    }
+    g_assert_cmpuint(new_energy, <, old_energy);
+    p.filter = (NikonPairedFilter) {
+        .enabled = true, .refine = true, .clipped = true,
+        .retain = 6087, .base = 50, .radius = 1, .slope = 50,
+    };
+    denoise_check(p, raw, true);
+}
+
+static void denoise_invalid(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    g_assert_false(nikon_paired_denoise_valid(NULL));
+    g_assert_true(nikon_paired_denoise_valid(&p.denoise));
+    for (unsigned test = 0; test < 14; test++) {
+        p.denoise = denoise_config();
+        switch (test) {
+        case 0: p.denoise = (NikonPairedDenoise) { 0 }; break;
+        case 1: p.denoise.threshold = 6; break;
+        case 2: p.denoise.threshold = 104; break;
+        case 3: p.denoise.low = 0; p.denoise.high = 2; break;
+        case 4: p.denoise.low = 44; p.denoise.high = 46; break;
+        case 5: p.denoise.high = 44; break;
+        case 6: p.denoise.threshold = 44; break;
+        case 7: p.denoise.axial = 2; break;
+        case 8: p.denoise.axial = 18; break;
+        case 9: p.denoise.diagonal = 0; break;
+        case 10: p.denoise.diagonal = 11; break;
+        case 11: p.denoise.axial = 9; break;
+        case 12: p.denoise.bias = 13; break;
+        case 13: p.denoise.retain = 32; break;
+        }
+        g_assert_false(nikon_paired_denoise_valid(&p.denoise));
+        rejected(&p, raw, NULL, NULL);
+    }
+    p.denoise = denoise_config();
+    p.denoise.retain = 7;
+    rejected(&p, raw, NULL, NULL);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -993,5 +1251,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/quad", quad);
     g_test_add_func("/nikon/pairedpixels/filter", filter);
     g_test_add_func("/nikon/pairedpixels/filter-invalid", filter_invalid);
+    g_test_add_func("/nikon/pairedpixels/denoise", denoise);
+    g_test_add_func("/nikon/pairedpixels/denoise-invalid", denoise_invalid);
     return g_test_run();
 }
