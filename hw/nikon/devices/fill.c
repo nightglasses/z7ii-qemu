@@ -1,5 +1,5 @@
 /*
- * Original two-engine zero-fill and runtime control profile.
+ * Original two-engine byte-copy, zero-fill and runtime control profile.
  * Units, stop acknowledgement, IRQ masks and error detail are virtual laws.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -16,8 +16,8 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonFillState, NIKON_FILL)
 
 typedef struct NikonFillEngine {
-    uint32_t control, mask, flags, pattern, parameter, destination;
-    uint32_t dimension, pitch, row_bytes, count;
+    uint32_t control, mask, flags, pattern, source, destination;
+    uint32_t source_pitch, pitch, row_bytes, count;
     uint32_t status, error, command;
     unsigned configured;
     bool busy;
@@ -83,7 +83,7 @@ static MemTxResult nikon_fill_read(void *opaque, hwaddr offset,
         *value = e->pattern;
         break;
     case 0x1c:
-        *value = e->dimension;
+        *value = e->source_pitch;
         break;
     case 0x20:
         *value = e->pitch;
@@ -95,7 +95,7 @@ static MemTxResult nikon_fill_read(void *opaque, hwaddr offset,
         *value = e->count;
         break;
     case 0x2c:
-        *value = e->parameter;
+        *value = e->source;
         break;
     case 0x30:
         *value = e->destination;
@@ -138,31 +138,145 @@ static MemTxResult nikon_fill_zero(NikonFillState *s, hwaddr destination,
     return MEMTX_OK;
 }
 
+typedef struct NikonFillSpan {
+    ram_addr_t address;
+    uint64_t size;
+} NikonFillSpan;
+
+static bool nikon_fill_spans(NikonFillState *s, uint32_t address,
+                              unsigned pitch, unsigned width, unsigned rows,
+                              bool write, MemTxAttrs attrs, GArray *spans)
+{
+    for (unsigned row = 0; row < rows; row++) {
+        hwaddr current = address + (uint64_t)row * pitch;
+        uint64_t remaining = width;
+
+        while (remaining) {
+            MemoryRegionSection section = memory_region_find(s->dma->root,
+                                                              current,
+                                                              remaining);
+            uint64_t size;
+            NikonFillSpan span;
+
+            if (!section.mr) {
+                return false;
+            }
+            size = int128_get64(section.size);
+            if (!size || size > remaining ||
+                section.offset_within_address_space != current ||
+                !memory_region_is_ram(section.mr) ||
+                (write && section.readonly) ||
+                !memory_access_is_direct(section.mr, write, attrs)) {
+                memory_region_unref(section.mr);
+                return false;
+            }
+            span = (NikonFillSpan) {
+                memory_region_get_ram_addr(section.mr) +
+                    section.offset_within_region, size
+            };
+            g_array_append_val(spans, span);
+            memory_region_unref(section.mr);
+            current += size;
+            remaining -= size;
+        }
+    }
+    return true;
+}
+
+static int nikon_fill_span_compare(const void *a, const void *b)
+{
+    const NikonFillSpan *x = a, *y = b;
+
+    return (x->address > y->address) - (x->address < y->address);
+}
+
+static MemTxResult nikon_fill_copy(NikonFillState *s, NikonFillEngine *e,
+                                   MemTxAttrs attrs, bool *overlap)
+{
+    g_autoptr(GArray) source = g_array_new(false, false, sizeof(NikonFillSpan));
+    g_autoptr(GArray) destination = g_array_new(false, false,
+                                              sizeof(NikonFillSpan));
+    g_autofree uint8_t *row = NULL;
+    unsigned i = 0, j = 0;
+
+    /* Preflight every active byte; row padding need not have RAM backing. */
+    if (!nikon_fill_spans(s, e->source, e->source_pitch, e->row_bytes,
+                          e->count, false, attrs, source) ||
+        !nikon_fill_spans(s, e->destination, e->pitch, e->row_bytes,
+                          e->count, true, attrs, destination)) {
+        return MEMTX_ERROR;
+    }
+    g_array_sort(source, nikon_fill_span_compare);
+    g_array_sort(destination, nikon_fill_span_compare);
+    while (i < source->len && j < destination->len) {
+        NikonFillSpan *a = &g_array_index(source, NikonFillSpan, i);
+        NikonFillSpan *b = &g_array_index(destination, NikonFillSpan, j);
+
+        if (a->address < b->address + b->size &&
+            b->address < a->address + a->size) {
+            *overlap = true;
+            return MEMTX_ERROR;
+        }
+        if (a->address + a->size <= b->address) {
+            i++;
+        } else {
+            j++;
+        }
+    }
+    row = g_malloc(e->row_bytes);
+    for (unsigned y = 0; y < e->count; y++) {
+        MemTxResult result = dma_memory_read(s->dma,
+            e->source + (uint64_t)y * e->source_pitch,
+            row, e->row_bytes, attrs);
+
+        if (result == MEMTX_OK) {
+            result = dma_memory_write(s->dma,
+                e->destination + (uint64_t)y * e->pitch,
+                row, e->row_bytes, attrs);
+        }
+        if (result != MEMTX_OK) {
+            return result;
+        }
+    }
+    return MEMTX_OK;
+}
+
 static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
                                  hwaddr offset, MemTxAttrs attrs)
 {
     uint64_t bytes = (uint64_t)e->row_bytes * e->count;
     uint64_t extent = e->count ?
         (uint64_t)(e->count - 1) * e->pitch + e->row_bytes : 0;
+    uint64_t source_extent = e->count ?
+        (uint64_t)(e->count - 1) * e->source_pitch + e->row_bytes : 0;
+    bool fill = e->flags & 1, overlap = false;
+    unsigned required = fill ? 127 : 511;
+    uint32_t command = e->command;
     MemTxResult result;
 
     /*
      * MAS10389e3a: destination=base+x+pitch*y. MAS102dba60 writes
-     * pitch/row bytes/rows at20/24/28 for either engine. The finite zero
-     * mode interprets these as byte rows, without destination whitelists.
+     * pitch/row bytes/rows at20/24/28 for either engine. 1038a354/a442
+     * select copy with bit0=0 and publish source pitch/address at1c/2c.
+     * Bit4 preserves the caller's independent byte; its identical byte-level
+     * effect in this finite operator is a hypothesis, not silicon semantics.
      */
-    if (e->control || e->configured != 127 || e->flags != 1 ||
-        e->pattern || e->dimension || e->parameter ||
+    if (e->control || (e->configured & required) != required ||
+        (e->flags & ~0x11U) || e->pattern ||
         !e->row_bytes || !e->count || e->pitch < e->row_bytes ||
-        (e->destination & 3) ||
-        (uint64_t)e->destination + extent > (1ULL << 32)) {
+        (uint64_t)e->destination + extent > (1ULL << 32) ||
+        (fill ? (e->source_pitch || e->source || (e->destination & 3)) :
+         (e->source_pitch < e->row_bytes ||
+          (uint64_t)e->source + source_extent > (1ULL << 32)))) {
         return nikon_fill_error(s, offset, 4, true, 1,
                               "fill-request-profile-not-supported");
     }
     e->busy = true;
     e->command = 1;
     attrs.memory = true;
-    if (e->pitch == e->row_bytes) {
+    if (!fill) {
+        result = nikon_fill_copy(s, e, attrs, &overlap);
+    } else if (e->pitch == e->row_bytes) {
         result = nikon_fill_zero(s, e->destination, bytes, attrs);
     } else {
         result = MEMTX_OK;
@@ -177,8 +291,13 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
     }
     e->busy = false;
     e->command = 0;
+    if (overlap) {
+        e->command = command;
+        return nikon_fill_error(s, offset, 4, true, 1,
+                              "fill-copy-overlap-not-supported");
+    }
     e->status = result == MEMTX_OK ? 1 : 0x10;
-    /* Named destination-bus code1, not a Nikon physical error encoding. */
+    /* Named DMA-bus code1, not a Nikon physical error/direction encoding. */
     e->error = result == MEMTX_OK ? 0 : 1U << 16;
     nikon_fill_irq(e);
     qemu_log_mask(LOG_GUEST_ERROR,
@@ -253,7 +372,8 @@ static MemTxResult nikon_fill_write(void *opaque, hwaddr offset,
             break;
         }
         if (reg == 0x1c) {
-            e->dimension = value;
+            e->source_pitch = value;
+            e->configured |= 128;
         } else if (reg == 0x20) {
             e->pitch = value;
             e->configured |= 8;
@@ -266,7 +386,8 @@ static MemTxResult nikon_fill_write(void *opaque, hwaddr offset,
         }
         return MEMTX_OK;
     case 0x2c:
-        e->parameter = value;
+        e->source = value;
+        e->configured |= 256;
         return MEMTX_OK;
     case 0x30:
         e->destination = value;
