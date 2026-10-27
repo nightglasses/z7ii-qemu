@@ -163,8 +163,9 @@
     "docs_build": "2checks passed and VitePress build succeeded."
   },
   "remaining": [
-    "Visible menu navigation and setting acceptance after graphics-prefix completion",
-    "Actual iris motor command and optical exposure following a setting change",
+    "Complete menu-category, setting and return-to-liveview acceptance",
+    "Actual iris target production and optical exposure after a setting change",
+    "Unresolved mode-transition exception/watchdog diagnostic window",
     "AF focus-actuator/statistics feedback loop",
     "Physical ISP equivalence and full-resolution still acquisition",
     "Indefinite stability, complete storage and still/save acceptance"
@@ -990,5 +991,224 @@
       "qualification": "Unresolved stability failure; the subsequent successful mode transitions do not erase it. Nonzero diagnostic bytes do not identify which exception/watchdog activated without text/flags."
     },
     "qualification": "Native grammar and one original normal-image submission pass; menu rendering/navigation and overall stability remain unaccepted."
+  },
+  "final_menu_observation": {
+    "model_revision": "3e44347d",
+    "profile": "Same original C1.70 and cold-neutral descriptors; fresh normal FAT32 card; unchanged photo/lens/UART inputs and normal physical contacts",
+    "host_seconds": 121.39627950001159,
+    "in_window_debugger": false,
+    "guest_ram_or_pc_writes": false,
+    "forced_slots_or_events": false,
+    "controls": [
+      {
+        "label": "M naturally selected",
+        "host_seconds": 32.691538165992824,
+        "paired_completed": 21,
+        "tv_av": [
+          312,
+          24
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "M dial0 -1 consumed",
+        "host_seconds": 33.2717513749958,
+        "paired_completed": 22,
+        "tv_av": [
+          304,
+          24
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "M dial1 -1 consumed",
+        "host_seconds": 33.85388095799135,
+        "paired_completed": 23,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "M aperture after normal strategy",
+        "host_seconds": 38.903396582987625,
+        "paired_completed": 36,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "A naturally selected",
+        "host_seconds": 40.53600770799676,
+        "paired_completed": 39,
+        "tv_av": [
+          304,
+          80
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "A dial1 -1 consumed",
+        "host_seconds": 41.09607866598526,
+        "paired_completed": 41,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "A aperture after normal strategy",
+        "host_seconds": 46.1317119160085,
+        "paired_completed": 53,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "S naturally selected",
+        "host_seconds": 47.720183875004295,
+        "paired_completed": 57,
+        "tv_av": [
+          304,
+          88
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "S dial0 -1 consumed",
+        "host_seconds": 48.32782587499241,
+        "paired_completed": 59,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "P naturally selected",
+        "host_seconds": 49.924958999996306,
+        "paired_completed": 62,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": 0,
+        "running": true
+      },
+      {
+        "label": "P dial0 -1 consumed",
+        "host_seconds": 50.52807583299,
+        "paired_completed": 64,
+        "tv_av": [
+          296,
+          88
+        ],
+        "program_shift514": -2,
+        "running": true
+      }
+    ],
+    "menu_samples": [
+      {
+        "requested_action": "live before MENU",
+        "host_seconds": 65.59538512499421,
+        "paired_completed": 101
+      },
+      {
+        "requested_action": "f20 held",
+        "host_seconds": 68.60901091599953,
+        "paired_completed": 109
+      },
+      {
+        "requested_action": "MENU open",
+        "host_seconds": 74.63603037499706,
+        "paired_completed": 124
+      },
+      {
+        "requested_action": "down held",
+        "host_seconds": 77.65550762499333,
+        "paired_completed": 132
+      },
+      {
+        "requested_action": "menu down",
+        "host_seconds": 83.68663104099687,
+        "paired_completed": 147
+      },
+      {
+        "requested_action": "right held",
+        "host_seconds": 86.70987745799357,
+        "paired_completed": 155
+      },
+      {
+        "requested_action": "menu right",
+        "host_seconds": 92.73689445800846,
+        "paired_completed": 170
+      },
+      {
+        "requested_action": "ret held",
+        "host_seconds": 95.76658033300191,
+        "paired_completed": 177
+      },
+      {
+        "requested_action": "menu OK",
+        "host_seconds": 101.78913570800796,
+        "paired_completed": 193
+      },
+      {
+        "requested_action": "f20 held",
+        "host_seconds": 104.81636779100518,
+        "paired_completed": 201
+      },
+      {
+        "requested_action": "MENU back to live",
+        "host_seconds": 110.8446584159974,
+        "paired_completed": 216
+      },
+      {
+        "requested_action": "live continuation",
+        "host_seconds": 120.86589045799337,
+        "paired_completed": 242
+      }
+    ],
+    "actual_screens": {
+      "menu06": "Playback Menu with Delete row highlighted after right input",
+      "menu11": "Playback Menu with category icon highlighted at last observation"
+    },
+    "rendered_menu_tree": true,
+    "all_menu_categories_verified": false,
+    "all_settings_verified": false,
+    "return_to_liveview_verified": false,
+    "paired_completed_last": 242,
+    "paired_rejected_post_window": 0,
+    "graph_errors_at_last_periodic_sample": 0,
+    "qmp_running_at_end": true,
+    "exception_flag_post_window": 0,
+    "watchdog_flag_post_window": 0,
+    "diagnostic_append_bytes_post_window": 0,
+    "unsupported_accesses": 0,
+    "uart_peer_rejections": 0,
+    "native": {
+      "two_dimensional_copy_groups": 6,
+      "complete_transfer_subtests": 32,
+      "path_state_red_green": true,
+      "scaled105_red_green": true,
+      "complete_transfer_host_seconds": 3.59
+    },
+    "qualification": "Normal MENU rendering and visible input-driven changes pass in a bounded window; labels in requested_action describe test intent, not proof of entering a submenu or returning to live view. MAIN keeps computing behind the menu. Earlier mode-transition failure remains unresolved.",
+    "readout_main_completed_post_window": 1173
   }
 }

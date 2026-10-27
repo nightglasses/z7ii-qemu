@@ -275,3 +275,19 @@ and flags were not captured, so the cause is unresolved. The subsequent
 successful mode transitions do not erase this stability failure. The
 [curated receipt](/evidence/input/turnover.json) records both windows and the
 source-established diagnostic-buffer semantics, separately from native checks.
+
+After the source-backed path-state and scaled105 layout corrections, a fresh
+121.40-host-second original window completes the full input sequence without
+an unsupported access. It displays the Playback Menu and changes the row and
+category highlights through ordinary inputs. Paired MAIN jobs increase19→242;
+periodic graph-error samples are0, QMP remains running at the final query, and
+post-window exception/watchdog flags and diagnostic append length are0.
+The image below is original scanout, not a host-rendered menu:
+
+![Original Playback Menu](/evidence/input/menu.png)
+
+The runner's requested-action labels include intended submenu/return actions;
+they are not evidence that those actions completed. The last screen still
+shows the Playback Menu. Other categories, actual setting changes inside
+menus and return to live view require separate acceptance. The earlier
+mode-transition failure and unchanged iris application target remain open.

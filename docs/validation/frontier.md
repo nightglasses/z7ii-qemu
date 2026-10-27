@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Current: detailed photo, neutral gray and twenty visible scene updates
+## Current: detailed photo, natural exposure controls and a rendered menu
 
 Unchanged C1.70 AUTO photo firmware now displays a detailed 1200 × 800 P6
 photograph through normal CMOS acquisition, packed RAW, paired MAIN, the
@@ -43,11 +43,19 @@ between32.03 and82.85 host seconds, with post-window panic length0. Actual
 iris commands and optical exposure are separate, still unaccepted levels.
 
 MENU also naturally completes its old-GUI worker handoff, starts Menu and
-clears the retained request. The captured176/328-byte normal-image family is
-now sampled and composited; an original repeat reaches a168/232-byte path-state
-boundary. A visible menu tree and navigation are not yet accepted. One separate
-session fails to settle M→A and accumulates exception/watchdog diagnostic text;
-its cause remains unresolved despite the successful repeated transitions.
+clears the retained request. The normal-image, temporary path-state and
+scaled105 output-layout combinations now execute through the original drawing
+and display path. A121.40-host-second unchanged-firmware window renders the
+Playback Menu and visible input-driven highlight changes. Paired MAIN jobs
+increase19→242; periodic graph-error samples are0, QMP is running at the end,
+and the post-window exception/watchdog flags and diagnostic length are0.
+
+![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
+
+All menu categories, setting acceptance and return to live view remain
+unverified. One separate session fails to settle M→A and accumulates
+exception/watchdog diagnostic text; its cause remains unresolved despite the
+successful repeated transitions. The final window does not erase that failure.
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M

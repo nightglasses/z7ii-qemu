@@ -179,5 +179,15 @@ coordinates with doubles and independently computes opaque-destination SRC,
 BT.601 and105 packing. Literal blue anchors are Y41/U240/V110. Format mismatch,
 unknown format, altered color matrix/LUT/filter/geometry, incorrect plane delta,
 range/alias failure, map loss, reset and unrealize remain negative cases.
-The107 fixture retains its previous pixel and alpha checks; native results
-and original menu completion are separate validation claims.
+The107 fixture retains its previous pixel and alpha checks. The old model
+rejects the first legal scaled105 submission; after correction, the complete
+`nikon_transfer_unit` executable passes all32 subtests in3.59 host seconds.
+Native results and original menu completion are separate validation claims.
+
+The subsequent121.40-host-second unchanged-firmware window passes the captured
+scaled105 packet and renders the Playback Menu through the original display
+queue. Ordinary inputs change row/category highlights, paired MAIN completes
+242 jobs, QMP is running at the end and the exception/watchdog diagnostic
+buffer is empty. There is no new unsupported access in this window. The
+[input receipt](/evidence/input/turnover.json) preserves the earlier failures;
+all-category/menu-setting and return-to-liveview acceptance remain open.

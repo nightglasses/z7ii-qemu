@@ -84,7 +84,12 @@ complete output/guards for rectangular fill/stroke cases, and the existing
 range, alias, map-loss, reset and cancellation boundaries. Additional negative
 cases check unsupported selector bits/header shapes, a late invalid prefix,
 and an invalid final selector. These fixtures are separate from original
-menu completion.
+menu completion. The old implementation fails the first legal temporary0
+submission; the corrected complete `nikon_transfer_unit` executable passes
+all31 subtests in3.53 host seconds. A subsequent original run passes the
+168/232-byte job and reaches a separate scaled105 conversion combination,
+with131 MAIN completions at the last menu-down sample and an empty
+exception/watchdog diagnostic buffer.
 
 The captured segments add relative QUAD `0b` to the existing relative H/V
 outline. Its control point and endpoint both use the current point before
