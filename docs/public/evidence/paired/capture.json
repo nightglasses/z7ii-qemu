@@ -1,0 +1,135 @@
+{
+  "scope": "Finite paired photo/movie calculations and real MAIN input delivery; not continuous graph completion or normal live view",
+  "basis": {
+    "integration_base": "7bbaea65",
+    "arithmetic": "ae2bd048",
+    "typed_input": "69200653",
+    "integration": "Accompanying paired capture integration commit; original observations used working integration sources"
+  },
+  "source": {
+    "domain": "C1.70 MAS code/software VA; board PA for MMIO; register offsets hexadecimal; counts decimal",
+    "photo_core": "10264972 -> 10263f98 -> 102c0430 -> 102c0ae2 -> 102c0304 -> 1036a2ac: 88=2 schedules chunks; 9c is not RAW height",
+    "work_main": "102be8a0: 408/410 independently disable WORK while 420/428 retain MAIN; 3d8 is auxiliary WORK format",
+    "filter": "102d3874 -> 102f7d2e -> 102f7a6c interpolates 55-row records; 1036af16/af3a publish 594 and six interleaved pairs598..5dc; 1036b12a publishes608",
+    "destination": "Kind43 constructor1030c214 gives two32KiB ports at40000000/40008000, not a full-frame RAM plane",
+    "graph": "Owned worker9,18nodes: type0/resource8 ->5/35 ->9/45 ->2/24 ->11/62 ->1/21, then branches to outputs3/4/5; imported type5 logical register0 selects8",
+    "continuous_start": "10264de0 ->102bc496 ->42193083 ->102e1b86 ->103894a0 ->103b4e1e ->103bd08a/103bd288, before paired start",
+    "first_frame": "10264972 sets b18648f4=1; first raw1000 at102637c2 decrements it without event400000. Raw400 separately marks48c0.",
+    "timeout": "10268ba4 waits80400000; timeout diagnostic fallthrough can decrement48d8, so negative counts are not FIFO-capacity evidence"
+  },
+  "model": {
+    "facts": "Packing, address/geometry joins, source request and notification paths",
+    "hypotheses": "Monochrome adaptive equation and stage order; continuous/chunked whole-ROI computation; NV12 color units; typed MAIN-to-slot8 transport; single-frame storage and nonzero queued-input busy convention",
+    "filter_bounds": "Full20-word publication, equal duplicated records/halves,5940/6,6080/1,unsigned14 retain/base/slope,radius<=15,tail0/16; parameters actually affect output",
+    "lifecycle": "Snapshot actual RAW; independent WORK enable; active plane zero-stride rejection; generation recheck before any output DMA; actual grid and MAIN publication precede paired result/IRQ; gate frame stays owned until real processing or cancellation",
+    "negative_boundaries": "No firmware patch, guest counter/cache/PC/callback write, extra event, bridge-RAM expansion, MAIN discard, FIFO-depth increase or latest-frame replacement"
+  },
+  "native": {
+    "batches": [
+      {
+        "command": "make check MTESTARGS=nikon_pairedpixels_unit",
+        "subtests": 13,
+        "result": "PASS"
+      },
+      {
+        "command": "make check MTESTARGS='nikon_cmos --test-args=\"-p /arm/nikon/cmos/paired\"'",
+        "subtests": 24,
+        "result": "PASS"
+      },
+      {
+        "command": "make check MTESTARGS='nikon_cmos --test-args=\"-p /arm/nikon/cmos/paired/filter\"'",
+        "subtests": 3,
+        "result": "PASS"
+      },
+      {
+        "command": "make check MTESTARGS='nikon_cmos --test-args=\"-p /arm/nikon/cmos/paired/stream\"'",
+        "subtests": 4,
+        "result": "PASS"
+      },
+      {
+        "command": "make check MTESTARGS='nikon_sla --test-args=\"-p /arm/nikon/sla/gate\"'",
+        "subtests": 1,
+        "result": "PASS"
+      }
+    ],
+    "total_scoped_subtests": 45,
+    "coverage": "Independent numerical reference and fixed step/impulse/noise vectors; actual RAW DMA, every queued Y/UV byte, padding/grid/results, partial packets/invalid fields, disabled WORK staging, changed config/reset, zero strides, generation invalidation before DMA, queued slot busy, cross-bank exclusion, reload/stop and no gate completion",
+    "red": "Old product rejects the complete dynamic filter publication before pixel completion; native transaction expected1, observed0",
+    "review": "Independent read-only review caught and closed disabled-WORK alias/cancel and enabled-plane zero-stride regressions; final stream review found no blocker",
+    "development": "Corrected the fixed refined-step Y anchor using RAW192 ->3084 and nearest rounding (121), included424 in the live set, and kept paired lifetime counters cumulative across reset. Interrupted/failed development runs are not counted as passes."
+  },
+  "profile": "Unchanged decoded C1.70 bundle; cold-neutral external regions; fixed virtual50mmF2.8 lens; separately selected complete photo/movie opaque tuples with live slots zero; normal2x2 PGM32/64/192/224 CMOS scene; blank8GiB slot0; paced healthy UART battery RNG0; heldF4; fiveCPU MTTCG; movie uses ordinary F13 input",
+  "photo_extended": {
+    "timing": "Four15-second sleeps, about69.77 host seconds from launch to final QMP queries including sampling/export overhead; no in-window GDB",
+    "qmp_samples": [
+      "running",
+      "running",
+      "running",
+      "running"
+    ],
+    "paired_completed": 1,
+    "paired_rejected": 0,
+    "paired_cancelled": 0,
+    "paired_blocked": 1486,
+    "paired_bytes": 1889556,
+    "queued_input": {
+      "frames": 1,
+      "width": 1376,
+      "height": 914,
+      "stride": 1408,
+      "tight_nv12_bytes": 1886496
+    },
+    "gui": "Head1 bound1024x682 photo status GUI; central scene black; head0unbound",
+    "panic_length": 0,
+    "limitation": "Enabled continuous graph does not consume the first queued input; single-frame backpressure persists. GUI readiness remains0."
+  },
+  "photo_final_query_revision": {
+    "timing": "Two15-second sleeps; about33.84host seconds before post-window diagnostic reads",
+    "qmp_samples": [
+      "running",
+      "running"
+    ],
+    "paired_completed": 1,
+    "paired_rejected": 0,
+    "paired_cancelled": 0,
+    "paired_blocked": 297,
+    "paired_bytes": 1889556,
+    "lens_completed": 732,
+    "lens_rejected": 0,
+    "input": "Real queued NV12 byte-identical to the earlier exported frame; final GUI independently captured",
+    "debugger_limit": "The normal QMP/window and image export completed. A later read-only diagnostic failed on intentionally unmodeled2010200c; it is not a successful full final debugger snapshot."
+  },
+  "continuous_diagnostic": {
+    "timing": "Separate30-second-sleep original run; about33.86host seconds before sequential reads, not atomic",
+    "registers": {
+      "20102000": "131",
+      "20102100": "121",
+      "20102608": "1",
+      "20100004": "1"
+    },
+    "interpretation": "Continuous input1 is actually enabled. Per-command active0 does not establish an unstarted graph. No source basis for artificial FIFO expansion or latest replacement."
+  },
+  "movie": {
+    "timing": "Four15-second sleeps, about61.22host seconds before post-window reads",
+    "qmp_samples": [
+      "running",
+      "running",
+      "debug",
+      "debug"
+    ],
+    "paired_samples": [
+      0,
+      33,
+      76,
+      76
+    ],
+    "paired_bytes": 202263360,
+    "next_stop": "CPU1 MAS VA1036a4a2, WRITE32 PA20380010=1; independent opaque field660 changes20->18",
+    "meaning": "config[10] compact+68 packet, produced by103626fe/103622d4/103620e6 and published1036adac; independent interpolated scalars[0,32]->[0,24], not an enum or part of594 filter"
+  },
+  "images": {
+    "photo.png": "Final original head1 scanout; central scene remains black",
+    "input.png": "Diagnostic full-range RGB decode of the actual queued1376x914 NV12 bytes; no GUI write and no calibrated-color claim"
+  },
+  "next_work": "Execute the already enabled continuous input graph on the owned pixels and publish real outputs/results; separately recover the complete660..678 numerical operator. No normal photo live view, shutter, movie recording or file-saving acceptance."
+}

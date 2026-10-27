@@ -74,6 +74,12 @@ proves the CPU writes, selector and eight-counter-tick settling wait, not a
 hardware latch latency. No timer clears a busy bit. Configuration publication
 does not release software resources, complete pixels or produce pending/IRQ.
 
+The [paired MAIN transport](input.md) adds one explicitly modeled data owner:
+a real queued slot8 input makes its PA `20102060` query nonzero until cancellation.
+Parameter capture alone still does not acquire ownership. This finite input
+occupancy does not establish downstream processor completion or software
+resource release.
+
 The query bank's quiescent zero is a functional availability hypothesis after
 actual parameter capture, not a recovered physical busy law: no processing
 node has an outstanding start. Once a node is requested, both

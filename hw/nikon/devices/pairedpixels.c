@@ -102,6 +102,19 @@ bool nikon_paired_noise_valid(const NikonPairedPixelConfig *p)
     return true;
 }
 
+bool nikon_paired_filter_valid(const NikonPairedFilter *f)
+{
+    if (!f) {
+        return false;
+    }
+    if (!f->enabled) {
+        return !f->refine && !f->clipped && !f->retain && !f->base &&
+               !f->radius && !f->slope;
+    }
+    return f->retain <= 16383 && f->base <= 16383 && f->radius <= 15 &&
+           f->slope <= 16383;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -129,7 +142,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         p->output_height > p->height - p->y ||
         !p->grid_width || !p->grid_height ||
         p->grid_width > p->width || p->grid_height > p->height ||
-        !nikon_paired_noise_valid(p)) {
+        !nikon_paired_noise_valid(p) ||
+        !nikon_paired_filter_valid(&p->filter)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -202,6 +216,68 @@ static void paired_spatial(const uint16_t *dpc, uint16_t *filtered,
             filtered[y * width + x] = (sum + 4) / 8;
         }
     }
+}
+
+static void paired_filter_pass(const uint16_t *input, uint16_t *output,
+                                unsigned width, unsigned height,
+                                const NikonPairedFilter *f, unsigned axis)
+{
+    for (unsigned y = 0; y < height; y++) {
+        unsigned up = y >= f->radius ? y - f->radius : 0;
+        unsigned down = MIN(y + f->radius, height - 1);
+
+        for (unsigned x = 0; x < width; x++) {
+            unsigned left = x >= f->radius ? x - f->radius : 0;
+            unsigned right = MIN(x + f->radius, width - 1);
+            unsigned at = y * width + x;
+            int32_t center = input[at] * 4;
+            int32_t sum = 0, count = 0, residual, correction, threshold;
+
+            if (axis != 2) {
+                sum += 4 * (input[y * width + left] +
+                            input[y * width + right]);
+                count += 2;
+            }
+            if (axis != 1) {
+                sum += 4 * (input[up * width + x] + input[down * width + x]);
+                count += 2;
+            }
+            residual = sum / count - center;
+            if (f->clipped) {
+                threshold = MIN(16383, f->base +
+                    (f->slope * center + 8191) / 16383);
+                residual = CLAMP(residual, -threshold, threshold);
+            }
+            /* The largest product is 16380*16383, within signed32. */
+            correction = residual * (16383 - f->retain);
+            correction = correction < 0 ? -((-correction + 8191) / 16383) :
+                                           (correction + 8191) / 16383;
+            output[at] = paired_clamp((CLAMP(center + correction, 0, 16383) +
+                                       2) / 4);
+        }
+    }
+}
+
+static bool paired_filter(uint16_t *filtered, unsigned width, unsigned height,
+                           const NikonPairedFilter *f)
+{
+    g_autofree uint16_t *scratch = NULL;
+    size_t count = (size_t)width * height;
+
+    if (!f->enabled || !f->radius || f->retain == 16383) {
+        return true;
+    }
+    scratch = g_try_new(uint16_t, count);
+    if (!scratch) {
+        return false;
+    }
+    paired_filter_pass(filtered, scratch, width, height, f, f->refine ? 1 : 0);
+    if (f->refine) {
+        paired_filter_pass(scratch, filtered, width, height, f, 2);
+    } else {
+        memcpy(filtered, scratch, count * sizeof(*filtered));
+    }
+    return true;
 }
 
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
@@ -435,6 +511,10 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         }
     }
     paired_spatial(dpc, filtered, config->width, config->height);
+    if (!paired_filter(filtered, config->width, config->height,
+                        &config->filter)) {
+        return false;
+    }
     paired_temporal(filtered, config->width, config->height,
                     prior_half_luma_nullable, prior_half_residual_nullable,
                     out_half_luma, out_half_residual);

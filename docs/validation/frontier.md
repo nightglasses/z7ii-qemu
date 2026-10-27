@@ -1,6 +1,64 @@
 # Original-firmware startup frontier
 
-## Current: original photo/movie selection through the maintained input
+## Current: photo MAIN input delivery and continuous graph boundary
+
+The [capture-mode model](../devices/pairs/modes.md) now decodes chunked photo
+`88=2` scheduling and independent WORK disable without treating `9c` as RAW
+height. The [adaptive filter](../devices/pairs/filter.md) executes the complete
+changing `594/598..5dc/608` packet under bounded monochrome equations. Packing
+and upstream interpolation are source-established; filter precision, arithmetic,
+stage order and color units remain explicit functional hypotheses. All other
+opaque words still match a separately selected complete photo or movie tuple.
+
+Photo MAIN is not an ordinary RAM frame at `40000000`: its two 32 KiB ports
+feed the matched local type 0 slot 8, whose geometry and imported type 5 predecessor
+join are established. The [typed transport](../devices/gate/input.md) stores the
+actual computed NV12 frame with generation validation, cancellation and
+single-frame backpressure. It does not execute the downstream graph or generate
+its completion. This storage capacity is a finite functional boundary, not a
+recovered physical FIFO depth.
+
+With unchanged C1.70 firmware, cold-neutral regions, fixed virtual lens, normal
+quadrant CMOS input, healthy UART battery peer, held F4, blank 8 GiB card and
+five-CPU MTTCG, photo now binds the original 1024×682 status GUI. In the extended
+observation, four 15-second waits plus sampling/export overhead take about 70 host
+seconds; every QMP sample is running. Paired completes one real 1376×914 frame,
+writes 1,889,556 bytes including the grid, and has zero rejection or cancellation.
+The queued tight NV12 input is 1,886,496 bytes. No panic is present, head0 remains
+unbound, readiness stays zero, and the central scene is still black. A later
+30-second-wait run confirms the same pixels and status GUI after the finite
+queued-input busy-query change; its post-window debugger limitation is recorded
+separately in the [capture receipt](/evidence/paired/capture.json).
+
+![Original photo status GUI; central scene remains black](/evidence/paired/photo.png)
+
+[Actual queued MAIN pixels](/evidence/paired/input.png) are a diagnostic RGB
+decode of the device's real NV12 result, not a GUI background or calibrated
+color image. The original continuous worker has already enabled its input:
+a separate sequential read records `20102100=121` and `20102608=1`. It uses the
+continuous start path, so per-command active fields being zero do not mean an
+unstarted graph. Photo deliberately skips its first `1000` notification through
+`b18648f4`; timeout fallthrough can explain the negative software counts.
+Neither observation justifies another event, FIFO expansion or frame overwrite.
+The next photo dependency is actual pixel consumption and result publication by
+the enabled continuous graph, which currently leaves the input owned and applies
+backpressure to subsequent paired work.
+
+The separate movie run crosses the former `598` change, completing 76 jobs and
+202,263,360 bytes, then stops at CPU1 MAS VA `1036a4a2`, WRITE32 PA `20380010=1`.
+The independent `660..678` packet changes `660:20→18`. Its complete producer,
+packing and interpolated scalar family are now identified; its numerical
+operator remains unmodeled. It is not accepted as an enum or folded into the
+new adaptive filter. This run is running at its first two samples and debug-
+stopped at the last two, not a stable 60-second movie session.
+
+The scoped native batches pass 45 subtests: 13 arithmetic, 24 paired envelope and
+RAM-output, 3 dynamic-filter, 4 typed-stream and 1 existing gate fixture. These
+fixtures, unchanged-firmware observations and remaining normal-live-view gap
+are separate claims. No firmware bytes, guest callbacks, cache flags or display
+pixels are patched; photo capture, recording and file saving are not accepted.
+
+## Previous: original photo/movie selection through the maintained input
 
 The [capture selector](../devices/gpio/input.md#maintained-photomovie-selector)
 now drives EX I2C expander `0x22` pad0 through the normal input frontend.

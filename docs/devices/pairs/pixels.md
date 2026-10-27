@@ -73,13 +73,13 @@ provide their live controls, geometry, addresses and matrix coefficients.
 four-byte words and includes both endpoints:
 
 ```text
-0c, 84, f0
+0c, 84, 88, 8c, f0
 40, 44, 48, 4c, 50, 94, 98, 9c, a0, a8
 b8, bc, c0, c4, c8, cc, d4, d8, dc, e0, e4
 f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
-12c, 130, 134, 138, 13c, 140, 144, 204, 300, 3d8, 420
+12c, 130, 134, 138, 13c, 140, 144, 204, 300, 3d8, 420, 424
 218..234, 30c..32c, 394..3b4, 400..410, 428..470, 488..4c8
-708..720, b00..b10, b64..b74, b94..ba4
+594, 598..5dc, 608, 708..720, b00..b10, b64..b74, b94..ba4
 9cc, 9d0, 9d4, df4..e10, 2890..2c94
 ```
 
@@ -166,16 +166,13 @@ result flags, retained writes, changed-write cancellation, reset and negative
 encodings. [Affine evidence](/evidence/paired/affine.json) separates those
 fixtures from the unchanged-firmware observation.
 
-The next dynamic family is separate: root config[12] selects compact+98.
-VA `102e4914` calls `1036af16` for control `594`, then `1036af3a` for three
-24-byte records at compact+208/232/256. Each record contains twelve unsigned
-16-bit values, packed in six high/low pairs; channels interleave at four-byte
-spacing across `598..5dc`. VA `102f7a6c` interpolates the first eight values
-from 55-row tables with a step of2; `102f7960` fixes each record's last four
-values to 0/0/16/16. VA `102f7d2e` constructs control `594` as0 or6 from input
-mode fields. Zero is not proven bypass. These filter-like parameter values
-remain opaque until their numerical consumer is established; they are not
-relabeled as gains merely because the previous packet contained gains.
+The [adaptive filter](filter.md) now interprets the complete dynamic packet at
+`594`, `598..5dc` and `608`. Its source-established interpolation and packing
+are separate from the declared bounded numerical equations. Every interpreted
+file slot must be zero; complete guest publication supplies the actual values.
+The [capture-mode contract](modes.md) separately defines continuous/chunked
+scheduling and independently enabled WORK output. Neither extension permits
+opaque calibration changes or supplies a missing MAIN stream consumer.
 
 The RAW ring addresses are live descriptor fields. Source VA `102bec2e`
 publishes descriptor byte 52 into either four slots at `218..224` or
@@ -184,7 +181,7 @@ through `1036a672`, at `310..31c` or `320..32c`. The shared software selection
 byte also reaches root configuration byte 39 and bank register `fc` through
 `102c0304` and `1036a3da`. The finite model interprets `fc=0/1` as selection of
 the primary/secondary address group, retaining four phases per batch. Source
-root bytes 42/43 separately produce `108=3` and `10c=0`; a second group does
+root bytes 42/43 separately produce `108=3` and mode-dependent `10c`; a second group does
 not establish eight independent processing phases.
 
 For the selected group, all four front RAW addresses must equal their back
@@ -212,9 +209,11 @@ groups from the same descriptors. The supported relationships are:
 
 Each grid group has four addresses; the main group has eight across its two
 planes. A partially published selected group rejects. Y is not equated with UV,
-nor luma with residual. Work groups remain required mirrors because the inspected
-producer unconditionally fills both from the same descriptors; independent work
-history surfaces are not inferred. Every selected plane receives full span,
+nor luma with residual. Enabled work groups remain required mirrors because the inspected
+producer fills both from the same descriptors; independent work
+history surfaces are not inferred. Disabled WORK planes have no DMA or history
+access and do not cancel active MAIN work when their unused pointers change.
+Every enabled selected plane receives full span,
 RAM/backing and overlap checks. Aliases do not generate additional bytes, phases
 or events. Independent selection is a functional interpretation of the shared
 software selector, not a physical register specification.
@@ -222,7 +221,7 @@ The gap `3b8..3c0`, independent pointer `3c8` and status words `3cc..3d4` are
 not extra grid rings and are not generalized by this contract.
 
 For processing, every accessible opaque configuration word must equal the
-selected file word, including low fields such as `304`, `308`, `414` and `424`.
+selected file word, including low fields such as `304`, `308` and `414`.
 Live interpreted words are checked or decoded separately. The 36-table interval
 `[1400,1d38)` contains 22 tables of 16 words followed by 14 tables of 17 words,
 590 words in total. Coverage is checked per table since reset:

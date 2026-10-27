@@ -13,6 +13,11 @@ typedef struct NikonPairedNoise {
     uint8_t enabled, gain, shift, offset;
 } NikonPairedNoise;
 
+typedef struct NikonPairedFilter {
+    bool enabled, refine, clipped;
+    uint16_t retain, base, radius, slope;
+} NikonPairedFilter;
+
 typedef struct NikonPairedPixelConfig {
     unsigned width, height, x, y, output_width, output_height;
     unsigned grid_width, grid_height;
@@ -25,16 +30,28 @@ typedef struct NikonPairedPixelConfig {
     bool curve_enabled[2];
     NikonPairedNoise noise[3];
     uint16_t noise_negative, noise_positive;
+    NikonPairedFilter filter;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
 /* Zero feedback requires a disabled channel; no seed is read from RAM. */
 bool nikon_paired_noise_valid(const NikonPairedPixelConfig *config);
 
+/* Disabled filters require zero fields; enabled scalars are unsigned14-bit. */
+bool nikon_paired_filter_valid(const NikonPairedFilter *filter);
+
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
- * five-tap spatial filter, and bounded half-block history blending. Each
- * resulting mono sample optionally passes through four affine lanes:
+ * five-tap spatial filter, an optional adaptive filter, and bounded half-block
+ * history blending. The adaptive filter uses immutable replicated-edge
+ * neighborhoods at radius0..15 in a sample*4 intermediate domain. It moves
+ * toward the four axial neighbors' mean by (16383-retain)/16383. Clipping
+ * bounds that residual by base+round(slope*sample*4/16383), saturated at16383.
+ * Refine selects a horizontal two-neighbor pass followed by a vertical pass.
+ * Each pass rounds signed corrections to nearest, ties away from zero, then
+ * rounds/clamps back to RAW12. Radius0 or retain16383 is identity. These
+ * scales, control meanings and processing order are functional hypotheses.
+ * The resulting mono sample optionally passes through four affine lanes:
  * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
  * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are
  * unsigned14-bit, offsets signed13-bit, pedestals unsigned16-bit and the
