@@ -5100,6 +5100,13 @@ static void test_paired_colorfilter_history(void)
     }
 }
 
+static void paired_radial_tables(QTestState *q, unsigned words)
+{
+    for (unsigned i = 0; i < words; i++) {
+        qtest_writel(q, PAIRED + 0x1200 + 4 * i, 0);
+    }
+}
+
 static void test_paired_radial(void)
 {
     static const int identity[] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
@@ -5143,6 +5150,8 @@ static void test_paired_radial(void)
                 paired_radial(q, PAIRED, origin ? 0 : 65535, 18,
                     blue ? 0 : negative ? -128 : 127,
                     blue ? negative ? -128 : 127 : 0, 6);
+                /* Authored zero curves retain both nonzero head coefficients. */
+                paired_radial_tables(q, 18);
                 if (origin) {
                     qtest_writel(q, PAIRED + 0x700, 0x101);
                     qtest_writel(q, PAIRED + 0x708, 0x02000200);
@@ -5233,7 +5242,7 @@ static void test_paired_radial_boundaries(void)
         { 0x734, 0x051f }, { 0x734, 0x053f }, { 0x734, 0x00010520 },
         { 0x738, 0 }, { 0x738, 0x0404 }, { 0x738, 0x0102 },
         { 0x738, 0x00010101 },
-        /* A written zero cannot impersonate a source-NULL table. */
+        /* Partial written zeros cannot impersonate a complete publication. */
         { 0x1200, 0 }, { 0x1220, 0 }, { 0x1224, 0 }, { 0x1244, 0 },
         { 0x1200, 1 },
     };
@@ -5289,14 +5298,135 @@ static void test_paired_radial_lifecycle(void)
         }
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
-                         mode == 0);
+                         mode == 0 || mode == 2);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
-                         mode != 0);
-        if (!mode) {
+                         mode == 1 || mode == 3);
+        if (mode == 0 || mode == 2) {
             paired_pixels(q, PAIRED_MAIN, 0);
             paired_pixels(q, PAIRED_WORK, 0);
             paired_pixels(q, PAIRED_GRID, 0);
         } else {
+            paired_untouched(q);
+        }
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_radial_tables(void)
+{
+    for (unsigned mode = 0; mode < 54; mode++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        if (mode < 17) {
+            /* Every cold prefix1..17 is incomplete, including one full slot. */
+            paired_radial_tables(q, mode + 1);
+        } else if (mode < 35) {
+            unsigned missing = mode - 17;
+
+            paired_radial_tables(q, 18);
+            for (unsigned word = 0; word < 18; word++) {
+                if (word != missing) {
+                    qtest_writel(q, PAIRED + 0x1200 + 4 * word, 0);
+                }
+            }
+        } else {
+            unsigned changed = mode - 35;
+
+            for (unsigned word = 0; word < 18; word++) {
+                /* All18 words, either signed coefficient, and both pad halves. */
+                uint32_t value = word == changed ?
+                    (word % 9 == 8 ? 0x10000 : 1) : 0;
+
+                if (changed == 18 && !word) {
+                    value = 0xffff0000;
+                }
+                qtest_writel(q, PAIRED + 0x1200 + 4 * word, value);
+            }
+        }
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+        if (mode == 25 || mode == 34) {
+            /* A missing final word leaves a valid warm staging prefix. */
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
+        } else {
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
+        }
+        paired_untouched(q);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_radial_tables_lifecycle(void)
+{
+    for (unsigned mode = 0; mode < 5; mode++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        paired_radial_tables(q, 18);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        if (mode < 3) {
+            work_input(q);
+            work_rise(q);
+            qtest_clock_step(q, 1000000);
+            if (mode == 0) {
+                paired_radial_tables(q, 18);
+            } else if (mode == 1) {
+                paired_radial_tables(q, 10);
+            } else {
+                qtest_writel(q, PAIRED + 0x1200, 1);
+            }
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 0);
+            paired_pixels(q, PAIRED_MAIN, 0);
+        } else if (mode == 3) {
+            paired_radial_tables(q, 10);
+            work_input(q);
+            work_rise(q);
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+            for (unsigned word = 10; word < 18; word++) {
+                qtest_writel(q, PAIRED + 0x1200 + 4 * word, 0);
+            }
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+            paired_pixels(q, PAIRED_MAIN, 0);
+        } else {
+            work_input(q);
+            work_rise(q);
+            qtest_clock_step(q, 1000000);
+            qtest_system_reset(q);
+            for (unsigned offset = 0x1200; offset <= 0x1244; offset += 4) {
+                g_assert_cmphex(qtest_readl(q, PAIRED + offset), ==, 0);
+            }
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
+            paired_untouched(q);
+            paired_configure(q, true, PAIRED, 7, 8, 8, 6, 51, 64, 17);
+            paired_radial_tables(q, 9);
+            qtest_writel(q, PAIRED + 0x10, 1);
+            qtest_writel(q, PAIRED + 8, 1);
+            work_input(q);
+            work_rise(q);
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
             paired_untouched(q);
         }
         qtest_quit(q);
@@ -6227,6 +6357,10 @@ int main(int argc, char **argv)
                    test_paired_radial_boundaries);
     qtest_add_func("/nikon/cmos/paired/radial/lifecycle",
                    test_paired_radial_lifecycle);
+    qtest_add_func("/nikon/cmos/paired/radial/tables",
+                   test_paired_radial_tables);
+    qtest_add_func("/nikon/cmos/paired/radial/tables-lifecycle",
+                   test_paired_radial_tables_lifecycle);
     qtest_add_func("/nikon/cmos/paired/detail/boundaries",
                    test_paired_detail_boundaries);
     qtest_add_func("/nikon/cmos/paired/detail/lifecycle",

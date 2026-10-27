@@ -1,7 +1,8 @@
-# Coefficient-only radial sampling
+# Radial sampling and authored neutral curves
 
 The paired pixel model decodes the complete six-word `724..738` packet and
-applies its two changing signed coefficients to MAIN R/B sampling. The producer,
+applies its two changing signed coefficients to MAIN R/B sampling. It accepts
+the source's omitted-table path and complete authored neutral-curve path. The producer,
 packing, estimation arithmetic and optional-table publication path are source
 facts. The R/B assignment, radial interpretation, direction, stage placement and
 sampling operator are explicit functional hypotheses. This is a finite virtual
@@ -58,11 +59,28 @@ including the alternate13-by8 mode table. The scalar box is a bounded domain;
 not every admitted combination is claimed to occur in firmware. No physical
 shift, mantissa or channel name is established for those fields.
 
-## Optional curves and the admitted omission path
+## Optional curves and the authored neutral domain
 
-VA `102f833c` constructs two17-item signed16 polynomial records. Their constant
-terms can depend on the head coefficients. That CPU result is not sufficient
-proof that the same records have been published to paired hardware.
+VA `102f833c` constructs two17-item signed16 polynomial records. It evaluates
+each of two three-coefficient polynomials at17 nonuniform source radii, then
+arithmetic-shifts the result by intermediate byte34+1. The terms use a constant,
+squared radius and cubed radius; the fixed-point radius unit is4096. Their
+constant terms can depend on the head coefficients. Neither an additive nor a
+replacement relationship with the hardware head coefficient is established for
+nonzero records, so this model does not admit nonzero curves.
+
+VA `102f8722` chooses the polynomial branches or calls `102f86e6`. The latter
+explicitly writes zero into every halfword of both17-item records. It also sets
+the polynomial constants to the retained head coefficients multiplied by16,
+and the remaining four polynomial coefficients to zero. It does not subsequently
+evaluate those constants into the records. This is a source-authored neutral
+table domain with independently retained head coefficients; it is not evidence
+that a nonzero head should be cleared when the records are zero.
+
+VA `102f9a14` unconditionally packs those two contiguous records from state+4
+into cache+9592/+9628, sets both publication flags14761/14762, and writes zero
+padding after each17th signed halfword. Thus complete zero table publication is
+a normal source path, independently of a NULL hardware publication path.
 
 The actual publisher at `102e4bbe` reads configuration entry14. It skips a NULL
 entry, and separately skips either NULL child pointer. When present,
@@ -71,19 +89,20 @@ or `1224`: each bank holds17 signed16 entries followed by one padding halfword.
 VA `102bf33c` selects those pointers from a separate cache. Cache flags14761 and
 14762 select cache+9592 and+9628; both flags zero make entry14 NULL.
 
-An unchanged original run observed `730=00010001` and all words `1200..1244`
-zero. Its current cache flags were not dynamically sampled. Static source proves
-a legitimate NULL publication path, but does not prove which branch this run
-took. In particular, the observation disproves requiring every curve entry to
-equal its head coefficient. It also does not establish physical bypass behavior.
+Unchanged original execution observed nonzero `730` and all eighteen words
+`1200..1244` zero; a later original execution confirmed actual writes to that
+zero group. These observations and the source producer establish the need for
+both paths. They do not establish the physical polynomial sampling operator.
 
-This finite model admits only completely unwritten, cold-zero curve registers.
-Any write to either curve, including an explicitly zero write, rejects the
-coefficient-only profile. Nonzero curves, complete zero curves and partial
-curves are not silently treated as omitted. The opaque input file must have
-zero in these newly interpreted slots. The full `734/738` representation and
-bounds remain required; their hypothesized LUT-indexing effect is outside this
-explicitly omitted-table path. No curve values, scales or events are fabricated.
+The finite model admits completely unwritten, cold-zero curve registers, or
+two fully published nine-word curves whose entire34 signed entries and both
+padding halfwords are zero. Touching either slot requires both slots complete;
+a single full slot is not accepted as omission. Every nonzero halfword remains
+unsupported, including signed negative entries and padding. The opaque input
+file must leave these interpreted slots zero. The full `734/738` representation
+and bounds remain required. No nonlinear operator, displacement, selector or
+enable bit is inferred to widen this neutral domain. Actual MAIN computation
+continues through the head-coefficient sampling equation below.
 
 ## Numerical functional hypothesis
 
@@ -124,11 +143,26 @@ still requires the normal successful RAW DMA and processing publication path.
 ## Publication and falsifiable validation
 
 All six prefix words must be written since reset, including a zero coefficient.
-Reset clears both masks and registers. Same-value writes retain active work;
-changed prefix values or a first curve write cancel it through the existing
-configuration lifecycle. Because this stage affects MAIN only, its changes
-preserve the pre-color numerical history. No reset, write or rejection supplies
-a missing completion.
+Each optional slot has an independent ordered nine-word publication round.
+Writing its first word starts a fresh round, even if unchanged; later words
+must arrive consecutively. Missing, duplicate or out-of-order writes cannot
+borrow coverage from the previous round. A fresh header restarts malformed
+coverage. Reset clears the registers, round counters and prior-publication flag.
+
+Optional writes are staged and do not cancel owned work. An active job retains
+its frozen head-coefficient computation, including during incomplete or
+unsupported new table uploads. Completion retains every existing memory and
+peer fence but does not requalify live optional tables. A valid complete zero
+publication is numerically unchanged and preserves that job. Changed prefix
+values still use the existing cancellation path. These MAIN-only inputs preserve
+pre-color numerical history.
+
+A warm partial publication holds an existing AwaitInput request and its real
+unconsumed RAW until both slots complete. Initial partial coverage, malformed
+order and a complete nonzero group reject new admission. Completing a valid
+group retries only an existing AwaitInput request; it cannot arm processing or
+reuse a consumed RAW generation. No reset, write or rejection supplies a
+completion, slot release, event or ready bit.
 
 Pure fixtures compare complete MAIN output against an independent floating
 coordinate oracle, with every CFA encoding, R/B separately, negative/zero/
@@ -140,8 +174,12 @@ scalar/center tests require untouched outputs.
 Ordinary-MMIO fixtures use actual64-by36 mono or64-by72 CFA transport, an odd
 RAW ROI and odd MAIN crop. They verify changed dark/bright edge samples,
 padding, completion and IRQ acknowledgement. Other fixtures cover every wire
-class, signed encoding, absent/partial publication, explicitly zero curve
-writes, unchanged-write retention, changed-write cancellation and reset.
+class, signed encoding, omitted and complete authored-zero publication,
+every cold prefix and every missing new-round word, nonzero words/padding,
+unchanged-write retention, frozen completion, warm staging, changed-prefix
+cancellation and reset. In particular, the nonzero-head edge fixtures also
+publish both complete zero curves, so accepting those curves cannot silently
+turn off the actual radial calculation.
 These are specified tests; native results and unchanged-firmware continuation
 are reported separately by integration.
 

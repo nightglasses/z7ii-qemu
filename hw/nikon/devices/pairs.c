@@ -60,11 +60,12 @@ typedef struct NikonPairedEventBanksBank {
     uint64_t consumed[4], table_written[10];
     uint64_t curve_written[2][3];
     uint64_t colorfilter_written;
-    uint32_t filter_written, radial_table_written;
+    uint32_t filter_written;
     uint32_t post_written[4];
     uint16_t main_gain_written[2], main_gain;
     bool main_gain_valid;
     uint8_t saturation_words[2];
+    uint8_t radial_table_words[2];
     uint8_t denoise_written, detail_written, adaptive_written, radial_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
@@ -72,6 +73,7 @@ typedef struct NikonPairedEventBanksBank {
     unsigned phase, seen, refill, stop;
     bool active, published, finish_pending;
     bool saturation_published, saturation_updating;
+    bool radial_tables_published;
     unsigned index;
 } NikonPairedEventBanksBank;
 
@@ -572,8 +574,23 @@ static bool paired_adaptive(NikonPairedEventBanksBank *b,
     return true;
 }
 
+static bool paired_radial_tables(NikonPairedEventBanksBank *b)
+{
+    if (b->radial_table_words[0] || b->radial_table_words[1]) {
+        if (b->radial_table_words[0] != 9 || b->radial_table_words[1] != 9) {
+            return false;
+        }
+    }
+    for (unsigned offset = 0x1200; offset <= 0x1244; offset += 4) {
+        if (b->config[offset / 4]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool paired_radial(NikonPairedEventBanksBank *b,
-                           NikonPairedPixelConfig *pixels)
+                           NikonPairedPixelConfig *pixels, bool admission)
 {
     const uint32_t *c = b->config;
     uint32_t coefficient = c[0x730 / 4], scale = c[0x734 / 4];
@@ -581,9 +598,11 @@ static bool paired_radial(NikonPairedEventBanksBank *b,
     int red = sextract32(coefficient, 16, 10);
     int blue = sextract32(coefficient, 0, 10);
 
-    /* 102bf33c/102e4bbe omit1200/1224 for NULL config[14]. This bounded
-     * coefficient-only model requires that omission, not a zero LUT fallback.
-     */
+    if (!admission) {
+        /* A staged optional-table upload cannot mutate the owned computation. */
+        pixels->radial = b->job.pixels.radial;
+        return true;
+    }
     if (b->radial_written != 0x3f || c[0x724 / 4] != 270) {
         return paired_profile_reject(b, 0x724);
     }
@@ -603,12 +622,11 @@ static bool paired_radial(NikonPairedEventBanksBank *b,
         (lanes >> 8) != (lanes & 0xff)) {
         return paired_profile_reject(b, 0x738);
     }
-    for (unsigned offset = 0x1200; offset <= 0x1244; offset += 4) {
-        uint32_t bit = 1U << ((offset - 0x1200) / 4);
-
-        if ((b->radial_table_written & bit) || c[offset / 4]) {
-            return paired_profile_reject(b, offset);
-        }
+    /* 102f86e6 authors both zero curves while retaining the head coefficients;
+     * 102f9a14 publishes all18 words. NULL config[14] is a separate valid path.
+     */
+    if (!paired_radial_tables(b)) {
+        return paired_profile_reject(b, 0x1200);
     }
     pixels->radial = (NikonPairedRadial) {
         .center_x = c[0x728 / 4] & 0xffff,
@@ -893,7 +911,8 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         return paired_profile_reject(b, 0xfc);
     }
     if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g) ||
-        !paired_detail(b, g) || !paired_adaptive(b, g) || !paired_radial(b, g) ||
+        !paired_detail(b, g) || !paired_adaptive(b, g) ||
+        !paired_radial(b, g, admission) ||
         !paired_colorfilter(b, g) || !paired_post(b, g) ||
         !paired_saturation(b, job, admission)) {
         return false;
@@ -1286,6 +1305,13 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     if (!frame) {
         return;
     }
+    if ((b->radial_tables_published || b->published) &&
+        (b->radial_table_words[0] || b->radial_table_words[1]) &&
+        b->radial_table_words[0] <= 9 && b->radial_table_words[1] <= 9 &&
+        (b->radial_table_words[0] != 9 || b->radial_table_words[1] != 9)) {
+        s->blocked++;
+        return;
+    }
     if (b->saturation_published &&
         ((b->saturation_words[0] && b->saturation_words[0] < 17) ||
          (b->saturation_words[1] && b->saturation_words[1] < 17) ||
@@ -1602,6 +1628,24 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         int saturation = offset >= 0x1a08 && offset <= 0x1a8c ?
                          (int)((offset - 0x1a08) / 68) : -1;
         bool saturation_complete = false;
+        int radial_table = offset >= 0x1200 && offset <= 0x1244 ?
+                           (int)((offset - 0x1200) / 36) : -1;
+        bool radial_complete = false;
+
+        if (radial_table >= 0) {
+            unsigned word = ((offset - 0x1200) % 36) / 4;
+            uint8_t *words = &b->radial_table_words[radial_table];
+
+            if (!word) {
+                *words = 1;
+            } else if (*words == word) {
+                (*words)++;
+                radial_complete = *words == 9;
+            } else {
+                *words = UINT8_MAX;
+            }
+            changed = false;
+        }
 
         if (saturation >= 0) {
             unsigned word = ((offset - 0x1a08) % 68) / 4;
@@ -1689,12 +1733,6 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->radial_written & bit);
             b->radial_written |= bit;
         }
-        if (offset >= 0x1200 && offset <= 0x1244) {
-            uint32_t bit = 1U << ((offset - 0x1200) / 4);
-
-            changed |= !(b->radial_table_written & bit);
-            b->radial_table_written |= bit;
-        }
         if ((offset >= 0x900 && offset <= 0x9c4) || offset == 0x9d8) {
             unsigned index = offset == 0x9d8 ? 50 : (offset - 0x900) / 4;
             uint64_t bit = UINT64_C(1) << index;
@@ -1733,6 +1771,12 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         }
         /* Opaque control inputs/configuration never clear pending or fields. */
         b->config[offset / 4] = value;
+        if (radial_complete && paired_radial_tables(b)) {
+            b->radial_tables_published = true;
+            if (b->request == PAIRED_AWAIT_INPUT) {
+                paired_try(b, b->regs.addr + offset, value);
+            }
+        }
         if (main_gain) {
             paired_main_gain_write(b, offset);
         }
@@ -1796,7 +1840,9 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].detail_written = 0;
         s->bank[i].adaptive_written = 0;
         s->bank[i].radial_written = 0;
-        s->bank[i].radial_table_written = 0;
+        memset(s->bank[i].radial_table_words, 0,
+               sizeof(s->bank[i].radial_table_words));
+        s->bank[i].radial_tables_published = false;
         s->bank[i].colorfilter_written = 0;
         memset(s->bank[i].post_written, 0, sizeof(s->bank[i].post_written));
         memset(s->bank[i].main_gain_written, 0,
