@@ -2066,10 +2066,81 @@ static void paired_colorfilter(QTestState *q, uint32_t base, unsigned strength,
     }
 }
 
+static void paired_post_config(QTestState *q, uint32_t base, unsigned count)
+{
+    const unsigned ranges[][2] = {
+        { 0xb38, 0xb58 }, { 0xb94, 0xbbc },
+        { 0xd20, 0xd9c }, { 0xdc0, 0xdec },
+    };
+    unsigned word = 0;
+
+    for (unsigned group = 0; group < ARRAY_SIZE(ranges); group++) {
+        for (unsigned offset = ranges[group][0]; offset <= ranges[group][1];
+             offset += 4, word++) {
+            uint32_t value = offset == 0xbac ? 256 :
+                             offset == 0xdd4 ? 3 : offset == 0xdd8 ? 5 : 0;
+
+            if (word < count) {
+                qtest_writel(q, base + offset, value);
+            }
+        }
+    }
+}
+
+static int64_t post_round(int64_t value, unsigned divisor)
+{
+    lldiv_t q = lldiv(value, divisor);
+
+    if (2 * llabs(q.rem) >= divisor) {
+        q.quot += value < 0 ? -1 : 1;
+    }
+    return q.quot;
+}
+
+static void paired_post_oracle(uint16_t *image, unsigned width, unsigned height,
+                               unsigned unsharp, unsigned axial,
+                               unsigned diagonal, unsigned edge)
+{
+    static const int offsets[][2] = {
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+    };
+    g_autofree uint16_t *source = g_new(uint16_t, width * height);
+
+    for (unsigned stage = 0; stage < 4; stage++) {
+        memcpy(source, image, width * height * sizeof(*source));
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                unsigned at = y * width + x;
+                int64_t n = 0, divisor;
+
+                for (unsigned i = 0; i < 4; i++) {
+                    const int *delta = offsets[i + (stage == 2 ? 4 : 0)];
+                    int xx = CLAMP(x + delta[0], 0, (int)width - 1);
+                    int yy = CLAMP(y + delta[1], 0, (int)height - 1);
+
+                    n += source[yy * width + xx] - source[at];
+                }
+                if (!stage) {
+                    n *= -(int64_t)unsharp;
+                    divisor = 1024;
+                } else if (stage < 3) {
+                    n *= stage == 1 ? axial : diagonal;
+                    divisor = 128;
+                } else {
+                    n *= MAX(320 - llabs(n), 0) * edge;
+                    divisor = 40960;
+                }
+                image[at] = CLAMP(source[at] + post_round(n, divisor), 0, 4095);
+            }
+        }
+    }
+}
+
 static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
                              unsigned denoise_words, unsigned detail_words,
                              unsigned adaptive_words, unsigned radial_words,
-                             unsigned colorfilter_words)
+                             unsigned colorfilter_words, unsigned post_words)
 {
     static const struct {
         unsigned offset;
@@ -2152,6 +2223,7 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
          offset < (table_mode ? 0x1d38 : 0x1d34); offset += 4) {
         qtest_writel(q, base + offset, 0);
     }
+    paired_post_config(q, base, post_words);
     paired_matrix(q, base, 0xb00, a, 13, false);
     paired_matrix(q, base, 0xb64, b, 12, false);
     paired_matrix(q, base, 0xb94, c, 13, true);
@@ -2267,7 +2339,7 @@ static QTestState *paired_start_profile(char **bundle, char **scene,
         qtest_memset(q, PAIRED_MAIN + phase * 0x2000 - 16, 0xa5, 0xce0);
         qtest_memset(q, PAIRED_WORK + phase * 0x2000 - 16, 0xa5, 0xce0);
     }
-    paired_configure(q, table_mode, PAIRED, 7, 8, 8, 6, 51);
+    paired_configure(q, table_mode, PAIRED, 7, 8, 8, 6, 51, 64);
     if (arm) {
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -2654,27 +2726,30 @@ static void test_paired_backpressure(void)
 
 static void test_paired_c_matrix(void)
 {
-    static const int c[9] = { 512, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+    static const int c[9] = { 1024, 0, 0, 0, 0, -1024, 0, 1024, 0 };
     g_autofree char *bundle = NULL;
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, false);
     uint8_t expected[0xce0], actual[sizeof(expected)];
 
     paired_matrix(q, PAIRED, 0xb94, c, 13, true);
+    qtest_writel(q, PAIRED + 0xbac, 0x00800080);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
     qtest_clock_step(q, 2000000);
-    /* Fixed arithmetic oracle: C halves red before B; work/grid precede C. */
+    /* B gives Y2056/U257/V-514. C rotates chroma to514/257. The half
+     * blend gives U386/V-129 (signed ties away), before adding2048.
+     */
     memset(expected, 0xa5, sizeof(expected));
     for (unsigned y = 0; y < 28; y++) {
-        memset(expected + 16 + 64 * y, 64, 56);
+        memset(expected + 16 + 64 * y, 129, 56);
     }
     for (unsigned y = 0; y < 14; y++) {
         for (unsigned x = 0; x < 56; x += 2) {
-            expected[16 + 64 * (28 + y) + x] = 144;
-            expected[16 + 64 * (28 + y) + x + 1] = 128;
+            expected[16 + 64 * (28 + y) + x] = 152;
+            expected[16 + 64 * (28 + y) + x + 1] = 120;
         }
     }
     qtest_memread(q, PAIRED_MAIN - 16, actual, sizeof(actual));
@@ -3167,11 +3242,48 @@ static void paired_noise_oracle(QTestState *q, unsigned phase, bool outside)
         { { 129, 137, 140, 126 }, { 125, 135, 135, 140 } },
     };
     uint8_t pixels[64 * 42];
+    uint16_t expected[56 * 28];
+    uint32_t feedback = qtest_readl(q, PAIRED + 0xdf8);
+    uint32_t state = 1;
+
+    for (unsigned channel = 1; !feedback && channel < 3; channel++) {
+        feedback = qtest_readl(q, PAIRED + 0xdf8 + channel * 4);
+    }
+    for (unsigned y = 0; y < 28; y += 2) {
+        for (unsigned x = 0; x < 56; x += 2) {
+            for (unsigned dy = 0; dy < 2; dy++) {
+                for (unsigned dx = 0; dx < 2; dx++) {
+                    unsigned at = (y + dy) * 56 + x + dx;
+                    bool outgoing = state & 1;
+                    int noise;
+
+                    state /= 2;
+                    if (outgoing) {
+                        state ^= feedback;
+                    }
+                    noise = CLAMP((int)(state >> 21) - 1024, -1020, 1020);
+
+                    expected[at] = CLAMP(2056 + post_round(noise * 255, 1024),
+                                         0, 4095);
+                }
+            }
+        }
+    }
+    for (unsigned y = 0; y < 2; y++) {
+        for (unsigned x = 0; x < 4; x++) {
+            g_assert_cmpuint(MIN(255, post_round(expected[56 * y + x], 16)),
+                             ==, first_rows[outside][y][x]);
+        }
+    }
+    paired_post_oracle(expected, 56, 28, 0, 0, 0, 3);
 
     qtest_memread(q, PAIRED_MAIN + (phase % 2) * 0x2000, pixels,
                   sizeof(pixels));
-    for (unsigned y = 0; y < 2; y++) {
-        g_assert_cmpmem(pixels + 64 * y, 4, first_rows[outside][y], 4);
+    for (unsigned y = 0; y < 28; y++) {
+        for (unsigned x = 0; x < 56; x++) {
+            g_assert_cmpuint(pixels[64 * y + x], ==,
+                             MIN(255, post_round(expected[56 * y + x], 16)));
+        }
     }
     for (unsigned y = 0; y < 42; y++) {
         for (unsigned x = 0; x < 64; x++) {
@@ -3403,6 +3515,188 @@ static void test_paired_photo(void)
     }
 }
 
+static void test_paired_post(void)
+{
+    static const uint8_t step[] = {
+        'P', '5', '\n', '2', ' ', '1', '\n', '2', '5', '5', '\n', 64, 192,
+    };
+    static const int c[9] = { 1024, 0, 0, 0, 0, -1024, 0, 1024, 0 };
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+    uint16_t planes[3][56 * 28];
+    uint8_t expected[0xce0], actual[sizeof(expected)];
+
+    g_assert_true(g_file_set_contents(scene, (const char *)step,
+                                      sizeof(step), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    paired_matrix(q, PAIRED, 0xb94, c, 13, true);
+    qtest_writel(q, PAIRED + 0xb58, (192 << 16) | 96);
+    qtest_writel(q, PAIRED + 0xbac, (109 << 16) | 147);
+    qtest_writel(q, PAIRED + 0xd28, (17 << 8) | 9);
+    qtest_writel(q, PAIRED + 0xdd4, 18);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    work_input(q);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    /* Source P5 produces RAW1028/3084. Existing five-tap spatial filtering
+     * gives1285/2827 at the two boundary columns (RAW x31/32).
+     */
+    for (unsigned y = 0; y < 28; y++) {
+        for (unsigned x = 0; x < 56; x++) {
+            unsigned at = y * 56 + x;
+            int s = x < 27 ? 1028 : x == 27 ? 1285 :
+                    x == 28 ? 2827 : 3084;
+            int green = post_round(s, 2), blue = post_round(s, 4);
+            int u = post_round(green - blue, 2);
+            int v = post_round(green - s, 2);
+
+            planes[0][at] = s;
+            planes[1][at] = CLAMP(post_round(147 * u - 109 * v, 256) +
+                                  2048, 0, 4095);
+            planes[2][at] = CLAMP(post_round(147 * v + 109 * u, 256) +
+                                  2048, 0, 4095);
+        }
+    }
+    for (unsigned channel = 0; channel < 3; channel++) {
+        paired_post_oracle(planes[channel], 56, 28, channel ? 96 : 192,
+                           17, 9, 18);
+    }
+    memset(expected, 0xa5, sizeof(expected));
+    for (unsigned y = 0; y < 28; y++) {
+        for (unsigned x = 0; x < 56; x++) {
+            expected[16 + y * 64 + x] = MIN(255,
+                post_round(planes[0][y * 56 + x], 16));
+        }
+    }
+    for (unsigned y = 0; y < 14; y++) {
+        for (unsigned x = 0; x < 56; x += 2) {
+            unsigned at = y * 112 + x;
+
+            for (unsigned channel = 1; channel < 3; channel++) {
+                unsigned average = (planes[channel][at] +
+                    planes[channel][at + 1] + planes[channel][at + 56] +
+                    planes[channel][at + 57] + 2) / 4;
+
+                expected[16 + (28 + y) * 64 + x + channel - 1] =
+                    MIN(255, post_round(average, 16));
+            }
+        }
+    }
+    qtest_memread(q, PAIRED_MAIN - 16, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+    /* WORK/grid retain real pre-color values and padding. */
+    g_assert_cmphex(qtest_readl(q, PAIRED_WORK), ==, 0x04040404);
+    g_assert_cmphex(qtest_readl(q, PAIRED_WORK + 64), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, PAIRED_GRID), ==, 0x04404404);
+    g_assert_cmphex(qtest_readl(q, PAIRED_GRID + 92), ==, 0xa5a5a5a5);
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_paired_post_boundaries(void)
+{
+    static const unsigned incomplete[] = { 8, 14, 51, 63 };
+    static const struct { unsigned offset, value; } invalid[] = {
+        { 0xb58, 257 << 16 }, { 0xb58, 257 },
+        { 0xbac, 257 }, { 0xbac, 0x00800081 },
+        { 0xd28, 0x2000 }, { 0xd28, 0x20 }, { 0xd28, 0x10000 },
+        { 0xdd4, 2 }, { 0xdd4, 19 }, { 0xdd8, 4 },
+        { 0xb38, 1 }, /* Opaque profile words remain strictly compared. */
+        { 0xd24, 1 }, { 0xdc0, 1 }, { 0xbb0, 1 },
+        { 0xb94, 512 }, /* C cannot transform luma. */
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid) + ARRAY_SIZE(incomplete); i++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        if (i < ARRAY_SIZE(invalid)) {
+            qtest_writel(q, PAIRED + invalid[i].offset, invalid[i].value);
+        } else {
+            qtest_system_reset(q);
+            /* Reset clears coverage even for retained-value zero words. */
+            paired_configure(q, true, PAIRED, 7, 8, 8, 6, 51,
+                             incomplete[i - ARRAY_SIZE(invalid)]);
+        }
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
+        paired_untouched(q);
+        g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
+static void test_paired_post_lifecycle(void)
+{
+    static const struct { unsigned offset, value; } changes[] = {
+        { 0xb58, 51 << 16 }, { 0xbac, 0x006d0093 },
+        { 0xd28, 0x300 }, { 0xdd4, 4 },
+    };
+
+    for (unsigned test = 0; test < ARRAY_SIZE(changes) + 2; test++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, true);
+
+        work_input(q);
+        work_rise(q);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+        if (test < ARRAY_SIZE(changes)) {
+            qtest_writel(q, PAIRED + changes[test].offset, changes[test].value);
+        } else if (test == ARRAY_SIZE(changes)) {
+            qtest_system_reset(q);
+        } else {
+            const unsigned ranges[][2] = {
+                { 0xb38, 0xb58 }, { 0xb94, 0xbbc },
+                { 0xd20, 0xd9c }, { 0xdc0, 0xdec },
+            };
+
+            /* Do not rewrite C through temporary zero coefficients: equal
+             * covered words alone must preserve the immutable active job.
+             */
+            for (unsigned group = 0; group < ARRAY_SIZE(ranges); group++) {
+                for (unsigned offset = ranges[group][0];
+                     offset <= ranges[group][1]; offset += 4) {
+                    qtest_writel(q, PAIRED + offset,
+                                 qtest_readl(q, PAIRED + offset));
+                }
+            }
+        }
+        qtest_clock_step(q, 2000000);
+        if (test <= ARRAY_SIZE(changes)) {
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+            paired_untouched(q);
+        } else {
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 0);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+            paired_pixels(q, PAIRED_MAIN, 0);
+        }
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
 static void test_paired_filter(void)
 {
     static const uint8_t step[] = {
@@ -3612,7 +3906,7 @@ static void test_paired_denoise_boundaries(void)
             /* Reset must forget all seven publication bits, including zeros. */
             qtest_system_reset(q);
             paired_configure(q, true, PAIRED,
-                             mode == ARRAY_SIZE(invalid) ? 0 : 6, 8, 8, 6, 51);
+                             mode == ARRAY_SIZE(invalid) ? 0 : 6, 8, 8, 6, 51, 64);
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -3812,7 +4106,7 @@ static void test_paired_adaptive_boundaries(void)
         } else {
             qtest_system_reset(q);
             paired_configure(q, true, PAIRED, 7, 8,
-                             mode == ARRAY_SIZE(invalid) ? 0 : 7, 6, 51);
+                             mode == ARRAY_SIZE(invalid) ? 0 : 7, 6, 51, 64);
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -3937,7 +4231,7 @@ static void test_paired_detail_boundaries(void)
         } else {
             qtest_system_reset(q);
             paired_configure(q, true, PAIRED, 7,
-                             mode == ARRAY_SIZE(invalid) ? 0 : 7, 8, 6, 51);
+                             mode == ARRAY_SIZE(invalid) ? 0 : 7, 8, 6, 51, 64);
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -4108,7 +4402,7 @@ static void test_paired_colorfilter_publication(void)
     /* Every member, including zero coefficients/fixed qualifiers, is required. */
     for (unsigned missing = 0; missing <= 51; missing++) {
         qtest_system_reset(q);
-        paired_configure(q, true, PAIRED, 7, 8, 8, 6, 0);
+        paired_configure(q, true, PAIRED, 7, 8, 8, 6, 0, 64);
         for (unsigned i = 0; i < 51; i++) {
             unsigned offset = i == 50 ? 0x9d8 : 0x900 + 4 * i;
 
@@ -4360,7 +4654,7 @@ static void test_paired_radial_boundaries(void)
         } else {
             qtest_system_reset(q);
             paired_configure(q, true, PAIRED, 7, 8, 8,
-                             mode - ARRAY_SIZE(invalid), 51);
+                             mode - ARRAY_SIZE(invalid), 51, 64);
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
@@ -4617,7 +4911,7 @@ static void test_paired_stream_peer(void)
     QTestState *q = paired_start(&bundle, &scene, true, false);
     g_autofree char *gate = paired_gate_path(q);
 
-    paired_configure(q, true, peer, 7, 8, 8, 6, 51);
+    paired_configure(q, true, peer, 7, 8, 8, 6, 51, 64);
     for (unsigned i = 0; i < 4; i++) {
         qtest_writel(q, peer + 0x398 + i * 4, RAM + 0x160000 + i * 0x1000);
     }
@@ -5041,7 +5335,7 @@ static void test_paired_peer_release(void)
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
-    paired_configure(q, true, peer, 7, 8, 8, 6, 51);
+    paired_configure(q, true, peer, 7, 8, 8, 6, 51, 64);
     qtest_writel(q, peer + 0x10, 1);
     qtest_writel(q, peer + 8, 1);
     work_input(q);
@@ -5262,6 +5556,11 @@ int main(int argc, char **argv)
                    test_paired_preserve_results);
     qtest_add_func("/nikon/cmos/paired/backpressure", test_paired_backpressure);
     qtest_add_func("/nikon/cmos/paired/c-matrix", test_paired_c_matrix);
+    qtest_add_func("/nikon/cmos/paired/post/transaction", test_paired_post);
+    qtest_add_func("/nikon/cmos/paired/post/boundaries",
+                   test_paired_post_boundaries);
+    qtest_add_func("/nikon/cmos/paired/post/lifecycle",
+                   test_paired_post_lifecycle);
     qtest_add_func("/nikon/cmos/paired/matrix-encoding",
                    test_paired_matrix_encoding);
     qtest_add_func("/nikon/cmos/paired/source-history",

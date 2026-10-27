@@ -58,6 +58,13 @@ typedef struct NikonPairedColorFilter {
     uint16_t negative, positive;
     uint8_t precision, strength, shift, weight;
 } NikonPairedColorFilter;
+/* Four source-shaped post-color groups; numerical roles are hypotheses. */
+typedef struct NikonPairedPost {
+    uint16_t unsharp[2]; /* B58: Y and shared U/V Q8 residual strengths. */
+    uint16_t original, transformed; /* BAC: complementary Q8 C blend. */
+    uint8_t smooth[2]; /* D28: axial then diagonal Q5 mean blends. */
+    uint8_t edge_strength, edge_limit; /* DD4/DD8: bounded final blend. */
+} NikonPairedPost;
 
 typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
@@ -78,6 +85,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedAdaptive adaptive;
     NikonPairedRadial radial;
     NikonPairedColorFilter colorfilter;
+    NikonPairedPost post;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -97,6 +105,7 @@ bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
 bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *adaptive);
 bool nikon_paired_radial_valid(const NikonPairedRadial *radial);
 bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *filter);
+bool nikon_paired_post_valid(const NikonPairedPost *post);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -158,7 +167,9 @@ bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *filter);
  * are functional choices, not recovered CFA processing. RGB then passes through
  * up to two Q10 gain curves (257 knots at sample steps of16), optionally gained
  * in Q8, optionally perturbed by bounded LFSR noise, then transformed by
- * A/C Q10 and B Q9. Curves/gains/noise affect main color
+ * A Q10 and B Q9, then C Q10 in centered Y/chroma space. C preserves Y
+ * and has no luma/chroma cross terms. BAC blends the original and C output
+ * with complementary Q8 weights before centering chroma at2048. Curves/gains/noise affect main color
  * output only. These choices do not establish the silicon algorithm.
  *
  * CFA encodings require even input dimensions. Lane R/Gr/Gb/B is
@@ -196,6 +207,17 @@ bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *filter);
  * Dimensions are at most 4096; main output dimensions must be positive and
  * even, and its rectangle must fit the input. Grid dimensions must fit the
  * input. A/C coefficients are signed 13-bit and B coefficients signed 12-bit.
+ * MAIN uses three actual Q12 intermediate planes. B58 adds a Q8 axial unsharp
+ * residual (Y strength0, shared chroma strength1). D28 then blends toward the
+ * axial and diagonal means with its two Q5 strengths. DD4/DD8 finally add the
+ * axial mean residual d, weighted by max(0,1-abs(d)/(16*edge_limit)) and
+ * edge_strength/32. Keep d rational until the final correction rounding.
+ * Every pass reads an immutable plane, replicates borders, rounds one exact
+ * signed rational correction with ties away from zero, and clamps to12-bit.
+ * Spatial processing precedes the actual2x2 UV average and8-bit conversion.
+ * These post-color roles, scales and ordering are finite hypotheses. They do
+ * not change pre-color WORK/grid/history. All groups are mandatory; the edge
+ * strength3..18 and limit5 family has no invented wire bypass.
  * Every supplied 16-bit sample must be in [0,4095]. Output buffers must not
  * overlap one another or input/history buffers. The caller supplies their
  * complete extents. Failure leaves all output buffers unchanged.

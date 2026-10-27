@@ -202,6 +202,16 @@ bool nikon_paired_colorfilter_valid(const NikonPairedColorFilter *f)
     return true;
 }
 
+bool nikon_paired_post_valid(const NikonPairedPost *p)
+{
+    return p && p->unsharp[0] <= 256 && p->unsharp[1] <= 256 &&
+           p->original <= 256 && p->transformed <= 256 &&
+           p->original + p->transformed == 256 &&
+           p->smooth[0] <= 31 && p->smooth[1] <= 31 &&
+           p->edge_strength >= 3 && p->edge_strength <= 18 &&
+           p->edge_limit == 5;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -237,7 +247,11 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         !nikon_paired_detail_valid(&p->detail) ||
         !nikon_paired_adaptive_valid(&p->adaptive) ||
         !nikon_paired_radial_valid(&p->radial) ||
-        !nikon_paired_colorfilter_valid(&p->colorfilter)) {
+        !nikon_paired_colorfilter_valid(&p->colorfilter) ||
+        !nikon_paired_post_valid(&p->post)) {
+        return false;
+    }
+    if (p->c[0] != 1024 || p->c[1] || p->c[2] || p->c[3] || p->c[6]) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -747,7 +761,8 @@ static uint16_t paired_quad(const NikonPairedPixelConfig *p, uint16_t sample,
 static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
                             uint32_t noise_state[3], uint16_t output[3])
 {
-    uint16_t after_a[3], after_c[3];
+    uint16_t after_a[3];
+    int32_t yuv[3];
     unsigned row, column;
 
     for (column = 0; column < 3; column++) {
@@ -783,14 +798,23 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
         }
     }
     paired_matrix(p->a, rgb, after_a);
-    paired_matrix(p->c, after_a, after_c);
     for (row = 0; row < 3; row++) {
         int32_t sum = 0;
 
         for (column = 0; column < 3; column++) {
-            sum += p->b[3 * row + column] * after_c[column];
+            sum += p->b[3 * row + column] * after_a[column];
         }
-        output[row] = paired_clamp(paired_round(sum, 9) + (row ? 2048 : 0));
+        yuv[row] = CLAMP(paired_round(sum, 9), row ? -2048 : 0,
+                        row ? 2047 : 4095);
+    }
+    output[0] = yuv[0];
+    for (row = 1; row < 3; row++) {
+        int32_t transformed = paired_round(p->c[3 * row + 1] * yuv[1] +
+                                           p->c[3 * row + 2] * yuv[2], 10);
+        int32_t mixed = paired_round(p->post.original * yuv[row] +
+                                     p->post.transformed * transformed, 8);
+
+        output[row] = paired_clamp(mixed + 2048);
     }
 }
 
@@ -884,20 +908,73 @@ static uint8_t paired_byte(unsigned value)
     return MIN((value + 8) / 16, 255U);
 }
 
+static int32_t paired_ratio(int64_t numerator, int64_t denominator)
+{
+    return numerator < 0 ? -((-numerator + denominator / 2) / denominator) :
+                           (numerator + denominator / 2) / denominator;
+}
+
+static void paired_post_pass(const uint16_t *input, uint16_t *output,
+                              unsigned width, unsigned height,
+                              const NikonPairedPost *p, unsigned channel,
+                              unsigned pass)
+{
+    for (unsigned y = 0; y < height; y++) {
+        unsigned up = y ? y - 1 : y;
+        unsigned down = MIN(y + 1, height - 1);
+
+        for (unsigned x = 0; x < width; x++) {
+            unsigned left = x ? x - 1 : x;
+            unsigned right = MIN(x + 1, width - 1);
+            int center = input[y * width + x];
+            int n;
+            int32_t correction;
+
+            if (pass == 2) {
+                n = input[up * width + left] + input[up * width + right] +
+                    input[down * width + left] + input[down * width + right];
+            } else {
+                n = input[y * width + left] + input[y * width + right] +
+                    input[up * width + x] + input[down * width + x];
+            }
+            n -= 4 * center;
+            if (pass == 0) {
+                correction = paired_ratio(-(int64_t)n *
+                                           p->unsharp[!!channel], 4 * 256);
+            } else if (pass < 3) {
+                correction = paired_ratio((int64_t)n * p->smooth[pass - 1],
+                                           4 * 32);
+            } else {
+                int threshold = 16 * p->edge_limit;
+                int gate = MAX(4 * threshold - abs(n), 0);
+
+                correction = paired_ratio((int64_t)n * gate *
+                                           p->edge_strength,
+                                           16 * threshold * 32);
+            }
+            output[y * width + x] = paired_clamp(center + correction);
+        }
+    }
+}
+
 static void paired_main(const uint16_t *filtered,
                          const NikonPairedPixelConfig *p,
+                         uint16_t *planes, uint16_t *scratch,
                          uint8_t *out_y, uint8_t *out_uv)
 {
     unsigned x, y, dx, dy;
+    size_t pixels = (size_t)p->output_width * p->output_height;
     uint32_t noise_state[] = { 1, 1, 1 };
 
+    /* Preserve the original 2x2 noise-state traversal while materializing only
+     * actual computed YUV. No RGB side buffer supplies any sample.
+     */
     for (y = 0; y < p->output_height; y += 2) {
         for (x = 0; x < p->output_width; x += 2) {
-            unsigned u = 0, v = 0;
-
             for (dy = 0; dy < 2; dy++) {
                 for (dx = 0; dx < 2; dx++) {
                     uint16_t yuv[3];
+                    size_t at = (size_t)(y + dy) * p->output_width + x + dx;
 
                     if (p->encoding == NIKON_RAW_MONO) {
                         paired_yuv(p, filtered, p->x + x + dx,
@@ -906,10 +983,39 @@ static void paired_main(const uint16_t *filtered,
                         paired_cfa_yuv(filtered, p, p->x + x + dx,
                                        p->y + y + dy, noise_state, yuv);
                     }
-                    out_y[(y + dy) * p->output_width + x + dx] =
-                        paired_byte(yuv[0]);
-                    u += yuv[1];
-                    v += yuv[2];
+                    for (unsigned channel = 0; channel < 3; channel++) {
+                        planes[channel * pixels + at] = yuv[channel];
+                    }
+                }
+            }
+        }
+    }
+    /* The RAW plane is no longer read: reuse its existing allocation as the
+     * immutable-pass scratch, at least as large as the cropped MAIN plane.
+     */
+    for (unsigned channel = 0; channel < 3; channel++) {
+        uint16_t *plane = planes + channel * pixels;
+
+        paired_post_pass(plane, scratch, p->output_width, p->output_height,
+                          &p->post, channel, 0);
+        paired_post_pass(scratch, plane, p->output_width, p->output_height,
+                          &p->post, channel, 1);
+        paired_post_pass(plane, scratch, p->output_width, p->output_height,
+                          &p->post, channel, 2);
+        paired_post_pass(scratch, plane, p->output_width, p->output_height,
+                          &p->post, channel, 3);
+    }
+    for (y = 0; y < p->output_height; y += 2) {
+        for (x = 0; x < p->output_width; x += 2) {
+            unsigned u = 0, v = 0;
+
+            for (dy = 0; dy < 2; dy++) {
+                for (dx = 0; dx < 2; dx++) {
+                    size_t at = (size_t)(y + dy) * p->output_width + x + dx;
+
+                    out_y[at] = paired_byte(planes[at]);
+                    u += planes[pixels + at];
+                    v += planes[2 * pixels + at];
                 }
             }
             out_uv[(y / 2) * p->output_width + x] = paired_byte((u + 2) / 4);
@@ -930,6 +1036,7 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
 {
     g_autofree uint16_t *dpc = NULL;
     g_autofree uint16_t *filtered = NULL;
+    g_autofree uint16_t *planes = NULL;
     size_t pixels, half_pixels;
     unsigned x, y;
 
@@ -948,7 +1055,9 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
     }
     dpc = g_try_new(uint16_t, pixels);
     filtered = g_try_new(uint16_t, pixels);
-    if (!dpc || !filtered) {
+    planes = g_try_new(uint16_t, (size_t)3 * config->output_width *
+                                config->output_height);
+    if (!dpc || !filtered || !planes) {
         return false;
     }
     if (config->encoding == NIKON_RAW_MONO) {
@@ -992,6 +1101,6 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         }
     }
     paired_main(config->encoding == NIKON_RAW_MONO ? dpc : filtered,
-                 config, out_y, out_uv);
+                 config, planes, dpc, out_y, out_uv);
     return true;
 }
