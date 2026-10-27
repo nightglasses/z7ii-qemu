@@ -61,8 +61,6 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 typedef struct NikonEXFunctionalInputs {
     int adc[4];
     uint8_t adc_mask;
-    uint32_t io_mask;
-    uint32_t io_high;
     bool power_good;
     bool gpiod13;
 } NikonEXFunctionalInputs;
@@ -74,12 +72,6 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
      * not a recovered voltage measurement. */
     .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, -1, 3500 },
     .adc_mask = (1u << 0) | (1u << 1) | (1u << 3),
-    /*
-     * Remaining declared expander inputs. Pad0 belongs to the maintained
-     * capture selector below; omitted pins remain electrically disconnected.
-     */
-    .io_mask = (1u << 1) | (1u << 3) | (1u << 10),
-    .io_high = 0,
     .power_good = true,
     .gpiod13 = true,
 };
@@ -754,12 +746,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    for (i = 0; i < 24; i++) {
-        if (z7ii_ex_functional_inputs.io_mask & (1u << i)) {
-            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
-                         !!(z7ii_ex_functional_inputs.io_high & (1u << i)));
-        }
-    }
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
      * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
@@ -791,6 +777,11 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
 
         qdev_connect_gpio_out_named(input, "pad", i,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
+    }
+    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        qdev_connect_gpio_out_named(input, "expander-pad", i,
+            qdev_get_gpio_in_named(nikon_ex_io(ex), "pad",
+                                  nikon_input_expander_ids[i]));
     }
     qdev_connect_gpio_out_named(
         input, "capture-selector", 0,

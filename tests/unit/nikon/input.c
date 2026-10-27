@@ -512,7 +512,7 @@ static void test_dial_phases(void)
         step(f, dial, 1);
         dial_state(f, dial, 3);
         for (unsigned phase = 0; phase < 4; phase++) {
-            advance(4999999);
+            advance(49999999);
             dial_state(f, dial, phase ? forward[phase - 1] : 3);
             advance(1);
             dial_state(f, dial, forward[phase]);
@@ -520,25 +520,25 @@ static void test_dial_phases(void)
         }
         step(f, dial, -1);
         for (unsigned phase = 0; phase < 4; phase++) {
-            advance(5000000);
+            advance(50000000);
             dial_state(f, dial, reverse[phase]);
         }
     }
     /* Independent simultaneous directions and preserved active deadline. */
     step(f, 0, 1);
     step(f, 1, -1);
-    advance(4000000);
+    advance(40000000);
     step(f, 0, -1);
-    advance(1000000);
+    advance(10000000);
     dial_state(f, 0, 2);
     dial_state(f, 1, 1);
     for (unsigned i = 1; i < 4; i++) {
-        advance(5000000);
+        advance(50000000);
         dial_state(f, 0, forward[i]);
         dial_state(f, 1, reverse[i]);
     }
     for (unsigned i = 0; i < 4; i++) {
-        advance(5000000);
+        advance(50000000);
         dial_state(f, 0, reverse[i]);
         dial_state(f, 1, 3);
     }
@@ -557,17 +557,17 @@ static void test_dial_queue(void)
         property_reject(f, dial ? "dial1-step" : "dial0-step", -1);
         dial_state(f, dial, 3);
         for (unsigned i = 0; i < 32; i++) {
-            advance(5000000);
+            advance(50000000);
             dial_state(f, dial, forward[i % 4]);
         }
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, 3);
         /* Queue slots are reusable after the full sequence, including wrap. */
         step(f, dial, -1);
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, 1);
         step(f, dial, 0);
-        advance(20000000);
+        advance(200000000);
         dial_state(f, dial, 3);
     }
     input_free(f);
@@ -580,11 +580,11 @@ static void test_dial_ownership(void)
     step(f, 0, 1);
     step(f, 0, -1);
     step(f, 1, -1);
-    advance(5000000);
+    advance(50000000);
     key(KEY_F8, true); /* Cancel dial0 and yield both contacts to raw keys. */
     dial_state(f, 0, 1);
     property_reject(f, "dial0-step", 1);
-    advance(5000000);
+    advance(50000000);
     dial_state(f, 0, 1);
     dial_state(f, 1, 0);
     key(KEY_F9, true);
@@ -599,7 +599,7 @@ static void test_dial_ownership(void)
     dial_state(f, 0, 3);
     step(f, 0, 1);
     board_reset();
-    advance(50000000);
+    advance(500000000);
     dial_state(f, 0, 3);
     dial_state(f, 1, 3);
     for (unsigned i = 0; i < 4; i++) {
@@ -608,21 +608,21 @@ static void test_dial_ownership(void)
 
         key(code, true);
         key(code, true);
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, i & 1 ? 1 : 2);
         step(f, dial, 0);
-        advance(25000000);
+        advance(250000000);
         dial_state(f, dial, 3); /* A repeated key did not queue another turn. */
         board_reset();
         key(code, true);
-        advance(25000000);
+        advance(250000000);
         dial_state(f, dial, 3);
         key(code, false);
     }
     step(f, 0, 1);
     step(f, 1, -1);
     input_free(f);
-    advance(50000000); /* Unrealize cancelled both timers. */
+    advance(500000000); /* Unrealize cancelled both timers. */
     board_reset();
 }
 

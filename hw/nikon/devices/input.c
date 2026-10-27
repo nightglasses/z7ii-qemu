@@ -44,7 +44,7 @@ static const unsigned int nikon_input_expander_keys[NIKON_INPUT_EXPANDER_PADS] =
 };
 
 #define NIKON_INPUT_DIAL_QUEUE 8
-#define NIKON_INPUT_PHASE_NS 5000000
+#define NIKON_INPUT_PHASE_NS 50000000
 
 static const unsigned mode_counts[] = {
     115, 473, 975, 1506, 2057, 2604, 3136, 3747,

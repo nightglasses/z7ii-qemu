@@ -95,7 +95,9 @@ high. F13 toggles this maintained contact once per press; release and keyboard
 repeat leave it unchanged. These host key and initial-position choices are a
 functional input profile, not recovered physical keyboard wiring. F1–F12 and
 1–5 retain the separate seventeen direct EX GPIO scan inputs. F4/EX C5 is not
-the photo/movie selector.
+the photo/movie selector: its original report mapping is SW0 `MAIN` (`0x200`),
+the maintained main power switch. Holding it low supplies power-ON in the
+original-input runs; it is not a shutter half-press.
 
 The C1.70 source chain uses EX VA `0803E52A..0803E53A` to sample expander
 bit0 into logical input37; `0803D950..0803D9B2` inverts it into aggregate
@@ -151,6 +153,13 @@ outputs, mode ADC and two command dials keep their separate interfaces.
 The host bindings below are explicit virtual input choices. The pad numbers
 and firmware bit/report mappings come from the C1.70 EX/MAS source audit; the
 host keyboard assignments are not recovered camera keyboard wiring.
+
+The board no longer holds pads1,3 and10 low. The source maps pad3 to OK,
+pad1 to SW1 `RELEASE_MODE` and pad10 to SW2 `FEATURE`; none is an established
+ready signal. The frontend uniquely owns OK, initially released. Pads1/10
+remain disconnected so the guest's actual pull configuration determines their
+level; the expander's existing reset profile resolves them high. `FEATURE` is
+retained as the source name without guessing a physical button identity.
 
 | Output index | Contact | Expander pad | Host key |
 | --- | --- | --- | --- |
@@ -255,9 +264,11 @@ Two finite contact sequencers share the existing direct GPIO outputs. Dial0
 uses EX F11/F14 (raw host F8/F9); dial1 uses EX E7/E13 (raw host F6/F7). The
 first pin is bit1 and the second bit0. A positive detent produces raw levels
 `11 → 10 → 00 → 01 → 11`; a negative detent reverses that sequence. The first
-transition occurs after5ms, and every later transition also waits5ms. This
-virtual input timing is a functional assumption to give the unchanged EX
-polling loop time to sample each phase, not a measured rotary-encoder rate.
+transition occurs after50ms, and every later transition also waits50ms. Four
+phases take200ms per detent, limiting a queued sequence to five detents per
+second. This is an explicit virtual keyboard cadence chosen to give the
+unchanged guest polling loop time to observe the contacts. It is not a measured
+rotary-encoder rate, a physical debounce model or proof of downstream acceptance.
 Time advances the contacts only; it never emits a report, setting, GUI update
 or guest interrupt.
 
