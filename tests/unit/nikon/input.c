@@ -30,11 +30,23 @@ static const unsigned int keys[] = {
     KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
 };
 
+static const uint8_t expander_pads[] = {
+    9, 3, 8, 23, 2, 22, 21, 6, 7, 5, 4, 14, 15, 13, 12, 11,
+};
+
+static const unsigned int expander_keys[] = {
+    KEY_F20, KEY_ENTER, KEY_F21, KEY_DELETE, KEY_I, KEY_EQUAL, KEY_MINUS,
+    KEY_RIGHT, KEY_LEFT, KEY_UP, KEY_DOWN, KEY_D, KEY_A, KEY_W, KEY_S, KEY_F22,
+};
+
 typedef struct InputFixture {
     Object *owner;
     Clock *clock;
     DeviceState *input;
     DeviceState *gpio[7];
+    qemu_irq expander[16];
+    int expander_level[16];
+    unsigned expander_changes[16];
     qemu_irq selector;
     qemu_irq mode;
     int mode_level;
@@ -43,6 +55,16 @@ typedef struct InputFixture {
     unsigned selector_changes;
     unsigned int cycle;
 } InputFixture;
+
+static void expander_level(void *opaque, int pin, int level)
+{
+    InputFixture *f = opaque;
+
+    if (f->expander_level[pin] != level) {
+        f->expander_changes[pin]++;
+    }
+    f->expander_level[pin] = level;
+}
 
 static void mode_level(void *opaque, int pin, int level)
 {
@@ -64,7 +86,7 @@ static void selector_level(void *opaque, int pin, int level)
     f->selector_level = level;
 }
 
-static InputFixture *input_new(void)
+static InputFixture *input_new_full(bool expander)
 {
     InputFixture *f = g_new0(InputFixture, 1);
 
@@ -80,6 +102,16 @@ static InputFixture *input_new(void)
     f->mode_level = -1;
     f->mode = qemu_allocate_irq(mode_level, f, 0);
     qdev_connect_gpio_out_named(f->input, "mode-adc", 0, f->mode);
+    if (expander) {
+        for (unsigned i = 0; i < ARRAY_SIZE(expander_pads); i++) {
+            f->expander_level[i] = -1;
+            f->expander[i] = qemu_allocate_irq(expander_level, f, i);
+            qdev_connect_gpio_out_named(f->input, "expander-pad", i,
+                                        f->expander[i]);
+            g_assert_true(qdev_get_gpio_out_connector(f->input,
+                "expander-pad", i) == f->expander[i]);
+        }
+    }
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
         g_autofree char *name = g_strdup_printf("test.port%u", i);
 
@@ -111,11 +143,22 @@ static InputFixture *input_new(void)
     return f;
 }
 
+static InputFixture *input_new(void)
+{
+    return input_new_full(false);
+}
+
 static void input_free(InputFixture *f)
 {
     qdev_unrealize(f->input);
     g_assert_cmpint(f->selector_level, ==, -1);
     g_assert_cmpint(f->mode_level, ==, -1);
+    for (unsigned i = 0; i < ARRAY_SIZE(f->expander); i++) {
+        if (f->expander[i]) {
+            g_assert_cmpint(f->expander_level[i], ==, -1);
+            qemu_free_irq(f->expander[i]);
+        }
+    }
     object_unparent(OBJECT(f->input));
     object_unref(OBJECT(f->input));
     for (unsigned i = 0; i < ARRAY_SIZE(f->gpio); i++) {
@@ -250,6 +293,113 @@ static void test_selector(void)
     }
 }
 
+static void expander_levels(InputFixture *f, uint32_t down)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(expander_pads); i++) {
+        g_assert_cmpint(f->expander_level[i], ==,
+                        !(down & (1U << expander_pads[i])));
+    }
+    levels(f, 0, "expander-does-not-drive-direct-GPIO");
+    g_assert_cmpint(f->selector_level, ==, 1);
+    g_assert_cmpint(f->mode_level, ==, 3747);
+}
+
+static void test_expander_contacts(void)
+{
+    for (unsigned cycle = 0; cycle < 2; cycle++) {
+        InputFixture *f = input_new_full(true);
+        unsigned changes[16];
+
+        expander_levels(f, 0);
+        for (unsigned i = 0; i < ARRAY_SIZE(expander_keys); i++) {
+            uint32_t down = 1U << expander_pads[i];
+            unsigned before = f->expander_changes[i];
+
+            key(expander_keys[i], true);
+            expander_levels(f, down);
+            g_assert_cmpuint(f->expander_changes[i], ==, before + 1);
+            key(expander_keys[i], true);
+            expander_levels(f, down);
+            g_assert_cmpuint(f->expander_changes[i], ==, before + 1);
+            key(expander_keys[i], false);
+            expander_levels(f, 0);
+            g_assert_cmpuint(f->expander_changes[i], ==, before + 2);
+            key(expander_keys[i], false);
+            g_assert_cmpuint(f->expander_changes[i], ==, before + 2);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(expander_keys); i++) {
+            key(expander_keys[i], true);
+            changes[i] = f->expander_changes[i];
+        }
+        expander_levels(f, 0xe0fbfcU);
+        receiver_holds_after_frontend(f);
+        board_reset();
+        expander_levels(f, 0xe0fbfcU);
+        key(KEY_ESC, true);
+        key(KEY_ESC, false);
+        for (unsigned i = 0; i < ARRAY_SIZE(expander_keys); i++) {
+            key(expander_keys[i], true);
+            g_assert_cmpuint(f->expander_changes[i], ==, changes[i]);
+        }
+        /* Unplug releases every contact, including a held-low one. */
+        input_free(f);
+        board_reset();
+        for (unsigned i = 0; i < ARRAY_SIZE(expander_keys); i++) {
+            key(expander_keys[i], false);
+        }
+    }
+}
+
+static void test_expander_directions(void)
+{
+    static const struct {
+        unsigned first, second;
+        uint32_t mask;
+    } diagonal[] = {
+        { KEY_RIGHT, KEY_UP, 0x60 }, { KEY_RIGHT, KEY_DOWN, 0x50 },
+        { KEY_LEFT, KEY_UP, 0xa0 }, { KEY_LEFT, KEY_DOWN, 0x90 },
+        { KEY_D, KEY_W, 0x6000 }, { KEY_D, KEY_S, 0x5000 },
+        { KEY_A, KEY_W, 0xa000 }, { KEY_A, KEY_S, 0x9000 },
+    };
+    InputFixture *f = input_new_full(true);
+    unsigned changes[16];
+
+    for (unsigned i = 0; i < ARRAY_SIZE(diagonal); i++) {
+        key(diagonal[i].first, true);
+        key(diagonal[i].second, true);
+        expander_levels(f, diagonal[i].mask);
+        key(diagonal[i].first, false);
+        key(diagonal[i].second, false);
+        expander_levels(f, 0);
+    }
+    key(KEY_RIGHT, true);
+    key(KEY_UP, true);
+    key(KEY_A, true);
+    key(KEY_S, true);
+    key(KEY_F20, true);
+    key(KEY_ENTER, true);
+    key(KEY_F22, true);
+    expander_levels(f, 0x9a68);
+    memcpy(changes, f->expander_changes, sizeof(changes));
+    board_reset();
+    receiver_holds_after_frontend(f);
+    expander_levels(f, 0x9a68);
+    g_assert_cmpmem(changes, sizeof(changes), f->expander_changes,
+                    sizeof(f->expander_changes));
+    key(KEY_UP, false);
+    expander_levels(f, 0x9a48);
+    key(KEY_S, false);
+    expander_levels(f, 0x8a48);
+    key(KEY_ENTER, false);
+    expander_levels(f, 0x8a40);
+    key(KEY_RIGHT, false);
+    key(KEY_A, false);
+    key(KEY_F20, false);
+    key(KEY_F22, false);
+    expander_levels(f, 0);
+    input_free(f);
+}
+
 static void advance(int64_t ns)
 {
     cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ns);
@@ -362,7 +512,7 @@ static void test_dial_phases(void)
         step(f, dial, 1);
         dial_state(f, dial, 3);
         for (unsigned phase = 0; phase < 4; phase++) {
-            advance(4999999);
+            advance(49999999);
             dial_state(f, dial, phase ? forward[phase - 1] : 3);
             advance(1);
             dial_state(f, dial, forward[phase]);
@@ -370,25 +520,25 @@ static void test_dial_phases(void)
         }
         step(f, dial, -1);
         for (unsigned phase = 0; phase < 4; phase++) {
-            advance(5000000);
+            advance(50000000);
             dial_state(f, dial, reverse[phase]);
         }
     }
     /* Independent simultaneous directions and preserved active deadline. */
     step(f, 0, 1);
     step(f, 1, -1);
-    advance(4000000);
+    advance(40000000);
     step(f, 0, -1);
-    advance(1000000);
+    advance(10000000);
     dial_state(f, 0, 2);
     dial_state(f, 1, 1);
     for (unsigned i = 1; i < 4; i++) {
-        advance(5000000);
+        advance(50000000);
         dial_state(f, 0, forward[i]);
         dial_state(f, 1, reverse[i]);
     }
     for (unsigned i = 0; i < 4; i++) {
-        advance(5000000);
+        advance(50000000);
         dial_state(f, 0, reverse[i]);
         dial_state(f, 1, 3);
     }
@@ -407,17 +557,17 @@ static void test_dial_queue(void)
         property_reject(f, dial ? "dial1-step" : "dial0-step", -1);
         dial_state(f, dial, 3);
         for (unsigned i = 0; i < 32; i++) {
-            advance(5000000);
+            advance(50000000);
             dial_state(f, dial, forward[i % 4]);
         }
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, 3);
         /* Queue slots are reusable after the full sequence, including wrap. */
         step(f, dial, -1);
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, 1);
         step(f, dial, 0);
-        advance(20000000);
+        advance(200000000);
         dial_state(f, dial, 3);
     }
     input_free(f);
@@ -430,11 +580,11 @@ static void test_dial_ownership(void)
     step(f, 0, 1);
     step(f, 0, -1);
     step(f, 1, -1);
-    advance(5000000);
+    advance(50000000);
     key(KEY_F8, true); /* Cancel dial0 and yield both contacts to raw keys. */
     dial_state(f, 0, 1);
     property_reject(f, "dial0-step", 1);
-    advance(5000000);
+    advance(50000000);
     dial_state(f, 0, 1);
     dial_state(f, 1, 0);
     key(KEY_F9, true);
@@ -449,7 +599,7 @@ static void test_dial_ownership(void)
     dial_state(f, 0, 3);
     step(f, 0, 1);
     board_reset();
-    advance(50000000);
+    advance(500000000);
     dial_state(f, 0, 3);
     dial_state(f, 1, 3);
     for (unsigned i = 0; i < 4; i++) {
@@ -458,21 +608,21 @@ static void test_dial_ownership(void)
 
         key(code, true);
         key(code, true);
-        advance(5000000);
+        advance(50000000);
         dial_state(f, dial, i & 1 ? 1 : 2);
         step(f, dial, 0);
-        advance(25000000);
+        advance(250000000);
         dial_state(f, dial, 3); /* A repeated key did not queue another turn. */
         board_reset();
         key(code, true);
-        advance(25000000);
+        advance(250000000);
         dial_state(f, dial, 3);
         key(code, false);
     }
     step(f, 0, 1);
     step(f, 1, -1);
     input_free(f);
-    advance(50000000); /* Unrealize cancelled both timers. */
+    advance(500000000); /* Unrealize cancelled both timers. */
     board_reset();
 }
 
@@ -494,6 +644,8 @@ int main(int argc, char **argv)
     vm_start();
     g_test_add_func("/nikon/input/receivers-reset-lifecycle", test_receivers);
     g_test_add_func("/nikon/input/capture-selector", test_selector);
+    g_test_add_func("/nikon/input/expander-contacts", test_expander_contacts);
+    g_test_add_func("/nikon/input/expander-directions", test_expander_directions);
     g_test_add_func("/nikon/input/mode-detents", test_mode);
     g_test_add_func("/nikon/input/dial-phases", test_dial_phases);
     g_test_add_func("/nikon/input/dial-queue", test_dial_queue);

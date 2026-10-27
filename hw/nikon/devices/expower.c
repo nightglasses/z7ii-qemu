@@ -6,6 +6,9 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/module.h"
+#include "qapi/error.h"
+#include "qapi/visitor.h"
+#include "hw/core/irq.h"
 #include "hw/i2c/i2c.h"
 #include "hw/nikon/expower.h"
 #include "migration/vmstate.h"
@@ -258,16 +261,59 @@ static const uint8_t exstatus_class_byte[] = { 0x00, 0xa9, 0xc9, 0xe9 };
 
 typedef struct NikonEXStatusState {
     I2CSlave parent_obj;
+    qemu_irq interrupt;
     uint8_t tx[EX_STATUS_TX_SIZE];
     uint8_t count;
     uint8_t rx_index;
     bool valid;
     uint8_t class;
+    uint8_t snapshot;
+    uint64_t generation;
+    uint64_t sampled_generation;
+    bool opened;
+    bool pending;
 } NikonEXStatusState;
 
 static NikonEXStatusState *exstatus_state(I2CSlave *slave)
 {
     return container_of(slave, NikonEXStatusState, parent_obj);
+}
+
+static void exstatus_update(NikonEXStatusState *s)
+{
+    /* Functional change notification: the original driver polls raw-low PC0.
+     * Neither a clock tick nor a repeated identical class creates new data.
+     */
+    qemu_set_irq(s->interrupt, !s->pending);
+}
+
+static void exstatus_get_class(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    uint8_t value = exstatus_state(I2C_SLAVE(obj))->class;
+
+    visit_type_uint8(v, name, &value, errp);
+}
+
+static void exstatus_set_class(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    NikonEXStatusState *s = exstatus_state(I2C_SLAVE(obj));
+    uint8_t value;
+
+    if (!visit_type_uint8(v, name, &value, errp)) {
+        return;
+    }
+    if (value >= ARRAY_SIZE(exstatus_class_byte)) {
+        error_setg(errp, "status class must be in 0..3");
+        return;
+    }
+    if (s->class != value) {
+        s->class = value;
+        s->generation++;
+        s->pending = true;
+        exstatus_update(s);
+    }
 }
 
 static void exstatus_init(Object *obj)
@@ -276,8 +322,9 @@ static void exstatus_init(Object *obj)
 
     /* A configured class is a board input; reset preserves it. */
     s->class = EX_STATUS_CLASS_DEFAULT;
-    object_property_add_uint8_ptr(obj, "class", &s->class,
-                                  OBJ_PROP_FLAG_READWRITE);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->interrupt, "interrupt", 1);
+    object_property_add(obj, "class", "uint8", exstatus_get_class,
+                        exstatus_set_class, NULL, NULL);
     object_property_set_description(obj, "class",
                                     "Functional status class 0..3; 1 is the "
                                     "bundle default");
@@ -289,7 +336,6 @@ static int exstatus_event(I2CSlave *slave, enum i2c_event event)
 
     if (event == I2C_START_SEND) {
         s->count = 0;
-        s->rx_index = 0;
         s->valid = false;
     } else if (event == I2C_START_RECV) {
         return s->valid ? 0 : -1;
@@ -304,25 +350,49 @@ static int exstatus_send(I2CSlave *slave, uint8_t data)
     if (s->count >= ARRAY_SIZE(s->tx)) {
         return -1;
     }
+    if ((!s->count && data != 0x08 && data != 0) ||
+        (s->count == 1 &&
+         ((s->tx[0] == 0x08 && data != 1) ||
+          (s->tx[0] == 0 && data != 0)))) {
+        return -1;
+    }
     s->tx[s->count++] = data;
-    s->valid = s->count == 2 &&
-               ((s->tx[0] == 0x08 && s->tx[1] == 0x01) ||
-                (s->tx[0] == 0xa9 && s->tx[1] == 0x00));
+    if (s->count == 2) {
+        if (s->tx[0] == 8) {
+            s->snapshot = s->class;
+            s->sampled_generation = s->generation;
+            s->opened = s->valid = true;
+            s->rx_index = 0;
+        } else {
+            /* The original caller echoes reply[0] followed by zero. This
+             * profile's reply[0] is zero. Only a complete current acquisition
+             * can acknowledge its notification; a later change stays pending.
+             */
+            if (s->opened && s->rx_index == EX_STATUS_RESPONSE_SIZE &&
+                s->sampled_generation == s->generation) {
+                s->pending = false;
+                exstatus_update(s);
+            }
+            s->opened = false;
+        }
+    }
     return 0;
 }
 
 static uint8_t exstatus_recv(I2CSlave *slave)
 {
     NikonEXStatusState *s = exstatus_state(slave);
-    uint8_t index = s->rx_index++;
-    uint8_t class = s->class < ARRAY_SIZE(exstatus_class_byte) ?
-                    s->class : 0;
+    uint8_t index = s->rx_index;
+
+    if (index < EX_STATUS_RESPONSE_SIZE) {
+        s->rx_index++;
+    }
 
     /* The transfer is four bytes long.  The EX service copies the fourth
      * received byte into its status word before applying the class parser;
-     * the leading bytes are reserved/status padding in this profile. */
+     * reply[0] is also the opaque release token echoed by that caller. */
     return index == EX_STATUS_RESPONSE_SIZE - 1 ?
-           exstatus_class_byte[class] : 0;
+           exstatus_class_byte[s->snapshot] : 0;
 }
 
 static void exstatus_reset_hold(Object *obj, ResetType type)
@@ -333,12 +403,35 @@ static void exstatus_reset_hold(Object *obj, ResetType type)
     s->count = 0;
     s->rx_index = 0;
     s->valid = false;
+    s->snapshot = s->class;
+    s->generation = s->sampled_generation = 0;
+    s->opened = s->pending = false;
+}
+
+static void exstatus_reset_exit(Object *obj, ResetType type)
+{
+    exstatus_update(exstatus_state(I2C_SLAVE(obj)));
+}
+
+static int exstatus_post_load(void *opaque, int version)
+{
+    NikonEXStatusState *s = opaque;
+
+    if (s->class >= ARRAY_SIZE(exstatus_class_byte) ||
+        s->snapshot >= ARRAY_SIZE(exstatus_class_byte) ||
+        s->count > EX_STATUS_TX_SIZE || s->rx_index > EX_STATUS_RESPONSE_SIZE ||
+        (s->valid && !s->opened)) {
+        return -EINVAL;
+    }
+    exstatus_update(s);
+    return 0;
 }
 
 static const VMStateDescription exstatus_vmstate = {
     .name = "nikon-ex-status",
-    .version_id = 2,
-    .minimum_version_id = 2,
+    .version_id = 3,
+    .minimum_version_id = 3,
+    .post_load = exstatus_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_I2C_SLAVE(parent_obj, NikonEXStatusState),
         VMSTATE_UINT8_ARRAY(tx, NikonEXStatusState, EX_STATUS_TX_SIZE),
@@ -346,6 +439,11 @@ static const VMStateDescription exstatus_vmstate = {
         VMSTATE_UINT8(rx_index, NikonEXStatusState),
         VMSTATE_BOOL(valid, NikonEXStatusState),
         VMSTATE_UINT8(class, NikonEXStatusState),
+        VMSTATE_UINT8(snapshot, NikonEXStatusState),
+        VMSTATE_UINT64(generation, NikonEXStatusState),
+        VMSTATE_UINT64(sampled_generation, NikonEXStatusState),
+        VMSTATE_BOOL(opened, NikonEXStatusState),
+        VMSTATE_BOOL(pending, NikonEXStatusState),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -378,6 +476,7 @@ static void exstatus_class_init(ObjectClass *klass, const void *data)
     dc->desc = "EX functional power status class register";
     dc->user_creatable = false;
     rc->phases.hold = exstatus_reset_hold;
+    rc->phases.exit = exstatus_reset_exit;
 }
 
 static const TypeInfo expower_types[] = {

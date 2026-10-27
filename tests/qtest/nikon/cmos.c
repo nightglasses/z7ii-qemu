@@ -40,6 +40,34 @@ static uint64_t property_at(QTestState *q, const char *path,
     return value;
 }
 
+static void pipeline_step(QTestState *q, int64_t nanoseconds)
+{
+    int64_t deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
+    int64_t now;
+
+    now = qtest_clock_step(q, nanoseconds);
+    /* Host computation is asynchronous. Drain only jobs already submitted at
+     * this virtual time, including their normal virtual-clock publication.
+     */
+    for (;;) {
+        QDict *reply = qtest_qmp(q,
+            "{'execute':'qom-get','arguments':"
+            "{'path':'/machine/paired-processing','property':'runtime'}}");
+        const char *state = qdict_get_str(reply, "return");
+        const char *inflight = strstr(state, " inflight=");
+        bool pending;
+
+        g_assert_nonnull(inflight);
+        pending = strtoul(inflight + strlen(" inflight="), NULL, 10) != 0;
+        qobject_unref(reply);
+        if (!pending) {
+            return;
+        }
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        qtest_clock_set(q, now);
+    }
+}
+
 static char *functional_bundle(void)
 {
     static const char *const names[] = {
@@ -142,7 +170,7 @@ static void test_pipeline_input_boundary(void)
                      NIKON_CMOS_PIPELINE_DONE, 1);
     qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
                      NIKON_CMOS_PIPELINE_DONE, 0);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 1);
@@ -156,7 +184,7 @@ static void test_pipeline_input_boundary(void)
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 1);
     pipeline_input(q);
     pipeline_input(q); /* An extra boundary while DMA is busy is discarded. */
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, RAM + 0x20000), ==, 0x5a5a5a5a);
@@ -166,11 +194,11 @@ static void test_pipeline_input_boundary(void)
     qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 1);
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     qtest_writel(q, CAPTURE + 0xc, 2);
     pipeline_input(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmphex(qtest_readl(q, RAM + 0x20000), ==, 0x5a5a5a5a);
@@ -179,7 +207,7 @@ static void test_pipeline_input_boundary(void)
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     qtest_system_reset(q);
     pipeline_input(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
@@ -192,12 +220,12 @@ static void test_pipeline_input_boundary(void)
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     qtest_writel(q, 0x20060070, 3);
     qtest_writel(q, 0x20060010, 1);
-    qtest_clock_step(q, 100000000);
+    pipeline_step(q, 100000000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     qtest_writel(q, 0x20060070, 0);
-    qtest_clock_step(q, 16666666);
+    pipeline_step(q, 16666666);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
     g_assert_cmphex(qtest_readl(q, RAM + 0x20000), !=, 0x5a5a5a5a);
     qtest_quit(q);
@@ -268,7 +296,7 @@ static void test_configured_frames(void)
         qtest_writel(q, CMOS + 0x060, 1);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_EXPOSING);
         g_assert_cmphex(qtest_readb(q, destination), ==, 0xa5);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, i + 1);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x07c), ==, (i + 1) & 1);
@@ -312,7 +340,7 @@ static void test_crop_scale_and_unknown(void)
     g_assert_cmphex(qtest_readl(q, CMOS + 0x090), ==, 0xb1814321);
     qtest_memset(q, RAM, 0xa5, 64);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     qtest_memread(q, RAM, full, sizeof(full));
 
     qtest_writel(q, CMOS + 0x00c, 2);
@@ -324,7 +352,7 @@ static void test_crop_scale_and_unknown(void)
     qtest_writel(q, CMOS + 0x03c, RAM + 0x10000);
     qtest_memset(q, RAM + 0x10000, 0xa5, 64);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     qtest_memread(q, RAM + 0x10000, cropped, sizeof(cropped));
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     g_assert_cmphex(qtest_readb(q, RAM + 0x10000 + 6), ==, 0xa5);
@@ -344,7 +372,7 @@ static void test_invalid_and_cancel(void)
     qtest_memset(q, RAM, 0xa5, 48 * 8);
     qtest_writel(q, CMOS + 0x060, 1);
     qtest_writel(q, CMOS + 0x064, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_IDLE);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x070), ==, NIKON_CMOS_EVENT_CANCEL);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
@@ -388,7 +416,7 @@ static void test_image_provider(void)
     configure(q, 2, 2, 1, 2);
     qtest_memset(q, RAM, 0xa5, 4);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     qtest_memread(q, RAM, output, sizeof(output));
     g_assert_cmphex(output[0], ==, 0);
     g_assert_cmphex(output[1], ==, 64);
@@ -430,7 +458,7 @@ static void test_image_source_contract(void)
     qobject_unref(reply);
     configure(q, 2, 2, 1, 2);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     qtest_memread(q, RAM, output, sizeof(output));
     g_assert_cmpmem(output, sizeof(output), pnm + sizeof(pnm) - 4, 4);
@@ -449,7 +477,7 @@ static void test_image_source_contract(void)
         "'property':'image','value':''}}");
     g_assert_true(qdict_haskey(reply, "error"));
     qobject_unref(reply);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     qtest_memread(q, RAM + 0x10000, cropped, sizeof(cropped));
     g_assert_cmpmem(cropped, sizeof(cropped), expected_crop,
                     sizeof(expected_crop));
@@ -505,7 +533,7 @@ static void test_image_cfa_transport(void)
     statistics_configure(q);
     pipeline_configure(q, RAM, 256, 512, NIKON_READOUT_C170_FORMAT_PRIMARY);
     pipeline_request(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     qtest_memread(q, RAM, output, sizeof(output));
     for (unsigned i = 0; i < 256; i++) {
@@ -517,7 +545,7 @@ static void test_image_cfa_transport(void)
                         colors[2 * y + x / 64][channel] * 257u);
     }
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
@@ -555,7 +583,7 @@ static void test_image_cfa_response(void)
         qtest_writel(q, CMOS + 0x024, NIKON_CMOS_FORMAT_FUNCTIONAL_C170);
         qtest_memset(q, RAM, 0xa5, 16);
         qtest_writel(q, CMOS + 0x060, 1);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==,
                          i ? NIKON_CMOS_ERROR : NIKON_CMOS_DONE);
         if (!i) {
@@ -603,7 +631,7 @@ static void test_image_raster_boundaries(void)
         configure(q, 2, 2, 1, 2);
         qtest_memset(q, RAM, 0xa5, sizeof(output));
         qtest_writel(q, CMOS + 0x060, 1);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         qtest_memread(q, RAM, output, sizeof(output));
         if (i < 2) {
             g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
@@ -624,14 +652,14 @@ static void test_period(void)
     configure(q, 4, 2, 1, 8);
     qtest_writel(q, CMOS + 0x050, 100000);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     qtest_writel(q, CMOS + 0x060, 1);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, 1);
-    qtest_clock_step(q, 100001);
+    pipeline_step(q, 100001);
     qtest_writel(q, CMOS + 0x060, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, 2);
     qtest_quit(q);
@@ -646,14 +674,14 @@ static void test_pipeline_valid_and_silent(void)
     qtest_memset(q, RAM + 0x10000, 0x5a, 0x200);
     pipeline_configure(q, RAM, 0x100, 0x200,
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "requests"), ==, 0);
 
     pipeline_request(q);
     g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, RAM + 0x10000), ==, 0x5a5a5a5a);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
@@ -693,13 +721,13 @@ static void test_pipeline_run_completion(void)
     pipeline_configure(q, RAM + 0x20000, 0x100, 0x200,
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     qtest_writel(q, READOUT_PARAMETERS + 0x394, 1U << 16);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 8);
     qtest_writel(q, CAPTURE + 0x210, 8);
     pipeline_request(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
     qtest_quit(q);
@@ -719,7 +747,7 @@ static void test_pipeline_input_sync(void)
     qtest_writel(q, CAPTURE + 8, 1);
     qtest_memset(q, RAM, 0xa5, 0x200);
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     /* A run request, elapsed time or unrelated DONE is not acquired input. */
     qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
                      NIKON_CMOS_PIPELINE_DONE, 1);
@@ -733,7 +761,7 @@ static void test_pipeline_input_sync(void)
                      NIKON_CMOS_PIPELINE_DONE, 0);
     /* Even during acquisition, the provider token must actually be DONE. */
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, RAM), !=, 0xa5a5a5a5);
     /* Input sync and auxiliary completion; no frontend-processing ACK. */
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x21);
@@ -750,7 +778,7 @@ static void test_pipeline_input_sync(void)
     pipeline_request(q);
     qtest_writel(q, CAPTURE + 0xc, 1);
     qtest_writel(q, CAPTURE + 8, 1);
-    qtest_clock_step(q, 100);
+    pipeline_step(q, 100);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
     qtest_writel(q, CAPTURE + 0x210, 0x20);
 
@@ -758,26 +786,26 @@ static void test_pipeline_input_sync(void)
     qtest_writel(q, CAPTURE + 0xc, 1);
     pipeline_request(q);
     qtest_writel(q, CAPTURE + 8, 1);
-    qtest_clock_step(q, 100);
+    pipeline_step(q, 100);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x20);
     qtest_writel(q, CAPTURE + 0x210, 0x20);
 
     pipeline_request(q);
-    qtest_clock_step(q, 100);
+    pipeline_step(q, 100);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0x21);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
     qtest_writel(q, CAPTURE + 0x210, 0x21);
 
     pipeline_request(q);
     qtest_writel(q, CAPTURE + 0xc, 2);
-    qtest_clock_step(q, 100);
+    pipeline_step(q, 100);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     qtest_writel(q, CAPTURE + 8, 2);
     pipeline_request(q);
     /* Reset a separately qualified active transfer, without prior cancel. */
     qtest_system_reset(q);
     pipeline_input(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
 
@@ -790,7 +818,7 @@ static void test_pipeline_input_sync(void)
     qtest_writel(q, CAPTURE + 0x10, 3);
     qtest_writel(q, CAPTURE + 8, 3);
     pipeline_request(q);
-    qtest_clock_step(q, 100);
+    pipeline_step(q, 100);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
     qtest_quit(q);
@@ -811,7 +839,7 @@ static void test_pipeline_unit_cancellation(void)
         pipeline_request(q);
         g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
         qtest_writel(q, CAPTURE + cancel[i], 2);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
         g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
@@ -857,7 +885,7 @@ static void test_pipeline_rejections(void)
     qtest_writel(q, READOUT_PARAMETERS + 0x394, 2U << 16);
     pipeline_request(q);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 6);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
@@ -878,13 +906,13 @@ static void test_pipeline_backpressure_and_stale(void)
     pipeline_request(q);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "stale"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
                      ==, 1);
 
     pipeline_request(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
                      ==, 2);
@@ -939,7 +967,7 @@ static void statistics_input(QTestState *q, uint8_t *bytes)
     pipeline_configure(q, RAM, 0x100, 0x400,
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     pipeline_request(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     if (bytes) {
         qtest_memread(q, RAM, bytes, 0x400);
     }
@@ -967,16 +995,16 @@ static void test_statistics_stage_completion(void)
     statistics_configure(q);
     qtest_writel(q, CAPTURE + 0x260, 0x20);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
 
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 999999);
+    pipeline_step(q, 999999);
     g_assert_cmphex(qtest_readl(q, RAM + 0x101000), ==, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
-    qtest_clock_step(q, 1);
+    pipeline_step(q, 1);
     g_assert_cmphex(qtest_readl(q, RAM + 0x101000), !=, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, 0x2006a110), ==, 128);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
@@ -997,13 +1025,13 @@ static void test_statistics_stage_completion(void)
     qtest_writel(q, CAPTURE + 0x100, 8);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     qtest_writel(q, CAPTURE + 0x210, 0x40);
     qtest_writel(q, 0x2006a450, 0x10020000);
     qtest_writel(q, CAPTURE + 0x100, 8);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "rejected"), ==, 1);
@@ -1012,25 +1040,25 @@ static void test_statistics_stage_completion(void)
     statistics_input(q, NULL);
     statistics_rise(q);
     qtest_writel(q, CAPTURE + 0xc, 0x10);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "cancelled"), ==, 1);
     qtest_writel(q, CAPTURE + 8, 0x10);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
     qtest_system_reset(q);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     statistics_configure(q);
     statistics_input(q, NULL);
     statistics_rise(q);
     qtest_system_reset(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     qtest_quit(q);
     unlink(bundle);
@@ -1069,7 +1097,7 @@ static void test_statistics_storage_period(void)
         }
         statistics_input(q, NULL);
         statistics_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                      "completed"), ==, frame + 1);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==,
@@ -1094,7 +1122,7 @@ static void test_statistics_storage_period(void)
     }
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 256);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
@@ -1121,9 +1149,9 @@ static void test_statistics_ring_completion(void)
     for (unsigned i = 0; i < 2; i++) {
         statistics_input(q, NULL);
         statistics_rise(q);
-        qtest_clock_step(q, 999999);
+        pipeline_step(q, 999999);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
-        qtest_clock_step(q, 1);
+        pipeline_step(q, 1);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80,
                         ==, i ? 0x80 : 0);
         g_assert_cmphex(qtest_readl(q, RAM + 0x111000 + i * 0x1000),
@@ -1145,7 +1173,7 @@ static void test_statistics_ring_completion(void)
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, RAM + 0x200000), !=, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0x80);
 
@@ -1154,17 +1182,17 @@ static void test_statistics_ring_completion(void)
     statistics_input(q, NULL);
     statistics_rise(q);
     qtest_writel(q, CAPTURE + 0xc, 0x10);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
     qtest_writel(q, CAPTURE + 8, 0x10);
     qtest_writel(q, 0x2006a560, 0x10020000);
     qtest_writel(q, CAPTURE + 0x100, 8);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
     qtest_system_reset(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     qtest_quit(q);
     unlink(bundle);
@@ -1202,7 +1230,7 @@ static void test_main_input(void)
     main_input_configure(q);
     qtest_memset(q, RAM, 0xa5, 0x400);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     /* Main run1d has no auxiliary request; it still owns a new scene frame. */
     g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 1);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 1);
@@ -1216,7 +1244,7 @@ static void test_main_input(void)
     qtest_writel(q, CAPTURE + 0xc, 2);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
     statistics_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     static const unsigned expected[] = { 0, 64 * 257, 128 * 257, 65535 };
@@ -1234,7 +1262,7 @@ static void test_main_input_lifecycle(void)
     QTestState *q = pipeline_start(&bundle, NULL);
 
     main_input_configure(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
     main_input_rise(q);
     qtest_set_irq_in(q, PIPELINE_PATH, "cmos-event",
@@ -1249,46 +1277,46 @@ static void test_main_input_lifecycle(void)
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
     qtest_writel(q, CAPTURE + 0xc, 2);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-cancelled"), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
     qtest_writel(q, CAPTURE + 0x210, 1);
     main_input_rise(q);
     /* Equal commits preserve work; staging alone does not change this frame. */
     qtest_writel(q, CAPTURE + 0x104, 5);
     qtest_writel(q, CAPTURE + 0x1e7c, 64 << 16);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
     qtest_writel(q, CAPTURE + 0x210, 1);
     main_input_rise(q);
     qtest_writel(q, CAPTURE + 0x100, 5);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-cancelled"), ==, 1);
 
     for (unsigned i = 0; i < ARRAY_SIZE(units); i++) {
         main_input_rise(q);
         qtest_writel(q, CAPTURE + 0xc, units[i]);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
         qtest_writel(q, CAPTURE + 8, units[i]);
     }
     main_input_rise(q);
     qtest_system_reset(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 0);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
     main_input_configure(q);
     qtest_set_irq_in(q, PIPELINE_PATH, "automatic-rise", 0, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 0);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 4);
     /* Queue auxiliary behind main; its DMA starts only on the next fresh TG. */
     main_input_rise(q);
@@ -1296,13 +1324,13 @@ static void test_main_input_lifecycle(void)
     qtest_writel(q, CAPTURE + 0x10, 2);
     qtest_writel(q, CAPTURE + 8, 2);
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 5);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
     pipeline_input(q);
     /* Main stop while auxiliary DMA is active must leave that DMA owned. */
     qtest_writel(q, CAPTURE + 0xc, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     qtest_quit(q);
     unlink(bundle);
@@ -1326,7 +1354,7 @@ static void test_main_input_boundaries(void)
         qtest_writel(q, CAPTURE + bad[i][0], bad[i][1]);
         qtest_writel(q, CAPTURE + 0x100, 5);
         main_input_rise(q);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-rejected"), ==, 1);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
@@ -1341,7 +1369,7 @@ static void test_main_input_boundaries(void)
         "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
         "'property':'fixture-provider','value':false}}");
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-rejected"), ==, 1);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 1, ==, 0);
     qtest_quit(q);
@@ -1370,9 +1398,9 @@ static void test_main_input_masked_stream(void)
     qtest_writel(q, CAPTURE + 0x260, 0x80);
     for (unsigned i = 0; i < 3; i++) {
         main_input_rise(q);
-        qtest_clock_step(q, 10000);
+        pipeline_step(q, 10000);
         statistics_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                      "completed"), ==, i + 1);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80,
@@ -1387,9 +1415,9 @@ static void test_main_input_masked_stream(void)
     }
     qtest_writel(q, CAPTURE + 0x100, 8);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     statistics_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 3);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
@@ -1414,7 +1442,7 @@ static void test_statistics_transaction(void)
     qtest_memset(q, RAM + 0x114000, 0xa5, 0x3000);
     qtest_writel(q, CAPTURE + 0x100, 8);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 0);
     statistics_input(q, input);
@@ -1427,7 +1455,7 @@ static void test_statistics_transaction(void)
     qtest_writel(q, CAPTURE + 0x100, 8);
     qtest_writel(q, 0x2006a560, RAM + 0x114000);
     qtest_writel(q, CAPTURE + 0x100, 8);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0x40);
@@ -1483,14 +1511,14 @@ static void test_statistics_transaction(void)
     qtest_writel(q, CAPTURE + 0x100, 8);
     qtest_writel(q, CAPTURE + 0x104, 8);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "blocked"), >, 0);
     qtest_writel(q, CAPTURE + 0x210, 0x40);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 2);
     /* The newer A snapshot starts at slot1; the old job cannot advance it. */
@@ -1527,9 +1555,9 @@ static void test_statistics_saturation(void)
     pipeline_configure(q, RAM + 0x400000, 256, 256 * 8192,
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     pipeline_request(q);
-    qtest_clock_step(q, 100000);
+    pipeline_step(q, 100000);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     for (unsigned i = 0; i < 4; i++) {
@@ -1554,16 +1582,16 @@ static void test_statistics_lifecycle(void)
     statistics_configure(q);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
     /* Empty original queues may discard a frame without any result reads. */
     qtest_writel(q, CAPTURE + 0x210, 0x40);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 2);
     /* Advance once per success; unchanged dual commits do not rewind. */
@@ -1576,7 +1604,7 @@ static void test_statistics_lifecycle(void)
     statistics_input(q, NULL);
     statistics_rise(q);
     qtest_writel(q, CAPTURE + 0xc, 0x10);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
@@ -1593,14 +1621,14 @@ static void test_statistics_lifecycle(void)
     statistics_rise(q);
     qtest_writel(q, CAPTURE + 0xc, 0x40);
     qtest_writel(q, CAPTURE + 8, 0xd2);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "cancelled"), ==, 2);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
     qtest_writel(q, CAPTURE + 0xc, 0x40);
     statistics_input(q, NULL);
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 3);
     g_assert_cmphex(property_at(q, "/machine/capture-banks", "read-mask0"),
@@ -1610,7 +1638,7 @@ static void test_statistics_lifecycle(void)
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
     qtest_qmp_eventwait(q, "RESET");
     statistics_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     qtest_quit(q);
     unlink(bundle);
@@ -1647,7 +1675,7 @@ static void test_statistics_boundaries(void)
         qtest_writel(q, CAPTURE + 0x100, 8);
         statistics_input(q, NULL);
         statistics_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                      "rejected"), ==, 1);
         g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
@@ -1669,7 +1697,7 @@ static void test_pipeline_cancel_and_reset(void)
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     pipeline_request(q);
     qtest_writel(q, CMOS + 0x064, 1);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "cancelled"), ==, 1);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
@@ -1678,7 +1706,7 @@ static void test_pipeline_cancel_and_reset(void)
     pipeline_request(q);
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
     qtest_qmp_eventwait(q, "RESET");
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "request-generation"), ==, 0);
@@ -1743,7 +1771,7 @@ static void work_configure(QTestState *q, unsigned format, bool lookup)
 static void work_input(QTestState *q)
 {
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
 }
 
@@ -1768,7 +1796,7 @@ static void test_capture_processing(void)
     work_configure(q, 2, true);
     g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x100c), ==, 0xa5a5a5a5);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
     work_input(q);
     work_rise(q);
@@ -1776,7 +1804,7 @@ static void test_capture_processing(void)
     qtest_memset(q, RAM, 0x55, 0x400);
     qtest_writel(q, 0x20069a54, WORK_BUFFER + 0x3000);
     qtest_writel(q, 0x20069600, 0xffffffff);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, WORK_PATH, "bytes"), ==, 24);
     for (unsigned y = 0; y < 2; y++) {
@@ -1793,7 +1821,7 @@ static void test_capture_processing(void)
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     work_ack(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     qtest_quit(q);
     unlink(bundle);
@@ -1825,7 +1853,7 @@ static void test_capture_work_lifecycle(void)
         } else {
             qtest_system_reset(q);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, WORK_PATH, "cancelled"), ==, 1);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
@@ -1860,7 +1888,7 @@ static void test_capture_work_boundaries(void)
         qtest_writel(q, CAPTURE + 0x100, bad[i][2]);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         bool main_invalid = i == 0 || i == ARRAY_SIZE(bad) - 1;
 
         g_assert_cmpuint(property_at(q, WORK_PATH, "rejected"), ==,
@@ -1897,7 +1925,7 @@ static void test_capture_work_formats(void)
             /* Repeated equal commits preserve ring position. */
             qtest_writel(q, CAPTURE + 0x100, 0x85);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             for (unsigned y = 0; y < 2; y++) {
                 qtest_memread(q, address + 16 * y, row, 16);
                 for (unsigned x = 0; x < 8; x++) {
@@ -1939,10 +1967,10 @@ static void test_capture_work_freshness(void)
     work_input(q);
     qtest_writel(q, CAPTURE + 8, 1);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
     /* A real input cause supplies backpressure, never a processing ACK. */
     statistics_input(q, NULL);
@@ -1950,19 +1978,19 @@ static void test_capture_work_freshness(void)
     g_assert_cmpuint(property_at(q, WORK_PATH, "blocked"), ==, 1);
     work_ack(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     work_ack(q);
     /* Stop/start cannot replay the delivered generation into the next slot. */
     qtest_writel(q, CAPTURE + 0xc, 0x200);
     qtest_writel(q, CAPTURE + 8, 0x200);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
     qtest_quit(q);
     unlink(bundle);
@@ -2013,7 +2041,7 @@ static void test_capture_work_main_domain(void)
     pipeline_configure(q, auxiliary, 16640, 16640 * 34,
                        NIKON_READOUT_C170_FORMAT_PRIMARY);
     pipeline_request(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
@@ -2021,14 +2049,14 @@ static void test_capture_work_main_domain(void)
     g_assert_cmphex(qtest_readl(q, auxiliary), ==, 0x20201010);
     work_ack(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     /* The old shared-input implementation consumes auxiliary pixels here. */
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
     g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
 
     qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
     pipeline_input(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     /* Pending auxiliary work cannot starve the independent MAIN run intent. */
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 2);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
@@ -2040,14 +2068,14 @@ static void test_capture_work_main_domain(void)
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-stride"), ==,
                      16);
     pipeline_input(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
                      1);
     work_ack(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, WORK_PATH, "bytes"), ==, 24);
     memset(expected, 0xa5, sizeof(expected));
@@ -2065,12 +2093,12 @@ static void test_capture_work_main_domain(void)
     qtest_writel(q, CAPTURE + 0xc, 0x200);
     qtest_writel(q, CAPTURE + 8, 0x200);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     qtest_writel(q, 0x20069a3c, 2);
     qtest_writel(q, CAPTURE + 0x104, 0x80);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
 
     /* Auxiliary cancellation cannot revoke independently delivered MAIN. */
@@ -2079,7 +2107,7 @@ static void test_capture_work_main_domain(void)
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
                      1);
     main_input_rise(q);
-    qtest_clock_step(q, 10000);
+    pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
                      2);
     /* MAIN stop clears the legacy reference before freeing MAIN-owned bytes. */
@@ -2088,7 +2116,7 @@ static void test_capture_work_main_domain(void)
                      0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-width"), ==, 0);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     qtest_system_reset(q);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
@@ -2582,7 +2610,7 @@ static void paired_cfa_input(QTestState *q)
     qtest_writel(q, CAPTURE + 0x100, 0x85);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
 }
 
 static void paired_cfa_reduction(unsigned rows)
@@ -2767,7 +2795,7 @@ static void test_paired_transfer(void)
             qtest_writel(q, 0x20069600, UINT32_MAX);
             qtest_writel(q, PAIRED + 0x10, 1);
             qtest_writel(q, PAIRED + 8, 1);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             paired_main_at(q, PAIRED_MAIN, expected[color][0],
                             expected[color][1], expected[color][2]);
@@ -2797,7 +2825,7 @@ static void test_paired_transfer_boundaries(void)
             work_input(q);
             work_rise(q);
             qtest_writel(q, CAPTURE + 0xc, 0x200);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, WORK_PATH, "cancelled"), ==, 1);
         } else if (variant >= 4) {
@@ -2813,7 +2841,7 @@ static void test_paired_transfer_boundaries(void)
                 qtest_writel(q, PAIRED + 0x10, 1);
                 qtest_writel(q, PAIRED + 8, 1);
             }
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             if (variant == 4) {
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -2858,7 +2886,7 @@ static void test_paired_processing(void)
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, PAIRED_MAIN), ==, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
     g_assert_false(qtest_get_irq(q, 99 - 32));
@@ -2867,10 +2895,10 @@ static void test_paired_processing(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + slot * 0x1000), ==,
                         0x08808808);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         /* First red oracle: an actual RAW DMA must produce real main pixels. */
         g_assert_cmphex(qtest_readb(q, PAIRED_MAIN + (phase % 2) * 0x2000),
                         ==, 129);
@@ -2889,7 +2917,7 @@ static void test_paired_processing(void)
         qtest_writel(q, PAIRED + 0xe8, UINT32_MAX);
         work_ack(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          phase + 1);
     }
@@ -2920,7 +2948,7 @@ static void test_paired_preflight(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
@@ -2939,7 +2967,7 @@ static void test_paired_lifecycle(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (operation == 0) {
@@ -2952,7 +2980,7 @@ static void test_paired_lifecycle(void)
             qtest_writel(q, PAIRED + 0xb00, 1024);
             qtest_writel(q, PAIRED + 0x1400, 0);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         if (operation < 2) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
@@ -2988,7 +3016,7 @@ static void test_paired_coverage_and_raw_failure(void)
         }
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==,
                          operation == 1 ? 0 : 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
@@ -3016,15 +3044,15 @@ static void test_paired_preserve_results(void)
 
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     qtest_writel(q, PAIRED + 0x98, 0x401);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
     paired_pixels(q, PAIRED_MAIN, 0);
@@ -3047,12 +3075,12 @@ static void test_paired_backpressure(void)
 
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     work_ack(q); /* Leave the paired result pending while RAW continues. */
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
@@ -3067,7 +3095,7 @@ static void test_paired_backpressure(void)
     /* A later real RAW publication also permits an earlier queued phase. */
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
     paired_pixels(q, PAIRED_MAIN, 1);
     paired_pixels(q, PAIRED_WORK, 1);
@@ -3091,7 +3119,7 @@ static void test_paired_c_matrix(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     /* B gives Y2056/U257/V-514. C rotates chroma to514/257. The half
      * blend gives U386/V-129 (signed ties away), before adding2048.
      */
@@ -3143,7 +3171,6 @@ static void test_paired_matrix_encoding(void)
         { 0x218, 0 },         /* The primary front/back ring must agree. */
         { 0x228, PAIRED_MAIN }, /* Partial or unrelated second rings reject. */
         { 0xfc, 1 },          /* Secondary selection needs every mirror. */
-        { 0xfc, 2 },          /* The selector is boolean. */
         { 0x3a8, PAIRED_GRID }, /* A grid mirror needs all four slots. */
         { 0x4a8, PAIRED_MAIN }, /* Main Y alone is not a complete Y/UV group. */
         { 0x4b8, PAIRED_MAIN + 64 * 28 }, /* UV alone is also incomplete. */
@@ -3172,11 +3199,19 @@ static void test_paired_matrix_encoding(void)
             qtest_writel(q, PAIRED + 0xfc, 1);
         }
         qtest_writel(q, PAIRED + invalid[i].offset, invalid[i].value);
+        if (qtest_readl(q, PAIRED + 0xfc) == 1) {
+            for (unsigned phase = 0; phase < 4; phase++) {
+                qtest_writel(q, PAIRED + 0x228 + 4 * phase,
+                             qtest_readl(q, PAIRED + 0x228 + 4 * phase));
+                qtest_writel(q, PAIRED + 0x320 + 4 * phase,
+                             qtest_readl(q, PAIRED + 0x320 + 4 * phase));
+            }
+        }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -3215,7 +3250,7 @@ static void test_paired_source_history(void)
         for (unsigned phase = 0; phase < 2; phase++) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             paired_pixels(q, PAIRED_WORK, phase);
@@ -3254,7 +3289,7 @@ static void test_paired_source_history(void)
             "'property':'image','value':%s}}", scene);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x3000), ==, 0x18818818);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
 
@@ -3336,7 +3371,7 @@ static void test_paired_gain(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x08808808);
         paired_main_oracle(q, cases[mode].y, cases[mode].u, cases[mode].v);
         paired_pixels(q, PAIRED_WORK, 0);
@@ -3371,7 +3406,7 @@ static void test_paired_quad(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     /* RAW=2056; RGB=(3076,2104,1164), then the fixture A/B matrices. */
     paired_main_oracle(q, 192, 152, 65);
@@ -3409,7 +3444,7 @@ static void test_paired_quad_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (i == ARRAY_SIZE(invalid)) {
             qtest_system_reset(q);
         } else if (i > ARRAY_SIZE(invalid)) {
@@ -3417,7 +3452,7 @@ static void test_paired_quad_boundaries(void)
                          i == ARRAY_SIZE(invalid) + 1 ?
                          0x02000201 : 0x02000200);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         if (i == ARRAY_SIZE(invalid) + 2) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             paired_pixels(q, PAIRED_MAIN, 0);
@@ -3478,7 +3513,7 @@ static void test_paired_curves(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x08808808);
         paired_main_oracle(q, cases[mode].y, cases[mode].u, cases[mode].v);
         /* Curves affect color only; history and grid keep pre-color samples. */
@@ -3509,7 +3544,7 @@ static void test_paired_curve_encoding(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -3529,7 +3564,7 @@ static void test_paired_coverage_cancellation(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (table) {
@@ -3539,14 +3574,14 @@ static void test_paired_coverage_cancellation(void)
             /* A published zero curve differs from an absent curve. */
             paired_curve(q, 0, 0, 129, false);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
         if (table) {
             /* A partial table must not resume the admitted RAW. */
             qtest_writel(q, PAIRED + 0x10, 1);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             paired_untouched(q);
             for (unsigned offset = 0x1404; offset < 0x1440; offset += 4) {
@@ -3555,7 +3590,7 @@ static void test_paired_coverage_cancellation(void)
         }
         /* The cancelled job never consumed its actual RAW generation. */
         qtest_writel(q, PAIRED + 0x10, 1);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
@@ -3680,6 +3715,7 @@ static void test_paired_noise(void)
     qtest_writel(q, PAIRED + 8, 1);
     for (unsigned batch = 0; batch < ARRAY_SIZE(masks); batch++) {
         if (batch) {
+            qtest_writel(q, PAIRED + 0xfc, batch == 1);
             paired_noise(q, masks[batch], batch);
             if (batch == 1) {
                 /* An inactive ring's partial publication cannot block FC1. */
@@ -3692,20 +3728,19 @@ static void test_paired_noise(void)
                 qtest_writel(q, PAIRED + 0x228,
                              qtest_readl(q, PAIRED + 0x228));
             } else {
-                for (unsigned i = 1; i < 4; i++) {
+                for (unsigned i = 0; i < 4; i++) {
                     qtest_writel(q, PAIRED + 0x310 + 4 * i,
                                  qtest_readl(q, PAIRED + 0x310 + 4 * i));
                     qtest_writel(q, PAIRED + 0x218 + 4 * i,
                                  qtest_readl(q, PAIRED + 0x218 + 4 * i));
                 }
             }
-            qtest_writel(q, PAIRED + 0xfc, batch == 1);
             qtest_writel(q, PAIRED + 0x10, 1);
         }
         for (unsigned phase = 0; phase < 4; phase++) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             if (batch == 1 && phase == 0) {
                 /* The selected ring still needs all four publications. */
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
@@ -3718,7 +3753,7 @@ static void test_paired_noise(void)
                                  qtest_readl(q, PAIRED + 0x228 + 4 * i));
                 }
                 qtest_writel(q, PAIRED + 0x10, 1);
-                qtest_clock_step(q, 2000000);
+                pipeline_step(q, 2000000);
             }
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              batch * 4 + phase + 1);
@@ -3747,18 +3782,18 @@ static void test_paired_noise_cancel(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     qtest_writel(q, PAIRED + 0xdf8, 0x80200003);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
     paired_untouched(q);
     qtest_writel(q, PAIRED + 0x10, 1);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     paired_noise_oracle(q, 0, true);
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0xdf8), ==, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0xe10), ==, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
@@ -3833,12 +3868,12 @@ static void test_paired_photo(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 5) {
             qtest_writel(q, PAIRED + 0x430, 1);
             qtest_writel(q, PAIRED + 0x470, 3);
         }
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, "/machine/capture-processing",
                                        "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, "/machine/paired-processing",
@@ -3894,7 +3929,7 @@ static void test_paired_post(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     /* Source P5 produces RAW1028/3084. Existing five-tap spatial filtering
@@ -3998,7 +4033,7 @@ static void test_paired_post_packet(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         for (unsigned y = 0; y < 28; y++) {
@@ -4079,7 +4114,7 @@ static void test_paired_main_gain(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         paired_main_oracle(q, expected[test], 144, 96);
@@ -4113,7 +4148,7 @@ static void test_paired_main_gain_spatial(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     for (unsigned y = 0; y < 28; y++) {
         for (unsigned x = 0; x < 56; x++) {
@@ -4191,7 +4226,7 @@ static void test_paired_main_gain_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (test == 2 || test == 4) {
@@ -4205,7 +4240,7 @@ static void test_paired_main_gain_boundaries(void)
              * a new edge, injected event, address rewrite or arm request.
              */
             paired_main_gain(q, 0, 128, 15, 1);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
             paired_main_oracle(q, 64, 144, 96);
@@ -4227,7 +4262,7 @@ static void test_paired_main_gain_lifecycle(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (test == 0) {
@@ -4246,7 +4281,7 @@ static void test_paired_main_gain_lifecycle(void)
         } else {
             qtest_system_reset(q);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         if (test == 3) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
@@ -4264,7 +4299,7 @@ static void test_paired_main_gain_lifecycle(void)
             work_ack(q);
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
@@ -4273,7 +4308,7 @@ static void test_paired_main_gain_lifecycle(void)
                             0xa5a5a5a5);
             /* Only the last missing word publishes and retries actual RAW. */
             paired_main_gain(q, 0, 128, 15, 1);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
             paired_main_at(q, PAIRED_MAIN + 0x2000, 64, 144, 96);
@@ -4325,7 +4360,7 @@ static void test_paired_post_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -4353,7 +4388,7 @@ static void test_paired_post_lifecycle(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (test < ARRAY_SIZE(changes)) {
@@ -4377,7 +4412,7 @@ static void test_paired_post_lifecycle(void)
                 }
             }
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         if (test <= ARRAY_SIZE(changes)) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
@@ -4421,7 +4456,7 @@ static void test_paired_filter(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -4479,7 +4514,7 @@ static void test_paired_filter_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
@@ -4501,12 +4536,12 @@ static void test_paired_filter_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         paired_filter(q, 0, 1, mode == 1 ? 6762 : 6087, 50, 67);
         if (mode == 2) {
             qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode == 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -4545,7 +4580,7 @@ static void test_paired_denoise(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
     for (unsigned row = 0; row < 28; row++) {
@@ -4609,7 +4644,7 @@ static void test_paired_denoise_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -4631,7 +4666,7 @@ static void test_paired_denoise_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 2) {
             qtest_system_reset(q);
             for (unsigned offset = 0x660; offset <= 0x678; offset += 4) {
@@ -4641,7 +4676,7 @@ static void test_paired_denoise_lifecycle(void)
             paired_denoise(q, PAIRED, 103, 43, 17, 10, 12,
                             mode == 1 ? 9 : 8, 7);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode == 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -4684,7 +4719,7 @@ static void test_paired_detail(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -4736,7 +4771,7 @@ static void test_paired_adaptive(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -4801,7 +4836,7 @@ static void test_paired_adaptive_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -4823,7 +4858,7 @@ static void test_paired_adaptive_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 2) {
             qtest_system_reset(q);
             for (unsigned offset = 0x75c; offset <= 0x778; offset += 4) {
@@ -4832,7 +4867,7 @@ static void test_paired_adaptive_lifecycle(void)
         } else {
             paired_adaptive(q, PAIRED, mode == 1 ? 5 : 4, 8);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode == 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -4865,7 +4900,7 @@ static void test_paired_adaptive_history(void)
         for (unsigned phase = 0; phase < 2; phase++) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
@@ -4879,7 +4914,7 @@ static void test_paired_adaptive_history(void)
             "'property':'image','value':%s}}", scene);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x3000), ==, 0x18818818);
         /* Uniform pixels make dose1 numerically neutral. Only a real config
@@ -4927,7 +4962,7 @@ static void test_paired_detail_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -4949,7 +4984,7 @@ static void test_paired_detail_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 2) {
             qtest_system_reset(q);
             for (unsigned offset = 0x73c; offset <= 0x758; offset += 4) {
@@ -4958,7 +4993,7 @@ static void test_paired_detail_lifecycle(void)
         } else {
             paired_detail(q, PAIRED, 31, mode == 1 ? 31 : 32, 16, 8);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode == 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -5136,7 +5171,7 @@ static void test_paired_saturation_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (mode == 33 || mode == 35) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
@@ -5160,7 +5195,7 @@ static void test_paired_saturation_lifecycle(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 5) {
             qtest_system_reset(q);
             for (unsigned offset = 0x1a08; offset <= 0x1a8c; offset += 4) {
@@ -5175,7 +5210,7 @@ static void test_paired_saturation_lifecycle(void)
             paired_saturation(q, PAIRED, 0, mode >= 2 ? 128 : 256,
                                mode >= 2 ? 128 : 256, mode & 1 ? 17 : 16);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode != 5);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -5207,27 +5242,27 @@ static void test_paired_saturation_staging(void)
         paired_saturation(q, PAIRED, 0, 128, 128, 16);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         if (armed) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
         }
         qtest_writel(q, PAIRED + 0x1a48, 128);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, armed);
         if (!armed) {
             /* Publication cannot create a request or implicitly arm processing. */
             paired_untouched(q);
             qtest_writel(q, PAIRED + 0x10, 1);
             qtest_writel(q, PAIRED + 8, 1);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
         }
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         paired_main_at(q, PAIRED_MAIN, 129, 136, 112);
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         qtest_quit(q);
@@ -5247,7 +5282,7 @@ static void test_paired_saturation_staging(void)
         paired_saturation(q, PAIRED, 0, 128, 128, 17);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
@@ -5259,13 +5294,13 @@ static void test_paired_saturation_staging(void)
             paired_untouched(q);
         } else {
             paired_saturation(q, PAIRED, 1, 128, 128, 17);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
             paired_main_at(q, PAIRED_MAIN, 129, 136, 112);
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
             work_ack(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         }
         qtest_quit(q);
@@ -5286,7 +5321,7 @@ static void test_paired_saturation_history(void)
     for (unsigned phase = 0; phase < 2; phase++) {
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, phase + 1);
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
@@ -5299,7 +5334,7 @@ static void test_paired_saturation_history(void)
         "'property':'image','value':%s}}", scene);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
     g_assert_cmpuint(qtest_readw(q, PAIRED_WORK), ==, 2068);
     g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 18 * 80), ==, 16);
@@ -5332,7 +5367,7 @@ static void test_paired_colorfilter(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
@@ -5400,7 +5435,7 @@ static void test_paired_colorfilter_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -5436,7 +5471,7 @@ static void test_paired_colorfilter_publication(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -5458,7 +5493,7 @@ static void test_paired_colorfilter_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 2) {
             qtest_system_reset(q);
             for (unsigned offset = 0x900; offset <= 0x9c4; offset += 4) {
@@ -5468,7 +5503,7 @@ static void test_paired_colorfilter_lifecycle(void)
         } else {
             paired_colorfilter(q, PAIRED, mode ? 30 : 31, 51, false);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, !mode);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, mode != 0);
         if (!mode) {
@@ -5499,7 +5534,7 @@ static void test_paired_colorfilter_history(void)
         for (unsigned phase = 0; phase < 2; phase++) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
@@ -5516,7 +5551,7 @@ static void test_paired_colorfilter_history(void)
             "'property':'image','value':%s}}", scene);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK), ==, changed ? 2072 : 2068);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 18 * 80), ==,
@@ -5611,7 +5646,7 @@ static void test_paired_radial(void)
                 } else {
                     work_input(q);
                     work_rise(q);
-                    qtest_clock_step(q, 2000000);
+                    pipeline_step(q, 2000000);
                 }
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                                  ==, 1);
@@ -5684,7 +5719,7 @@ static void test_paired_radial_boundaries(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -5706,7 +5741,7 @@ static void test_paired_radial_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 3) {
             qtest_system_reset(q);
             for (unsigned offset = 0x724; offset <= 0x738; offset += 4) {
@@ -5717,7 +5752,7 @@ static void test_paired_radial_lifecycle(void)
         } else {
             paired_radial(q, PAIRED, 32, 18, mode ? -127 : -128, 127, 6);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          mode == 0 || mode == 2);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==,
@@ -5772,7 +5807,7 @@ static void test_paired_radial_tables(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (mode == 25 || mode == 34) {
             /* A missing final word leaves a valid warm staging prefix. */
@@ -5801,7 +5836,7 @@ static void test_paired_radial_tables_lifecycle(void)
         if (mode < 3) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 1000000);
+            pipeline_step(q, 1000000);
             if (mode == 0) {
                 paired_radial_tables(q, 18);
             } else if (mode == 1) {
@@ -5809,7 +5844,7 @@ static void test_paired_radial_tables_lifecycle(void)
             } else {
                 qtest_writel(q, PAIRED + 0x1200, 1);
             }
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 0);
             paired_pixels(q, PAIRED_MAIN, 0);
@@ -5817,25 +5852,25 @@ static void test_paired_radial_tables_lifecycle(void)
             paired_radial_tables(q, 10);
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
             for (unsigned word = 10; word < 18; word++) {
                 qtest_writel(q, PAIRED + 0x1200 + 4 * word, 0);
             }
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             paired_pixels(q, PAIRED_MAIN, 0);
         } else {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 1000000);
+            pipeline_step(q, 1000000);
             qtest_system_reset(q);
             for (unsigned offset = 0x1200; offset <= 0x1244; offset += 4) {
                 g_assert_cmphex(qtest_readl(q, PAIRED + offset), ==, 0);
             }
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
             paired_untouched(q);
@@ -5845,7 +5880,7 @@ static void test_paired_radial_tables_lifecycle(void)
             qtest_writel(q, PAIRED + 8, 1);
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
             paired_untouched(q);
@@ -5880,7 +5915,7 @@ static void test_paired_stride(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
         qtest_quit(q);
@@ -5983,7 +6018,7 @@ static void test_paired_stream(void)
     qtest_writel(q, PAIRED + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
     paired_pixels(q, PAIRED_GRID, 0);
@@ -6000,7 +6035,7 @@ static void test_paired_stream(void)
     work_ack(q);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
@@ -6029,7 +6064,7 @@ static void test_paired_stream_cancel(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         if (mode == 0) {
             paired_gate_slot(q, 54);
         } else if (mode == 1) {
@@ -6037,7 +6072,7 @@ static void test_paired_stream_cancel(void)
         } else if (mode == 2) {
             qtest_system_reset(q);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_stream_pixels(q, gate, false);
         paired_untouched(q);
@@ -6070,14 +6105,14 @@ static void test_paired_stream_peer(void)
     qtest_writel(q, peer + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     paired_stream_pixels(q, gate, true);
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, peer + 0x24), ==, 0);
     g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, 1);
@@ -6103,7 +6138,7 @@ static void test_paired_stream_lifecycle(void)
         qtest_writel(q, PAIRED + 8, 1);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         paired_stream_pixels(q, gate, true);
         if (mode == 0) {
             paired_gate_input(q, 8);
@@ -6116,7 +6151,7 @@ static void test_paired_stream_lifecycle(void)
         } else {
             paired_gate_slot(q, 56);
         }
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         paired_stream_pixels(q, gate, mode >= 3);
         g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, mode != 2);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
@@ -6142,7 +6177,7 @@ static void paired_first_batch(QTestState *q, bool acknowledge_last)
     for (unsigned phase = 0; phase < 4; phase++) {
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          phase + 1);
         paired_pixels(q, PAIRED_MAIN, phase % 2);
@@ -6164,7 +6199,7 @@ static void test_paired_cycle(void)
     for (unsigned frame = 0; frame < 12; frame++) {
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          frame + 1);
         paired_pixels(q, PAIRED_MAIN, frame % 2);
@@ -6175,7 +6210,7 @@ static void test_paired_cycle(void)
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
         /* Neither ACK nor elapsed time creates a new RAW generation. */
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          frame + 1);
     }
@@ -6195,18 +6230,18 @@ static void test_paired_publication(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 1000000);
+        pipeline_step(q, 1000000);
         for (unsigned phase = 0; phase < 4; phase++) {
             qtest_writel(q, PAIRED + first + 4 * phase,
                          qtest_readl(q, PAIRED + first + 4 * phase));
         }
         qtest_writel(q, PAIRED + 0x10, 1);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
         g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
@@ -6216,12 +6251,12 @@ static void test_paired_publication(void)
             if (phase != 3) {
                 qtest_writel(q, PAIRED + 0x10, 1);
             }
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         }
         /* The cancelled snapshot did not consume RAW or advance phase1. */
         qtest_writel(q, PAIRED + 0x10, 1);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
         paired_pixels(q, PAIRED_MAIN, 1);
         paired_pixels(q, PAIRED_GRID, 1);
@@ -6240,7 +6275,7 @@ static void test_paired_publication(void)
         for (unsigned phase = 2; phase < 4; phase++) {
             work_input(q);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==,
@@ -6252,7 +6287,7 @@ static void test_paired_publication(void)
         qtest_writel(q, PAIRED + first,
                      qtest_readl(q, PAIRED + first));
         paired_stop(q, PAIRED);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
         g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x014a0080);
         qtest_quit(q);
@@ -6280,23 +6315,20 @@ static void test_paired_selections(void)
     }
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     /* Inactive descriptor staging cannot cancel the snapshotted primary job. */
     paired_secondary(q, extra);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 0);
     paired_pixels(q, PAIRED_MAIN, 0);
-    /* Two partial batches cannot be spliced into one four-read watermark. */
-    qtest_writel(q, PAIRED + 0xfc, 1);
-    g_assert_cmphex(qtest_readl(q, PAIRED + 0xfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
     for (unsigned phase = 1; phase < 4; phase++) {
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                          ==, phase + 1);
         paired_pixels(q, PAIRED_MAIN, phase % 2);
@@ -6304,8 +6336,15 @@ static void test_paired_selections(void)
         work_ack(q);
     }
     qtest_writel(q, PAIRED + 0xfc, 1);
+    /* Selection is staged before a fresh complete front/back publication. */
+    for (unsigned phase = 0; phase < 4; phase++) {
+        qtest_writel(q, PAIRED + 0x228 + 4 * phase,
+                     qtest_readl(q, PAIRED + 0x228 + 4 * phase));
+        qtest_writel(q, PAIRED + 0x320 + 4 * phase,
+                     qtest_readl(q, PAIRED + 0x320 + 4 * phase));
+    }
     qtest_writel(q, PAIRED + 0x10, 1);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
     g_assert_cmphex(qtest_readl(q, PAIRED_MAIN + extra), ==, 0xa5a5a5a5);
     for (unsigned i = 0; i < 4; i++) {
@@ -6322,7 +6361,7 @@ static void test_paired_selections(void)
 
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                          ==, phase + 5);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + extra + slot * 0x1000),
@@ -6374,7 +6413,7 @@ static void paired_second_batch(bool update)
     }
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 5);
     g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x18818818);
     if (update) {
@@ -6389,7 +6428,7 @@ static void paired_second_batch(bool update)
             if (phase != 3) {
                 /* A partial update never releases the next real RAW. */
                 qtest_writel(q, PAIRED + 0x10, 1);
-                qtest_clock_step(q, 2000000);
+                pipeline_step(q, 2000000);
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                                  ==, 4);
                 g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
@@ -6397,12 +6436,12 @@ static void paired_second_batch(bool update)
             }
         }
         /* Complete address publication needs a commit; a stable ring does not. */
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
     }
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 0x10, 1); /* Duplicate active kick is inert. */
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 5);
     memset(expected, 0xa5, sizeof(expected));
     for (unsigned y = 0; y < 28; y++) {
@@ -6422,7 +6461,7 @@ static void paired_second_batch(bool update)
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x118), ==, 5 * 56 * 28);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
     qtest_writel(q, PAIRED + 0x10, 1);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 5);
     qtest_quit(q);
     unlink(scene);
@@ -6451,7 +6490,7 @@ static void test_paired_stop_drain_race(void)
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x18), ==, 1);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    qtest_clock_step(q, 2000000);
+    pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
     qtest_writel(q, PAIRED + 0xf0, 0xfc400);
     for (unsigned i = 0; i < ARRAY_SIZE(commands); i++) {
@@ -6485,13 +6524,13 @@ static void test_paired_peer_release(void)
     qtest_writel(q, peer + 8, 1);
     work_input(q);
     work_rise(q);
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
     paired_stop(q, PAIRED);
     /* The peer retries owned RAW without a new input edge. */
-    qtest_clock_step(q, 1000000);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x014a0080);
@@ -6539,7 +6578,7 @@ static void test_capture_geometry_reduction(void)
         qtest_writel(q, CAPTURE + 0x100, 0x85);
         work_input(q);
         work_rise(q);
-        qtest_clock_step(q, 2000000);
+        pipeline_step(q, 2000000);
         memset(expected, 0xa5, sizeof(expected));
         if (mode == 0) {
             /* The whole72-row image is sampled, not its first36-row crop. */
@@ -6566,7 +6605,7 @@ static void test_capture_geometry_reduction(void)
             qtest_writel(q, 0x2006951c, 18 << 16);
             qtest_writel(q, CAPTURE + 0x104, 0x80);
             work_rise(q);
-            qtest_clock_step(q, 2000000);
+            pipeline_step(q, 2000000);
             g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
             qtest_memread(q, WORK_BUFFER + 0x1000 - 16, actual,
                           sizeof(actual));

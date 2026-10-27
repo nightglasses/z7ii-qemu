@@ -178,7 +178,7 @@ static void test_rows(void)
         unsigned offset;
         uint32_t value;
     } unsupported[] = {
-        { 0, 1 }, { 0x14, 0 }, { 0x14, 0x11 }, { 0x18, 1 },
+        { 0, 1 }, { 0x14, 0 }, { 0x18, 1 },
         { 0x1c, 1 }, { 0x2c, 1 },
     };
     uint8_t expected[512], actual[512];
@@ -257,6 +257,57 @@ static void test_rows(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_copy(void)
+{
+    const uint32_t source = 0x04006000;
+    uint8_t input[128], expected[128], actual[128];
+    g_autofree char *path = NULL;
+    int fd = g_file_open_tmp("nikonXXXXXX", &path, NULL);
+    QTestState *q;
+
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(ftruncate(fd, BACKEND_SIZE), ==, 0);
+    for (unsigned i = 0; i < sizeof(input); i++) {
+        input[i] = i * 37 + 3;
+    }
+    g_assert_cmpint(pwrite(fd, input, sizeof(input), source), ==,
+                    sizeof(input));
+    q = start(path, false);
+    g_autofree char *fill = nikon_device_path(q, TYPE_NIKON_FILL);
+    qtest_irq_intercept_out_named(q, fill, "sysbus-irq");
+    for (unsigned engine = 0; engine < 2; engine++) {
+        hwaddr base = FILL + engine * 0x40;
+
+        for (unsigned bit = 0; bit < 2; bit++) {
+            memset(expected, 0xa5, sizeof(expected));
+            g_assert_cmpint(pwrite(fd, expected, sizeof(expected),
+                                  DESTINATION), ==, sizeof(expected));
+            configure_profile(q, base, 23, 13, 4, DESTINATION + 1);
+            qtest_writel(q, base + 0x14, bit * 0x10);
+            qtest_writel(q, base + 0x1c, 19);
+            qtest_writel(q, base + 0x2c, source + 3);
+            qtest_writel(q, base + 0x10, 1);
+            g_assert_cmphex(qtest_readl(q, base + 8), ==, 1);
+            g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0);
+            g_assert_true(qtest_get_irq(q, engine));
+            for (unsigned row = 0; row < 4; row++) {
+                memcpy(expected + 1 + row * 23, input + 3 + row * 19, 13);
+            }
+            g_assert_cmpint(pread(fd, actual, sizeof(actual),
+                                 DESTINATION), ==, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+            g_assert_cmpint(pread(fd, actual, sizeof(actual), source), ==,
+                            sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), input, sizeof(input));
+            qtest_writel(q, base + 8, 0x11);
+            g_assert_false(qtest_get_irq(q, engine));
+        }
+    }
+    qtest_quit(q);
+    close(fd);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 static void test_composition(void)
 {
     const uint32_t destination = 0xbf309600, length = 720 * 480 * 4;
@@ -315,6 +366,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/fill/private", test_private);
     qtest_add_func("/nikon/fill/readonly", test_readonly);
     qtest_add_func("/nikon/fill/rows", test_rows);
+    qtest_add_func("/nikon/fill/copy", test_copy);
     qtest_add_func("/nikon/fill/composition", test_composition);
     result = g_test_run();
     unlink(image);

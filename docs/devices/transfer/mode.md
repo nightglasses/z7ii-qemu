@@ -121,3 +121,73 @@ the peer reports no protocol rejection. Receipts in
 `run convertpaint/` include native red/focused/green logs,
 original red/green argv/traces/read-only snapshots, source projections,
 raw streams, producer joins, packet/mode/IRQ progress and UART/QMP receipts.
+
+
+## Sampling domain and output layout
+
+A later unchanged C1.70 MAS menu run submits another224/1736-byte packet and
+rejects at MAS VA`106ee3c6`, WRITE32 board PA`201810e0=1`, with
+`transfer-convert-program-not-supported`. Its normal-image grammar is already
+supported: temporary184=0, final184=2, no185 paint write, and the complete
+existing color-disable, color matrix and both LUT tables. No additional paint
+or prefix is missing.
+
+The new combination is the existing720 × 480 scaled input domain with output
+format105. Both output-format commands carry105. The active path matrix,
+f24 sample coefficients, source active/allocation extent`02d001e0` and paired
+filter controls7 exactly match the established scaled107 profile. The source
+is board PA`bf309600`; output planes at`cc18b000` and`cc235800` differ by
+`aa800`, exactly1024 × 682 bytes. The previous parser incorrectly equated
+scaled sampling with format107 and would also have assigned an oversized
+first plane. The model now validates source-domain state separately from the
+complete output-format words and their plane sizes.
+
+The finite combinations remain explicit:
+
+| Operation | Source domain | Output | Plane bytes | Final184 |
+|---|---|---|---|---|
+| Initialized normal SRC |1024 × 688 allocation,1024 × 682 active|105|698368 +698368|2|
+| Initialized normal SRC |720 × 480, existing scaled transform|105|698368 +698368|2|
+| Initialized normal SRC |720 × 480, existing scaled transform|107|1396736 +698368|2|
+| Retained SRC_OVER |720 × 480, existing scaled transform|107|1396736 +698368|2|
+| Initialized clear |Existing clear path, no sampled image|105 or107|As above|8|
+
+Normal conversions retain temporary0/2/4/6 and the exact final2; clear retains
+its separately validated temporary0/8 and final8. The short RGBA/A8 image
+sampler's explicit paint/modulation mode0e is a separate[grammar](image.md).
+It is not added to the converter, whose color matrix, LUT values, mask bits,
+source format, blend state and command ordering remain exact. Unobserved
+107/non-scaled geometry and format106 remain unsupported.
+
+The executor reuses the existing scaled coordinates, path coverage, SRC
+weights and limited-range BT.601 functions. Format105 stores one Y byte per
+pixel followed by interleaved U/V bytes for each horizontal pair; it has no
+stored alpha. The same SRC equation therefore treats its previous destination
+alpha as255 and writes no alpha plane. Source alpha and path coverage still
+participate in the existing weights: a fully covered sample with zero alpha
+converts black, while nonzero source alpha retains its straight RGB color.
+Fractional boundary coverage includes the old opaque destination using the
+same equation as107. These alpha/precision choices are functional assumptions
+consistent with the existing converter and fixed Z7 model, not recovered
+physical-GPU arithmetic. Nominal105's existing alpha limit remains unchanged.
+
+The native`/nikon/transfer/scaled-yuv105` fixture covers the complete two-plane
+extent and unchanged guards/tail, all four temporary states, alpha0/64/128/255,
+opaque and transparent boundary cases, immutable commands and late source
+changes. Its reference shares the separately tested path mask, computes sample
+coordinates with doubles and independently computes opaque-destination SRC,
+BT.601 and105 packing. Literal blue anchors are Y41/U240/V110. Format mismatch,
+unknown format, altered color matrix/LUT/filter/geometry, incorrect plane delta,
+range/alias failure, map loss, reset and unrealize remain negative cases.
+The107 fixture retains its previous pixel and alpha checks. The old model
+rejects the first legal scaled105 submission; after correction, the complete
+`nikon_transfer_unit` executable passes all32 subtests in3.59 host seconds.
+Native results and original menu completion are separate validation claims.
+
+The subsequent121.40-host-second unchanged-firmware window passes the captured
+scaled105 packet and renders the Playback Menu through the original display
+queue. Ordinary inputs change row/category highlights, paired MAIN completes
+242 jobs, QMP is running at the end and the exception/watchdog diagnostic
+buffer is empty. There is no new unsupported access in this window. The
+[input receipt](/evidence/input/turnover.json) preserves the earlier failures;
+all-category/menu-setting and return-to-liveview acceptance remain open.

@@ -131,6 +131,7 @@ export default defineConfig({
               { text: 'Pairs Adaptive Filter', link: '/devices/pairs/filter' },
               { text: 'Pairs Interpolated Denoise', link: '/devices/pairs/noise' },
               { text: 'Pairs CFA Color', link: '/devices/pairs/color' },
+              { text: 'Firmware Color Conversion', link: '/devices/pairs/conversion' },
               { text: 'Pairs Detail Filter', link: '/devices/pairs/detail' },
               { text: 'Pairs Axial Filter', link: '/devices/pairs/adaptive' },
               { text: 'Pairs Radial Sampling', link: '/devices/pairs/radial' },

@@ -41,6 +41,56 @@ retain their mandatory active identity matrix; an earlier unused cache matrix
 may be omitted or overwritten. The existing color-transform-disable write
 is accepted only in its known positions and with value0.
 
+### Temporary solid selector
+
+A later unchanged C1.70 MAS menu submission contains168 setup bytes and232
+draw bytes: one41-word indirect fill, zero setup padding, one55-word draw,
+the two-word ending and zero draw padding. It rejects at MAS VA`106ee3c6`,
+WRITE32 board PA`201810e0=1`, with`transfer-path-program-not-supported`.
+The only new fixed-state value is draw word5: the first`01841004` writes0,
+while the second at word25 still writes8. Paint is`ff000000`, blend is
+SRC_OVER, and the supported even-odd rule is`40002`. Target/key/scratch
+operands remain validated normally. This packet does not establish the
+indirect path's visual role.
+
+The original source explains both selector writes. `1064abe8` calls the
+common path-state producer`1068c39c`. At`1068c412` it sets argument0 and at
+`1068c416` calls`10645c86`, emitting
+`(private191 ? 8 : 0) | (2 * 0) | (private188 != 0)`.
+The solid-paint branch of`1068b8ae` sets its solid argument to1 at
+`1068b8e8` and calls`10646062` at`1068b92a`. This writes the same register
+byte as8 before paint, path latch and draw. A preceding normal-image job
+clears the solid selector; the path-state producer may therefore emit0
+before the solid-paint producer replaces it with8. These are static producer
+facts consistent with the captured0-to-8 stream; no instruction-level trace
+of this particular producer invocation is claimed.
+
+Both complete fill records and the common24-word prefix of a full stroke
+accept only temporary0/8 at that exact payload position. Their final solid
+state remains exactly8, including compact inherited-matrix strokes. Bit0,
+image-mode bits, higher bits, altered headers and other final states remain
+errors. The initialized global seam, optional color-disable command, affine
+matrix, fill rule, paint, ordered keys and target/memory checks retain their
+existing constraints. Treating the earlier selector as fully overwritten
+without eager rendering is a finite functional assumption, shared with the
+existing[clear selector model](clearmode.md); physical GPU side effects are
+not established.
+
+The native`/nikon/transfer/path-state` fixture repeats the existing fill,
+initialized-path and stroke cases with temporary0. Existing fixture entries
+retain temporary8. Coverage includes single/multiple fills, both fill rules,
+initialized and color-disable seams, full-prefix and inherited strokes,
+complete output/guards for rectangular fill/stroke cases, and the existing
+range, alias, map-loss, reset and cancellation boundaries. Additional negative
+cases check unsupported selector bits/header shapes, a late invalid prefix,
+and an invalid final selector. These fixtures are separate from original
+menu completion. The old implementation fails the first legal temporary0
+submission; the corrected complete `nikon_transfer_unit` executable passes
+all31 subtests in3.53 host seconds. A subsequent original run passes the
+168/232-byte job and reaches a separate scaled105 conversion combination,
+with131 MAIN completions at the last menu-down sample and an empty
+exception/watchdog diagnostic buffer.
+
 The captured segments add relative QUAD `0b` to the existing relative H/V
 outline. Its control point and endpoint both use the current point before
 the operation. The finite decoder consistently handles the absolute/relative

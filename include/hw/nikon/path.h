@@ -11,6 +11,13 @@
 #define NIKON_PATH_MAX_SEGMENTS 64U
 #define NIKON_PATH_MAX_COORDINATES 256U
 #define NIKON_PATH_MAX_BATCH 256U
+#define NIKON_PATH_IMAGE_MAX_DIMENSION 4096U
+#define NIKON_PATH_IMAGE_MAX_PIXELS (256U * 256U)
+
+typedef enum NikonPathImageFormat {
+    NIKON_PATH_IMAGE_A8,
+    NIKON_PATH_IMAGE_RGBA,
+} NikonPathImageFormat;
 
 typedef struct NikonPathStroke {
     float radius, extent; /* Object-space half width and tangent miter extent. */
@@ -27,9 +34,11 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
                      bool nonzero, const NikonPathStroke *stroke,
                      const char **reason);
 
-/* Finite A8 image modulation. NULL overlay validates only the sampler. */
+/* Finite A8/straight RGBA image modulation. The overlay is premultiplied.
+ * NULL overlay validates only the sampler, format and work bounds. */
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
-                      const uint8_t *alpha, unsigned width, unsigned height,
+                      const uint8_t *image, NikonPathImageFormat format,
+                      unsigned width, unsigned height,
                       const uint32_t sample[9], uint32_t paint,
                       const char **reason);
 

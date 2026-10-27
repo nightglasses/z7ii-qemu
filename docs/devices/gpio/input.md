@@ -95,7 +95,9 @@ high. F13 toggles this maintained contact once per press; release and keyboard
 repeat leave it unchanged. These host key and initial-position choices are a
 functional input profile, not recovered physical keyboard wiring. F1–F12 and
 1–5 retain the separate seventeen direct EX GPIO scan inputs. F4/EX C5 is not
-the photo/movie selector.
+the photo/movie selector: its original report mapping is SW0 `MAIN` (`0x200`),
+the maintained main power switch. Holding it low supplies power-ON in the
+original-input runs; it is not a shutter half-press.
 
 The C1.70 source chain uses EX VA `0803E52A..0803E53A` to sample expander
 bit0 into logical input37; `0803D950..0803D9B2` inverts it into aggregate
@@ -137,6 +139,84 @@ release, reset ordering, unchanged direct pads, unregister and recreation.
 The selector fixture observes its electrical output; original executions
 separately establish its expander and firmware connection. Normal live view,
 shutter capture and file saving are separate acceptance boundaries.
+
+## Normal expander button contacts
+
+The frontend exposes sixteen named `expander-pad` outputs. Output indices use
+the public `nikon_input_expander_ids` array; its entries are the physical pad
+numbers on EX I2C0 expander address`0x22`, not GPIO registry IDs or guest button
+messages. The board connects each output to that pad's normal external-level
+input before realization, with one external owner per contact. Pad0 remains
+the independent maintained photo/movie selector. The seventeen `pad` GPIO
+outputs, mode ADC and two command dials keep their separate interfaces.
+
+The host bindings below are explicit virtual input choices. The pad numbers
+and firmware bit/report mappings come from the C1.70 EX/MAS source audit; the
+host keyboard assignments are not recovered camera keyboard wiring.
+
+The board no longer holds pads1,3 and10 low. The source maps pad3 to OK,
+pad1 to SW1 `RELEASE_MODE` and pad10 to SW2 `FEATURE`; none is an established
+ready signal. The frontend uniquely owns OK, initially released. Pads1/10
+remain disconnected so the guest's actual pull configuration determines their
+level; the expander's existing reset profile resolves them high. `FEATURE` is
+retained as the source name without guessing a physical button identity.
+
+| Output index | Contact | Expander pad | Host key |
+| --- | --- | --- | --- |
+|0|Menu|9|F20|
+|1|OK|3|Enter|
+|2|Playback|8|F21|
+|3|Delete|23|Delete|
+|4|I|2|I|
+|5|Zoom|22|Equal|
+|6|Thumbnail|21|Minus|
+|7|Main right|6|Right arrow|
+|8|Main left|7|Left arrow|
+|9|Main up|5|Up arrow|
+|10|Main down|4|Down arrow|
+|11|Second selector right|14|D|
+|12|Second selector left|15|A|
+|13|Second selector up|13|W|
+|14|Second selector down|12|S|
+|15|Second selector center|11|F22|
+
+All contacts initially drive high. A held key drives its one contact low;
+release drives it high again. The two direction groups and independent buttons
+can be held together. There is no synthetic diagonal command: holding two
+adjacent main directions produces the physical active-low masks`60`, `50`,
+`a0` or`90`; the second group produces`6000`, `5000`, `a000` or`9000`.
+Keyboard repeat does not change a held contact or add an edge. Esc is unmapped;
+no guessed independent exit button is introduced.
+
+The original EX I2C0 transaction reads three bytes from expander register0
+into RAM VA`2001ff53..2001ff55`. EX VA`080380a8` inverts that24-bit raw value,
+applies the configured mask and stores it at VA`20015b80`; VA`08037ed8` copies
+the result into the record at VA`20015bcc`. The83-row ROM table at
+VA`0804e458` maps the normal buttons. Its Menu row43 uses mask`200` for pad9
+and body byte63; after the four-byte transport header this is full-report
+byte67. MAS VA`10434100` consumes that byte into bit`8000` of VA`b25eaeb0`.
+OK pad3 maps to body byte70/full-report byte74 and bit1; Playback pad8 maps
+to body byte64/full-report byte68 and bit2. These mappings are source facts,
+not host writes to the normalized record. The direction consumer at EX
+VA`0803db64` converts the four contacts to eight directions, independently
+for masks`f0` and`f000`.
+
+Reset retains all sixteen held-key latches and republishes their levels after
+receiver reset. It neither releases the user's contact nor turns a held key
+into a new press. Unrealize unregisters the input handler and publishes−1 to
+disconnect every expander button line, including held-low contacts. The frontend
+does not write guest input state, normalized messages, GUI events, IRQs or task
+flags. The existing expander, EX sampling/debounce and MAS report consumers
+remain responsible for those effects. A board must not retain a static pad3
+low provider: that level is a permanently held OK contact, not idle state.
+
+The focused native fixtures specify every exported output, each press/release,
+repeated press/release, all-contact hold, global and receiver-order reset,
+unplug/recreation, all eight diagonals, combined direction groups and independent
+Menu/OK/center holds. They also check that expander keys leave the seventeen
+GPIO contacts, capture selector and mode ADC unchanged. Fixture execution and
+unchanged-firmware menu behavior are reported separately by the integration
+owner; these fixture definitions do not establish original GUI acceptance.
 
 ## Mode dial ADC input
 
@@ -184,9 +264,11 @@ Two finite contact sequencers share the existing direct GPIO outputs. Dial0
 uses EX F11/F14 (raw host F8/F9); dial1 uses EX E7/E13 (raw host F6/F7). The
 first pin is bit1 and the second bit0. A positive detent produces raw levels
 `11 → 10 → 00 → 01 → 11`; a negative detent reverses that sequence. The first
-transition occurs after5ms, and every later transition also waits5ms. This
-virtual input timing is a functional assumption to give the unchanged EX
-polling loop time to sample each phase, not a measured rotary-encoder rate.
+transition occurs after50ms, and every later transition also waits50ms. Four
+phases take200ms per detent, limiting a queued sequence to five detents per
+second. This is an explicit virtual keyboard cadence chosen to give the
+unchanged guest polling loop time to observe the contacts. It is not a measured
+rotary-encoder rate, a physical debounce model or proof of downstream acceptance.
 Time advances the contacts only; it never emits a report, setting, GUI update
 or guest interrupt.
 

@@ -227,7 +227,8 @@ out:
 }
 
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
-                      const uint8_t *alpha, unsigned width, unsigned height,
+                      const uint8_t *image, NikonPathImageFormat format,
+                      unsigned width, unsigned height,
                       const uint32_t sample[9], uint32_t paint,
                       const char **reason)
 {
@@ -249,7 +250,10 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             return false;
         }
     }
-    if (!width || width > 256 || !height || height > 256 ||
+    if ((format != NIKON_PATH_IMAGE_A8 && format != NIKON_PATH_IMAGE_RGBA) ||
+        !width || width > NIKON_PATH_IMAGE_MAX_DIMENSION ||
+        !height || height > NIKON_PATH_IMAGE_MAX_DIMENSION ||
+        (uint64_t)width * height > NIKON_PATH_IMAGE_MAX_PIXELS ||
         (paint >> 24) != 255 || m[6] != 0 || m[7] != 0 || m[8] != 1 ||
         m[0] * m[4] - m[1] * m[3] == 0) {
         *reason = "transfer-image-sampler-not-supported";
@@ -262,7 +266,9 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
         for (unsigned x = 0; x < NIKON_PATH_WIDTH; x++) {
             unsigned p = y * NIKON_PATH_WIDTH + x;
             double u, v;
-            unsigned tx, ty, coverage;
+            unsigned tx, ty, coverage, alpha;
+            size_t index;
+            const uint8_t *sample;
 
             if (!mask[p]) {
                 continue;
@@ -272,10 +278,18 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             /* Functional nearest/clamp sampling, as in the fixed Z7 source. */
             tx = floor(CLAMP(u, 0, width - 1));
             ty = floor(CLAMP(v, 0, height - 1));
-            coverage = (mask[p] * alpha[ty * width + tx] + 127) / 255;
+            index = ty * width + tx;
+            sample = image + index *
+                     (format == NIKON_PATH_IMAGE_RGBA ? 4 : 1);
+            alpha = sample[format == NIKON_PATH_IMAGE_RGBA ? 3 : 0];
+
+            coverage = (mask[p] * alpha + 127) / 255;
             for (unsigned c = 0; c < 3; c++) {
+                unsigned color = ((paint >> (8 * c)) & 255) *
+                    (format == NIKON_PATH_IMAGE_RGBA ? sample[c] : 255);
+
                 overlay[4 * p + c] =
-                    (((paint >> (8 * c)) & 255) * coverage + 127) / 255;
+                    (color * coverage + 32512) / 65025;
             }
             overlay[4 * p + 3] = coverage;
         }

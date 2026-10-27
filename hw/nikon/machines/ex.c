@@ -1846,6 +1846,9 @@ static void ex_realize(DeviceState *dev, Error **errp)
 
         object_property_add_child(OBJECT(s), "monitor", OBJECT(monitor));
         object_property_add_child(OBJECT(s), "status", OBJECT(status));
+        /* 0802b998 binds the status driver's polled change input to PC0. */
+        qdev_connect_gpio_out_named(DEVICE(status), "interrupt", 0,
+                                   nikon_ex_gpio_input(s, 2, 0));
         i2c_slave_realize_and_unref(monitor, s->i2c[0].bus, &error_fatal);
         i2c_slave_realize_and_unref(status, s->i2c[0].bus, &error_fatal);
     }

@@ -136,3 +136,158 @@ the actual SPI HAL record at SRAM `20017eac`, together with normal producer
 rates. Final zero input counters alone cannot distinguish failed submission
 from later normal consumption and clearing. No input cadence, IRQ, queue slot
 or exposure value is forced to bypass this missing evidence.
+
+### Status-notification correction and downstream boundary
+
+The later [queue-turnover receipt](/evidence/input/turnover.json) resolves the
+producer side. The original status driver polls an active-low change input on
+EX PC0. Its previous unwired low level repeatedly admitted identical status
+acquisitions and BatMg event29 reports. The [status endpoint](../expower/protocol.md)
+now retains an external change until its four-byte acquisition and generation-
+matched release, through normal I2C transactions. A separate SPI-DMA diagnostic
+observed 11 successful waits out of 12 and actual ring-index progress; no
+completion event or queue slot is supplied by the host.
+
+With the correction, a post-window original snapshot observes PC0 high, a valid
+class1 sample, and all16 class2 slots empty. A93.94-host-second original run
+continues MAIN processing from52 to156 completed frames between its46.75 and
+92.81-second samples, with zero processing errors and zero panic length. This
+establishes bounded continuous processing and removes the observed congestion;
+it does not establish indefinite stability or complete exposure control.
+
+A separate unpaused M run supplies a complete negative detent through raw
+contacts held for one host second per phase. MAS cumulative dial0 becomes−1,
+but Tv/Av remain312/24 throughout the bounded observation. A separate read-only
+breakpoint diagnostic joins report byte11, its52-byte normalized copy, the
+input-worker event and the actual cumulative-add instruction. These are
+distinct observations; breakpoint timing is not used as ordinary-input
+acceptance.
+
+The downstream source chain is MAS VA `10434378` → `1038b80c` → `1038b68c`
+→ `1038b528`: the parser signs the wheel byte, the receiver synchronously
+copies52 bytes to VA `b1f7a720`, event1 admits the input worker, and the worker
+adds the delta to VA `b1f7a7f8`. This addition precedes the application callback
+and exposure policy. An unchanged Tv alone therefore cannot identify failed
+transport. The input-engine initialization and pause gates are separately
+observed open in the button run; current engine3 is the source-named
+`GuiLvEv1`. Its input ring also retires normally. The independent application
+exposure path is `1029ee74` → `102a59e8` → `10299e3e(7,0,0)` → `1029d28a`,
+then the active mode's Tv/Av index producer. Cumulative counts alone do not
+establish that this separate queue and permission path consumed a delta.
+
+MENU, arrows and OK now use the ordinary expander contacts and reach the MAS
+normalized switch bits during held-key observations. A separate MENU-only
+read-only diagnostic observes the classified action tuple`{28,0,0}`, final
+action28 and dispatch to the current state0 object's actual handler
+`104e6c1c`. The menu permission path at `1055396c` accepts it, and its synchronous
+coordinator returns. State0 and the initialized GUI worker are not missing.
+
+The subsequent request is deferred in a separate read-only diagnostic: GUI
+flag42 is zero at `105b64d2`. The call at `105b64c6`
+retains request `0x20000` at VA `b181dabc`, rather than immediately switching
+workers, and sets flag135 at `b202be3c`. Twenty-two observations at
+`1053eab4` find no record73, including after the request is retained. Neither
+the `04100012` receiver nor the worker-switch entry is observed in that bounded
+window. Callback registration returns zero, while backend state byte
+`b23f6a80` advances from2 at the earlier breakpoints to3 in the post-window
+snapshot. This locates the retained request; it
+does not yet establish which backend prerequisite prevents completion.
+
+The normal `04100012` control-result message produces record73,
+which admits the retained switch request. Immediate and deferred paths both
+require the manager to receive the old GUI worker's exit notification before
+starting the Menu worker and its tree constructor `1044eca8`. No such control
+result or exit notification is supplied by the host. Those earlier sessions
+did not show a menu screen, and a longer continuation reached a distinct
+unsupported176/336-byte image program. Electrical delivery, accepted menu
+request, worker handoff, drawing and setting changes remain separate acceptance
+levels.
+
+The same diagnostic separately delivers a sub-command dial delta to
+`102a59e8`. The common permission check returns1 at `102a5a32`, and two calls
+reach the Av setter `1029b9d0` with delta1. Neither index-selection return nor
+property publication is observed. Thus this observation narrows the setting
+failure to the Av setter's independent guards, rather than proving a common
+input-manager rejection. It does not establish command-dial0 delivery or a
+changed exposure setting. MAIN advances24→107 with zero graph errors in the
+session, which includes debugger pauses and is not timing acceptance.
+
+## Formatted media and natural setting changes
+
+The later diagnostic identifies the Av setter's actual guard: property6405 at
+MAS VA `b2551f50` is8, so bit3 causes `10299ef4` to reject adjustment through
+`1029b014`. The other sampled guards, properties6424/6916/5772, are1/0/0.
+The storage chain `104970e2` → `105077ea` → `10225b38` translates raw storage
+flag`40000` into property6405 bit3. VA `105062de` sets that raw flag if either
+storage object's state is2 or3; an absent slot's state0 alone does not set it.
+State2 can follow filesystem/path check error`043a0088`, while state3 also
+occurs during cancellation/unmount. These states must not all be labeled an
+unformatted card.
+
+A fresh normal8GiB MBR/FAT32 slot0 input removes that rejection. The board
+continues to use its normal BlockBackend, NVMe queues, DMA and original guest
+filesystem. No host folder serves guest filesystem operations. The next
+source-produced512-byte [two-dimensional copy](../fill/protocol.md#source-produced-two-dimensional-copy)
+is now executed as actual DMA, allowing the original consumer to continue.
+
+In the subsequent unpaused original run, ordinary mode-position and dial
+contacts settle in M/A/S/P and change actual settings:
+
+| Operation | Original value before → after |
+| --- | --- |
+| M main dial | Tv517:312 →304 |
+| M sub-command dial | Av518:24 →80 |
+| A sub-command dial | Av518:80 →88 |
+| S main dial | Tv517:304 →296 |
+| P main dial | Program shift514:0 →−2; index20 →19 |
+
+The M screen displays1/6400 andF3.2. MAIN completions rise26→139 between the
+32.03 and82.85-host-second observations, with QMP running at every control
+sample and post-window panic length0. The initial Av24 is outside the explicit
+F2.8 lens range; normal permission/strategy selection can clamp or skip rows,
+so these results do not imply one table index per detent.
+
+The lens runtime retains relative aperture/target0 and no new aperture
+commands during these changes. The actual request is an AE output, not a
+direct property518 mirror: `10210886` publishes the rational from
+`b2114fb8` through its output to `b25ef0a8`; `10233570` then passes it through
+the iris packet to `10398206`. Its576/192 value remains Av3 and equals the
+previous target, explaining why the later comparison sends no new command37.
+The source includes range/qualification checks and a legal retain-old-value
+branch, but this session does not identify which AE branch held the value.
+The next discriminating producer is `10213280` and its exposure context
+offsets11493/11784/11904/11676/11632, together with globals
+`b185f634/b185f664`. Actual iris application and optical exposure therefore
+remain unaccepted; a missing motor command alone does not prove a lens
+transport fault. MENU naturally advances the old GUI worker
+to internal4, Menu to1 and its backend to4, clearing the retained request.
+It initially reaches a separate176/328-byte normal-image grammar boundary.
+After that mode is implemented, an original repeat advances to a168/232-byte
+path-state boundary, with138 MAIN completions and zero diagnostic append bytes.
+Worker handoff is established; a rendered menu tree and navigation are not yet
+established.
+
+A separate session at the normal-image revision changes M settings but does
+not settle a requested A transition by84.36 host seconds. QMP remains running,
+no unsupported access is reported and the class2 queue is empty, but the
+exception/watchdog diagnostic append buffer contains303181 bytes. Its text
+and flags were not captured, so the cause is unresolved. The subsequent
+successful mode transitions do not erase this stability failure. The
+[curated receipt](/evidence/input/turnover.json) records both windows and the
+source-established diagnostic-buffer semantics, separately from native checks.
+
+After the source-backed path-state and scaled105 layout corrections, a fresh
+121.40-host-second original window completes the full input sequence without
+an unsupported access. It displays the Playback Menu and changes the row and
+category highlights through ordinary inputs. Paired MAIN jobs increase19→242;
+periodic graph-error samples are0, QMP remains running at the final query, and
+post-window exception/watchdog flags and diagnostic append length are0.
+The image below is original scanout, not a host-rendered menu:
+
+![Original Playback Menu](/evidence/input/menu.png)
+
+The runner's requested-action labels include intended submenu/return actions;
+they are not evidence that those actions completed. The last screen still
+shows the Playback Menu. Other categories, actual setting changes inside
+menus and return to live view require separate acceptance. The earlier
+mode-transition failure and unchanged iris application target remain open.

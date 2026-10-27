@@ -1,6 +1,6 @@
 # Original-firmware startup frontier
 
-## Current: detailed photo, neutral gray and twenty visible scene updates
+## Current: detailed photo, natural exposure controls and a rendered menu
 
 Unchanged C1.70 AUTO photo firmware now displays a detailed 1200 × 800 P6
 photograph through normal CMOS acquisition, packed RAW, paired MAIN, the
@@ -25,23 +25,49 @@ primary-color and grayscale measurements, native coverage and declared
 numerical hypotheses. Saturated channels still clip under the programmed
 profile; this is not physical color calibration or a camera FPS claim.
 
-Two remaining gaps are recorded separately. One earlier fresh attempt rejected
-an SLA fill request, whose private failing tuple was not captured correctly;
-the two following fresh AUTO runs completed. A direct M run selects the normal
-mode context, but a queued detent did not change the observed MAS count or Tv
-setting in its bounded window. The old M numerical stop below has been modeled;
-it is historical evidence, not the current exposure-control diagnosis.
+The later [EX turnover receipt](/evidence/input/turnover.json) identifies the
+repeated battery-report producer and corrects its missing status-change input
+lifecycle. Original I2C acquisition and release now retire that notification;
+all16 type2 queue slots are empty in a later snapshot. No host queue release or
+completion event is added. A separate93.94-host-second original M session
+advances from52 to156 MAIN completions between46.75 and92.81 seconds, with
+zero processing errors and post-window panic length zero.
 
-The [curated receipt](/evidence/color/capture.json) distinguishes successful
-unchanged execution, scoped native fixtures, diagnostics and failed attempts.
-The next acceptance work is reliable normal dial delivery and resulting
-shutter/aperture changes, while retaining bounded MAIN refresh and diagnosing
-the rare SLA startup rejection. Independent EX diagnostics already reach the
-negative input snapshot and aggregate, but observe the selected type2 send slot
-occupied by an older BatMg report. Later queue progress narrows the remaining
-input work to normal transport turnover and producer coordination, rather than
-inventing a dial event or releasing that slot. Optical exposure, still capture, recording,
-saving and indefinite stability remain open.
+Normal MENU, arrows and OK contacts reach the MAS switch snapshot. Queued
+dials and mode-position inputs now select P/S/A/M. A separate source/read-only
+diagnosis finds a storage-policy bit rejecting exposure adjustment. With a
+fresh normal MBR/FAT32 card and source-backed two-dimensional DMA copies,
+an unpaused original run changes M Tv/Av, A Av, S Tv and P program shift514
+through the original application setters. MAIN completions increase26→139
+between32.03 and82.85 host seconds, with post-window panic length0. Actual
+iris commands and optical exposure are separate, still unaccepted levels.
+
+MENU also naturally completes its old-GUI worker handoff, starts Menu and
+clears the retained request. The normal-image, temporary path-state and
+scaled105 output-layout combinations now execute through the original drawing
+and display path. A121.40-host-second unchanged-firmware window renders the
+Playback Menu and visible input-driven highlight changes. Paired MAIN jobs
+increase19→242; periodic graph-error samples are0, QMP is running at the end,
+and the post-window exception/watchdog flags and diagnostic length are0.
+
+![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
+
+All menu categories, setting acceptance and return to live view remain
+unverified. One separate session fails to settle M→A and accumulates
+exception/watchdog diagnostic text; its cause remains unresolved despite the
+successful repeated transitions. The final window does not erase that failure.
+See [exposure controls](../devices/gpio/exposure.md) and the
+[curated input receipt](/evidence/input/turnover.json) for source conditions,
+normal input profiles and distinct native/execution limits. The old M
+numerical stop below is historical evidence.
+
+The [photo receipt](/evidence/color/capture.json) preserves the earlier successful
+AUTO scene tests and the separate rare SLA fill rejection whose private failing
+tuple was not captured correctly. [Recovered CPU color conversion](../devices/pairs/conversion.md)
+now supplies exact software arithmetic for selector1; it does not establish
+physical paired-ASIC equivalence. AF actuator/statistics feedback, full-resolution
+still acquisition, optical exposure, recording, saving and indefinite stability
+remain open.
 
 ## Previous: cyclic MAIN processing with quadrant inputs
 

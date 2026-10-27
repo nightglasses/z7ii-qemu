@@ -10,6 +10,8 @@
 #include "qemu/log.h"
 #include "qapi/error.h"
 #include "qemu/timer.h"
+#include "qemu/aio-wait.h"
+#include "block/thread-pool.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
@@ -48,6 +50,15 @@ typedef struct PairedJob {
     bool work, stream;
 } PairedJob;
 
+typedef struct PairedTask {
+    NikonPairedEventBanksState *owner;
+    PairedJob job;
+    uint8_t *y, *uv, *work, *packed;
+    uint64_t token;
+    unsigned bank;
+    bool ready, success;
+} PairedTask;
+
 typedef struct NikonPairedEventBanksBank {
     NikonPairedEventBanksState *parent;
     MemoryRegion regs;
@@ -57,6 +68,8 @@ typedef struct NikonPairedEventBanksBank {
     NikonPairedRequestState request;
     QEMUTimer *timer;
     PairedJob job;
+    PairedTask *compute;
+    uint64_t token;
     uint64_t consumed[4], table_written[10];
     uint64_t curve_written[2][3];
     uint64_t colorfilter_written;
@@ -72,7 +85,9 @@ typedef struct NikonPairedEventBanksBank {
     NikonRawEncoding history_encoding[4];
     NikonRawTransfer history_transfer[4];
     unsigned phase, seen, refill, stop;
+    unsigned selected, commit_selected;
     bool active, published, finish_pending;
+    bool commit_pending;
     bool saturation_published, saturation_updating;
     bool radial_tables_published;
     unsigned index;
@@ -89,10 +104,22 @@ struct NikonPairedEventBanksState {
     bool calibration_loaded;
     uint64_t completed, rejected, cancelled, blocked, bytes;
     bool reported_error;
+    bool stopping;
+    unsigned inflight;
 };
 
 static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
                        uint32_t value);
+static void paired_task_free(PairedTask *task);
+
+static void paired_latch(NikonPairedEventBanksBank *b)
+{
+    if (b->commit_pending && !b->active && !b->stop) {
+        /* 10 commits a view; only 08 starts a new phase/count sequence. */
+        b->selected = b->commit_selected;
+        b->commit_pending = false;
+    }
+}
 
 void nikon_paired_frame(DeviceState *dev, const NikonPairedRawFrame *frame)
 {
@@ -195,6 +222,8 @@ static bool nikon_paired_event_banks_value(hwaddr offset, uint32_t value)
         return value == 1;
     case 0xd0:
         return value <= 1;
+    case 0xfc:
+        return value <= 1;
     case 0xf0:
         return value == 0x8e || value == 0xfc400;
     default:
@@ -217,11 +246,16 @@ static void paired_release(NikonPairedEventBanksBank *b)
 
 static void paired_cancel(NikonPairedEventBanksBank *b)
 {
+    b->token++;
     if (b->active) {
         timer_del(b->timer);
         paired_release(b);
         b->parent->cancelled++;
     }
+    if (b->compute && b->compute->ready) {
+        paired_task_free(b->compute);
+    }
+    paired_latch(b);
 }
 
 static uint64_t paired_span(const PairedPlane *p)
@@ -778,7 +812,7 @@ static bool paired_aliases(NikonPairedEventBanksBank *b, unsigned primary,
 
 static bool paired_inactive(NikonPairedEventBanksBank *b, unsigned offset)
 {
-    unsigned selected = b->config[0xfc / 4] == 1;
+    unsigned selected = b->selected;
 
     if (offset >= 0x430 && offset <= 0x470 && !b->config[0x408 / 4]) {
         return true;
@@ -800,14 +834,14 @@ static bool paired_inactive(NikonPairedEventBanksBank *b, unsigned offset)
 
 static uint32_t paired_source(NikonPairedEventBanksBank *b, unsigned phase)
 {
-    unsigned selected = b->config[0xfc / 4] == 1;
+    unsigned selected = b->selected;
 
     return b->config[0x310 / 4 + 4 * selected + phase];
 }
 
-static unsigned paired_refill_mask(NikonPairedEventBanksBank *b)
+static unsigned paired_refill_mask(unsigned selected)
 {
-    return 0x0f0fU << (4 * (b->config[0xfc / 4] == 1));
+    return 0x0f0fU << (4 * selected);
 }
 
 static bool paired_saturation_decode(NikonPairedEventBanksBank *b,
@@ -871,7 +905,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     };
     uint32_t *c = b->config;
     NikonPairedPixelConfig *g = &job->pixels;
-    unsigned hw, hh, selected = c[0xfc / 4] == 1;
+    unsigned hw, hh, selected = b->selected;
 
     if (!b->parent->calibration_loaded) {
         return paired_profile_reject(b, 0);
@@ -1344,7 +1378,9 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     NikonPairedRawFrame *frame = NULL;
     uint32_t address = paired_source(b, b->phase);
 
-    if (b->active || b->stop || (b->refill & paired_refill_mask(b)) || b->pending ||
+    if (s->stopping || b->active || b->compute || b->stop ||
+        b->config[0xfc / 4] != b->selected ||
+        (b->refill & paired_refill_mask(b->selected)) || b->pending ||
         b->request != PAIRED_AWAIT_INPUT) {
         return;
     }
@@ -1442,22 +1478,118 @@ static bool paired_write_rows(const PairedPlane *p, const uint8_t *data)
     return true;
 }
 
-static void paired_complete(void *opaque)
+static void paired_task_free(PairedTask *task)
 {
-    NikonPairedEventBanksBank *b = opaque;
-    NikonPairedEventBanksState *s = b->parent;
-    PairedJob *j = &b->job;
+    NikonPairedEventBanksState *s = task->owner;
+    NikonPairedEventBanksBank *b = &s->bank[task->bank];
+
+    assert(b->compute == task && s->inflight);
+    b->compute = NULL;
+    s->inflight--;
+    g_free(task->job.raw);
+    g_free(task->job.history);
+    g_free(task->job.residual);
+    g_free(task->y);
+    g_free(task->uv);
+    g_free(task->work);
+    g_free(task->packed);
+    g_free(task);
+    aio_wait_kick();
+    object_unref(OBJECT(s));
+}
+
+static int paired_compute(void *opaque)
+{
+    PairedTask *task = opaque;
+    PairedJob *j = &task->job;
     NikonPairedPixelConfig *g = &j->pixels;
     size_t half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
     size_t main = (size_t)g->output_width * g->output_height;
     g_autofree uint16_t *luma = g_new(uint16_t, half);
     g_autofree uint16_t *residual = g_new(uint16_t, half);
     g_autofree uint16_t *grid = g_new(uint16_t, 60 * 34);
-    g_autofree uint8_t *y = g_malloc(main), *uv = g_malloc(main / 2);
-    g_autofree uint8_t *work = g_malloc(half * 4);
-    g_autofree uint8_t *packed = g_malloc(90 * 34);
-    bool success = nikon_paired_pixels(g, j->raw, j->history, j->residual,
-                                        luma, residual, grid, y, uv);
+
+    task->y = g_malloc(main);
+    task->uv = g_malloc(main / 2);
+    task->work = g_malloc(half * 4);
+    task->packed = g_malloc(90 * 34);
+    if (!nikon_paired_pixels(g, j->raw, j->history, j->residual,
+                             luma, residual, grid, task->y, task->uv)) {
+        return -EINVAL;
+    }
+    for (unsigned i = 0; i < half; i++) {
+        stw_le_p(task->work + 2 * i, luma[i]);
+        stw_le_p(task->work + 2 * half + 2 * i, residual[i]);
+    }
+    for (unsigned i = 0; i < 60 * 34; i += 2) {
+        unsigned byte = 3 * (i / 2);
+
+        task->packed[byte] = grid[i];
+        task->packed[byte + 1] = (grid[i] >> 8) | (grid[i + 1] << 4);
+        task->packed[byte + 2] = grid[i + 1] >> 4;
+    }
+    return 0;
+}
+
+static void paired_computed(void *opaque, int ret)
+{
+    PairedTask *task = opaque;
+    NikonPairedEventBanksState *s = task->owner;
+    NikonPairedEventBanksBank *b = &s->bank[task->bank];
+
+    task->success = ret == 0;
+    task->ready = true;
+    if (s->stopping || !b->active || task->token != b->token) {
+        object_ref(OBJECT(s));
+        paired_task_free(task);
+        if (!s->stopping) {
+            for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
+                paired_try(&s->bank[i], 0, 0);
+            }
+        }
+        object_unref(OBJECT(s));
+        return;
+    }
+    /* Host completion cannot publish while the virtual clock is stopped. */
+    timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+static void paired_complete(void *opaque)
+{
+    NikonPairedEventBanksBank *b = opaque;
+    NikonPairedEventBanksState *s = b->parent;
+    PairedTask *task = b->compute;
+    PairedJob *j;
+    NikonPairedPixelConfig *g;
+    size_t half, main;
+    bool success;
+
+    if (!b->active) {
+        return;
+    }
+    if (!task) {
+        task = g_new0(PairedTask, 1);
+        task->owner = s;
+        task->job = b->job;
+        task->token = b->token;
+        task->bank = b->index;
+        /* Guest cancellation cannot free buffers still owned by the worker. */
+        b->job.raw = b->job.history = b->job.residual = NULL;
+        b->compute = task;
+        s->inflight++;
+        object_ref(OBJECT(s));
+        thread_pool_submit_aio(paired_compute, task, paired_computed, task);
+        return;
+    }
+    assert(task->ready && task->token == b->token);
+    j = &task->job;
+    g = &j->pixels;
+    half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
+    main = (size_t)g->output_width * g->output_height;
+    success = task->success && j->phase == b->phase &&
+              j->generation > b->consumed[j->slot] && !b->stop &&
+              (b->request == PAIRED_AWAIT_INPUT ||
+               b->request == PAIRED_DRAIN_PENDING);
 
     /* A decoder change may introduce an alias after admission. */
     success &= paired_batch(b, &j->source, false) && !paired_peer_busy(b);
@@ -1480,31 +1612,21 @@ static void paired_complete(void *opaque)
                               true);
     }
     if (success) {
-        for (unsigned i = 0; i < half; i++) {
-            stw_le_p(work + 2 * i, luma[i]);
-            stw_le_p(work + 2 * half + 2 * i, residual[i]);
-        }
-        for (unsigned i = 0; i < 60 * 34; i += 2) {
-            unsigned byte = 3 * (i / 2);
-
-            packed[byte] = grid[i];
-            packed[byte + 1] = (grid[i] >> 8) | (grid[i + 1] << 4);
-            packed[byte + 2] = grid[i + 1] >> 4;
-        }
         success = (j->stream ||
-                   (paired_write_rows(&j->plane[0], y) &&
-                    paired_write_rows(&j->plane[1], uv))) &&
+                   (paired_write_rows(&j->plane[0], task->y) &&
+                    paired_write_rows(&j->plane[1], task->uv))) &&
                   (!j->work ||
-                   (paired_write_rows(&j->plane[2], work) &&
-                    paired_write_rows(&j->plane[3], work + 2 * half))) &&
-                  paired_write_rows(&j->plane[4], packed);
+                   (paired_write_rows(&j->plane[2], task->work) &&
+                    paired_write_rows(&j->plane[3], task->work + 2 * half))) &&
+                  paired_write_rows(&j->plane[4], task->packed);
         if (success && j->stream) {
             NikonGateInputShape shape = {
                 g->output_width, g->output_height, j->plane[0].stride
             };
 
             success = nikon_gate_input_publish(s->gate, j->gate_generation,
-                                                &shape, y, main, uv, main / 2);
+                                                &shape, task->y, main,
+                                                task->uv, main / 2);
         }
     }
     if (success) {
@@ -1532,6 +1654,7 @@ static void paired_complete(void *opaque)
         s->rejected++;
     }
     paired_release(b);
+    paired_latch(b);
     if (!success) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "nikon-paired: bank=%u asynchronous pixel job failed\n",
@@ -1539,6 +1662,7 @@ static void paired_complete(void *opaque)
         paired_try(&s->bank[1 - b->index], 0, 0);
     }
     nikon_paired_event_banks_irq(b);
+    paired_task_free(task);
 }
 
 static void nikon_paired_event_banks_input(void *opaque, int index, int level)
@@ -1605,7 +1729,8 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
     }
     if (offset == 0x10 || offset == 8) {
         NikonPairedRequestState required, next;
-        unsigned mask = paired_refill_mask(b);
+        unsigned selected = b->config[0xfc / 4];
+        unsigned mask = paired_refill_mask(selected);
         unsigned refill = b->refill & mask;
 
         /*
@@ -1615,9 +1740,16 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
          */
         if (offset == 0x10 && value == 1 &&
             b->request == PAIRED_AWAIT_INPUT) {
+            if (b->stop) {
+                return nikon_paired_event_banks_error(b, offset, size,
+                                                      true, value);
+            }
             b->saturation_updating = false;
-            if (refill == mask && !b->active && !b->stop) {
+            if (refill == mask) {
                 b->refill &= ~mask;
+                b->commit_selected = selected;
+                b->commit_pending = true;
+                paired_latch(b);
             }
             paired_try(b, b->regs.addr + offset, value);
             return MEMTX_OK;
@@ -1644,8 +1776,14 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         }
         b->saturation_updating = false;
         b->request = next;
+        if (offset == 0x10 && refill == mask) {
+            b->refill &= ~mask;
+            b->commit_selected = selected;
+            b->commit_pending = true;
+            paired_latch(b);
+        }
         if (offset == 8) {
-            b->phase = b->seen = b->refill = 0;
+            b->phase = b->seen = 0;
             b->result = 0;
             b->published = b->finish_pending = false;
             paired_try(b, b->regs.addr + offset, value);
@@ -1734,9 +1872,16 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             b->post_written[post] |= bit;
         }
 
-        if (offset == 0xfc && changed &&
-            b->request == PAIRED_AWAIT_INPUT && b->seen) {
-            return nikon_paired_event_banks_error(b, offset, size, true, value);
+        if (offset == 0xfc) {
+            if (changed) {
+                b->commit_pending = false;
+                if (value != b->selected) {
+                    b->refill &= ~paired_refill_mask(value);
+                }
+            }
+            /* 102c05ee selects before publishing addresses, then kicks 10. */
+            b->config[offset / 4] = value;
+            return MEMTX_OK;
         }
         if (offset >= 0x1400 && offset < 0x1d38 && saturation < 0) {
             unsigned word = (offset - 0x1400) / 4;
@@ -1761,15 +1906,18 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->filter_written & bit);
             b->filter_written |= bit;
         }
-        if (b->request == PAIRED_AWAIT_INPUT &&
-            ((offset >= 0x218 && offset <= 0x234) ||
-             (offset >= 0x310 && offset <= 0x32c))) {
+        if ((offset >= 0x218 && offset <= 0x234) ||
+            (offset >= 0x310 && offset <= 0x32c)) {
             unsigned bit = offset < 0x310 ? (offset - 0x218) / 4 :
                                            8 + (offset - 0x310) / 4;
+            unsigned selected = (bit % 8) / 4;
 
+            if (b->commit_pending && selected == b->commit_selected) {
+                b->commit_pending = false;
+            }
             b->refill |= 1U << bit;
             /* Publication starts on a write, including a same-value write. */
-            changed = true;
+            changed |= b->request == PAIRED_AWAIT_INPUT;
         }
         if (offset >= 0x660 && offset <= 0x678) {
             uint8_t bit = 1U << ((offset - 0x660) / 4);
@@ -1807,8 +1955,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             !paired_inactive(b, offset)) {
             paired_cancel(b);
             /* RAW addresses and main-only color controls preserve history. */
-            if (offset != 0xfc &&
-                post < 0 && !(offset >= 0x708 && offset <= 0x720) &&
+            if (post < 0 && !(offset >= 0x708 && offset <= 0x720) &&
                 !(offset >= 0x724 && offset <= 0x738) &&
                 !(offset >= 0x1200 && offset <= 0x1244) &&
                 !(offset >= 0xdf4 && offset <= 0xe10) &&
@@ -1821,6 +1968,8 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         }
         if (offset == 0x84 && !value &&
             b->request != PAIRED_QUIESCENT) {
+            b->commit_pending = false;
+            b->config[0xfc / 4] = b->selected;
             paired_cancel(b);
             b->stop = 1;
         }
@@ -1829,6 +1978,8 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         }
         if (offset == 0xc && b->request == PAIRED_AWAIT_INPUT) {
             /* 10369fc4: literal203800ec minus e0 is the finish request. */
+            b->commit_pending = false;
+            b->config[0xfc / 4] = b->selected;
             b->request = PAIRED_DRAIN_PENDING;
         }
         /* Opaque control inputs/configuration never clear pending or fields. */
@@ -1888,6 +2039,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
     unsigned i;
 
     for (i = 0; i < 2; i++) {
+        s->bank[i].commit_pending = false;
         paired_cancel(&s->bank[i]);
         memset(s->bank[i].config, 0, sizeof(s->bank[i].config));
         memset(s->bank[i].consumed, 0, sizeof(s->bank[i].consumed));
@@ -1921,6 +2073,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].mask = s->bank[i].pending = 0;
         s->bank[i].request = PAIRED_QUIESCENT;
         s->bank[i].phase = s->bank[i].seen = s->bank[i].refill = 0;
+        s->bank[i].selected = s->bank[i].commit_selected = 0;
         s->bank[i].stop = s->bank[i].result = 0;
         s->bank[i].published = false;
         s->bank[i].finish_pending = false;
@@ -1939,6 +2092,7 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
     g_autoptr(GError) error = NULL;
     gsize bytes;
 
+    s->stopping = false;
     if (!s->calibration_path) {
         return;
     }
@@ -1968,21 +2122,34 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
     s->calibration_loaded = true;
 }
 
+static void nikon_paired_event_banks_unrealize(DeviceState *dev)
+{
+    NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(dev);
+
+    s->stopping = true;
+    nikon_paired_event_banks_reset(dev);
+    AIO_WAIT_WHILE(NULL, s->inflight);
+}
+
 static char *paired_runtime(Object *obj, Error **errp)
 {
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
     GString *state = g_string_new(NULL);
 
-    g_string_append_printf(state, "source-epoch=%" PRIu64 "\n",
-                           s->source_epoch);
+    g_string_append_printf(state, "source-epoch=%" PRIu64 " inflight=%u\n",
+                           s->source_epoch, s->inflight);
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
 
         g_string_append_printf(state,
             "bank%u request=%u active=%u phase=%u seen=%x refill=%x "
-            "published=%u finish-pending=%u consumed=",
+            "published=%u finish-pending=%u compute=%u "
+            "selected=%u staged=%u commit=%d consumed=",
             i, b->request, b->active, b->phase, b->seen, b->refill,
-            b->published, b->finish_pending);
+            b->published, b->finish_pending,
+            b->compute ? (b->compute->ready ? 2 : 1) : 0,
+            b->selected, b->config[0xfc / 4],
+            b->commit_pending ? (int)b->commit_selected : -1);
         for (unsigned slot = 0; slot < ARRAY_SIZE(b->consumed); slot++) {
             g_string_append_printf(state, "%s%" PRIu64,
                                    slot ? "," : "", b->consumed[slot]);
@@ -2031,6 +2198,7 @@ static void nikon_paired_event_banks_finalize(Object *obj)
 {
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
 
+    assert(!s->inflight);
     for (unsigned i = 0; i < 2; i++) {
         timer_free(s->bank[i].timer);
         paired_release(&s->bank[i]);
@@ -2056,7 +2224,7 @@ static void nikon_paired_event_banks_class_init(ObjectClass *oc, const void *dat
     dc->vmsd = &nikon_paired_event_banks_vmstate;
     dc->realize = nikon_paired_event_banks_realize;
     device_class_set_props(dc, paired_properties);
-    dc->unrealize = nikon_paired_event_banks_reset;
+    dc->unrealize = nikon_paired_event_banks_unrealize;
     dc->user_creatable = false;
     device_class_set_legacy_reset(dc, nikon_paired_event_banks_reset);
 }

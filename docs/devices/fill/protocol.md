@@ -1,13 +1,14 @@
-# Original zero-fill protocol on the virtual DDR bus
+# Two-engine copy and zero-fill on the virtual DDR bus
 
-The current finite zero mode supports source-produced byte rows on either
-engine; it no longer restricts requests to historical framebuffer addresses.
-The [row contract](#source-produced-byte-rows) separates pitch from active width.
+The finite model supports source-produced byte-row copies and zero fills on
+either engine, without restricting them to historical framebuffer addresses.
+The [row contract](#source-produced-byte-rows) separates pitch from active width;
+the [copy contract](#source-produced-two-dimensional-copy) adds source ownership.
 Earlier startup/GUI receipts below retain their original profile limits.
 
 This layer continues [MEMC and early peripheral startup](/startup/memc). The [fixed original-byte producer/poll contract](https://github.com/mashiro01/nightglass/blob/7bd3a3ed298b2fd0f24d1cc1bf0698aee148f28d/research/z7ii/qemu-dma-fill-contract.md) establishes candidate PA `0x20070000`, the complete startup configuration and result acknowledgement. The later original boolean writer also establishes that `+0=0` is not proof of an all-register reset. Public Socionext XDMAC/HDMAC layouts conflict; this is a software-protocol functional model, not a claimed physical IP identification.
 
-The virtual profile explicitly assumes cold-zero RMW upper bits, idle status
+The initial zero-fill profile explicitly assumes cold-zero RMW upper bits, idle status
 and zero fill with `+14=1`, pattern `+18=0`, dimension `+1c=0`, parameter
 `+2c=0` and control `+0=0` (offsets hexadecimal). The historical startup tuple
 has equal pitch/row bytes `4000`. The control boolean is stored and never resets
@@ -78,6 +79,106 @@ reports real bus failure, then reaches CPU1 VA PC `1051e322`, WRITE8 PA
 `bff43ac2=80`. This exposes missing storage independently of the corrected
 operation. No result is changed to success to bypass it. The later complete
 GUI-pool backing is tracked by the [startup frontier](../../validation/frontier.md).
+
+## Source-produced two-dimensional copy
+
+**Source facts.** C1.70 MAS VA `102dba60` publishes a36-byte lower packet P.
+The handle byte at decimal offset4 chooses one of the two engines, with the
+same register layout at PA `20070000 + engine*40`:
+
+| Packet field, decimal byte offset | Relative register, hexadecimal | Role established by the producer |
+| --- | --- | --- |
+| P.byte0 | `14` bit0 | One for fill, zero for copy |
+| P.byte1 | `14` bit4 | Independent caller-provided boolean |
+| P.u16+4 | `1c` | Copy source pitch |
+| P.u16+6 | `20` | Destination pitch |
+| P.u16+8 | `24` | Active row bytes |
+| P.u16+10 | `28` | Row count |
+| P.u32+12 | `2c` | Copy source address |
+| P.u32+16 | `30` | Destination address |
+| P.byte2 and P.u32+20 | `18` bits24..25 and0..23 | Pattern fields, zero in supported copy/clear packets |
+| P.u32+32 | `04` | Result mask |
+
+The two-handle copy constructors at VA `1038a354` and `1038a442` set P.byte0
+to zero, retain the caller's first byte in P.byte1, and construct both addresses
+from independent base, pitch and coordinate fields. For their caller packet Q,
+all offsets below are decimal:
+
+```text
+source_pitch      = Q.u16+2
+destination_pitch = Q.u16+4
+row_bytes         = Q.u16+6
+rows              = Q.u16+8
+source            = Q.u32+12 + source_pitch * Q.u16+22 + Q.u16+20
+destination       = Q.u32+16 + destination_pitch * Q.u16+26 + Q.u16+24
+```
+
+The fill branches at VA `10389d08` and `10389e3a` instead set P.byte0
+to one and forward the same independent caller byte to P.byte1. They populate
+destination geometry and the pattern fields. Thus flags `0/10` select copy
+and flags `1/11` select fill in this finite model. Other flag bits remain
+errors. The source does not establish bit4's physical role. **The explicit
+functional hypothesis is that either value leaves the current byte-copy or
+zero-fill result unchanged.** This is not a claim that the hardware bit is a
+cache control, byte-swap control or physically a no-op. The normal firmware's
+subsequent consumption of copied filesystem data can validate or falsify it.
+Nonzero patterns remain unsupported for both flag pairs.
+
+For copy, row i reads exactly `row_bytes` bytes from
+`source + i*source_pitch` through QEMU `dma_memory_read`, then writes those bytes
+to `destination + i*destination_pitch` through `dma_memory_write`. Source and
+destination coordinates are byte offsets; unaligned byte addresses are accepted
+for copy. Both unsigned16-bit pitches must be at least the positive row width;
+row count must be positive. Both last-row ends must fit the32-bit selected
+physical address space. Source pitch and address must have been configured,
+in addition to the existing shared fields. Register retention across an ACK
+still permits a later command to use a complete existing configuration.
+
+Every active source and destination row is checked in the device's selected
+`AddressSpace` before a copy writes any output. Padding is neither required to
+have RAM backing nor read/written. Readable direct RAM, including read-only
+source RAM, is valid input; every destination span must be writable direct RAM.
+Missing, MMIO or protected active backing produces the existing bus-error result
+without done. A source/destination overlap in actual RAM backing, including an
+alias at a different PA, rejects before DMA or a completion event. Disjoint
+parts of the same backing remain valid. Rejecting overlap is a finite boundary;
+the source does not establish hardware memmove behavior. The implementation
+uses one row of host scratch storage, not a host clone of the address space.
+
+Both engines remain synchronous and independent. Success status1 and the
+existing mask/IRQ law apply only after every actual DMA row succeeds. Error
+status10 uses the existing virtual bus code at bit16; it does not claim a
+recovered physical source/destination error classification. A mapping failure
+found by copy preflight changes no destination bytes. Any unexpected bus failure
+after preflight preserves already completed row writes; no rollback or success
+is fabricated. Zero-fill's existing partial-failure behavior is retained.
+ACK, stop0/readback2, reset, unacknowledged-result refusal and private-domain
+ownership are unchanged.
+
+The repeatable original stop is CPU1 VA PC `102dbb66`, WRITE32 PA
+`20070050=1`, after the normal formatted MBR/FAT32 input clears the storage
+rejection condition. Engine1 has flags10, pattern0, source/destination pitches
+512, row width512, count1, source PA `b8108380` and destination PA `b6e9f340`.
+This is one ordinary copy in the family above, not an address or512-byte
+whitelist. Its source extent is `[b8108380,b8108580)` and destination extent
+is `[b6e9f340,b6e9f540)`. The source geometry proves the operation; passing the
+firmware's later filesystem consumer remains separate execution evidence.
+
+The new public QOM/MMIO fixture in `tests/unit/nikon/fill.c` and copy case in
+`tests/qtest/nikon/fill.c` specify both flag pairs and engines, independent row
+pitches, byte alignment, guards/padding, exact boundaries, read-only sources,
+read-only destinations, holes, physical/backing-alias overlap, malformed fields,
+IRQ/mask/ACK, stop and reset. The old implementation fails the first legal
+copy submission. After the correction, the complete native `nikon_fill_unit`
+executable passes all six groups in0.64 host seconds. The board qtest copy
+case is added but is not claimed as a separately passing invocation.
+
+An unchanged-firmware continuation with the same cold-neutral profile and a
+normal preformatted FAT32 slot0 image passes this copy and reaches natural
+M/A/S/P setting changes. MENU subsequently reaches a separate176/328-byte
+graphics-prefix rejection. The [input receipt](/evidence/input/turnover.json)
+keeps those execution observations separate from the native DMA checks; this
+is not complete filesystem, menu or physical bit4 acceptance.
 
 ## Historical exact GUI canvas clears
 
