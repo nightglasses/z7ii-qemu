@@ -60,10 +60,11 @@ typedef struct NikonPairedEventBanksBank {
     uint64_t consumed[4], table_written[10];
     uint64_t curve_written[2][3];
     uint32_t filter_written;
+    uint8_t denoise_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
     unsigned phase, seen, refill, stop;
-    bool active, waiting_refill, published, finish_pending;
+    bool active, published, finish_pending;
     unsigned index;
 } NikonPairedEventBanksBank;
 
@@ -300,6 +301,7 @@ static int paired_filter_word(unsigned offset)
 static bool paired_live_word(unsigned offset)
 {
     if ((offset >= 0x708 && offset <= 0x720) ||
+        (offset >= 0x660 && offset <= 0x678) ||
         paired_filter_word(offset) >= 0) {
         return true;
     }
@@ -393,6 +395,33 @@ static bool paired_filter(NikonPairedEventBanksBank *b,
     return true;
 }
 
+static bool paired_denoise(NikonPairedEventBanksBank *b,
+                            NikonPairedPixelConfig *pixels)
+{
+    const uint32_t *c = b->config;
+    uint32_t head = c[0x660 / 4], limits = c[0x664 / 4];
+    uint32_t weights = c[0x668 / 4], retain = c[0x66c / 4];
+    uint8_t r = retain;
+
+    /* 103620e6/1036adac: complete scalar packet, no inferred enable bit. */
+    if (b->denoise_written != 0x7f || (head >> 16) ||
+        (limits & 0xf000f000U) || (uint8_t)(weights >> 8) != (uint8_t)weights ||
+        retain != r * 0x01010101U || c[0x670 / 4] ||
+        c[0x674 / 4] != 0x03020001 || c[0x678 / 4]) {
+        return paired_profile_reject(b, 0x660);
+    }
+    pixels->denoise = (NikonPairedDenoise) {
+        .threshold = head,
+        .low = limits >> 16, .high = limits,
+        .axial = weights >> 24, .diagonal = weights >> 16,
+        .bias = weights, .retain = r,
+    };
+    if (!nikon_paired_denoise_valid(&pixels->denoise)) {
+        return paired_profile_reject(b, 0x660);
+    }
+    return true;
+}
+
 static bool paired_mode(NikonPairedEventBanksBank *b, PairedJob *job)
 {
     uint32_t *c = b->config;
@@ -473,6 +502,11 @@ static uint32_t paired_source(NikonPairedEventBanksBank *b, unsigned phase)
     return b->config[0x310 / 4 + 4 * selected + phase];
 }
 
+static unsigned paired_refill_mask(NikonPairedEventBanksBank *b)
+{
+    return 0x0f0fU << (4 * (b->config[0xfc / 4] == 1));
+}
+
 static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
                             unsigned p)
 {
@@ -538,7 +572,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     if (c[0xfc / 4] > 1) {
         return paired_profile_reject(b, 0xfc);
     }
-    if (!paired_mode(b, job) || !paired_filter(b, g)) {
+    if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -897,7 +931,7 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     NikonPairedRawFrame *frame = NULL;
     uint32_t address = paired_source(b, b->phase);
 
-    if (b->active || b->stop || b->waiting_refill || b->pending ||
+    if (b->active || b->stop || (b->refill & paired_refill_mask(b)) || b->pending ||
         b->request != PAIRED_AWAIT_INPUT) {
         return;
     }
@@ -1046,10 +1080,9 @@ static void paired_complete(void *opaque)
         s->bytes += main + main / 2 + (j->work ? half * 4 : 0) + 90 * 34;
         b->pending |= 0x1002;
         if (b->seen == 15) {
-            /* Four actual reads retire one source-address batch. */
+            /* Four actual reads mark a ring traversal, not a stop request. */
             b->pending |= 0x400;
-            b->waiting_refill = true;
-            b->refill &= ~(15U << (4 * (b->config[0xfc / 4] == 1)));
+            b->seen = 0;
         }
     } else {
         s->rejected++;
@@ -1128,24 +1161,19 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
     }
     if (offset == 0x10 || offset == 8) {
         NikonPairedRequestState required, next;
-        unsigned selected = b->config[0xfc / 4] == 1;
-        unsigned refill = (b->refill >> (4 * selected)) & 15;
+        unsigned mask = paired_refill_mask(b);
+        unsigned refill = b->refill & mask;
 
         /*
          * 1036a49a kicks independently of descriptor replacement. Retain a
-         * complete unchanged ring, or commit four newly published addresses;
-         * never admit a partially updated batch. Fresh RAW is still required.
+         * complete unchanged ring, or commit both views of four newly published
+         * addresses. A partial update blocks even when values are unchanged.
          */
         if (offset == 0x10 && value == 1 &&
             b->request == PAIRED_AWAIT_INPUT) {
-            if (b->waiting_refill &&
-                (refill == 0 || refill == 15) && !b->pending &&
-                !b->active && !b->stop) {
-                b->waiting_refill = false;
-                b->seen = 0;
-                b->refill &= ~(15U << (4 * selected));
+            if (refill == mask && !b->active && !b->stop) {
+                b->refill &= ~mask;
             }
-            /* 10268d10 also kicks after a failed four-descriptor dequeue. */
             paired_try(b, b->regs.addr + offset, value);
             return MEMTX_OK;
         }
@@ -1163,9 +1191,9 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         if (value != 1 || b->request != required || b->stop) {
             qemu_log_mask(LOG_GUEST_ERROR,
                 "nikon-paired: bank=%u control=0x%" HWADDR_PRIx
-                " request=%u phase=%u seen=0x%x refill=0x%x waiting=%u "
+                " request=%u phase=%u seen=0x%x refill=0x%x "
                 "active=%u pending=0x%x\n", b->index, offset, b->request,
-                b->phase, b->seen, b->refill, b->waiting_refill, b->active,
+                b->phase, b->seen, b->refill, b->active,
                 b->pending);
             return nikon_paired_event_banks_error(b, offset, size, true, value);
         }
@@ -1173,7 +1201,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         if (offset == 8) {
             b->phase = b->seen = b->refill = 0;
             b->result = 0;
-            b->published = b->waiting_refill = b->finish_pending = false;
+            b->published = b->finish_pending = false;
             paired_try(b, b->regs.addr + offset, value);
         }
         return MEMTX_OK;
@@ -1192,7 +1220,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
              */
             b->stop = 0;
             b->request = PAIRED_QUIESCENT;
-            b->waiting_refill = false;
+            b->refill = 0;
             b->pending |= 0x014a0080;
             nikon_paired_event_banks_irq(b);
         }
@@ -1212,7 +1240,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         int filter = paired_filter_word(offset);
 
         if (offset == 0xfc && changed &&
-            b->request == PAIRED_AWAIT_INPUT && b->seen && !b->waiting_refill) {
+            b->request == PAIRED_AWAIT_INPUT && b->seen) {
             return nikon_paired_event_banks_error(b, offset, size, true, value);
         }
         if (offset >= 0x1400 && offset < 0x1d38) {
@@ -1235,6 +1263,22 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
 
             changed |= !(b->filter_written & bit);
             b->filter_written |= bit;
+        }
+        if (b->request == PAIRED_AWAIT_INPUT &&
+            ((offset >= 0x218 && offset <= 0x234) ||
+             (offset >= 0x310 && offset <= 0x32c))) {
+            unsigned bit = offset < 0x310 ? (offset - 0x218) / 4 :
+                                           8 + (offset - 0x310) / 4;
+
+            b->refill |= 1U << bit;
+            /* Publication starts on a write, including a same-value write. */
+            changed = true;
+        }
+        if (offset >= 0x660 && offset <= 0x678) {
+            uint8_t bit = 1U << ((offset - 0x660) / 4);
+
+            changed |= !(b->denoise_written & bit);
+            b->denoise_written |= bit;
         }
         if (changed && offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
@@ -1264,10 +1308,6 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         }
         /* Opaque control inputs/configuration never clear pending or fields. */
         b->config[offset / 4] = value;
-        if (offset >= 0x310 && offset <= 0x32c &&
-            b->request == PAIRED_AWAIT_INPUT) {
-            b->refill |= 1U << ((offset - 0x310) / 4);
-        }
         paired_finish(b);
         /* Configuration/cancel may have released shared output ownership. */
         paired_try(&b->parent->bank[1 - b->index],
@@ -1299,6 +1339,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         memset(s->bank[i].table_written, 0, sizeof(s->bank[i].table_written));
         memset(s->bank[i].curve_written, 0, sizeof(s->bank[i].curve_written));
         s->bank[i].filter_written = 0;
+        s->bank[i].denoise_written = 0;
         memset(s->bank[i].history_address, 0,
                sizeof(s->bank[i].history_address));
         memset(s->bank[i].history_epoch, 0, sizeof(s->bank[i].history_epoch));
@@ -1306,7 +1347,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].request = PAIRED_QUIESCENT;
         s->bank[i].phase = s->bank[i].seen = s->bank[i].refill = 0;
         s->bank[i].stop = s->bank[i].result = 0;
-        s->bank[i].waiting_refill = s->bank[i].published = false;
+        s->bank[i].published = false;
         s->bank[i].finish_pending = false;
         /* Keep external levels; reset must not generate a new rising edge. */
         nikon_paired_event_banks_irq(&s->bank[i]);
@@ -1364,9 +1405,9 @@ static char *paired_runtime(Object *obj, Error **errp)
 
         g_string_append_printf(state,
             "bank%u request=%u active=%u phase=%u seen=%x refill=%x "
-            "waiting-refill=%u published=%u finish-pending=%u consumed=",
+            "published=%u finish-pending=%u consumed=",
             i, b->request, b->active, b->phase, b->seen, b->refill,
-            b->waiting_refill, b->published, b->finish_pending);
+            b->published, b->finish_pending);
         for (unsigned slot = 0; slot < ARRAY_SIZE(b->consumed); slot++) {
             g_string_append_printf(state, "%s%" PRIu64,
                                    slot ? "," : "", b->consumed[slot]);
