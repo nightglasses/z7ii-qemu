@@ -1,5 +1,5 @@
 /*
- * Bounded monochrome RAW12 processing, not physical sensor calibration.
+ * Bounded mono/CFA RAW12 processing, not physical sensor calibration.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef NIKON_PAIRED_PIXELS_H
@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "hw/nikon/raw.h"
 
 typedef struct NikonPairedNoise {
     uint32_t feedback;
@@ -25,6 +26,7 @@ typedef struct NikonPairedDenoise {
 } NikonPairedDenoise;
 
 typedef struct NikonPairedPixelConfig {
+    NikonRawEncoding encoding;
     unsigned width, height, x, y, output_width, output_height;
     unsigned grid_width, grid_height;
     uint16_t quad_gain[4], quad_pedestal[4], quad_limit;
@@ -82,6 +84,19 @@ bool nikon_paired_denoise_valid(const NikonPairedDenoise *denoise);
  * in Q8, optionally perturbed by bounded LFSR noise, then transformed by
  * A/C Q10 and B Q9. Curves/gains/noise affect main color
  * output only. These choices do not establish the silicon algorithm.
+ *
+ * CFA encodings require even input dimensions. Lane R/Gr/Gb/B is
+ * (encoding-1) XOR ((y&1)*2+(x&1)); the caller adjusts encoding for the RAW
+ * ROI origin. Filtering runs separately on each half-resolution phase plane.
+ * Temporal history contributes one common signed correction per 2x2 block,
+ * using the existing mean/residual qualification and weight. It never blends
+ * individual color samples toward a scalar mean. WORK and grid values use this
+ * pre-color mosaic. The quad affine is then applied to each actual lane.
+ * Bilinear demosaicing replicates the nearest same-phase border, preserves
+ * either measured green at green sites, and averages the two interpolated
+ * greens at R/B sites. Existing curves/gains/noise/matrices follow. These CFA
+ * geometry, arithmetic and history choices are explicit functional hypotheses.
+ * MAIN crop x/y may be odd; interpolation uses the complete RAW ROI.
  *
  * raw contains width*height contiguous host-endian RAW12 samples. Optional
  * history and mandatory half outputs contain ceil(width/2)*ceil(height/2)

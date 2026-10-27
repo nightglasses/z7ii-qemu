@@ -1235,6 +1235,169 @@ static void denoise_invalid(void)
     rejected(&p, raw, NULL, NULL);
 }
 
+static void cfa_fill(uint16_t *raw, unsigned width, unsigned height,
+                     NikonRawEncoding encoding, const uint16_t lanes[4])
+{
+    for (unsigned y = 0; y < height; y++) {
+        for (unsigned x = 0; x < width; x++) {
+            unsigned lane = (encoding - 1) ^ ((y & 1) * 2 + (x & 1));
+
+            raw[y * width + x] = lanes[lane];
+        }
+    }
+}
+
+static void cfa_neutral(void)
+{
+    const uint16_t lanes[] = { 1024, 2048, 1024, 512 };
+
+    for (unsigned encoding = NIKON_RAW_RGGB;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        for (unsigned crop = 0; crop < 9; crop++) {
+            NikonPairedPixelConfig p = config();
+            uint16_t raw[16];
+            PairedOutputs out;
+
+            p.encoding = encoding;
+            p.quad_enabled = true;
+            p.quad_limit = 4095;
+            p.quad_gain[0] = 1024;
+            p.quad_gain[1] = 512;
+            p.quad_gain[2] = 1024;
+            p.quad_gain[3] = 2048;
+            p.x = crop % 3;
+            p.y = crop / 3;
+            p.output_width = p.output_height = 2;
+            cfa_fill(raw, 4, 4, p.encoding, lanes);
+            memset(&out, 0xa5, sizeof(out));
+            g_assert_true(run(&p, raw, NULL, NULL, &out));
+            for (unsigned i = 0; i < 4; i++) {
+                g_assert_cmpuint(out.half[i], ==, 1152);
+                g_assert_cmpuint(out.grid[i], ==, 1152);
+                g_assert_cmpuint(out.residual[i], ==, 0);
+                g_assert_cmpuint(out.y[i], ==, 128);
+            }
+            g_assert_cmpuint(out.uv[0], ==, 128);
+            g_assert_cmpuint(out.uv[1], ==, 128);
+            for (unsigned i = 4; i < sizeof(out.y); i++) {
+                g_assert_cmphex(out.y[i], ==, 0xa5);
+            }
+            for (unsigned i = 2; i < sizeof(out.uv); i++) {
+                g_assert_cmphex(out.uv[i], ==, 0xa5);
+            }
+            if (!crop) {
+                p.width = p.height = 2;
+                p.grid_width = p.grid_height = 1;
+                cfa_fill(raw, 2, 2, p.encoding, lanes);
+                memset(&out, 0xa5, sizeof(out));
+                g_assert_true(run(&p, raw, NULL, NULL, &out));
+                g_assert_cmpuint(out.half[0], ==, 1152);
+                g_assert_cmpuint(out.grid[0], ==, 1152);
+                for (unsigned i = 0; i < 4; i++) {
+                    g_assert_cmpuint(out.y[i], ==, 128);
+                }
+                g_assert_cmpuint(out.uv[0], ==, 128);
+                g_assert_cmpuint(out.uv[1], ==, 128);
+            }
+        }
+    }
+}
+
+static void cfa_color_history(void)
+{
+    const uint16_t lanes[] = { 3072, 1024, 1024, 512 };
+
+    for (unsigned encoding = NIKON_RAW_RGGB;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        NikonPairedPixelConfig p = config();
+        uint16_t raw[16], prior[4], residual[4] = { 0 };
+        PairedOutputs out;
+
+        p.encoding = encoding;
+        cfa_fill(raw, 4, 4, p.encoding, lanes);
+        for (unsigned history = 0; history < 2; history++) {
+            fill(prior, 4, 1508);
+            g_assert_true(run(&p, raw, history ? prior : NULL,
+                               residual, &out));
+            for (unsigned i = 0; i < 4; i++) {
+                g_assert_cmpuint(out.half[i], ==, history ? 1433 : 1408);
+                g_assert_cmpuint(out.grid[i], ==, history ? 1433 : 1408);
+                g_assert_cmpuint(out.residual[i], ==, history ? 100 : 0);
+            }
+            /* RGB=(3072,1024,512), then a common +25 for history. B's
+             * chroma row sums are zero: history must not desaturate it.
+             */
+            for (unsigned i = 0; i < 16; i++) {
+                g_assert_cmpuint(out.y[i], ==, history ? 100 : 99);
+            }
+            for (unsigned i = 0; i < 8; i += 2) {
+                g_assert_cmpuint(out.uv[i], ==, 91);
+                g_assert_cmpuint(out.uv[i + 1], ==, 195);
+            }
+        }
+    }
+}
+
+static void cfa_edge(void)
+{
+    static const uint8_t expected[2][8] = {
+        { 0, 8, 16, 64, 112, 120, 128, 128 },
+        { 0, 0, 8, 16, 64, 112, 120, 128 },
+    };
+
+    for (unsigned encoding = NIKON_RAW_RGGB;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        NikonPairedPixelConfig p = config();
+        uint16_t raw[32], half[8], residual[8], grid[4];
+        uint8_t yplane[32], uv[16];
+
+        p.encoding = encoding;
+        p.width = p.output_width = 8;
+        memset(p.b, 0, sizeof(p.b));
+        p.b[0] = 512; /* Observe R independently of RGB-to-Y coefficients. */
+        for (unsigned y = 0; y < 4; y++) {
+            for (unsigned x = 0; x < 8; x++) {
+                unsigned lane = (encoding - 1) ^ ((y & 1) * 2 + (x & 1));
+
+                raw[y * 8 + x] = lane == 0 && x >= 4 ? 2048 : 0;
+            }
+        }
+        g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, half,
+                                          residual, grid, yplane, uv));
+        /* The same-color spatial plane is {0,256,1792,2048}; bilinear
+         * interpolation inserts midpoints and replicates same-phase borders.
+         */
+        for (unsigned y = 0; y < 4; y++) {
+            g_assert_cmpmem(yplane + y * 8, 8,
+                            expected[(encoding - 1) & 1], 8);
+        }
+        for (unsigned i = 0; i < sizeof(uv); i++) {
+            g_assert_cmpuint(uv[i], ==, 128);
+        }
+    }
+}
+
+static void cfa_invalid(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    p.encoding = NIKON_RAW_BGGR + 1;
+    rejected(&p, raw, NULL, NULL);
+    p.encoding = (NikonRawEncoding)-1;
+    rejected(&p, raw, NULL, NULL);
+    p.encoding = NIKON_RAW_RGGB;
+    p.width = 5;
+    rejected(&p, raw, NULL, NULL);
+    p.width = 4;
+    p.height = 5;
+    rejected(&p, raw, NULL, NULL);
+    p.height = 4;
+    raw[3] = 4096;
+    rejected(&p, raw, NULL, NULL);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -1253,5 +1416,9 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/filter-invalid", filter_invalid);
     g_test_add_func("/nikon/pairedpixels/denoise", denoise);
     g_test_add_func("/nikon/pairedpixels/denoise-invalid", denoise_invalid);
+    g_test_add_func("/nikon/pairedpixels/cfa-neutral", cfa_neutral);
+    g_test_add_func("/nikon/pairedpixels/cfa-color-history", cfa_color_history);
+    g_test_add_func("/nikon/pairedpixels/cfa-edge", cfa_edge);
+    g_test_add_func("/nikon/pairedpixels/cfa-invalid", cfa_invalid);
     return g_test_run();
 }

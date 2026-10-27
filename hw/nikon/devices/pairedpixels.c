@@ -1,5 +1,5 @@
 /*
- * Finite monochrome RAW12 operator. Filter thresholds, temporal weights,
+ * Finite mono/CFA RAW12 operator. Filter thresholds, temporal weights,
  * matrix rounding and grid averaging are explicit functional hypotheses,
  * not recovered silicon processing or physical-camera calibration.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -144,6 +144,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
     unsigned i;
 
     if (!p || !p->width || !p->height ||
+        (unsigned)p->encoding > NIKON_RAW_BGGR ||
+        (p->encoding != NIKON_RAW_MONO && ((p->width | p->height) & 1)) ||
         p->width > PAIRED_MAX_DIMENSION || p->height > PAIRED_MAX_DIMENSION ||
         !p->output_width || !p->output_height ||
         (p->output_width & 1) || (p->output_height & 1) ||
@@ -334,7 +336,8 @@ static void paired_denoise(const uint16_t *input, uint16_t *output,
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
                              const uint16_t *prior_luma,
                              const uint16_t *prior_residual,
-                             uint16_t *out_luma, uint16_t *out_residual)
+                             uint16_t *out_luma, uint16_t *out_residual,
+                             bool cfa)
 {
     unsigned half_width = (width + 1) / 2;
     unsigned hx, hy, x, y;
@@ -368,8 +371,16 @@ static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
                     unsigned value = filtered[y * width + x];
 
                     if (old_weight) {
-                        value = (value * (256 - old_weight) +
-                                 prior_luma[index] * old_weight + 128) / 256;
+                        if (cfa) {
+                            int delta = paired_round(
+                                ((int)prior_luma[index] - (int)current) *
+                                (int)old_weight, 8);
+
+                            value = paired_clamp((int)value + delta);
+                        } else {
+                            value = (value * (256 - old_weight) +
+                                     prior_luma[index] * old_weight + 128) / 256;
+                        }
                         filtered[y * width + x] = value;
                     }
                     sum += value;
@@ -379,6 +390,47 @@ static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
             out_residual[index] = deviation;
         }
     }
+}
+
+static bool paired_cfa_filter(const uint16_t *raw, uint16_t *output,
+                              const NikonPairedPixelConfig *p)
+{
+    unsigned width = p->width / 2, height = p->height / 2;
+    size_t count = (size_t)width * height;
+    g_autofree uint16_t *plane = g_try_new(uint16_t, count);
+    g_autofree uint16_t *dpc = g_try_new(uint16_t, count);
+    g_autofree uint16_t *filtered = g_try_new(uint16_t, count);
+
+    if (!plane || !dpc || !filtered) {
+        return false;
+    }
+    for (unsigned phase = 0; phase < 4; phase++) {
+        unsigned px = phase & 1, py = phase >> 1;
+
+        for (unsigned y = 0; y < height; y++) {
+            for (unsigned x = 0; x < width; x++) {
+                plane[y * width + x] =
+                    raw[(2 * y + py) * p->width + 2 * x + px];
+            }
+        }
+        for (unsigned y = 0; y < height; y++) {
+            for (unsigned x = 0; x < width; x++) {
+                dpc[y * width + x] = paired_dpc(plane, width, height, x, y);
+            }
+        }
+        paired_spatial(dpc, filtered, width, height);
+        if (!paired_filter(filtered, width, height, &p->filter)) {
+            return false;
+        }
+        paired_denoise(filtered, dpc, width, height, &p->denoise);
+        for (unsigned y = 0; y < height; y++) {
+            for (unsigned x = 0; x < width; x++) {
+                output[(2 * y + py) * p->width + 2 * x + px] =
+                    dpc[y * width + x];
+            }
+        }
+    }
+    return true;
 }
 
 static void paired_grid(const uint16_t *filtered,
@@ -421,28 +473,26 @@ static void paired_matrix(const int16_t matrix[9], const uint16_t input[3],
     }
 }
 
-static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
-                        uint32_t noise_state[3], uint16_t output[3])
+static uint16_t paired_quad(const NikonPairedPixelConfig *p, uint16_t sample,
+                            unsigned lane)
 {
-    uint16_t rgb[3];
+    int32_t value;
+
+    if (!p->quad_enabled) {
+        return sample;
+    }
+    value = paired_round(((int32_t)sample + p->quad_offset[lane]) *
+                         p->quad_gain[lane], 9);
+    return CLAMP(value + p->quad_pedestal[lane], 0,
+                 MIN(p->quad_limit, PAIRED_MAX_SAMPLE));
+}
+
+static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
+                            uint32_t noise_state[3], uint16_t output[3])
+{
     uint16_t after_a[3], after_c[3];
     unsigned row, column;
 
-    rgb[0] = rgb[1] = rgb[2] = mono;
-    if (p->quad_enabled) {
-        uint16_t lane[4];
-
-        for (unsigned i = 0; i < 4; i++) {
-            int32_t value = paired_round(((int32_t)mono + p->quad_offset[i]) *
-                                        p->quad_gain[i], 9);
-
-            lane[i] = CLAMP(value + p->quad_pedestal[i], 0,
-                            MIN(p->quad_limit, PAIRED_MAX_SAMPLE));
-        }
-        rgb[0] = lane[0];
-        rgb[1] = (lane[1] + lane[2] + 1) / 2;
-        rgb[2] = lane[3];
-    }
     for (column = 0; column < 3; column++) {
         const NikonPairedNoise *n = &p->noise[column];
 
@@ -487,6 +537,57 @@ static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
     }
 }
 
+static void paired_yuv(const NikonPairedPixelConfig *p, uint16_t mono,
+                        uint32_t noise_state[3], uint16_t output[3])
+{
+    uint16_t rgb[] = {
+        paired_quad(p, mono, 0),
+        (paired_quad(p, mono, 1) + paired_quad(p, mono, 2) + 1) / 2,
+        paired_quad(p, mono, 3),
+    };
+
+    paired_rgb_yuv(p, rgb, noise_state, output);
+}
+
+/* Interpolate one lane on its half-resolution lattice. Edge samples are
+ * replicated on that lattice, never substituted from another color phase.
+ */
+static uint16_t paired_cfa_sample(const uint16_t *raw,
+                                 const NikonPairedPixelConfig *p,
+                                 unsigned lane, unsigned x, unsigned y)
+{
+    unsigned phase = lane ^ (p->encoding - 1);
+    unsigned px = phase & 1, py = phase >> 1;
+    unsigned xx = x > px ? x - px : 0;
+    unsigned yy = y > py ? y - py : 0;
+    unsigned x0 = px + 2 * (xx / 2), y0 = py + 2 * (yy / 2);
+    unsigned x1 = MIN(x0 + 2, p->width - 2 + px);
+    unsigned y1 = MIN(y0 + 2, p->height - 2 + py);
+    unsigned fx = xx & 1, fy = yy & 1;
+    unsigned sum = raw[y0 * p->width + x0] * (2 - fx) * (2 - fy) +
+                   raw[y0 * p->width + x1] * fx * (2 - fy) +
+                   raw[y1 * p->width + x0] * (2 - fx) * fy +
+                   raw[y1 * p->width + x1] * fx * fy;
+
+    return (sum + 2) / 4;
+}
+
+static void paired_cfa_yuv(const uint16_t *raw, const NikonPairedPixelConfig *p,
+                            unsigned x, unsigned y, uint32_t noise_state[3],
+                            uint16_t output[3])
+{
+    unsigned lane = (p->encoding - 1) ^ ((y & 1) * 2 + (x & 1));
+    uint16_t rgb[] = {
+        paired_cfa_sample(raw, p, 0, x, y),
+        lane == 1 || lane == 2 ? raw[y * p->width + x] :
+            (paired_cfa_sample(raw, p, 1, x, y) +
+             paired_cfa_sample(raw, p, 2, x, y) + 1) / 2,
+        paired_cfa_sample(raw, p, 3, x, y),
+    };
+
+    paired_rgb_yuv(p, rgb, noise_state, output);
+}
+
 static uint8_t paired_byte(unsigned value)
 {
     return MIN((value + 8) / 16, 255U);
@@ -509,7 +610,12 @@ static void paired_main(const uint16_t *filtered,
                                       p->x + x + dx;
                     uint16_t yuv[3];
 
-                    paired_yuv(p, filtered[source], noise_state, yuv);
+                    if (p->encoding == NIKON_RAW_MONO) {
+                        paired_yuv(p, filtered[source], noise_state, yuv);
+                    } else {
+                        paired_cfa_yuv(filtered, p, p->x + x + dx,
+                                       p->y + y + dy, noise_state, yuv);
+                    }
                     out_y[(y + dy) * p->output_width + x + dx] =
                         paired_byte(yuv[0]);
                     u += yuv[1];
@@ -551,27 +657,45 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         return false;
     }
     dpc = g_try_new(uint16_t, pixels);
-    filtered = g_try_new(uint16_t, pixels);
-    if (!dpc || !filtered) {
+    if (config->encoding == NIKON_RAW_MONO) {
+        filtered = g_try_new(uint16_t, pixels);
+    }
+    if (!dpc || (config->encoding == NIKON_RAW_MONO && !filtered)) {
         return false;
     }
-    for (y = 0; y < config->height; y++) {
-        for (x = 0; x < config->width; x++) {
-            dpc[y * config->width + x] = paired_dpc(raw_contiguous_ROI,
-                config->width, config->height, x, y);
+    if (config->encoding == NIKON_RAW_MONO) {
+        for (y = 0; y < config->height; y++) {
+            for (x = 0; x < config->width; x++) {
+                dpc[y * config->width + x] = paired_dpc(raw_contiguous_ROI,
+                    config->width, config->height, x, y);
+            }
         }
-    }
-    paired_spatial(dpc, filtered, config->width, config->height);
-    if (!paired_filter(filtered, config->width, config->height,
-                        &config->filter)) {
+        paired_spatial(dpc, filtered, config->width, config->height);
+        if (!paired_filter(filtered, config->width, config->height,
+                            &config->filter)) {
+            return false;
+        }
+        paired_denoise(filtered, dpc, config->width, config->height,
+                        &config->denoise);
+    } else if (!paired_cfa_filter(raw_contiguous_ROI, dpc, config)) {
         return false;
     }
-    paired_denoise(filtered, dpc, config->width, config->height,
-                    &config->denoise);
     paired_temporal(dpc, config->width, config->height,
                     prior_half_luma_nullable, prior_half_residual_nullable,
-                    out_half_luma, out_half_residual);
+                    out_half_luma, out_half_residual,
+                    config->encoding != NIKON_RAW_MONO);
     paired_grid(dpc, config, out_grid);
+    if (config->encoding != NIKON_RAW_MONO) {
+        for (y = 0; y < config->height; y++) {
+            for (x = 0; x < config->width; x++) {
+                unsigned lane = (config->encoding - 1) ^
+                                ((y & 1) * 2 + (x & 1));
+                unsigned at = y * config->width + x;
+
+                dpc[at] = paired_quad(config, dpc[at], lane);
+            }
+        }
+    }
     paired_main(dpc, config, out_y, out_uv);
     return true;
 }

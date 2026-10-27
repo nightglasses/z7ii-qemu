@@ -1,0 +1,67 @@
+# Functional CFA color
+
+The paired numerical operator can consume an explicitly encoded Bayer mosaic
+from actual RAW12 samples. It does not reconstruct the physical Nikon sensor's
+spectral response, CFA phase, demosaicing or calibration. The existing mono
+profile remains a distinct numerical input encoding.
+
+## Input and ownership
+
+`NikonPairedPixelConfig.encoding` selects mono, RGGB, GRBG, GBRG or BGGR.
+CFA input width and height must be positive, even and at most4096. The caller
+supplies the complete RAW ROI as contiguous host-endian12-bit samples and
+adjusts its encoding for the ROI origin. No RGB side buffer supplies pixels.
+MAIN crop coordinates may be odd; interpolation still sees the full RAW ROI.
+Invalid encodings, dimensions, samples or existing numerical controls reject
+before modifying any output.
+
+The lane number at ROI coordinate `(x,y)` is
+`(encoding-1) XOR ((y&1)*2+(x&1))`, where R, Gr, Gb and B are0,1,2 and3.
+This is the explicit virtual CFA convention, not a recovered physical phase.
+The provider must model its fixed sensor response independently of guest
+white-balance controls. The consumer neither inverts live gains nor ignores
+them to force neutral output.
+
+## Numerical contract
+
+1. Split the actual mosaic into four half-resolution phase planes. Run the
+   existing impulse suppression, spatial, adaptive and denoise operations on
+   each plane independently. Neighborhoods therefore contain only one phase;
+   their edge samples replicate the nearest sample of that phase.
+2. Compute each2×2 mosaic block's scalar mean and the existing history
+   deviation/weight. History adds the same signed delta to all four samples:
+   `round((prior_mean-current_mean)*weight/256)`, followed by12-bit clamping.
+   It does not independently blend color samples toward a monochrome mean.
+   WORK luma/residual and grid means use this pre-color mosaic. Saturation can
+   change a block's final mean; WORK reports that actual clamped mean.
+3. Apply the live four-lane gain/offset/pedestal/limit operation to each actual
+   sample of its own lane, preserving the two greens through this operation.
+4. Bilinearly interpolate R and B on their phase lattices. At a measured green
+   site, preserve that green; at R/B sites, average the two independently
+   interpolated greens. Replicate borders on each same-phase lattice. Integer
+   interpolation rounds to nearest with positive ties upward.
+5. Apply the existing two gain curves, RGB gains, noise, A/C/B matrices and
+   NV12 output conversion. Chroma is centered at2048 in12-bit space, averaged
+   over each2×2 output block and normalized to8-bit interleaved U then V.
+
+The phase split, filter placement, common history delta, border policy,
+demosaicing and arithmetic are finite functional hypotheses. The source-backed
+register packing and actual RAW/output DMA remain separate contracts described
+in [paired pixels](pixels.md). No completion, IRQ, buffer release or timing
+behavior is introduced by this pure numerical helper.
+
+Scratch space is bounded by the existing4096×4096 input limit. The CFA path
+uses one complete mosaic plus three reusable quarter-size phase buffers and
+the existing optional adaptive-filter scratch. It does not allocate separate
+full-resolution RGB planes.
+
+## Validation scope
+
+Synthetic unit cases cover four encodings, all crop-origin parities and
+same-phase borders; unequal fixed sensor responses with non-unit white balance
+that recover a neutral image; unequal RGB values and history that preserves
+chroma; a hand-derived colored edge; and invalid encodings, odd input sizes and
+out-of-range samples leaving every output unchanged. These fixtures exercise
+the declared numerical contract. They do not establish original-firmware
+startup, physical color accuracy or photograph/recording acceptance. Native
+execution results are recorded by the integration owner separately.
