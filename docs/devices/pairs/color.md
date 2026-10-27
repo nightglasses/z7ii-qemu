@@ -32,13 +32,43 @@ The properties are configured before realization and are independent of live
 guest controls. Unity is the default. A declared virtual reference illuminant
 may supply unequal responses, without claiming recovered Nikon calibration.
 
-Completed input carries only encoding metadata alongside its actual samples.
+Completed input carries encoding and frozen transfer metadata alongside its
+actual samples. The transfer is either linear RAW12 or an explicit lookup
+codec containing the actual 256 unsigned16 values captured from the producer's
+committed MMIO table. Neither metadata record contains RGB pixels.
 Capture-work reduction chooses complete2×2 CFA tiles and preserves phase,
 then performs the existing real packed-RAW DMA. Odd CFA input/output dimensions
 reject. Paired reads that RAM, adjusts phase for the `44` ROI origin and
 qualifies numerical history by encoding as well as source epoch and address.
 The metadata cannot supply replacement pixels. Reset, stop, input ownership
 and successful output publication retain the existing lifecycle contracts.
+
+For the lookup codec, paired first reads and unpacks the real RAW12 DMA ROI.
+Every consumed code must equal exactly one knot of a strictly increasing table
+in `[0,4095]`.
+Repeated, decreasing, out-of-domain or unknown transfer descriptions reject;
+an in-range code between knots also rejects. There is no nearest-code fallback
+or interpolation. The matched index reconstructs linear RAW12 as
+`(index*257)>>4`, before any filter, history, grid, white balance or MAIN color
+operation. The packed DMA bytes remain encoded and unchanged.
+
+This is an explicit virtual producer/consumer codec contract, not a recovered
+Nikon decompander. Forward encoding discards the source low byte by indexing
+with `sample>>8`. Reconstruction chooses endpoint-aligned values `index*257`
+in the declared16-bit domain, preserving the P6 channel expansion convention;
+it cannot recover arbitrary original16-bit samples. The transfer is independent
+of live white balance. Existing paired257-knot gain curves are not relabeled
+as inverse tables. WORK history additionally requires the exact same codec and
+transfer table, encoding, source epoch and destination addresses. An old
+companded or differently quantized history cannot silently enter this domain.
+
+Synthetic native fixtures publish a nonlinear table and its four-times-scaled
+variant through normal MMIO, then check actual encoded RAW, decoded WORK,
+neutral and primary MAIN colors, and fixed attenuation followed by ordinary WB.
+An uncommitted later table write cannot change the completed frame's transfer.
+Negative cases exercise repeated/decreasing/out-of-range and incomplete tables,
+non-knot RAM codes, reset and cancellation. These are fixture contracts; native
+execution and original-firmware receipts remain separate.
 
 The former P6-to-gray conversion destroyed color before RAW packing. Copying
 that gray into all four lanes and applying unequal live WB gains explains the

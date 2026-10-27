@@ -70,6 +70,7 @@ typedef struct NikonPairedEventBanksBank {
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
     NikonRawEncoding history_encoding[4];
+    NikonRawTransfer history_transfer[4];
     unsigned phase, seen, refill, stop;
     bool active, published, finish_pending;
     bool saturation_published, saturation_updating;
@@ -1104,6 +1105,43 @@ static bool paired_targets(PairedJob *job, const NikonPairedRawFrame *input)
     return true;
 }
 
+static bool paired_transfer_valid(const NikonRawTransfer *t)
+{
+    if (t->codec != NIKON_RAW_LINEAR && t->codec != NIKON_RAW_LOOKUP8) {
+        return false;
+    }
+    for (unsigned i = 0; i < 256; i++) {
+        if (t->codec == NIKON_RAW_LINEAR ? t->lookup[i] != 0 :
+            t->lookup[i] > 4095 || (i && t->lookup[i] <= t->lookup[i - 1])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool paired_transfer_sample(const NikonRawTransfer *t, uint16_t *sample)
+{
+    unsigned low = 0, high = 256;
+
+    if (t->codec == NIKON_RAW_LINEAR) {
+        return true;
+    }
+    while (low < high) {
+        unsigned middle = low + (high - low) / 2;
+
+        if (t->lookup[middle] < *sample) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    if (low == 256 || t->lookup[low] != *sample) {
+        return false;
+    }
+    *sample = (low * 257) >> 4;
+    return true;
+}
+
 static bool paired_snapshot(NikonPairedEventBanksBank *b,
                              const NikonPairedRawFrame *frame)
 {
@@ -1115,7 +1153,8 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     unsigned row_bytes;
     g_autofree uint8_t *row = NULL;
 
-    if (frame->bits != 12 || (frame->width & 1) ||
+    if (frame->bits != 12 || !paired_transfer_valid(&frame->transfer) ||
+        (frame->width & 1) ||
         (unsigned)frame->encoding > NIKON_RAW_BGGR ||
         (frame->encoding != NIKON_RAW_MONO && ((g->width | g->height) & 1)) ||
         frame->width > 4096 || frame->height > 4096 ||
@@ -1144,12 +1183,19 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
             uint32_t value = row[byte] | row[byte + 1] << 8;
 
             j->raw[y * g->width + x] = (value >> (bit % 8)) & 4095;
+            if (!paired_transfer_sample(&frame->transfer,
+                                         &j->raw[y * g->width + x])) {
+                return false;
+            }
         }
     }
     /* Only successful publication qualifies RAM as numerical history. */
     for (unsigned h = 0; j->work && h < 4; h++) {
         if (b->history_epoch[h] != b->parent->source_epoch ||
             b->history_encoding[h] != g->encoding ||
+            b->history_transfer[h].codec != frame->transfer.codec ||
+            memcmp(b->history_transfer[h].lookup, frame->transfer.lookup,
+                   sizeof(frame->transfer.lookup)) ||
             b->history_address[h][0] != j->plane[2].address ||
             b->history_address[h][1] != j->plane[3].address) {
             continue;
@@ -1453,6 +1499,7 @@ static void paired_complete(void *opaque)
             b->history_address[j->phase][1] = j->plane[3].address;
             b->history_epoch[j->phase] = j->epoch;
             b->history_encoding[j->phase] = g->encoding;
+            b->history_transfer[j->phase] = j->source.transfer;
         }
         b->result += main;
         b->seen |= 1U << j->phase;
@@ -1854,6 +1901,8 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         memset(s->bank[i].history_epoch, 0, sizeof(s->bank[i].history_epoch));
         memset(s->bank[i].history_encoding, 0,
                sizeof(s->bank[i].history_encoding));
+        memset(s->bank[i].history_transfer, 0,
+               sizeof(s->bank[i].history_transfer));
         s->bank[i].mask = s->bank[i].pending = 0;
         s->bank[i].request = PAIRED_QUIESCENT;
         s->bank[i].phase = s->bank[i].seen = s->bank[i].refill = 0;

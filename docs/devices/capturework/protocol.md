@@ -64,9 +64,16 @@ parameters, buffers and completed input. It adds no physical MMIO:
    are retained without executing physical filtering or Bayer demosaic.
    Nonzero correction flags, crop offsets, expansion, nonintegral further
    reduction and unsupported enables do not qualify.
-3. Paired control bit2 enables a256-entry LE16 LUT indexed by the high sample
-   byte. Otherwise output uses the high16/14/12 sample bits. Consecutive
-   samples form a little-endian bit stream. LUT arithmetic, ordering and
+3. Paired control bit2 enables a strictly increasing256-entry LE16 LUT indexed
+   by the high sample byte. Every entry must fit the selected packed width.
+   Otherwise output uses the high16/14/12 sample bits. Consecutive samples form
+   a little-endian bit stream. The completed RAW descriptor freezes the actual
+   committed lookup table and labels the transfer; the bypass labels linear
+   samples. Paired RAW12 consumes only exact codes of that frozen table and
+   reconstructs the declared linear domain before filtering/WB, as specified in
+   [the virtual codec contract](../pairs/color.md#virtual-sensor-transport).
+   Neither this metadata nor a later live table write supplies replacement
+   pixels or changes the actual packed RAM. LUT arithmetic, ordering and
    sampling are **falsifiable functional hypotheses**, not recovered RAW
    packing. The shared9530 pair remains retained without physical arithmetic.
    Policy0 omits both its write and the LUT producer in original `1023994c`;

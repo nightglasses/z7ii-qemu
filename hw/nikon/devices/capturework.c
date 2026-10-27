@@ -238,12 +238,15 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
         }
     }
     if (p->words[0] & 4) {
+        unsigned previous = 0;
+
         for (unsigned i = 0; i < 256; i++) {
             unsigned value = (p->table[i / 2] >> (16 * (i % 2))) & 0xffff;
 
-            if (value >= (1u << *bits)) {
+            if (value >= (1u << *bits) || (i && value <= previous)) {
                 return false;
             }
+            previous = value;
         }
     }
     *destination = b[9 + bank * 4 + s->cursor];
@@ -269,6 +272,13 @@ static void capture_work_complete(void *opaque)
         .stride = p->buffers[0], .bits = bits, .slot = s->cursor,
         .encoding = s->input.encoding,
     };
+
+    if (p->words[0] & 4) {
+        frame.transfer.codec = NIKON_RAW_LOOKUP8;
+        for (unsigned i = 0; i < 256; i++) {
+            frame.transfer.lookup[i] = p->table[i / 2] >> (16 * (i & 1));
+        }
+    }
 
     if (s->paired) {
         nikon_paired_frame(s->paired, &frame);

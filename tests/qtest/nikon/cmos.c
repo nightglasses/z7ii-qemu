@@ -2634,6 +2634,145 @@ static void test_paired_cfa_color(void)
     }
 }
 
+static unsigned transfer_knot(unsigned index, unsigned scale)
+{
+    return scale * (index + index * index / 256);
+}
+
+static void transfer_config(QTestState *q, unsigned scale, unsigned words,
+                            unsigned invalid)
+{
+    for (unsigned i = 0; i < words; i++) {
+        unsigned lo = transfer_knot(2 * i, scale);
+        unsigned hi = transfer_knot(2 * i + 1, scale);
+
+        if (i == 64 && invalid == 1) {
+            hi = lo; /* Ambiguous code. */
+        } else if (i == 64 && invalid == 2) {
+            hi = lo - 1;
+        } else if (i == 64 && invalid == 3) {
+            hi = 4096;
+        }
+        qtest_writel(q, 0x20069600 + 4 * i, lo | (hi << 16));
+    }
+    qtest_writel(q, 0x20069514, 6);
+    qtest_writel(q, CAPTURE + 0x104, 0x85);
+}
+
+static void test_paired_transfer(void)
+{
+    static const uint8_t colors[][3] = {
+        { 128, 128, 128 }, { 192, 64, 32 }, { 32, 64, 192 }, { 64, 128, 32 },
+    };
+    static const uint8_t expected[][3] = {
+        { 129, 128, 128 }, { 99, 90, 195 }, { 69, 198, 101 }, { 129, 128, 128 },
+    };
+    static const int identity[] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+    static const int yuv[] = { 153, 300, 59, -86, -170, 256, 256, -214, -42 };
+
+    for (unsigned color = 0; color < ARRAY_SIZE(colors); color++) {
+        for (unsigned scale = 1; scale <= 4; scale += 3) {
+            g_autofree char *bundle = NULL;
+            g_autofree char *scene = NULL;
+            QTestState *q = paired_start(&bundle, &scene, true, false);
+            uint8_t ppm[] = "P6\n1 1\n255\n\0\0\0";
+            uint8_t before[96 * 36], after[sizeof(before)];
+
+            memcpy(ppm + sizeof(ppm) - 4, colors[color], 3);
+            g_assert_true(g_file_set_contents(scene, (const char *)ppm,
+                                              sizeof(ppm) - 1, NULL));
+            qtest_qmp_assert_success(q,
+                "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+                "'property':'image','value':%s}}", scene);
+            transfer_config(q, scale, 128, 0);
+            paired_matrix(q, PAIRED, 0xb00, identity, 13, false);
+            paired_matrix(q, PAIRED, 0xb64, yuv, 12, false);
+            if (color == 3) {
+                /* Fixed sensor attenuation, followed by ordinary live WB. */
+                qtest_writel(q, PAIRED + 0x9cc, 0x01010101);
+                qtest_writel(q, PAIRED + 0x9d0, (512 << 16) | 256);
+                qtest_writel(q, PAIRED + 0x9d4, 1024);
+            }
+            paired_cfa_input(q);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+            qtest_memread(q, WORK_BUFFER + 0x1000, before, sizeof(before));
+            for (unsigned y = 0; y < 36; y++) {
+                for (unsigned x = 0; x < 64; x++) {
+                    unsigned lane = 2 * (y & 1) + (x & 1);
+                    unsigned channel = lane == 0 ? 0 : lane == 3 ? 2 : 1;
+                    unsigned bit = x * 12;
+                    unsigned code = lduw_le_p(before + y * 96 + bit / 8);
+
+                    g_assert_cmpuint((code >> (bit & 7)) & 4095, ==,
+                        transfer_knot(colors[color][channel], scale));
+                }
+            }
+            /* This uncommitted live write must not replace frame metadata. */
+            qtest_writel(q, 0x20069600, UINT32_MAX);
+            qtest_writel(q, PAIRED + 0x10, 1);
+            qtest_writel(q, PAIRED + 8, 1);
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+            paired_main_at(q, PAIRED_MAIN, expected[color][0],
+                            expected[color][1], expected[color][2]);
+            g_assert_cmpuint(qtest_readw(q, PAIRED_WORK), ==,
+                             color ? 1414 : 2056);
+            g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 80 * 18), ==, 0);
+            qtest_memread(q, WORK_BUFFER + 0x1000, after, sizeof(after));
+            g_assert_cmpmem(before, sizeof(before), after, sizeof(after));
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+            qtest_quit(q);
+            unlink(scene);
+            unlink(bundle);
+        }
+    }
+}
+
+static void test_paired_transfer_boundaries(void)
+{
+    for (unsigned variant = 0; variant < 7; variant++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        transfer_config(q, 1, variant == 3 ? 127 : 128,
+                         variant < 3 ? variant + 1 : 0);
+        if (variant == 6) {
+            work_input(q);
+            work_rise(q);
+            qtest_writel(q, CAPTURE + 0xc, 0x200);
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "cancelled"), ==, 1);
+        } else if (variant >= 4) {
+            paired_cfa_input(q);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+            if (variant == 4) {
+                /* Default P5 gray128 encodes192;193 is not any LUT knot. */
+                qtest_writeb(q, WORK_BUFFER + 0x1000, 193);
+            } else if (variant == 5) {
+                qtest_system_reset(q);
+            }
+            if (variant != 5) {
+                qtest_writel(q, PAIRED + 0x10, 1);
+                qtest_writel(q, PAIRED + 8, 1);
+            }
+            qtest_clock_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+            if (variant == 4) {
+                g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
+            }
+        } else {
+            paired_cfa_input(q);
+            g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
+        }
+        paired_untouched(q);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
 static void paired_untouched(QTestState *q)
 {
     uint8_t expected[0xce0], actual[sizeof(expected)];
@@ -6426,6 +6565,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/paired/cycle", test_paired_cycle);
     qtest_add_func("/nikon/cmos/paired/cfa/reduction", test_paired_cfa_reduction);
     qtest_add_func("/nikon/cmos/paired/cfa/color", test_paired_cfa_color);
+    qtest_add_func("/nikon/cmos/paired/transfer", test_paired_transfer);
+    qtest_add_func("/nikon/cmos/paired/transfer-boundaries",
+                   test_paired_transfer_boundaries);
     qtest_add_func("/nikon/cmos/paired/publication", test_paired_publication);
     qtest_add_func("/nikon/cmos/paired/stop-drain-race",
                    test_paired_stop_drain_race);
