@@ -611,6 +611,12 @@
         "title": "Actual scanout color, detail, position, timestamps and processing measurements",
         "href": "/evidence/color/pixels.json",
         "kind": "Execution measurements"
+      },
+      {
+        "run": "exturnover",
+        "title": "Status report production, normal queue reclamation and downstream input boundary",
+        "href": "/evidence/input/turnover.json",
+        "kind": "Execution diagnosis"
       }
     ]
   },
@@ -2661,6 +2667,12 @@
         "title": "Whole GPIO source audit and absent SD input",
         "href": "/evidence/storage/presence.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "exturnover",
+        "title": "Status report production, normal queue reclamation and downstream input boundary",
+        "href": "/evidence/input/turnover.json",
+        "kind": "Execution diagnosis"
       }
     ]
   },
@@ -3359,7 +3371,26 @@
         "title": "Original M input decoding, aggregation and occupied type2 submission slot; separate instrumented diagnostics",
         "href": "/evidence/color/capture.json",
         "kind": "Execution diagnosis"
+      },
+      {
+        "run": "exturnover",
+        "title": "Status report production, normal queue reclamation and downstream input boundary",
+        "href": "/evidence/input/turnover.json",
+        "kind": "Execution diagnosis"
       }
     ]
+  },
+  "devices/expower/protocol.md": {
+    "records": [
+      {
+        "run": "exturnover",
+        "title": "Status report production, normal queue reclamation and downstream input boundary",
+        "href": "/evidence/input/turnover.json",
+        "kind": "Execution diagnosis"
+      }
+    ]
+  },
+  "devices/pairs/conversion.md": {
+    "records": []
   }
 }

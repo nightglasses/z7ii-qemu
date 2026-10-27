@@ -5,6 +5,11 @@ from actual RAW12 samples. It does not reconstruct the physical Nikon sensor's
 spectral response, CFA phase, demosaicing or calibration. The existing mono
 profile remains a distinct numerical input encoding.
 
+The separate [recovered CPU conversion](conversion.md) records an exact
+firmware RGB8-to-YUV software path, including signed shifts, quantization and
+output packing. Its selector1 layout is distinct from paired selector2 NV12;
+it does not establish the ASIC's RAW-domain stage order or precision.
+
 ## Input and ownership
 
 `NikonPairedPixelConfig.encoding` selects mono, RGGB, GRBG, GBRG or BGGR.

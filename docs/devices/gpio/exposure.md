@@ -136,3 +136,78 @@ the actual SPI HAL record at SRAM `20017eac`, together with normal producer
 rates. Final zero input counters alone cannot distinguish failed submission
 from later normal consumption and clearing. No input cadence, IRQ, queue slot
 or exposure value is forced to bypass this missing evidence.
+
+### Status-notification correction and downstream boundary
+
+The later [queue-turnover receipt](/evidence/input/turnover.json) resolves the
+producer side. The original status driver polls an active-low change input on
+EX PC0. Its previous unwired low level repeatedly admitted identical status
+acquisitions and BatMg event29 reports. The [status endpoint](../expower/protocol.md)
+now retains an external change until its four-byte acquisition and generation-
+matched release, through normal I2C transactions. A separate SPI-DMA diagnostic
+observed 11 successful waits out of 12 and actual ring-index progress; no
+completion event or queue slot is supplied by the host.
+
+With the correction, a post-window original snapshot observes PC0 high, a valid
+class1 sample, and all16 class2 slots empty. A93.94-host-second original run
+continues MAIN processing from52 to156 completed frames between its46.75 and
+92.81-second samples, with zero processing errors and zero panic length. This
+establishes bounded continuous processing and removes the observed congestion;
+it does not establish indefinite stability or complete exposure control.
+
+A separate unpaused M run supplies a complete negative detent through raw
+contacts held for one host second per phase. MAS cumulative dial0 becomes−1,
+but Tv/Av remain312/24 throughout the bounded observation. A separate read-only
+breakpoint diagnostic joins report byte11, its52-byte normalized copy, the
+input-worker event and the actual cumulative-add instruction. These are
+distinct observations; breakpoint timing is not used as ordinary-input
+acceptance.
+
+The downstream source chain is MAS VA `10434378` → `1038b80c` → `1038b68c`
+→ `1038b528`: the parser signs the wheel byte, the receiver synchronously
+copies52 bytes to VA `b1f7a720`, event1 admits the input worker, and the worker
+adds the delta to VA `b1f7a7f8`. This addition precedes the application callback
+and exposure policy. An unchanged Tv alone therefore cannot identify failed
+transport. The input-engine initialization and pause gates are separately
+observed open in the button run; current engine3 is the source-named
+`GuiLvEv1`. Its input ring also retires normally. The independent application
+exposure path is `1029ee74` → `102a59e8` → `10299e3e(7,0,0)` → `1029d28a`,
+then the active mode's Tv/Av index producer. Cumulative counts alone do not
+establish that this separate queue and permission path consumed a delta.
+
+MENU, arrows and OK now use the ordinary expander contacts and reach the MAS
+normalized switch bits during held-key observations. A separate MENU-only
+read-only diagnostic observes the classified action tuple`{28,0,0}`, final
+action28 and dispatch to the current state0 object's actual handler
+`104e6c1c`. The menu permission path at `1055396c` accepts it, and its synchronous
+coordinator returns. State0 and the initialized GUI worker are not missing.
+
+The subsequent request is deferred in a separate read-only diagnostic: GUI
+flag42 is zero at `105b64d2`. The call at `105b64c6`
+retains request `0x20000` at VA `b181dabc`, rather than immediately switching
+workers, and sets flag135 at `b202be3c`. Twenty-two observations at
+`1053eab4` find no record73, including after the request is retained. Neither
+the `04100012` receiver nor the worker-switch entry is observed in that bounded
+window. Callback registration returns zero, while backend state byte
+`b23f6a80` advances from2 at the earlier breakpoints to3 in the post-window
+snapshot. This locates the retained request; it
+does not yet establish which backend prerequisite prevents completion.
+
+The normal `04100012` control-result message produces record73,
+which admits the retained switch request. Immediate and deferred paths both
+require the manager to receive the old GUI worker's exit notification before
+starting the Menu worker and its tree constructor `1044eca8`. No such control
+result or exit notification is supplied by the host. The unpaused sessions
+have not yet shown a menu screen, and a longer continuation reaches a distinct
+unsupported176/336-byte image program. Electrical delivery, accepted menu
+request, worker handoff, drawing and setting changes remain separate acceptance
+levels.
+
+The same diagnostic separately delivers a sub-command dial delta to
+`102a59e8`. The common permission check returns1 at `102a5a32`, and two calls
+reach the Av setter `1029b9d0` with delta1. Neither index-selection return nor
+property publication is observed. Thus this observation narrows the setting
+failure to the Av setter's independent guards, rather than proving a common
+input-manager rejection. It does not establish command-dial0 delivery or a
+changed exposure setting. MAIN advances24→107 with zero graph errors in the
+session, which includes debugger pauses and is not timing acceptance.

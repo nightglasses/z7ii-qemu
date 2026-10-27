@@ -1,0 +1,538 @@
+{
+  "scope": "Original unmodified C1.70 MAS/SLA/EX execution under the finite board profile; separate diagnostic and fixture results are identified below.",
+  "implementation_parent": "2a9018fe",
+  "input_profile": {
+    "descriptors": "17 TOOL input,18 supplied,12 erased,32 cold-neutral",
+    "sensor": "P6 photo, fixed red-response2198 and blue-response2966 Q12, greens4096",
+    "lens": "virtual50mm F2.8",
+    "storage": "fresh blank8GiB slot0 image",
+    "battery": "normal UART peer with reproducible RNG input0",
+    "power": "normal held F4/EX PC5 MAIN-power contact; no shutter-half-press claim",
+    "cpus": "five CPUs, MTTCG"
+  },
+  "model_change": {
+    "status": "Polled active-low PC0 change notification, frozen acquisition and generation-matched00/00 release; a functional inference from the original driver, not recovered physical-IC behavior.",
+    "contacts": "Sixteen normal expander keys; obsolete static low OK, RELEASE_MODE and FEATURE inputs removed.",
+    "host_bypasses": []
+  },
+  "producer_source": {
+    "nominal_poll_ticks": 5,
+    "nominal_systick_hz": 1000,
+    "chain": [
+      "EX08027fa6",
+      "EX080266bc",
+      "event0202004d",
+      "EX08025184 index12",
+      "BatMg event29",
+      "EX080259d8 kind0a",
+      "class2 queue"
+    ],
+    "completion_callback_reposts_event29": false
+  },
+  "unpaused_button_run": {
+    "host_seconds": 93.94382537499769,
+    "in_window_debugger": false,
+    "guest_ram_or_pc_writes": false,
+    "completed_main_samples": [
+      {
+        "label": "live before MENU",
+        "host_seconds": 46.74555412499467,
+        "paired_completed": 52
+      },
+      {
+        "label": "live continuation",
+        "host_seconds": 92.8140253330057,
+        "paired_completed": 156
+      }
+    ],
+    "processing_errors": 0,
+    "panic_length_post_window": 0,
+    "ex_gpio_c_idr_post_window": "0x00002917",
+    "class2_occupied_slots_post_window": 0,
+    "normal_button_observations": [
+      {
+        "label": "f20 held",
+        "host_seconds": 49.789360750000924,
+        "normalized_switch_words": [
+          "0x200",
+          "0x8000",
+          "0x0"
+        ]
+      },
+      {
+        "label": "down held",
+        "host_seconds": 57.397550458001206,
+        "normalized_switch_words": [
+          "0x210",
+          "0x0",
+          "0x0"
+        ]
+      },
+      {
+        "label": "right held",
+        "host_seconds": 64.55302399999346,
+        "normalized_switch_words": [
+          "0x280",
+          "0x0",
+          "0x0"
+        ]
+      },
+      {
+        "label": "ret held",
+        "host_seconds": 71.62844412500272,
+        "normalized_switch_words": [
+          "0x200",
+          "0x1",
+          "0x0"
+        ]
+      },
+      {
+        "label": "f20 held",
+        "host_seconds": 78.70105904201046,
+        "normalized_switch_words": [
+          "0x200",
+          "0x8000",
+          "0x0"
+        ]
+      }
+    ],
+    "menu_screen_observed": false
+  },
+  "separate_unpaused_slow_dial_run": {
+    "phase_host_seconds": 1,
+    "mode": "M",
+    "last_sample": {
+      "host_seconds": 81.71551000000909,
+      "typed": [
+        3,
+        3,
+        32
+      ],
+      "context": [
+        32
+      ],
+      "tvav": [
+        312,
+        24
+      ],
+      "counts": [
+        -1,
+        0
+      ],
+      "indices": [
+        121,
+        0,
+        30,
+        0,
+        20
+      ],
+      "status": {
+        "status": "running",
+        "running": true
+      }
+    },
+    "accepted_exposure_change": false,
+    "qualification": "A delivered cumulative delta is not proof of a changed setting; default fast queued-input timing is a separate unresolved issue at this revision."
+  },
+  "native_fixtures": {
+    "batch": "make check MTESTARGS=nikon_input_unit nikon_exlevels_unit nikon_exreset_unit",
+    "passed_subtests": 12,
+    "input": {
+      "passed": 8,
+      "host_seconds": 0.59
+    },
+    "ex_reset": {
+      "passed": 1,
+      "host_seconds": 0.53
+    },
+    "status_and_levels": {
+      "passed": 3,
+      "host_seconds": 0.77,
+      "includes": [
+        "frozen response across an in-flight class change",
+        "zero-valued controller prefetch",
+        "generation-matched release",
+        "partial acquisition/release",
+        "reset and invalid inputs"
+      ]
+    },
+    "red_observations": [
+      "Prior unwired PC0 fixture read0 instead of1.",
+      "Prior5ms input cadence failed the new50ms deadline fixture: state2 instead of idle3."
+    ],
+    "docs_build": "2checks passed and VitePress build succeeded."
+  },
+  "remaining": [
+    "Queued dial0 sampling remains unreliable despite the more conservative50ms virtual phase; dial1 deltas arrive.",
+    "GUI consumer admission and mode-specific Tv/Av control",
+    "Visible menu navigation and setting acceptance",
+    "AF focus-actuator/statistics feedback loop",
+    "Physical ISP equivalence and full-resolution still acquisition"
+  ],
+  "model_revision": "0c83bf5",
+  "separate_instrumented_diagnostics": {
+    "instrumented": true,
+    "producer_trace_intervals": [
+      {
+        "approx_host_seconds": 15.1,
+        "kind0a_entries": 756,
+        "consumer_entries": 802,
+        "submit_attempts": 3209
+      },
+      {
+        "approx_host_seconds": 15.3,
+        "kind0a_entries": 165,
+        "consumer_entries": 189,
+        "submit_attempts": 1053
+      }
+    ],
+    "spi_wait_returns": {
+      "observed": 12,
+      "successful": 11,
+      "successful_flags": "0x0d",
+      "successful_hal": "READY",
+      "dma_remaining": 0
+    },
+    "qualification": "Independent earlier sessions with tracing or read-only breakpoints; not host/guest frequency equivalence and not ordinary-input timing acceptance."
+  },
+  "separate_unpaused_queued_input_run": {
+    "phase_virtual_ms": 50,
+    "detent_virtual_ms": 200,
+    "original_mode_contexts": [
+      {
+        "position": 3,
+        "context": 32
+      },
+      {
+        "position": 2,
+        "context": 31
+      },
+      {
+        "position": 1,
+        "context": 30
+      },
+      {
+        "position": 0,
+        "context": 29
+      }
+    ],
+    "observations": [
+      {
+        "label": "M naturally selected",
+        "host_seconds": 33.16518404200906,
+        "mode_context": [
+          3,
+          3,
+          32
+        ],
+        "wheel_cumulative": [
+          0,
+          0
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          3,
+          3
+        ]
+      },
+      {
+        "label": "M dial0 -1 supplied",
+        "host_seconds": 43.62349195900606,
+        "mode_context": [
+          3,
+          3,
+          32
+        ],
+        "wheel_cumulative": [
+          0,
+          0
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          3,
+          3
+        ]
+      },
+      {
+        "label": "M dial1 -1 supplied",
+        "host_seconds": 44.50540466699749,
+        "mode_context": [
+          3,
+          3,
+          32
+        ],
+        "wheel_cumulative": [
+          0,
+          -1
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          4,
+          4
+        ]
+      },
+      {
+        "label": "M aperture after normal strategy",
+        "host_seconds": 49.78575149999233,
+        "mode_context": [
+          3,
+          3,
+          32
+        ],
+        "wheel_cumulative": [
+          0,
+          -1
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          4,
+          4
+        ]
+      },
+      {
+        "label": "A naturally selected",
+        "host_seconds": 51.702857750002295,
+        "mode_context": [
+          2,
+          2,
+          31
+        ],
+        "wheel_cumulative": [
+          0,
+          -1
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          4,
+          4
+        ]
+      },
+      {
+        "label": "A dial1 -1 supplied",
+        "host_seconds": 53.43303258399828,
+        "mode_context": [
+          2,
+          2,
+          31
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      },
+      {
+        "label": "A aperture after normal strategy",
+        "host_seconds": 58.64767245898838,
+        "mode_context": [
+          2,
+          2,
+          31
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      },
+      {
+        "label": "S naturally selected",
+        "host_seconds": 60.874512334004976,
+        "mode_context": [
+          1,
+          1,
+          30
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      },
+      {
+        "label": "S dial0 -1 supplied",
+        "host_seconds": 71.15381074999459,
+        "mode_context": [
+          1,
+          1,
+          30
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      },
+      {
+        "label": "P naturally selected",
+        "host_seconds": 73.07433741699788,
+        "mode_context": [
+          0,
+          0,
+          29
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      },
+      {
+        "label": "P dial0 -1 supplied",
+        "host_seconds": 83.47552924999036,
+        "mode_context": [
+          0,
+          0,
+          29
+        ],
+        "wheel_cumulative": [
+          0,
+          -2
+        ],
+        "Tv_Av": [
+          312,
+          24
+        ],
+        "gui_internal_state": 1,
+        "gui_write_read": [
+          5,
+          5
+        ]
+      }
+    ],
+    "last_refresh": {
+      "host_seconds": 155.39759462501388,
+      "paired_completed": 299
+    },
+    "later_status": {
+      "status": "debug",
+      "running": false
+    },
+    "next_blocking_access": {
+      "cpu": 1,
+      "pc": "0x106ee3c6",
+      "address": "0x201810e0",
+      "direction": "write",
+      "width": 4,
+      "value": "0x1",
+      "reason": "transfer-image-program-not-supported",
+      "stream_bytes": [
+        176,
+        336
+      ]
+    },
+    "qualification": "The longer run is a failed bounded continuation, not a stable or complete menu/exposure acceptance. Original stream bytes were not captured in that session."
+  },
+  "separate_menu_only_diagnosis": {
+    "in_window_read_only_breakpoints": true,
+    "display_state": 0,
+    "gui_input_mode_flag": 0,
+    "normalized_action_triplet": [
+      28,
+      0,
+      0
+    ],
+    "final_action": 28,
+    "root_ui_dispatch_argument": 28,
+    "qualification": "MENU single-key delivery and classification pass in this instrumented run. The earlier MENU-plus-dial diagnostic yielded28/65/1 and is not evidence for rejecting MENU alone. Visible menu rendering is still unaccepted."
+  },
+  "menu_and_exposure_handoff_diagnostic": {
+    "implementation": "0c83bf5; synchronous pixel baseline",
+    "read_only_breakpoints": true,
+    "guest_writes": false,
+    "host_seconds": 69.14246529201046,
+    "menu": {
+      "flag42": 0,
+      "retained_request": "0x20000",
+      "flag135": 1,
+      "record73_reads": 22,
+      "record73_received": 0,
+      "control_result_receiver_hits": 0,
+      "worker_switch_entry_hits": 0,
+      "callback_registration_return": 0,
+      "post_backend_state_byte": 3,
+      "qualification": "A bounded absence of completion; backend prerequisite not yet identified.",
+      "earlier_breakpoint_backend_state_byte": 2
+    },
+    "exposure": {
+      "common_permission_returns": [
+        1,
+        1
+      ],
+      "setter": "Av1029b9d0",
+      "delta_arguments": [
+        1,
+        1
+      ],
+      "index_selection_or_property_publish_hits": 0,
+      "accepted_exposure_change": false
+    },
+    "main_completed": [
+      24,
+      107
+    ],
+    "graph_errors": 0,
+    "qmp_running_at_end": true,
+    "qualification": "Independent diagnostic with debugger pauses, not ordinary input timing acceptance."
+  }
+}

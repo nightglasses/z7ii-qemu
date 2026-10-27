@@ -25,23 +25,33 @@ primary-color and grayscale measurements, native coverage and declared
 numerical hypotheses. Saturated channels still clip under the programmed
 profile; this is not physical color calibration or a camera FPS claim.
 
-Two remaining gaps are recorded separately. One earlier fresh attempt rejected
-an SLA fill request, whose private failing tuple was not captured correctly;
-the two following fresh AUTO runs completed. A direct M run selects the normal
-mode context, but a queued detent did not change the observed MAS count or Tv
-setting in its bounded window. The old M numerical stop below has been modeled;
-it is historical evidence, not the current exposure-control diagnosis.
+The later [EX turnover receipt](/evidence/input/turnover.json) identifies the
+repeated battery-report producer and corrects its missing status-change input
+lifecycle. Original I2C acquisition and release now retire that notification;
+all16 type2 queue slots are empty in a later snapshot. No host queue release or
+completion event is added. A separate93.94-host-second original M session
+advances from52 to156 MAIN completions between46.75 and92.81 seconds, with
+zero processing errors and post-window panic length zero.
 
-The [curated receipt](/evidence/color/capture.json) distinguishes successful
-unchanged execution, scoped native fixtures, diagnostics and failed attempts.
-The next acceptance work is reliable normal dial delivery and resulting
-shutter/aperture changes, while retaining bounded MAIN refresh and diagnosing
-the rare SLA startup rejection. Independent EX diagnostics already reach the
-negative input snapshot and aggregate, but observe the selected type2 send slot
-occupied by an older BatMg report. Later queue progress narrows the remaining
-input work to normal transport turnover and producer coordination, rather than
-inventing a dial event or releasing that slot. Optical exposure, still capture, recording,
-saving and indefinite stability remain open.
+Normal MENU, arrows and OK contacts now reach the MAS switch snapshot. A slow
+raw negative dial detent separately reaches cumulative count−1. Those are
+input-delivery observations: the bounded sessions do not yet show menu
+navigation or a changed Tv/Av. A separate diagnostic reaches the original
+GUI's MENU action28 and accepted menu request. A later diagnostic observes
+request `0x20000` retained with flag135 set, but no record73 control result or
+worker-switch entry during the window. Exposure reaches the Av setter after
+the common permission check, but not index selection or publication. These
+are separate downstream conditions. See [exposure controls](../devices/gpio/exposure.md)
+for the separated source chain, input timing and acceptance limits. The old M
+numerical stop below is historical evidence, not this application-input gap.
+
+The [photo receipt](/evidence/color/capture.json) preserves the earlier successful
+AUTO scene tests and the separate rare SLA fill rejection whose private failing
+tuple was not captured correctly. [Recovered CPU color conversion](../devices/pairs/conversion.md)
+now supplies exact software arithmetic for selector1; it does not establish
+physical paired-ASIC equivalence. AF actuator/statistics feedback, full-resolution
+still acquisition, optical exposure, recording, saving and indefinite stability
+remain open.
 
 ## Previous: cyclic MAIN processing with quadrant inputs
 
