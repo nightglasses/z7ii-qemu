@@ -138,6 +138,77 @@ The selector fixture observes its electrical output; original executions
 separately establish its expander and firmware connection. Normal live view,
 shutter capture and file saving are separate acceptance boundaries.
 
+## Normal expander button contacts
+
+The frontend exposes sixteen named `expander-pad` outputs. Output indices use
+the public `nikon_input_expander_ids` array; its entries are the physical pad
+numbers on EX I2C0 expander address`0x22`, not GPIO registry IDs or guest button
+messages. The board connects each output to that pad's normal external-level
+input before realization, with one external owner per contact. Pad0 remains
+the independent maintained photo/movie selector. The seventeen `pad` GPIO
+outputs, mode ADC and two command dials keep their separate interfaces.
+
+The host bindings below are explicit virtual input choices. The pad numbers
+and firmware bit/report mappings come from the C1.70 EX/MAS source audit; the
+host keyboard assignments are not recovered camera keyboard wiring.
+
+| Output index | Contact | Expander pad | Host key |
+| --- | --- | --- | --- |
+|0|Menu|9|F20|
+|1|OK|3|Enter|
+|2|Playback|8|F21|
+|3|Delete|23|Delete|
+|4|I|2|I|
+|5|Zoom|22|Equal|
+|6|Thumbnail|21|Minus|
+|7|Main right|6|Right arrow|
+|8|Main left|7|Left arrow|
+|9|Main up|5|Up arrow|
+|10|Main down|4|Down arrow|
+|11|Second selector right|14|D|
+|12|Second selector left|15|A|
+|13|Second selector up|13|W|
+|14|Second selector down|12|S|
+|15|Second selector center|11|F22|
+
+All contacts initially drive high. A held key drives its one contact low;
+release drives it high again. The two direction groups and independent buttons
+can be held together. There is no synthetic diagonal command: holding two
+adjacent main directions produces the physical active-low masks`60`, `50`,
+`a0` or`90`; the second group produces`6000`, `5000`, `a000` or`9000`.
+Keyboard repeat does not change a held contact or add an edge. Esc is unmapped;
+no guessed independent exit button is introduced.
+
+The original EX I2C0 transaction reads three bytes from expander register0
+into RAM VA`2001ff53..2001ff55`. EX VA`080380a8` inverts that24-bit raw value,
+applies the configured mask and stores it at VA`20015b80`; VA`08037ed8` copies
+the result into the record at VA`20015bcc`. The83-row ROM table at
+VA`0804e458` maps the normal buttons. Its Menu row43 uses mask`200` for pad9
+and body byte63; after the four-byte transport header this is full-report
+byte67. MAS VA`10434100` consumes that byte into bit`8000` of VA`b25eaeb0`.
+OK pad3 maps to body byte70/full-report byte74 and bit1; Playback pad8 maps
+to body byte64/full-report byte68 and bit2. These mappings are source facts,
+not host writes to the normalized record. The direction consumer at EX
+VA`0803db64` converts the four contacts to eight directions, independently
+for masks`f0` and`f000`.
+
+Reset retains all sixteen held-key latches and republishes their levels after
+receiver reset. It neither releases the user's contact nor turns a held key
+into a new press. Unrealize unregisters the input handler and publishes−1 to
+disconnect every expander button line, including held-low contacts. The frontend
+does not write guest input state, normalized messages, GUI events, IRQs or task
+flags. The existing expander, EX sampling/debounce and MAS report consumers
+remain responsible for those effects. A board must not retain a static pad3
+low provider: that level is a permanently held OK contact, not idle state.
+
+The focused native fixtures specify every exported output, each press/release,
+repeated press/release, all-contact hold, global and receiver-order reset,
+unplug/recreation, all eight diagonals, combined direction groups and independent
+Menu/OK/center holds. They also check that expander keys leave the seventeen
+GPIO contacts, capture selector and mode ADC unchanged. Fixture execution and
+unchanged-firmware menu behavior are reported separately by the integration
+owner; these fixture definitions do not establish original GUI acceptance.
+
 ## Mode dial ADC input
 
 The frontend supplies the maintained eight-position mode dial through the

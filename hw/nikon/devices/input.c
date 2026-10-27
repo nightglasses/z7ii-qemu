@@ -2,6 +2,7 @@
  * Host keys drive the seventeen GPIO inputs selected by original EX software.
  * F13 toggles the maintained capture selector; F14/F15 select mode ADC detents.
  * F16..F19 drive two bounded four-phase command-dial contact sequences.
+ * Sixteen independent active-low expander contacts supply normal buttons.
  * Host key assignments are a functional profile; the guest owns sampling,
  * debounce, message construction and capture policy.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -33,6 +34,15 @@ static const unsigned int nikon_input_host_keys[NIKON_INPUT_PADS] = {
     KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
 };
 
+const uint8_t nikon_input_expander_ids[NIKON_INPUT_EXPANDER_PADS] = {
+    9, 3, 8, 23, 2, 22, 21, 6, 7, 5, 4, 14, 15, 13, 12, 11,
+};
+
+static const unsigned int nikon_input_expander_keys[NIKON_INPUT_EXPANDER_PADS] = {
+    KEY_F20, KEY_ENTER, KEY_F21, KEY_DELETE, KEY_I, KEY_EQUAL, KEY_MINUS,
+    KEY_RIGHT, KEY_LEFT, KEY_UP, KEY_DOWN, KEY_D, KEY_A, KEY_W, KEY_S, KEY_F22,
+};
+
 #define NIKON_INPUT_DIAL_QUEUE 8
 #define NIKON_INPUT_PHASE_NS 5000000
 
@@ -51,11 +61,13 @@ struct NikonInputState {
     DeviceState parent_obj;
     QemuInputHandlerState *handler;
     qemu_irq pads[NIKON_INPUT_PADS];
+    qemu_irq expander_pads[NIKON_INPUT_EXPANDER_PADS];
     qemu_irq capture_selector;
     qemu_irq mode_adc;
     NikonInputDial dial[2];
     unsigned mode_position;
     bool down[NIKON_INPUT_PADS];
+    bool expander_down[NIKON_INPUT_EXPANDER_PADS];
     bool control_down[6];
     bool selector_down;
     bool movie;
@@ -216,6 +228,19 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
         s->selector_down = event->key.down;
         return;
     }
+    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        if (event->key.key == nikon_input_expander_keys[i]) {
+            if (s->expander_down[i] != event->key.down) {
+                s->expander_down[i] = event->key.down;
+                qemu_set_irq(s->expander_pads[i], !s->expander_down[i]);
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-input: expander-pad=%u ex-pad=%u %s active-low"
+                    " level=%u\n", i, nikon_input_expander_ids[i],
+                    s->expander_down[i] ? "down" : "up", !s->expander_down[i]);
+            }
+            return;
+        }
+    }
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         if (event->key.key == nikon_input_host_keys[i]) {
             if (s->down[i] != event->key.down) {
@@ -249,6 +274,9 @@ static void nikon_input_publish(NikonInputState *s)
 
     for (i = 0; i < NIKON_INPUT_PADS; i++) {
         qemu_set_irq(s->pads[i], !s->down[i]);
+    }
+    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        qemu_set_irq(s->expander_pads[i], !s->expander_down[i]);
     }
     qemu_set_irq(s->capture_selector, !s->movie);
     qemu_set_irq(s->mode_adc, mode_counts[s->mode_position]);
@@ -297,6 +325,10 @@ static void nikon_input_unrealize(DeviceState *dev)
         s->down[i] = false;
         qemu_set_irq(s->pads[i], 1);
     }
+    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        s->expander_down[i] = false;
+        qemu_set_irq(s->expander_pads[i], -1);
+    }
     s->selector_down = s->movie = false;
     qemu_set_irq(s->capture_selector, -1);
     qemu_set_irq(s->mode_adc, -1);
@@ -315,6 +347,8 @@ static void nikon_input_init(Object *obj)
                                         nikon_input_dial_tick, &s->dial[i]);
     }
     qdev_init_gpio_out_named(DEVICE(obj), s->pads, "pad", NIKON_INPUT_PADS);
+    qdev_init_gpio_out_named(DEVICE(obj), s->expander_pads, "expander-pad",
+                             NIKON_INPUT_EXPANDER_PADS);
     qdev_init_gpio_out_named(DEVICE(obj), &s->capture_selector,
                              "capture-selector", 1);
     qdev_init_gpio_out_named(DEVICE(obj), &s->mode_adc, "mode-adc", 1);
