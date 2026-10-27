@@ -1209,6 +1209,12 @@
       "complete_transfer_host_seconds": 3.59
     },
     "qualification": "Normal MENU rendering and visible input-driven changes pass in a bounded window; labels in requested_action describe test intent, not proof of entering a submenu or returning to live view. MAIN keeps computing behind the menu. Earlier mode-transition failure remains unresolved.",
-    "readout_main_completed_post_window": 1173
+    "readout_main_completed_post_window": 1173,
+    "first_periodic_paired_sample": {
+      "qmp_response_id": 511,
+      "paired_completed": 19,
+      "position": "Second periodic sample, before the M/A/S/P control sequence",
+      "timestamp_qualification": "No exact host timestamp was stored for this response; the runner scheduled two sequential15-second waits before it."
+    }
   }
 }
