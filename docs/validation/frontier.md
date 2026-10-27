@@ -1,6 +1,70 @@
 # Original-firmware startup frontier
 
-## Current: photo MAIN input delivery and continuous graph boundary
+## Current: continuous MAIN computation and display consumption
+
+The [continuous graph](../devices/gate/processing.md) now consumes the owned
+photo MAIN snapshot. The complete admitted chain is type5/resource35 →
+type9/resource45 → type11/resource62, followed by three type8 affine branches
+and type10 terminals. It validates the whole graph, snapshots numerical records,
+computes actual Y/UV images and writes all three destinations before retiring
+the input or publishing completion. Complete kind27/28/29 source pools supply
+ordinary RAM; their presence does not manufacture pixels or readiness.
+
+Source facts establish the graph, packet fields, grid coordinates, affine
+packing, pool extents and terminal routes. The zero type5 table's identity
+interpretation, interpolation, chroma reconstruction, phase association and
+one-millisecond work boundary are explicit finite numerical/timing hypotheses.
+Unsupported packets fail and retain their input. Reset, cancellation, negative
+DMA boundaries and acknowledgement backpressure have native coverage.
+
+With unchanged C1.70 firmware, cold-neutral regions, quadrant scene input,
+explicit paired calibration, healthy UART battery peer, virtual lens, held F4,
+blank 8 GiB slot0 card and five-CPU MTTCG, the 30-second-wait photo window
+completes four paired and four continuous jobs with zero processing errors.
+Another window completes eight of each. All three output images contain actual
+computed data. The original 1024×682 status GUI still has a black central scene;
+head0 is unbound, GUI readiness remains zero and no panic is recorded. These
+bounded results do not establish steady live view, shutter capture or recording.
+
+![Original GUI after actual continuous processing](/evidence/continuous/display.png)
+
+![Diagnostic decode of the actual LCD-branch DMA](/evidence/continuous/scene.png)
+
+The second image decodes the actual 1024×682 LCD output's active Y and UV rows
+using the finite NV12 interpretation and full-range YCbCr-to-RGB conversion.
+Its false color reflects the explicit monochrome/color model and diagnostic
+conversion. It is neither a host-rendered GUI background nor calibrated camera
+color. Padding, plane gaps and other outputs are independently checked.
+
+A separate instrumented original run confirms all three terminal callbacks and
+the whole-frame callback. Raw1 bits0/5/6 pass the original mask/subscription chain
+and reach tag `42193082`; raw2 bit3 reaches tag `42193081`. The result consumer
+at MAS VA `10269d36` normally subtracts consumed terminal counts, so a later
+zero count does not imply a missing event. Post-window sequential reads show
+display input channel0 enabled and queued, and both GUI information caches
+populated. No extra terminal cause or forced input-slot release is justified.
+The remaining join is queued display consumption and scanout of these real
+images, together with sustained acquisition after the initial phase batches.
+
+The [mechanical input](../devices/gpio/input.md) now supplies the mode ADC and
+two bounded quadrature dials; the [lens](../devices/lens/protocol.md) models iris
+travel and current/busy reporting. An original AUTO-started session switches
+through P/S/A/M and custom positions using normal inputs. Direct M startup
+instead selects an unresolved `660..678` noise-reduction tuple (`660=15`,
+versus `23` in the admitted AUTO photo profile) and stops at the existing strict
+paired boundary. Mode labels are not proof of exposure control or supported
+M live view. Original dial delivery remains inconsistent across these windows;
+host inputs do not write shutter/aperture settings. Optical scene exposure is
+also a separate unimplemented acquisition boundary.
+
+The scoped native checks pass 48 subtests: 10 grid arithmetic, 8 complete-graph
+and lifecycle, 6 input, 18 lens, 1 exact-pool memory, 4 existing typed-stream and
+1 existing SLA gate. The [curated receipt](/evidence/continuous/capture.json)
+separates designed fixtures, original windows, instrumented diagnostics and
+unresolved boundaries. Firmware bytes, guest callbacks, slots and GUI pixels
+are unchanged.
+
+## Previous: photo MAIN input delivery and continuous graph boundary
 
 The [capture-mode model](../devices/pairs/modes.md) now decodes chunked photo
 `88=2` scheduling and independent WORK disable without treating `9c` as RAW

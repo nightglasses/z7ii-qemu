@@ -539,6 +539,24 @@
         "title": "Photo scheduling, dynamic filtering and real MAIN input delivery",
         "href": "/evidence/paired/capture.json",
         "kind": "Model and execution observation"
+      },
+      {
+        "run": "continuous",
+        "title": "Continuous MAIN computation, native checks and original display boundary",
+        "href": "/evidence/continuous/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "continuous",
+        "title": "Original GUI after continuous processing",
+        "href": "/evidence/continuous/display.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "continuous",
+        "title": "Actual LCD branch pixels, diagnostic decode",
+        "href": "/evidence/continuous/scene.png",
+        "kind": "Intermediate data preview"
       }
     ]
   },
@@ -3104,6 +3122,68 @@
         "run": "pairedcapture",
         "title": "Actual queued MAIN pixels, diagnostic decode",
         "href": "/evidence/paired/input.png",
+        "kind": "Intermediate data preview"
+      },
+      {
+        "run": "continuous",
+        "title": "Continuous MAIN computation, native checks and original display boundary",
+        "href": "/evidence/continuous/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "continuous",
+        "title": "Original GUI after continuous processing",
+        "href": "/evidence/continuous/display.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "continuous",
+        "title": "Actual LCD branch pixels, diagnostic decode",
+        "href": "/evidence/continuous/scene.png",
+        "kind": "Intermediate data preview"
+      }
+    ]
+  },
+  "devices/gate/processing.md": {
+    "records": [
+      {
+        "run": "continuous",
+        "title": "Continuous MAIN computation, native checks and original display boundary",
+        "href": "/evidence/continuous/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "continuous",
+        "title": "Original GUI after continuous processing",
+        "href": "/evidence/continuous/display.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "continuous",
+        "title": "Actual LCD branch pixels, diagnostic decode",
+        "href": "/evidence/continuous/scene.png",
+        "kind": "Intermediate data preview"
+      }
+    ]
+  },
+  "devices/gate/pixels.md": {
+    "records": [
+      {
+        "run": "continuous",
+        "title": "Continuous MAIN computation, native checks and original display boundary",
+        "href": "/evidence/continuous/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "continuous",
+        "title": "Original GUI after continuous processing",
+        "href": "/evidence/continuous/display.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "continuous",
+        "title": "Actual LCD branch pixels, diagnostic decode",
+        "href": "/evidence/continuous/scene.png",
         "kind": "Intermediate data preview"
       }
     ]

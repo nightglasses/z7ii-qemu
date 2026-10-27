@@ -4,11 +4,14 @@ C1.70 MAS type9/resource45 imports a 136-byte logical-register stream after
 pulsing PA `20100914`. Its source graph connects upstream type5/resource35,
 three type8 branches and type11/resource62. The finite model imports both
 type9 and type8 layouts across all eight source-selected ports. It retains
-their routing and borrowed references; actual pixel processing and terminal
-publication remain unsupported. The unchanged cold-neutral continuation
+their routing and borrowed references. At this historical import checkpoint,
+actual pixel processing and terminal publication remained unsupported. The
+current [continuous processing contract](processing.md) adds one bounded
+whole-graph operation; its functional choices and validation are separate
+from the measurements below. The unchanged cold-neutral continuation
 imports 17 packets/628 words before reaching type18/resource34 initialization.
 This is the linked-stream checkpoint; the [complete type-family continuation](family.md)
-crosses that initialization and retains the separate actual-processing boundary.
+crosses that initialization, before the later processing contract.
 See the [receipt](/evidence/imagerequest/linked.json) and
 [startup frontier](../../validation/frontier.md).
 
@@ -20,11 +23,13 @@ device accesses and stream words are aligned little-endian 32-bit.
 
 ## Source-selected ports and stream boundaries
 
-ROM resource/backend tables select these ports and raw callback masks. Domain
-indices are zero-based: domain1 is pending PA `2010001c`, domain2 is
-PA `20100020`. Masks identify callback routing, not a completion-on-import rule.
+ROM resource/backend tables select these ports and software allocation bits.
+The group indices identify the resource allocator's bitmap words, not hardware
+raw-pending domains or IRQ causes. Allocation and callback dispatch use separate
+source tables; the numeric allocation masks below must not be asserted as
+completion events.
 
-| Type | Resource | Backend PA | Raw domain | Mask |
+| Type | Resource | Backend PA | Allocation group | Allocation bitmask |
 | --- | --- | --- | --- | --- |
 | 8 | 41 | `201008a0` | 1 | `20` |
 | 8 | 42 | `201008c0` | 1 | `40` |
@@ -90,10 +95,12 @@ fixed-point format, resampling equation or complete referenced extent.
 
 Type8's observed logical `50=00010001` accompanies logical `54` references
 `b2bda128/b2bda1c8/b2bda268`. Their borrowed records are retained inputs,
-not command-import DMA targets. The complete source-selected slot8 base/plane
+not command-import DMA targets. At this historical checkpoint, slot8's base/plane
 association, type5 table arithmetic, type9 transfer/output format and type8
-processing remain unresolved. Those are the required evidence for an actual
-processor; no identity/black result is supplied in their place.
+processing remained unresolved. Those were the required evidence for an actual
+processor; no identity/black result was supplied in their place. The current
+[processing contract](processing.md) states the subsequently implemented finite
+input, mesh, affine and output profile and its remaining hypotheses.
 
 ## Finite lifecycle and terminal ownership
 
@@ -106,7 +113,8 @@ unarmed and repeated submissions reject without a partial installation.
 Import retains borrowed references without following them or claiming they
 are valid execution buffers. Activation rejects at this historical checkpoint;
 the later [request contract](../pairs/requests.md) admits pending starts without
-pixel or completion production.
+pixel or completion production. The later [continuous profile](processing.md)
+requires actual output DMA before the caller may publish completion.
 
 At this checkpoint the port set has37 entries. Its read-only QOM `configured-mask`
 therefore uses64 bits, with 64-bit shifts and isolated reset clearing; this
@@ -118,12 +126,12 @@ Worker `103b4adc` configures the whole graph, then `103b4cea` reverse-starts
 processing nodes through `103bd07c` and forms its terminal wait from resources
 49..56. IRQ102 handler `103bce38 ->103bde3e` dispatches original callbacks;
 normal software release `10388b3c ->1038897e` clears software ownership and
-wakes the waiter without a hardware slot-query write. Type9's raw mask `100`
+wakes the waiter without a hardware slot-query write. Type9's allocation mask `100`
 does not itself establish a terminal result. Actual output DMA and its result
 condition must precede any modeled completion or type0 slot retirement.
 Command reset, elapsed time, W1C and stop acknowledgment provide none of them.
 
-## Validation and original continuation
+## Historical validation and original continuation
 
 The old device fails the focused HMP reset read at PA `20100914`. The accepted
 native batch passes four decoder and23 SLA subtests. It checks all37 ports,

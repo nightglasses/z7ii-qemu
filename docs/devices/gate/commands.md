@@ -7,8 +7,11 @@ and CPU-written lookup tables. Original execution crosses this boundary and
 imports eight packets before stopping in the separate paired-event banks at
 the command-import checkpoint. The later [paired parameter contract](../pairs/parameters.md)
 crosses that historical stop; its startup observation is reported separately.
-Actual pixel processing, terminal completion and type0 slot retirement remain
-unsupported. See the [execution receipt](/evidence/imagerequest/commands.json)
+At this historical checkpoint, actual pixel processing, terminal completion
+and type0 slot retirement remained unsupported. The current
+[continuous processing contract](processing.md) adds one bounded graph and
+separates its functional choices from these earlier measurements. See the
+[execution receipt](/evidence/imagerequest/commands.json)
 and [startup frontier](../../validation/frontier.md).
 
 The later [type5/type6 stream contract](fanout.md) adds two source-selected
@@ -113,8 +116,9 @@ for all42 ports. The later [request contract](../pairs/requests.md) admits
 backend+`0=1` only after complete import and retains a pending node request.
 Readback0/1 is a finite incomplete-state convention, not physical status bits.
 Source predicate `103bdbbe` checks `(status & 3) != 3`; it does not establish
-bit1 alone as busy. No successful completion encoding is returned. Request
-admission does not execute a data operation or invent either input dependency.
+bit1 alone as busy. Request admission alone returns no successful completion
+encoding and executes no data operation. The later [continuous profile](processing.md)
+requires owned input and actual output DMA before its caller publishes completion.
 Unknown packet variants, ports, local words, widths and commands remain errors.
 
 ## Paired endpoints and CPU-populated storage
@@ -146,8 +150,8 @@ duplicate writes do not increase coverage. Only then does it read `100`.
 Command reset preserves this separate store; whole-device reset clears data
 and coverage. Source proves the conditional CPU initialization, not this
 physical status meaning. A later consumer requiring a different interpretation
-would falsify the hypothesis. The current original graph reads the word during
-LUT loading; it does not demonstrate the hypothesized bit8 transition. No
+would falsify the hypothesis. The original graph at this checkpoint reads the
+word during LUT loading; it does not demonstrate the hypothesized bit8 transition. No
 clock, nominal delay, configuration write or processing result sets it.
 The later [type18 provisioning contract](family.md#type18-provisioning-and-result-ownership)
 handles the explicit `201002c0=1` request by invalidating write coverage before
@@ -156,13 +160,20 @@ the original CPU clear; it does not generate the bytes or a processing result.
 ## Terminal completion and slot release
 
 Worker `103b4adc` configures the graph, then `103b4cea` starts later nodes and
-forms its wait mask from resources49..56. Type4 resources37..39 have raw-domain1 masks
-`1/2/4`; type0 has no completion mask. As callback-routing examples,
-type10/resource53 has raw-domain1 mask `4000`, and type11/resource61 has
-raw-domain2 mask `4000`. Identical numeric masks in different domains are not
-interchangeable events. Domain indices are zero-based: domain1 is pending PA
-`2010001c`, and domain2 is pending PA `20100020`.
-Resource61's raw mask does not make it a terminal source for that worker wait.
+forms its wait mask from resources49..56. The ROM resource descriptors give
+type4 resources37..39 software allocation-group1 bitmasks `1/2/4`,
+type10/resource53 allocation-group1 bitmask `4000` and type11/resource61
+allocation-group2 bitmask `4000`. These are allocator ownership words, not raw
+callback masks; type0's descriptor has no additional allocation bits. Identical
+allocation values in different groups are independent resource ownership bits.
+They do not determine a hardware cause or make resource61 a terminal source.
+
+Actual raw-domain1 pending is at PA `2010001c`, and raw-domain2 at PA
+`20100020` (zero-based domains). For the later continuous worker9 graph,
+resources49/54/55 contribute software terminal bits `10/200/400`, combined
+`610`, through raw-domain1 causes0/5/6, combined `61`. The separate whole-frame
+raw-domain2 bit3 (`8`) association is a [functional hypothesis](processing.md),
+not a deduction from those allocation descriptors.
 
 Original IRQ102 handler `103bce38` acknowledges raw pending and calls
 `103bde3e` to dispatch registered guest callbacks. Callback `103b4b9e`
@@ -171,13 +182,14 @@ event `80`. On normal worker completion, `10388b3c ->1038897e` clears software
 resource/worker ownership and wakes the waiter on the `421930f1` route. This
 does not write the hardware slot query bank.
 
-These source paths locate the consumers, but do not supply the missing pixel
-processor or its completion condition. The model does not invoke those guest
-functions, assert their raw bits or release type0 slots. Local command reset,
+These source paths located consumers at the historical import checkpoint, but
+did not supply its missing pixel processor or completion condition. The current
+[continuous model](processing.md) performs actual bounded output DMA before
+its caller may publish the selected causes; it still does not invoke guest
+callbacks or edit guest software events. Local command reset,
 LUT writes, stop acknowledgment and W1C are not terminal processing results.
-The next required processing evidence is the real operation's input association,
-output DMA extent and terminal publication condition; successful packet import
-alone cannot establish them.
+The operation's input association, output DMA extent and terminal publication
+condition remain prerequisites; successful packet import alone cannot establish them.
 
 ## Historical validation and original execution
 

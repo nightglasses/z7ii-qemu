@@ -5,9 +5,13 @@ and 76 distinct resources, numbered0..75. Fifteen types describe processing
 units with42 command ports. The finite importer covers all42 ports; type14's
 24-byte single-block layout is explicitly a hypothesis, while the other
 remaining layouts are constructor-established. This is configuration coverage,
-not15 completed pixel operators. Actual data operations, result production and
-frame retirement remain unsupported; the later [request contract](../pairs/requests.md)
-admits pending starts without inventing completion and corrects type0 capture.
+not15 completed pixel operators. At this historical importer checkpoint, actual
+data operations, result production and frame retirement remained unsupported.
+The current [continuous processing contract](processing.md) implements one
+bounded connected graph, with separate numerical and completion hypotheses;
+it does not add arbitrary operators for all19 types. The intermediate
+[request contract](../pairs/requests.md) admits pending starts without inventing
+completion and corrects type0 capture.
 The original observation below precedes the later
 [paired-table continuation](../pairs/tables.md), which crosses its configuration
 stop and reaches the separate paired-processing start.
@@ -30,7 +34,7 @@ confirms count1, so the padding does not add duplicate resource0 entries.
 
 | Type | Resource IDs | Interface and finite coverage |
 | --- | --- | --- |
-| 0 | 0..15 | Sixteen staged/committed13-word parameter slots; active data use remains unmodeled |
+| 0 | 0..15 | Sixteen staged/committed13-word parameter slots; bounded active use is defined by the [continuous profile](processing.md) |
 | 1 | 16..23 | Eight paired endpoint configurations |
 | 2 | 24..27 | Software connection nodes, NULL backend/setter |
 | 3 | 28..33 | Software connection nodes, NULL backend/setter |
@@ -52,8 +56,8 @@ confirms count1, so the padding does not add duplicate resource0 entries.
 
 The common [command contract](commands.md) owns backend offsets, layouts and
 reset/RAM-DMA/atomic-import behavior. Software connection nodes do not require
-invented hardware processors. The raw callback masks and numeric type order
-also do not identify the units' physical filter names or arithmetic.
+invented hardware processors. Allocation masks, callback masks and numeric
+type order also do not identify the units' physical filter names or arithmetic.
 
 ## Remaining stream family and type14 hypothesis
 
@@ -76,7 +80,8 @@ type14 execution is claimed.
 
 ## Type18 provisioning and result ownership
 
-Type18/resource34 uses backend PA `20100920` and raw-domain1 mask `200`.
+Type18/resource34 uses backend PA `20100920` and software allocation-group1
+bitmask `200`. That resource-allocation word is not a raw IRQ callback mask.
 Callback `103bdd8c` clears SYS41..44, reads `20100148.bit8` and, if absent,
 writes `201002c0=1`, CPU-clears `[24010000,24011000)` through `10361034`, then
 pulses backend+`14` and submits its payload at+`10`. The control write precedes
@@ -107,7 +112,7 @@ so absent copies do not eliminate the result-register dependency. Numerical
 equations, histogram/bin association and result publication conditions remain
 unrecovered; the model does not return fabricated completed-zero statistics.
 
-## Whole-graph execution and unsupported boundaries
+## Whole-graph execution and model boundaries
 
 The current18-node graph connects slot8 through type5/resource35,
 type9/resource45, software join type2/resource24, type11/resource62 and paired
@@ -119,25 +124,40 @@ two branches; this topology does not assign them pixel operations.
 
 Worker `103b4cea` reverse-starts processing nodes through `103bd07c` in order:
 `18/34,10/55,10/49,10/54,8/43,8/42,8/41,11/62,9/45,5/35` (type/resource).
-It forms its terminal wait only from resources49..56. For this graph the mask
-is `c2`: resource49 contributes2,54 contributes40 and55 contributes80.
-Type9/type11 raw callback masks cannot substitute for that wait. The first
-activation can therefore be predicted as PA `20100920=1`, before observing it.
+It forms its terminal wait only from resources49..56. For this graph the
+software terminal mask is `610`: resource49 contributes `10`, resource54 `200`
+and resource55 `400`. Their source-selected hardware causes are raw-domain1
+bits0/5/6, combined mask `61`, consumed through the original ISR and callbacks.
+The earlier `c2` calculation incorrectly reused the software allocation bits
+`2/40/80`; allocation ownership is independent of terminal callback routing.
+The [continuous profile](processing.md) separately chooses raw-domain2 bit3
+(`8`) as a whole-frame completion cause under an explicit functional hypothesis.
+Neither allocation bits nor type9/type11 callbacks substitute for the terminal
+wait. At the historical checkpoint, this reverse-start order predicted PA
+`20100920=1` as the first activation, before it was observed.
 
-The outstanding processing capability is a connected input/operation/output
-contract: complete slot8 base/plane/extent association, type5 table arithmetic,
+At that checkpoint, the outstanding processing capability was a connected
+input/operation/output contract: complete slot8 base/plane/extent association,
+type5 table arithmetic,
 type9 mesh sampling, type8 transforms, type10/11 stream-to-slot output DMA,
 type18 numerical results, then actual terminal publication and slot retirement.
-Each operation needs observable data and a result condition. Configuration
-import, elapsed time and a software release consumer cannot provide them.
+The current [continuous contract](processing.md) supplies one bounded input,
+neutral type5 carrier, type9 mesh, type8 transform and three-output DMA path.
+Its treatment of the admitted type18 tuple is metadata-only; type18 statistics
+equations remain unrecovered. Each operation needs observable data and a result
+condition. Configuration import, elapsed time and a software release consumer
+cannot provide them.
 
-There are useful narrower numerical hypotheses, rather than recovered hardware
-laws. Type8 resources42/43's borrowed records fit Q16.16 pixel-center scaling:
+The older borrowed-record snapshot also supplied narrower numerical hypotheses,
+rather than recovered hardware laws. Its type8 resources42/43 fit Q16.16
+pixel-center scaling:
 scale `1e000/10000=1.875`, translation `7000/10000=0.4375`, and output1024x582.
-Resource41's `80000000` translations remain unexplained; no identity result is
-inferred. The [linked-input contract](linked.md) distinguishes the generated
-kind74 mesh from its unproved pixel fractional format. These observations
-constrain future operators but do not justify asserting completion now.
+Resource41's `80000000` fields were unexplained in that snapshot; no identity
+result was inferred. Subsequent constructor/consumer analysis establishes
+signed low31-bit Q16 offsets with separate bit31 flags, rather than negative
+signed-magnitude offsets. The [current profile](processing.md) records that
+interpretation, the newer active geometry and the remaining sampling choices.
+The old snapshot and its unexplained fields are not current format definitions.
 
 Error labels elsewhere are not a count of missing features. The preceding
 cold-neutral run hits only the type18 initialization request; graphics,

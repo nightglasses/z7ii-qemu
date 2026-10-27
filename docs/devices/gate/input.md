@@ -1,8 +1,9 @@
 # Paired MAIN input transport
 
 The finite gate input contract accepts one actual paired MAIN NV12 frame into
-an owned type 0 slot 8 snapshot. It supplies storage and backpressure, not graph
-processing, terminal completion or an IRQ. No software worker memory is read
+an owned type 0 slot 8 snapshot. Storage alone supplies backpressure; the
+separately qualified [continuous processor](processing.md) consumes actual
+pixels before publishing results. No software worker memory is read
 by the device. The implementation is in `hw/nikon/devices/gate.c`; the typed
 interface is declared in `include/hw/nikon/gateinput.h`.
 
@@ -65,10 +66,10 @@ One successful publication makes the slot busy. The slot 8 availability query
 at PA `20102060` returns nonzero while the actual queued input owns it;
 configuration alone still does not make a slot busy. A second publication cannot
 overwrite it. `nikon_gate_input_copy` reads the complete snapshot without
-consuming it; there is currently no release or automatic consumer. A single
+consuming it. A successful complete continuous graph retires the snapshot and
+changes its generation. A single
 frame is the explicit bounded functional storage choice, not a recovered
-physical FIFO depth or evidence that one frame is sufficient for normal live
-view. Unmodeled continuous processing cannot silently retire the frame.
+physical FIFO depth. Unmodeled processing cannot silently retire the frame.
 
 Slot8 staging writes do not alter committed ownership. Its first parameter
 commit or a changed complete commit cancels a queued frame and changes the
@@ -81,10 +82,10 @@ Cancellation never turns a frame into a processing result, pending bit or IRQ.
 Read-only QOM properties expose the generation, cumulative accepted frame/byte
 counts, queued width/height/stride/size, and `input-data`, which is base64 of the
 tight NV12 snapshot or an empty string. These observations do not consume data
-or alter the GUI. Reset clears the counters. The pixel arithmetic, graph input
-consumption, terminal completion and physical transport remain separate work.
+or alter the GUI. Reset clears the counters. The continuous processor exposes
+its separate processed, error, cancellation, last-result and phase counters.
 
-## Continuous activation and the current consumer boundary
+## Continuous activation
 
 Continuous worker 9 has a different start path from ordinary per-node commands.
 The original sequence `10264de0 → 102bc496 → 42193083 → 102e1b86 → 103894a0`
@@ -94,8 +95,8 @@ software callback. Only afterward does the photo caller start paired work.
 A subsequent read-only observation records `20102100=121` and `20102608=1`:
 the continuous input is enabled even though per-command active fields are zero.
 Neither those zeros nor an unconsumed snapshot establishes a missing worker
-start. The current implementation retains these controls but does not execute
-their continuous graph of pixel operators.
+start. The finite processor uses these continuous controls; it does not require
+the ordinary per-command starts to execute this graph.
 
 Photo initialization `10264972` sets VA `b18648f4` to one. On the first actual
 paired raw event `1000`, callback `102637c2` decrements it without setting
@@ -105,10 +106,11 @@ does not follow from that bit. Consumer `10268ba4` waits for `80400000`, records
 a timeout and can fall through to decrement `b18648d8`. Negative counts therefore
 do not prove a warmup FIFO depth. No host code repairs those counters or events.
 
-The observed next dependency is actual consumption of the qualified MAIN input
-by the enabled continuous graph, with numerical outputs and source-bound result
-publication. Releasing the slot, overwriting it or emitting a terminal event
-without that work would hide this boundary.
+The enabled finite graph now consumes the qualified MAIN input, calculates all
+three output images and publishes its source-routed terminal causes. Releasing
+the slot, overwriting it or emitting a terminal event without that work remains
+prohibited. See [processing](processing.md) for admission, DMA and completion
+assumptions, including the separately inferred whole-frame fence.
 
 ## Validation
 
@@ -117,8 +119,7 @@ non-consuming diagnostic reads, source backpressure, slot 8 busy/readback,
 cross-bank exclusion, changed-generation cancellation before DMA, stop, reload,
 staging, repeated parameter commits and reset. The existing gate fixture also
 passes independently. Native fixtures are separate from the original execution.
-The [capture receipt](/evidence/paired/capture.json) records the exact scopes,
-profile and limitations. Unchanged photo firmware produces a real 1376×914
-queued input and binds its 1024×682 status GUI, while the central scene remains
-black. This is input delivery and status-GUI progress, not continuous graph
-processing, normal photo live view, shutter capture or physical-camera fidelity.
+The earlier [capture receipt](/evidence/paired/capture.json) records the
+input-delivery checkpoint. The [continuous receipt](/evidence/continuous/capture.json)
+separates subsequent actual processing from the still-unpublished central GUI
+scene and from physical-camera fidelity.

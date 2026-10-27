@@ -33,10 +33,14 @@ The request, reservation and complete pool are three different bounds.
 dispatches `1040decc -> 1040e112 -> 104093c4 -> 10408e4e -> 10404354`.
 The last helper receives a packet whose eight destination pointers occupy
 `+28..+44`. Each destination receives nine words: eight interpolated23-bit
-fields and a tag at`+20`; records have40-byte stride, leaving the last word
+fields and a tag at byte offset32 (`0x20`); records have40-byte stride, leaving the last word
 untouched. The first packet's destinations are spaced`370` bytes,22 records.
 Its first write is100hex and tag306hex. These are software records, not a
 framebuffer or an emulated hardware completion.
+
+The later [finite pixel operator](../devices/gate/pixels.md) consumes complete
+grids, including the final-column `303..306` tail family. That numerical model
+is a separate functional hypothesis from this original storage checkpoint.
 
 The later [type9 input association](../devices/gate/linked.md) retains a
 reference at PA `c326b400` inside this same pool. Its bounded original

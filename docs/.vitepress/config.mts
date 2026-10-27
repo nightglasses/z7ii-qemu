@@ -131,6 +131,8 @@ export default defineConfig({
               { text: 'Pairs Adaptive Filter', link: '/devices/pairs/filter' },
               { text: 'Pairs Capture Modes', link: '/devices/pairs/modes' },
               { text: 'Paired MAIN Transport', link: '/devices/gate/input' },
+              { text: 'Gate Grid Pixels', link: '/devices/gate/pixels' },
+              { text: 'Gate Continuous Processing', link: '/devices/gate/processing' },
               { text: 'Event Router', link: '/devices/router/protocol' },
               { text: 'Router Runtime Requests', link: '/devices/router/runtime' },
               { text: 'Router Timing Producers', link: '/devices/router/timing' },

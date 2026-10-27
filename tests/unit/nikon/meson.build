@@ -35,6 +35,12 @@ fixture = executable('nikon_pairedpixels_unit',
 test('nikon_pairedpixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
   protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
 
+fixture = executable('nikon_gatepixels_unit',
+  files('gatepixels.c', '../../../hw/nikon/devices/gatepixels.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gatepixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',
@@ -49,7 +55,7 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
   foreach name : ['memory', 'copy', 'transfer', 'bridge', 'dispatcher',
                   'command', 'input', 'readout', 'panel',
                   'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi',
-                  'acceleration', 'lens']
+                  'acceleration', 'lens', 'gatework']
   fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],

@@ -162,7 +162,8 @@ static const struct {
 };
 
 /*
- * Original pool rows119832a8..119833e0; kind18 has its own grid region.
+ * Original pool rows119832a8..119833e0 and selected output overrides;
+ * kind18 has its own grid region.
  * These are separate pool extents, not an enclosing DDR conversion class.
  */
 static const struct {
@@ -180,6 +181,10 @@ static const struct {
     { "z7ii.capture-kind25", 0x5f914400, 0x36000 },
     /* Mode4 overrides selected by the active paired frame descriptors. */
     { "z7ii.capture-kind26", 0xdec7fc00, 0x3505400 },
+    /* Kind27/28's two source override tables agree on these full extents. */
+    { "z7ii.capture-kind27", 0xdcb3c800, 0x710000 },
+    { "z7ii.capture-kind28", 0xdbb1d000, 0x101f800 },
+    { "z7ii.capture-kind29", 0xbe5d2200, 0x486600 },
     { "z7ii.capture-kind31", 0xe2185000, 0x491400 },
     /* Kind32 also supplies 12000-byte slots when kind18's count exceeds6. */
     { "z7ii.capture-kind32", 0x5df45400, 0x198d000 },
@@ -1787,8 +1792,8 @@ static void z7ii_init(MachineState *machine)
                  "gui-pool-base=0xbec5f200 bytes=0x386c200 source-owned cold-zero; "
                  "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
                  "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
-                 "capture-pools=16,17,19,20,21,22,23,25,26,31,32 "
-                 "source-extents(26/31 mode4) cold-zero; "
+                 "capture-pools=16,17,19,20,21,22,23,25,26,27,28,29,31,32 "
+                 "source-extents(26/31 mode4,27/28 paired override) cold-zero; "
                  "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
