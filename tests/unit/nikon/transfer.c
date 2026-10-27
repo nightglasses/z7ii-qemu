@@ -2617,14 +2617,74 @@ static void test_rgba_yuv(void)
     qemu_free_irq(f.irq);
 }
 
-static void test_scaled_yuva(void)
+/* Reuse the independently tested path coverage; compute sampling with doubles
+ * and opaque-destination SRC/color conversion independently of the executor. */
+static void scaled_yuv105_reference(uint8_t *output, const uint8_t *source)
+{
+    enum { W = 1024, H = 682, PLANE = W * H };
+    const uint8_t segments[] = { 2, 7, 9, 7, 0 };
+    uint32_t coordinates[5], matrix[9];
+    g_autofree uint8_t *mask = g_malloc0(W * 688);
+    const char *reason = NULL;
+    double z = 131070.0 / 131072;
+
+    path_floats((uint8_t *)coordinates, (float[]) { 0, 0, 720, 480, -720 }, 5);
+    path_floats((uint8_t *)matrix, (float[]) {
+        1.422210693359375f, 0, 0, 0, -1.4208221435546875f, 0,
+        0, 687.99993896484375f, 1 }, 9);
+    g_assert_true(nikon_path_mask(mask, W, 688, segments, 5, coordinates, 5,
+                                  matrix, false, NULL, &reason));
+    for (unsigned y = 0; y < H; y++) {
+        unsigned sy = (-98404.0 / 67108864 * (y + 6.5) +
+                       66113.0 / 65536) * 480 / z;
+
+        for (unsigned x = 0; x < W; x += 2) {
+            unsigned at = y * W + x;
+            uint8_t yuv[2][3];
+            int d = output[PLANE + at] - 128;
+            int e = output[PLANE + at + 1] - 128;
+
+            for (unsigned j = 0; j < 2; j++) {
+                unsigned sx = 131064.0 / 134217728 *
+                              (x + j + 0.5) * 720 / z;
+                const uint8_t *p = source + 4 * (sy * 720 + sx);
+                unsigned coverage = mask[(y + 6) * W + x + j];
+                unsigned a = p[3] * coverage;
+                unsigned keep = 255 * (255 - coverage);
+                unsigned sum = a + keep;
+                int c = MAX(0, output[at + j] - 16);
+                int rgb[3] = {
+                    CLAMP((298 * c + 409 * e + 128) >> 8, 0, 255),
+                    CLAMP((298 * c - 100 * d - 208 * e + 128) >> 8, 0, 255),
+                    CLAMP((298 * c + 516 * d + 128) >> 8, 0, 255),
+                };
+
+                for (unsigned k = 0; k < 3; k++) {
+                    rgb[k] = sum ? (p[k] * a + rgb[k] * keep + sum / 2) / sum : 0;
+                }
+                yuv[j][0] = CLAMP(((66 * rgb[0] + 129 * rgb[1] +
+                    25 * rgb[2] + 128) >> 8) + 16, 0, 255);
+                yuv[j][1] = CLAMP(((-38 * rgb[0] - 74 * rgb[1] +
+                    112 * rgb[2] + 128) >> 8) + 128, 0, 255);
+                yuv[j][2] = CLAMP(((112 * rgb[0] - 94 * rgb[1] -
+                    18 * rgb[2] + 128) >> 8) + 128, 0, 255);
+            }
+            output[at] = yuv[0][0];
+            output[at + 1] = yuv[1][0];
+            output[PLANE + at] = (yuv[0][1] + yuv[1][1] + 1) / 2;
+            output[PLANE + at + 1] = (yuv[0][2] + yuv[1][2] + 1) / 2;
+        }
+    }
+}
+
+static void test_scaled_yuv(uint32_t format)
 {
     enum { W = 1024, H = 682, PLANE = W * H, INPUT = 720 * 480 * 4,
            SLOT = 0x4b0000 };
     enum { SUCCESS, TEMP2, TEMP4, TEMP6, IMMUTABLE,
            TEMP_ODD, TEMP_SOLID, TEMP_HIGH, TEMP_HEADER, EARLY_DRAW, FINAL_MODE,
-           SHORT, TRANSFORM, SAMPLE, SOURCE_SIZE, FORMAT, FILTER,
-           LUT, GEOMETRY, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS, PLANE_ALIAS,
+           SHORT, TRANSFORM, SAMPLE, SOURCE_SIZE, FORMAT, UNKNOWN_FORMAT,
+           FILTER, FINAL_SOLID, COLOR_MATRIX, SECONDARY, LUT, GEOMETRY, DELTA, OVERFLOW, RANGE, SOURCE_ALIAS, PLANE_ALIAS,
            DATA_CHANGE, EDGE_KEEP, EDGE_COLOR, MAP_LOSS, RESET, CANCEL, CASES };
     static const uint32_t rgba[] = {
         0xff000000, 0xffffffff, 0xff0000ff, 0xff00ff00,
@@ -2638,6 +2698,8 @@ static void test_scaled_yuva(void)
     MemoryRegion commands, input, output, source_alias, plane_alias;
     MemoryRegion *root = get_system_memory();
     uint8_t *data, *source, *target;
+    bool alpha_plane = format == 0x107;
+    uint32_t second = 0x800000 + (alpha_plane ? 2 : 1) * PLANE;
 
     object_property_add_child(object_get_objects_root(), "transfer-scaled[*]",
                               OBJECT(f.dev));
@@ -2682,11 +2744,17 @@ static void test_scaled_yuva(void)
             }
             stl_le_p(source + 4 * i, (rgba[color] & 0xffffff) | (alpha << 24));
         }
-        for (unsigned i = 0; i < 2 * PLANE; i += 4) {
-            stl_le_p(target + 4 + i, test == EDGE_COLOR ? 0x8080ebeb : 0x80801010);
+        if (alpha_plane) {
+            for (unsigned i = 0; i < 2 * PLANE; i += 4) {
+                stl_le_p(target + 4 + i,
+                         test == EDGE_COLOR ? 0x8080ebeb : 0x80801010);
+            }
+            memset(target + 4 + 2 * PLANE,
+                   test == EDGE_KEEP || test == EDGE_COLOR ? 255 : 0, PLANE);
+        } else {
+            memset(target + 4, test == EDGE_COLOR ? 235 : 16, PLANE);
+            memset(target + 4 + PLANE, 128, PLANE);
         }
-        memset(target + 4 + 2 * PLANE,
-               test == EDGE_KEEP || test == EDGE_COLOR ? 255 : 0, PLANE);
         build_convert_program(data, data + 0x1000);
         stl_le_p(data + 13 * 4, 0x3fb60b00);
         stl_le_p(data + 17 * 4, 0xbfb5dd80);
@@ -2694,13 +2762,13 @@ static void test_scaled_yuva(void)
         stl_le_p(data + 50 * 4, 720);
         stl_le_p(data + 51 * 4, 480);
         stl_le_p(data + 52 * 4, -720);
-        stl_le_p(data + 0x1000 + 9 * 4, 0x107);
+        stl_le_p(data + 0x1000 + 9 * 4, format);
         stl_le_p(data + 0x1000 + 46 * 4, 0x34fff8);
         stl_le_p(data + 0x1000 + 54 * 4, 0x3efffe);
         stl_le_p(data + 0x1000 + 56 * 4, 0x02d001e0);
         stl_le_p(data + 0x1000 + 60 * 4, 0x02d001e0);
-        stl_le_p(data + 0x1000 + 405 * 4, 0x107);
-        stl_le_p(data + 0x1000 + 409 * 4, 0x955000);
+        stl_le_p(data + 0x1000 + 405 * 4, format);
+        stl_le_p(data + 0x1000 + 409 * 4, second);
         stl_le_p(data + 0x1000 + 417 * 4, 7);
         stl_le_p(data + 0x1000 + 419 * 4, 7);
         if (test == IMMUTABLE || test == DATA_CHANGE ||
@@ -2721,11 +2789,23 @@ static void test_scaled_yuva(void)
         case TRANSFORM: stl_le_p(data + 13 * 4, 0x3f800000); break;
         case SAMPLE: stl_le_p(data + 0x1000 + 54 * 4, 0x3f0000); break;
         case SOURCE_SIZE: stl_le_p(data + 0x1000 + 60 * 4, 0x040002b0); break;
-        case FORMAT: stl_le_p(data + 0x1000 + 405 * 4, 0x105); break;
+        case FORMAT:
+            stl_le_p(data + 0x1000 + 405 * 4, alpha_plane ? 0x105 : 0x107);
+            break;
+        case UNKNOWN_FORMAT:
+            stl_le_p(data + 0x1000 + 9 * 4, 0x106);
+            stl_le_p(data + 0x1000 + 405 * 4, 0x106);
+            break;
+        case FINAL_SOLID: stl_le_p(data + 0x1000 + 92 * 4, 8); break;
+        case COLOR_MATRIX: data[0x1000 + 32 * 4] ^= 1; break;
+        case SECONDARY: data[0x1000 + 367 * 4] ^= 1; break;
         case FILTER: stl_le_p(data + 0x1000 + 417 * 4, 1); break;
         case LUT: stl_le_p(data + 0x1000 + 100 * 4, 0xfff); break;
         case GEOMETRY: stl_le_p(data + 51 * 4, 479); break;
-        case DELTA: stl_le_p(data + 0x1000 + 409 * 4, 0x8aa800); break;
+        case DELTA:
+            stl_le_p(data + 0x1000 + 409 * 4,
+                     alpha_plane ? 0x8aa800 : 0x955000);
+            break;
         case OVERFLOW:
             stl_le_p(data + 0x1000 + 407 * 4, 0xffe00000);
             stl_le_p(data + 0x1000 + 409 * 4, 0xfff55000);
@@ -2733,7 +2813,7 @@ static void test_scaled_yuva(void)
         case RANGE: stl_le_p(data + 0x1000 + 70 * 4, 0x700000); break;
         case SOURCE_ALIAS: stl_le_p(data + 0x1000 + 70 * 4, 0x1000000); break;
         case PLANE_ALIAS:
-            memory_region_add_subregion_overlap(root, 0x955000, &plane_alias, 1);
+            memory_region_add_subregion_overlap(root, second, &plane_alias, 1);
             break;
         default: break;
         }
@@ -2761,7 +2841,18 @@ static void test_scaled_yuva(void)
             memory_region_del_subregion(root, &plane_alias);
         }
         g_assert_cmpint(f.level, ==, complete);
-        if (complete) {
+        if (complete && !alpha_plane) {
+            g_autofree uint8_t *expected = g_memdup2(before, SLOT + 8);
+
+            scaled_yuv105_reference(expected + 4, source);
+            g_assert_cmpmem(target, SLOT + 8, expected, SLOT + 8);
+            if (test == EDGE_COLOR) {
+                g_assert_cmpuint(target[4 + W], ==, 41);
+                g_assert_cmpuint(target[4 + PLANE + W], ==, 240);
+                g_assert_cmpuint(target[4 + PLANE + W + 1], ==, 110);
+            }
+            g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+        } else if (complete) {
             bool edge = false;
             double z = 131070.0 / 131072;
             for (unsigned y = 0; y < H; y++) {
@@ -2841,6 +2932,16 @@ static void test_scaled_yuva(void)
     object_unref(OBJECT(f.dev));
     drain_call_rcu();
     qemu_free_irq(f.irq);
+}
+
+static void test_scaled_yuva(void)
+{
+    test_scaled_yuv(0x107);
+}
+
+static void test_scaled_yuv105(void)
+{
+    test_scaled_yuv(0x105);
 }
 
 static void test_yuva_over(void)
@@ -6124,6 +6225,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/image-fill", test_image_fill);
     g_test_add_func("/nikon/transfer/rgba-yuv", test_rgba_yuv);
     g_test_add_func("/nikon/transfer/scaled-yuva", test_scaled_yuva);
+    g_test_add_func("/nikon/transfer/scaled-yuv105", test_scaled_yuv105);
     g_test_add_func("/nikon/transfer/yuva-over", test_yuva_over);
     g_test_add_func("/nikon/transfer/inline-rectangles", test_inline_rectangles);
     g_test_add_func("/nikon/transfer/rectangle-continuation",
