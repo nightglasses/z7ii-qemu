@@ -1,9 +1,9 @@
-# Monochrome paired pixel processing
+# Paired pixel processing
 
 The Z7II paired model consumes completed RAW12 DMA buffers and produces main
 Y/UV pixels, work history/residual planes and a packed grid before publishing
-completion. It supports an explicitly selected monochrome calibration profile
-for C1.70 MAS. The address joins and software request paths are source-backed;
+completion. It supports an explicit virtual calibration profile with mono or
+[CFA color input](color.md) for C1.70 MAS. The address joins and software request paths are source-backed;
 the filters, temporal arithmetic, gain scales, output encodings and event
 cadence below are
 finite functional choices, not recovered Nikon silicon processing or factory
@@ -79,7 +79,8 @@ b8, bc, c0, c4, c8, cc, d4, d8, dc, e0, e4
 f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 12c, 130, 134, 138, 13c, 140, 144, 204, 300, 3d8, 420, 424
 218..234, 30c..32c, 394..3b4, 400..410, 428..470, 488..4c8
-594, 598..5dc, 608, 708..720, b00..b10, b64..b74, b94..ba4
+594, 598..5dc, 608, 660..678, 708..778, b00..b10, b64..b74, b94..ba4
+1200..1244
 9cc, 9d0, 9d4, df4..e10, 2890..2c94
 ```
 
@@ -92,9 +93,11 @@ The fixed virtual lens selects a different complete opaque tuple from the
 earlier absent-endpoint profile. The historical [lens receipt](/evidence/lens/session.json)
 stops after eight jobs when `70c` changes. The live affine operator below
 replaces exact matching for `708..720`; these file slots must now be zero.
-Controls `700/704` and the remaining `724..778` still require the complete
-selected opaque profile. A different numeric gain never authorizes unrelated
-mode bits, coordinate groups or coefficients.
+Controls `700/704` still require the selected opaque profile. The complete
+`724..778` groups now have separate [radial](radial.md), [detail](detail.md) and
+[axial filter](adaptive.md) contracts. Their interpreted file slots must be
+zero. A different numeric gain never authorizes unrelated mode bits,
+coordinate groups or coefficients.
 
 ## Four-lane color correction
 

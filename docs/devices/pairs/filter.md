@@ -140,8 +140,9 @@ finite domain, numerical hypotheses and tests are documented in
 
 ## Next interpolated packet
 
-Direct M startup now passes the separate `660..678` group and rejects the
-opaque bank offset `744=40040600`; the admitted AUTO profile has `40040601`.
+The historical direct M startup passed `660..678` and rejected opaque bank
+offset `744=40040600`; the earlier AUTO profile had `40040601`. The complete
+family now has [detail](detail.md) and [axial residual](adaptive.md) operators.
 The complete source producer is C1.70 MAS VA `102d3874 → 102f78b0 →
 10363a6c/102f734e`. Four directories at ROM VA `11c0ae18` each select four
 tables containing nineteen rows of 57 signed16 fields. Normalized metadata
@@ -173,5 +174,6 @@ but neither the scales' numerical role nor a neighborhood/filter equation is
 recovered. In the captured M packet, all opaque words in `73c..778` except
 `744` match the earlier AUTO specialization. Other supported source indices
 can change the complete dynamic family; admitting just this value would hide
-the unresolved numerical operation. These words retain strict opaque-profile
-validation until their actual finite computations and boundaries are tested.
+the numerical operation. The new finite computations validate the full groups
+and use their live fields; their equations remain explicit functional
+hypotheses rather than recovered physical algorithms.

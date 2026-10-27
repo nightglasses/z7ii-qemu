@@ -50,7 +50,8 @@ neutral spectral response under arbitrary white balance.
 ## Numerical contract
 
 1. Split the actual mosaic into four half-resolution phase planes. Run the
-   existing impulse suppression, spatial, adaptive and denoise operations on
+   existing impulse suppression, spatial, adaptive, denoise, [detail](detail.md)
+   and [axial residual](adaptive.md) operations on
    each plane independently. Neighborhoods therefore contain only one phase;
    their edge samples replicate the nearest sample of that phase.
 2. Compute each2×2 mosaic block's scalar mean and the existing history
@@ -59,7 +60,8 @@ neutral spectral response under arbitrary white balance.
    It does not independently blend color samples toward a monochrome mean.
    WORK luma/residual and grid means use this pre-color mosaic. Saturation can
    change a block's final mean; WORK reports that actual clamped mean.
-3. Apply the live four-lane gain/offset/pedestal/limit operation to each actual
+3. Apply [coefficient-only radial sampling](radial.md) on each immutable
+   same-color lattice, then the live four-lane gain/offset/pedestal/limit operation to each actual
    sample of its own lane, preserving the two greens through this operation.
 4. Bilinearly interpolate R and B on their phase lattices. At a measured green
    site, preserve that green; at R/B sites, average the two independently
