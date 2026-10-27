@@ -563,6 +563,30 @@
         "title": "Original GUI with actual computed MAIN scene",
         "href": "/evidence/continuous/scanout.png",
         "kind": "Original scanout"
+      },
+      {
+        "run": "livecycle",
+        "title": "Cyclic RAW reuse, numerical denoise and original GUI scene updates",
+        "href": "/evidence/livecycle/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "livecycle",
+        "title": "Original GUI before scene input changes",
+        "href": "/evidence/livecycle/before.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "livecycle",
+        "title": "Original GUI after scene input changes",
+        "href": "/evidence/livecycle/after.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "livecycle",
+        "title": "Original GUI after120seconds and normal scene replacement",
+        "href": "/evidence/livecycle/soak.png",
+        "kind": "Original scanout"
       }
     ]
   },
@@ -2203,6 +2227,12 @@
         "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
         "href": "/evidence/lens/session.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "livecycle",
+        "title": "Cyclic RAW reuse, numerical denoise and original GUI scene updates",
+        "href": "/evidence/livecycle/capture.json",
+        "kind": "Model and execution observation"
       }
     ]
   },
@@ -3089,6 +3119,12 @@
         "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
         "href": "/evidence/lens/session.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "livecycle",
+        "title": "Cyclic refresh and original exposure request boundary",
+        "href": "/evidence/livecycle/capture.json",
+        "kind": "Model and execution observation"
       }
     ]
   },
@@ -3221,6 +3257,16 @@
         "title": "Original GUI with actual computed MAIN scene",
         "href": "/evidence/continuous/scanout.png",
         "kind": "Original scanout"
+      }
+    ]
+  },
+  "devices/pairs/noise.md": {
+    "records": [
+      {
+        "run": "livecycle",
+        "title": "Cyclic RAW reuse, numerical denoise and original GUI scene updates",
+        "href": "/evidence/livecycle/capture.json",
+        "kind": "Model and execution observation"
       }
     ]
   }

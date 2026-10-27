@@ -129,6 +129,7 @@ export default defineConfig({
               { text: 'Pairs Stream Requests', link: '/devices/pairs/requests' },
               { text: 'Pairs Pixel Processing', link: '/devices/pairs/pixels' },
               { text: 'Pairs Adaptive Filter', link: '/devices/pairs/filter' },
+              { text: 'Pairs Interpolated Denoise', link: '/devices/pairs/noise' },
               { text: 'Pairs Capture Modes', link: '/devices/pairs/modes' },
               { text: 'Paired MAIN Transport', link: '/devices/gate/input' },
               { text: 'Gate Grid Pixels', link: '/devices/gate/pixels' },

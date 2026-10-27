@@ -1,6 +1,62 @@
 # Original-firmware startup frontier
 
-## Current: actual MAIN pixels in the original GUI
+## Current: cyclic MAIN processing and visible scene updates
+
+The unchanged AUTO photo firmware now keeps processing beyond its initial
+four-address traversal. With cold-neutral input, the same explicit camera
+profile and five-CPU MTTCG, the integrated 45 second run advances from
+67 paired jobs at 30 seconds to 158 at 45 seconds. The continuous graph advances
+from 68 to 158, with zero processing errors and QMP running throughout. These
+sequential counters are not an atomic snapshot. Post-window panic length is 0.
+Changing the normal CMOS image input after 30 seconds changes the actual scene
+behind the original GUI at 45 seconds:
+
+![Original GUI after the normal scene input changes](/evidence/livecycle/soak.png)
+
+A separate fresh 120 second observation completes 123, 363 and 603 paired
+jobs at 40, 80 and 120 seconds. The graph completes 123, 363 and 604 in its
+later sequential reads. Processing errors and post-window panic length remain
+zero, and QMP remains running. Normal image replacement after 80 seconds is
+visible in the final GUI. This exercises many complete ring traversals and
+downstream buffer retirements without releasing slots from the host.
+
+The preceding baseline stayed at 8 paired/graph jobs between 30 and 45 seconds.
+Source and raw-register breakpoint observations identify the model's old
+mandatory four-read pause as the closed-loop error: the `400` callback sets
+the retry latch; a temporary four-descriptor dequeue failure retains it and
+skips address publication and `10`. There is no stop command in that path.
+The [paired lifecycle](../devices/pairs/pixels.md#work-completion-and-cancellation)
+now interprets unchanged addresses as a cyclic ring, retaining fresh RAW,
+pending-result ACK, whole-batch preflight and downstream capacity fences.
+Selected address writes instead start a complete front/back publication
+barrier requiring an explicit commit. Neither IRQ causes nor slot ownership
+are fabricated to keep the loop moving.
+
+This cyclic interpretation and its watermark cadence remain finite functional
+hypotheses. So do the new [interpolated denoise](../devices/pairs/noise.md)
+field roles and arithmetic. The complete seven-word packet is validated and
+actually affects pixels; it is not a whitelist of AUTO/M values or a zero
+bypass. Direct M startup now passes this packet and reaches a separate opaque
+parameter boundary at paired offset `744` (`40040600`). The complete
+[57-field producer family](../devices/pairs/filter.md#next-interpolated-packet)
+is identified, but its numerical role still requires a finite model before M
+processing can be accepted. Original
+dial counts reach MAS through the original EX transport (aggregates 14/13 in
+the separate stopped M snapshot), but complete detent delivery and
+shutter/aperture control remain unverified. The snapshot has a ready lens,
+permission word 7 and a disabled aperture policy cache. A changed mode label or
+transport count alone is insufficient. No optical exposure equation is
+implemented.
+
+The [curated receipt](/evidence/livecycle/capture.json) separates the native
+red→green cycle, 59 scoped native subtests, original baseline, cyclic-only run,
+integrated scene-update runs and post-window diagnostic limits. The exact
+same original acquisition, numerical graph, output DMA, display submission and
+scanout consumers carry the changed scene. These 120 seconds establish
+bounded continued refresh; indefinite stability, still capture, recording,
+saving and physical image fidelity remain open.
+
+## Previous: actual MAIN pixels in the original GUI
 
 The original AUTO photo GUI now displays the computed CMOS scene behind its
 own widgets. The complete path is RAW → paired MAIN → owned type0 slot8 →

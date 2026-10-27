@@ -133,28 +133,45 @@ functional model; no such physical-fidelity claim is made here.
 
 ## Separate interpolated parameter family
 
-The later original movie boundary at bank `660..678` belongs to another packet,
-not to this filter's six pairs. C1.70 MAS `102d3874 → 103626fe → 103622d4 →
-103620e6` selects two rows from nineteen 42-byte records and interpolates 21
-signed16-bit fields with denominator6. The first 20 populate compact offsets
-68..94; field20 is internal state. Four directories and mode branches select
-the record family. Setter `1036adac` consumes this 28-byte compact packet through
-root config[10]. With compact base P and decimal byte offsets, its packing is:
+The separate `660..678` scalar packet now has a complete decoder and an actual
+bounded edge-preserving operator. Its source interpolation, packing, accepted
+finite domain, numerical hypotheses and tests are documented in
+[interpolated denoise](noise.md). It is not a control variant of this packet.
 
-| Bank word | Packed fields |
-| --- | --- |
-| `660` | `u16(P+68)<<16 \| u16(P+70)` |
-| `664` | `(u16(P+72)&0xfff)<<16 \| (u16(P+74)&0xfff)` |
-| `668` | High to low bytes: P76, P77, P78, P83 |
-| `66c` | High to low bytes: P79, P84, P80, P85 |
-| `670` | High to low bytes: P81, P86, P82, P87 |
-| `674` | High to low bytes: P89, P88, zero, P90 |
-| `678` | `u16(P+92)<<16 \| P94`; bits15..8 zero |
+## Next interpolated packet
 
-P91/P95 are padding. Adjacent `648..65c` belongs to the separate setter
-`1036b29a`; `67c` comes from `1036ae6c`. They are not one admission range.
-The observed `660:20→18` change means two scalars `[0,32]→[0,24]`, not a new
-register enum. The selected tables establish continuous values and packing,
-but no recovered numerical consumer establishes the image operator. These
-words therefore retain opaque-profile validation rather than being accepted
-and ignored or relabeled as this filter's coefficients.
+Direct M startup now passes the separate `660..678` group and rejects the
+opaque bank offset `744=40040600`; the admitted AUTO profile has `40040601`.
+The complete source producer is C1.70 MAS VA `102d3874 → 102f78b0 →
+10363a6c/102f734e`. Four directories at ROM VA `11c0ae18` each select four
+tables containing nineteen rows of 57 signed16 fields. Normalized metadata
+byte24 interpolates adjacent rows with denominator6. Compact `P+382` is bound
+to root configuration entry13 by `102bf33c`; `102e49fe → 1036b4de` publishes it.
+These are source facts, not a recovered image operator.
+
+For source fields `q0..q56`, the following words have these high-to-low fields;
+ranges below are decimal extrema of inspected source rows:
+
+| Bank offset | Fields | Source range or fixed value |
+| --- | --- | --- |
+| `73c` | `0,q6,q7,q8` | `00060301` |
+| `740` | `q10,q9` | zero |
+| `744` | `q11,q12,q13,q14` | `64,4..31,6,0..32` |
+| `748` | `q15,q16,q17,q18` | `4,w,w,w`, common `w=8..16` |
+| `74c`, `750`, `754`, `758` | `q19..q28` | `00040010`, zero, `001f0000`, `1f100804` |
+| `75c` | `q29,q30` | `50..300,30` |
+| `760` | `q31,q32` | `60..4095,16..4095` |
+| `764` | `q33,q34` | `100..1024,4095` |
+| `768` | `q35..q38` | `8..10,31,12,14` |
+| `76c` | `q39..q42` | `4,0..15,0,0` |
+| `770`, `774`, `778` | `q43..q50` | `08080808`, `00000808`, `0af00020` |
+
+The source row values of `q14` include 0, 4, 8, 16 and 32; interpolation can
+produce 1. Its zero/nonzero change is not evidence of an enable bit. Source
+relationships `q11=1<<q13=64` and `q20=1<<q19=16` suggest fixed-point scales,
+but neither the scales' numerical role nor a neighborhood/filter equation is
+recovered. In the captured M packet, all opaque words in `73c..778` except
+`744` match the earlier AUTO specialization. Other supported source indices
+can change the complete dynamic family; admitting just this value would hide
+the unresolved numerical operation. These words retain strict opaque-profile
+validation until their actual finite computations and boundaries are tested.

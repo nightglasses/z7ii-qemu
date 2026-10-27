@@ -313,6 +313,34 @@ coordinates and actual motion pending state.
 They are diagnostics, not guest
 readiness or GUI completion.
 
+## Original exposure request boundary
+
+The current direct-M cold-neutral snapshot has original rotary aggregates
+14/13 at MAS VA `b1f7a7f8/fc`, delivered through ordinary EX quadrature and
+transport. The strict paired `744` error stops execution before complete
+detent or exposure acceptance. Lens readiness and permission are present;
+the aperture policy cache at MAS VA `b23ed5bc` has state0 and rational target
+`576/192` (Av3/F2.8), equal to the last submitted target at VA `b1868448/4c`.
+Zero virtual iris travel is consistent with these values, not evidence that
+the lens must report artificial movement.
+
+C1.70 MAS VA `10394f92` skips command37 when the policy cache state is zero.
+Its other guards reject property12475 values0/2/4 or an invalid denominator.
+VA `10395052` produces the cache from a request, selected strategy and change
+mask. Request type2 selects state1; type3 selects state0; types0/1 select
+state2 when the strategy flag is set, otherwise state1 only for a nonzero
+request change mask. These request types are not mode-dial positions.
+The normal frame path `10233570 → 10398206` requires a valid AE result and
+additional frame/state gates before updating and dispatching the target.
+
+The stopped snapshot does not identify which producer branch last selected
+state0. The paired boundary could prevent subsequent AE work, but is not
+proved to be the unique cause. The next discriminating observation is the
+request and rational pair at `10395052`, alongside AE/frame gates. No host
+write to the policy cache, exposure values or lens command queue is justified.
+The [cycle receipt](/evidence/livecycle/capture.json) separates these source
+conditions from the actual stopped-M observation.
+
 ## Scene-provider direction
 
 The intended integration keeps the two inputs separate and coordinated:

@@ -130,10 +130,12 @@ configuration fallback.
 All seven words must have been written since device reset before a job can
 qualify. Writing a zero word records its publication; it does not exempt that
 word's value or any missing word from validation. Each admitted group satisfies
-all listed bounds, equalities, fixed values and zero bits. Partial groups,
-unknown fixed-field changes and inconsistent duplicate scalars reject before
+all listed bounds, equalities, fixed values and zero bits. Incomplete initial
+publication, unknown fixed-field changes and inconsistent duplicate scalars reject before
 output publication. The decoder admits a bounded self-consistent scalar domain;
 it does not claim that every admitted combination occurs in a factory table.
+After complete initial publication, valid word updates retain the other
+published words; the mask does not impose an atomic seven-word re-publication.
 
 A job snapshots the decoded parameters with its existing pixel configuration.
 Unchanged parameter writes retain the running job. A changed NR word uses the
