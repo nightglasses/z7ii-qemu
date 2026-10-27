@@ -4006,7 +4006,7 @@ static void test_paired_colorfilter(void)
 
         memcpy(image, header, prefix);
         memset(image + prefix, sign ? 64 : 128, 64 * 36);
-        image[prefix + 17 * 64 + 31] = sign ? 58 : 134;
+        image[prefix + 17 * 64 + 31] = (char)(sign ? 58 : 134);
         g_assert_true(g_file_set_contents(scene, image, prefix + 64 * 36, NULL));
         qtest_qmp_assert_success(q,
             "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
