@@ -185,11 +185,15 @@ application input.
 
 The [continuous graph](docs/devices/gate/processing.md) now consumes owned MAIN
 pixels, applies the neutral carrier, grid warp and three affine branches, and
-writes all three terminal images before publishing completion. Cold-neutral
-original-firmware windows complete four or eight actual frames with zero graph
-errors. The status GUI's central scene remains black; display consumption and
-steady acquisition remain open. The [current frontier](docs/validation/frontier.md)
-separates actual DMA images, original GUI output and native fixture evidence.
+writes all three terminal images before publishing completion. The
+[primary scanout](docs/devices/banks/image.md#primary-yuv-view) consumes the
+original display queue's Y/UV view and programmed matrices before composing
+the GUI overlays. A cold-neutral original-firmware window now shows the
+computed quadrant scene in the original1024×682 GUI and remains running at
+15/30/45 seconds, with four actual frames and zero graph errors. Sustained
+acquisition and complete exposure control remain open. The
+[current frontier](docs/validation/frontier.md) separates actual DMA images,
+original GUI output, finite color hypotheses and native fixture evidence.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five

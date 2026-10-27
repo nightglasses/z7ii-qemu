@@ -1,6 +1,7 @@
 # Source-bound image transactions
 
-The existing dual-bank device implements guest RAM input, two ten-layer ports,
+The existing dual-bank device implements guest RAM input, a primary Y/UV view,
+two ten-layer ports,
 42 graphic objects, retained packed tables, Pixman composition and QEMU console
 publication. It adds no overlapping MMIO device. Physical LCD/ISP identity and
 an original GUI menu receipt remain unverified.
@@ -24,7 +25,7 @@ this object receipt does not establish a submitted frame.
 
 | Original consumer | Exact effect |
 |---|---|
-| C3C2/C4C0 | Unit0 config0200, packed geometry0204/0600, scalar0240/0250/0604 |
+| C3C2/C4C0 | Unit0 config0200, source extent0204, destination origin0600, scalar0240/0250/0604 |
 | C62C/C68A | Unit0 numeric config0400 and scalar0404/0408 |
 | C6CA/C8EA | Unit0 packet0430..0478, omitting0454, and inverse getter |
 | CA80/CBE4 | Main single-halfword1204, packed14-bit timing1308, visible height1328/width132c, distinct timing/control1400 |
@@ -76,16 +77,115 @@ Access is aligned32-bit. Two entries occupy bits0..11/16..27 or bits0..7/16..23.
 Three-plane8-bit tails contain one low byte. Single-table tails preserve the
 original LDRH value including its upper byte. Holes and bits outside each
 exact packed mask are rejected. Writes retain actual values and generate no
-event or guessed shader transform. E004 requests banks with bits2/10 while
-E0BA observes effective banks with bits16/24. BFFA and each complete table
+event or guessed shader transform. E004 uses request strobes1/9 and requested
+bank values2/10; E0BA observes effective banks16/24. BFFA and each complete table
 setter guard access to the effective bank while the corresponding engine
 reports status3. This supports a double-buffer interpretation. The named
-functional timing law commits enabled requested banks only at successful
+functional timing law commits strobed bank requests only at successful
 frame publication, preserving effective state on writes, cancellation and
 fault. Sub-unit start requests become status3 only after a supplied frame has
 completed; initialization alone cannot report a running frame producer.
 
 ## Functional image laws
+
+### Primary Y/UV view
+
+The normal source route `10269a6e -> 102692ca -> 103e2c08 -> 103e1ba4`
+submits a real processed view to the display queue. Channel0 then goes through
+`104d756e -> 10448584 -> 10448432`. The source selector at MAS VA
+`b180854c` is read as a byte; the enable at the display context's offset240
+is a word. A context state byte of3/4 permits submission, and phase byte3
+applies the packet immediately. Other supported phases cache it for the
+existing `10449d78` update path. A queue ownership pointer alone does not
+prove that any of these later conditions passed.
+
+`104482d8` supplies the primary plane PAs through `1046c354`, and
+`1044abae -> 1046c3c2` supplies its source extent, independent byte pitches
+and destination origin. All register offsets here are hexadecimal relative
+to the selected bank PA `20140000` or `20144000`.
+
+| Registers | Source contract and finite behavior |
+|---|---|
+| 0100 | Unit0 start1, published state3, pause2 or stop0; independent of main1200 |
+| 0200/0204 | Control family00300000, formats0/4, even nonzero source extent |
+| 0210/0220 | First Y/UV PAs; already adjusted for source ROI by the original caller |
+| 0240/0250 | Independent Y/UV byte pitches |
+| 0600/0604 | Destination x/y origin and additional controls; only controls0 supported |
+| 0400/0404/0408 | Scale enable; horizontal a/b and vertical e/f, each five-bit; disabled means unity |
+| 04a0..04b4 | Three rows of three signed16 coefficients, two words per row |
+| 04d0..04e4 | Three rows of three signed12 coefficients, two words per row |
+| 04f0 | Color-profile byte22; finite0 bypass /1 application of the second matrix |
+| 0500 | Source-produced byte, modeled as global alpha |
+
+For format4, `102692ca` maps the original view kind2 to the display format4;
+`104482d8` halves the UV crop-row offset. Format0 retains the full UV row
+offset. The bounded model reads one Y byte per pixel and interleaved U/V per
+horizontal pair, with half-height UV for format4 and full-height UV for
+format0. The interleaved order follows the same virtual NV12/NV16 convention
+as the modeled graph producer. It does not establish every physical format0
+or format4 use. No other format, active plane selector or secondary PA array
+is silently treated as this profile.
+
+The first matrix's source default has unity4000 and coefficients matching a
+full-range YUV-to-RGB transform. The second has unity400. The functional law
+therefore applies signed Q14 to `(Y, U-128, V-128)`, clips to RGB8, then
+applies the programmed signed Q10 matrix when04f0=1 and clips again;04f0=0
+bypasses that second operator. Each stage rounds
+by adding half a unit before the arithmetic shift. These normalization,
+centering, rounding and intermediate-clipping rules are explicit numerical
+assumptions, not a claim of measured panel colorimetry. Coefficients are
+computed, rather than accepted only when equal to the observed matrices.
+Likewise the interpretation of0500 as premultiplied global alpha is a finite
+inference: `102692ca` publishes message byte44 and `10445bec -> 1046c160`
+forwards that byte, but its complete physical semantics are not recovered.
+
+`10448382` computes scaled width as `a * source_width / b` and height as
+`e * source_height / f`. The model uses nearest inverse sampling, no additional
+ROI shift, and clips at the visible output boundary. Nonzero filter phase
+is rejected. The primary view is composed first, followed by the existing
+two ports and graphic objects; that priority is an explicit functional
+composition law.
+
+All active source rows must be normal RAM, stay inside the32-bit physical
+domain and fit their pitches. Padding is not sampled or modified. The model
+reads both planes completely before rendering to the unpublished transaction;
+a late failed plane cannot replace the last published surface. Table-update
+and bank-switch requests at04c0 bits1/9,04f0 above1, enabled adjustment0410
+bit0, nonzero special window0430..0478, additional format controls and padding are
+rejected. Disabled adjustment payload remains retained. No new interrupt,
+guest-ready flag or completion is generated: primary pixels participate in
+the existing complete bank frame.
+
+The04c0 request bits do not establish a LUT-use enable. The04f0 byte comes
+from the same color-profile record whose nine signed coefficients feed04d0.
+The original special selector2/3 record at MAS VA1079f9cc has no table-update
+flags, an identity Q10 matrix and byte22=0. The normal default record at
+1079f9fc has the same flags and matrix with byte22=1; other normal records
+couple1 with different matrices and table updates. Applying the second matrix
+for1 and bypassing it for0 is therefore a finite functional inference. This
+does not recover all physical control semantics or prove LUT bypass. Active
+table-update requests remain explicit unsupported work.
+
+The matrix-only profile also qualifies the actual tables of the selected
+object. Both internal banks of the three33-point8-bit planes must describe
+`0,8,...,248,255`; the first additional curve must have the same identity
+points and the second must contain64 throughout. The two12-bit table families
+must be unconfigured zero. A changed point rejects the frame rather than
+silently ignoring a possible active lookup. The source composition at
+MAS VA10447c82 and upload1046dc44 establish the per-channel curve family;
+the additional source curves at107a2094 and107a2118 establish these point
+functions. Treating the constant64 curve as neutral gain is a finite
+hypothesis, not a recovered hardware division by64. The8-bit families use
+main1510 bank management, independently of unit0's04c0. Unconfigured12-bit
+tables are not described as an identity operator.
+
+Synthetic native fixtures cover both UV heights, nonneutral chroma, signed
+coefficients in both matrices, source padding, live updates, global alpha,
+scaled destination placement and composition beneath an RGBA overlay.
+Negative fixtures retain the previous surface for bad geometry, pitch,
+ROM/MMIO/wrapping planes, active unsupported effects and malformed matrices;
+pause and reset cancel publication through the existing lifecycle. These
+fixtures are separate from unchanged-firmware execution evidence.
 
 Main start requires nonzero visible width132c/height1328 within the allocation
 budget and arms status1. Each virtual frame

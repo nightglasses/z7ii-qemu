@@ -1,7 +1,7 @@
 {
   "scope": "Curated native verdicts and unchanged-firmware continuous photo processing observations. Full raw captures and firmware-derived records are omitted.",
   "integration_base": "f22c99dc",
-  "implementation": "Finite continuous graph, exact destination pools, maintained mode ADC and quadrature inputs, variable virtual iris; tracked alongside this receipt.",
+  "implementation": "Finite continuous graph, exact destination pools, maintained mode ADC and quadrature inputs, variable virtual iris; tracked alongside this receipt.; finite unit0 Y/UV scanout, programmable matrices and neutral-curve qualification",
   "inputs": {
     "firmware": "Unchanged C1.70 decoded five-component bundle; no firmware bytes or guest state patched",
     "regions": "cold-neutral descriptor17/resource80 input profile",
@@ -40,7 +40,12 @@
     "sla_gate_regression": {
       "passed": 1
     },
-    "total_passed": 48
+    "total_passed": 66,
+    "primary_scanout": {
+      "passed": 18,
+      "scope": "All15 existing bank image fixtures and3 new primary fixtures: actual console pixels, both chroma heights, independent matrices, selector0/1, neutral curves in both internal banks, nonneutral table rejection, alpha, scaling/origin, overlay priority, live RAM refresh, failed transaction preserves whole surface, pause/stop/reset",
+      "red": "Old bank implementation completes an overlay-only frame but cannot bind a console for the actual primary Y/UV source. An old overlay fixture was corrected to start its actual port2100 instead of unconfigured unit0."
+    }
   },
   "original_windows": [
     {
@@ -56,7 +61,8 @@
       "panic_length": 0,
       "head0": "unbound",
       "head1": "1024x682 original status GUI, black central scene",
-      "gui_ready": 0
+      "gui_ready": 0,
+      "model_stage": "Before unit0 scanout support"
     },
     {
       "name": "consumer",
@@ -67,7 +73,8 @@
       "paired_rejected": 0,
       "continuous_completed": 8,
       "continuous_errors": 0,
-      "limits": "Four-versus-eight variability does not establish steady live view. A malformed HMP export command failed; this is not counted as DMA failure."
+      "limits": "Four-versus-eight variability does not establish steady live view. A malformed HMP export command failed; this is not counted as DMA failure.",
+      "model_stage": "Before unit0 scanout support"
     },
     {
       "name": "flow",
@@ -76,7 +83,8 @@
       "paired_completed": 4,
       "continuous_completed": 4,
       "continuous_errors": 0,
-      "exports": "All three active output buffers exported through QMP pmemsave. LCD branch diagnostic image archived as scene.png."
+      "exports": "All three active output buffers exported through QMP pmemsave. LCD branch diagnostic image archived as scene.png.",
+      "model_stage": "Before unit0 scanout support"
     },
     {
       "name": "modes",
@@ -84,14 +92,46 @@
       "qmp": "running",
       "observed_typed_modes": "0,1,2,3,9,8,7; final return toAUTO had not propagated at the short sample",
       "images": "Original A/M status labels observed; manual.png is an original GUI capture, not exposure acceptance",
-      "limits": "Original dial cumulative delivery is inconsistent; no end-to-end shutter/aperture change claimed."
+      "limits": "Original dial cumulative delivery is inconsistent; no end-to-end shutter/aperture change claimed.",
+      "model_stage": "Before unit0 scanout support"
     },
     {
       "name": "manual",
       "scope": "Initial mode ADC position3 before original startup",
       "qmp": "debug-stopped at strict paired boundary by30 seconds",
       "stop": "MAS VA10369fc0 WRITE32 PA20380008=1; paired offset660=15 differs from admitted AUTO photo23",
-      "interpretation": "Source joins660..678 to numerical noise reduction. No enum allowlist or identity bypass added. End GDB EX-memory diagnostic failed; no EX snapshot claimed."
+      "interpretation": "Source joins660..678 to numerical noise reduction. No enum allowlist or identity bypass added. End GDB EX-memory diagnostic failed; no EX snapshot claimed.",
+      "model_stage": "Before unit0 scanout support"
+    },
+    {
+      "name": "primary",
+      "model_stage": "With full finite unit0 scanout",
+      "scope": "No in-window debugger or guest writes;45 seconds of waits plus QMP and export overhead. Normal post-window sequential debugger reads are separate.",
+      "qmp_samples": {
+        "15s": "running,head1 not bound yet",
+        "30s": "running,head1 original GUI with actual scene",
+        "45s": "running,head1 original GUI with actual scene",
+        "final": "running"
+      },
+      "paired_completed": 4,
+      "paired_bytes": 7558224,
+      "paired_rejected": 0,
+      "continuous_completed": 4,
+      "continuous_errors": 0,
+      "head0": "unbound",
+      "head1": "1024x682 original AUTO GUI over four-quadrant computed MAIN scene",
+      "unit0": {
+        "0x100": "0x3",
+        "0x200": "0x300004",
+        "0x204": "0x2aa0400",
+        "0x210": "0xdcec4800",
+        "0x220": "0xdcff1c00",
+        "0x240": "0x400",
+        "0x250": "0x400",
+        "0x500": "0xff",
+        "0x4f0": "0x1"
+      },
+      "limit": "Processing stays at4 between30s and45s; sustained live view is not accepted. GUI readiness/panic globals were not sampled in this final minimal snapshot."
     }
   ],
   "instrumented_diagnostics": [
@@ -104,15 +144,26 @@
       "name": "queueprobe",
       "scope": "Early read-only breakpoints plus post-window sequential reads",
       "result": "Display channel0 enabled and queued; channels1/3 disabled. GUI output caches and geometry records populated. Early F0 samples preceded the results and do not disprove callbacks."
+    },
+    {
+      "name": "display/planeparams",
+      "scope": "No in-window debugger; post-window source-state/MMIO observations",
+      "result": "All software gates admit channel0. Real LCD phase-map PAs reach bank1 unit0, whose previous model only retained them and rendered overlay ports."
+    },
+    {
+      "name": "scanoutwork/color",
+      "scope": "Intermediate implementation strict0-only color selector; unchanged firmware running but no bound console. Post-window captures separate.",
+      "result": "Normal profile emits04f0=1; source record links selector to the second matrix. Actual selected object8-bit tables are identity/constant64 in both internal banks;12-bit families remain zero. This supersedes the incorrect LUT-enable interpretation of04c0 bank request bits."
     }
   ],
   "images": {
     "display.png": "Original GUI from flow; central scene remains black",
     "scene.png": "Diagnostic RGB decode of actual LCD-branch DMA, not GUI composition. Active1024x682, Ypitch1024, UVpitch1024, UVrelative12d400; finite NV12/U-then-V interpretation and full-range YCbCr conversion with nearest chroma reconstruction. False color is not calibrated camera output.",
-    "manual.png": "Original M label after ordinary mode switch in AUTO-started session; not proof of complete M startup"
+    "manual.png": "Original M label after ordinary mode switch in AUTO-started session; not proof of complete M startup",
+    "scanout.png": "Original final head1 scanout with actual modeled MAIN scene and firmware GUI overlays. No host composition or guest pixel writes. False color reflects the finite scene/color model; not physical camera calibration."
   },
   "remaining": [
-    "Original central image scanout/consumer join",
+    "Sustained acquisition after initial phase batches; initial MAIN-to-original-GUI join now demonstrated",
     "Sustained acquisition rather than finite phase batches",
     "Non-AUTO numerical noise-reduction tuples",
     "Reliable original dial-to-exposure propagation and optical exposure metadata/scene coordination",
