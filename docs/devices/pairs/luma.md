@@ -3,7 +3,7 @@
 The paired-processing model consumes the two 32-node tables at bank-relative
 offsets `0x1900` and `0x1940` as one double-buffered, uniform unsigned Q8 gain.
 It applies the latest complete publication to actual MAIN Y pixels after the
-four post-color passes and before byte quantization. Chroma, WORK, GRID and
+five post-color passes and before byte quantization. Chroma, WORK, GRID and
 pre-color history are unchanged. This is a finite numerical hypothesis for the
 ordinary C1.70 table family, not a recovered silicon luma algorithm.
 

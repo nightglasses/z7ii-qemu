@@ -121,6 +121,12 @@ been consumed.
 
 ## Validation scope
 
+The [full-resolution original-firmware validation](../../validation/color.md)
+separately records detailed photo input, 20 normally acquired dynamic images,
+neutral gray, actual scanout latency, numerical color limits and remaining
+exposure-control/startup boundaries. Native fixtures below remain distinct
+from that execution evidence.
+
 Synthetic unit cases cover four encodings, all crop-origin parities and
 same-phase borders; unequal fixed sensor responses with non-unit white balance
 that recover a neutral image; unequal RGB values and history that preserves

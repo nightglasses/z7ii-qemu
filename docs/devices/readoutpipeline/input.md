@@ -72,6 +72,11 @@ Generation zero denotes no valid snapshot; these fields do not create readiness.
 
 ## Validation boundary
 
+The [full-resolution validation](../../validation/color.md) records the
+separate original AUTO execution with a 2760 × 918 MAIN source, 1380 × 918
+packed RAW and detailed photo/dynamic scanout. Its geometry diagnostic and
+accepted no-debugger window have different evidence scopes.
+
 The native MAIN-domain fixture keeps repeated real 8320×34 auxiliary requests
 pending while it admits an actual 8×8 P6 MAIN acquisition. It checks auxiliary
 DMA bytes, fair provider ownership, retained MAIN metadata after another auxiliary

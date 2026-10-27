@@ -249,6 +249,7 @@ export default defineConfig({
               { text: 'Finite Statistics & Data Completion', link: '/devices/statistics/protocol' },
               { text: 'Readout Engine', link: '/devices/readout/protocol' },
               { text: 'MAS Readout Functional Mapping', link: '/devices/readout/mapping' },
+              { text: 'MAIN and Auxiliary Input', link: '/devices/readoutpipeline/input' },
               { text: 'Timing Engine Protocol', link: '/devices/timing/protocol' },
               { text: 'Timing Capture', link: '/devices/timing/capture' },
               { text: 'Timing Compare', link: '/devices/timing/compare' },
@@ -432,6 +433,7 @@ export default defineConfig({
             items: [
               { text: 'Synthetic Deadlines & Budgets', link: '/validation/budgets' },
               { text: 'Firmware Startup Frontier', link: '/validation/frontier' },
+              { text: 'Full-resolution Color and Refresh', link: '/validation/color' },
               { text: 'Capture service and cold-neutral input', link: '/validation/capture' },
               { text: 'Graphics publication and timing qualification', link: '/validation/graphics' },
               { text: 'Battery and external-input startup profiles', link: '/validation/inputprofiles' },
