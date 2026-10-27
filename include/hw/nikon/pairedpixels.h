@@ -30,6 +30,12 @@ typedef struct NikonPairedDetail {
     uint8_t limit, strength, lane;
 } NikonPairedDetail;
 
+/* Finite axial residual correction for the eight-word 75c..778 packet. */
+typedef struct NikonPairedAdaptive {
+    uint16_t base, slope, cap, weight;
+    uint8_t precision, dose;
+} NikonPairedAdaptive;
+
 typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
     unsigned width, height, x, y, output_width, output_height;
@@ -46,6 +52,7 @@ typedef struct NikonPairedPixelConfig {
     NikonPairedFilter filter;
     NikonPairedDenoise denoise;
     NikonPairedDetail detail;
+    NikonPairedAdaptive adaptive;
     int16_t a[9], b[9], c[9];
 } NikonPairedPixelConfig;
 
@@ -60,6 +67,9 @@ bool nikon_paired_denoise_valid(const NikonPairedDenoise *denoise);
 
 /* Zero strength is valid; an omitted/zero parameter group is not valid. */
 bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
+
+/* Dose zero is algebraically neutral; all other scalars remain mandatory. */
+bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *adaptive);
 
 /*
  * Functional grayscale choices: coherent-neighbor impulse suppression, a
@@ -92,6 +102,13 @@ bool nikon_paired_detail_valid(const NikonPairedDetail *detail);
  * their roles, scales and stage order are functional hypotheses. The explicit
  * neutral tuple {limit4,strength0,lane8} runs the same arithmetic and produces
  * zero correction. No wire bypass/enable or omitted-group identity is inferred.
+ * The mandatory 75c..778 suffix follows detail. With immutable axial neighbors
+ * and replicated borders, n=sum(neighbors)-4*center remains an exact rational
+ * mean residual n/4. Let t=min(cap,base+round(slope*center/4095)), w=weight*dose
+ * and r=16*(1<<precision). Add round(clamp(n,-4*t,4*t)*w/(4*(r+w))) to center
+ * and clamp to RAW12. Signed ties round away from zero. Dose0 is algebraically
+ * neutral, not a recovered enable bit. All scalar roles, units and ordering are
+ * functional hypotheses. CFA filtering runs this stage on each phase plane.
  * The resulting mono sample optionally passes through four affine lanes:
  * clamp(round((mono + offset) * gain /512) + pedestal,0,min(limit,4095)).
  * Lanes0/3 become R/B; the rounded mean of lanes1/2 becomes G. Gains are

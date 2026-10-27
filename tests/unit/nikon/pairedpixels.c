@@ -18,6 +18,8 @@ static NikonPairedPixelConfig config(void)
         .denoise = { .threshold = 7, .low = 1, .high = 3,
                      .axial = 3, .diagonal = 1, .retain = 31 },
         .detail = { .limit = 4, .strength = 0, .lane = 8 },
+        .adaptive = { .base = 50, .slope = 60, .cap = 16, .weight = 100,
+                      .precision = 10, .dose = 0 },
         .a = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .c = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 },
         .b = { 153, 301, 58, -86, -170, 256, 256, -214, -42 },
@@ -1590,6 +1592,238 @@ static void detail_invalid(void)
     }
 }
 
+static void adaptive_reference(const NikonPairedAdaptive *a, uint16_t image[16])
+{
+    uint16_t source[16];
+
+    memcpy(source, image, sizeof(source));
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            int at = y * 4 + x;
+            int64_t c = source[at];
+            int64_t limit = MIN(a->cap, a->base +
+                filter_reference_round((int64_t)a->slope * c, 4095));
+            int64_t sum = source[MAX(y - 1, 0) * 4 + x] +
+                source[MIN(y + 1, 3) * 4 + x] +
+                source[y * 4 + MAX(x - 1, 0)] +
+                source[y * 4 + MIN(x + 1, 3)];
+            int64_t n = sum - 4 * c;
+            int64_t w = (int64_t)a->weight * a->dose;
+            int64_t divisor = 4 * (16 * (INT64_C(1) << a->precision) + w);
+
+            /* Compare rationals before division; never round the axial mean. */
+            if (n > 4 * limit) {
+                n = 4 * limit;
+            } else if (n < -4 * limit) {
+                n = -4 * limit;
+            }
+            image[at] = CLAMP(c + filter_reference_round(n * w, divisor),
+                               0, 4095);
+        }
+    }
+}
+
+static FilterOutputs adaptive_check(NikonPairedPixelConfig p,
+                                    const uint16_t raw[16])
+{
+    NikonPairedPixelConfig neutral = p;
+    FilterOutputs before = { 0 }, actual = { 0 }, expected = { 0 };
+
+    p.grid_width = neutral.grid_width = 4;
+    p.grid_height = neutral.grid_height = 4;
+    neutral.adaptive.dose = 0;
+    g_assert_true(nikon_paired_pixels(&neutral, raw, NULL, NULL, before.half,
+        before.residual, before.grid, before.y, before.uv));
+    memcpy(expected.grid, before.grid, sizeof(expected.grid));
+    adaptive_reference(&p.adaptive, expected.grid);
+    for (unsigned block = 0; block < 4; block++) {
+        unsigned at = (block / 2) * 8 + (block % 2) * 2;
+        unsigned sum = expected.grid[at] + expected.grid[at + 1] +
+                       expected.grid[at + 4] + expected.grid[at + 5];
+
+        expected.half[block] = filter_reference_round(sum, 4);
+    }
+    for (unsigned i = 0; i < 16; i++) {
+        expected.y[i] = MIN(255, filter_reference_round(expected.grid[i], 16));
+    }
+    memset(expected.uv, 128, sizeof(expected.uv));
+    g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, actual.half,
+        actual.residual, actual.grid, actual.y, actual.uv));
+    g_assert_cmpmem(&actual, sizeof(actual), &expected, sizeof(expected));
+    return actual;
+}
+
+static void adaptive(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    FilterOutputs out;
+
+    p.adaptive = (NikonPairedAdaptive) {
+        .base = 50, .slope = 60, .cap = 4095, .weight = 1024,
+        .precision = 8, .dose = 4,
+    };
+    for (unsigned sign = 0; sign < 2; sign++) {
+        fill(raw, 16, sign ? 1044 : 1016);
+        raw[5] = sign ? 1012 : 1048;
+        out = adaptive_check(p, raw);
+        /* W equals retention: axial +/-1 residuals are signed half ties. */
+        g_assert_cmpuint(out.grid[1], ==, sign ? 1039 : 1021);
+        g_assert_cmpuint(out.grid[5], ==, sign ? 1034 : 1026);
+        g_assert_cmpuint(out.grid[0], ==, sign ? 1043 : 1017);
+    }
+    p.adaptive.dose = 15;
+    fill(raw, 16, 1016);
+    raw[5] = 1040;
+    out = adaptive_check(p, raw);
+    /* Neighbor residual3/4 survives to the final rational division. */
+    g_assert_cmpuint(out.grid[1], ==, 1020);
+    g_assert_cmpuint(out.grid[5], ==, 1021);
+    for (unsigned i = 0; i < 16; i++) {
+        raw[i] = i % 4 < 2 ? 0 : 4095;
+    }
+    FilterOutputs baseline = adaptive_check(p, raw);
+
+    for (unsigned field = 0; field < 6; field++) {
+        NikonPairedPixelConfig other = p;
+
+        switch (field) {
+        case 0: other.adaptive.base = 300; break;
+        case 1: other.adaptive.slope = 4095; break;
+        case 2: other.adaptive.cap = 16; break;
+        case 3: other.adaptive.weight = 100; break;
+        case 4: other.adaptive.precision = 10; break;
+        case 5: other.adaptive.dose = 1; break;
+        }
+        out = adaptive_check(other, raw);
+        g_assert_cmpint(memcmp(baseline.grid, out.grid, sizeof(out.grid)),
+                        !=, 0);
+    }
+    p.adaptive.base = p.adaptive.cap = 300;
+    unsigned previous = 0;
+
+    for (unsigned dose = 0; dose <= 15; dose++) {
+        p.adaptive.dose = dose;
+        out = adaptive_check(p, raw);
+        /* RAW edge becomes{0,512,3583,4095}; its inner residual exceeds300. */
+        unsigned expected = 512 + (300 * dose + (4 + dose) / 2) / (4 + dose);
+
+        g_assert_cmpuint(out.grid[1], ==, expected);
+        if (dose) {
+            g_assert_cmpuint(out.grid[1], >, previous);
+        }
+        previous = out.grid[1];
+    }
+    for (unsigned value = 0; value <= 4095; value += 1365) {
+        fill(raw, 16, value);
+        out = adaptive_check(p, raw);
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.grid[i], ==, value);
+        }
+    }
+    for (unsigned seed = 0; seed < 24; seed++) {
+        p.adaptive = (NikonPairedAdaptive) {
+            .base = 50 + seed * 10, .slope = 60 + seed * 170,
+            .cap = 16 + seed * 170, .weight = 100 + seed * 40,
+            .precision = 8 + seed % 3, .dose = seed % 16,
+        };
+        for (unsigned i = 0; i < 16; i++) {
+            raw[i] = 1000 + ((i * 47 + i / 4 * 23 + seed) % 121) - 60;
+        }
+        adaptive_check(p, raw);
+    }
+    p.adaptive = (NikonPairedAdaptive) {
+        .base = 300, .slope = 60, .cap = 300, .weight = 1024,
+        .precision = 8, .dose = 15,
+    };
+    NikonPairedPixelConfig neutral = p;
+    uint64_t before_energy = 0, after_energy = 0;
+
+    neutral.adaptive.dose = 0;
+    FilterOutputs before = adaptive_check(neutral, raw);
+
+    out = adaptive_check(p, raw);
+    for (unsigned i = 0; i < 16; i++) {
+        int a = (int)before.grid[i] - 1000, b = (int)out.grid[i] - 1000;
+
+        before_energy += a * a;
+        after_energy += b * b;
+    }
+    g_assert_cmpuint(after_energy, <, before_energy);
+}
+
+static void adaptive_cfa(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[64], half[16], residual[16], grid[64], expected[64];
+    uint8_t y[64], uv[32];
+
+    p.adaptive = (NikonPairedAdaptive) {
+        .base = 300, .slope = 60, .cap = 300, .weight = 1024,
+        .precision = 8, .dose = 15,
+    };
+    for (unsigned phase = 0; phase < 4; phase++) {
+        uint16_t plane[16];
+
+        for (unsigned i = 0; i < 16; i++) {
+            plane[i] = phase * 700 + (i % 4 < 2 ? 0 : 1000);
+        }
+        FilterOutputs out = adaptive_check(p, plane);
+
+        for (unsigned i = 0; i < 16; i++) {
+            unsigned at = (2 * (i / 4) + phase / 2) * 8 +
+                          2 * (i % 4) + phase % 2;
+
+            raw[at] = plane[i];
+            expected[at] = out.grid[i];
+        }
+    }
+    p.encoding = NIKON_RAW_RGGB;
+    p.width = p.height = p.output_width = p.output_height = 8;
+    p.grid_width = p.grid_height = 8;
+    g_assert_true(nikon_paired_pixels(&p, raw, NULL, NULL, half, residual,
+                                      grid, y, uv));
+    g_assert_cmpmem(grid, sizeof(grid), expected, sizeof(expected));
+    for (unsigned block = 0; block < 16; block++) {
+        unsigned at = 2 * (block / 4) * 8 + 2 * (block % 4);
+        unsigned sum = expected[at] + expected[at + 1] +
+                       expected[at + 8] + expected[at + 9];
+
+        g_assert_cmpuint(half[block], ==, filter_reference_round(sum, 4));
+        g_assert_cmpuint(residual[block], ==, 0);
+    }
+}
+
+static void adaptive_invalid(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+
+    fill(raw, 16, 1000);
+    g_assert_false(nikon_paired_adaptive_valid(NULL));
+    g_assert_true(nikon_paired_adaptive_valid(&p.adaptive));
+    for (unsigned test = 0; test < 13; test++) {
+        p.adaptive = config().adaptive;
+        switch (test) {
+        case 0: p.adaptive = (NikonPairedAdaptive) { 0 }; break;
+        case 1: p.adaptive.base = 49; break;
+        case 2: p.adaptive.base = 301; break;
+        case 3: p.adaptive.slope = 59; break;
+        case 4: p.adaptive.slope = 4096; break;
+        case 5: p.adaptive.cap = 15; break;
+        case 6: p.adaptive.cap = 4096; break;
+        case 7: p.adaptive.weight = 99; break;
+        case 8: p.adaptive.weight = 1025; break;
+        case 9: p.adaptive.precision = 7; break;
+        case 10: p.adaptive.precision = 11; break;
+        case 11: p.adaptive.dose = 16; break;
+        case 12: p.adaptive.precision = 255; break;
+        }
+        g_assert_false(nikon_paired_adaptive_valid(&p.adaptive));
+        rejected(&p, raw, NULL, NULL);
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -1614,5 +1848,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/cfa-invalid", cfa_invalid);
     g_test_add_func("/nikon/pairedpixels/detail", detail);
     g_test_add_func("/nikon/pairedpixels/detail-invalid", detail_invalid);
+    g_test_add_func("/nikon/pairedpixels/adaptive", adaptive);
+    g_test_add_func("/nikon/pairedpixels/adaptive-cfa", adaptive_cfa);
+    g_test_add_func("/nikon/pairedpixels/adaptive-invalid", adaptive_invalid);
     return g_test_run();
 }

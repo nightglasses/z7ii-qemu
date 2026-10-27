@@ -131,6 +131,15 @@ bool nikon_paired_detail_valid(const NikonPairedDetail *d)
            d->lane >= 8 && d->lane <= 16;
 }
 
+bool nikon_paired_adaptive_valid(const NikonPairedAdaptive *a)
+{
+    return a && a->base >= 50 && a->base <= 300 &&
+           a->slope >= 60 && a->slope <= 4095 &&
+           a->cap >= 16 && a->cap <= 4095 &&
+           a->weight >= 100 && a->weight <= 1024 &&
+           a->precision >= 8 && a->precision <= 10 && a->dose <= 15;
+}
+
 static bool paired_samples_valid(const uint16_t *samples, size_t count)
 {
     size_t i;
@@ -163,7 +172,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         !nikon_paired_noise_valid(p) ||
         !nikon_paired_filter_valid(&p->filter) ||
         !nikon_paired_denoise_valid(&p->denoise) ||
-        !nikon_paired_detail_valid(&p->detail)) {
+        !nikon_paired_detail_valid(&p->detail) ||
+        !nikon_paired_adaptive_valid(&p->adaptive)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -372,6 +382,37 @@ static void paired_detail(const uint16_t *input, uint16_t *output,
     }
 }
 
+static void paired_adaptive(const uint16_t *input, uint16_t *output,
+                            unsigned width, unsigned height,
+                            const NikonPairedAdaptive *a)
+{
+    int64_t weight = (int64_t)a->weight * a->dose;
+    int64_t denominator = 4 * ((16 << a->precision) + weight);
+
+    for (unsigned y = 0; y < height; y++) {
+        unsigned up = y ? y - 1 : y;
+        unsigned down = MIN(y + 1, height - 1);
+
+        for (unsigned x = 0; x < width; x++) {
+            unsigned left = x ? x - 1 : x;
+            unsigned right = MIN(x + 1, width - 1);
+            int64_t center = input[y * width + x];
+            int64_t tolerance = MIN(a->cap, a->base +
+                ((int64_t)a->slope * center + 2047) / 4095);
+            int64_t residual = input[up * width + x] +
+                input[down * width + x] + input[y * width + left] +
+                input[y * width + right] - 4 * center;
+            int64_t numerator = CLAMP(residual, -4 * tolerance,
+                                      4 * tolerance) * weight;
+            int64_t correction = numerator < 0 ?
+                -((-numerator + denominator / 2) / denominator) :
+                (numerator + denominator / 2) / denominator;
+
+            output[y * width + x] = paired_clamp(center + correction);
+        }
+    }
+}
+
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
                              const uint16_t *prior_luma,
                              const uint16_t *prior_residual,
@@ -463,10 +504,11 @@ static bool paired_cfa_filter(const uint16_t *raw, uint16_t *output,
         }
         paired_denoise(filtered, dpc, width, height, &p->denoise);
         paired_detail(dpc, filtered, width, height, &p->detail);
+        paired_adaptive(filtered, dpc, width, height, &p->adaptive);
         for (unsigned y = 0; y < height; y++) {
             for (unsigned x = 0; x < width; x++) {
                 output[(2 * y + py) * p->width + 2 * x + px] =
-                    filtered[y * width + x];
+                    dpc[y * width + x];
             }
         }
     }
@@ -719,10 +761,8 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                         &config->denoise);
         paired_detail(dpc, filtered, config->width, config->height,
                        &config->detail);
-        uint16_t *swap = dpc;
-
-        dpc = filtered;
-        filtered = swap;
+        paired_adaptive(filtered, dpc, config->width, config->height,
+                         &config->adaptive);
     } else if (!paired_cfa_filter(raw_contiguous_ROI, dpc, config)) {
         return false;
     }

@@ -60,7 +60,7 @@ typedef struct NikonPairedEventBanksBank {
     uint64_t consumed[4], table_written[10];
     uint64_t curve_written[2][3];
     uint32_t filter_written;
-    uint8_t denoise_written, detail_written;
+    uint8_t denoise_written, detail_written, adaptive_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
     NikonRawEncoding history_encoding[4];
@@ -304,6 +304,7 @@ static bool paired_live_word(unsigned offset)
     if ((offset >= 0x708 && offset <= 0x720) ||
         (offset >= 0x660 && offset <= 0x678) ||
         (offset >= 0x73c && offset <= 0x758) ||
+        (offset >= 0x75c && offset <= 0x778) ||
         paired_filter_word(offset) >= 0) {
         return true;
     }
@@ -444,6 +445,34 @@ static bool paired_detail(NikonPairedEventBanksBank *b,
     };
     if (!nikon_paired_detail_valid(&pixels->detail)) {
         return paired_profile_reject(b, 0x744);
+    }
+    return true;
+}
+
+static bool paired_adaptive(NikonPairedEventBanksBank *b,
+                            NikonPairedPixelConfig *pixels)
+{
+    const uint32_t *c = b->config;
+
+    /* q29..50: whole source-shaped packet, including fixed/reserved fields. */
+    if (b->adaptive_written != 0xff || (c[0x75c / 4] & 0xffff) != 30 ||
+        (c[0x764 / 4] & 0xffff) != 4095 ||
+        (c[0x768 / 4] & 0xffffff) != 0x1f0c0e ||
+        (c[0x76c / 4] & 0xff00ffffU) != 0x04000000 ||
+        c[0x770 / 4] != 0x08080808 || c[0x774 / 4] != 0x00000808 ||
+        c[0x778 / 4] != 0x0af00020) {
+        return paired_profile_reject(b, 0x75c);
+    }
+    pixels->adaptive = (NikonPairedAdaptive) {
+        .base = c[0x75c / 4] >> 16,
+        .slope = c[0x760 / 4] >> 16,
+        .cap = c[0x760 / 4],
+        .weight = c[0x764 / 4] >> 16,
+        .precision = c[0x768 / 4] >> 24,
+        .dose = c[0x76c / 4] >> 16,
+    };
+    if (!nikon_paired_adaptive_valid(&pixels->adaptive)) {
+        return paired_profile_reject(b, 0x75c);
     }
     return true;
 }
@@ -599,7 +628,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         return paired_profile_reject(b, 0xfc);
     }
     if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g) ||
-        !paired_detail(b, g)) {
+        !paired_detail(b, g) || !paired_adaptive(b, g)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -1319,6 +1348,12 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->detail_written & bit);
             b->detail_written |= bit;
         }
+        if (offset >= 0x75c && offset <= 0x778) {
+            uint8_t bit = 1U << ((offset - 0x75c) / 4);
+
+            changed |= !(b->adaptive_written & bit);
+            b->adaptive_written |= bit;
+        }
         if (changed && offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
             paired_cancel(b);
@@ -1380,6 +1415,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].filter_written = 0;
         s->bank[i].denoise_written = 0;
         s->bank[i].detail_written = 0;
+        s->bank[i].adaptive_written = 0;
         memset(s->bank[i].history_address, 0,
                sizeof(s->bank[i].history_address));
         memset(s->bank[i].history_epoch, 0, sizeof(s->bank[i].history_epoch));
