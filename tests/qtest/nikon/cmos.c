@@ -3622,7 +3622,7 @@ static void test_paired_detail(void)
 
         memcpy(image, header, prefix);
         memset(image + prefix, sign ? 64 : 128, 64 * 36);
-        image[prefix + 17 * 64 + 31] = sign ? 62 : 130;
+        image[prefix + 17 * 64 + 31] = (char)(sign ? 62 : 130);
         g_assert_true(g_file_set_contents(scene, image, prefix + 64 * 36,
                                           NULL));
         qtest_qmp_assert_success(q,
@@ -3631,7 +3631,11 @@ static void test_paired_detail(void)
         paired_detail(q, PAIRED, 31, 32, 16, 8);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
+        pipeline_configure(q, RAM, 128, 128 * 36,
+                           NIKON_READOUT_C170_FORMAT_PRIMARY);
+        pipeline_request(q);
+        qtest_clock_step(q, 10000);
+        qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
         work_rise(q);
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
