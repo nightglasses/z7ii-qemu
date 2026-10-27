@@ -43,9 +43,12 @@ between32.03 and82.85 host seconds, with post-window panic length0. Actual
 iris commands and optical exposure are separate, still unaccepted levels.
 
 MENU also naturally completes its old-GUI worker handoff, starts Menu and
-clears the retained request. Rendering then stops on a captured176/328-byte
-graphics-prefix family; a visible menu tree and navigation are not yet
-accepted. See [exposure controls](../devices/gpio/exposure.md) and the
+clears the retained request. The captured176/328-byte normal-image family is
+now sampled and composited; an original repeat reaches a168/232-byte path-state
+boundary. A visible menu tree and navigation are not yet accepted. One separate
+session fails to settle M→A and accumulates exception/watchdog diagnostic text;
+its cause remains unresolved despite the successful repeated transitions.
+See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
 numerical stop below is historical evidence.

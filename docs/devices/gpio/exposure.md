@@ -248,10 +248,30 @@ F2.8 lens range; normal permission/strategy selection can clamp or skip rows,
 so these results do not imply one table index per detent.
 
 The lens runtime retains relative aperture/target0 and no new aperture
-commands during these changes. Actual iris application and optical exposure
-are therefore still unaccepted. MENU naturally advances the old GUI worker
+commands during these changes. The actual request is an AE output, not a
+direct property518 mirror: `10210886` publishes the rational from
+`b2114fb8` through its output to `b25ef0a8`; `10233570` then passes it through
+the iris packet to `10398206`. Its576/192 value remains Av3 and equals the
+previous target, explaining why the later comparison sends no new command37.
+The source includes range/qualification checks and a legal retain-old-value
+branch, but this session does not identify which AE branch held the value.
+The next discriminating producer is `10213280` and its exposure context
+offsets11493/11784/11904/11676/11632, together with globals
+`b185f634/b185f664`. Actual iris application and optical exposure therefore
+remain unaccepted; a missing motor command alone does not prove a lens
+transport fault. MENU naturally advances the old GUI worker
 to internal4, Menu to1 and its backend to4, clearing the retained request.
-It then reaches a separate176/328-byte graphics-prefix rejection. Worker
-handoff is established; a rendered menu tree and navigation are not yet
-established. The [curated receipt](/evidence/input/turnover.json) separates
-these observations from the earlier diagnostics and native fixtures.
+It initially reaches a separate176/328-byte normal-image grammar boundary.
+After that mode is implemented, an original repeat advances to a168/232-byte
+path-state boundary, with138 MAIN completions and zero diagnostic append bytes.
+Worker handoff is established; a rendered menu tree and navigation are not yet
+established.
+
+A separate session at the normal-image revision changes M settings but does
+not settle a requested A transition by84.36 host seconds. QMP remains running,
+no unsupported access is reported and the class2 queue is empty, but the
+exception/watchdog diagnostic append buffer contains303181 bytes. Its text
+and flags were not captured, so the cause is unresolved. The subsequent
+successful mode transitions do not erase this stability failure. The
+[curated receipt](/evidence/input/turnover.json) records both windows and the
+source-established diagnostic-buffer semantics, separately from native checks.

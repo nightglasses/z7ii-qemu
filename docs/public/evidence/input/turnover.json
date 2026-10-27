@@ -940,5 +940,55 @@
       "board_copy_case_added_but_not_executed": true
     },
     "qualification": "Natural input changes actual original exposure settings while MAIN increases26 to139 in the observed window. Menu worker handoff is accepted, but rendering/navigation is blocked by a separately captured graphics command; this is not a complete menu or iris PASS."
+  },
+  "diagnostic_buffer_semantics": {
+    "length_u32_mas_va": "0xb18004f0",
+    "buffer_mas_va": "0xb1c81898",
+    "capacity_bytes": 393216,
+    "exception_flag_mas_va": "0xb1800058",
+    "watchdog_flag_mas_va": "0xb1800060",
+    "source": "MAS103da804 routes output to copied ROM12448d80 only when exception/watchdog active. Text plus LF and terminating NUL append without wrap; new text is dropped at capacity.",
+    "qualification": "Historical panic_length fields measure used diagnostic bytes, not a panic count. Zero alone does not prove complete startup or absence of every failure."
+  },
+  "normal_image_observation": {
+    "model_revision": "d479da0",
+    "native_complete_transfer_subtests": 30,
+    "native_host_seconds": 2.59,
+    "red": "Prior model rejected first legal normal-image submission",
+    "unpaused_original_repeat": {
+      "same_fresh_formatted_input": true,
+      "in_window_debugger": false,
+      "guest_state_writes": false,
+      "forced_events_or_slots": false,
+      "main_completed_at_menu_down": 138,
+      "diagnostic_append_bytes_post_window": 0,
+      "diagnostic_first_byte": 0,
+      "normal_image_submission_passed": true,
+      "next_stop": {
+        "cpu": 0,
+        "pc": "0x106ee3c6",
+        "write32": "0x201810e0=1",
+        "stream_bytes": [
+          168,
+          232
+        ],
+        "reason": "transfer-path-program-not-supported",
+        "full_streams_saved_privately": true
+      },
+      "visible_menu_tree": false
+    },
+    "separate_noncompletion_window": {
+      "same_profile_and_revision": true,
+      "accepted_M_setting_changes": true,
+      "requested_A_not_settled_by_host_seconds": 84.35699779199786,
+      "qmp_running": true,
+      "unsupported_access": false,
+      "class2_occupied_slots_post_window": 0,
+      "diagnostic_append_bytes": 303181,
+      "diagnostic_text_saved": false,
+      "exception_and_watchdog_flags_saved": false,
+      "qualification": "Unresolved stability failure; the subsequent successful mode transitions do not erase it. Nonzero diagnostic bytes do not identify which exception/watchdog activated without text/flags."
+    },
+    "qualification": "Native grammar and one original normal-image submission pass; menu rendering/navigation and overall stability remain unaccepted."
   }
 }

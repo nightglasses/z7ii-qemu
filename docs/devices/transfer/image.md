@@ -280,4 +280,14 @@ output byte and guards against an independent integer oracle, including the
 captured48 × 40 sampling transform and a literal non-gray opaque pixel.
 Unknown modes/header shapes, formats/flags, dimensions, spans, source/output
 aliases, absent/foreign context, map loss, reset and cancellation remain
-negative cases. Fixture coverage does not establish original menu completion.
+negative cases. The prior model rejects the first normal-image submission;
+after correction, the complete native `nikon_transfer_unit` executable passes
+all30 subtests in2.59 host seconds. Fixture coverage does not establish
+original menu completion.
+
+An unchanged-firmware repeat with the same cold-neutral inputs and normal
+formatted card passes the captured176/328-byte job, then stops on a separate
+168/232-byte path-state program. Its post-window diagnostic buffer is empty.
+The [input receipt](/evidence/input/turnover.json) also preserves a separate
+unresolved mode-transition noncompletion at this revision; the successful
+graphics continuation does not establish overall stability or menu navigation.
