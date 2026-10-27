@@ -429,8 +429,9 @@ acknowledgement or elapsed timer alone supplies a completed RAW buffer.
 | `08=1` while armed | Await input; reset phase, batch and per-request result counters |
 | Matching fresh RAW, valid whole profile, no pending result or peer conflict | Snapshot input/history and schedule one job after 1 ms of virtual time |
 | Successful operator and every output DMA row | Consume that generation, record history, advance phase, add `OW*OH` to `118`, publish `1002` |
-| All four phases successfully read | Publish the functional `400` four-read watermark and pause batch admission |
-| `10=1` while awaiting input, with an unchanged ring or all four addresses republished, and no pending result, active job or stop | Release the batch pause, clear seen/refill flags and retry real input |
+| All four phases successfully read | Publish the functional `400` four-read watermark, reset the traversal mask and retain cyclic admission |
+| Any selected front/back RAW address write while awaiting input | Cancel an owned snapshot and stage a new address publication, including same-value writes |
+| `10=1` while awaiting input, with both complete selected address views published and no active job or stop | Commit the selected publication and retry eligible real input |
 | Premature `10=1` while awaiting input | Accept a no-op kick; preserve request and all work/freshness state |
 | `0c=1` while awaiting input | Enter drain pending; stop admitting new jobs |
 | Drain has a successful publication, no active job and all pending bits acknowledged | Become quiescent and publish final bit `2` once |
@@ -450,35 +451,35 @@ four-read watermark `400` are finite conventions tied to actual work, not
 physical timing measurements. Pixel processing does not invent `4` or `8`
 events to advance a consumer.
 
-Batch continuation is distinct from initial `10/08` admission. The original
-helper VA `1036a49a` writes only `10=1`, independently of whether descriptor
-replacement succeeded. The model tracks writes to each of `310..31c` and
-`320..32c` independently while awaiting input. A subsequent `10` kick checks
-only the selected group's four-bit refill mask and may reuse its unchanged ring
-(refill mask zero), or accept all four republished addresses (mask `f`). A
-partial update, masks `1..e`, remains paused. Neither the fourth address write
-nor W1C alone resumes processing. The kick must also observe acknowledged
-pending bits, no active job and no stop in progress. It retains the logical
-request, next phase, additive result, consumed generations and eligible numerical
-history; it clears the batch seen flags and only the selected refill mask.
-Staged partial refills of the other group survive this operation. A changed
-`fc` after any successful phase and before the four-read pause rejects without
-changing selection, preventing a batch from splicing two groups. Selection at
-an empty-batch boundary remains subject to real RAW freshness and full preflight.
+Address publication is distinct from initial `10/08` admission. Both selected
+front (`218..234`) and back (`310..32c`) views have four slots, with a separate
+mask per group. Any selected address write starts a barrier, including writes
+of unchanged values. Both complete views and an explicit `10` commit are
+required to lift it. Inactive-group staging neither cancels nor blocks the
+selected work. A commit preserves phase, traversal count, pending results,
+consumed generations and eligible numerical history. Whole-profile, memory and
+overlap checks still run before any new job. A changed `fc` after a successful
+phase and before traversal wrap rejects, preventing two groups from being
+spliced into one watermark.
 
-Retained-ring continuation is a bounded functional choice: the recovered call
-path does not establish a hardware requirement to rewrite a stable ring after
-every four reads. Reusing addresses does not replay old pixels. Every selected
-slot still requires a newer completed RAW generation, and every admitted job
-repeats whole-batch profile, memory and overlap preflight.
+The cyclic-ring interpretation replaces the earlier unconditional four-read
+pause hypothesis. C1.70 MAS VA `102637c2` handles `400` by setting the retry
+latch at VA `b18648c0`; it does not issue a stop. The action at VA `10268ba4`
+calls `1026405a` for four descriptors. A zero return at `10268d20` preserves
+that latch and skips RAW publication and its `10` kick. The nearby `10268d10`
+sets a local flag after independent WORK publication; it is not an
+unconditional kick after a failed RAW dequeue. A read-only breakpoint capture
+observed this zero-return path after a real `1402` completion while RAW
+production continued. Requiring a new kick after every four reads closed the
+model's retry loop prematurely.
 
-VA `10268d10` can also issue that kick after a failed four-descriptor dequeue.
-If continuation conditions are incomplete, the kick is accepted without
-advancing a phase, replaying pixels, resetting the request or producing an
-event. Such a kick is not latched as permission to resume after later address
-writes or acknowledgements: another kick must observe the complete conditions.
-A duplicate `10` in the initial armed state, `08` while already awaiting input
-and malformed control values remain errors.
+Continued reuse of an unchanged ring is an explicit functional hypothesis,
+not a recovered physical interpretation of `400`. Every frame still requires
+a newer successful RAW generation, acknowledged pending results and available
+downstream capacity. No ACK, elapsed time or kick creates a frame. An incomplete
+publication remains blocked until a later complete commit. Duplicate `10`
+while initially armed, `08` while already awaiting input and malformed controls
+remain errors.
 
 Read-only diagnostic properties count successful frames (`completed`), rejected
 attempts (`rejected`), cancelled active jobs (`cancelled`), peer-conflict attempts
@@ -488,7 +489,7 @@ the byte count adds `OW*OH*3/2 + ceil(W/2)*ceil(H/2)*4 + 3060`, excluding paddin
 These counters do not measure physical frame rate or electrical throughput.
 The read-only QOM string `runtime` reports each bank's request enum
 (`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active timer
-job, phase, batch/refill masks, pause/publication flags and consumed generations,
+job, phase, traversal/publication masks, publication flags and consumed generations,
 plus the four actual RAW slots and source epoch. Unlike MMIO `18`, its `active`
 field describes an admitted timer job. Reading it performs no work or events.
 
@@ -646,8 +647,8 @@ profile and media, before the later signal-level correction, sequential QMP
 observations at 30/60/90/120 seconds count
 50/104/120/132 successful jobs. Actual payload reaches 351,299,520 bytes and
 result `118` reaches 139,450,080 main pixels, with no paired rejection or
-cancellation. The RAW generations keep increasing through sampled four-read
-pauses; those pauses are normal backpressure, not evidence of a frozen worker.
+cancellation. The RAW generations kept increasing through sampled four-read
+pauses in that earlier model; those observations alone did not prove liveness.
 Head1 binds a 1024×682 status GUI; the prior SD warning is replaced by the
 original absent/non-CPU-lens notice. Head0 and normal live view remain
 unverified. All graph ports are inactive at the snapshot, so parameter
@@ -656,7 +657,8 @@ publication and GUI readiness zero do not justify inventing downstream work.
 The profiles must remain distinct. With corrected signal levels and slot0
 omitted, a separate 120-second run stays at 12 completed jobs while fresh RAW
 continues: bank0 waits at the four-read pause without a new continuation kick.
-This is an unresolved liveness boundary, not permission to clear the pause.
+This was a liveness boundary in the earlier unconditional-pause model. The
+source analysis above motivates the current bounded cyclic interpretation.
 With slot0 explicitly inserted and the complete storage error-consumer model,
 the later 60-second run reaches 108 paired jobs, 287,426,880 payload bytes and
 114,095,520 main pixels while the original NVMe driver reads its first sector.
