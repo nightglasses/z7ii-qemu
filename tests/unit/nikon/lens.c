@@ -261,7 +261,7 @@ static uint64_t count(LensFixture *f, const char *name)
     return object_property_get_uint(OBJECT(f->lens), name, &error_abort);
 }
 
-static void test_fixed_aperture(void)
+static void test_aperture_idle(void)
 {
     LensFixture *f = fixture();
     uint8_t bytes[258] = { 0 };
@@ -287,7 +287,7 @@ static void test_fixed_aperture(void)
         g_assert_cmpuint(lduw_le_p(bytes + aperture[i]), ==, 960);
     }
     g_assert_cmpuint(lduw_le_p(bytes + 197), ==, 0);
-    g_assert_cmpuint(lduw_le_p(bytes + 199), ==, 0);
+    g_assert_cmpuint(lduw_le_p(bytes + 199), ==, 1152);
     g_assert_cmpuint(lduw_le_p(bytes + 201), ==, 0);
     g_assert_cmpuint(lduw_le_p(bytes + 204), ==, 0);
     g_assert_cmphex(bytes[203] & 0x18, ==, 0);
@@ -303,9 +303,17 @@ static void test_fixed_aperture(void)
 
 static void test_aperture_rejection(void)
 {
-    static const struct { uint8_t command; unsigned size, invalid; } cases[] = {
-        { 0xa0, 24, 1 }, { 0xa0, 24, 3 },
-        { 0xa1, 10, 1 }, { 0xa1, 10, 5 }, { 0xa3, 4, 1 },
+    static const struct {
+        uint8_t command;
+        unsigned size, target, parameter, extra, tail;
+    } cases[] = {
+        { 0xa0, 24, 1153, 0, 0, 0 }, { 0xa0, 24, 65535, 0, 0, 0 },
+        { 0xa0, 24, 192, 0, 0, 3 }, { 0xa0, 24, 0, 0, 0, 22 },
+        { 0xa1, 10, 192, 0, 0, 0 }, { 0xa1, 10, 192, 1, 0, 0 },
+        { 0xa1, 10, 192, 65535, 1, 0 },
+        { 0xa1, 10, 192, 65535, 0x80000000, 0 },
+        { 0xa1, 10, 1153, 65535, 0, 0 },
+        { 0xa3, 4, 1153, 0, 0, 0 },
     };
     LensFixture *f = fixture();
     uint8_t bytes[24], header[8];
@@ -329,7 +337,14 @@ static void test_aperture_rejection(void)
         falling = f->falling;
         memset(bytes, 0, sizeof(bytes));
         bytes[0] = 0x55;
-        bytes[cases[i].invalid] = 1;
+        stw_le_p(bytes + 1, cases[i].target);
+        if (cases[i].command == 0xa1) {
+            stw_le_p(bytes + 3, cases[i].parameter);
+            stl_le_p(bytes + 5, cases[i].extra);
+        }
+        if (cases[i].tail) {
+            bytes[cases[i].tail] = 1;
+        }
         checksum(bytes, cases[i].size);
         exchange(f, bytes, cases[i].size);
         advance(10000000);
@@ -338,7 +353,166 @@ static void test_aperture_rejection(void)
         g_assert_cmpuint(count(f, "completed"), ==, 1);
         g_assert_cmpuint(count(f, "rejected"), ==, 1);
         g_assert_cmpuint(count(f, "aperture-noops"), ==, 0);
+        g_assert_cmpuint(count(f, "aperture-generation"), ==, 0);
     }
+    cleanup(f);
+}
+
+static void aperture_request(LensFixture *f, uint8_t command, uint8_t sub,
+                             unsigned target)
+{
+    uint8_t bytes[24] = { 0 };
+    unsigned size = command == 0xa0 ? 24 : command == 0xa1 ? 10 : 4;
+
+    stw_le_p(bytes + 1, target);
+    if (command == 0xa1) {
+        stw_le_p(bytes + 3, 65535);
+    }
+    packet(f, command, sub, bytes, size);
+}
+
+static void aperture_status(LensFixture *f, unsigned position, bool busy)
+{
+    uint8_t bytes[258] = { 0 };
+    const unsigned fixed[] = { 1, 15, 162, 164 };
+
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmpuint(lduw_le_p(bytes + 9), ==, 960 + position);
+    g_assert_cmpuint(lduw_le_p(bytes + 197), ==, position);
+    g_assert_cmpuint(lduw_le_p(bytes + 199), ==, 1152);
+    g_assert_cmphex(bytes[203] & 0x18, ==, busy ? 0x18 : 0);
+    for (unsigned i = 0; i < ARRAY_SIZE(fixed); i++) {
+        g_assert_cmpuint(lduw_le_p(bytes + fixed[i]), ==, 960);
+    }
+    g_assert_cmpuint(lduw_le_p(bytes + 201), ==, 0);
+    g_assert_cmpuint(lduw_le_p(bytes + 204), ==, 0);
+    g_assert_cmphex(bytes[216], ==, 3);
+}
+
+static void test_aperture_motion(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[66] = { 0 };
+    unsigned falling;
+
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    aperture_request(f, 0xa0, 0, 1152);
+    /* Packet ACK is complete after 1 ms; six stops take 120 ms. */
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 0);
+    aperture_status(f, 9, true);
+    advance(57000000);
+    aperture_status(f, 576, true);
+    falling = f->falling;
+    advance(57999999);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 0);
+    advance(1);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 1);
+    g_assert_cmpuint(f->falling, ==, falling);
+    aperture_status(f, 1152, false);
+
+    /* Reopening uses the same travel coordinate, not an incremental delta. */
+    aperture_request(f, 0xa3, 1, 576);
+    advance(59000000);
+    aperture_status(f, 576, false);
+    aperture_request(f, 0xa1, 0, 192);
+    advance(39000000);
+    aperture_status(f, 192, false);
+    aperture_request(f, 0xa3, 0, 0);
+    advance(19000000);
+    aperture_status(f, 0, false);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 4);
+
+    /* A one-unit move still has its independent two-millisecond deadline. */
+    aperture_request(f, 0xa0, 0, 1);
+    advance(999999);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 4);
+    advance(1);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 5);
+    aperture_status(f, 1, false);
+
+    /* Maximum aperture at both focal endpoints is independent of travel. */
+    packet(f, 0x12, 0, bytes, sizeof(bytes));
+    g_assert_cmpuint(lduw_le_p(bytes + 1), ==, 960);
+    g_assert_cmpuint(lduw_le_p(bytes + 3), ==, 960);
+    cleanup(f);
+}
+
+static void test_aperture_encodings(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+    unsigned generation = 0;
+
+    packet(f, 0x13, 0, bytes, sizeof(bytes));
+    advance(2000000);
+    for (unsigned sub = 0; sub < 8; sub++) {
+        unsigned target = sub & 1 ? 0 : 192;
+
+        aperture_request(f, 0xa0, sub, target);
+        advance(19000000);
+        aperture_status(f, target, false);
+        g_assert_cmpuint(count(f, "aperture-generation"), ==, ++generation);
+    }
+    for (unsigned sub = 0; sub < 2; sub++) {
+        unsigned target = sub ? 0 : 192;
+
+        aperture_request(f, 0xa3, sub, target);
+        advance(19000000);
+        aperture_status(f, target, false);
+        g_assert_cmpuint(count(f, "aperture-generation"), ==, ++generation);
+    }
+    aperture_request(f, 0xa1, 0, 192);
+    advance(19000000);
+    aperture_status(f, 192, false);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, ++generation);
+    aperture_request(f, 0xa0, 7, 192);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, generation);
+    g_assert_cmpuint(count(f, "aperture-noops"), ==, 1);
+    cleanup(f);
+}
+
+static void test_aperture_lifecycle(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[24] = { 0 };
+    uint8_t header[] = { 0x55, 0, 1, 0xa0, 0, 11, 0, 0 };
+    g_autofree char *runtime = NULL;
+    unsigned falling;
+
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    aperture_request(f, 0xa0, 0, 1152);
+    checksum(header, sizeof(header));
+    exchange(f, header, sizeof(header));
+    advance(1000000);
+    falling = f->falling;
+    memset(bytes, 0, sizeof(bytes));
+    bytes[0] = 0x55;
+    stw_le_p(bytes + 1, 192);
+    checksum(bytes, sizeof(bytes));
+    exchange(f, bytes, sizeof(bytes));
+    advance(1000000);
+    g_assert_true(f->level);
+    g_assert_cmpuint(f->falling, ==, falling);
+    runtime = object_property_get_str(OBJECT(f->lens), "runtime", &error_abort);
+    g_assert_nonnull(strstr(runtime, "target=1152 aperture-pending=1"));
+
+    device_cold_reset(f->lens);
+    advance(200000000);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 0);
+    aperture_status(f, 0, false);
+    memset(bytes, 0, sizeof(bytes));
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    aperture_request(f, 0xa3, 0, 1152);
+    advance(59000000);
+    qdev_unrealize(f->lens);
+    advance(200000000);
+    g_clear_pointer(&runtime, g_free);
+    runtime = object_property_get_str(OBJECT(f->lens), "runtime", &error_abort);
+    g_assert_nonnull(strstr(runtime,
+        "aperture=576 target=576 aperture-pending=0 aperture-generation=0"));
     cleanup(f);
 }
 
@@ -658,7 +832,10 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/lens/mode-exchange", test_mode_exchange);
     g_test_add_func("/nikon/lens/mode-boundaries", test_mode_boundaries);
     g_test_add_func("/nikon/lens/unrealize-pending", test_unrealize_pending);
-    g_test_add_func("/nikon/lens/fixed-aperture", test_fixed_aperture);
+    g_test_add_func("/nikon/lens/aperture-idle", test_aperture_idle);
+    g_test_add_func("/nikon/lens/aperture-motion", test_aperture_motion);
+    g_test_add_func("/nikon/lens/aperture-encodings", test_aperture_encodings);
+    g_test_add_func("/nikon/lens/aperture-lifecycle", test_aperture_lifecycle);
     g_test_add_func("/nikon/lens/aperture-rejection", test_aperture_rejection);
     g_test_add_func("/nikon/lens/negative-packets", test_negative_packets);
     g_test_add_func("/nikon/lens/stream-lifecycle", test_stream_lifecycle);
