@@ -13,6 +13,7 @@
 #include "qapi/error.h"
 #include "qemu/timer.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
@@ -95,6 +96,8 @@ struct NikonCmosState {
     uint8_t *image_data;
     gsize image_size;
     uint32_t image_width, image_height, image_channels;
+    uint32_t red_response, blue_response;
+    NikonRawEncoding encoding;
     bool reported_error;
     bool fixture_provider;
     uint8_t *stream_data;
@@ -337,13 +340,6 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
         size_t index = ((size_t)iy * s->image_width + ix) *
                        s->image_channels;
 
-        if (s->active.format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
-            s->image_channels == 3) {
-            /* Functional grayscale LE16: duplicate the rounded 8-bit luma. */
-            return (77u * s->image_data[index] +
-                    150u * s->image_data[index + 1] +
-                    29u * s->image_data[index + 2] + 128) >> 8;
-        }
         return s->image_data[index + MIN(channel, s->image_channels - 1)];
     }
 
@@ -354,6 +350,25 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
     value += channel * 0x9e3779b9U;
     value ^= (x + y) * 0x7f4a7c15U;
     return (uint8_t)(value >> ((channel & 3) * 8));
+}
+
+static uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
+{
+    unsigned sx = s->active.crop_x +
+        (uint64_t)x * s->active.crop_width / s->output_width;
+    unsigned sy = s->active.crop_y +
+        (uint64_t)y * s->active.crop_height / s->output_height;
+    unsigned ix = (uint64_t)sx * s->image_width / s->active.width;
+    unsigned iy = (uint64_t)sy * s->image_height / s->active.height;
+    unsigned lane = 2 * (y & 1) + (x & 1);
+    unsigned channel = lane == 0 ? 0 : lane == 3 ? 2 : 1;
+    unsigned response = lane == 0 ? s->red_response :
+                        lane == 3 ? s->blue_response : 4096;
+    unsigned sample = s->image_data[3 * ((size_t)iy * s->image_width + ix) +
+                                    channel] * 257U;
+
+    /* Fixed virtual spectral response, never the inverse of live guest WB. */
+    return (sample * response + 2048) / 4096;
 }
 
 static void nikon_cmos_schedule(NikonCmosState *s, uint64_t delay)
@@ -392,7 +407,9 @@ static void nikon_cmos_step(void *opaque)
         uint32_t x = pixel / s->active.bytes_per_pixel;
         uint32_t channel = pixel % s->active.bytes_per_pixel;
 
-        bytes[i] = nikon_cmos_sample(s, x, s->row, channel);
+        bytes[i] = s->encoding == NIKON_RAW_MONO ?
+            nikon_cmos_sample(s, x, s->row, channel) :
+            nikon_cmos_cfa(s, x, s->row) >> (8 * channel);
     }
     attrs.memory = true;
     if (s->stream_data) {
@@ -448,7 +465,7 @@ static bool nikon_cmos_prepare(NikonCmosState *s, bool stream, Error **errp)
     }
     if (c->format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
         c->bytes_per_pixel != 2) {
-        error_setg(errp, "CMOS C1.70 grayscale transport requires LE16 samples");
+        error_setg(errp, "CMOS C1.70 transport requires LE16 samples");
         return false;
     }
     output_width = ((uint64_t)c->crop_width * c->scale_x) >> 16;
@@ -456,6 +473,13 @@ static bool nikon_cmos_prepare(NikonCmosState *s, bool stream, Error **errp)
     if (!output_width || !output_height || output_width > UINT32_MAX ||
         output_height > UINT32_MAX) {
         error_setg(errp, "CMOS scale produces an empty or oversized frame");
+        return false;
+    }
+    if (!s->red_response || s->red_response > 4096 || !s->blue_response ||
+        s->blue_response > 4096 ||
+        (c->format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+         s->image_channels == 3 && ((output_width | output_height) & 1))) {
+        error_setg(errp, "CMOS CFA requires even dimensions and Q12 response1..4096");
         return false;
     }
     row_bytes = output_width * c->bytes_per_pixel;
@@ -513,6 +537,8 @@ static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
     }
     timer_del(s->timer);
     s->active = s->configuration;
+    s->encoding = s->active.format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+                  s->image_channels == 3 ? NIKON_RAW_RGGB : NIKON_RAW_MONO;
     g_clear_pointer(&s->stream_data, g_free);
     s->stream_size = stream ? (size_t)s->active.stride * s->output_height : 0;
     if (stream) {
@@ -567,6 +593,11 @@ bool nikon_cmos_completed(DeviceState *dev, uint64_t generation)
 
     return generation && generation == s->generation &&
            s->phase == NIKON_CMOS_DONE;
+}
+
+NikonRawEncoding nikon_cmos_encoding(DeviceState *dev)
+{
+    return NIKON_CMOS(dev)->encoding;
 }
 
 uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
@@ -809,6 +840,7 @@ static void nikon_cmos_reset(DeviceState *dev)
     s->next_frame_time = 0;
     memset(s->unknown, 0, sizeof(s->unknown));
     s->frame_count = 0;
+    s->encoding = NIKON_RAW_MONO;
     g_clear_pointer(&s->stream_data, g_free);
     s->stream_size = 0;
     s->reported_error = false;
@@ -860,8 +892,13 @@ static const VMStateDescription nikon_cmos_vmstate = {
 static void nikon_cmos_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
+    static const Property props[] = {
+        DEFINE_PROP_UINT32("red-response", NikonCmosState, red_response, 4096),
+        DEFINE_PROP_UINT32("blue-response", NikonCmosState, blue_response, 4096),
+    };
 
     dc->vmsd = &nikon_cmos_vmstate;
+    device_class_set_props(dc, props);
     device_class_set_legacy_reset(dc, nikon_cmos_reset);
 }
 

@@ -150,15 +150,15 @@ The earlier ID63 error frame is separately archived. The
 from complete-boot and physical-camera evidence.
 
 The [paired pixel model](docs/devices/pairs/pixels.md) now consumes actual
-completed RAW buffers, applies bounded monochrome filtering and guest color
+completed RAW buffers, applies bounded mono/CFA filtering and guest color
 parameters, writes main/work/grid outputs and publishes completion through
 normal IRQ handling. Select its explicit `paired-calibration` input alongside
 the scene and cold-neutral inputs. Cycle-selected noise and both source-selected
 address groups now have finite numerical models. In the earlier selected-card
 profile with no virtual lens, original firmware completes 108 jobs and 287,426,880 payload bytes while
 reading its first NVMe sector. This establishes the connected numerical data
-path; the empty-slot profile's continuation pause and continuous normal live
-view remain unresolved. See the [storage input](docs/devices/storage/protocol.md#explicit-media-input)
+path. The later full-resolution AUTO validation below establishes bounded
+continued live view under its explicit profile. See the [storage input](docs/devices/storage/protocol.md#explicit-media-input)
 for `slot0-drive`, raw images and the host-folder boundary.
 
 The explicit `virtual-lens=on` input attaches the
@@ -172,8 +172,8 @@ acquisition boundary and coordinate capture metadata with the lens state.
 No 3D application bridge or optical exposure simulation is implemented yet.
 The lens protocol and ordered vector batches produce a status
 GUI without the former lens-extension warning in the movie-input profile. The
-current frontier records the distinct photo/movie startup boundaries;
-normal live view remains incomplete.
+current frontier records the distinct photo/movie startup boundaries and
+bounded photo live view; complete camera operation remains unverified.
 The [maintained capture selector](docs/devices/gpio/input.md#maintained-photomovie-selector)
 starts in photo and toggles with F13. It drives the original EX I2C input path;
 the guest chooses photo/movie policy. F14/F15 move the eight-position mode ADC
@@ -188,10 +188,13 @@ pixels, applies the neutral carrier, grid warp and three affine branches, and
 writes all three terminal images before publishing completion. The
 [primary scanout](docs/devices/banks/image.md#primary-yuv-view) consumes the
 original display queue's Y/UV view and programmed matrices before composing
-the GUI overlays. A cold-neutral original-firmware window now shows the
-computed quadrant scene in the original1024×682 GUI and remains running at
-15/30/45 seconds, with four actual frames and zero graph errors. Sustained
-acquisition and complete exposure control remain open. The
+the GUI overlays. The [full-resolution validation](docs/validation/color.md)
+now shows a detailed 1200 × 800 photo input in the original 1024 × 682 GUI.
+Twenty normal dynamic replacements reach distinct visible positions, with
+neutral gray and increasing processing counters throughout an 83.13-host-second
+window. Separate MAIN/auxiliary ownership and frozen RAW transfer metadata
+correct the earlier detail and neutral-color errors. Numerical color fidelity,
+indefinite stability, rare startup rejection and exposure control remain open. The
 [current frontier](docs/validation/frontier.md) separates actual DMA images,
 original GUI output, finite color hypotheses and native fixture evidence.
 

@@ -1,15 +1,31 @@
 /*
- * Completed functional monochrome RAW DMA, not a sensor-ready notification.
+ * Completed functional mono/CFA RAW DMA, not a sensor-ready notification.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef HW_NIKON_PAIRED_H
 #define HW_NIKON_PAIRED_H
 
 #include "hw/core/qdev.h"
+#include "hw/nikon/raw.h"
+
+typedef enum NikonRawCodec {
+    NIKON_RAW_LINEAR,
+    NIKON_RAW_LOOKUP8,
+} NikonRawCodec;
+
+/* Frozen producer transfer, not pixels. LOOKUP8 codes are exact table knots;
+ * reconstruction uses the declared P6 endpoint convention (index*257)>>4.
+ */
+typedef struct NikonRawTransfer {
+    NikonRawCodec codec;
+    uint16_t lookup[256];
+} NikonRawTransfer;
 
 typedef struct NikonPairedRawFrame {
     uint64_t generation;
     uint32_t address, width, height, stride, bits;
+    NikonRawEncoding encoding;
+    NikonRawTransfer transfer;
     unsigned slot;
 } NikonPairedRawFrame;
 

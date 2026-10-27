@@ -1,8 +1,8 @@
-# Finite grayscale capture stream
+# Finite RAW capture stream
 
 The bundle's capture-work device consumes qualified camera input and writes
 the paired output ring before publishing unit1/2/200 processing causes. This
-is a finite grayscale model with explicit arithmetic assumptions; group
+is a finite mono/CFA model with explicit arithmetic assumptions; group
 payload work and physical DSP fidelity remain separate boundaries.
 
 ## Source-established submission and storage
@@ -45,22 +45,35 @@ Group raw3.bit0 / mask1000000 remains a separate producer.
 The bundle's separate `capture-processing` device joins existing capture,
 parameters, buffers and completed input. It adds no physical MMIO:
 
-1. It consumes a fresh immutable LE16 grayscale acquisition whose input
-   qualification held continuously from CMOS submission to completion. This
-   reuses the declared shared virtual camera input, not a recovered physical
-   main-stream wire.
+1. It consumes a fresh immutable LE16 mono or explicitly encoded CFA acquisition
+   from the independent full-MAIN producer. Auxiliary transport completion never
+   replaces this snapshot. Its configured MAIN run qualification must hold from
+   submission through actual CMOS completion. Both domains share one virtual
+   CMOS engine through [fresh-TG arbitration](../readoutpipeline/input.md);
+   their association is a finite profile, not a recovered physical sensor wire.
 2. Zero correction flags mean identity forwarding. Unit2 performs nearest
    sampling to its committed output geometry. The independently supplied RAW
    descriptor may apply a further positive integer reduction on either axis;
-   both dimensions must be aligned, nonzero and no larger than unit2 output.
-   Composing these two nearest stages gives the existing whole-image sampler
-   exactly for integer reductions. ROM color/filter coefficients
+   both dimensions must be aligned, nonzero and no larger than unit2 output or
+   the actually completed MAIN input. Auxiliary thumbnails cannot be upscaled
+   into a MAIN RAW image.
+   Mono uses the existing nearest sampler. CFA reduction selects complete
+   2×2 tiles and preserves each sample's phase; odd CFA dimensions reject.
+   [Color input](../pairs/color.md) describes the encoding metadata and real
+   packed RAW consumer. ROM color/filter coefficients
    are retained without executing physical filtering or Bayer demosaic.
    Nonzero correction flags, crop offsets, expansion, nonintegral further
    reduction and unsupported enables do not qualify.
-3. Paired control bit2 enables a256-entry LE16 LUT indexed by the high sample
-   byte. Otherwise output uses the high16/14/12 sample bits. Consecutive
-   samples form a little-endian bit stream. LUT arithmetic, ordering and
+3. Paired control bit2 enables a strictly increasing256-entry LE16 LUT indexed
+   by the high sample byte. Every entry must fit the selected packed width.
+   Otherwise output uses the high16/14/12 sample bits. Consecutive samples form
+   a little-endian bit stream. The completed RAW descriptor freezes the actual
+   committed lookup table and labels the transfer; the bypass labels linear
+   samples. Paired RAW12 consumes only exact codes of that frozen table and
+   reconstructs the declared linear domain before filtering/WB, as specified in
+   [the virtual codec contract](../pairs/color.md#virtual-sensor-transport).
+   Neither this metadata nor a later live table write supplies replacement
+   pixels or changes the actual packed RAM. LUT arithmetic, ordering and
    sampling are **falsifiable functional hypotheses**, not recovered RAW
    packing. The shared9530 pair remains retained without physical arithmetic.
    Policy0 omits both its write and the LUT producer in original `1023994c`;

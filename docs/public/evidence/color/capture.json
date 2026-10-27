@@ -1,0 +1,322 @@
+{
+  "scope": "Unchanged C1.70 original execution with declared virtual inputs; finite color/numerical model, not physical image calibration or complete camera operation",
+  "source_commits": [
+    "53b7d5d8",
+    "2b222fb5",
+    "98353927"
+  ],
+  "profile": {
+    "firmware": "Unchanged MAS/SLA/EX C1.70 bytes",
+    "execution": "five CPUs, MTTCG",
+    "storage": "cold-neutral resource inputs; fresh blank 8 GiB slot0 card",
+    "battery": "deterministic RNG and normal healthy UART peer",
+    "lens": "finite virtual 50 mm F2.8",
+    "input": "AUTO photo, F4 held before initial EX sampling",
+    "sensor_response_q12": {
+      "R": 2198,
+      "Gr": 4096,
+      "Gb": 4096,
+      "B": 2966
+    },
+    "response_limit": "Fixed before realization, independent of live white-balance values; declared virtual reference illuminant, not factory calibration",
+    "photo": {
+      "width": 1200,
+      "height": 800,
+      "format": "P6 RGB",
+      "source": "NASA Blue Marble composite",
+      "url": "https://science.nasa.gov/resource/blue-marble/",
+      "asset": "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/climate/2023/12/ImageWall5_1920x1200-80.jpg",
+      "crop": "1280x800 asset cropped 40 pixels from each side; no overlay"
+    },
+    "dynamic": "20 P6 images1200x800, eight color bars, gray ramp, an80x80 neutral square moving44 source pixels per replacement, and2/4/8/16/32 pixel gratings",
+    "calibration": "Live interpreted packet/table fields are zero in the explicit external calibration input; original firmware publishes them"
+  },
+  "original": {
+    "observation_host_seconds": 83.13020333298482,
+    "before_post_window_queries_host_seconds": 82.2249859169824,
+    "paired_at30": 24,
+    "paired_final": 148,
+    "graph_at30": 24,
+    "graph_final": 149,
+    "processing_errors": 0,
+    "running": true,
+    "panic_length_post_window": 0,
+    "counter_scope": "Sequential reads, not an atomic snapshot; final reads follow20 paced input replacements and restored photo, not a45s deadline",
+    "display": [
+      1024,
+      682
+    ],
+    "no_in_window_debugger": true,
+    "guest_writes_calls_or_forced_completions": false,
+    "framebuffer_replacement": false,
+    "battery_peer_rejections": 0
+  },
+  "pixels": {
+    "capture_size": [
+      1024,
+      682
+    ],
+    "detected_square_frames": 20,
+    "distinct_square_x": 20,
+    "square_x_strictly_increasing": true,
+    "processing_strictly_increasing": true,
+    "gray_bar_channel_spread": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "gif_playback_ms": 800,
+    "latency_host_seconds": {
+      "minimum": 0.7470632080221549,
+      "median": 1.714980729506351,
+      "maximum": 2.1847830839978997,
+      "scope": "from first scanout poll after accepted CMOS replacement to current square visibility; host time, includes polling and image measurement"
+    }
+  },
+  "geometry": {
+    "main_source": [
+      2760,
+      918
+    ],
+    "packed_raw": [
+      1380,
+      918
+    ],
+    "main_crop_origin": [
+      2,
+      2
+    ],
+    "main_output": [
+      1376,
+      914
+    ],
+    "main_stride": 1408
+  },
+  "native": {
+    "pure_pixel_operator": 36,
+    "main_domain": 1,
+    "transfer": 2,
+    "post_packet_prefix": {
+      "transaction": 1,
+      "packet": 1,
+      "boundaries": 1,
+      "lifecycle": 1
+    },
+    "scope": "Scoped native tests; packet and boundary tests contain multiple numeric/control cases. A single expanded post batch exceeded its60s harness deadline after transaction; remaining tests passed separately.",
+    "paired_direct_final": 26,
+    "paired_direct_final_scope": "Final integrated98353927, direct paired prefix, reset/cancellation and numerical/ownership regression;26 native subtests passed in37.13hostseconds",
+    "docs_build": "Documentation rules, evidence/navigation checks and static site build passed"
+  },
+  "separate_observations": {
+    "prior_color_run": {
+      "observation_host_seconds": 80.266,
+      "paired_at30": 26,
+      "paired_final": 140,
+      "graph_at30": 28,
+      "graph_final": 140,
+      "errors": 0,
+      "motion_limit": "Three graph completions after input replacement sometimes sampled prior scanout;19 square detections and17 distinct positions in20 captures. Superseded by paced visible-frame acceptance."
+    },
+    "banding_diagnostic": {
+      "scope": "Separate temporary host-only read diagnostics; no guest edits, not the accepted no-debugger window",
+      "observed_auxiliary_input": [
+        8320,
+        34
+      ],
+      "raw_output": [
+        1380,
+        918
+      ],
+      "phase_tile_repeat_factor_y": 27,
+      "green_halfrow_bar_boundaries": [
+        54,
+        81
+      ],
+      "cause": "Borrowing the auxiliary thumbnail as MAIN destroyed vertical samples before color processing"
+    },
+    "startup_failure": {
+      "scope": "Separate first full-color attempt; following two fresh AUTO runs succeeded",
+      "component": "SLA",
+      "PC": "0x1006acd6",
+      "write": "0x20070010=1",
+      "error": "fill-request-profile-not-supported",
+      "unresolved": "Failure snapshot selected MAS private fill instead of SLA, so it does not identify the rejected SLA tuple. A source-supported copy family exists but is not proved to have caused this failure."
+    },
+    "exposure": {
+      "scope": "Separate original M run, settings via read-only QMP observation",
+      "stable_mode": [
+        3,
+        3,
+        32
+      ],
+      "context": 32,
+      "single_negative_dial0_host_window": [
+        32.694,
+        78.277
+      ],
+      "MAS_counts": [
+        0,
+        0
+      ],
+      "Tv_Av_property_values": [
+        312,
+        24
+      ],
+      "result": "Mode selected; this queued detent and exposure change not accepted. Intermediate EX input counters were not captured."
+    },
+    "exposure_gpio_trace": {
+      "scope": "Separate54.65host-second original M run; stock GPIO trace during one queued detent and four slow raw-contact phases; no live-window debugger",
+      "gpio_domain": "EX GPIOF IDR, mask0x4800",
+      "sequences": [
+        [
+          "0x4800",
+          "0x4000",
+          "0x0",
+          "0x800",
+          "0x4800"
+        ],
+        [
+          "0x4800",
+          "0x4000",
+          "0x0",
+          "0x800",
+          "0x4800"
+        ]
+      ],
+      "IDR_reads_between_queued_changes": [
+        12,
+        18,
+        6
+      ],
+      "IDR_reads_between_slow_changes": [
+        247,
+        634,
+        517
+      ],
+      "total_IDR_reads_in_trace_window": 2411,
+      "limit": "Stock GPIO read trace does not identify caller PC or selected bit mask; reading the port alone does not establish quadrature decoding",
+      "final_input_callback": "0x0803d291",
+      "final_report_stop_byte_2001148d": 0,
+      "final_MAS_dial_counts": [
+        0,
+        0
+      ]
+    },
+    "exposure_breakpoint": {
+      "scope": "Separate read-only hardware-breakpoint diagnosis; pauses execution, excluded from no-debugger scanout acceptance",
+      "EX_PC": "0x0803e3b0",
+      "R0_new_state": 2,
+      "R1_count_to_store": -1,
+      "R2_counter_base": "0x200186a6",
+      "R3_old_state_base": "0x20018438",
+      "old_dial_state_bytes": [
+        0,
+        3
+      ],
+      "raw_count_bytes_before_STRB": [
+        0,
+        0
+      ],
+      "observation": "Original EX reaches the negative counter-store instruction with the expected operands; source decoding is working. Snapshot/aggregate/transport delivery is not established by this pre-store stop.",
+      "final_MAS_dial_counts": [
+        0,
+        0
+      ],
+      "runner_receipt_correction": "The common runner initially marked no_in_transaction_pause true; its diagnostic receipt is corrected to false with this explicit scope."
+    },
+    "exposure_chain": {
+      "scope": "Separate read-only hardware-breakpoint diagnosis, not the accepted no-debugger scene window",
+      "EX_store": "PC0803e3b0, new state2, count to store-1",
+      "EX_aggregate": "PC0803d766, result-1, actual snapshot bytesff00",
+      "EX_submit_return": "PC0803d68a, R0=0000ffff, actual aggregateff00, outgoing report dial0byteff",
+      "admission_guards": {
+        "2001166c": 1,
+        "20011670": 1,
+        "20011678": 1,
+        "20011688": 1,
+        "2001168c": 13,
+        "2000e738": "ffff idle"
+      },
+      "MAS_negative_normalization_breakpoint": "No hit during the bounded instrumented window; not a permanent-unreachability claim",
+      "source_condition": "08032092 branches on occupied selected class2 slot and returns defaultFFFF without enqueue/notification. FF00 is channel>=registeredcount, FF01 is bad type.",
+      "next_evidence": "Actual class2 write index, occupied slot descriptor and consumer progress. Do not forcibly clear the slot."
+    },
+    "exposure_queue": {
+      "scope": "Separate read-only chain/queue hardware-breakpoint diagnosis; excluded from no-debugger scene acceptance",
+      "selected_class2_write_index": 6,
+      "class2_read_index": 6,
+      "selected_slot": "0x200117fc",
+      "selected_descriptor": "0x20015f18",
+      "descriptor_channel": 4,
+      "descriptor_type": 2,
+      "descriptor_length": 8,
+      "descriptor_body": "0x20015e66",
+      "body_first8_hex": "0a00000000000100",
+      "producer": "Original BatMg status report, not the new input report",
+      "other_queued_descriptors": [
+        "0x20016b20",
+        "0x2000fb0c"
+      ],
+      "class1_read_write_indices": [
+        4,
+        4
+      ],
+      "class1_slots": "empty in that snapshot",
+      "post_window_class2_read_write_indices": [
+        5,
+        4
+      ],
+      "provider_post_window": {
+        "stop": 0,
+        "active": 1,
+        "callback": "0x08031f29",
+        "inflight_tag": "0x0204",
+        "inflight_callback": "0x080254bd",
+        "fragment_prepared_total": [
+          1,
+          1
+        ],
+        "completion8_flag": 0
+      },
+      "conclusion": "Input submission encountered a full type2 ring; subsequent different indices show progress, so this is bounded congestion, not evidence of a permanently stopped consumer",
+      "source_wait": "Original McuTxSvc starts SPI-DMA then AND-waits for both bits4 and8 with timeout10. Their actual HAL/RTOS completion state was not captured.",
+      "next_evidence": "Normal SPI-DMA completion/notification turnover and producer rates; source wait return08034b0e, returned flags on stack and HAL handle20017eac. No forced slot clearing or completion."
+    }
+  },
+  "facts": [
+    "Actual source image replacements pass through CMOS LE16 acquisition, packed RAW DMA, paired MAIN, owned graph outputs, original display queue and scanout",
+    "Auxiliary and MAIN have distinct source geometry and owned snapshots",
+    "Actual forward RAW LUT and per-frame metadata are frozen with DMA; paired consumes exact produced codes",
+    "All20 current dynamic square positions appear in monotonically increasing X, with increasing processed counters",
+    "All20 neutral gray bar channel spreads are0; finite gray ramp patches are nearly neutral but include resampling/filter differences"
+  ],
+  "hypotheses": [
+    "One-provider fresh-edge MAIN/auxiliary fairness is a finite virtual scheduling rule, not physical frame cadence",
+    "Exact-knot inverse metadata reconstructs a declared virtual linear domain; it is not a recovered Nikon decompander",
+    "CFA phase, fixed reference sensor responses, interpolation, matrix normalization, signed-chroma convention and numerical filter roles are finite modeled choices"
+  ],
+  "limits": [
+    "Color-primary channels clip under the original programmed matrix/curve profile; no calibrated photographic color claim",
+    "Host replacement-to-visible latency includes polling/image-analysis overhead and pipeline backlog; no camera FPS claim",
+    "GIF uses800ms per frame for inspection, independent of actual capture timestamps",
+    "Bounded continued refresh does not establish indefinite stability; one separate strict SLA fill startup failure remains unresolved",
+    "Shutter/aperture setting delivery, optical exposure effects, still capture, recording and saving remain separate acceptance boundaries"
+  ]
+}

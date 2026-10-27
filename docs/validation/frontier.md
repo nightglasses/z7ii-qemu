@@ -1,6 +1,53 @@
 # Original-firmware startup frontier
 
-## Current: cyclic MAIN processing and visible scene updates
+## Current: detailed photo, neutral gray and twenty visible scene updates
+
+Unchanged C1.70 AUTO photo firmware now displays a detailed 1200 × 800 P6
+photograph through normal CMOS acquisition, packed RAW, paired MAIN, the
+continuous processing graph and its original display queue. Actual scanout is
+1024 × 682; no framebuffer or guest-owned slot is replaced from the host.
+
+![Original GUI with normally acquired photo input](/evidence/color/photo.png)
+
+The accepted window lasts 83.13 host seconds. Paired jobs increase from 24 at
+the 30-second sample to 148 after 20 paced input replacements and the restored
+photo. The graph increases from 24 to 149 in later sequential reads, with zero
+processing errors, QMP running throughout and post-window panic length zero.
+All 20 expected moving-square positions appear in increasing order through
+actual scanout. The gray bar measures RGB (211, 211, 211) in every capture.
+
+The [full-resolution validation](color.md) explains the two corrected upstream
+domains: an auxiliary 8320 × 34 acquisition had been enlarged as MAIN, losing
+detail and separating CFA phases; lookup-coded RAW had entered a linear WB
+operation. Separate full-MAIN ownership and the frozen virtual RAW codec now
+preserve the actual data chain. The page includes the dynamic output, detail,
+primary-color and grayscale measurements, native coverage and declared
+numerical hypotheses. Saturated channels still clip under the programmed
+profile; this is not physical color calibration or a camera FPS claim.
+
+Two remaining gaps are recorded separately. One earlier fresh attempt rejected
+an SLA fill request, whose private failing tuple was not captured correctly;
+the two following fresh AUTO runs completed. A direct M run selects the normal
+mode context, but a queued detent did not change the observed MAS count or Tv
+setting in its bounded window. The old M numerical stop below has been modeled;
+it is historical evidence, not the current exposure-control diagnosis.
+
+The [curated receipt](/evidence/color/capture.json) distinguishes successful
+unchanged execution, scoped native fixtures, diagnostics and failed attempts.
+The next acceptance work is reliable normal dial delivery and resulting
+shutter/aperture changes, while retaining bounded MAIN refresh and diagnosing
+the rare SLA startup rejection. Independent EX diagnostics already reach the
+negative input snapshot and aggregate, but observe the selected type2 send slot
+occupied by an older BatMg report. Later queue progress narrows the remaining
+input work to normal transport turnover and producer coordination, rather than
+inventing a dial event or releasing that slot. Optical exposure, still capture, recording,
+saving and indefinite stability remain open.
+
+## Previous: cyclic MAIN processing with quadrant inputs
+
+This historical monochrome diagnostic established ring continuation. Its M
+parameter rejection and false-color scene are superseded by the current
+numerical model and full-resolution color validation above.
 
 The unchanged AUTO photo firmware now keeps processing beyond its initial
 four-address traversal. With cold-neutral input, the same explicit camera

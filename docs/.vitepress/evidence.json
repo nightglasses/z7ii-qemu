@@ -587,6 +587,30 @@
         "title": "Original GUI after120seconds and normal scene replacement",
         "href": "/evidence/livecycle/soak.png",
         "kind": "Original scanout"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Full MAIN acquisition, frozen RAW transfer and original photo/dynamic acceptance",
+        "href": "/evidence/color/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Original photo scanout through normal acquisition",
+        "href": "/evidence/color/photo.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Twenty current dynamic positions through original scanout; paced inspection GIF",
+        "href": "/evidence/color/motion.gif",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Actual scanout color, detail, position, timestamps and processing measurements",
+        "href": "/evidence/color/pixels.json",
+        "kind": "Execution measurements"
       }
     ]
   },
@@ -3267,6 +3291,74 @@
         "title": "Cyclic RAW reuse, numerical denoise and original GUI scene updates",
         "href": "/evidence/livecycle/capture.json",
         "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "validation/color.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Full MAIN acquisition, frozen RAW transfer and original photo/dynamic acceptance",
+        "href": "/evidence/color/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Original photo scanout through normal acquisition",
+        "href": "/evidence/color/photo.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Twenty current dynamic positions through original scanout; paced inspection GIF",
+        "href": "/evidence/color/motion.gif",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "scenecolor",
+        "title": "Actual scanout color, detail, position, timestamps and processing measurements",
+        "href": "/evidence/color/pixels.json",
+        "kind": "Execution measurements"
+      }
+    ]
+  },
+  "devices/pairs/color.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Full MAIN acquisition, frozen RAW transfer and original photo/dynamic acceptance",
+        "href": "/evidence/color/capture.json",
+        "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "devices/readoutpipeline/input.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Full MAIN acquisition, frozen RAW transfer and original photo/dynamic acceptance",
+        "href": "/evidence/color/capture.json",
+        "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "devices/pairs/post.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Full MAIN acquisition, frozen RAW transfer and original photo/dynamic acceptance",
+        "href": "/evidence/color/capture.json",
+        "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "devices/gpio/exposure.md": {
+    "records": [
+      {
+        "run": "scenecolor",
+        "title": "Original M input decoding, aggregation and occupied type2 submission slot; separate instrumented diagnostics",
+        "href": "/evidence/color/capture.json",
+        "kind": "Execution diagnosis"
       }
     ]
   }

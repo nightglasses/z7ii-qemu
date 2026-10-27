@@ -43,7 +43,14 @@ original software or its caller, not synthesized by the device. The observed
 `00f600fa` is a parameter word; this copy path alone does not establish a
 width/height interpretation or a physical processing format.
 
-## Configuration lifetime and unsupported processing
+## Configuration lifetime and processing
+
+The later [uniform luma contract](luma.md) interprets entries20/21 of the
+64-byte family; the [saturation contract](saturation.md) interprets entries2/3
+of the68-byte family. Both use complete, ordered publication rounds and
+immutable active job snapshots. Their staging and admission rules supersede
+generic table-change cancellation for those ranges. Other table roles retain their explicit profile
+qualification; retaining arbitrary words does not establish a pixel algorithm.
 
 `hw/nikon/devices/pairs.c` retains aligned full32-bit words independently in
 each bank. Source `1036ca74` copies words without masking them, so no legal-bit
@@ -82,7 +89,7 @@ stay unchanged until the existing explicit W1C path acknowledges them. These
 are synthetic device-contract checks, not original image processing or
 physical table-function verification.
 
-## Unchanged-firmware continuation
+## Historical unchanged-firmware continuation
 
 The same bounded NOR resource35/cold-neutral resource80, quadrant scene,
 healthy paced UART/RNG0/held F4/five-CPU MTTCG profile runs for60 host seconds

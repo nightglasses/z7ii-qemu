@@ -1,4 +1,4 @@
-/* C1.70 functional grayscale stream: disabled corrections, geometry, packing.
+/* C1.70 functional mono/CFA stream: disabled corrections, geometry, packing.
  * Input association, nearest sampling and LUT arithmetic are hypotheses;
  * register producers, buffer geometry and completion routing are source-backed.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -100,7 +100,7 @@ static void capture_work_commit(void *opaque, int n, int level)
             valid &= nikon_capture_parameters_configuration(s->parameters,
                 0x14 + 4 * i, &p.words[i]);
         }
-        /* Source policy0 omits the shared9530 pair; it has no grayscale
+        /* Source policy0 omits the shared9530 pair; it has no sample
          * arithmetic here and cannot be a mandatory input qualification.
          */
         nikon_capture_parameters_configuration(s->parameters, 0x30,
@@ -130,7 +130,7 @@ static void capture_work_commit(void *opaque, int n, int level)
             nikon_paired_frame(s->paired, NULL);
         }
         /* A configuration epoch cannot replay an already delivered frame. */
-        if (nikon_readout_pipeline_input(s->pipeline, &input)) {
+        if (nikon_readout_pipeline_main_input(s->pipeline, &input)) {
             s->last_input = input.generation;
         }
     }
@@ -143,7 +143,7 @@ static void capture_work_run(void *opaque, int n, int level)
     if (s->running[n] != !!level) {
         NikonCaptureInput input;
 
-        if (nikon_readout_pipeline_input(s->pipeline, &input)) {
+        if (nikon_readout_pipeline_main_input(s->pipeline, &input)) {
             s->last_input = input.generation;
         }
     }
@@ -183,8 +183,8 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
     unsigned format = p->words[0] & 3;
     unsigned bank = b[4] >> 1;
 
-    /* Zero feature flags are the only implemented correction profile. The
-     * geometry stage is grayscale nearest sampling, not recovered Bayer DSP.
+    /* Zero feature flags are the only implemented correction profile. Mono
+     * nearest and phase-preserving CFA tiles are finite geometry conventions.
      */
     if (s->correction || g->enable != 0x11 || (g->rows & 0xffff) ||
         (g->columns & 0xffff) || !(g->rows >> 16) || !(g->columns >> 16) ||
@@ -204,6 +204,14 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
     *width = p->words[1] >> 16;
     *height = p->words[2] >> 16;
     *bits = format == 0 ? 16 : format == 1 ? 14 : 12;
+    if (s->input.width < *width || s->input.height < *height) {
+        return false;
+    }
+    if ((unsigned)s->input.encoding > NIKON_RAW_BGGR ||
+        (s->input.encoding != NIKON_RAW_MONO &&
+         ((s->input.width | s->input.height | *width | *height) & 1))) {
+        return false;
+    }
     if (!*width || *width > 4096 || !*height || *height > 4096 ||
         (*width % (format == 1 ? 4 : format == 2 ? 2 : 1))) {
         return false;
@@ -230,12 +238,15 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
         }
     }
     if (p->words[0] & 4) {
+        unsigned previous = 0;
+
         for (unsigned i = 0; i < 256; i++) {
             unsigned value = (p->table[i / 2] >> (16 * (i % 2))) & 0xffff;
 
-            if (value >= (1u << *bits)) {
+            if (value >= (1u << *bits) || (i && value <= previous)) {
                 return false;
             }
+            previous = value;
         }
     }
     *destination = b[9 + bank * 4 + s->cursor];
@@ -259,7 +270,15 @@ static void capture_work_complete(void *opaque)
     NikonPairedRawFrame frame = {
         .address = destination, .width = width, .height = height,
         .stride = p->buffers[0], .bits = bits, .slot = s->cursor,
+        .encoding = s->input.encoding,
     };
+
+    if (p->words[0] & 4) {
+        frame.transfer.codec = NIKON_RAW_LOOKUP8;
+        for (unsigned i = 0; i < 256; i++) {
+            frame.transfer.lookup[i] = p->table[i / 2] >> (16 * (i & 1));
+        }
+    }
 
     if (s->paired) {
         nikon_paired_frame(s->paired, &frame);
@@ -274,8 +293,17 @@ static void capture_work_complete(void *opaque)
         uint32_t accumulator = 0;
         unsigned available = 0, column = 0;
 
+        if (s->input.encoding != NIKON_RAW_MONO) {
+            sy = 2 * ((uint64_t)(y / 2) * (s->input.height / 2) /
+                      (height / 2)) + (y & 1);
+        }
+
         for (unsigned x = 0; x < width; x++) {
             unsigned sx = (uint64_t)x * s->input.width / width;
+            if (s->input.encoding != NIKON_RAW_MONO) {
+                sx = 2 * ((uint64_t)(x / 2) * (s->input.width / 2) /
+                          (width / 2)) + (x & 1);
+            }
             uint32_t value = lduw_le_p(s->input.data +
                                        sy * s->input.stride + 2 * sx);
 
@@ -334,7 +362,7 @@ static void capture_work_rise(void *opaque, int n, int level)
         s->blocked++;
         return;
     }
-    if (!nikon_readout_pipeline_input(s->pipeline, &input) ||
+    if (!nikon_readout_pipeline_main_input(s->pipeline, &input) ||
         input.generation == s->last_input) {
         return;
     }
