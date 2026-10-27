@@ -183,8 +183,8 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
     unsigned format = p->words[0] & 3;
     unsigned bank = b[4] >> 1;
 
-    /* Zero feature flags are the only implemented correction profile. The
-     * geometry stage is grayscale nearest sampling, not recovered Bayer DSP.
+    /* Zero feature flags are the only implemented correction profile. Mono
+     * nearest and phase-preserving CFA tiles are finite geometry conventions.
      */
     if (s->correction || g->enable != 0x11 || (g->rows & 0xffff) ||
         (g->columns & 0xffff) || !(g->rows >> 16) || !(g->columns >> 16) ||
@@ -204,6 +204,11 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
     *width = p->words[1] >> 16;
     *height = p->words[2] >> 16;
     *bits = format == 0 ? 16 : format == 1 ? 14 : 12;
+    if ((unsigned)s->input.encoding > NIKON_RAW_BGGR ||
+        (s->input.encoding != NIKON_RAW_MONO &&
+         ((s->input.width | s->input.height | *width | *height) & 1))) {
+        return false;
+    }
     if (!*width || *width > 4096 || !*height || *height > 4096 ||
         (*width % (format == 1 ? 4 : format == 2 ? 2 : 1))) {
         return false;
@@ -259,6 +264,7 @@ static void capture_work_complete(void *opaque)
     NikonPairedRawFrame frame = {
         .address = destination, .width = width, .height = height,
         .stride = p->buffers[0], .bits = bits, .slot = s->cursor,
+        .encoding = s->input.encoding,
     };
 
     if (s->paired) {
@@ -274,8 +280,17 @@ static void capture_work_complete(void *opaque)
         uint32_t accumulator = 0;
         unsigned available = 0, column = 0;
 
+        if (s->input.encoding != NIKON_RAW_MONO) {
+            sy = 2 * ((uint64_t)(y / 2) * (s->input.height / 2) /
+                      (height / 2)) + (y & 1);
+        }
+
         for (unsigned x = 0; x < width; x++) {
             unsigned sx = (uint64_t)x * s->input.width / width;
+            if (s->input.encoding != NIKON_RAW_MONO) {
+                sx = 2 * ((uint64_t)(x / 2) * (s->input.width / 2) /
+                          (width / 2)) + (x & 1);
+            }
             uint32_t value = lduw_le_p(s->input.data +
                                        sy * s->input.stride + 2 * sx);
 

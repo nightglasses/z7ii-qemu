@@ -22,6 +22,31 @@ The provider must model its fixed sensor response independently of guest
 white-balance controls. The consumer neither inverts live gains nor ignores
 them to force neutral output.
 
+## Virtual sensor transport
+
+The functional C1.70 CMOS input interprets P6 RGB images as virtual RGGB and
+P5 images as the separate mono diagnostic encoding. It emits real LE16 samples,
+not an RGB side channel. Fixed `red-response` and `blue-response` properties
+scale R/B sensor samples in Q12 (1..4096); both green responses are unity4096.
+The properties are configured before realization and are independent of live
+guest controls. Unity is the default. A declared virtual reference illuminant
+may supply unequal responses, without claiming recovered Nikon calibration.
+
+Completed input carries only encoding metadata alongside its actual samples.
+Capture-work reduction chooses complete2×2 CFA tiles and preserves phase,
+then performs the existing real packed-RAW DMA. Odd CFA input/output dimensions
+reject. Paired reads that RAM, adjusts phase for the `44` ROI origin and
+qualifies numerical history by encoding as well as source epoch and address.
+The metadata cannot supply replacement pixels. Reset, stop, input ownership
+and successful output publication retain the existing lifecycle contracts.
+
+The former P6-to-gray conversion destroyed color before RAW packing. Copying
+that gray into all four lanes and applying unequal live WB gains explains the
+observed purple output before scanout. Changing UV order or subtracting an
+extra display bias would mask that input-contract mismatch. Mono test inputs
+remain useful for numerical diagnostics but do not model a color camera's
+neutral spectral response under arbitrary white balance.
+
 ## Numerical contract
 
 1. Split the actual mosaic into four half-resolution phase planes. Run the

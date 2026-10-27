@@ -6,6 +6,7 @@
 #define HW_NIKON_STATISTICS_H
 
 #include "hw/core/qdev.h"
+#include "hw/nikon/raw.h"
 
 #define TYPE_NIKON_STATISTICS "nikon-capture-statistics"
 #define NIKON_CAPTURE_ENDPOINT_WORDS (0xb84 / 4)
@@ -13,6 +14,7 @@
 typedef struct NikonCaptureInput {
     uint64_t generation;
     uint32_t width, height, stride;
+    NikonRawEncoding encoding;
     const uint8_t *data;
     /* Unit1 input qualification held from CMOS submission to completion. */
     bool synchronized;

@@ -475,19 +475,18 @@ static void test_image_source_contract(void)
     unlink(path);
 }
 
-static void test_image_gray_transport(void)
+static void test_image_cfa_transport(void)
 {
     static const char header[] = "P6\r\n2 2\r\n255\r\n";
     static const uint8_t colors[][3] = {
         { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 255 },
     };
-    static const uint8_t expected[] = { 77, 149, 29, 255 };
     g_autofree char *bundle = NULL;
     g_autofree char *path = NULL;
     QTestState *q = pipeline_start(&bundle, NULL);
     uint8_t ppm[sizeof(header) - 1 + 4 * 3];
     uint8_t output[512];
-    int fd = g_file_open_tmp("nikon-cmos-gray-XXXXXX", &path, NULL);
+    int fd = g_file_open_tmp("nikon-cmos-cfa-XXXXXX", &path, NULL);
 
     g_assert_cmpint(fd, >=, 0);
     close(fd);
@@ -510,18 +509,17 @@ static void test_image_gray_transport(void)
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     qtest_memread(q, RAM, output, sizeof(output));
     for (unsigned i = 0; i < 256; i++) {
+        unsigned x = i % 128, y = i / 128;
+        unsigned lane = 2 * (y % 2) + x % 2;
+        unsigned channel = lane == 0 ? 0 : lane == 3 ? 2 : 1;
+
         g_assert_cmphex(lduw_le_p(output + 2 * i), ==,
-                        expected[i / 64] * 257u);
+                        colors[2 * y + x / 64][channel] * 257u);
     }
     statistics_rise(q);
     qtest_clock_step(q, 2000000);
     g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                  "completed"), ==, 1);
-    for (unsigned i = 0; i < 4; i++) {
-        g_assert_cmphex(qtest_readl(q, 0x2006a3e0 + i * 4), ==,
-                        expected[i] * 257u);
-    }
-    g_assert_cmphex(qtest_readl(q, RAM + 0x111000), ==, 0x4d4d4d4d);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0x20);
     configure(q, 128, 2, 1, 128);
     qtest_writel(q, CMOS + 0x024, NIKON_CMOS_FORMAT_FUNCTIONAL_C170);
@@ -529,6 +527,48 @@ static void test_image_gray_transport(void)
     g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
     qtest_quit(q);
     unlink(bundle);
+    unlink(path);
+}
+
+static void test_image_cfa_response(void)
+{
+    static const unsigned response[] = { 2048, 0, 4097 };
+    static const uint8_t ppm[] = "P6\n1 1\n255\n\x80\x80\x80";
+    g_autofree char *path = NULL;
+    g_autofree char *bios = g_shell_quote(image);
+    int fd = g_file_open_tmp("nikon-cmos-response-XXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)ppm,
+                                      sizeof(ppm) - 1, NULL));
+    for (unsigned i = 0; i < ARRAY_SIZE(response); i++) {
+        QTestState *q = qtest_initf(
+            "-M z7ii-mas-diagnostic -smp 1 -bios %s -nodefaults -display none "
+            "-global nikon-cmos-functional.red-response=%u "
+            "-global nikon-cmos-functional.blue-response=1024", bios, response[i]);
+
+        configure(q, 2, 2, 2, 8);
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'image','value':%s}}", path);
+        qtest_writel(q, CMOS + 0x024, NIKON_CMOS_FORMAT_FUNCTIONAL_C170);
+        qtest_memset(q, RAM, 0xa5, 16);
+        qtest_writel(q, CMOS + 0x060, 1);
+        qtest_clock_step(q, 10000);
+        g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==,
+                         i ? NIKON_CMOS_ERROR : NIKON_CMOS_DONE);
+        if (!i) {
+            g_assert_cmphex(qtest_readl(q, RAM), ==, 0x80804040);
+            g_assert_cmphex(qtest_readl(q, RAM + 8), ==, 0x20208080);
+            g_assert_cmphex(qtest_readl(q, RAM + 4), ==, 0xa5a5a5a5);
+        } else {
+            g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+        }
+        qtest_system_reset(q);
+        g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_IDLE);
+        qtest_quit(q);
+    }
     unlink(path);
 }
 
@@ -2164,6 +2204,129 @@ static QTestState *paired_start(char **bundle, char **scene,
                                 unsigned table_mode, bool arm)
 {
     return paired_start_profile(bundle, scene, table_mode, arm, false);
+}
+
+static void paired_untouched(QTestState *q);
+static void paired_main_at(QTestState *q, uint32_t address, uint8_t luma,
+                           uint8_t u, uint8_t v);
+
+static void paired_cfa_input(QTestState *q)
+{
+    qtest_writel(q, CAPTURE + 0x1d00, 72 << 16);
+    qtest_writel(q, CAPTURE + 0x1e78, 72 << 16);
+    qtest_writel(q, CAPTURE + 0x100, 0x85);
+    pipeline_configure(q, RAM, 128, 128 * 72,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    qtest_clock_step(q, 10000);
+    qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+}
+
+static void paired_cfa_reduction(unsigned rows)
+{
+    static const char header[] = "P6\n64 72\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+    uint8_t ppm[sizeof(header) - 1 + 64 * 72 * 3], row[96];
+
+    memcpy(ppm, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 72; y++) {
+        for (unsigned x = 0; x < 64; x++) {
+            unsigned at = sizeof(header) - 1 + 3 * (y * 64 + x);
+
+            ppm[at] = 8 + x;
+            ppm[at + 1] = 32 + y;
+            ppm[at + 2] = 64 + x + y;
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)ppm,
+                                      sizeof(ppm), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    qtest_writel(q, 0x2006951c, rows << 16);
+    paired_cfa_input(q);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, rows == 36);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "rejected"), ==, rows != 36);
+    if (rows != 36) {
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+        goto out;
+    }
+    for (unsigned y = 0; y < 36; y++) {
+        unsigned sy = 4 * (y / 2) + y % 2;
+
+        qtest_memread(q, WORK_BUFFER + 0x1000 + 96 * y, row, sizeof(row));
+        for (unsigned x = 0; x < 64; x++) {
+            unsigned phase = 2 * (y % 2) + x % 2;
+            unsigned sample = phase == 0 ? 8 + x :
+                              phase == 3 ? 64 + x + sy : 32 + sy;
+            unsigned bit = x * 12;
+            unsigned packed = lduw_le_p(row + bit / 8);
+
+            g_assert_cmpuint((packed >> (bit % 8)) & 4095, ==,
+                             (sample * 257) >> 4);
+        }
+    }
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000 - 4), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000 + 96 * 36), ==,
+                    0xa5a5a5a5);
+out:
+    paired_untouched(q);
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_paired_cfa_reduction(void)
+{
+    paired_cfa_reduction(36);
+    paired_cfa_reduction(35);
+}
+
+static void test_paired_cfa_color(void)
+{
+    static const uint8_t colors[][3] = {
+        { 128, 128, 128 }, { 192, 64, 32 }, { 32, 64, 192 },
+    };
+    static const uint8_t expected[][3] = {
+        { 129, 128, 128 }, { 99, 90, 195 }, { 69, 198, 101 },
+    };
+    static const int identity[] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+    static const int yuv[] = { 153, 300, 59, -86, -170, 256, 256, -214, -42 };
+
+    for (unsigned color = 0; color < ARRAY_SIZE(colors); color++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+        uint8_t ppm[] = "P6\n1 1\n255\n\0\0\0";
+
+        memcpy(ppm + sizeof(ppm) - 4, colors[color], 3);
+        g_assert_true(g_file_set_contents(scene, (const char *)ppm,
+                                          sizeof(ppm) - 1, NULL));
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'image','value':%s}}", scene);
+        paired_matrix(q, PAIRED, 0xb00, identity, 13, false);
+        paired_matrix(q, PAIRED, 0xb64, yuv, 12, false);
+        /* Odd MAIN crop exercises the encoded RAW origin without rephasing it. */
+        qtest_writel(q, PAIRED + 0x400, (3 << 16) | 28);
+        qtest_writel(q, PAIRED + 0x40c, (56 << 16) | 3);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        paired_cfa_input(q);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+        paired_main_at(q, PAIRED_MAIN, expected[color][0],
+                        expected[color][1], expected[color][2]);
+        g_assert_cmphex(qtest_readl(q, PAIRED_MAIN - 4), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, PAIRED_MAIN + 56), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
 }
 
 static void paired_untouched(QTestState *q)
@@ -4221,7 +4384,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/image-provider", test_image_provider);
     qtest_add_func("/nikon/cmos/image-source", test_image_source_contract);
     qtest_add_func("/nikon/cmos/image-raster", test_image_raster_boundaries);
-    qtest_add_func("/nikon/cmos/pipeline/image-gray", test_image_gray_transport);
+    qtest_add_func("/nikon/cmos/pipeline/image-cfa", test_image_cfa_transport);
+    qtest_add_func("/nikon/cmos/pipeline/cfa-response", test_image_cfa_response);
     qtest_add_func("/nikon/cmos/period", test_period);
     qtest_add_func("/nikon/cmos/pipeline/valid-silent",
                    test_pipeline_valid_and_silent);
@@ -4289,6 +4453,8 @@ int main(int argc, char **argv)
                    test_paired_coverage_cancellation);
     qtest_add_func("/nikon/cmos/paired/second-batch", test_paired_second_batch);
     qtest_add_func("/nikon/cmos/paired/cycle", test_paired_cycle);
+    qtest_add_func("/nikon/cmos/paired/cfa/reduction", test_paired_cfa_reduction);
+    qtest_add_func("/nikon/cmos/paired/cfa/color", test_paired_cfa_color);
     qtest_add_func("/nikon/cmos/paired/publication", test_paired_publication);
     qtest_add_func("/nikon/cmos/paired/stop-drain-race",
                    test_paired_stop_drain_race);

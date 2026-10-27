@@ -63,6 +63,7 @@ typedef struct NikonPairedEventBanksBank {
     uint8_t denoise_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
+    NikonRawEncoding history_encoding[4];
     unsigned phase, seen, refill, stop;
     bool active, published, finish_pending;
     unsigned index;
@@ -771,6 +772,8 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     g_autofree uint8_t *row = NULL;
 
     if (frame->bits != 12 || (frame->width & 1) ||
+        (unsigned)frame->encoding > NIKON_RAW_BGGR ||
+        (frame->encoding != NIKON_RAW_MONO && ((g->width | g->height) & 1)) ||
         frame->width > 4096 || frame->height > 4096 ||
         x0 + g->width > frame->width || y0 + g->height > frame->height ||
         frame->stride != b->config[0x30c / 4] ||
@@ -780,6 +783,8 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
         return false;
     }
     row_bytes = frame->width * 12 / 8;
+    g->encoding = frame->encoding == NIKON_RAW_MONO ? NIKON_RAW_MONO :
+        1 + ((frame->encoding - 1) ^ (x0 & 1) ^ ((y0 & 1) << 1));
     row = g_malloc(MAX(row_bytes, j->plane[2].row_bytes));
     j->raw = g_new(uint16_t, pixels);
     for (unsigned y = 0; y < g->height; y++) {
@@ -798,6 +803,7 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     /* Only successful publication qualifies RAM as numerical history. */
     for (unsigned h = 0; j->work && h < 4; h++) {
         if (b->history_epoch[h] != b->parent->source_epoch ||
+            b->history_encoding[h] != g->encoding ||
             b->history_address[h][0] != j->plane[2].address ||
             b->history_address[h][1] != j->plane[3].address) {
             continue;
@@ -1071,6 +1077,7 @@ static void paired_complete(void *opaque)
             b->history_address[j->phase][0] = j->plane[2].address;
             b->history_address[j->phase][1] = j->plane[3].address;
             b->history_epoch[j->phase] = j->epoch;
+            b->history_encoding[j->phase] = g->encoding;
         }
         b->result += main;
         b->seen |= 1U << j->phase;
@@ -1343,6 +1350,8 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         memset(s->bank[i].history_address, 0,
                sizeof(s->bank[i].history_address));
         memset(s->bank[i].history_epoch, 0, sizeof(s->bank[i].history_epoch));
+        memset(s->bank[i].history_encoding, 0,
+               sizeof(s->bank[i].history_encoding));
         s->bank[i].mask = s->bank[i].pending = 0;
         s->bank[i].request = PAIRED_QUIESCENT;
         s->bank[i].phase = s->bank[i].seen = s->bank[i].refill = 0;

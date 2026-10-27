@@ -10,6 +10,7 @@
 #define HW_NIKON_CMOS_H
 
 #include "hw/core/qdev.h"
+#include "hw/nikon/raw.h"
 
 #define TYPE_NIKON_CMOS "nikon-cmos-functional"
 #define NIKON_CMOS_REGS 0x1000
@@ -55,10 +56,12 @@ typedef struct NikonCmosSubmission {
 uint64_t nikon_cmos_submit(DeviceState *dev,
                            const NikonCmosSubmission *submission, Error **errp);
 bool nikon_cmos_completed(DeviceState *dev, uint64_t generation);
+/* Encoding of the token-qualified completed frame; no pixels bypass its DMA. */
+NikonRawEncoding nikon_cmos_encoding(DeviceState *dev);
 
 /* Explicit internal LE16 stream, without a guest RAM destination. It uses the
  * same provider, chunk timer and generation ownership as DMA submissions.
- * Dimensions are the finite normalized frontend output, not physical Bayer.
+ * Dimensions and CFA encoding describe the finite virtual frontend output.
  */
 uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
                             Error **errp);
@@ -72,8 +75,8 @@ void nikon_cmos_cancel(DeviceState *dev);
 
 /* An image path or explicit fixture provider binds the transport; malformed
  * image inputs still reject before DMA. PGM/PPM scenes are sampled in the
- * configured sensor coordinate system. C170 is functional grayscale LE16,
- * not a physical Bayer/packing claim. Generic diagnostic formats stay opaque.
+ * configured sensor coordinate system. C170 transports mono PGM or virtual
+ * RGGB PPM as LE16, without a physical CFA/packing claim. Other formats stay opaque.
  * Fixture qtests opt in to deterministic bytes through `fixture-provider`.
  */
 bool nikon_cmos_provider_bound(DeviceState *dev);

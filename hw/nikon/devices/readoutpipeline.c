@@ -275,6 +275,7 @@ static void main_input_event(NikonReadoutPipeline *s, unsigned event)
     s->input = (NikonCaptureInput) {
         .generation = ++s->input_generation,
         .width = s->main_width, .height = s->main_height,
+        .encoding = nikon_cmos_encoding(s->cmos),
         .stride = s->main_width * 2, .data = s->input_data, .synchronized = true,
     };
     s->input_main = true;
@@ -337,6 +338,7 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
         s->input = (NikonCaptureInput) {
             .generation = ++s->input_generation,
             .width = m->width, .height = m->height,
+            .encoding = nikon_cmos_encoding(s->cmos),
             .stride = m->stride, .data = data,
             .synchronized = input_sync,
         };

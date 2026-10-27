@@ -1,15 +1,17 @@
 /*
- * Completed functional monochrome RAW DMA, not a sensor-ready notification.
+ * Completed functional mono/CFA RAW DMA, not a sensor-ready notification.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef HW_NIKON_PAIRED_H
 #define HW_NIKON_PAIRED_H
 
 #include "hw/core/qdev.h"
+#include "hw/nikon/raw.h"
 
 typedef struct NikonPairedRawFrame {
     uint64_t generation;
     uint32_t address, width, height, stride, bits;
+    NikonRawEncoding encoding;
     unsigned slot;
 } NikonPairedRawFrame;
 
