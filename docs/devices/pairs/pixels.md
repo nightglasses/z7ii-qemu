@@ -54,7 +54,8 @@ uses the actual RAW producer's bit depth and stride instead.
 The chosen operator accepts grayscale RAW12 samples, applies impulse, spatial
 and temporal filtering, then applies four-lane affine color correction,
 up to two Q10 gain curves, independent
-Q8 RGB gains, bounded LFSR noise and live A/C Q10 and B Q9 matrices to the main image. Its work
+Q8 RGB gains, bounded LFSR noise, A Q10/B Q9 conversion and
+[signed-chroma C processing](post.md) to the main image. Its work
 planes are half-resolution luma and residual; its grid contains area means.
 Those numerical meanings are hypotheses made explicit here so they
 can be tested and replaced when a discriminating consumer or physical record
@@ -81,7 +82,8 @@ f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 218..234, 30c..32c, 394..3b4, 400..410, 428..470, 488..4c8
 594, 598..5dc, 608, 660..678, 708..778, b00..b10, b64..b74, b94..ba4
 1200..1244
-9cc, 9d0, 9d4, df4..e10, 2890..2c94
+900..9c4, 9cc, 9d0, 9d4, 9d8, df4..e10, 2890..2c94
+b58, bac, d28, dd4, dd8
 ```
 
 Every reserved or inaccessible file word must also be zero. A wrong length,
@@ -383,10 +385,13 @@ the recovered publication sizes and packing do not prove the silicon equation.
    indexes the first stage's result. Then replace each enabled channel with
    `clamp12(round(m*channel_gain/256))`.
 6. **Noise.** Apply the bounded three-channel LFSR operation defined below.
-7. **Main matrix conversion.** Apply A then C with Q10 division, then B with Q9
-   division. Each matrix stage rounds symmetrically to nearest, with ties away
-   from zero. A/C outputs clamp
-   to `[0,4095]`. B adds 2048 to its second and third channels before clamping.
+7. **Main matrix conversion.** Apply A in RGB with Q10 division, then B with Q9
+   division. A clamps to `[0,4095]`; B clamps luminance to that range and
+   signed chroma to `[-2048,2047]`. C acts on
+   signed chroma after B, preserving luminance, and the complementary BAC
+   weights blend the original and transformed chroma. Each division rounds
+   symmetrically to nearest, with ties away from zero. Add2048 to the chroma
+   components and clamp before the bounded MAIN [post-processing](post.md).
    Convert to eight bits with `min((value+8)/16,255)`. Main Y stores every pixel;
    UV stores the rounded mean of each 2-by-2 block's U and V, interleaved U first
    (NV12).
@@ -401,7 +406,9 @@ A and C contain signed 13-bit coefficients; B contains signed 12-bit
 coefficients. A/B pack coefficient 0 in the first word, then high/low halfword
 pairs. C uses low/high pairs. A's first word permits only its coefficient bits;
 B/C's first word must be the full sign extension of coefficient 0. Remaining
-words reject bits outside the two coefficient fields. The fixed Q10/Q9 scales,
+words reject bits outside the two coefficient fields. C additionally requires
+the source-shaped identity first row/column; its remaining2×2 coefficients act
+on chroma. The former RGB-domain C interpretation is removed. The fixed Q10/Q9 scales,
 matrix order and saturation are functional interpretations of the recovered
 coefficient layouts, not a claim of identical physical arithmetic.
 

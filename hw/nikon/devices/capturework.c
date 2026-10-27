@@ -1,4 +1,4 @@
-/* C1.70 functional grayscale stream: disabled corrections, geometry, packing.
+/* C1.70 functional mono/CFA stream: disabled corrections, geometry, packing.
  * Input association, nearest sampling and LUT arithmetic are hypotheses;
  * register producers, buffer geometry and completion routing are source-backed.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -100,7 +100,7 @@ static void capture_work_commit(void *opaque, int n, int level)
             valid &= nikon_capture_parameters_configuration(s->parameters,
                 0x14 + 4 * i, &p.words[i]);
         }
-        /* Source policy0 omits the shared9530 pair; it has no grayscale
+        /* Source policy0 omits the shared9530 pair; it has no sample
          * arithmetic here and cannot be a mandatory input qualification.
          */
         nikon_capture_parameters_configuration(s->parameters, 0x30,

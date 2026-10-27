@@ -4320,8 +4320,11 @@ static void test_paired_colorfilter(void)
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         /* RAW2056+96/1028-97 -> spatial2104/980 -> tail2072/1016.
          * Actual MAIN crop(4,4), independent WORK mean2060/1025.
+         * Tail restores axial neighbors to2056/1028. DD's rational gate
+         * therefore adds round(-49152/40960)=-1 or round(39168/40960)=1:
+         * actual MAIN2071/1017 becomes Y129/64 after the complete chain.
          */
-        g_assert_cmpuint(pixels[13 * 64 + 27], ==, sign ? 64 : 130);
+        g_assert_cmpuint(pixels[13 * 64 + 27], ==, sign ? 64 : 129);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 8 * 80 + 15 * 2), ==,
                          sign ? 1025 : 2060);
         qtest_memread(q, PAIRED_GRID + 16 * 96 + 43, cell, sizeof(cell));

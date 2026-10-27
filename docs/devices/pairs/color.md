@@ -51,7 +51,8 @@ neutral spectral response under arbitrary white balance.
 
 1. Split the actual mosaic into four half-resolution phase planes. Run the
    existing impulse suppression, spatial, adaptive, denoise, [detail](detail.md)
-   and [axial residual](adaptive.md) operations on
+   and [axial residual](adaptive.md) operations, followed by the
+   [two color-filter blocks and median tail](colorfilter.md), on
    each plane independently. Neighborhoods therefore contain only one phase;
    their edge samples replicate the nearest sample of that phase.
 2. Compute each2×2 mosaic block's scalar mean and the existing history
@@ -67,8 +68,9 @@ neutral spectral response under arbitrary white balance.
    site, preserve that green; at R/B sites, average the two independently
    interpolated greens. Replicate borders on each same-phase lattice. Integer
    interpolation rounds to nearest with positive ties upward.
-5. Apply the existing two gain curves, RGB gains, noise, A/C/B matrices and
-   NV12 output conversion. Chroma is centered at2048 in12-bit space, averaged
+5. Apply the two gain curves, RGB gains, noise and A/B matrices, followed by
+   [signed-chroma C/BAC and bounded MAIN processing](post.md), then NV12 output
+   conversion. Chroma is centered at2048 in12-bit space, averaged
    over each2×2 output block and normalized to8-bit interleaved U then V.
 
 The phase split, filter placement, common history delta, border policy,
@@ -77,10 +79,13 @@ register packing and actual RAW/output DMA remain separate contracts described
 in [paired pixels](pixels.md). No completion, IRQ, buffer release or timing
 behavior is introduced by this pure numerical helper.
 
-Scratch space is bounded by the existing4096×4096 input limit. The CFA path
-uses one complete mosaic plus three reusable quarter-size phase buffers and
-the existing optional adaptive-filter scratch. It does not allocate separate
-full-resolution RGB planes.
+Scratch space is bounded by the existing4096×4096 input limit. The operator
+uses two RAW-sized scratch buffers; CFA filtering adds three reusable
+quarter-size phase buffers and the existing optional adaptive-filter scratch.
+Three cropped MAIN-sized Q12 planes hold the actual computed YUV for spatial
+post-processing. They supply no hidden RGB source, and are allocated before
+outputs change. The RAW scratch is reused only after every MAIN input has
+been consumed.
 
 ## Validation scope
 
