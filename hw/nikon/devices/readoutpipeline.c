@@ -44,6 +44,10 @@ struct NikonReadoutPipeline {
     NikonReadoutC170Mapping mapping;
     NikonCaptureInput input;
     uint8_t *input_data;
+    NikonCaptureInput main_input;
+    uint8_t *main_data;
+    uint64_t main_generation;
+    bool prefer_main;
     bool main_selected[4], main_valid[2], main_running[3], input_main;
     uint32_t correction, main_width, main_height;
     MainGeometry geometry;
@@ -59,6 +63,15 @@ bool nikon_readout_pipeline_input(DeviceState *dev, NikonCaptureInput *input)
     return input->generation != 0;
 }
 
+bool nikon_readout_pipeline_main_input(DeviceState *dev,
+                                      NikonCaptureInput *input)
+{
+    NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(dev);
+
+    *input = s->main_input;
+    return input->generation != 0;
+}
+
 static void main_input_cancel(NikonReadoutPipeline *s)
 {
     if (s->main_token) {
@@ -66,8 +79,10 @@ static void main_input_cancel(NikonReadoutPipeline *s)
         s->main_token = 0;
     }
     if (s->input_main) {
-        s->input.generation = 0;
+        s->input = (NikonCaptureInput) { 0 };
     }
+    s->main_input = (NikonCaptureInput) { 0 };
+    g_clear_pointer(&s->main_data, g_free);
 }
 
 static void main_input_select(void *opaque, int n, int level)
@@ -124,6 +139,13 @@ static void main_input_run(void *opaque, int n, int level)
     }
 }
 
+static bool main_input_ready(const NikonReadoutPipeline *s)
+{
+    return s->main_running[0] && s->main_running[1] && s->main_running[2] &&
+           s->main_valid[0] && s->main_valid[1] &&
+           !nikon_capture_data_pending(s->capture);
+}
+
 static void main_input_begin(NikonReadoutPipeline *s)
 {
     const MainGeometry *g = &s->geometry;
@@ -131,9 +153,7 @@ static void main_input_begin(NikonReadoutPipeline *s)
     uint32_t width = g->output_columns >> 16;
     uint32_t height = g->output_rows >> 16;
 
-    if (!s->main_running[0] || !s->main_running[1] || !s->main_running[2] ||
-        !s->main_valid[0] || !s->main_valid[1] ||
-        nikon_capture_data_pending(s->capture)) {
+    if (!main_input_ready(s)) {
         return;
     }
     if (s->correction || g->enable != 0x11 ||
@@ -212,7 +232,20 @@ static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
     }
     if (!s->active_generation) {
         main_input_begin(s);
+        if (s->main_token) {
+            s->prefer_main = false;
+        }
         return;
+    }
+    /* One real provider serializes both domains. A fresh TG alternates eligible
+     * main/auxiliary work; busy edges never become acquisition credits.
+     */
+    if (s->prefer_main && main_input_ready(s)) {
+        main_input_begin(s);
+        if (s->main_token) {
+            s->prefer_main = false;
+            return;
+        }
     }
     /*
      * Functional input association: an owned request consumes a fresh TG
@@ -245,6 +278,7 @@ static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
     }
     s->input_sync = s->input_run;
     s->submitted = true;
+    s->prefer_main = true;
 }
 
 static void main_input_event(NikonReadoutPipeline *s, unsigned event)
@@ -270,14 +304,16 @@ static void main_input_event(NikonReadoutPipeline *s, unsigned event)
         s->main_rejected++;
         return;
     }
-    g_free(s->input_data);
-    s->input_data = g_steal_pointer(&data);
-    s->input = (NikonCaptureInput) {
-        .generation = ++s->input_generation,
+    g_free(s->main_data);
+    s->main_data = g_steal_pointer(&data);
+    s->main_input = (NikonCaptureInput) {
+        .generation = ++s->main_generation,
         .width = s->main_width, .height = s->main_height,
         .encoding = nikon_cmos_encoding(s->cmos),
-        .stride = s->main_width * 2, .data = s->input_data, .synchronized = true,
+        .stride = s->main_width * 2, .data = s->main_data, .synchronized = true,
     };
+    s->input = s->main_input;
+    s->input.generation = ++s->input_generation;
     s->input_main = true;
     nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
                           causes, ARRAY_SIZE(causes), &error_abort);
@@ -396,13 +432,16 @@ static void nikon_readout_pipeline_reset(DeviceState *dev)
     s->cmos_generation = 0;
     s->submitted = false;
     s->input_sync = false;
-    s->main_token = s->input_generation = 0;
+    s->main_token = s->input_generation = s->main_generation = 0;
     s->input_main = s->input_run = false;
+    s->prefer_main = false;
     memset(s->main_selected, 0, sizeof(s->main_selected));
     memset(s->main_valid, 0, sizeof(s->main_valid));
     memset(s->main_running, 0, sizeof(s->main_running));
     s->input = (NikonCaptureInput) { 0 };
+    s->main_input = (NikonCaptureInput) { 0 };
     g_clear_pointer(&s->input_data, g_free);
+    g_clear_pointer(&s->main_data, g_free);
     if (generation) {
         nikon_readout_release(s->readout, generation);
     }
@@ -462,6 +501,15 @@ static void nikon_readout_pipeline_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "main-cancelled", &s->main_cancelled,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "main-input-generation",
+                                   &s->main_input.generation,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "main-input-width",
+                                   &s->main_input.width, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "main-input-height",
+                                   &s->main_input.height, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "main-input-stride",
+                                   &s->main_input.stride, OBJ_PROP_FLAG_READ);
 }
 
 static const Property nikon_readout_pipeline_properties[] = {

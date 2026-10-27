@@ -45,14 +45,18 @@ Group raw3.bit0 / mask1000000 remains a separate producer.
 The bundle's separate `capture-processing` device joins existing capture,
 parameters, buffers and completed input. It adds no physical MMIO:
 
-1. It consumes a fresh immutable LE16 mono or explicitly encoded CFA acquisition whose input
-   qualification held continuously from CMOS submission to completion. This
-   reuses the declared shared virtual camera input, not a recovered physical
-   main-stream wire.
+1. It consumes a fresh immutable LE16 mono or explicitly encoded CFA acquisition
+   from the independent full-MAIN producer. Auxiliary transport completion never
+   replaces this snapshot. Its configured MAIN run qualification must hold from
+   submission through actual CMOS completion. Both domains share one virtual
+   CMOS engine through [fresh-TG arbitration](../readoutpipeline/input.md);
+   their association is a finite profile, not a recovered physical sensor wire.
 2. Zero correction flags mean identity forwarding. Unit2 performs nearest
    sampling to its committed output geometry. The independently supplied RAW
    descriptor may apply a further positive integer reduction on either axis;
-   both dimensions must be aligned, nonzero and no larger than unit2 output.
+   both dimensions must be aligned, nonzero and no larger than unit2 output or
+   the actually completed MAIN input. Auxiliary thumbnails cannot be upscaled
+   into a MAIN RAW image.
    Mono uses the existing nearest sampler. CFA reduction selects complete
    2×2 tiles and preserves each sample's phase; odd CFA dimensions reject.
    [Color input](../pairs/color.md) describes the encoding metadata and real

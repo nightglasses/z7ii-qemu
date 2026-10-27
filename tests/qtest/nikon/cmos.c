@@ -1742,7 +1742,8 @@ static void work_configure(QTestState *q, unsigned format, bool lookup)
 
 static void work_input(QTestState *q)
 {
-    statistics_input(q, NULL);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
     qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
 }
 
@@ -1860,7 +1861,12 @@ static void test_capture_work_boundaries(void)
         work_input(q);
         work_rise(q);
         qtest_clock_step(q, 2000000);
-        g_assert_cmpuint(property_at(q, WORK_PATH, "rejected"), ==, 1);
+        bool main_invalid = i == 0 || i == ARRAY_SIZE(bad) - 1;
+
+        g_assert_cmpuint(property_at(q, WORK_PATH, "rejected"), ==,
+                         !main_invalid);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-rejected"), ==,
+                         main_invalid);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0);
@@ -1928,13 +1934,16 @@ static void test_capture_work_freshness(void)
     QTestState *q = pipeline_start(&bundle, NULL);
 
     work_configure(q, 2, true);
-    /* The CMOS source completed while unit1 was stopped: no stream input. */
+    /* A stopped unit1 cannot submit a MAIN acquisition. */
     qtest_writel(q, CAPTURE + 0xc, 1);
     work_input(q);
     qtest_writel(q, CAPTURE + 8, 1);
     work_rise(q);
     qtest_clock_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
     /* A real input cause supplies backpressure, never a processing ACK. */
     statistics_input(q, NULL);
     work_rise(q);
@@ -1956,6 +1965,137 @@ static void test_capture_work_freshness(void)
     qtest_clock_step(q, 2000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
     qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_capture_work_main_domain(void)
+{
+    static const char header[] = "P6\n8 8\n255\n";
+    static const uint8_t rows[4][6] = {
+        { 0x01, 0x21, 0x20, 0x03, 0x23, 0x20 },
+        { 0x02, 0x32, 0x30, 0x02, 0x52, 0x50 },
+        { 0x01, 0x41, 0x40, 0x03, 0x43, 0x40 },
+        { 0x04, 0x54, 0x50, 0x04, 0x74, 0x70 },
+    };
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint8_t image[sizeof(header) - 1 + 8 * 8 * 3];
+    uint8_t expected[96], actual[sizeof(expected)];
+    uint32_t auxiliary = RAM + 0x400000;
+    int fd = g_file_open_tmp("nikon-main-domain-XXXXXX", &scene, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(image, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 8; y++) {
+        for (unsigned x = 0; x < 8; x++) {
+            unsigned at = sizeof(header) - 1 + (y * 8 + x) * 3;
+
+            image[at] = 16 + 16 * (x / 2);
+            image[at + 1] = 32 + 16 * (y / 2);
+            image[at + 2] = 48 + 16 * (x / 2 + y / 2);
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)image,
+                                      sizeof(image), NULL));
+    work_configure(q, 2, false);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    qtest_writel(q, CAPTURE + 0x1d00, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1d04, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1e78, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1e7c, 8 << 16);
+    qtest_writel(q, 0x20069518, 4 << 16);
+    qtest_writel(q, 0x2006951c, 4 << 16);
+    qtest_writel(q, CAPTURE + 0x100, 0x85);
+    pipeline_configure(q, auxiliary, 16640, 16640 * 34,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     0);
+    g_assert_cmphex(qtest_readl(q, auxiliary), ==, 0x20201010);
+    work_ack(q);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    /* The old shared-input implementation consumes auxiliary pixels here. */
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    pipeline_input(q);
+    qtest_clock_step(q, 10000);
+    /* Pending auxiliary work cannot starve the independent MAIN run intent. */
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-width"), ==, 8);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-height"), ==, 8);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-stride"), ==,
+                     16);
+    pipeline_input(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     1);
+    work_ack(q);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "bytes"), ==, 24);
+    memset(expected, 0xa5, sizeof(expected));
+    for (unsigned y = 0; y < 4; y++) {
+        memcpy(expected + 16 + y * 16, rows[y], sizeof(rows[y]));
+    }
+    qtest_memread(q, WORK_BUFFER + 0x1000 - 16, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0x18);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290), ==, 0x80);
+    work_ack(q);
+    /* The latest auxiliary generation is larger than MAIN's independent1.
+     * A run/configuration floor must stay in the MAIN namespace.
+     */
+    qtest_writel(q, CAPTURE + 0xc, 0x200);
+    qtest_writel(q, CAPTURE + 8, 0x200);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    qtest_writel(q, 0x20069a3c, 2);
+    qtest_writel(q, CAPTURE + 0x104, 0x80);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+
+    /* Auxiliary cancellation cannot revoke independently delivered MAIN. */
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     1);
+    main_input_rise(q);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     2);
+    /* MAIN stop clears the legacy reference before freeing MAIN-owned bytes. */
+    qtest_writel(q, CAPTURE + 0xc, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-width"), ==, 0);
+    work_rise(q);
+    qtest_clock_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    qtest_system_reset(q);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
+                     0);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-height"), ==, 0);
+    qtest_quit(q);
+    unlink(scene);
     unlink(bundle);
 }
 
@@ -2384,11 +2524,7 @@ static void paired_cfa_input(QTestState *q)
     qtest_writel(q, CAPTURE + 0x1d00, 72 << 16);
     qtest_writel(q, CAPTURE + 0x1e78, 72 << 16);
     qtest_writel(q, CAPTURE + 0x100, 0x85);
-    pipeline_configure(q, RAM, 128, 128 * 72,
-                       NIKON_READOUT_C170_FORMAT_PRIMARY);
-    pipeline_request(q);
-    qtest_clock_step(q, 10000);
-    qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+    work_input(q);
     work_rise(q);
     qtest_clock_step(q, 2000000);
 }
@@ -4243,11 +4379,7 @@ static void test_paired_detail(void)
         paired_detail(q, PAIRED, 31, 32, 16, 8);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        pipeline_configure(q, RAM, 128, 128 * 36,
-                           NIKON_READOUT_C170_FORMAT_PRIMARY);
-        pipeline_request(q);
-        qtest_clock_step(q, 10000);
-        qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+        work_input(q);
         work_rise(q);
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
@@ -4299,11 +4431,7 @@ static void test_paired_adaptive(void)
         paired_adaptive(q, PAIRED, 15, 8);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        pipeline_configure(q, RAM, 128, 128 * 36,
-                           NIKON_READOUT_C170_FORMAT_PRIMARY);
-        pipeline_request(q);
-        qtest_clock_step(q, 10000);
-        qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+        work_input(q);
         work_rise(q);
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
@@ -4899,11 +5027,7 @@ static void test_paired_colorfilter(void)
         paired_colorfilter(q, PAIRED, 31, 51, false);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        pipeline_configure(q, RAM, 128, 128 * 36,
-                           NIKON_READOUT_C170_FORMAT_PRIMARY);
-        pipeline_request(q);
-        qtest_clock_step(q, 10000);
-        qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+        work_input(q);
         work_rise(q);
         qtest_clock_step(q, 2000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
@@ -5182,13 +5306,7 @@ static void test_paired_radial(void)
                 if (cfa) {
                     paired_cfa_input(q);
                 } else {
-                    /* Explicit64x36 transport, not work_input's128x2 source. */
-                    pipeline_configure(q, RAM, 64, 64 * 36,
-                                       NIKON_READOUT_C170_FORMAT_PRIMARY);
-                    pipeline_request(q);
-                    qtest_clock_step(q, 10000);
-                    qtest_writel(q, CAPTURE + 0x210,
-                                 qtest_readl(q, CAPTURE + 0x210));
+                    work_input(q);
                     work_rise(q);
                     qtest_clock_step(q, 2000000);
                 }
@@ -6116,11 +6234,7 @@ static void test_capture_geometry_reduction(void)
         qtest_writel(q, 0x20069518, 60 << 16);
         qtest_writel(q, 0x2006951c, rows[mode] << 16);
         qtest_writel(q, CAPTURE + 0x100, 0x85);
-        pipeline_configure(q, RAM, 256, 256 * 72,
-                           NIKON_READOUT_C170_FORMAT_PRIMARY);
-        pipeline_request(q);
-        qtest_clock_step(q, 10000);
-        qtest_writel(q, CAPTURE + 0x210, qtest_readl(q, CAPTURE + 0x210));
+        work_input(q);
         work_rise(q);
         qtest_clock_step(q, 2000000);
         memset(expected, 0xa5, sizeof(expected));
@@ -6271,6 +6385,8 @@ int main(int argc, char **argv)
                    test_capture_work_boundaries);
     qtest_add_func("/nikon/cmos/processing/formats", test_capture_work_formats);
     qtest_add_func("/nikon/cmos/processing/freshness", test_capture_work_freshness);
+    qtest_add_func("/nikon/cmos/processing/main-domain",
+                   test_capture_work_main_domain);
     qtest_add_func("/nikon/cmos/paired/transaction", test_paired_processing);
     qtest_add_func("/nikon/cmos/paired/preflight", test_paired_preflight);
     qtest_add_func("/nikon/cmos/paired/lifecycle", test_paired_lifecycle);

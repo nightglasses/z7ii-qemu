@@ -130,7 +130,7 @@ static void capture_work_commit(void *opaque, int n, int level)
             nikon_paired_frame(s->paired, NULL);
         }
         /* A configuration epoch cannot replay an already delivered frame. */
-        if (nikon_readout_pipeline_input(s->pipeline, &input)) {
+        if (nikon_readout_pipeline_main_input(s->pipeline, &input)) {
             s->last_input = input.generation;
         }
     }
@@ -143,7 +143,7 @@ static void capture_work_run(void *opaque, int n, int level)
     if (s->running[n] != !!level) {
         NikonCaptureInput input;
 
-        if (nikon_readout_pipeline_input(s->pipeline, &input)) {
+        if (nikon_readout_pipeline_main_input(s->pipeline, &input)) {
             s->last_input = input.generation;
         }
     }
@@ -204,6 +204,9 @@ static bool capture_work_output(NikonCaptureWork *s, unsigned *bits,
     *width = p->words[1] >> 16;
     *height = p->words[2] >> 16;
     *bits = format == 0 ? 16 : format == 1 ? 14 : 12;
+    if (s->input.width < *width || s->input.height < *height) {
+        return false;
+    }
     if ((unsigned)s->input.encoding > NIKON_RAW_BGGR ||
         (s->input.encoding != NIKON_RAW_MONO &&
          ((s->input.width | s->input.height | *width | *height) & 1))) {
@@ -349,7 +352,7 @@ static void capture_work_rise(void *opaque, int n, int level)
         s->blocked++;
         return;
     }
-    if (!nikon_readout_pipeline_input(s->pipeline, &input) ||
+    if (!nikon_readout_pipeline_main_input(s->pipeline, &input) ||
         input.generation == s->last_input) {
         return;
     }
