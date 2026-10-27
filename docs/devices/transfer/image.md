@@ -1,4 +1,10 @@
-# Initialized A8 image context
+# Finite image contexts
+
+The image command family supports A8 and straight RGBA textures in the retained
+720 × 480 RGBA context. Exact command state, source format, bounded geometry,
+target ownership and complete memory preflight remain mandatory. The A8
+execution receipts below are historical checkpoints; the RGBA extension has
+separate fixture coverage and does not itself establish original completion.
 
 The normal GUI path now completes the 224/472-byte pair and seven subsequent
 176/336-byte image pairs through original IRQ129. At that checkpoint the next
@@ -68,7 +74,8 @@ remain checked. No generic command VM or permissive register store is added.
 Target `1a4` is now an explicit operand: four-byte aligned, wholly below4GiB,
 and covered by one writable direct RAM span for the720×480 RGBA plane. All
 command/source spans, raw overlaps and effective backing aliases with output
-are preflighted. Source dimensions1..256, bounded inline coordinates, finite
+are preflighted. Source dimensions 1..4096 with at most 65,536 texels, bounded
+inline coordinates, finite
 affine path/sample matrices, opaque paint and SRC_OVER retain their existing
 limits. Unknown formats, states and unsafe operands remain errors.
 
@@ -99,7 +106,84 @@ These choices do not establish physical GPU precision or arbitrary state
 combinations. Firmware bytes remain unchanged; the model does not inject
 software events, alter PC or set readiness fields.
 
+## RGBA texture modulation
+
+An unchanged C1.70 MAS GUI submission supplies another complete 176/336-byte
+pair. Its first rejection is at MAS VA `106ee3c6`, committing board PA
+`201810e0=1`, with `transfer-image-program-not-supported`. Compared with the
+existing image grammar, the only fixed-field mismatch is draw word 13:
+`001b0100` instead of the A8 word `001b0018`. Its height also exceeds the old
+256-per-dimension work limit. The source bytes and addresses remain guest
+operands, rather than an address whitelist or a replacement host graphic.
+
+| Operand | Captured value |
+|---|---|
+| Source format / storage | `156=001b0100`, packed four-byte RGBA |
+| Source active / allocation extent | `158=152=001001e0`, 16 × 480 |
+| Source span | Board PA `b2d23380..b2d2ab80`, 30,720 bytes |
+| Inline coordinates | `(0,0,3,480,-3)`, segments `02 07 09 07 00` |
+| Path matrix | Diagonal `(1,-1,1)`, translation `(64,480)` |
+| Sampling matrix | `(0.0625,0,-4,0,-0.0020833611488342285,1,0,0,1)` |
+| Paint / final mode / blend | `ffffffff`, `0e`, SRC_OVER |
+| Target / key | Board PA `bec5f200`, matched retained key `10005` |
+
+The path covers `[64,67) × [0,480)`. Pixel-center nearest sampling selects
+source columns 0..2 and reverses source rows 479..0; the other source columns
+are padding in the submitted row width. The packet alone does not identify
+the texture's GUI role or prove its pixel contents.
+
+The original MAS producer at VA `106b4150` emits the active and allocated
+extents from image fields `+52/+54` and `+56/+58`. Register `156` combines the
+base format at `+28`, bytes `+84 << 16` and `+85 << 8`, and two independent
+flag bits. Thus `0100` is format/state, not a byte pitch. The existing RGBA
+conversion profile also uses `001b0100` with four-byte source storage. The
+fixed [Z7 reference's pixel reader](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-gpu.h#L262-L275) treats low formats `0`/`100` as packed
+RGBA, `18` as white RGB plus source alpha, and mode `0e` as per-channel paint
+modulation. These software joins support the finite extension; they do not
+recover the physical meaning of every source flag.
+
+The parser accepts only the complete words `001b0018` and `001b0100`; other
+formats or flag combinations still reject. Both use the existing five-segment
+inline path, opaque paint, affine f24 sampler, final mode `0e`, SRC_OVER and
+initialized or target-matched retained context. Initialized and independently
+optional cached-matrix/color-disable prefixes share this body validation.
+Source storage is exactly `width × height` bytes for A8 and four times that
+for RGBA. All bytes participate in the existing backing, command-overlap,
+destination-overlap and effective-alias checks before execution.
+
+The common work budget remains 65,536 texels, with a separate 4096 bound on
+each dimension. This allows bounded strips and other aspect ratios rather
+than only the captured 16 × 480 tuple. RGBA scratch input is therefore at
+most 256 KiB. These are functional resource limits, not recovered hardware
+capacities. Straight RGBA, nearest/clamp filtering and integer rounding
+remain explicit functional assumptions. Each sampled RGB channel is
+modulated by the corresponding paint channel; source alpha and path coverage
+produce a premultiplied overlay for the existing SRC_OVER executor.
+
+The added native `rgba-image` fixture checks initialized and retained packets,
+alternate backed targets,
+both optional prefixes, all four temporary paint modes, a synthetic texture
+with the captured strip geometry, horizontal/vertical work limits, channel
+modulation, transparent and partial-alpha pixels, fractional coverage,
+clamping and inversion. It compares the complete output and guards against
+an independent rational-coordinate oracle with literal colored anchors.
+Negative cases cover unknown formats/flags, dimensions and texel budgets,
+RGBA's four-byte span, address wrap, command overlap, backing alias, missing
+or foreign context, input/map loss, reset and cancellation. Deferred source
+changes and immutable admitted command bytes are checked separately.
+The valid initialized RGBA fixture rejects against the previous model. The
+complete `nikon_transfer_unit` executable now passes 29 subtests in 2.57 host
+seconds, including the 35 RGBA-image variants above. This is native fixture
+acceptance, not a new original menu-screen or physical-color claim. Separate
+read-only review finds no blocking issue in the arithmetic, span checks or
+context lifetime. A new original-firmware run with a standard external FAT32
+input first reaches the fill engine's copy-mode boundary, before this texture
+submission; it does not establish original execution of the new RGBA path.
+
 ## Validation and next stop
+
+The following observations describe the earlier A8 implementation and its
+historical next stop.
 
 The new valid initialized-image fixture fails against the old model with
 MEMTX_ERROR. A second native red reproduces retained mode14 rejection after

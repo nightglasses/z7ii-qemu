@@ -1103,7 +1103,7 @@ static bool nikon_transfer_vectors(NikonTransferState *s, uint8_t *pixels,
     return true;
 }
 
-/* C1.70 inline signed32 rectangle and A8 image modulation. */
+/* C1.70 inline signed32 rectangle and A8/straight RGBA image modulation. */
 static const NikonTransferField image_setup_fields[] = {
     { 0, 0x0041f046 }, { 10, 0x00653004 }, { 11, 0x2100 },
     { 12, 0x0003f004 }, { 13, 5 }, { 14, 0x0005f004 }, { 15, 0x80000005 },
@@ -1116,7 +1116,7 @@ static const NikonTransferField image_setup_fields[] = {
 
 static const NikonTransferField image_draw_fields[] = {
     { 0, 0x010c7046 }, { 10, 0x0158f004 }, { 12, 0x01567004 },
-    { 13, 0x001b0018 }, { 14, 0x0152f004 }, { 16, 0x01401004 }, { 17, 2 },
+    { 14, 0x0152f004 }, { 16, 0x01401004 }, { 17, 2 },
     { 18, 0x014df004 }, { 20, 0x014df004 }, { 22, 0x01404004 },
     { 23, 0x00210000 }, { 24, 0x0155f004 },
     { 26, 0x01a04004 }, { 27, 0x10000 }, { 28, 0x01841004 }, { 29, 8 },
@@ -1151,7 +1151,7 @@ static bool nikon_transfer_image_fields(const uint32_t *words, bool setup,
         }
         if ((setup && ((i >= 1 && i <= 9) || i == 25 ||
                        (i >= 36 && i <= 40) || i == 42)) ||
-            (!setup && ((i >= 1 && i <= 9) || i == 11 || i == 15 ||
+            (!setup && ((i >= 1 && i <= 9) || i == 11 || i == 13 || i == 15 ||
                         i == 25 || i == 29 || i == 45 || i == 59 ||
                         i == 71 || i == 78))) {
             continue;
@@ -1170,6 +1170,7 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
     const uint32_t target_bytes = 4 * NIKON_PATH_MASK_BYTES;
     const uint32_t *setup, *draw;
     uint32_t coordinates[5], extent, width, height, paint, key, target;
+    NikonPathImageFormat format;
     uint64_t source[3], length[3];
     size_t setup_bytes, draw_bytes;
     bool initial;
@@ -1207,6 +1208,17 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
         *reason = "transfer-image-program-not-supported";
         return false;
     }
+    switch (le32_to_cpu(draw[13])) {
+    case 0x001b0018:
+        format = NIKON_PATH_IMAGE_A8;
+        break;
+    case 0x001b0100:
+        format = NIKON_PATH_IMAGE_RGBA;
+        break;
+    default:
+        *reason = "transfer-image-format-not-supported";
+        return false;
+    }
     target = le32_to_cpu(draw[59]);
     if (!initial && s->rgba720_target != target) {
         *reason = "transfer-stream-context-not-established";
@@ -1223,7 +1235,7 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
         !(key & 65535) || key != le32_to_cpu(draw[78]) ||
         !le32_to_cpu(setup[25]) ||
         le32_to_cpu(setup[25]) != le32_to_cpu(draw[71]) ||
-        !nikon_path_image(NULL, NULL, NULL, width, height, draw + 1,
+        !nikon_path_image(NULL, NULL, NULL, format, width, height, draw + 1,
                           paint, reason)) {
         *reason = "transfer-image-operands-not-supported";
         return false;
@@ -1246,7 +1258,8 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
     source[2] = le32_to_cpu(draw[25]);
     length[0] = setup_bytes;
     length[1] = draw_bytes;
-    length[2] = width * height;
+    length[2] = (uint64_t)width * height *
+                (format == NIKON_PATH_IMAGE_RGBA ? 4 : 1);
     if ((target & 3) || (uint64_t)target + target_bytes > (1ULL << 32) ||
         nikon_transfer_span(target, target_bytes, true) < target_bytes) {
         *reason = "transfer-stream-memory-range-not-backed";
@@ -1279,7 +1292,7 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
     if (!nikon_path_mask(mask, NIKON_PATH_WIDTH, NIKON_PATH_HEIGHT,
                          segments, 5, coordinates, 5, setup + 1,
                          false, NULL, reason) ||
-        !nikon_path_image(overlay, mask, image, width, height, draw + 1,
+        !nikon_path_image(overlay, mask, image, format, width, height, draw + 1,
                           paint, reason)) {
         return false;
     }
