@@ -142,7 +142,8 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         p->output_height > p->height - p->y ||
         !p->grid_width || !p->grid_height ||
         p->grid_width > p->width || p->grid_height > p->height ||
-        !nikon_paired_noise_valid(p) || !nikon_paired_filter_valid(&p->filter)) {
+        !nikon_paired_noise_valid(p) ||
+        !nikon_paired_filter_valid(&p->filter)) {
         return false;
     }
     for (i = 0; i < 9; i++) {
@@ -510,7 +511,8 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         }
     }
     paired_spatial(dpc, filtered, config->width, config->height);
-    if (!paired_filter(filtered, config->width, config->height, &config->filter)) {
+    if (!paired_filter(filtered, config->width, config->height,
+                        &config->filter)) {
         return false;
     }
     paired_temporal(filtered, config->width, config->height,

@@ -533,6 +533,12 @@
         "title": "Virtual lens, causal SPI DMA and dynamic paired boundary",
         "href": "/evidence/lens/session.json",
         "kind": "Execution observation"
+      },
+      {
+        "run": "pairedcapture",
+        "title": "Photo scheduling, dynamic filtering and real MAIN input delivery",
+        "href": "/evidence/paired/capture.json",
+        "kind": "Model and execution observation"
       }
     ]
   },
@@ -3057,6 +3063,48 @@
         "title": "Ordered vector native validation, lens-warning-free GUI and remaining paired boundary",
         "href": "/evidence/transfer/vector.json",
         "kind": "Execution observation"
+      }
+    ]
+  },
+  "devices/pairs/filter.md": {
+    "records": [
+      {
+        "run": "pairedcapture",
+        "title": "Photo scheduling, dynamic filtering and real MAIN input delivery",
+        "href": "/evidence/paired/capture.json",
+        "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "devices/pairs/modes.md": {
+    "records": [
+      {
+        "run": "pairedcapture",
+        "title": "Photo scheduling, dynamic filtering and real MAIN input delivery",
+        "href": "/evidence/paired/capture.json",
+        "kind": "Model and execution observation"
+      }
+    ]
+  },
+  "devices/gate/input.md": {
+    "records": [
+      {
+        "run": "pairedcapture",
+        "title": "Photo scheduling, dynamic filtering and real MAIN input delivery",
+        "href": "/evidence/paired/capture.json",
+        "kind": "Model and execution observation"
+      },
+      {
+        "run": "pairedcapture",
+        "title": "Original photo status GUI",
+        "href": "/evidence/paired/photo.png",
+        "kind": "Original scanout"
+      },
+      {
+        "run": "pairedcapture",
+        "title": "Actual queued MAIN pixels, diagnostic decode",
+        "href": "/evidence/paired/input.png",
+        "kind": "Intermediate data preview"
       }
     ]
   }

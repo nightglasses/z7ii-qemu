@@ -270,8 +270,10 @@ static bool nikon_event_gate_input_shape(NikonEventGateState *s,
         !command->packet.present[0] || command->packet.value[0] != 8) {
         return false;
     }
-    /* MAS102e2b7e selects type0 resource8 at type5 logical register0.
-     * The finite kind43 view has relative Y=0/UV=0x8000, not frame RAM. */
+    /*
+     * MAS102e2b7e selects type0 resource8 at type5 logical register0.
+     * The finite kind43 view has relative Y=0/UV=0x8000, not frame RAM.
+     */
     return slot[0] == 0x09000201 && slot[1] == 0x15500 &&
            !slot[2] && !slot[3] &&
            slot[4] == shape->stride && slot[5] == shape->stride &&
@@ -462,6 +464,11 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     if (offset >= 0x2040 && offset < 0x2080) {
+        if (offset == 0x2040 + 4 * STREAM_INPUT_SLOT && s->input_data) {
+            /* The actual queued input owns this finite slot until cancel. */
+            *value = 1;
+            return MEMTX_OK;
+        }
         /* Admission is known only while no unbound processor is requested. */
         if (nikon_event_gate_requested(s)) {
             return nikon_event_gate_error(s, offset, size, false, 0);
@@ -825,7 +832,8 @@ static void nikon_event_gate_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "loaded-words", &s->loaded_words,
                                    OBJ_PROP_FLAG_READ);
-    object_property_add_uint64_ptr(obj, "input-generation", &s->input_generation,
+    object_property_add_uint64_ptr(obj, "input-generation",
+                                   &s->input_generation,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "input-frames", &s->input_frames,
                                    OBJ_PROP_FLAG_READ);
@@ -839,7 +847,8 @@ static void nikon_event_gate_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "input-size", &s->input_size,
                                    OBJ_PROP_FLAG_READ);
-    object_property_add_str(obj, "input-data", nikon_event_gate_input_data, NULL);
+    object_property_add_str(obj, "input-data", nikon_event_gate_input_data,
+                             NULL);
 }
 
 static void nikon_event_gate_finalize(Object *obj)

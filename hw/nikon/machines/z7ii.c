@@ -1474,6 +1474,8 @@ static void z7ii_init(MachineState *machine)
 
         sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
         sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
+        object_property_set_link(OBJECT(paired), "gate", OBJECT(gate),
+                                 &error_fatal);
     }
     sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
                          qdev_get_gpio_in(gic, 158 - 32));

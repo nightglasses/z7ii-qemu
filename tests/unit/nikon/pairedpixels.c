@@ -731,6 +731,9 @@ static int64_t filter_reference_round(int64_t value, unsigned divisor)
 
 static void filter_reference(const NikonPairedFilter *f, uint16_t image[16])
 {
+    static const int delta[4][2] = { { -1, 0 }, { 1, 0 },
+                                    { 0, -1 }, { 0, 1 } };
+
     for (unsigned pass = 0; pass < (f->refine ? 2 : 1); pass++) {
         uint16_t source[16];
 
@@ -741,8 +744,7 @@ static void filter_reference(const NikonPairedFilter *f, uint16_t image[16])
                 int64_t sum = 0, s = source[at] * 4;
 
                 for (unsigned direction = 0; direction < 4; direction++) {
-                    int dx = (int[]) { -1, 1, 0, 0 }[direction];
-                    int dy = (int[]) { 0, 0, -1, 1 }[direction];
+                    int dx = delta[direction][0], dy = delta[direction][1];
                     int sx = CLAMP(x + dx * f->radius, 0, 3);
                     int sy = CLAMP(y + dy * f->radius, 0, 3);
 
@@ -803,7 +805,8 @@ static FilterOutputs filter_check(NikonPairedPixelConfig p,
             unsigned at = first + (i / 2) * 4 + i % 2;
 
             expected.grid[at] = filter_reference_round(
-                expected.grid[at] * (256 - weight) + prior[block] * weight, 256);
+                expected.grid[at] * (256 - weight) + prior[block] * weight,
+                256);
             sum += expected.grid[at];
         }
         expected.half[block] = filter_reference_round(sum, 4);
@@ -813,8 +816,8 @@ static FilterOutputs filter_check(NikonPairedPixelConfig p,
     }
     memset(expected.uv, 128, sizeof(expected.uv));
     g_assert_true(nikon_paired_pixels(&p, raw, history ? prior : NULL,
-        history ? old_residual : NULL, actual.half, actual.residual, actual.grid,
-        actual.y, actual.uv));
+        history ? old_residual : NULL, actual.half, actual.residual,
+        actual.grid, actual.y, actual.uv));
     g_assert_cmpmem(&actual, sizeof(actual), &expected, sizeof(expected));
     return actual;
 }
@@ -878,10 +881,18 @@ static void filter(void)
         };
         baseline = filter_check(p, patterns[1], false);
         switch (field) {
-        case 0: p.filter.retain = 12000; break;
-        case 1: p.filter.base = 512; break;
-        case 2: p.filter.radius = 2; break;
-        case 3: p.filter.slope = 12000; break;
+        case 0:
+            p.filter.retain = 12000;
+            break;
+        case 1:
+            p.filter.base = 512;
+            break;
+        case 2:
+            p.filter.radius = 2;
+            break;
+        case 3:
+            p.filter.slope = 12000;
+            break;
         }
         changed = filter_check(p, patterns[1], false);
         g_assert_cmpint(memcmp(baseline.grid, changed.grid,
@@ -930,16 +941,36 @@ static void filter_invalid(void)
     for (unsigned test = 0; test < 10; test++) {
         p.filter = (NikonPairedFilter) { .enabled = test >= 6 };
         switch (test) {
-        case 0: p.filter.refine = true; break;
-        case 1: p.filter.clipped = true; break;
-        case 2: p.filter.retain = 1; break;
-        case 3: p.filter.base = 1; break;
-        case 4: p.filter.radius = 1; break;
-        case 5: p.filter.slope = 1; break;
-        case 6: p.filter.retain = 16384; break;
-        case 7: p.filter.base = 16384; break;
-        case 8: p.filter.radius = 16; break;
-        case 9: p.filter.slope = 16384; break;
+        case 0:
+            p.filter.refine = true;
+            break;
+        case 1:
+            p.filter.clipped = true;
+            break;
+        case 2:
+            p.filter.retain = 1;
+            break;
+        case 3:
+            p.filter.base = 1;
+            break;
+        case 4:
+            p.filter.radius = 1;
+            break;
+        case 5:
+            p.filter.slope = 1;
+            break;
+        case 6:
+            p.filter.retain = 16384;
+            break;
+        case 7:
+            p.filter.base = 16384;
+            break;
+        case 8:
+            p.filter.radius = 16;
+            break;
+        case 9:
+            p.filter.slope = 16384;
+            break;
         }
         g_assert_false(nikon_paired_filter_valid(&p.filter));
         rejected(&p, raw, NULL, NULL);
