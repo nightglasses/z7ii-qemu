@@ -167,7 +167,7 @@ bounded keyed-data copy wrapper and unconditionally returns zero.  The
 call is not a request or response dispatcher.
 
 The necessary success chain from the entry to the fixed setter is `P != 0`,
-a non-null handle at `0xb25f250c`, its field conversion through
+a non-null module-directory entry at `0xb25f250c`, its field conversion through
 `0x10443e3e` (which returns one on all reconstructed paths), nonzero
 `0x10398206(sp)`,
 `0x10235c84(P, 0) != 0`, `B[3] == 1`, and `*(u32 *)(B + 0x60) != 0`.
@@ -190,6 +190,16 @@ written with parameter pointer `0xb25eefd0` at `0x1023490a`.  This fixed
 lifecycle object is distinct from
 aggregate-state root `R`.  Static control flow establishes both paths but
 does not prove that unchanged firmware has naturally executed either entry.
+
+The directory entry is not an AE-completion handle. C1.70 MAS VA `10234816`
+calls `1035c768 →10358dd8` with destination `b25f24fc`. The callee lazily
+initializes directory `b23d00b8` and copies20 bytes; its fifth entry becomes
+`b25f250c` and denotes module40 (hex `28`) plus20 bytes. A zero post-window
+snapshot means this capture-preparation copy has not occurred, not that
+continuous live view is waiting for an AE result. The separate preparation
+entry `10234642` instead copies to `b25f24e8`; its fifth entry is `b25f24f8`.
+It requires the low byte of configuration671 to differ from2 and byte
+`b1887d73` to be zero. Neither copy is a per-frame ready notification.
 
 Separately, the firmware-local code-`0x281` path publishes bit29 to a different
 event object. Original instructions establish the target as `b2aa1da8`,
