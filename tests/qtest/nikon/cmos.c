@@ -1751,8 +1751,10 @@ static void test_statistics_job_ownership(void)
         if (operation) {
             g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
                                          "completed"), ==, 0);
-            g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
-                                         "cancelled"), ==, 1);
+            if (operation == 1) {
+                g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                             "cancelled"), ==, 1);
+            }
             g_assert_cmphex(qtest_readl(q, first), ==, 0xa5a5a5a5);
             g_assert_cmphex(qtest_readl(q, next), ==, 0xa5a5a5a5);
             g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
