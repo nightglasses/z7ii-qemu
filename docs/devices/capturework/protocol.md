@@ -87,8 +87,9 @@ Both command ports latch independently. Staging/unselected commits preserve
 the job; equal commits preserve ring phase. Changed modeled snapshots cancel
 active work and prevent replay of already delivered input. All four run gates must
 hold. Stop/disable/unit reset/system reset cancels the1ms virtual processing
-timer without a data cause; restart cannot replay old input. Pending frontend,
-paired and statistics data provide backpressure. The immutable job survives
+timer without a data cause; restart cannot replay old input. Its own pending
+RAW packet provides backpressure; statistics raw0.bit6 does not own this path.
+The immutable job survives
 source RAM reuse. Time/TG/commit alone cannot create a frame. Unsupported
 geometry/LUT/format/ring/RAM/overlap/wrap rejects without completion.
 
@@ -100,7 +101,7 @@ publish a new processing cause: pending ownership still blocks admission, and
 only the completed packing/DMA job supplies its normal causes.
 
 Capture-control also retries this same admission path when an accepted W1C
-clears the complete frontend predicate: raw0 bits `0x58` and raw4 bit `0x80`
+clears the complete frontend predicate: raw0 bits `0x18` and raw4 bit `0x80`
 must all be clear. Partial/unrelated ACKs do not retry. A fresh qualified MAIN
 snapshot can therefore begin its actual packing/DMA job immediately after
 capacity returns, while generation, run, configuration and active-job checks

@@ -64,6 +64,17 @@ is no mandatory extra TG between completed acquisition and processing admission.
 Group's TG cursor remains metadata; its numerical job snapshots the cursor at
 processing admission, including when acquisition crosses another boundary.
 
+MAIN acquisition does not wait for a statistics packet's raw0.bit6 ACK. Each
+fresh eligible TG may replace the latest immutable MAIN snapshot while existing
+processing jobs retain their private copies. Statistics owns its pending packet
+and admits another job only under its own pending predicate; capture-work owns
+raw0 bits `0x18` and raw4 bit `0x80`. Source unit controls, completion consumers
+and normal output pools are separate. Treating those ownership domains
+independently is a functional inference; the earlier shared statistics gate was
+a scheduling assumption, not a recovered cross-unit stall protocol. These
+predicates neither serialize arbitrary aliases between producer output pools
+nor replace each producer's existing complete-batch RAM/overlap checks.
+
 A successful guest W1C that changes a processing-capacity predicate from
 blocked to clear supplies a second admission opportunity for already completed
 input. Capture-control first clears the accepted status bits and recomputes
@@ -71,7 +82,7 @@ IRQs, then pulses the corresponding internal `*-capacity-ready` output:
 
 | Output | Complete blocking predicate |
 | --- | --- |
-| `front-capacity-ready` | raw0 bits `0x58` or raw4 bit `0x80` pending |
+| `front-capacity-ready` | raw0 bits `0x18` or raw4 bit `0x80` pending |
 | `data-capacity-ready` | raw0 bit `0x40` both pending and enabled |
 | `group-capacity-ready` | raw3 bit `0x1` pending, including when masked |
 
@@ -162,12 +173,20 @@ reentrant submission and deadline overflow. This scoped timer evidence is
 separate from original-firmware execution and complete boot claims.
 
 The `/nikon/cmos/capacity/` fixtures exercise all three processing paths with
-actual prior output pending and a fresh blocked acquisition. Final W1C alone
+actual prior output pending and a fresh completed input awaiting processing.
+Final W1C alone
 must admit the next real output without a further TG, while zero/unrelated/
 partial W1C, missing freshness, stop and reset preserve untouched destinations.
 The checks retain exact payload/mean/count values and row guards, and verify
 that group acknowledgement leaves its cursor unchanged. These are native
 synthetic scheduling checks, separate from original-firmware execution.
+
+The `capacity/domains` case places all ten statistics endpoints and both
+address sets in a pool disjoint from RAW. It retains actual statistics bytes
+and raw0.bit6 while fresh MAIN generations produce RAW packets, checks RAW's
+own partial/aggregate ACK backpressure, then requires the statistics ACK to
+produce the next actual statistics slot without another acquisition. Neither
+path may replay a consumed generation after its next ACK.
 
 The native `/nikon/cmos/cfa-coordinate-identity` case compares every output
 sample against an independent scalar reference using both coordinate floors

@@ -328,8 +328,14 @@ queue or accumulated TG scheduler is introduced.
 Main and auxiliary deliveries use one monotonic input-generation namespace,
 and each processing job copies its selected input. Masked main notifications
 coalesce in retained status without stopping acquisition. A pending **enabled**
-raw6 data notification still backpressures acquisition/statistics; a masked
-raw6 does not block mode1's ring completion. Mask changes do not themselves
+raw6 data notification backpressures statistics alone; a masked raw6 does not
+block mode1's ring completion. The earlier acquisition/statistics cross-gate
+was a finite scheduling assumption, superseded by independent packet ownership:
+MAIN continues fresh eligible acquisitions and capture-work blocks only on
+its raw0 mask18 or raw4 mask80. Each processing job already owns a private input
+copy. This separation is a functional inference from the independent unit
+controls and consumers, not a physical cross-unit timing measurement.
+Mask changes do not themselves
 produce a frame, numerical result or completion.
 
 Only a successful immutable snapshot and normal capture publication pulse

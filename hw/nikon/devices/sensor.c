@@ -1014,7 +1014,7 @@ bool nikon_capture_front_pending(DeviceState *dev)
 {
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
 
-    return (s->pending[0] & 0x58) || (s->pending[4] & 0x80);
+    return (s->pending[0] & 0x18) || (s->pending[4] & 0x80);
 }
 
 bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,

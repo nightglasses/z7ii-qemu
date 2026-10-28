@@ -41,6 +41,13 @@ latest completed input without another TG; no fresh generation means no job.
 ACK permits replacement
 even if software did not read the preceding results; empty queues can discard
 a completed frame.
+This predicate owns only the statistics packet. It does not stop MAIN
+acquisition or capture-work RAW packing: fresh acquisition may replace the
+latest snapshot while the pending statistics bytes remain unchanged. The
+matching statistics ACK admits the latest still-unconsumed generation, with
+the same run/configuration/active-job checks and complete DMA requirement.
+The independent ownership is a functional inference from separate source unit
+lifecycles; no audited protocol establishes the earlier shared stall gate.
 The diagram follows the data-consumer IRQ94 route. The separate stage-fence
 IRQ96 below belongs to the same successful transaction; it does not submit a
 second processing job.

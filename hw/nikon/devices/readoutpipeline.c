@@ -143,8 +143,7 @@ static void main_input_run(void *opaque, int n, int level)
 static bool main_input_ready(const NikonReadoutPipeline *s)
 {
     return s->main_running[0] && s->main_running[1] && s->main_running[2] &&
-           s->main_valid[0] && s->main_valid[1] &&
-           !nikon_capture_data_pending(s->capture);
+           s->main_valid[0] && s->main_valid[1];
 }
 
 static void main_input_begin(NikonReadoutPipeline *s)

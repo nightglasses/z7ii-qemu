@@ -1582,7 +1582,9 @@ static void test_main_input_masked_stream(void)
     qtest_writel(q, 0x2006a544, 0);
     qtest_writel(q, CAPTURE + 0x100, 8);
     main_input_configure(q);
-    /* First-read mode1 has ring completion, without per-frame data ACKs. */
+    /* Masking permits statistics ring progress without per-frame data ACKs;
+     * MAIN acquisition has an independent lifetime.
+     */
     qtest_writel(q, CAPTURE + 0x200, 0);
     qtest_writel(q, CAPTURE + 0x260, 0x80);
     for (unsigned i = 0; i < 3; i++) {
