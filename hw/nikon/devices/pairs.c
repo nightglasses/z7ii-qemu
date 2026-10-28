@@ -2658,7 +2658,7 @@ static char *paired_runtime(Object *obj, Error **errp)
                                    slot ? "," : "", b->consumed[slot]);
         }
         g_string_append_printf(state, " history-revision=%" PRIu64
-            " stage=%u remaining=%u capacity-wait=%u postpass=%u\n",
+            " stage=%u remaining=%u capacity-wait=%u postpass=%u prefixpass=%u\n",
             b->history_revision,
             b->compute && b->compute->pixels ?
                 nikon_paired_pixels_stage(b->compute->pixels) :
@@ -2666,7 +2666,9 @@ static char *paired_runtime(Object *obj, Error **errp)
             b->compute ? b->compute->remaining : 0,
             b->compute ? b->compute->waiting_capacity : false,
             b->compute && b->compute->pixels ?
-                nikon_paired_pixels_post_pass(b->compute->pixels) : 0);
+                nikon_paired_pixels_post_pass(b->compute->pixels) : 0,
+            b->compute && b->compute->pixels ?
+                nikon_paired_pixels_prefix_pass(b->compute->pixels) : 0);
         for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
             if (paired_online_open(b->online_written[group])) {
                 g_string_append_printf(state,

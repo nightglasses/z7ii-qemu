@@ -554,7 +554,8 @@ static void test_stage_cancel(gconstpointer opaque)
     unsigned target = GPOINTER_TO_UINT(opaque) & 7;
     bool unrealize = GPOINTER_TO_UINT(opaque) & 8;
     bool middle_post = GPOINTER_TO_UINT(opaque) & 16;
-    PoolBarrier blockers[12], markers[12];
+    bool middle_prefix = GPOINTER_TO_UINT(opaque) & 32;
+    PoolBarrier blockers[32], markers[32];
     unsigned hop = 0;
     PairedFixture *f = fixture_new();
     g_autofree char *text = g_strdup_printf(" stage=%u remaining=", target);
@@ -568,11 +569,12 @@ static void test_stage_cancel(gconstpointer opaque)
     admit(f);
     g_assert_true(runtime_has(f, " stage=0 remaining=1"));
     while (!runtime_has(f, text) ||
-           (middle_post && !runtime_has(f, "postpass=2"))) {
+           (middle_post && !runtime_has(f, "postpass=2")) ||
+           (middle_prefix && !runtime_has(f, "prefixpass=5"))) {
         g_assert_cmpuint(hop + 1, <, ARRAY_SIZE(blockers));
         worker_returned(&blockers[hop], &markers[hop]);
         /* Queue the next blocker before delivering the current stage's Aio
-         * callbacks. POST may join and resubmit another pass with the same
+         * callbacks. PREFIX/POST may join and resubmit with the same
          * stage number. The single-worker FIFO marker, rather than a presumed
          * enum increment, proves every prior child callback was delivered.
          */
@@ -1432,6 +1434,10 @@ int main(int argc, char **argv)
                          GUINT_TO_POINTER(5 | 16), test_stage_cancel);
     g_test_add_data_func("/nikon/paired/async/prefix-unrealize",
                          GUINT_TO_POINTER(1 | 8), test_stage_cancel);
+    g_test_add_data_func("/nikon/paired/async/prefix-middle-reset",
+                         GUINT_TO_POINTER(1 | 32), test_stage_cancel);
+    g_test_add_data_func("/nikon/paired/async/prefix-middle-unrealize",
+                         GUINT_TO_POINTER(1 | 32 | 8), test_stage_cancel);
     g_test_add_func("/nikon/paired/async/parallel-completion",
                     test_parallel_completion);
     g_test_add_func("/nikon/paired/async/irq-reset", test_irq_reset);
