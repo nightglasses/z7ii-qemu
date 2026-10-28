@@ -2458,6 +2458,40 @@ static void reference_plane(const NikonPairedPixelConfig *p, uint16_t *image,
     color_reference(&p->colorfilter, image, width, height, lane);
 }
 
+static unsigned prefix_tasks(const NikonPairedPixelConfig *p, unsigned pass)
+{
+    unsigned phases = p->encoding == NIKON_RAW_MONO ? 1 : 4;
+    unsigned active = 0;
+
+    for (unsigned phase = 0; phase < phases; phase++) {
+        bool enabled = true;
+
+        if (pass == 0 || pass == 11) {
+            enabled = phases == 4;
+        } else if (pass == 3 || pass == 4) {
+            enabled = p->filter.enabled && p->filter.radius &&
+                      p->filter.retain != 16383 &&
+                      (pass == 3 || p->filter.refine);
+        } else if (pass == 6) {
+            enabled = p->detail.strength;
+        } else if (pass == 7) {
+            enabled = p->adaptive.weight && p->adaptive.dose;
+        } else if (pass == 8 || pass == 9) {
+            const uint8_t *strength = p->colorfilter.block[pass - 8].strength;
+            unsigned lane = phases == 1 ? 4 : phase ^ (p->encoding - 1);
+
+            enabled = phases == 1 ?
+                (strength[0] + strength[1] + strength[2] + 1) / 3 != 0 :
+                strength[lane == 3 ? 2 : lane != 0] != 0;
+        } else if (pass == 10) {
+            enabled = p->colorfilter.strength;
+        }
+        active += enabled;
+    }
+    return active * (phases == 1 ? MIN(p->height, 4U) :
+                                    MIN(p->height / 2, 3U));
+}
+
 /* The public synchronous call drives forward task order. Drive the same
  * fixed graph in reverse order as a second execution and compare every actual
  * output with that call, which the independent scalar oracles below validate.
@@ -2481,9 +2515,15 @@ static void stages_check(const NikonPairedPixelConfig *p, const uint16_t *raw,
     for (unsigned stage = 0; stage < NIKON_PAIRED_PIXEL_DONE;) {
         unsigned tasks = nikon_paired_pixels_tasks(c);
         unsigned pass = nikon_paired_pixels_post_pass(c);
+        unsigned prefix = nikon_paired_pixels_prefix_pass(c);
 
         g_assert_cmpuint(nikon_paired_pixels_stage(c), ==, stage);
-        g_assert_cmpuint(tasks, <=, stage == NIKON_PAIRED_PIXEL_POST ? 12 : 4);
+        g_assert_cmpuint(tasks, <=, stage == NIKON_PAIRED_PIXEL_POST ||
+                         stage == NIKON_PAIRED_PIXEL_PREFIX ? 12 : 4);
+        if (stage == NIKON_PAIRED_PIXEL_PREFIX) {
+            g_assert_cmpuint(prefix, <, 12);
+            g_assert_cmpuint(tasks, ==, prefix_tasks(p, prefix));
+        }
         if (stage == NIKON_PAIRED_PIXEL_POST) {
             unsigned channels = 3;
 
@@ -2514,7 +2554,11 @@ static void stages_check(const NikonPairedPixelConfig *p, const uint16_t *raw,
         if (stage == NIKON_PAIRED_PIXEL_POST) {
             g_assert_cmpuint(nikon_paired_pixels_post_pass(c), ==, pass + 1);
         }
-        if (stage != NIKON_PAIRED_PIXEL_POST || pass == 4) {
+        if (stage == NIKON_PAIRED_PIXEL_PREFIX) {
+            g_assert_cmpuint(nikon_paired_pixels_prefix_pass(c), ==, prefix + 1);
+        }
+        if ((stage != NIKON_PAIRED_PIXEL_POST || pass == 4) &&
+            (stage != NIKON_PAIRED_PIXEL_PREFIX || prefix == 11)) {
             stage++;
         }
     }
@@ -4124,6 +4168,13 @@ static void stages(void)
                 p.grid_width = p.width;
                 p.grid_height = p.height;
                 p.denoise = denoise_config();
+                if (pattern == 0 || pattern == 3) {
+                    p.filter = (NikonPairedFilter) {
+                        .enabled = true, .refine = pattern == 3, .clipped = true,
+                        .retain = 6087, .base = 50,
+                        .radius = pattern == 3 ? 15 : 1, .slope = 50,
+                    };
+                }
                 p.detail = (NikonPairedDetail) { 31, 32, 16 };
                 p.adaptive = (NikonPairedAdaptive) {
                     .base = 300, .slope = 4095, .cap = 4095, .weight = 1024,
@@ -4396,6 +4447,67 @@ static void post_barriers(void)
         g_assert_null(nikon_paired_pixels_result(c));
         nikon_paired_pixels_free(c);
     }
+}
+
+static void prefix_barriers(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[140];
+    uint16_t half[35], residual[35], reference[140];
+    uint8_t y[60], uv[30];
+
+    p.encoding = NIKON_RAW_RGGB;
+    p.width = 10;
+    p.height = 14;
+    p.x = 1;
+    p.y = 3;
+    p.output_width = 6;
+    p.output_height = 10;
+    p.grid_width = p.width;
+    p.grid_height = p.height;
+    p.filter = (NikonPairedFilter) {
+        .enabled = true, .refine = true, .clipped = true,
+        .retain = 7000, .base = 300, .radius = 15, .slope = 12000,
+    };
+    p.detail = (NikonPairedDetail) { 31, 32, 16 };
+    p.adaptive = (NikonPairedAdaptive) {
+        .base = 300, .slope = 4095, .cap = 4095, .weight = 1024,
+        .precision = 8, .dose = 15,
+    };
+    p.colorfilter = color_active();
+    for (unsigned i = 0; i < ARRAY_SIZE(raw); i++) {
+        raw[i] = (i * 113 + i * i * 31) % 4096;
+    }
+    /* Every numerical pass, including gather/scatter, may be disposed after
+     * only some bands ran. Neither incomplete planes nor a result are exposed.
+     */
+    for (unsigned pass = 0; pass < 12; pass++) {
+        NikonPairedPixels *c = nikon_paired_pixels_new(&p, raw, NULL, NULL, NULL);
+
+        g_assert_nonnull(c);
+        while (nikon_paired_pixels_stage(c) != NIKON_PAIRED_PIXEL_PREFIX ||
+               nikon_paired_pixels_prefix_pass(c) < pass) {
+            for (unsigned i = nikon_paired_pixels_tasks(c); i; i--) {
+                g_assert_true(nikon_paired_pixels_run(c, i - 1));
+            }
+            g_assert_true(nikon_paired_pixels_advance(c));
+        }
+        g_assert_cmpuint(nikon_paired_pixels_tasks(c), ==, 12);
+        g_assert_false(nikon_paired_pixels_advance(c));
+        g_assert_false(nikon_paired_pixels_run(c, 12));
+        g_assert_true(nikon_paired_pixels_run(c, 11));
+        g_assert_false(nikon_paired_pixels_run(c, 11));
+        g_assert_true(nikon_paired_pixels_run(c, 0));
+        g_assert_false(nikon_paired_pixels_advance(c));
+        g_assert_cmpuint(nikon_paired_pixels_prefix_pass(c), ==, pass);
+        g_assert_null(nikon_paired_pixels_result(c));
+        nikon_paired_pixels_free(c);
+    }
+    /* The same large-radius, uneven-band geometry also runs to completion in
+     * both task orders against the independent scalar prefix/history oracle.
+     */
+    g_assert_true(pixels_checked(&p, raw, NULL, NULL, half, residual,
+                                  reference, y, uv));
 }
 
 static void dpc_bounds(void)
@@ -4723,6 +4835,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/stages", stages);
     g_test_add_func("/nikon/pairedpixels/stages-invalid", stages_invalid);
     g_test_add_func("/nikon/pairedpixels/post-barriers", post_barriers);
+    g_test_add_func("/nikon/pairedpixels/prefix-barriers", prefix_barriers);
     g_test_add_func("/nikon/pairedpixels/post-packet", post_packet);
     g_test_add_func("/nikon/pairedpixels/saturation", saturation);
     g_test_add_func("/nikon/pairedpixels/saturation-cfa", saturation_cfa);
