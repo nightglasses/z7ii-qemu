@@ -161,19 +161,6 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
     if (group_word(s, 0x80) == group_word(s, 0x180)) {
         return false;
     }
-    for (unsigned row = 0; row < 3; row++) {
-        unsigned magnitude = 0;
-
-        for (unsigned i = 0; i < 8; i++) {
-            uint32_t v = group_word(s, 0x20 + row * 32 + i * 4);
-            int coefficient = sextract32(v, 0, i ? 7 : 8);
-
-            magnitude += abs(coefficient);
-        }
-        if (!magnitude) {
-            return false;
-        }
-    }
     return true;
 }
 
@@ -240,6 +227,8 @@ static void group_complete(void *opaque)
     unsigned width, height, cells;
     unsigned sizes[3];
     uint32_t address[3];
+    int coefficients[3][8], offsets[3][8];
+    unsigned taps[3] = { 0 }, magnitude[3] = { 0 };
     g_autofree uint64_t *integral = NULL;
     g_autofree uint16_t *pixels = NULL;
     g_autofree uint8_t *data = NULL;
@@ -254,6 +243,25 @@ static void group_complete(void *opaque)
     if (!group_profile(s, roi, &width, &height, &cells)) {
         s->rejected++;
         return;
+    }
+    /* Omit only zero contributions, preserving signed taps and their order. */
+    for (unsigned f = 0; f < 3; f++) {
+        for (unsigned tap = 0; tap < 8; tap++) {
+            int coefficient = sextract32(group_word(s,
+                0x20 + f * 32 + tap * 4), 0, tap ? 7 : 8);
+
+            if (coefficient) {
+                unsigned at = taps[f]++;
+
+                coefficients[f][at] = coefficient;
+                offsets[f][at] = (int)tap - 3;
+                magnitude[f] += abs(coefficient);
+            }
+        }
+        if (!magnitude[f]) {
+            s->rejected++;
+            return;
+        }
     }
     sizes[0] = group_word(s, 0x22c) & 1 ? 40 : 0;
     sizes[1] = group_word(s, 0x22c) & 1 ? 24 : 0;
@@ -322,17 +330,14 @@ static void group_complete(void *opaque)
 
             for (unsigned f = 0; f < 3; f++) {
                 int response = 0;
-                unsigned magnitude = 0;
 
-                for (unsigned tap = 0; tap < 8; tap++) {
-                    int coefficient = sextract32(group_word(s,
-                        0x20 + f * 32 + tap * 4), 0, tap ? 7 : 8);
-                    unsigned sx = CLAMP((int)x + (int)tap - 3, 0, (int)iw - 1);
+                for (unsigned tap = 0; tap < taps[f]; tap++) {
+                    unsigned sx = CLAMP((int)x + offsets[f][tap],
+                                        0, (int)iw - 1);
 
-                    response += coefficient * pixels[y * iw + sx];
-                    magnitude += abs(coefficient);
+                    response += coefficients[f][tap] * pixels[y * iw + sx];
                 }
-                values[2 + f] = abs(response) / magnitude;
+                values[2 + f] = abs(response) / magnitude[f];
             }
             for (unsigned i = 0; i < 5; i++) {
                 row[i] += values[i];
