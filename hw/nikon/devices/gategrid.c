@@ -89,7 +89,7 @@ bool nikon_gate_grid_lut3(const uint16_t bank[6][1024],
 }
 
 bool nikon_gate_grid_matrix4(const NikonGateGridMatrix *matrix,
-                             const uint16_t *input, size_t samples,
+                             const int32_t *input, size_t samples,
                              int32_t *output, size_t output_count)
 {
     g_autofree int32_t *data = NULL;
@@ -111,7 +111,7 @@ bool nikon_gate_grid_matrix4(const NikonGateGridMatrix *matrix,
             }
         }
     }
-    /* Four bounded products sum to less than 2^34, including the constant. */
+    /* Three signed16 * signed32 terms plus the constant sum to less than 2^48. */
     data = g_new(int32_t, output_count);
     for (unsigned r = 0; r < 4; r++) {
         const NikonGateGridRow *row = &matrix->row[r];

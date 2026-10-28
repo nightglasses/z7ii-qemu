@@ -87,8 +87,8 @@ static NikonGateGridMatrix matrix_config(void)
 
 static void matrix(void)
 {
-    const uint16_t input[] = { 1, 3, 5, 7, 9, 11 };
-    const int32_t expected[] = { 3, 5, -2, -3, 30, 30, -6, -6 };
+    const int32_t input[] = { 1, -3, 5, -7, 9, -11 };
+    const int32_t expected[] = { 3, -1, -2, 5, 30, 0, -6, -6 };
     NikonGateGridMatrix p = matrix_config();
     g_autofree void *storage = g_malloc(sizeof(expected));
     int32_t out[8];
@@ -100,7 +100,7 @@ static void matrix(void)
     g_assert_cmpmem(storage, sizeof(expected), expected, sizeof(expected));
 
     /* Bounds must permit a full wide sum before the signed output clamp. */
-    uint16_t maximum[] = { UINT16_MAX, UINT16_MAX, UINT16_MAX };
+    int32_t maximum[] = { INT32_MAX, INT32_MAX, INT32_MAX };
 
     p.constant = 65535;
     for (unsigned r = 0; r < 4; r++) {
@@ -114,6 +114,13 @@ static void matrix(void)
     g_assert_true(nikon_gate_grid_matrix4(&p, maximum, 1, out, 4));
     for (unsigned r = 0; r < 4; r++) {
         g_assert_cmpint(out[r], ==, r & 1 ? INT32_MIN : INT32_MAX);
+    }
+    for (unsigned c = 0; c < 3; c++) {
+        maximum[c] = INT32_MIN;
+    }
+    g_assert_true(nikon_gate_grid_matrix4(&p, maximum, 1, out, 4));
+    for (unsigned r = 0; r < 4; r++) {
+        g_assert_cmpint(out[r], ==, r & 1 ? INT32_MAX : INT32_MIN);
     }
 }
 
@@ -250,6 +257,7 @@ static void invalid(void)
     NikonGateGridMatrix m = matrix_config();
     NikonGateGridFilter f = { .tap = { 1 }, .upper = 10 };
     int32_t feature[4], original[4], pixel = INT32_MIN;
+    const int32_t matrix_input[] = { 1, 2, 16384 };
 
     memset(color, 0xa5, sizeof(color));
     memcpy(saved, color, sizeof(color));
@@ -272,17 +280,17 @@ static void invalid(void)
     memset(feature, 0xa5, sizeof(feature));
     memcpy(original, feature, sizeof(original));
     m.row[3].coefficient[3] = 32768;
-    g_assert_false(nikon_gate_grid_matrix4(&m, input, 1, feature, 4));
+    g_assert_false(nikon_gate_grid_matrix4(&m, matrix_input, 1, feature, 4));
     m = matrix_config();
     m.row[3].shift = 32;
-    g_assert_false(nikon_gate_grid_matrix4(&m, input, 1, feature, 4));
+    g_assert_false(nikon_gate_grid_matrix4(&m, matrix_input, 1, feature, 4));
     m = matrix_config();
     m.constant = 65536;
-    g_assert_false(nikon_gate_grid_matrix4(&m, input, 1, feature, 4));
+    g_assert_false(nikon_gate_grid_matrix4(&m, matrix_input, 1, feature, 4));
     m = matrix_config();
     m.row[3].lower = 1;
     m.row[3].upper = 0;
-    g_assert_false(nikon_gate_grid_matrix4(&m, input, 1, feature, 4));
+    g_assert_false(nikon_gate_grid_matrix4(&m, matrix_input, 1, feature, 4));
     g_assert_false(nikon_gate_grid_filter(&f, &pixel, 5, 1, 1, feature, 4));
     g_assert_false(nikon_gate_grid_filter(&f, &pixel, 1, 0, 1, feature, 1));
     g_assert_false(nikon_gate_grid_filter(&f, &pixel, 1, 4097, 1, feature, 4));

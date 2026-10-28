@@ -38,6 +38,7 @@ typedef struct NikonGateGridFilter {
  * decodes guest LE16 and handles guest pitches. samples is one plane's length,
  * in [1,4096*4096]; output_count is in elements and must match exactly.
  * Gain, LUT and matrix inputs have three planes; the matrix returns four.
+ * Gain/LUT use unsigned16 samples; matrix/filter use signed32 samples.
  * Every public output is copied from private scratch only after all validation
  * and arithmetic succeeds. Input, parameters, tables and output may overlap.
  * A false return leaves every output byte unchanged.
@@ -60,9 +61,9 @@ bool nikon_gate_grid_lut3(const uint16_t bank[6][1024],
                           const uint16_t *input, size_t samples,
                           uint16_t *output, size_t output_count);
 
-/* Four signed rows applied to [R,G,B,constant]; signed ties round away. */
+/* Four rows on full signed32 [R,G,B] plus constant; signed ties round away. */
 bool nikon_gate_grid_matrix4(const NikonGateGridMatrix *matrix,
-                             const uint16_t *input, size_t samples,
+                             const int32_t *input, size_t samples,
                              int32_t *output, size_t output_count);
 
 /*
