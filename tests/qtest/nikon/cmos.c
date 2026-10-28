@@ -1970,11 +1970,27 @@ static void group_configure(QTestState *q)
     qtest_writel(q, CAPTURE + 0x100, 0x15);
 }
 
+static void group_input_complete(QTestState *q)
+{
+    uint64_t expected = property_at(q, PIPELINE_PATH, "main-completed") + 1;
+    int64_t start = qtest_clock_step(q, 0);
+
+    /* Stop on actual MAIN DONE: a fixed 10 us step overshoots group admission. */
+    while (property_at(q, PIPELINE_PATH, "main-completed") < expected) {
+        int64_t now = qtest_clock_step_next(q);
+
+        /* These fixtures use at most 1024 one-nanosecond CMOS row chunks. */
+        g_assert_cmpint(now - start, <=, 10000);
+    }
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==,
+                     expected);
+}
+
 static void group_input(QTestState *q)
 {
     qtest_writel(q, CAPTURE + 0x210, 1);
     main_input_rise(q);
-    pipeline_step(q, 10000);
+    group_input_complete(q);
 }
 
 static void group_worker_drain(QTestState *q)
@@ -2225,7 +2241,7 @@ static void test_group_commit_input(void)
         main_input_rise(q);
         /* Commit while actual MAIN acquisition is in flight, without group TG. */
         qtest_writel(q, CAPTURE + 0x104, 0x10);
-        pipeline_step(q, 10000);
+        group_input_complete(q);
         g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x370), ==, 1);
         g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 2);
         g_assert_cmphex(qtest_readl(q, first + 8), ==, 0xa5a5a5a5);
