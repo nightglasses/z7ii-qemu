@@ -748,10 +748,15 @@ grid `+16/+1e` halfwords and companion final word `+14`. Gaps between record
 families and after the last cell are also preserved. Source-consumer
 classification does not turn unread bytes into padding.
 
-The existing TG address packet remains independent metadata. A fresh MAIN
-generation on an automatic rise, after selected commit and effective unit20
-run, admits one owned computation with a declared 1 ms virtual latency. The
-job snapshots the committed configuration, cursor packet and input bytes.
+The existing TG address packet remains independent metadata. Once that boundary
+has selected a cursor, a fresh completed MAIN generation, after selected commit
+and effective unit20 run, admits one owned computation with a declared 1 ms
+virtual latency. MAIN data-ready tries admission immediately; a TG boundary
+also tries a previously delivered, still unconsumed generation. The job snapshots
+the committed configuration, cursor packet and input bytes. Requiring an extra
+TG after actual acquisition completion was a previous functional scheduling
+choice, not a recovered hardware requirement. The data-ready association removes
+that extra latency without changing the job's numerical or ownership conditions.
 Both address sets and every ring slot of selected families must cover writable
 RAM spans. Selected families must not overlap within a bank; the mutually
 selected banks may share storage. Each selected stride must cover its record

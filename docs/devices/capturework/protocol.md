@@ -92,6 +92,13 @@ paired and statistics data provide backpressure. The immutable job survives
 source RAM reuse. Time/TG/commit alone cannot create a frame. Unsupported
 geometry/LUT/format/ring/RAM/overlap/wrap rejects without completion.
 
+Successful MAIN publication signals input-ready directly. The job can therefore
+snapshot its fresh bytes without waiting for an additional TG boundary. The
+earlier extra-TG association was a functional scheduling choice, not a source
+requirement. This input signal does not acknowledge the preceding output or
+publish a new processing cause: pending ownership still blocks admission, and
+only the completed packing/DMA job supplies its normal causes.
+
 There is no group completion, guest callback, cache write, display enable or
 guessed953c-family result. Configuration retention alone remains silent.
 

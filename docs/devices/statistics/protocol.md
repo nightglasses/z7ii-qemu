@@ -20,7 +20,7 @@ the device does not invoke the guest consumer itself.
 
 ```mermaid
 flowchart TD
-  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, eligible TG,<br/>fresh input, no enabled pending raw6?"}
+  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, completed input,<br/>fresh generation, no enabled pending raw6?"}
   CMOS["Successfully completed CMOS bytes"] -. "immutable functional input association" .-> Input["Retained input generation"]
   Input --> Eligible
   Eligible -->|"yes"| Job["Own config revision, input, cursors<br/>and running-bank mask"]
@@ -31,7 +31,7 @@ flowchart TD
   DMA -->|"Transfer failure"| Reject
   Results --> Raw["Set capture raw0.bit6<br/>Existing IRQ94 / W1C path"]
   Raw --> Ack["Original software acknowledges raw6"]
-  Ack -->|"Next fresh input / TG may run"| Eligible
+  Ack -->|"Next fresh completed input may run"| Eligible
   Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel ownership and timer<br/>No completion for the cancelled job"]
 ```
 
@@ -42,6 +42,12 @@ a completed frame.
 The diagram follows the data-consumer IRQ94 route. The separate stage-fence
 IRQ96 below belongs to the same successful transaction; it does not submit a
 second processing job.
+
+Input-ready is emitted only after the pipeline owns a successful immutable
+MAIN snapshot or auxiliary DMA publication. It replaces the earlier requirement
+to wait for a further TG before admitting these already completed bytes. This
+is a functional scheduling association; it does not bypass pending raw6, create
+input credits, or turn acquisition completion into statistics completion.
 
 ## Established protocol and geometry
 

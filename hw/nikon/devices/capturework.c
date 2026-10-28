@@ -419,7 +419,7 @@ static void capture_work_init(Object *obj)
     qdev_init_gpio_in_named(dev, capture_work_select, "commit-selected", 6);
     qdev_init_gpio_in_named(dev, capture_work_commit, "commit", 2);
     qdev_init_gpio_in_named(dev, capture_work_run, "run", 4);
-    qdev_init_gpio_in_named(dev, capture_work_rise, "automatic-rise", 1);
+    qdev_init_gpio_in_named(dev, capture_work_rise, "input-ready", 1);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,

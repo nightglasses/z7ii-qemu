@@ -1257,14 +1257,10 @@ static void z7ii_init(MachineState *machine)
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
             input_split = split;
-            qdev_prop_set_uint16(split, "num-lines", 4);
+            qdev_prop_set_uint16(split, "num-lines", 2);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "automatic-rise", 0));
-            qdev_connect_gpio_out(split, 1,
-                qdev_get_gpio_in_named(statistics, "automatic-rise", 0));
-            qdev_connect_gpio_out(split, 3,
-                qdev_get_gpio_in_named(work, "automatic-rise", 0));
             qdev_connect_gpio_out_named(router, "automatic-rise", 0,
                                        qdev_get_gpio_in(split, 0));
             qdev_connect_gpio_out_named(capture, "run-state", 4,
@@ -1386,8 +1382,22 @@ static void z7ii_init(MachineState *machine)
                                  &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
         /* One input boundary clocks transport admission and processing. */
-        qdev_connect_gpio_out(input_split, 2,
+        qdev_connect_gpio_out(input_split, 1,
             qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
+        {
+            DeviceState *ready = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(ready, "num-lines", 2);
+            qdev_realize_and_unref(ready, NULL, &error_fatal);
+            qdev_connect_gpio_out(ready, 0,
+                qdev_get_gpio_in_named(group, "input-ready", 0));
+            qdev_connect_gpio_out(ready, 1,
+                qdev_get_gpio_in_named(work, "input-ready", 0));
+            qdev_connect_gpio_out_named(pipeline, "main-input-ready", 0,
+                                       qdev_get_gpio_in(ready, 0));
+            qdev_connect_gpio_out_named(pipeline, "input-ready", 0,
+                qdev_get_gpio_in_named(statistics, "input-ready", 0));
+        }
         for (unsigned i = 0; i < 4; i++) {
             static const unsigned bits[] = { 0, 2, 3, 9 };
             qemu_irq target = qdev_get_gpio_in_named(work, "run", i);

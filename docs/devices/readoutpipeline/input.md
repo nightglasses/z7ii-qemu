@@ -48,14 +48,21 @@ Every successful request still uses the existing CMOS token, timed chunks,
 actual DMA or complete internal stream, and DONE qualification. No clock edge,
 commit, pending marker or elapsed time alone publishes a completed image.
 
-On a fresh automatic TG edge, an idle provider initially prefers an owned
-auxiliary request. After admitting auxiliary work, the next eligible edge
-prefers MAIN if its committed geometry, run gates and existing data backpressure
-permit it. After admitting MAIN, auxiliary is preferred again. With only one
-eligible domain, that domain proceeds normally. This bounded one-to-one fairness
-rule is a virtual arbitration hypothesis, rather than a recovered hardware rate.
-Busy edges are discarded; the model does not queue edge credits or add another
-timer. A queued auxiliary descriptor remains owned while MAIN is in flight.
+On a fresh automatic TG edge, an idle provider admits eligible MAIN and the
+auxiliary generation already owned at that boundary. The same engine completes
+MAIN first, then starts that admitted auxiliary view without another TG edge.
+Each view still requires its actual DONE and successful snapshot or DMA.
+Busy edges create no credits; late or replacement auxiliary generations wait
+for another fresh boundary. This bounded two-view association replaces the
+previous alternating-edge hypothesis; neither choice is recovered sensor timing.
+
+Successful immutable publication immediately signals input availability to
+statistics, and MAIN additionally signals capture-work and group. Those devices
+retain their independent configuration, run, generation and pending-ACK checks,
+then perform their numerical work and DMA before publishing completion. There
+is no mandatory extra TG between completed acquisition and processing admission.
+Group's TG cursor remains metadata; its numerical job snapshots the cursor at
+processing admission, including when acquisition crosses another boundary.
 
 MAIN stop or changed committed geometry cancels only an owned MAIN acquisition
 and invalidates its completed snapshot. If the latest-acquisition interface

@@ -421,24 +421,13 @@ static bool nikon_capture_group_cursor_valid(NikonCaptureGroupState *s)
     return true;
 }
 
-static void nikon_capture_group_automatic_rise(void *opaque, int index, int level)
+static void group_input_ready(void *opaque, int index, int level)
 {
     NikonCaptureGroupState *s = opaque;
 
-    if (!level || !s->running || !s->active_valid) {
+    if (!level || !s->running || !s->active_valid || !s->started) {
         return;
     }
-    /* Functional phase: first edge selects start, later edges wrap by count. */
-    s->cursor = s->started ? (s->cursor + 1) % (s->active[2] + 1) :
-                            s->active[1];
-    s->started = true;
-    s->results[0] = s->active[0];
-    s->results[1] = s->cursor;
-    for (unsigned i = 0; i < 6; i++) {
-        s->results[2 + i] = s->active[6 + i] +
-                            s->cursor * s->active[3 + i % 3];
-    }
-    s->result_state = GROUP_RESULT_PUBLISHED;
     if (s->pipeline && s->capture && !s->busy && s->committed[0x22c / 4]) {
         NikonCaptureInput input;
 
@@ -467,6 +456,27 @@ static void nikon_capture_group_automatic_rise(void *opaque, int index, int leve
         s->busy = true;
         timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
     }
+}
+
+static void nikon_capture_group_automatic_rise(void *opaque, int index, int level)
+{
+    NikonCaptureGroupState *s = opaque;
+
+    if (!level || !s->running || !s->active_valid) {
+        return;
+    }
+    /* Functional phase: first edge selects start, later edges wrap by count. */
+    s->cursor = s->started ? (s->cursor + 1) % (s->active[2] + 1) :
+                            s->active[1];
+    s->started = true;
+    s->results[0] = s->active[0];
+    s->results[1] = s->cursor;
+    for (unsigned i = 0; i < 6; i++) {
+        s->results[2 + i] = s->active[6 + i] +
+                            s->cursor * s->active[3 + i % 3];
+    }
+    s->result_state = GROUP_RESULT_PUBLISHED;
+    group_input_ready(s, 0, 1);
 }
 
 static void nikon_capture_group_commit_selected(void *opaque, int index,
@@ -677,6 +687,7 @@ static void nikon_capture_group_init(Object *obj)
                            "commit-selected", 2);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_commit, "commit", 2);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_run, "run", 1);
+    qdev_init_gpio_in_named(DEVICE(s), group_input_ready, "input-ready", 1);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_automatic_rise,
                            "automatic-rise", 1);
 }

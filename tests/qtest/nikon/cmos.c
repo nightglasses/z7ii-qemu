@@ -1040,8 +1040,10 @@ static void test_statistics_stage_completion(void)
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
     g_assert_false(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
 
-    statistics_input(q, NULL);
-    statistics_rise(q);
+    pipeline_configure(q, RAM, 0x100, 0x400,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    pipeline_step(q, 5); /* Exposure plus four row chunks: input is now DONE. */
     pipeline_step(q, 999999);
     g_assert_cmphex(qtest_readl(q, RAM + 0x101000), ==, 0xa5a5a5a5);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
@@ -1188,8 +1190,10 @@ static void test_statistics_ring_completion(void)
     qtest_writel(q, CAPTURE + 0x260, 0x80);
     /* Two remaining slots in the three-slot endpoint1 ring. */
     for (unsigned i = 0; i < 2; i++) {
-        statistics_input(q, NULL);
-        statistics_rise(q);
+        pipeline_configure(q, RAM, 0x100, 0x400,
+                           NIKON_READOUT_C170_FORMAT_PRIMARY);
+        pipeline_request(q);
+        pipeline_step(q, 5);
         pipeline_step(q, 999999);
         g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270) & 0x80, ==, 0);
         pipeline_step(q, 1);
@@ -2040,6 +2044,37 @@ static void test_group_payload(void)
     unlink(bundle);
 }
 
+static void test_group_ready(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint32_t base = GROUP_BUFFER + 0x4000;
+
+    group_configure(q);
+    group_rise(q); /* Initial unit2; acquisition has not completed. */
+    qtest_writel(q, CAPTURE + 0x210, 1);
+    main_input_rise(q);
+    group_rise(q); /* Delayed acquisition crosses TG: admission uses unit0. */
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 0);
+    pipeline_step(q, 1010000);
+    /* No further TG is needed to calculate and DMA the completed input. */
+    g_assert_cmpuint(qtest_readl(q, base + 8), ==, 114864);
+    g_assert_cmpuint(qtest_readl(q, base + 12), ==, 64);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x370), ==, 1);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x378), ==, GROUP_BUFFER);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x478), ==, GROUP_BUFFER + 0x80);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x578), ==, GROUP_BUFFER + 0xd0);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x37c), ==, base);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x47c), ==, base + 0x80);
+    g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x57c), ==, base + 0xd0);
+    g_assert_cmphex(qtest_readl(q, GROUP_BUFFER + 0x5808), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 1);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 static void test_group_boundaries(void)
 {
     static const uint32_t bad[][2] = {
@@ -2391,26 +2426,38 @@ static void test_capture_work_freshness(void)
     main_input_rise(q);
     pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
-    /* A real input cause supplies backpressure, never a processing ACK. */
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0x18);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290) & 0x80, ==, 0x80);
+    /* A real prior completion owns the output until the matching guest ACK. */
+    uint64_t blocked = property_at(q, WORK_PATH, "blocked");
+
     statistics_input(q, NULL);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "blocked"), ==, blocked + 1);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
     work_rise(q);
-    g_assert_cmpuint(property_at(q, WORK_PATH, "blocked"), ==, 1);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "blocked"), ==, blocked + 2);
     work_ack(q);
     work_rise(q);
     pipeline_step(q, 2000000);
-    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0);
     work_ack(q);
     /* Stop/start cannot replay the delivered generation into the next slot. */
+    qtest_memset(q, WORK_BUFFER + 0x1000, 0xa5, 32);
     qtest_writel(q, CAPTURE + 0xc, 0x200);
     qtest_writel(q, CAPTURE + 8, 0x200);
     work_rise(q);
     pipeline_step(q, 2000000);
-    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
-    g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
     work_input(q);
     work_rise(q);
     pipeline_step(q, 2000000);
-    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 3);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0);
     qtest_quit(q);
     unlink(bundle);
 }
@@ -7118,6 +7165,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/pipeline/view-boundary",
                    test_acquisition_boundary);
     qtest_add_func("/nikon/cmos/group/payload", test_group_payload);
+    qtest_add_func("/nikon/cmos/group/input-ready", test_group_ready);
     qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
     qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
     qtest_add_func("/nikon/cmos/group/families", test_group_families);
