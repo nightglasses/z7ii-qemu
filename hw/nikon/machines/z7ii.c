@@ -813,7 +813,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *readout;
     DeviceState *capture;
     DeviceState *work = NULL;
-    DeviceState *paired;
+    DeviceState *paired, *gate;
     DeviceState *pipeline = NULL;
     DeviceState *parameters;
     DeviceState *group;
@@ -1213,11 +1213,20 @@ static void z7ii_init(MachineState *machine)
     }
     object_property_add_child(OBJECT(machine), "paired-processing",
                               OBJECT(paired));
+    gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
+                                qdev_get_gpio_in(gic, 102 - 32));
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
+    object_property_set_link(OBJECT(paired), "gate", OBJECT(gate), &error_fatal);
+    qdev_connect_gpio_out_named(gate, "grid-ready", 0,
+        qdev_get_gpio_in_named(paired, "grid-ready", 0));
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
         if (s->bundle) {
             statistics = qdev_new(TYPE_NIKON_STATISTICS);
+            object_property_set_link(OBJECT(statistics), "gate", OBJECT(gate),
+                                     &error_fatal);
             work = qdev_new(TYPE_NIKON_CAPTURE_WORK);
             pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
             object_property_add_child(OBJECT(machine), "readout-pipeline",
@@ -1489,15 +1498,6 @@ static void z7ii_init(MachineState *machine)
     }
     sysbus_create_simple(TYPE_NIKON_STAGED_CONFIGURATION, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
-    {
-        DeviceState *gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE,
-                             0x20100000, qdev_get_gpio_in(gic, 102 - 32));
-
-        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
-        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
-        object_property_set_link(OBJECT(paired), "gate", OBJECT(gate),
-                                 &error_fatal);
-    }
     sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
                          qdev_get_gpio_in(gic, 158 - 32));
     /* IRQ229 belongs to a software callback registration, not a proven wire. */

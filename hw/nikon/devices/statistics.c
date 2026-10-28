@@ -1,5 +1,5 @@
 /*
- * Capture unit16: explicit finite grayscale statistics/DMA profile.
+ * Capture unit16: finite scalar statistics and three-plane RGB-grid DMA.
  * Geometry is source-backed; arithmetic/input/ring timing are hypotheses.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -16,6 +16,7 @@
 #include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/statistics.h"
+#include "hw/nikon/gridinput.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
@@ -45,7 +46,7 @@ typedef struct StatisticsTask {
 
 struct NikonStatistics {
     SysBusDevice parent_obj;
-    DeviceState *endpoints, *banks, *pipeline, *capture;
+    DeviceState *endpoints, *banks, *pipeline, *capture, *gate;
     QEMUTimer *timer;
     uint32_t committed[NIKON_CAPTURE_ENDPOINT_WORDS];
     unsigned cursor[10];
@@ -222,6 +223,67 @@ static void statistics_cell(const uint64_t *integral, unsigned width,
     result[3] = (sum + count / 2) / count;
 }
 
+static unsigned statistics_color(NikonRawEncoding encoding, unsigned x,
+                                  unsigned y)
+{
+    unsigned lane = (encoding - 1) ^ ((y & 1) * 2 + (x & 1));
+
+    return lane == 0 ? 0 : lane == 3 ? 2 : 1;
+}
+
+static uint16_t statistics_rgb(const StatisticsJob *j, unsigned x, unsigned y,
+                               unsigned columns, unsigned rows, unsigned color,
+                               uint32_t mono)
+{
+    const NikonCaptureInput *in = &j->input;
+    uint64_t sum = 0, count = 0;
+    unsigned x0 = (uint64_t)x * in->width / columns;
+    unsigned y0 = (uint64_t)y * in->height / rows;
+    unsigned x1 = MIN(in->width, MAX(x0 + 1,
+                                   (uint64_t)(x + 1) * in->width / columns));
+    unsigned y1 = MIN(in->height, MAX(y0 + 1,
+                                    (uint64_t)(y + 1) * in->height / rows));
+
+    if (in->encoding == NIKON_RAW_MONO) {
+        return MIN((mono + 2) / 4, 16383);
+    }
+    for (unsigned sy = y0; sy < y1; sy++) {
+        for (unsigned sx = x0; sx < x1; sx++) {
+            if (statistics_color(in->encoding, sx, sy) == color) {
+                sum += lduw_le_p(j->input_data + sy * in->stride + sx * 2);
+                count++;
+            }
+        }
+    }
+    if (!count) {
+        /* A sub-cell can omit a CFA lane. Replicate its nearest actual phase,
+         * rather than inventing a zero channel at the image boundary. */
+        unsigned best = UINT_MAX;
+
+        for (unsigned py = 0; py < 2; py++) {
+            for (unsigned px = 0; px < 2; px++) {
+                unsigned sx = x0 & ~1U, sy = y0 & ~1U;
+
+                if (statistics_color(in->encoding, px, py) != color) {
+                    continue;
+                }
+                sx = MIN(sx + px, ((in->width - 1 - px) & ~1U) + px);
+                sy = MIN(sy + py, ((in->height - 1 - py) & ~1U) + py);
+                unsigned distance = abs((int)sx - (int)x0) +
+                                    abs((int)sy - (int)y0);
+
+                if (distance < best) {
+                    best = distance;
+                    sum = lduw_le_p(j->input_data + sy * in->stride + sx * 2);
+                    count = 1;
+                }
+            }
+        }
+    }
+    /* Explicit virtual scale: full-range MAIN16 -> RGB14, round then clip. */
+    return MIN((sum + count * 2) / (count * 4), 16383);
+}
+
 static int statistics_compute(void *opaque)
 {
     StatisticsTask *task = opaque;
@@ -259,7 +321,10 @@ static int statistics_compute(void *opaque)
                     for (unsigned i = 0; i < 4; i++) {
                         stl_le_p(row + x * 16 + i * 4, cell[i]);
                     }
-                } else if (n <= 4) {
+                } else if (n >= 2 && n <= 4) {
+                    stw_le_p(row + x * 2, statistics_rgb(j, x, y,
+                        o->width, o->height, n - 2, cell[3]));
+                } else if (n == 1) {
                     stw_le_p(row + x * 2, cell[3]);
                 } else {
                     row[x] = cell[3] >> 8;
@@ -328,6 +393,7 @@ static void statistics_complete(void *opaque)
     uint32_t causes[2] = { 0x40, 0 };
     uint32_t stage[2] = { 0x20, 0 };
     uint64_t token = s->token;
+    NikonGatePlaneInput rgb = { 0 };
 
     if (!s->active) {
         return;
@@ -357,6 +423,17 @@ static void statistics_complete(void *opaque)
         s->rejected++;
         goto out;
     }
+    if (s->gate && out[2].bytes && out[3].bytes && out[4].bytes &&
+        out[2].width == out[3].width && out[2].width == out[4].width &&
+        out[2].height == out[3].height && out[2].height == out[4].height) {
+        rgb.width = out[2].width;
+        rgb.height = out[2].height;
+        for (unsigned c = 0; c < 3; c++) {
+            rgb.address[c] = out[2 + c].address;
+            rgb.stride[c] = out[2 + c].pitch;
+        }
+        nikon_gate_plane_input(s->gate, &rgb);
+    }
     for (unsigned n = 0; n < 10; n++) {
         const StatisticsOutput *o = &j->out[n];
 
@@ -382,8 +459,12 @@ static void statistics_complete(void *opaque)
         }
     }
     s->active = false;
+    rgb.generation = j->input.generation;
     object_ref(OBJECT(s));
     statistics_task_free(task);
+    if (rgb.width && token == s->token) {
+        nikon_gate_plane_input(s->gate, &rgb);
+    }
     /* Synchronous consumers may ACK, stop or reset from either event. */
     /* sw8 configures these outputs; its fence follows this job's real work. */
     nikon_capture_publish(s->capture, NIKON_CAPTURE_THIRD_EVENT,
@@ -420,6 +501,7 @@ static void statistics_rise(void *opaque, int n, int level)
     s->last_input = input.generation;
     now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     if (input.width < 2 || input.height < 2 ||
+        input.encoding > NIKON_RAW_BGGR ||
         (uint64_t)input.width * input.height > 4 * 1024 * 1024 ||
         now < 0 || now > INT64_MAX - 1000000) {
         s->rejected++;
@@ -491,6 +573,9 @@ static void statistics_reset(DeviceState *dev)
     NikonStatistics *s = NIKON_STATISTICS(dev);
 
     statistics_cancel(s, false);
+    if (s->gate) {
+        nikon_gate_plane_input(s->gate, NULL);
+    }
     s->valid = s->running = false;
     s->last_input = 0;
     s->revision = 0;
@@ -560,6 +645,8 @@ static const Property statistics_properties[] = {
                      TYPE_NIKON_READOUT_PIPELINE, DeviceState *),
     DEFINE_PROP_LINK("capture", NikonStatistics, capture,
                      TYPE_NIKON_CAPTURE_CONTROL, DeviceState *),
+    DEFINE_PROP_LINK("gate", NikonStatistics, gate,
+                     TYPE_NIKON_EVENT_GATE, DeviceState *),
 };
 
 static const VMStateDescription statistics_vmstate = {

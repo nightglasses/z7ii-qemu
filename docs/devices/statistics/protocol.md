@@ -14,7 +14,7 @@ Source projections and raw runs remain in
 ## One processing generation
 
 The solid arrows describe the implemented finite transaction. The dashed
-input association, grayscale arithmetic and 1ms latency are functional
+input association, numerical arithmetic and 1ms latency are functional
 hypotheses. Hardware completion and software root retirement remain distinct;
 the device does not invoke the guest consumer itself.
 
@@ -246,14 +246,31 @@ borrowed guest pointer. The coordinator claims the latest such immutable
 input once per eligible automatic TG rise, copies it for its job, and never
 reuses that input generation, including after rejection/cancellation. This
 associates auxiliary transport with processing input as a finite functional
-hypothesis, not a recovered physical sensor topology. Inputs are LE16
-grayscale with the existing transport geometry, bounded to4M samples.
+hypothesis, not a recovered physical sensor topology. Inputs are immutable
+LE16 MAIN or auxiliary snapshots with explicit MONO or Bayer encoding and the
+existing transport geometry, bounded to 4M samples. This association does not
+claim that statistics always selects MAIN when both producers publish.
 
 Each destination cell covers its proportional input box. Upsampling uses
 at least one input sample in each dimension. Wide integer integral sums
-produce rounded box means. Endpoint1..4 store LE16 means;5..9 store their
-high byte. RGB-related endpoints use the same grayscale projection, with
-no inferred Bayer order, color calibration or proprietary filtering.
+produce rounded box means. Endpoint1 stores the full-range LE16 mean;
+endpoints5..9 store its high byte. Endpoints2/3/4 instead store R/G/B means
+from the corresponding actual CFA lanes. The declared virtual scale is
+`min(16383, floor((sum + 2 * count) / (4 * count)))`: full-range input16 to
+RGB14, rounded and clipped. Both green lanes contribute. A cell without a
+requested CFA color replicates its nearest available phase; MONO input uses
+the same quarter-scale mean for all three planes. CFA identity comes from the
+input descriptor, not an inferred physical sensor order. These choices do not
+recover factory color calibration or proprietary filtering.
+
+When all three RGB outputs have the same dimensions, the board-linked gate
+receives address/stride/shape metadata. Generation zero withdraws the previous
+source before overwrite. A positive immutable input generation is published
+only after every required statistics DMA and result update succeeds and the
+owned task has been released. The independent [RGB-grid graph](../gate/grid.md)
+then reads these actual RAM bytes; metadata alone performs no processing and
+sets no gate completion. Reset invalidates the RGB-source epoch. Statistics
+raw causes retain their own ACK and generation ownership.
 
 Endpoint0's16-byte cells contain four LE32 words: horizontal signed
 neighbor-difference sum, intensity sum, sample count and rounded mean.

@@ -224,6 +224,18 @@ static void test_preflight(void)
     f->table[5][1023] = 0x4000;
     rejected(f, NIKON_GATE_WORK_GRID);
     f->table[5][1023] = 100;
+    set(&f->packet[7], 0xa8, 0xff);
+    rejected(f, NIKON_GATE_WORK_GRID);
+    set(&f->packet[7], 0xa8, 0);
+    set(&f->packet[7], 0xb0, 0xff);
+    rejected(f, NIKON_GATE_WORK_GRID);
+    set(&f->packet[7], 0xb0, 0);
+    set(&f->packet[5], 0xa8, 0);
+    rejected(f, NIKON_GATE_WORK_GRID);
+    set(&f->packet[5], 0xa8, 0xff);
+    set(&f->packet[5], 0xb0, 0);
+    rejected(f, NIKON_GATE_WORK_GRID);
+    set(&f->packet[5], 0xb0, 0xff);
     f->packet[7].present[0xbc / 4] = false;
     rejected(f, NIKON_GATE_WORK_GRID);
     f->packet[7].present[0xbc / 4] = true;

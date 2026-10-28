@@ -93,8 +93,6 @@ static void window(NikonGatePacket *p)
     set(p, 0x4c, 0x20002);
     set(p, 0x8c, 0xfff);
     set(p, 0x94, 0xfff);
-    set(p, 0xa8, 0xff);
-    set(p, 0xb0, 0xff);
 }
 
 static void select_phase(Fixture *f, unsigned bank, unsigned phase)
@@ -219,6 +217,8 @@ static Fixture *fixture(void)
     set(&f->packet[5], 4, 0x50000);
     set(&f->packet[5], 8, 0x10400);
     set(&f->packet[5], 0x1c, 0x101);
+    set(&f->packet[5], 0xa8, 0xff);
+    set(&f->packet[5], 0xb0, 0xff);
     window(&f->packet[7]);
     set(&f->packet[7], 0, 0x40000);
     set(&f->packet[7], 8, 0x10002);

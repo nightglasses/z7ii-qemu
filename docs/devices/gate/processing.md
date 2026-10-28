@@ -1,12 +1,14 @@
 # Continuous image processing
 
-`gatework.c` implements one finite continuous graph. It receives an immutable
+`gatework.c` implements the finite context9 MAIN continuous graph. It receives an immutable
 configuration, committed parameter slots, imported commands, one owned tight
 NV12 image and a phase in `[0,4)`. It owns neither scheduling nor the input
 queue, phase advancement, reset, cancellation or IRQ publication. A synchronous
 successful return means that all three output images were actually written.
-The separate [context8 grid graph](grid.md) has its own RGB input, destination
-and whole-frame route; importing its commands does not execute that graph.
+The separate [context8 grid graph](grid.md) executes through `gategrid.c`,
+`gateplane.c` and the gate runtime. It consumes statistics-produced RGB planes,
+writes a packed12 confidence map and publishes its own completion. Paired
+processing reads that completed map when its grid dependency is enabled.
 
 ## Admission and source facts
 

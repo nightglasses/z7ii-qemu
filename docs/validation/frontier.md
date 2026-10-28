@@ -76,12 +76,17 @@ time out, with zero recorded entries to callback VA `0x10262dfc`, which normally
 sets bit `0x01000000`. Actual context9 MAIN DMA continues:
 192 sampled gate interrupts carry raw2 bit3, while the required context8
 raw2 bit2 is absent. The two bits belong to separate processing graphs.
-The model imports context8's eleven-node RGB-grid graph but does not execute
-its numerical work. Adding its completion to context9 would acknowledge work
-that never ran. The [independent grid path](../devices/gate/grid.md) records
-the input, output, callback chain and remaining numerical/ownership questions.
-This is a missing producer for the sampled retirement wait, not proof of a
-common cause with the AF overwrite. Guest virtual addresses in the snapshots
+That historical model imported context8's eleven-node RGB-grid graph without
+executing it. The [independent grid path](../devices/gate/grid.md) now executes
+statistics RGB inputs, signed matrix/LUT/filter work and packed12 result DMA,
+then publishes its own context8 completion. Paired consumes that completed
+kind25 grid as a fresh read dependency; its former grid-output interpretation
+is removed. Numerical confidence, packing, interpolation and four-phase
+map-refresh cadence remain explicit virtual-camera hypotheses. Type11 and
+type10 retain their different source-profile control values. Native coverage
+does not substitute for unchanged-firmware graph-retirement acceptance.
+The missing historical producer explains the sampled wait; it does not establish
+a common cause with the AF overwrite. Guest virtual addresses in the snapshots
 are translated with QEMU's debugger translation before physical reads.
 No frame suppression, queue clearing or event injection is used.
 
@@ -97,16 +102,23 @@ now uses QEMU's existing worker pool with owned snapshots. RAM validation,
 DMA and result publication remain on the virtual device path; cancellation
 invalidates old work before any later publication.
 
-The final native batch passes 126 CMOS/paired integration cases, six CMOS
-timing/identity unit cases and ten SPI unit cases, with normal TAP plans and
-process exits. Old and new arithmetic pass the same scalar/packing/statistics
-oracles. Fixtures separately step RAW completion and the subsequent paired
-minimum deadline; they do not advance future timers while draining host work.
-Independent review found and corrected standalone-fixture worker queries.
-These device results do not establish mode-change acceptance. The unchanged
-five-CPU MTTCG cold-neutral window at `aafb8aba` still reaches the allocation
-failure at 39.69 host seconds, despite M/A/S setting changes and continued MAIN
-progress. Timed-mutex, FE and capture waits succeed in separate traces; host
+The applicable native validation passes 127 CMOS/paired integration cases and
+92 unit cases across grid arithmetic, grid transactions/runtime, paired pixels
+and lifecycle, CMOS timing and SPI, with normal TAP plans and process exits.
+The RGB test distinguishes actual CFA channel means from the former shared
+grayscale projection. Corrected type10 controls reject under the old shared
+window qualification and pass with type11/type10 qualified independently.
+Fixtures separately step RAW completion and the subsequent paired minimum
+deadline; they do not advance future timers while draining host work.
+Independent review found no remaining product findings.
+These device results do not establish mode-change acceptance. With the grid
+path enabled, a separate unchanged five-CPU MTTCG cold-neutral window completes
+1,351 grid jobs, 51 paired jobs and 1,121 MAIN acquisitions with zero grid or
+MAIN-graph errors, but still reaches the allocation failure after 40.57 host
+seconds. Later translated snapshots locate completed lane2 and remaining
+lane0 cell2/lane3 cell1 work; three sampled lane0 waits for `0x00400000`
+return successfully. The growing backlog's remaining cause is unresolved.
+Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.
 See [exposure controls](../devices/gpio/exposure.md) and the
@@ -541,7 +553,8 @@ storage is primary; a host folder is an offline import/export boundary.
 ## Previous: real RAW processing and the correction-record boundary
 
 The [paired pixel operator](../devices/pairs/pixels.md) connects completed RAW
-DMA to selected-phase main, work and grid outputs, then publishes results
+DMA to selected-phase main and work outputs, reads a separately completed grid
+when enabled, then publishes results
 through the existing IRQ/W1C/firmware callback route. Its explicit monochrome
 profile executes defect/spatial/temporal filtering, guest A/C/B matrices,
 three-channel gains and two published gain curves. Numerical formats, filters,

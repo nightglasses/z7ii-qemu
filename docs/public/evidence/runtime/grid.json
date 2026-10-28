@@ -1,5 +1,5 @@
 {
-  "scope": "Curated read-only diagnostic observation, not normal uninstrumented mode-change acceptance",
+  "scope": "Historical read-only diagnosis, followed by separately qualified native and original execution of the finite grid model",
   "revision": "aafb8aba",
   "firmware": "Original C1.70 MAS, unchanged",
   "profile": "Five-CPU MTTCG; cold-neutral resource80; explicit virtual resource39; normal UART battery, virtual lens and FAT32 card",
@@ -55,5 +55,95 @@
     "Type11/type7 graph backedge and phase/map publication cadence",
     "Separate AF history overwrite and its D0 timing producer"
   ],
-  "omitted": "Raw factory bytes, disassembly, full debugger output and machine-specific paths; original mode acceptance is still failing"
+  "omitted": "Raw factory bytes, disassembly, full debugger output and machine-specific paths; original mode acceptance is still failing",
+  "subsequent_model": {
+    "revision_binding": "The implementation accompanying this receipt; local diagnostic base d8671d63 plus the RGB runtime/statistics and distinct type10 qualification delta",
+    "source": [
+      "hw/nikon/devices/gategrid.c",
+      "hw/nikon/devices/gateplane.c",
+      "hw/nikon/devices/gate.c",
+      "hw/nikon/devices/statistics.c",
+      "hw/nikon/devices/pairs.c"
+    ],
+    "source_established": [
+      "Kind19 RGB statistic planes -> context8 slot1; slot2 kind25 is the output",
+      "102643e2 ->102cd202/102cd176 publishes kind25 into subscriber queue+144;1026405a ->102cd2ba pops it for paired read dependency",
+      "103bd1e0 copies packet height to PA0x20102644",
+      "Distinct type11/type10 logical a8,b0 values: ff/ff and 0/0 in the selected profile; checked against all eight captured packets and corresponding ROM templates"
+    ],
+    "functional_hypotheses": [
+      "CFA channel box means, MAIN16 to RGB14 scale",
+      "Staggered LUT interpolation and signed Q12 matrix evaluation",
+      "All four resource73 features normalize into confidence; two spatial filters and equal blend represent the metadata backedge",
+      "Packed12 scalar interpretation, Q22 bilinear coordinates and modulation of the existing B58 law",
+      "1ms minimum virtual work latency; map-refresh raw2.bit6 after four successful actual phases"
+    ],
+    "native": {
+      "rgb_comparison_red": "Old arithmetic produced shared mean23130 where the actual red channel requires2570; corrected CFA/RGB14 profile passes",
+      "window_comparison_red": "Corrected type10 zero controls reject under the old shared-window qualification (GRID4); independent type11/type10 qualification passes",
+      "cases": {
+        "cmos_paired_integration": 127,
+        "gategrid": 6,
+        "gateplane": 5,
+        "gridflow": 8,
+        "pairedpixels": 38,
+        "paired": 19,
+        "cmos_unit": 6,
+        "spi_unit": 10
+      },
+      "total_pass": 219,
+      "cmos_host_seconds": 269.05,
+      "exit": "Normal TAP plans and normal process exits; final scoped type10 correction reruns gateplane5/gridflow8",
+      "coverage": "Real result bytes and padding, changed numerical inputs, full-profile rejection, backing aliases, source freshness, retained private snapshots, 1ms minimum, ACK backpressure, four phases, map banks, stop/reset and synchronous ACK/reset publication",
+      "interrupted_trial": "An earlier batch exhausted host disk while creating a fixture; rerun after byte-preserving sparse conversion of generated media. A stale paired DMA-byte expectation was separately corrected; pixels/guards were retained"
+    },
+    "original_uninstrumented": {
+      "logical_run": "grid mode acceptance",
+      "firmware": "Original C1.70 unchanged",
+      "profile": "Five CPUs MTTCG; cold-neutral resource80; explicit virtual resource39, normal UART battery, virtual lens, FAT32 media, photo input; interpreted grid coordinate slots removed from supplied calibration image",
+      "debugger": false,
+      "guest_memory_writes": false,
+      "passed": false,
+      "host_seconds": 40.5695,
+      "grid_completed": 1351,
+      "grid_errors": 0,
+      "grid_cancelled": 245,
+      "paired_completed": 51,
+      "main_completed": 1121,
+      "processing_errors": 0,
+      "failure": {
+        "pc_mas_va": "0x1034fe78",
+        "dfar": "0x3c",
+        "task": "0x0100001b",
+        "diagnostic_bytes": 306159,
+        "kind": "General pool aligned allocation after underlying allocation failure"
+      },
+      "meaning": "Actual context8 numerical work and result DMA now run; the full software graph still does not retire fast enough for mode-change acceptance. This does not establish its remaining cause"
+    },
+    "readonly_followup": {
+      "kind": "Translated QMP snapshots, separate diagnostic run without GDB; sequential, not atomic",
+      "samples": [
+        {
+          "host_seconds": 13.4886,
+          "active_records": 165,
+          "lane2_state": 3,
+          "lane2_microcursor": "0xffffffff"
+        },
+        {
+          "host_seconds": 21.1979,
+          "active_records": 380,
+          "lane2_state": 3,
+          "lane2_microcursor": "0xffffffff"
+        }
+      ],
+      "oldest_remaining": "Lane0 cell2 microstep0 and lane3 cell1 microstep0; the oldest descriptor changes between snapshots",
+      "separate_four_pc_trace": "10.75 host seconds with GDB global-thread<=2 filter: lane0 wait entries4, completed returns3, allR0=1 and returned masks contain normal0x00400000; first8 context8 callbacks and8 retire entries recorded before disabling those probes",
+      "limit": "GDB host spans contain stopped time and are not normal processing throughput or complete graph retirement evidence"
+    },
+    "remaining": [
+      "Normal mode-change and full graph retirement acceptance",
+      "Independent AF/AS D0 history overwrite",
+      "Physical numerical precision and format/control interpretation"
+    ]
+  }
 }

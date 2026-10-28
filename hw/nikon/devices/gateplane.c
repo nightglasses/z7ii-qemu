@@ -208,8 +208,6 @@ static void window(NikonGatePacket *e, unsigned width, unsigned height)
     set(e, 0x4c, 0x20002);
     set(e, 0x8c, 0xfff);
     set(e, 0x94, 0xfff);
-    set(e, 0xa8, 0xff);
-    set(e, 0xb0, 0xff);
 }
 
 static bool windows(const NikonGateWorkCommand *a,
@@ -223,6 +221,8 @@ static bool windows(const NikonGateWorkCommand *a,
     set(&first, 4, 0x50000);
     set(&first, 8, 0x10400);
     set(&first, 0x1c, 0x101);
+    set(&first, 0xa8, 0xff);
+    set(&first, 0xb0, 0xff);
     window(&last, width, height);
     set(&last, 0, 0x40000);
     set(&last, 8, 0x10002);

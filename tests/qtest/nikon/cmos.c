@@ -1620,6 +1620,51 @@ static void test_main_input_masked_stream(void)
     unlink(bundle);
 }
 
+static void test_statistics_rgb(void)
+{
+    static const char header[] = "P6\n8 8\n255\n";
+    static const uint8_t color[] = { 40, 80, 160 };
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint8_t image[sizeof(header) - 1 + 8 * 8 * 3];
+    int fd = g_file_open_tmp("nikon-statistics-rgb-XXXXXX", &scene, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(image, header, sizeof(header) - 1);
+    for (unsigned i = 0; i < 8 * 8; i++) {
+        memcpy(image + sizeof(header) - 1 + 3 * i, color, 3);
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)image,
+                                      sizeof(image), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    statistics_configure(q);
+    statistics_input(q, NULL);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                 "completed"), ==, 1);
+    for (unsigned c = 0; c < 3; c++) {
+        uint32_t base = RAM + 0x101000 + (2 + c) * 0x10000;
+        unsigned expected = (color[c] * 257U + 2) / 4;
+
+        for (unsigned y = 0; y < 2; y++) {
+            for (unsigned x = 0; x < 4; x++) {
+                g_assert_cmpuint(qtest_readw(q, base + y * 16 + x * 2),
+                                 ==, expected);
+            }
+            g_assert_cmphex(qtest_readl(q, base + y * 16 + 8), ==, 0);
+        }
+        g_assert_cmphex(qtest_readl(q, base - 4), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, base + 32), ==, 0xa5a5a5a5);
+    }
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
 static void test_statistics_transaction(void)
 {
     g_autofree char *bundle = NULL;
@@ -1671,7 +1716,10 @@ static void test_statistics_transaction(void)
                                                 x * 16 + 12), ==, mean);
                     g_assert_cmphex(qtest_readl(q, base + y * stride +
                                                 x * 16 + 8), ==, 64);
-                } else if (n <= 4) {
+                } else if (n >= 2 && n <= 4) {
+                    g_assert_cmphex(qtest_readw(q, base + y * stride + x * 2),
+                                    ==, MIN((mean + 2) / 4, 16383));
+                } else if (n == 1) {
                     g_assert_cmphex(qtest_readw(q, base + y * stride + x * 2),
                                     ==, mean);
                 } else {
@@ -5016,8 +5064,9 @@ static void test_paired_photo(void)
             paired_pixels(q, PAIRED_MAIN, 0);
             paired_pixels(q, PAIRED_GRID, 0);
             g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+            /* Only MAIN Y/UV is written; WORK is disabled and grid is input. */
             g_assert_cmpuint(property_at(q, "/machine/paired-processing",
-                                           "bytes"), ==, 56 * 42 + 90 * 34);
+                                           "bytes"), ==, 56 * (28 + 14));
         } else {
             qtest_memread(q, PAIRED_MAIN - 16, actual, sizeof(actual));
             g_assert_cmpmem(actual, sizeof(actual),
@@ -7781,6 +7830,7 @@ int main(int argc, char **argv)
                    test_pipeline_cancel_and_reset);
     qtest_add_func("/nikon/cmos/statistics/transaction",
                    test_statistics_transaction);
+    qtest_add_func("/nikon/cmos/statistics/rgb", test_statistics_rgb);
     qtest_add_func("/nikon/cmos/statistics/stage-completion",
                    test_statistics_stage_completion);
     qtest_add_func("/nikon/cmos/statistics/ring-completion",
