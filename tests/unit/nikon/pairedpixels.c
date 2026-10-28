@@ -2890,16 +2890,18 @@ static void post_packet(void)
     };
     bool changed[13] = { 0 };
 
-    for (unsigned pattern = 0; pattern < 4; pattern++) {
+    for (unsigned pattern = 0; pattern < 7; pattern++) {
         FilterOutputs baseline = { 0 };
         uint16_t raw[16];
 
         for (unsigned i = 0; i < 16; i++) {
             raw[i] = pattern == 0 ? texture[i] : pattern == 1 ?
                 1000 + texture[i] / 4 : pattern == 2 ? 1600 :
-                (i % 4 < 2 ? 500 : 3500);
+                pattern == 3 ? (i % 4 < 2 ? 500 : 3500) :
+                pattern == 4 ? (i % 4 < 2 ? 0 : 4095) :
+                pattern == 5 ? 0 : 4095;
         }
-        for (unsigned variant = 0; variant < 14; variant++) {
+        for (unsigned variant = 0; variant < 30; variant++) {
             NikonPairedPixelConfig p = config();
             FilterOutputs actual = { 0 };
             uint16_t planes[3][16];
@@ -2948,6 +2950,35 @@ static void post_packet(void)
                 p.post.edge_strength = 18;
                 break;
             }
+            if (variant >= 14) {
+                unsigned mask = variant - 14;
+
+                /* All 16 active/neutral combinations of the first four
+                 * passes, with opposite luma/chroma unsharp choices. Keep
+                 * the full five-pass scalar oracle below: it still computes
+                 * zero corrections, clamps and edge neighborhoods. Exercise
+                 * each neutral kernel factor with the remaining multipliers
+                 * maximal for this mix, as well as both sample endpoints.
+                 */
+                p.post.unsharp[0] = mask & 1 ? 256 : 0;
+                p.post.unsharp[1] = mask & 1 ? 0 : 256;
+                p.post.smooth[0] = mask & 2 ? 31 : 0;
+                p.post.smooth[1] = mask & 4 ? 31 : 0;
+                p.post.negative_base = p.post.positive_base = 200;
+                p.post.slope = 4;
+                p.post.retain = 0;
+                p.post.amount = 360;
+                p.post.modifier = 511;
+                p.post.mix = 64;
+                p.post.edge_strength = 18;
+                if (!(mask & 8)) {
+                    switch (mask % 3) {
+                    case 0: p.post.amount = 0; break;
+                    case 1: p.post.modifier = 0; break;
+                    case 2: p.post.retain = 31; break;
+                    }
+                }
+            }
             g_assert_true(nikon_paired_post_valid(&p.post));
             g_assert_true(pixels_checked(&p, raw, NULL, NULL, actual.half,
                 actual.residual, actual.reference, actual.y, actual.uv));
@@ -2986,9 +3017,11 @@ static void post_packet(void)
                                 baseline.half, sizeof(baseline.half));
                 g_assert_cmpmem(actual.reference, sizeof(actual.reference),
                                 baseline.reference, sizeof(baseline.reference));
-                changed[variant - 1] |= memcmp(actual.y, baseline.y,
-                    sizeof(actual.y)) || memcmp(actual.uv, baseline.uv,
-                    sizeof(actual.uv));
+                if (variant <= ARRAY_SIZE(changed)) {
+                    changed[variant - 1] |= memcmp(actual.y, baseline.y,
+                        sizeof(actual.y)) || memcmp(actual.uv, baseline.uv,
+                        sizeof(actual.uv));
+                }
             }
         }
     }

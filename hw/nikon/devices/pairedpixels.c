@@ -1062,14 +1062,34 @@ static void paired_main(const uint16_t *filtered,
      */
     for (unsigned channel = 0; channel < 3; channel++) {
         uint16_t *plane = planes + channel * pixels;
+        uint16_t *input = plane;
+        const bool neutral[] = {
+            !p->post.unsharp[!!channel],
+            !p->post.smooth[0],
+            !p->post.smooth[1],
+            !p->post.amount || !p->post.modifier || p->post.retain == 31,
+            false,
+        };
 
+        /* Every plane sample is already clamped to 12 bits. These zero
+         * numerators leave it unchanged, including at replicated edges.
+         * Alternate immutable buffers only for passes that actually run.
+         */
         for (unsigned pass = 0; pass < 5; pass++) {
-            paired_post_pass(pass & 1 ? scratch : plane,
-                              pass & 1 ? plane : scratch,
+            uint16_t *output;
+
+            if (neutral[pass]) {
+                continue;
+            }
+            output = input == plane ? scratch : plane;
+            paired_post_pass(input, output,
                               p->output_width, p->output_height,
                               p, grid, channel, pass);
+            input = output;
         }
-        memcpy(plane, scratch, pixels * sizeof(*plane));
+        if (input != plane) {
+            memcpy(plane, input, pixels * sizeof(*plane));
+        }
     }
     for (y = 0; y < p->output_height; y += 2) {
         for (x = 0; x < p->output_width; x += 2) {

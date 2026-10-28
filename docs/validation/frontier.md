@@ -117,7 +117,13 @@ path enabled, a separate unchanged five-CPU MTTCG cold-neutral window completes
 MAIN-graph errors, but still reaches the allocation failure after 40.57 host
 seconds. Later translated snapshots locate completed lane2 and remaining
 lane0 cell2/lane3 cell1 work; three sampled lane0 waits for `0x00400000`
-return successfully. The growing backlog's remaining cause is unresolved.
+return successfully. After algebraically neutral post passes are omitted,
+another debugger-free window completes 1,362 grid jobs, 62 paired jobs and
+1,144 MAIN acquisitions, but still reaches the same allocation failure after
+41.69 host seconds. The optimization matches the complete five-pass scalar
+oracle; 38 pixel and 19 paired lifecycle cases pass. Its unchanged output does
+not establish a controlled processing-rate comparison. The growing backlog's
+remaining cause is unresolved.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.

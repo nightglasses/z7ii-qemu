@@ -106,6 +106,13 @@ pass reads an immutable plane, replicates edge samples and clamps its final
 sample to0..4095. The following equations are selected functional laws, not
 recovered silicon algorithms.
 
+The implementation omits only algebraically identical passes on already
+clamped samples: zero unsharp or smoothing strength, or a kernel numerator
+made zero by amount, modifier or full retention. Remaining passes keep their
+order and immutable input/output buffers. The full five-pass scalar oracle
+still evaluates those zero corrections, including edge and 0/4095 cases.
+This optimization changes no parameter validity, result or completion rule.
+
 1. Apply A to actual RGB samples with the existing Q10 operation. Apply B in
    Q9, preserving signed chroma. Clamp Y to0..4095 and U/V to-2048..2047.
    C must preserve Y and have no luma/chroma cross terms. Calculate its signed

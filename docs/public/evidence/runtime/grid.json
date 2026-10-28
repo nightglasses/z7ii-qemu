@@ -144,6 +144,25 @@
       "Normal mode-change and full graph retirement acceptance",
       "Independent AF/AS D0 history overwrite",
       "Physical numerical precision and format/control interpretation"
-    ]
+    ],
+    "exact_post_optimization": {
+      "revision_binding": "The algebraic post-pass folding change following the grid integration",
+      "contract": "Already-clamped samples preserve the complete five-pass scalar law; skip only zero-strength unsharp/smoothing or zero-numerator/full-retention kernel passes. No validation, noise traversal, phase, DMA or event change",
+      "native": "38 pairedpixel cases including the expanded 7-pattern/30-variant full scalar post oracle, plus19 paired lifecycle cases PASS; normal TAP/exits",
+      "original_uninstrumented": {
+        "passed": false,
+        "host_seconds": 41.6899,
+        "grid_completed": 1362,
+        "grid_errors": 0,
+        "paired_completed": 62,
+        "main_completed": 1144,
+        "processing_errors": 0,
+        "diagnostic_bytes": 306333,
+        "pc_mas_va": "0x1034fe78",
+        "dfar": "0x3c",
+        "meaning": "Still General-pool allocation failure. Sequential window counts do not establish a controlled throughput benchmark or a complete mode fix"
+      },
+      "sampling": "A separate no-GDB host sample records235/259 sampled thread states in paired_compute, summed across reused workers; main post-processing and CFA stages dominate that computation. This is bounded host sampling, not guest-deadline proof or an established unique backlog cause"
+    }
   }
 }
