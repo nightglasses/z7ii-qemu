@@ -43,9 +43,18 @@ typedef enum NikonGateWorkResult {
 
 typedef struct NikonGateWorkPlan NikonGateWorkPlan;
 
+/* Only the numerical source pointer may change without changing this packet's
+ * routing/shape. This does not admit new packet fields or numerical ranges.
+ */
+bool nikon_gate_work_same_layout(unsigned offset, const NikonGatePacket *a,
+                                 const NikonGatePacket *b);
+
 /* Prepare/publish require the main thread; compute touches only owned data.
  * Every failure leaves guest RAM unchanged. Publish checks CURRENT layout and
- * RAM backing, not just the saved destination addresses.
+ * RAM backing against the frozen numerical profile; later numerical uploads
+ * affect future admission. Atomic latching is a finite functional hypothesis.
+ * Complete future source addresses still own direct-RAM read spans in the
+ * current whole-batch alias check, without re-decoding their future numbers.
  */
 NikonGateWorkResult nikon_gate_work_prepare(const NikonGateWork *work,
                                            NikonGateWorkPlan **plan);

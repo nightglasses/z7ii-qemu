@@ -409,6 +409,25 @@ static const unsigned work_ports[] = {
     0x9e0, 0x940, 0xba0, 0x920,
 };
 
+static bool numeric_port(unsigned offset)
+{
+    return offset == 0x900 || offset == 0x8a0 || offset == 0x8c0 ||
+           offset == 0x8e0;
+}
+
+bool nikon_gate_work_same_layout(unsigned offset, const NikonGatePacket *a,
+                                 const NikonGatePacket *b)
+{
+    for (unsigned i = 0; i < NIKON_GATE_REGISTERS; i++) {
+        if (a->present[i] != b->present[i] ||
+            (a->present[i] && a->value[i] != b->value[i] &&
+             !(numeric_port(offset) && i == 0x54 / 4))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 struct NikonGateWorkPlan {
     NikonGatePixels pixels;
     GateWorkOutput out[3];
@@ -425,7 +444,9 @@ struct NikonGateWorkPlan {
 
 /* Main-thread only: validate the entire batch against current RAM backing. */
 static NikonGateWorkResult layout(const NikonGateWork *w,
-                                  NikonGateWorkPlan *plan)
+                                  NikonGateWorkPlan *plan,
+                                  const NikonGateWorkPlan *owned,
+                                  const NikonGateWork *live_sources)
 {
     const NikonGateWorkCommand *c[ARRAY_SIZE(work_ports)];
     GateWorkOutput *out = plan->out;
@@ -483,6 +504,19 @@ static NikonGateWorkResult layout(const NikonGateWork *w,
     if (!ram(w, grid_address, grid_bytes, false, reads)) {
         return NIKON_GATE_WORK_MEMORY;
     }
+    if (live_sources) {
+        const NikonGateWorkCommand *live = command(live_sources, 0x900);
+        uint32_t address = word(live->packet, 0x54);
+
+        /* Complete numerical uploads own their future source RAM too. Do not
+         * decode new numbers, but do not overwrite their committed storage.
+         * The caller already checked that the fixed record shape is unchanged.
+         */
+        if (address != grid_address &&
+            !ram(w, address, grid_bytes, false, reads)) {
+            return NIKON_GATE_WORK_MEMORY;
+        }
+    }
     for (unsigned i = 0; i < 3; i++) {
         uint32_t address;
         unsigned window_w, window_h;
@@ -491,9 +525,22 @@ static NikonGateWorkResult layout(const NikonGateWork *w,
             !output(w, c[6 + i], i, &out[i], &window_w, &window_h)) {
             return NIKON_GATE_WORK_FORMAT;
         }
-        if (!ram(w, address, 32, false, reads) ||
-            dma_memory_read(w->as, address, transforms[i], 32,
-                            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        if (!ram(w, address, 32, false, reads)) {
+            return NIKON_GATE_WORK_MEMORY;
+        }
+        if (live_sources) {
+            const NikonGateWorkCommand *live = command(live_sources,
+                                                       work_ports[3 + i]);
+            uint32_t future = word(live->packet, 0x54);
+
+            if (future != address && !ram(w, future, 32, false, reads)) {
+                return NIKON_GATE_WORK_MEMORY;
+            }
+        }
+        if (owned) {
+            memcpy(transforms[i], owned->transforms[i], 32);
+        } else if (dma_memory_read(w->as, address, transforms[i], 32,
+                                   MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             return NIKON_GATE_WORK_MEMORY;
         }
         if (!affine(transforms[i], window_w, window_h, i, &out[i])) {
@@ -549,7 +596,7 @@ NikonGateWorkResult nikon_gate_work_prepare(const NikonGateWork *w,
     if (!plan) {
         return NIKON_GATE_WORK_PIXELS;
     }
-    result = layout(w, plan);
+    result = layout(w, plan, NULL, NULL);
     if (result != NIKON_GATE_WORK_OK) {
         goto fail;
     }
@@ -615,7 +662,43 @@ NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
                                            const NikonGateWork *current)
 {
     NikonGateWorkPlan now = { 0 };
-    NikonGateWorkResult result = layout(current, &now);
+    NikonGateWorkCommand commands[ARRAY_SIZE(work_ports)];
+    uint32_t config[ARRAY_SIZE(plan->config)];
+    NikonGateWork view;
+    NikonGateWorkResult result;
+
+    if (!current || !current->config || !current->commands) {
+        return NIKON_GATE_WORK_CONFIG;
+    }
+    view = *current;
+    memcpy(config, current->config, sizeof(config));
+    /* Numerical uploads are future profiles. The current destinations and
+     * transport controls remain live; an owned job never re-reads new math.
+     * Atomic profile latching is a finite model, not recovered silicon timing.
+     */
+    config[0x4054 / 4] = (config[0x4054 / 4] & 0xffff) |
+                         (plan->config[0x4054 / 4] & 0xffff0000);
+    for (unsigned i = 0; i < ARRAY_SIZE(work_ports); i++) {
+        const NikonGateWorkCommand *c = command(current, work_ports[i]);
+
+        if (!c) {
+            return NIKON_GATE_WORK_TOPOLOGY;
+        }
+        commands[i] = *c;
+        if (!nikon_gate_work_same_layout(work_ports[i], c->packet,
+                                         &plan->packets[i])) {
+            return NIKON_GATE_WORK_CONFIG;
+        }
+        if (numeric_port(work_ports[i])) {
+            commands[i].packet = &plan->packets[i];
+            memcpy(commands[i].auxiliary, plan->auxiliary[i],
+                   sizeof(commands[i].auxiliary));
+        }
+    }
+    view.config = config;
+    view.commands = commands;
+    view.command_count = ARRAY_SIZE(commands);
+    result = layout(&view, &now, plan, current);
 
     if (result != NIKON_GATE_WORK_OK) {
         return result;
@@ -624,17 +707,15 @@ NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
         current->width != plan->pixels.src_width ||
         current->height != plan->pixels.src_height ||
         current->config[0x2104 / 4] != plan->config[0x2104 / 4] ||
-        current->config[0x4054 / 4] != plan->config[0x4054 / 4] ||
         memcmp(current->slots[8], plan->slots[8], sizeof(plan->slots[8])) ||
         now.grid_address != plan->grid_address ||
         now.grid_bytes != plan->grid_bytes ||
         now.pixels.dst_width != plan->pixels.dst_width ||
-        now.pixels.dst_height != plan->pixels.dst_height ||
-        memcmp(now.transforms, plan->transforms, sizeof(now.transforms))) {
+        now.pixels.dst_height != plan->pixels.dst_height) {
         return NIKON_GATE_WORK_CONFIG;
     }
     for (unsigned i = 0; i < ARRAY_SIZE(work_ports); i++) {
-        const NikonGateWorkCommand *c = command(current, work_ports[i]);
+        const NikonGateWorkCommand *c = &commands[i];
 
         if (!equal(c->packet, &plan->packets[i]) ||
             memcmp(c->auxiliary, plan->auxiliary[i], sizeof(c->auxiliary))) {

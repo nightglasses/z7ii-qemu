@@ -356,7 +356,7 @@ static void test_current_layout(void)
             f->work.phase = 1;
             break;
         case 5:
-            stl_le_p(f->bytes + TRANSFORM + 12, 1);
+            set(&f->packets[3], 0x10, 0x10); /* Changed affine routing. */
             break;
         }
         saved = g_memdup2(f->bytes, RAM_SIZE);
@@ -365,6 +365,116 @@ static void test_current_layout(void)
         g_assert_cmpmem(f->bytes, RAM_SIZE, saved, RAM_SIZE);
         memory_region_set_readonly(&f->ram, false);
         nikon_gate_work_free(plan);
+        cleanup(f);
+    }
+}
+
+static void new_numerics(Fixture *f)
+{
+    memcpy(f->bytes + GRID + 0x100, f->bytes + GRID, 80);
+    for (unsigned row = 0; row < 2; row++) {
+        for (unsigned corner = 0; corner < 4; corner++) {
+            uint8_t *x = f->bytes + GRID + 0x100 + row * 40 + corner * 8;
+
+            stl_le_p(x, ldl_le_p(x) + (2 << 8));
+        }
+    }
+    set(&f->packets[1], 0x54, RAM_BASE + GRID + 0x100);
+    memcpy(f->bytes + TRANSFORM + 0x100, f->bytes + TRANSFORM, 96);
+    for (unsigned i = 0; i < 3; i++) {
+        uint8_t *x = f->bytes + TRANSFORM + 0x100 + i * 32;
+
+        stl_le_p(x, ldl_le_p(x) + (2 << 16));
+        set(&f->packets[3 + i], 0x54,
+            RAM_BASE + TRANSFORM + 0x100 + i * 32);
+    }
+}
+
+static void test_numerical_profiles(void)
+{
+    Fixture *f = fixture();
+    NikonGateWorkPlan *plan;
+
+    g_assert_cmpint(nikon_gate_work_prepare(&f->work, &plan), ==,
+                     NIKON_GATE_WORK_OK);
+    new_numerics(f);
+    g_assert_cmpint(nikon_gate_work_compute(plan), ==, NIKON_GATE_WORK_OK);
+    g_assert_cmpint(nikon_gate_work_publish(plan, &f->work), ==,
+                     NIKON_GATE_WORK_OK);
+    check_outputs(f, 0, 0);
+    nikon_gate_work_free(plan);
+    f->work.phase = 1;
+    g_assert_cmpint(nikon_gate_work_execute(&f->work), ==, NIKON_GATE_WORK_OK);
+    check_outputs(f, 1, 4);
+    /* Future unsupported math remains rejected at admission. It cannot veto
+     * an already computed job which owns an earlier supported profile.
+     */
+    f->work.phase = 2;
+    g_assert_cmpint(nikon_gate_work_prepare(&f->work, &plan), ==,
+                     NIKON_GATE_WORK_OK);
+    stl_le_p(f->bytes + TRANSFORM + 0x100 + 12, 1);
+    g_assert_cmpint(nikon_gate_work_compute(plan), ==, NIKON_GATE_WORK_OK);
+    g_assert_cmpint(nikon_gate_work_publish(plan, &f->work), ==,
+                     NIKON_GATE_WORK_OK);
+    check_outputs(f, 2, 4);
+    nikon_gate_work_free(plan);
+    f->work.phase = 3;
+    g_assert_cmpint(nikon_gate_work_execute(&f->work), ==,
+                     NIKON_GATE_WORK_AFFINE);
+    g_assert_cmpuint(f->bytes[0xd0000], ==, 0xa5);
+    cleanup(f);
+}
+
+static void test_future_source_alias(void)
+{
+    for (unsigned grid = 0; grid < 2; grid++) {
+        Fixture *f = fixture();
+        NikonGateWorkPlan *plan;
+        g_autofree uint8_t *saved = NULL;
+
+        g_assert_cmpint(nikon_gate_work_prepare(&f->work, &plan), ==,
+                         NIKON_GATE_WORK_OK);
+        g_assert_cmpint(nikon_gate_work_compute(plan), ==, NIKON_GATE_WORK_OK);
+        set(&f->packets[grid ? 1 : 3], 0x54, RAM_BASE + 0x10000);
+        saved = g_memdup2(f->bytes, RAM_SIZE);
+        g_assert_cmpint(nikon_gate_work_publish(plan, &f->work), ==,
+                         NIKON_GATE_WORK_ALIAS);
+        g_assert_cmpmem(f->bytes, RAM_SIZE, saved, RAM_SIZE);
+        nikon_gate_work_free(plan);
+        cleanup(f);
+    }
+}
+
+static void test_future_source_memory(void)
+{
+    for (unsigned unmapped = 0; unmapped < 2; unmapped++) {
+        Fixture *f = fixture();
+        NikonGateWorkPlan *plan;
+        MemoryRegion future;
+        g_autofree uint8_t *saved = NULL;
+
+        memory_region_init_ram_flags_nomigrate(&future, NULL, "future-coeff",
+                                               0x1000, 0, &error_abort);
+        memory_region_set_readonly(&future, true);
+        memory_region_add_subregion(get_system_memory(), 0x21000000, &future);
+        g_assert_cmpint(nikon_gate_work_prepare(&f->work, &plan), ==,
+                         NIKON_GATE_WORK_OK);
+        g_assert_cmpint(nikon_gate_work_compute(plan), ==, NIKON_GATE_WORK_OK);
+        /* The readonly source contains invalid future coefficients. Publication
+         * checks its direct read span, without decoding that future profile.
+         */
+        set(&f->packets[3], 0x54, unmapped ? 0x22000000 : 0x21000000);
+        saved = g_memdup2(f->bytes, RAM_SIZE);
+        g_assert_cmpint(nikon_gate_work_publish(plan, &f->work), ==,
+            unmapped ? NIKON_GATE_WORK_MEMORY : NIKON_GATE_WORK_OK);
+        if (unmapped) {
+            g_assert_cmpmem(f->bytes, RAM_SIZE, saved, RAM_SIZE);
+        } else {
+            check_outputs(f, 0, 0);
+        }
+        nikon_gate_work_free(plan);
+        memory_region_del_subregion(get_system_memory(), &future);
+        object_unparent(OBJECT(&future));
         cleanup(f);
     }
 }
@@ -566,20 +676,8 @@ static void gate_load(GateFixture *g, unsigned index)
     gate_write(c->offset + 0x10, RAM_BASE + 0x3000);
 }
 
-static GateFixture *gate_fixture(void)
+static void gate_configure(GateFixture *g)
 {
-    GateFixture *g = g_new0(GateFixture, 1);
-
-    g->f = fixture();
-    g->dev = qdev_new(TYPE_NIKON_EVENT_GATE);
-    object_property_add_child(object_get_objects_root(), "gate[*]",
-                               OBJECT(g->dev));
-    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(g->dev), &error_abort));
-    sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 0, GATE_BASE);
-    g->irq = qemu_allocate_irq(gate_irq, g, 0);
-    sysbus_connect_irq(SYS_BUS_DEVICE(g->dev), 0, g->irq);
-    g->capacity = qemu_allocate_irq(gate_capacity, g, 0);
-    qdev_connect_gpio_out_named(g->dev, "input-capacity", 0, g->capacity);
     device_cold_reset(g->dev);
     for (unsigned i = 0; i < 16; i++) {
         if (g->f->work.parameter_valid & (1U << i)) {
@@ -601,6 +699,23 @@ static GateFixture *gate_fixture(void)
     gate_write(0x14, 8);
     gate_write(4, 1);
     vm_start();
+}
+
+static GateFixture *gate_fixture(void)
+{
+    GateFixture *g = g_new0(GateFixture, 1);
+
+    g->f = fixture();
+    g->dev = qdev_new(TYPE_NIKON_EVENT_GATE);
+    object_property_add_child(object_get_objects_root(), "gate[*]",
+                               OBJECT(g->dev));
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(g->dev), &error_abort));
+    sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 0, GATE_BASE);
+    g->irq = qemu_allocate_irq(gate_irq, g, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(g->dev), 0, g->irq);
+    g->capacity = qemu_allocate_irq(gate_capacity, g, 0);
+    qdev_connect_gpio_out_named(g->dev, "input-capacity", 0, g->capacity);
+    gate_configure(g);
     return g;
 }
 
@@ -978,6 +1093,283 @@ static void test_grid_scope(void)
     gate_cleanup(g);
 }
 
+static void rewrite_slot(GateFixture *g, unsigned slot)
+{
+    for (unsigned i = 0; i < 13; i++) {
+        gate_write(0x400 + slot * 64 + i * 4, g->f->slots[slot][i]);
+    }
+    gate_write(0x2c, slot);
+}
+
+static void test_upload_ownership(void)
+{
+    for (unsigned variant = 0; variant < 8; variant++) {
+        GateFixture *g = gate_fixture();
+        PoolBarrier blocker, marker;
+        NikonGateInputShape shape = { 64, 16, 64 };
+        NikonGateInputVersion before, after;
+
+        blocker_start(&blocker);
+        publish(g);
+        advance_clock(1000000);
+        g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &before), ==,
+                         NIKON_GATE_INPUT_BUSY);
+        switch (variant) {
+        case 0:
+            gate_write(0x2100, 0x121);
+            gate_write(0x2604, 16);
+            gate_write(0x4054, 64 | (8 << 16));
+            break;
+        case 1:
+            gate_write(0x30, 1);
+            gate_write(0x2684, 1);
+            gate_write(0x2690, 2); /* Staged, not yet committed routing. */
+            break;
+        case 2:
+            rewrite_slot(g, 8);
+            break;
+        case 3:
+            memcpy(g->f->slots[9], g->f->slots[3],
+                   sizeof(g->f->slots[9]));
+            rewrite_slot(g, 9); /* A committed, unselected endpoint. */
+            break;
+        case 4:
+            gate_load(g, 0); /* Same actual input binding, complete reload. */
+            gate_load(g, 3);
+            break;
+        case 5:
+            gate_write(0xe60 + 0x14, 1); /* Partial upload preserves binding. */
+            gate_write(0x8a0 + 0x14, 1);
+            break;
+        case 6:
+            gate_write(0x9e0 + 8, 0x200087e4);
+            gate_write(0x9e0 + 0x14, 1); /* Uncommitted aux/layout staging. */
+            break;
+        case 7:
+            /* Existing row-profile range. */
+            gate_write(0x4054, 64 | (16 << 16));
+            break;
+        }
+        g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
+                         NIKON_GATE_INPUT_BUSY);
+        g_assert_cmpuint(after.epoch, ==, before.epoch);
+        g_assert_cmpuint(after.generation, ==, before.generation);
+        g_assert_cmpuint(gate_counter(g, "processing-cancelled"), ==, 0);
+        worker_returned(&blocker, &marker);
+        barrier_wait(&blocker);
+        barrier_wait(&marker);
+        advance(0);
+        check_outputs(g->f, 0, 0);
+        g_assert_cmpuint(gate_counter(g, "processed"), ==, 1);
+        g_assert_cmpuint(gate_counter(g, "processing-errors"), ==, 0);
+        gate_cleanup(g);
+    }
+}
+
+static void test_device_numerics(void)
+{
+    GateFixture *g = gate_fixture();
+    PoolBarrier blocker, marker;
+    NikonGateInputShape shape = { 64, 16, 64 };
+    NikonGateInputVersion before, after;
+
+    blocker_start(&blocker);
+    publish(g);
+    advance_clock(1000000);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &before), ==,
+                     NIKON_GATE_INPUT_BUSY);
+    new_numerics(g->f);
+    gate_load(g, 1);
+    for (unsigned i = 3; i < 6; i++) {
+        gate_load(g, i);
+    }
+    /* This later request belongs to the new generation. */
+    gate_write(0x8a0, 1);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
+                     NIKON_GATE_INPUT_BUSY);
+    g_assert_cmpuint(after.epoch, ==, before.epoch);
+    g_assert_cmpuint(gate_counter(g, "processing-cancelled"), ==, 0);
+    worker_returned(&blocker, &marker);
+    barrier_wait(&blocker);
+    barrier_wait(&marker);
+    advance(0);
+    check_outputs(g->f, 0, 0);
+    /* Old completion cannot clear the later request. */
+    g_assert_cmpuint(gate_read(0x8a0), ==, 1);
+    gate_write(0x1c, 0x61);
+    gate_write(0x20, 8);
+    publish(g);
+    advance(1000000);
+    check_outputs(g->f, 1, 4);
+    g_assert_cmpuint(gate_read(0x8a0), ==, 0);
+    g_assert_cmpuint(gate_counter(g, "processed"), ==, 2);
+    gate_cleanup(g);
+}
+
+static void test_device_source_alias(void)
+{
+    for (unsigned grid = 0; grid < 2; grid++) {
+        GateFixture *g = gate_fixture();
+        PoolBarrier blocker, marker;
+
+        blocker_start(&blocker);
+        publish(g);
+        advance_clock(1000000);
+        set(&g->f->packets[grid ? 1 : 3], 0x54, RAM_BASE + 0x10000);
+        gate_load(g, grid ? 1 : 3);
+        g_assert_cmpuint(gate_counter(g, "processing-cancelled"), ==, 0);
+        worker_returned(&blocker, &marker);
+        barrier_wait(&blocker);
+        barrier_wait(&marker);
+        advance(0);
+        unpublished(g);
+        g_assert_cmpuint(gate_counter(g, "processing-result"), ==,
+                         NIKON_GATE_WORK_ALIAS);
+        g_assert_cmpuint(gate_counter(g, "processing-errors"), ==, 1);
+        g_assert_cmpuint(gate_read(0x2060), ==, 1);
+        gate_cleanup(g);
+    }
+}
+
+static void test_ready_fences(void)
+{
+    GateFixture *g = gate_fixture();
+    PoolBarrier blocker, marker;
+    qemu_irq first = qdev_get_gpio_in_named(g->dev, "pending-bit", 32 + 5);
+    qemu_irq second = qdev_get_gpio_in_named(g->dev, "pending-bit", 64 + 3);
+
+    blocker_start(&blocker);
+    publish(g);
+    advance_clock(1000000);
+    qemu_irq_pulse(first);
+    qemu_irq_pulse(second);
+    new_numerics(g->f);
+    gate_load(g, 1);
+    for (unsigned i = 3; i < 6; i++) {
+        gate_load(g, i);
+    }
+    worker_returned(&blocker, &marker);
+    barrier_wait(&blocker);
+    barrier_wait(&marker);
+    advance(0);
+    g_assert_cmpuint(gate_counter(g, "processing-compute"), ==, 2);
+    g_assert_cmpuint(gate_counter(g, "processing-inflight"), ==, 1);
+    g_assert_cmpuint(gate_counter(g, "processed"), ==, 0);
+    g_assert_cmpuint(g->f->bytes[0x10000], ==, 0xa5);
+    gate_write(0x1c, 0x20);
+    advance(0);
+    g_assert_cmpuint(g->f->bytes[0x10000], ==, 0xa5);
+    g_assert_cmpuint(gate_counter(g, "processing-compute"), ==, 2);
+    gate_write(0x20, 8);
+    advance(0);
+    check_outputs(g->f, 0, 0); /* Same old snapshot, despite future uploads. */
+    g_assert_cmpuint(gate_counter(g, "processing-cancelled"), ==, 0);
+    g_assert_cmpuint(gate_counter(g, "processed"), ==, 1);
+    g_assert_cmpuint(gate_read(0x1c), ==, 0x61);
+    g_assert_cmpuint(gate_read(0x20), ==, 8);
+    gate_cleanup(g);
+}
+
+static void test_upload_admission(void)
+{
+    for (unsigned armed_timer = 0; armed_timer < 2; armed_timer++) {
+        GateFixture *g = gate_fixture();
+        NikonGateInputShape shape = { 64, 16, 64 };
+        NikonGateInputVersion before, after;
+
+        gate_load(g, 3); /* Leave this valid packet serialized at RAM+3000. */
+        nikon_gate_input_status(g->dev, &shape, &before);
+        if (armed_timer) {
+            publish(g);
+            advance_clock(500000);
+        }
+        gate_write(0x8a0 + 0x14, 1);
+        gate_write(0x8a0 + 0x14, 0);
+        if (!armed_timer) {
+            publish(g);
+        }
+        /* reset=false only arms the local importer; the pointer has not
+         * atomically committed a future profile yet.
+         */
+        g_assert_cmpuint(gate_read(0x8a0 + 0x14), ==, 0);
+        advance(2000000);
+        unpublished(g);
+        g_assert_cmpuint(gate_counter(g, "processing-compute"), ==, 0);
+        g_assert_cmpuint(gate_counter(g, "processing-inflight"), ==, 0);
+        g_assert_cmpuint(gate_counter(g, "processing-errors"), ==, 0);
+        g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
+                         NIKON_GATE_INPUT_BUSY);
+        g_assert_cmpuint(after.epoch, ==, before.epoch);
+        g_assert_cmpuint(after.generation, ==, before.generation);
+        gate_write(0x8a0 + 0x10, RAM_BASE + 0x3000);
+        advance(999999);
+        unpublished(g);
+        advance(1);
+        check_outputs(g->f, 0, 0);
+        g_assert_cmpuint(gate_counter(g, "processed"), ==, 1);
+        gate_cleanup(g);
+    }
+}
+
+static void test_layout_commit(void)
+{
+    for (unsigned variant = 0; variant < 3; variant++) {
+        GateFixture *g = gate_fixture();
+        PoolBarrier blocker, marker;
+
+        blocker_start(&blocker);
+        publish(g);
+        advance_clock(1000000);
+        if (!variant) {
+            set(&g->f->packets[3], 0x10, 0x10); /* Affine routing, not math. */
+            gate_load(g, 3);
+        } else if (variant == 1) {
+            gate_write(0x2200 + 3 * 4, RAM_BASE + 0x50000);
+        } else {
+            gate_write(0x2684, 1);
+            /* Actual route publication revokes binding. */
+            gate_write(0x2680, 1);
+        }
+        g_assert_cmpuint(gate_counter(g, "processing-cancelled"), ==, 1);
+        /* Stop any future re-admission, without releasing the pool owner. */
+        gate_write(0x2100, 0x120);
+        worker_returned(&blocker, &marker);
+        barrier_wait(&blocker);
+        barrier_wait(&marker);
+        advance(0);
+        unpublished(g);
+        g_assert_cmpuint(gate_counter(g, "processing-inflight"), ==, 0);
+        gate_cleanup(g);
+    }
+}
+
+static void test_device_reuse(void)
+{
+    GateFixture *g = gate_fixture();
+    NikonGateInputShape shape = { 64, 16, 64 };
+    NikonGateInputVersion before, after;
+
+    publish(g);
+    advance(1000000);
+    check_outputs(g->f, 0, 0);
+    nikon_gate_input_status(g->dev, &shape, &before);
+    qdev_unrealize(g->dev);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
+                     NIKON_GATE_INPUT_UNSUPPORTED);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(g->dev), &error_abort));
+    sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 0, GATE_BASE);
+    gate_configure(g);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
+                     NIKON_GATE_INPUT_READY);
+    g_assert_cmpuint(after.epoch, !=, before.epoch);
+    memset(g->f->bytes + 0x10000, 0xa5, RAM_SIZE - 0x10000);
+    publish(g);
+    advance(1000000);
+    check_outputs(g->f, 0, 0);
+    g_assert_cmpuint(gate_counter(g, "processed"), ==, 1);
+    gate_cleanup(g);
+}
+
 static void test_irq_reentry(void)
 {
     for (unsigned reset = 0; reset < 2; reset++) {
@@ -1026,6 +1418,12 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/gatework/grid-translation", test_grid_translation);
     g_test_add_func("/nikon/gatework/private-plan", test_private_plan);
     g_test_add_func("/nikon/gatework/current-layout", test_current_layout);
+    g_test_add_func("/nikon/gatework/numerical-profiles",
+                    test_numerical_profiles);
+    g_test_add_func("/nikon/gatework/future-source-alias",
+                    test_future_source_alias);
+    g_test_add_func("/nikon/gatework/future-source-memory",
+                    test_future_source_memory);
     g_test_add_func("/nikon/gatework/preflight", test_reject);
     g_test_add_func("/nikon/gatework/device-frames", test_device_frames);
     g_test_add_func("/nikon/gatework/device-cancel", test_device_cancel);
@@ -1036,6 +1434,14 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/gatework/async-cancel", test_async_cancel);
     g_test_add_func("/nikon/gatework/capacity-epoch", test_capacity_epoch);
     g_test_add_func("/nikon/gatework/grid-scope", test_grid_scope);
+    g_test_add_func("/nikon/gatework/upload-ownership", test_upload_ownership);
+    g_test_add_func("/nikon/gatework/device-numerics", test_device_numerics);
+    g_test_add_func("/nikon/gatework/device-source-alias",
+                    test_device_source_alias);
+    g_test_add_func("/nikon/gatework/ready-fences", test_ready_fences);
+    g_test_add_func("/nikon/gatework/upload-admission", test_upload_admission);
+    g_test_add_func("/nikon/gatework/layout-commit", test_layout_commit);
+    g_test_add_func("/nikon/gatework/device-reuse", test_device_reuse);
     g_test_add_func("/nikon/gatework/irq-reentry", test_irq_reentry);
     result = g_test_run();
     qemu_cleanup(result);
