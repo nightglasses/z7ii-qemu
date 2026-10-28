@@ -53,43 +53,51 @@ and the post-window exception/watchdog flags and diagnostic length are0.
 ![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
 
 All menu categories, setting acceptance and return to live view remain
-unverified. Separate mode-change sessions reproduce an AF data abort at MAS VA
-`0x1021D7CE`. Delayed OnVd records accumulate in the 60-entry CaptureService
-FIFO; the AS history copier at VA `0x10394314` overwrites an AF-ring pointer
-when its timestamp window becomes too large. The
-earlier successful window does not erase this failure.
+unverified. Separate mode-change sessions have two distinct failure sites.
+The AF data abort at MAS VA `0x1021D7CE` has a directly observed upstream
+write: the AS history copier at VA `0x10394314` overwrites an AF-ring pointer.
+Its extraction can copy an entire start-slot count even for a narrow recent
+timestamp window; a long D0-report interval therefore needs investigation
+independently of CaptureService backlog.
+
+Other sessions abort at MAS VA `0x1034FE78`, DFAR `0x3c`. This is an aligned
+allocation wrapper continuing after its underlying allocator returns failure,
+not the AF dereference. After the OnVd core, `0x103D0DB0` allocates a `0x2cc`
+descriptor and `0x3e44` work record from the 16 MiB General pool. Source joins
+retirement to completion of all eleven software graph lanes. A separate
+read-only, debugger-free observation verifies growing active-record counts
+58, 326 and 575 while both submission lists stay empty. Sampled old records
+remain in lane2/cell0; a later snapshot locates the oldest lane2 worker at its
+second microstep, VA `0x102682AE`. Other records wait on its dependency chain.
+This identifies a concrete retirement boundary, not yet its missing producer
+or a common cause with the AF overwrite. Guest virtual addresses in these
+snapshots are translated with QEMU's debugger translation before physical
+reads. No frame suppression, queue clearing or event injection is used.
 
 The missing [capture-group numerical work](../devices/capturegroup/protocol.md)
 and [completed-input dispatch](../devices/readoutpipeline/input.md) now execute
 through actual result DMA and normal interrupt acknowledgement. CMOS chunks
-also retain absolute acquisition deadlines rather than adding host dispatch
-lateness to every chunk. The delayed-dispatch native fixture fails on the old
-implementation and passes with this correction; all five CMOS timing cases,
-ten SPI cases and 116 CMOS/paired integration cases pass. Normal W1C result
-acknowledgement now also retries admission of retained fresh input after the
-complete blocking predicate clears. Three real-output regressions fail on the
-old implementation and pass with this connection; the complete expanded suite
-passes 119 cases. A separate exact CMOS coordinate optimization passes a scalar
-gradient oracle on both implementations. Pure group arithmetic now runs in
-QEMU's existing worker pool over owned snapshots; only the normal device path
-validates destination RAM, performs DMA and publishes results. Cancellation
-invalidates the work token and prevents stale output from reaching the guest.
-MAIN/RAW and statistics also retain their separate pending-result ownership:
-unacknowledged statistics no longer block unrelated acquisition or RAW output,
-while each producer still respects its own result capacity. The final native
-batch passes all 122 CMOS/paired integration cases, six CMOS timing/identity
-unit cases and ten SPI unit cases, with normal TAP plans and process exits.
+retain absolute acquisition deadlines; real W1C ACK retries retained fresh
+input when the complete capacity predicate clears. MAIN/RAW and statistics
+keep independent pending-result ownership. Fresh group input after commit no
+longer needs an extra TG edge, and its private work cursor is independent of
+the public completion latch. Pure group, RAW-packing and statistics arithmetic
+now uses QEMU's existing worker pool with owned snapshots. RAM validation,
+DMA and result publication remain on the virtual device path; cancellation
+invalidates old work before any later publication.
 
-These device results do not establish mode-change acceptance. At `994ccce5`,
-the unchanged five-CPU MTTCG cold-neutral run still raises the same AF exception
-at 39.34 host seconds, with 37 retained CaptureService records. Separate
-read-only debugger traces find successful FE and capture waits; median FE wait
-is about 2.3 ms after the changes, but complete OnVd handling still takes about
-38 ms and accumulates old records. AF, AE and post-fence descriptor handling
-are individually short in that trace. Remaining mutex, queue preparation and
-configuration spans are being isolated. Debugger durations include probe
-overhead and are not a camera frame-rate measurement. No frame suppression,
-queue clearing or guest event injection is used to hide the backlog.
+The final native batch passes 126 CMOS/paired integration cases, six CMOS
+timing/identity unit cases and ten SPI unit cases, with normal TAP plans and
+process exits. Old and new arithmetic pass the same scalar/packing/statistics
+oracles. Fixtures separately step RAW completion and the subsequent paired
+minimum deadline; they do not advance future timers while draining host work.
+Independent review found and corrected standalone-fixture worker queries.
+These device results do not establish mode-change acceptance. The unchanged
+five-CPU MTTCG cold-neutral window at `aafb8aba` still reaches the allocation
+failure at 39.69 host seconds, despite M/A/S setting changes and continued MAIN
+progress. Timed-mutex, FE and capture waits succeed in separate traces; host
+GDB durations include substantial stopped time and cannot establish that
+native OnVd processing exceeds a frame period.
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
