@@ -7,16 +7,23 @@
 
 GBytes *nikon_module_cold_neutral(void)
 {
+    static const unsigned timing_groups[] = { 7, 10 };
     uint8_t *data = g_malloc0(NIKON_MODULE_SLOT_SIZE);
-    uint8_t *row = data + 0xbe2b0;
 
     /* Every other byte is a declared zero-valued functional parameter. */
     data[0xbe014] = 0x15;
     data[0xbe015] = 0x00;
-    stw_le_p(row + 2, 4096);
-    stw_le_p(row + 6, 35190);
-    row[11] = 1;
-    stw_le_p(row + 12, 72);
+    /* Uniform virtual rows for the two source groups' four subtype selectors. */
+    for (unsigned i = 0; i < G_N_ELEMENTS(timing_groups); i++) {
+        for (unsigned subtype = 0; subtype < 4; subtype++) {
+            uint8_t *row = data + 0xbe0c0 + timing_groups[i] * 64 + subtype * 16;
+
+            stw_le_p(row + 2, 4096);
+            stw_le_p(row + 6, 35190);
+            row[11] = 1;
+            stw_le_p(row + 12, 72);
+        }
+    }
     memcpy(data + NIKON_MODULE_SLOT_SIZE - 4, "ENDM", 4);
     return g_bytes_new_take(data, NIKON_MODULE_SLOT_SIZE);
 }
