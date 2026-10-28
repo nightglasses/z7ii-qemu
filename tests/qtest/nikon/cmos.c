@@ -4525,10 +4525,14 @@ static void test_paired_source_history(void)
         uint8_t expected[0xce0], actual[sizeof(expected)];
 
         if (mode >= 4) {
+            static const uint32_t affine[] = {
+                0x02000200, 0x02000200, 0, 0, 0, 0, 32767,
+            };
+
             qtest_writel(q, PAIRED + 0x700, 0x101);
-            qtest_writel(q, PAIRED + 0x708, 0x02000200);
-            qtest_writel(q, PAIRED + 0x70c, 0x02000200);
-            qtest_writel(q, PAIRED + 0x720, 32767);
+            for (unsigned i = 0; i < ARRAY_SIZE(affine); i++) {
+                qtest_writel(q, PAIRED + 0x708 + 4 * i, affine[i]);
+            }
         }
 
         /* Two successful publications establish both aliased history units. */
@@ -4560,7 +4564,7 @@ static void test_paired_source_history(void)
                 qtest_writel(q, PAIRED + offsets[i], value);
             }
         } else if (mode == 4) {
-            qtest_writel(q, PAIRED + 0x70c, 0x02000201);
+            paired_online_republish(q, 0x70c, 0x02000201);
         } else if (mode >= 5) {
             /* Both normal mode transitions retain pre-color history. */
             qtest_writel(q, PAIRED + 0x700, 0x100);

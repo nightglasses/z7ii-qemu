@@ -457,12 +457,27 @@ static void test_async_cancel(gconstpointer opaque)
         worker_returned(&blocker, &marker);
     }
     poll_until(f, "inflight=0", &blocker, &marker);
-    unpublished(f);
-    g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    if (mode == 1) {
+        /* A numerical upload does not cancel an already owned snapshot,
+         * even when its host computation was still queued at publication.
+         */
+        published(f);
+        g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    } else {
+        unpublished(f);
+        g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    }
     device_cold_reset(f->dev); /* Also cancel a valid re-admission's future timer. */
     vm_start();
     advance(2000000);
-    unpublished(f);
+    if (mode == 1) {
+        g_assert_cmpuint(counter(f, "completed"), ==, 1);
+        g_assert_cmphex(read_port(f, 0x24), ==, 0);
+        g_assert_false(f->level);
+        g_assert_cmpuint(f->rises, ==, 1);
+    } else {
+        unpublished(f);
+    }
     barrier_clear(&blocker);
     barrier_clear(&marker);
     fixture_free(f);
