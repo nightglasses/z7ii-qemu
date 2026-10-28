@@ -64,6 +64,25 @@ is no mandatory extra TG between completed acquisition and processing admission.
 Group's TG cursor remains metadata; its numerical job snapshots the cursor at
 processing admission, including when acquisition crosses another boundary.
 
+CMOS exposure and row-bounded readout chunks use one absolute deadline within
+each owned acquisition. Begin anchors that deadline to the current virtual
+time; exposure and each chunk add their declared durations to the preceding
+deadline. Delayed host timer dispatch therefore does not add a new host-loop
+delay to every row. QEMU's ordinary timer loop services the expired deadlines,
+and every chunk still samples actual input and copies or DMAs its complete
+bounded bytes before DONE. No dimensions, durations, sample arithmetic or
+completion qualification are reduced to obtain progress.
+
+Cancellation, reset and failure discard the active deadline. Successful
+completion captures its scheduled time and calculates any declared period
+cooldown before clearing the cadence and publishing synchronous outputs. A
+new acquisition started by a completion callback anchors itself to its own
+current virtual time, rather than inheriting overdue work from the old one.
+Every deadline addition checks signed-time representability before mutation;
+an overflowing readout deadline ends in ERROR without a fabricated chunk or
+DONE. These are scheduling rules for the finite virtual provider, not recovered
+physical exposure or sensor-rate measurements.
+
 MAIN stop or changed committed geometry cancels only an owned MAIN acquisition
 and invalidates its completed snapshot. If the latest-acquisition interface
 currently points to MAIN, that reference is cleared before its bytes are freed.
@@ -95,3 +114,10 @@ Existing paired fixtures now obtain a real full-MAIN acquisition before their
 capture edge instead of borrowing an auxiliary thumbnail. These are synthetic
 protocol and numerical checks; they do not prove physical sensor fidelity or
 original-firmware startup progress.
+
+The native `nikon_cmos_unit` fixture additionally dispatches real QOM CMOS
+timers after skipping six readout deadlines. It compares every DMA byte and
+row-padding guard against fine-grained dispatch, observes actual IRQ and
+pipeline DONE, and checks cancellation/reset, fresh acquisition timing,
+reentrant submission and deadline overflow. This scoped timer evidence is
+separate from original-firmware execution and complete boot claims.

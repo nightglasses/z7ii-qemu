@@ -89,7 +89,7 @@ struct NikonCmosState {
     uint32_t row, column, output_width, output_height;
     uint32_t active_buffer, unknown_writes, mode;
     uint32_t bayer, bit_depth, packing, dma_source, dma_destination;
-    int64_t next_frame_time;
+    int64_t next_frame_time, deadline;
     uint32_t unknown[CMOS_UNKNOWN_WORDS];
     uint64_t frame_count, generation;
     char *image_path;
@@ -312,6 +312,7 @@ static void nikon_cmos_event(NikonCmosState *s, uint32_t event)
 static void nikon_cmos_fail(NikonCmosState *s)
 {
     timer_del(s->timer);
+    s->deadline = 0;
     s->generation++;
     nikon_cmos_phase(s, NIKON_CMOS_ERROR);
     nikon_cmos_event(s, NIKON_CMOS_EVENT_ERROR);
@@ -322,6 +323,7 @@ void nikon_cmos_cancel(DeviceState *dev)
     NikonCmosState *s = NIKON_CMOS(dev);
 
     timer_del(s->timer);
+    s->deadline = 0;
     s->generation++;
     nikon_cmos_phase(s, NIKON_CMOS_IDLE);
     nikon_cmos_event(s, NIKON_CMOS_EVENT_CANCEL);
@@ -373,13 +375,12 @@ static uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
 
 static void nikon_cmos_schedule(NikonCmosState *s, uint64_t delay)
 {
-    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-
-    if (now < 0 || delay > INT64_MAX - now) {
+    if (s->deadline < 0 || delay > INT64_MAX - s->deadline) {
         nikon_cmos_fail(s);
         return;
     }
-    timer_mod(s->timer, now + delay);
+    s->deadline += delay;
+    timer_mod(s->timer, s->deadline);
 }
 
 static void nikon_cmos_step(void *opaque)
@@ -430,11 +431,12 @@ static void nikon_cmos_step(void *opaque)
         nikon_cmos_phase(s, NIKON_CMOS_DONE);
         s->frame_count++;
         s->active_buffer = (s->active_buffer + 1) % s->active.buffer_count;
-        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        int64_t completed = s->deadline;
 
+        s->deadline = 0;
         s->next_frame_time = s->active.period_ns &&
-            s->active.period_ns <= INT64_MAX - now ?
-            now + s->active.period_ns : 0;
+            s->active.period_ns <= INT64_MAX - completed ?
+            completed + s->active.period_ns : 0;
         nikon_cmos_event(s, NIKON_CMOS_EVENT_DONE);
     } else {
         nikon_cmos_schedule(s, s->active.readout_ns);
@@ -549,6 +551,7 @@ static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
         s->generation++;
     }
     s->status = 0;
+    s->deadline = now;
     nikon_cmos_phase(s, NIKON_CMOS_EXPOSING);
     nikon_cmos_schedule(s, s->active.exposure_ns);
     return true;
@@ -826,6 +829,7 @@ static void nikon_cmos_reset(DeviceState *dev)
     NikonCmosState *s = NIKON_CMOS(dev);
 
     timer_del(s->timer);
+    s->deadline = 0;
     s->generation++;
     memset(&s->configuration, 0, sizeof(s->configuration));
     memset(&s->active, 0, sizeof(s->active));

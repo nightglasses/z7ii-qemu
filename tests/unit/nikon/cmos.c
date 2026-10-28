@@ -264,6 +264,33 @@ static void test_overflow(void)
     cleanup(f);
 }
 
+static void test_period_anchor(void)
+{
+    CmosFixture *f = fixture();
+    NikonCmosSubmission request = submission();
+    int64_t start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    /* Retain the complete transport configuration, then declare its period. */
+    g_assert_cmpuint(nikon_cmos_submit(f->dev, &request, &error_abort), >, 0);
+    nikon_cmos_cancel(f->dev);
+    write_word(f, 0x50, 1000);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    verify(f);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+    g_assert_cmpuint(f->pulses[1], ==, 1);
+
+    /* Scheduled DONE plus period is already past; late dispatch must not
+     * create a new cooldown. The next acquisition still starts at fresh now. */
+    memset(memory_region_get_ram_ptr(&f->ram), 0xa5, RAM_SIZE);
+    write_word(f, 0x60, 1);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_EXPOSING);
+    dispatch_at(start + 100000 + EXPOSURE - 1);
+    g_assert_cmphex(((uint8_t *)memory_region_get_ram_ptr(&f->ram))[0], ==, 0xa5);
+    g_assert_cmpuint(f->pulses[1], ==, 1);
+    cleanup(f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikon-cmos-XXXXXX", NULL);
@@ -287,6 +314,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/cmos/cancellation", test_cancellation);
     g_test_add_func("/nikon/cmos/reentrant", test_reentrant);
     g_test_add_func("/nikon/cmos/deadline-overflow", test_overflow);
+    g_test_add_func("/nikon/cmos/period-anchor", test_period_anchor);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
