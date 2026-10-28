@@ -1719,6 +1719,82 @@ static void test_statistics_transaction(void)
     unlink(bundle);
 }
 
+static void test_statistics_job_ownership(void)
+{
+    for (unsigned operation = 0; operation < 3; operation++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint8_t input[0x400], newer[0x400], expected[128], actual[128];
+        uint32_t first = RAM + 0x101000, next = RAM + 0x300000;
+
+        statistics_configure(q);
+        for (unsigned n = 1; n < 10; n++) {
+            qtest_writel(q, 0x2006a414 + n * 0x100, 0);
+        }
+        qtest_writel(q, CAPTURE + 0x100, 8);
+        qtest_memset(q, next - 16, 0xa5, 160);
+        statistics_input(q, input);
+        /* Replace both the latest input and committed route before the owned
+         * job's minimum deadline. No worker timing interception is needed.
+         */
+        qtest_writel(q, 0x2006a278, 0x102);
+        qtest_writel(q, 0x2006a444, 0);
+        qtest_writel(q, 0x2006a450, next);
+        qtest_writel(q, CAPTURE + 0x100, 8);
+        statistics_input(q, newer);
+        if (operation == 1) {
+            qtest_writel(q, CAPTURE + 0xc, 0x10);
+        } else if (operation == 2) {
+            qtest_system_reset(q);
+        }
+        pipeline_step(q, 2000000);
+        if (operation) {
+            g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                         "completed"), ==, 0);
+            g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                         "cancelled"), ==, 1);
+            g_assert_cmphex(qtest_readl(q, first), ==, 0xa5a5a5a5);
+            g_assert_cmphex(qtest_readl(q, next), ==, 0xa5a5a5a5);
+            g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
+        } else {
+            for (unsigned y = 0; y < 2; y++) {
+                for (unsigned x = 0; x < 4; x++) {
+                    uint64_t sum = statistics_sum(input, x * 32, y * 2, 32, 2);
+                    int64_t difference =
+                        (int64_t)statistics_sum(input, x * 32 + 31, y * 2, 1, 2) -
+                        (int64_t)statistics_sum(input, x * 32, y * 2, 1, 2);
+                    uint8_t *cell = expected + (y * 4 + x) * 16;
+
+                    stl_le_p(cell, difference & 0xffffff);
+                    stl_le_p(cell + 4, sum);
+                    stl_le_p(cell + 8, 64);
+                    stl_le_p(cell + 12, (sum + 32) / 64);
+                }
+            }
+            qtest_memread(q, first, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+            g_assert_cmphex(qtest_readl(q, next), ==, 0xa5a5a5a5);
+            qtest_writel(q, CAPTURE + 0x210, 0x40);
+            pipeline_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                         "completed"), ==, 2);
+            for (unsigned x = 0; x < 2; x++) {
+                uint64_t sum = statistics_sum(newer, x * 64, 0, 64, 4);
+
+                g_assert_cmpuint(qtest_readl(q, next + x * 16 + 8), ==, 256);
+                g_assert_cmpuint(qtest_readl(q, next + x * 16 + 12), ==,
+                                 (sum + 128) / 256);
+            }
+            g_assert_cmphex(qtest_readl(q, next - 4), ==, 0xa5a5a5a5);
+            g_assert_cmphex(qtest_readl(q, next + 32), ==, 0xa5a5a5a5);
+            qtest_memread(q, first, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        }
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void test_statistics_saturation(void)
 {
     static const char header[] = "P5\n128 8192\n255\n";
@@ -7662,6 +7738,8 @@ int main(int argc, char **argv)
                    test_main_input_masked_stream);
     qtest_add_func("/nikon/cmos/statistics/saturation",
                    test_statistics_saturation);
+    qtest_add_func("/nikon/cmos/statistics/job-ownership",
+                   test_statistics_job_ownership);
     qtest_add_func("/nikon/cmos/statistics/lifecycle",
                    test_statistics_lifecycle);
     qtest_add_func("/nikon/cmos/statistics/boundaries",
