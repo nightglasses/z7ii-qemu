@@ -752,8 +752,9 @@ The existing TG address packet remains independent metadata. A fresh MAIN
 generation on an automatic rise, after selected commit and effective unit20
 run, admits one owned computation with a declared 1 ms virtual latency. The
 job snapshots the committed configuration, cursor packet and input bytes.
-Both address sets and every ring slot of selected families must cover
-nonoverlapping writable RAM spans; each selected stride must cover its record
+Both address sets and every ring slot of selected families must cover writable
+RAM spans. Selected families must not overlap within a bank; the mutually
+selected banks may share storage. Each selected stride must cover its record
 family. All computation and private record construction precede output writes.
 Successful DMA of all selected families latches the job's coherent packet,
 increments `completed` and publishes

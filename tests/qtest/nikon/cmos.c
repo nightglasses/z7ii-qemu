@@ -1852,9 +1852,9 @@ static void test_group_payload(void)
     g_assert_cmpuint(ldl_le_p(record + 24), ==, 12264);
     g_assert_cmpuint(ldl_le_p(record + 32), ==, 18396);
     g_assert_cmpuint(ldl_le_p(record) & 0xfff, ==, 287);
-    g_assert_cmpuint((ldl_le_p(record) >> 12) |
+    g_assert_cmpuint(((uint32_t)ldl_le_p(record) >> 12) |
                      ((ldl_le_p(record + 4) & 7) << 20), ==, 114864);
-    g_assert_cmpuint(ldl_le_p(record + 4) >> 3, ==,
+    g_assert_cmpuint((uint32_t)ldl_le_p(record + 4) >> 3, ==,
                      16u * (1028u * 1028 + 2056u * 2056 + 4095u * 4095));
     g_assert_cmpuint(lduw_le_p(record + 20), ==, 1794);
     g_assert_cmphex(lduw_le_p(record + 22), ==, 0xa5a5);
