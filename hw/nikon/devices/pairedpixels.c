@@ -1251,7 +1251,7 @@ struct NikonPairedPixels {
     PairedColorActive active;
     NikonPairedPixelResult result;
     NikonPairedPixelStage stage;
-    uint32_t seed[4][3];
+    uint32_t seed[12][3];
     unsigned prefix_pass, post_pass;
     bool complete[12], success[12];
 };
@@ -1264,6 +1264,11 @@ static unsigned paired_bands(unsigned rows)
 static unsigned paired_band(unsigned rows, unsigned task, unsigned tasks)
 {
     return rows * task / tasks;
+}
+
+static unsigned paired_color_bands(const NikonPairedPixelConfig *p)
+{
+    return MIN(p->output_height / 2, 12U);
 }
 
 static unsigned paired_prefix_bands(const NikonPairedPixels *c)
@@ -1361,6 +1366,7 @@ unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *c)
     case NIKON_PAIRED_PIXEL_RADIAL:
         return c->p.encoding == NIKON_RAW_MONO ? 0 : paired_bands(c->p.height);
     case NIKON_PAIRED_PIXEL_COLOR:
+        return paired_color_bands(&c->p);
     case NIKON_PAIRED_PIXEL_PACK:
         return paired_bands(c->p.output_height / 2);
     case NIKON_PAIRED_PIXEL_POST: {
@@ -1443,7 +1449,7 @@ static bool paired_prepare(NikonPairedPixels *c)
         }
     }
     c->active = paired_color_active(p);
-    bands = paired_bands(p->output_height / 2);
+    bands = paired_color_bands(p);
     noise = p->noise[0].enabled || p->noise[1].enabled || p->noise[2].enabled;
     for (unsigned band = 0; band < bands; band++) {
         size_t first = 2 * paired_band(p->output_height / 2, band, bands) *
@@ -1451,7 +1457,7 @@ static bool paired_prepare(NikonPairedPixels *c)
 
         /* Every 2-row band starts between complete original 2x2 blocks. Each
          * enabled channel has exactly one recurrence per preceding pixel.
-         * This scan stores only 4x3 states and performs no noise arithmetic.
+         * This scan stores only 12x3 states and performs no noise arithmetic.
          */
         if (!noise) {
             visited = first;
