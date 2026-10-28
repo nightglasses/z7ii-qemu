@@ -1119,11 +1119,11 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
                               unsigned width, unsigned height,
                               const NikonPairedPixelConfig *config,
                               const uint16_t *grid, unsigned channel,
-                              unsigned pass)
+                              unsigned pass, unsigned first, unsigned last)
 {
     const NikonPairedPost *p = &config->post;
 
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         unsigned up = y ? y - 1 : y;
         unsigned down = MIN(y + 1, height - 1);
 
@@ -1203,47 +1203,25 @@ static void paired_main_color(const uint16_t *filtered,
     }
 }
 
-static void paired_main_post(const NikonPairedPixelConfig *p,
-    const uint16_t *grid, uint16_t *planes, uint16_t *scratch, unsigned channel)
+static bool paired_post_neutral(const NikonPairedPost *p, unsigned channel,
+                                unsigned pass)
 {
-    size_t pixels = (size_t)p->output_width * p->output_height;
-    uint16_t *plane = planes + channel * pixels;
-    uint16_t *input = plane;
     const bool neutral[] = {
-        !p->post.unsharp[!!channel],
-        !p->post.smooth[0],
-        !p->post.smooth[1],
-        !p->post.amount || !p->post.modifier || p->post.retain == 31,
+        !p->unsharp[!!channel],
+        !p->smooth[0],
+        !p->smooth[1],
+        !p->amount || !p->modifier || p->retain == 31,
         false,
     };
 
-    /* Every plane sample is already clamped to 12 bits. These zero
-     * numerators leave it unchanged, including at replicated edges.
-     * Alternate immutable buffers only for passes that actually run.
-     */
-    for (unsigned pass = 0; pass < 5; pass++) {
-        uint16_t *output;
-
-        if (neutral[pass]) {
-            continue;
-        }
-        output = input == plane ? scratch : plane;
-        paired_post_pass(input, output,
-                          p->output_width, p->output_height,
-                          p, grid, channel, pass);
-        input = output;
-    }
-    if (input != plane) {
-        memcpy(plane, input, pixels * sizeof(*plane));
-    }
+    return neutral[pass];
 }
 
 static void paired_main_pack(const NikonPairedPixelConfig *p,
-    const uint16_t *planes, uint8_t *out_y, uint8_t *out_uv,
+    uint16_t *const planes[3], uint8_t *out_y, uint8_t *out_uv,
     unsigned first, unsigned last)
 {
     unsigned x, y, dx, dy;
-    size_t pixels = (size_t)p->output_width * p->output_height;
 
     for (y = first; y < last; y += 2) {
         for (x = 0; x < p->output_width; x += 2) {
@@ -1253,12 +1231,12 @@ static void paired_main_pack(const NikonPairedPixelConfig *p,
                 for (dx = 0; dx < 2; dx++) {
                     size_t at = (size_t)(y + dy) * p->output_width + x + dx;
 
-                    unsigned luma = ((uint64_t)planes[at] * p->main_gain +
+                    unsigned luma = ((uint64_t)planes[0][at] * p->main_gain +
                                      128) / 256;
 
                     out_y[at] = paired_byte(MIN(luma, 4095));
-                    u += planes[pixels + at];
-                    v += planes[2 * pixels + at];
+                    u += planes[1][at];
+                    v += planes[2][at];
                 }
             }
             out_uv[(y / 2) * p->output_width + x] = paired_byte((u + 2) / 4);
@@ -1310,12 +1288,14 @@ struct NikonPairedPixels {
     const uint16_t *raw, *prior, *residual, *grid;
     uint16_t *dpc, *filtered, *prefix_dpc, *prefix_filtered;
     uint16_t *planes, *post_scratch, *half_luma, *half_residual;
+    uint16_t *post_input[3], *post_output[3];
     uint8_t *y, *uv, *work;
     PairedColorActive active;
     NikonPairedPixelResult result;
     NikonPairedPixelStage stage;
     uint32_t seed[4][3];
-    bool complete[4], success[4], mono_swap;
+    unsigned post_pass;
+    bool complete[12], success[12], mono_swap;
 };
 
 static unsigned paired_bands(unsigned rows)
@@ -1353,6 +1333,11 @@ NikonPairedPixelStage nikon_paired_pixels_stage(const NikonPairedPixels *c)
     return c->stage;
 }
 
+unsigned nikon_paired_pixels_post_pass(const NikonPairedPixels *c)
+{
+    return c->post_pass;
+}
+
 unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *c)
 {
     switch (c->stage) {
@@ -1367,8 +1352,14 @@ unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *c)
     case NIKON_PAIRED_PIXEL_COLOR:
     case NIKON_PAIRED_PIXEL_PACK:
         return paired_bands(c->p.output_height / 2);
-    case NIKON_PAIRED_PIXEL_POST:
-        return 3;
+    case NIKON_PAIRED_PIXEL_POST: {
+        unsigned channels = 0;
+
+        for (unsigned i = 0; i < 3; i++) {
+            channels += !paired_post_neutral(&c->p.post, i, c->post_pass);
+        }
+        return channels * paired_bands(c->p.output_height);
+    }
     case NIKON_PAIRED_PIXEL_DONE:
         return 0;
     }
@@ -1527,14 +1518,29 @@ bool nikon_paired_pixels_run(NikonPairedPixels *c, unsigned task)
             2 * paired_band(p->output_height / 2, task + 1, tasks));
         break;
     }
-    case NIKON_PAIRED_PIXEL_POST:
-        paired_main_post(p, c->grid, c->planes,
-            task == 0 ? c->dpc : task == 1 ? c->filtered : c->post_scratch, task);
+    case NIKON_PAIRED_PIXEL_POST: {
+        unsigned bands = paired_bands(p->output_height);
+        unsigned band = task % bands, channel_task = task / bands;
+        unsigned channel;
+
+        for (channel = 0; channel < 3; channel++) {
+            if (!paired_post_neutral(&p->post, channel, c->post_pass)) {
+                if (!channel_task) {
+                    break;
+                }
+                channel_task--;
+            }
+        }
+        paired_post_pass(c->post_input[channel], c->post_output[channel],
+            p->output_width, p->output_height, p, c->grid, channel, c->post_pass,
+            paired_band(p->output_height, band, bands),
+            paired_band(p->output_height, band + 1, bands));
         break;
+    }
     case NIKON_PAIRED_PIXEL_PACK: {
         size_t half = (size_t)((p->width + 1) / 2) * ((p->height + 1) / 2);
 
-        paired_main_pack(p, c->planes, c->y, c->uv,
+        paired_main_pack(p, c->post_input, c->y, c->uv,
             2 * paired_band(p->output_height / 2, task, tasks),
             2 * paired_band(p->output_height / 2, task + 1, tasks));
         for (size_t i = half * task / tasks; i < half * (task + 1) / tasks; i++) {
@@ -1571,7 +1577,36 @@ bool nikon_paired_pixels_advance(NikonPairedPixels *c)
             c->filtered = scratch;
         }
     }
-    c->stage++;
+    if (c->stage == NIKON_PAIRED_PIXEL_COLOR) {
+        size_t main = (size_t)c->p.output_width * c->p.output_height;
+
+        /* The crop fits RAW, so the two dead RAW buffers and one MAIN scratch
+         * hold three independent alternate planes after the COLOR barrier.
+         */
+        for (unsigned channel = 0; channel < 3; channel++) {
+            c->post_input[channel] = c->planes + channel * main;
+        }
+        c->post_output[0] = c->dpc;
+        c->post_output[1] = c->filtered;
+        c->post_output[2] = c->post_scratch;
+    }
+    if (c->stage == NIKON_PAIRED_PIXEL_POST) {
+        /* Neutral channels retain their initialized input, regardless of the
+         * other channels' pass parity or uninitialized alternate storage.
+         */
+        for (unsigned channel = 0; channel < 3; channel++) {
+            if (!paired_post_neutral(&c->p.post, channel, c->post_pass)) {
+                uint16_t *input = c->post_input[channel];
+
+                c->post_input[channel] = c->post_output[channel];
+                c->post_output[channel] = input;
+            }
+        }
+        c->post_pass++;
+    }
+    if (c->stage != NIKON_PAIRED_PIXEL_POST || c->post_pass == 5) {
+        c->stage++;
+    }
     memset(c->complete, 0, sizeof(c->complete));
     memset(c->success, 0, sizeof(c->success));
     if (c->stage == NIKON_PAIRED_PIXEL_DONE) {
