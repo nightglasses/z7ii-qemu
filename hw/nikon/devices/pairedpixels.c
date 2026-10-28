@@ -905,8 +905,29 @@ static uint16_t paired_cfa_sample(const uint16_t *raw,
                                  const NikonPairedPixelConfig *p,
                                  unsigned lane, unsigned x, unsigned y)
 {
-    return paired_lattice_sample(raw, p, lane, (int64_t)x << 16,
-                                 (int64_t)y << 16);
+    unsigned phase = lane ^ (p->encoding - 1);
+    unsigned px = phase & 1, py = phase >> 1;
+    unsigned x0 = (x & 1) == px ? x : x ? x - 1 : px;
+    unsigned y0 = (y & 1) == py ? y : y ? y - 1 : py;
+    unsigned x1 = (x & 1) == px ? x : MIN(x + 1, p->width - 2 + px);
+    unsigned y1 = (y & 1) == py ? y : MIN(y + 1, p->height - 2 + py);
+
+    /* Integer full-RAW coordinates have only 0 or half-phase fractions in
+     * the Q17 lattice. Replicated edges collapse to one sample. Reduce its
+     * exact weighted sum before the single rounding, never round two axes
+     * separately. Four RAW12 taps sum to at most 16380.
+     */
+    if (y0 == y1) {
+        if (x0 == x1) {
+            return raw[y0 * p->width + x0];
+        }
+        return (raw[y0 * p->width + x0] + raw[y0 * p->width + x1] + 1) / 2;
+    }
+    if (x0 == x1) {
+        return (raw[y0 * p->width + x0] + raw[y1 * p->width + x0] + 1) / 2;
+    }
+    return (raw[y0 * p->width + x0] + raw[y0 * p->width + x1] +
+            raw[y1 * p->width + x0] + raw[y1 * p->width + x1] + 2) / 4;
 }
 
 static void paired_cfa_yuv(const uint16_t *raw, const NikonPairedPixelConfig *p,
