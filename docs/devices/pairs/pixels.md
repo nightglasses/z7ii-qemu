@@ -98,7 +98,8 @@ The fixed virtual lens selects a different complete opaque tuple from the
 earlier absent-endpoint profile. The historical [lens receipt](/evidence/lens/session.json)
 stops after eight jobs when `70c` changes. The live affine operator below
 replaces exact matching for `708..720`; these file slots must now be zero.
-Controls `700/704` still require the selected opaque profile. The complete
+Controls `700/704` have the independent affine/mode contract below; their input
+file slots must also be zero, and the guest supplies them through MMIO. The complete
 `724..778` groups now have separate [radial](radial.md), [detail](detail.md) and
 [axial filter](adaptive.md) contracts. Their interpreted file slots must be
 zero. A different numeric gain never authorizes unrelated mode bits,
@@ -146,10 +147,23 @@ to `718/71c/720`. The formula supports an additive pedestal and an upper
 bound interpretation; it does not establish the physical per-pixel order.
 
 VA `102f8812` fixes P[0]=1, producing bit8 of `700`. VA `102f8ba6`
-constructs two mutually exclusive mode booleans, published as bit0 of
-`700/704`; the inspected normal branch is `101/0`. These bits are not
-claimed to be a recovered white-balance enable. The model requires that
-exact selected mode. Entirely zero controls and numeric fields are a separate
+constructs two mutually exclusive mode booleans, published by `102f88c8`
+as bit0 of `700/704`. The ordinary producer emits all three states:
+`101/0` when either source flag is enabled and the ROM selector permits it;
+`100/0` when both flags are clear under that selector; and `100/1` when
+disabled or excluded by the selector. Bit1 fields and other control bits are
+zero. Gain, offset, pedestal and bound production is independent of these
+booleans, so the numerical affine stage follows bit8 in all three states.
+The two mutually exclusive low bits also select radial polynomial/curve
+production; they are not treated as affine enable or recovered white balance.
+
+Without an explicit polynomial override, mode00 zeroes both optional curves
+while retaining their head coefficients; mode01 also zeroes the heads. The
+override path supplies a separate complete packet, so curve contents cannot
+generally be inferred from one mode bit. The existing zero-optional-table
+profile and bounded head-coefficient arithmetic remain required. Unknown bits,
+simultaneous modes and low-bit controls without affine bit8 reject. Entirely
+zero controls and numeric fields are a separate
 synthetic neutral convention used by standalone fixtures.
 
 **Finite functional hypothesis.** For each filtered monochrome RAW12 sample,

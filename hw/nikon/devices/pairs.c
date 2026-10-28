@@ -363,7 +363,7 @@ static bool paired_live_word(unsigned offset)
     if (offset >= 0x1900 && offset <= 0x197c) {
         return true;
     }
-    if ((offset >= 0x708 && offset <= 0x720) ||
+    if ((offset >= 0x700 && offset <= 0x720) ||
         (offset >= 0xdc0 && offset <= 0xdec) ||
         (offset >= 0x660 && offset <= 0x678) ||
         (offset >= 0x73c && offset <= 0x758) ||
@@ -985,11 +985,17 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     g->output_height = c[0x400 / 4] & 0xffff;
     g->grid_width = 60;
     g->grid_height = 34;
-    /* 103646fe/10363bc0 construct four gain/offset/pedestal lanes and a cap. */
-    if (c[0x704 / 4] || (c[0x700 / 4] && c[0x700 / 4] != 0x101)) {
+    /* 102f88c8 publishes independent affine and mutually exclusive mode bits.
+     * 103646fe/10363bc0 construct the affine lanes independently of the modes.
+     * Optional radial tables still require the separately qualified profile.
+     */
+    if ((c[0x700 / 4] & ~0x101U) || (c[0x704 / 4] & ~1U) ||
+        ((c[0x700 / 4] & 1) && c[0x704 / 4]) ||
+        (!(c[0x700 / 4] & 0x100) &&
+         (c[0x700 / 4] || c[0x704 / 4]))) {
         return paired_profile_reject(b, 0x700);
     }
-    g->quad_enabled = c[0x700 / 4] == 0x101;
+    g->quad_enabled = c[0x700 / 4] & 0x100;
     for (unsigned i = 0; i < 4; i++) {
         unsigned shift = (i % 2) ? 0 : 16;
         uint32_t offset = c[0x710 / 4 + i / 2] >> shift;
@@ -1955,7 +1961,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             !paired_inactive(b, offset)) {
             paired_cancel(b);
             /* RAW addresses and main-only color controls preserve history. */
-            if (post < 0 && !(offset >= 0x708 && offset <= 0x720) &&
+            if (post < 0 && !(offset >= 0x700 && offset <= 0x720) &&
                 !(offset >= 0x724 && offset <= 0x738) &&
                 !(offset >= 0x1200 && offset <= 0x1244) &&
                 !(offset >= 0xdf4 && offset <= 0xe10) &&
