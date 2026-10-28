@@ -26,13 +26,14 @@ flowchart TD
   Eligible -->|"yes"| Job["Own config revision, input, cursors<br/>and running-bank mask"]
   Job --> Validate{"All output layouts, RAM extents<br/>and overlap checks valid?"}
   Validate -->|"no"| Reject["Reject job; publish no completion"]
-  Validate -->|"yes"| DMA["1ms virtual latency<br/>All active output DMAs"]
+  Validate -->|"yes"| Compute["After 1ms virtual minimum<br/>Owned host numerical worker"]
+  Compute --> DMA["Virtual-clock completion<br/>Revalidate RAM; all active output DMAs"]
   DMA -->|"Every required DMA succeeds"| Results["Replace running-bank 12-word results<br/>and four global scalars; advance owned rings"]
   DMA -->|"Transfer failure"| Reject
   Results --> Raw["Set capture raw0.bit6<br/>Existing IRQ94 / W1C path"]
   Raw --> Ack["Original software acknowledges raw6"]
   Ack -->|"Next fresh completed input may run"| Eligible
-  Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel ownership and timer<br/>No completion for the cancelled job"]
+  Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel token and timer<br/>Drain submitted work without publication"]
 ```
 
 While raw6 is pending and enabled in the capture mask, the next job is
@@ -284,17 +285,31 @@ Later staging/commits cannot alter it. A newer committed snapshot retains
 its own initial cursors when the older job finishes. A commit revision,
 incremented only on changed configuration, distinguishes A-to-B-to-A commits
 from the still-running old A job. Effective unit16 stop,
-disable or reset cancels its timer. A selected statistics bank stopping
-before completion also cancels the job. Machine reset clears job ownership,
-result validity and pending causes through the existing device resets.
+disable or reset cancels its token and timer. A selected statistics bank stopping
+before completion also cancels the job. A submitted worker keeps its owned
+buffers until it returns; its stale token prohibits DMA, results and causes.
+Only one job may own storage, including cancelled work awaiting its callback.
+After stale work drains, normal admission may claim a retained fresh input;
+the cancelled generation cannot run again. Unrealize drains submitted work
+before releasing the device. Machine reset clears job ownership, result
+validity and pending causes through the existing device resets.
 
-The1ms virtual computation latency is a timing assumption, not a guarantee
-that guest software has queued a root. Before any write, all enabled output
-geometries, slot extents, address arithmetic, writable direct RAM and pairwise
-output overlap are checked. Empty dimensions, unsupported control/layout,
+The1ms virtual minimum latency is a timing assumption, not a guarantee
+that guest software has queued a root. Its first timer validates the owned
+output configuration and submits one job to QEMU's existing thread pool.
+Only exact integral sums, proportional cells and output packing run there,
+using private input/configuration and private output arrays. The worker neither
+reads guest RAM nor accesses device state. Its AIO callback schedules normal
+virtual-clock completion; host readiness alone cannot publish while the virtual
+clock is stopped. RAM validation, DMA, result sinks and IRQs remain under BQL.
+Before submission and again before any write, all enabled output geometries,
+slot extents, address arithmetic, writable direct RAM and pairwise output
+overlap are checked. Empty dimensions, unsupported control/layout,
 overflow, ROM, holes and undersized slots reject the whole job. Each output
 is transferred by QEMU DMA; a transfer failure produces no result packet or
-completion, even if earlier RAM writes occurred.
+completion, even if earlier RAM writes occurred. The job pointer and inflight
+count are cleared before synchronous event publication, and a reset or stop
+from the stage callback prevents a stale second cause.
 
 Only after every required DMA succeeds are the bank/scalar packages replaced
 and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
@@ -339,6 +354,19 @@ Its observed image tasks fail a software period/phase check before submission;
 that result does not justify setting AF6 or forcing service state9.
 
 ## Validation scope
+
+The added job-ownership fixture independently calculates actual endpoint0
+packets across a distinct newer input, changed geometry/route/cursor and commit
+during the old job. It also covers stop/reset before the virtual minimum,
+fresh work after cancellation without reviving the old generation, retained
+fresh-input admission after ACK, untouched destination guards and unchanged
+old bytes. The shared fixture drain observes submitted statistics work at the
+same virtual time; it does not advance the minimum latency. This numerical
+oracle is applicable to both the synchronous and worker implementations;
+it is not a performance red or evidence of original-firmware progress. The
+initial old-model run reached only a reset cancellation-counter mismatch;
+that diagnostic-only assertion was removed, preserving RAM/event checks and
+the existing reset counter behavior. It does not establish a numerical red.
 
 The scoped old-model fixture fails because `/machine/capture-statistics`
 does not exist. The final native CMOS fixtures cover all ten outputs,

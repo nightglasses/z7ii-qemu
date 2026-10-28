@@ -61,6 +61,7 @@ static void pipeline_step(QTestState *q, int64_t nanoseconds)
         pending = strtoul(inflight + strlen(" inflight="), NULL, 10) != 0;
         qobject_unref(reply);
         pending |= property_at(q, "/machine/capture-group", "inflight") != 0;
+        pending |= property_at(q, "/machine/capture-statistics", "inflight") != 0;
         if (!pending) {
             return;
         }
@@ -1742,6 +1743,7 @@ static void test_statistics_job_ownership(void)
         qtest_writel(q, 0x2006a450, next);
         qtest_writel(q, CAPTURE + 0x100, 8);
         statistics_input(q, newer);
+        g_assert_cmpint(memcmp(input, newer, sizeof(input)), !=, 0);
         if (operation == 1) {
             qtest_writel(q, CAPTURE + 0xc, 0x10);
         } else if (operation == 2) {
@@ -1758,6 +1760,17 @@ static void test_statistics_job_ownership(void)
             g_assert_cmphex(qtest_readl(q, first), ==, 0xa5a5a5a5);
             g_assert_cmphex(qtest_readl(q, next), ==, 0xa5a5a5a5);
             g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0);
+            /* A fresh real input may succeed after cancellation; the old
+             * generation cannot revive or produce an extra completion.
+             */
+            statistics_configure(q);
+            statistics_input(q, newer);
+            pipeline_step(q, 2000000);
+            g_assert_cmpuint(property_at(q, "/machine/capture-statistics",
+                                         "completed"), ==, 1);
+            g_assert_cmpuint(qtest_readl(q, first + 12), ==,
+                (statistics_sum(newer, 0, 0, 32, 2) + 32) / 64);
+            g_assert_cmphex(qtest_readl(q, next), ==, 0xa5a5a5a5);
         } else {
             for (unsigned y = 0; y < 2; y++) {
                 for (unsigned x = 0; x < 4; x++) {
