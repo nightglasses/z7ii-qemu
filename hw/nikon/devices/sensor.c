@@ -1004,6 +1004,11 @@ bool nikon_capture_data_pending(DeviceState *dev)
     return s->pending[0] & s->configuration[0x200 / 4] & 0x40;
 }
 
+bool nikon_capture_group_pending(DeviceState *dev)
+{
+    return NIKON_CAPTURE_CONTROL(dev)->pending[3] & 1;
+}
+
 bool nikon_capture_front_pending(DeviceState *dev)
 {
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);

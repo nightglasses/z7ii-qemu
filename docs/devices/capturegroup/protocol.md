@@ -1,4 +1,4 @@
-# Capture-group configuration
+# Capture-group configuration and functional statistics
 
 The finite device retains144 source-identified configuration words at board
 PAs`[2006b800,2006bd84)`. Its one SysBus region is exactly584 hex bytes;
@@ -7,7 +7,10 @@ result words have the cold-empty and automatic-TG cursor profiles below. Once
 actually published, the packet remains latched across generator lifecycle
 changes until another publication or whole-model reset. This retention is an
 explicit functional hypothesis. There
-is no source of capture readiness, frames, DMA, IRQs or completion events.
+is no readiness or completion implied by this metadata. In the bundle
+composition, a separate owned job computes the finite RAW statistics profile
+below and publishes completion only after its three output families reach RAM.
+Its arithmetic is a declared reference operator, not recovered ASIC arithmetic.
 
 ## Original producers and masks
 
@@ -75,8 +78,9 @@ fields.
 and obtains three provider slots through`1030b730`, `1030b764` and`1030b7b4`.
 The two address sets and extra words at bb/bc/bd are independent retained
 payloads. The later provider investigation below identifies their software
-allocation, but not hardware result or DMA semantics. The model neither
-validates them as DMA destinations nor accesses the referenced RAM.
+allocation, but not physical result or DMA semantics. The metadata contract
+does not itself access RAM; the functional processor separately validates
+these destinations before computing and writing records.
 
 `10239dc6` reads the existing result packet through`1020c17a`, conditionally
 updates ba2c and then writes ba10 through`1020c1e2`. Its comparison involving
@@ -172,11 +176,13 @@ The machine wires shared command-data bit4 and command-publish for both ports
 to the group. Capture-control's synchronous `run-state[0..11]` outputs mirror
 effective run intent, and bit5 feeds the group. Those are functional lifecycle
 connections, not physical pins or GIC lines. Publication precedes return from
-the initiating MMIO transaction. The group owns no timer. Its later automatic
-TG input is wired separately from these lifecycle connections.
+the initiating MMIO transaction. The automatic TG input is wired separately
+from these lifecycle connections. The functional statistics job owns a virtual
+computation timer.
 
-The device has no IRQ, request output, frame input or DMA engine. Configuring
-this group does not trigger the shared stop fence as a normal data result.
+Configuring this group does not trigger the shared stop fence as a normal data
+result. The bundle processor consumes completed MAIN input and publishes
+through the existing capture-control IRQ routing.
 Readout admission and CMOS observation completion likewise have no recovered
 mapping to this result packet. A post-submit producer still needs the eight
 field meanings and actual processing/update trigger to claim physical
@@ -490,8 +496,10 @@ normal GUI output, actual statistics or full boot.
 ## Payload consumers and wire records
 
 The subsequent C1.70 source audit recovers three packed record formats. It
-does **not** recover their pixel-to-statistic arithmetic. The existing device
-therefore remains an address generator; no payload DMA or completion is added.
+does **not** recover their pixel-to-statistic arithmetic. That audit alone
+qualified only the address generator. The functional reference operator below
+subsequently adds explicitly hypothetical arithmetic; it does not upgrade the
+audit into physical arithmetic evidence.
 The [payload receipt](/evidence/capturegroup/payload.json) separates these source
 facts from bounded cold-neutral executions at baseline `68b2696e`.
 All offsets in this section are hexadecimal unless explicitly stated otherwise;
@@ -676,4 +684,119 @@ The subsequent [independent acquisition model](../sensor/protocol.md#independent
 closes that missing input lifetime and supports mode1's masked per-frame flow.
 Its final cold-neutral window acquires985 main frames while auxiliary readout
 is stopped. The next rejection is the active kind32 output's uncovered RAM,
-not group payload decoding. Group arithmetic remains outside that change.
+not group payload decoding. Group arithmetic remained outside that change.
+
+## Declared functional RAW statistics operator
+
+`hw/nikon/devices/capturegroup.c` now implements a bounded numerical reference
+profile. The wire layouts and original consumer ratios support an aggregate
+interpretation: primary wire `+08` is the denominator of three filter ratios,
+`+0c` is divided by ROI area and multiplied by 100, and `+10/+18/+20` supply
+the three numerators. Interpreting these as brightness sum, covered sample count
+and three filter responses is a strong inference. The exact filters, scaling,
+packed prefix and halfword meanings remain unrecovered. The following choices
+are **functional hypotheses**, not measured Nikon or silicon behavior.
+
+The grid is bounded to at most nine rows and nine columns. Register pairs
+`b800/b804`, `b808/b80c` and `b810/b814` define count-minus-one, cell centers
+and cell extents respectively. The domain rectangle is `ba00/04/08/0c`, with
+origin zero and positive width/height at most 16384. The two `ba34..ba50`
+rectangles have positive width/height and must fit that domain. Count mask
+`ba30=1` selects one primary/companion pair. Each grid rectangle starts half
+an extent before its center. Nonzero correction/mode fields are rejected:
+`b818/b81c/b984`, `ba10`, `ba14..ba28`, and `ba94..bab8`; `ba2c=3` selects
+the complete primary/companion and grid profile. Other selections remain
+retained MMIO configuration but do not qualify this numerical operation.
+Other metadata continues to have its existing opaque readback contract.
+
+The normalized MAIN input is an immutable, synchronized, little-endian RAW16
+snapshot. Each sample interpolates the 65 monotonic `b880..b980` points at
+1024-code spacing, using floor division, then shifts right four to obtain a
+12-bit value. Constant curves, including erased all-`ffff`, and zero-magnitude
+coefficient rows reject. The three eight-tap coefficient rows use signed
+two's-complement eight-bit first coefficients and seven-bit remaining
+coefficients. Horizontal taps run from `x-3` through `x+4`, clamping at image
+edges. Each response is the absolute signed convolution divided by the sum
+of coefficient magnitudes. This is an explicit FIR convention; no Bayer
+demultiplexing or physical focus response is claimed.
+
+Five integral planes store corrected brightness, squared brightness and the
+three normalized responses. Domain rectangle edges map to input coordinates
+by rational floor/ceiling; the sample averages are scaled to the declared
+domain area. Thus the reported count equals ROI area even when acquisition
+and analysis dimensions differ. The known source ratios receive actual
+image-derived sums and coverage, rather than identity or zero placeholders.
+
+| Wire family and field | Declared numerical value |
+| --- | --- |
+| Primary/grid `+08/+0c` | Brightness sum saturated to u32 / domain area |
+| Primary `+10/+18/+20` | Three response sums saturated to u32 |
+| Grid `+10/+18` | First two response sums saturated to u32 |
+| Companion `+00/+04/+08/+0c/+10` | Brightness sum / area / three response sums |
+| Prefix P12 | Largest of the three average responses, saturated to 12 bits |
+| Prefix S23 / T29 | Brightness sum / squared-brightness sum, saturated to their widths |
+| Primary/grid `+14/+1c` | Mean brightness / domain rectangle center X |
+| Primary `+24` | Domain rectangle center Y |
+
+All field offsets above are hexadecimal. The three halfwords are explicit
+numerical conventions whose physical meanings remain unresolved. Unclassified
+bytes are preserved from destination RAM: primary `+16/+1e/+26` halfwords,
+grid `+16/+1e` halfwords and companion final word `+14`. Gaps between record
+families and after the last cell are also preserved. Source-consumer
+classification does not turn unread bytes into padding.
+
+The existing TG address packet remains independent metadata. A fresh MAIN
+generation on an automatic rise, after selected commit and effective unit20
+run, admits one owned computation with a declared 1 ms virtual latency. The
+job snapshots the committed configuration, cursor packet and input bytes.
+Both address sets and every ring slot must cover nonoverlapping writable RAM
+spans; each stride must cover its record family. All computation and private
+record construction precede output writes. Successful DMA of all three
+families latches the job's coherent packet, increments `completed` and publishes
+capture `THIRD_EVENT {1,0}` (raw3 bit0). A TG edge without input still updates
+metadata but cannot publish data completion.
+
+Selected commit, effective run-low/disable/reset and whole-model reset cancel
+pending work without DMA or completion. A selected commit or run transition
+also prevents replay of an already delivered input generation. Pending raw3
+bit0 blocks admission even when masked; unrelated pending causes do not.
+Only the matching guest ACK releases that ownership. Invalid geometry,
+unsupported modes, erased/invalid curves, insufficient strides, overlapping
+routes or uncovered RAM increment `rejected` and leave payloads/completion
+untouched. The read-only `completed/rejected/cancelled/blocked` properties
+expose this bounded lifecycle.
+
+### Explicit resource39 input
+
+The original `102aa02a` producer reads resource39 at descriptor17 offset
+`11500`, length `2c00`; it is unrelated to descriptor32/resource80.
+Its coefficient variants are 24 u32 values at resource offsets `186c`,
+`18cc`, `192c`, `198c` and alternate `26b0`. The packed curve is 65 u16
+values at `1a1c`. Mode/threshold fields come from the 27 u32 values at
+`1800`, and mode counts from `19ec..19f8` and alternate `2710`.
+
+The existing module tool now offers a separate, explicit transform:
+
+```sh
+nikon-module functional-group-descriptor17 INPUT_DESCRIPTOR17 OUTPUT
+```
+
+It requires exactly `20000` hex bytes, preserves every other byte and writes
+only those source-consumed fields. All modes/counts become zero, the curve
+declares `min(i*1024,65535)`, and each coefficient row declares a difference
+between taps 3 and 4, 5 or 6 with coefficients +1 and -1. This supplies a
+usable, image-dependent virtual filter profile; it is neither factory tuning
+nor an implicit fallback for erased inputs. Apply it after the separate
+`neutral-regions-descriptor17` transform when both profiles are desired.
+Resource35 and the `cold-neutral-resource80` profile remain separate inputs.
+The original firmware loader remains responsible for copying the declared
+resource into guest RAM; this tool neither edits firmware nor prefills RAM.
+
+Native CMOS tests under `/nikon/cmos/group/` cover packed-prefix decoding,
+all three families, actual brightness/filter response arithmetic, guard-byte
+preservation, bank/ring selection, stale input, masked pending/ACK ownership,
+invalid profiles/geometry/RAM and cancellation. Module codec/CLI tests cover
+the declared fields, exact-size rejection and byte-for-byte preservation
+outside them. These are synthetic fixtures; parent native validation and
+original-firmware execution are reported separately, and no complete boot or
+physical-camera fidelity follows from this implementation contract.

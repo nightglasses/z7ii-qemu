@@ -109,6 +109,7 @@ bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
 bool nikon_capture_parameters_configuration(DeviceState *dev, unsigned offset,
                                              uint32_t *value);
 bool nikon_capture_front_pending(DeviceState *dev);
+bool nikon_capture_group_pending(DeviceState *dev);
 /* Named run-state[0..11] mirrors effective08 intent after reset/enable gates.
  * It is synchronous lifecycle information, never a completion publication.
  */

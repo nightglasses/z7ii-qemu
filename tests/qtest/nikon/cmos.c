@@ -1716,6 +1716,205 @@ static void test_pipeline_cancel_and_reset(void)
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
 
+#define GROUP_PATH "/machine/capture-group"
+#define GROUP_BASE 0x2006b800
+#define GROUP_BUFFER (RAM + 0x180000)
+
+static void group_rise(QTestState *q)
+{
+    qtest_set_irq_in(q, GROUP_PATH, "automatic-rise", 0, 0);
+    qtest_set_irq_in(q, GROUP_PATH, "automatic-rise", 0, 1);
+}
+
+static void group_configure(QTestState *q)
+{
+    static const unsigned offsets[] = { 0x33c, 0x344, 0x348, 0x380, 0x480, 0x580,
+                                        0x350, 0x450, 0x550, 0x360, 0x460, 0x560 };
+    static const uint32_t cursor[] = {
+        1, 2, 2, 0xc00, 0xc00, 0xc00,
+        GROUP_BUFFER, GROUP_BUFFER + 0x80, GROUP_BUFFER + 0xd0,
+        GROUP_BUFFER + 0x4000, GROUP_BUFFER + 0x4080, GROUP_BUFFER + 0x40d0,
+    };
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", source);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    qtest_writel(q, CAPTURE + 0x1d00, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1d04, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1e78, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1e7c, 8 << 16);
+    qtest_writel(q, CAPTURE + 0x1f00, 0x11);
+    qtest_writel(q, GROUP_BASE, 1);
+    qtest_writel(q, GROUP_BASE + 4, 1);
+    qtest_writel(q, GROUP_BASE + 8, 2);
+    qtest_writel(q, GROUP_BASE + 12, 2);
+    qtest_writel(q, GROUP_BASE + 16, 4);
+    qtest_writel(q, GROUP_BASE + 20, 4);
+    qtest_writel(q, GROUP_BASE + 0x208, 8);
+    qtest_writel(q, GROUP_BASE + 0x20c, 8);
+    qtest_writel(q, GROUP_BASE + 0x22c, 3);
+    qtest_writel(q, GROUP_BASE + 0x230, 1);
+    for (unsigned i = 0; i < 2; i++) {
+        qtest_writel(q, GROUP_BASE + 0x23c + i * 16, 8);
+        qtest_writel(q, GROUP_BASE + 0x240 + i * 16, 8);
+    }
+    for (unsigned f = 0; f < 3; f++) {
+        for (unsigned tap = 0; tap < 8; tap++) {
+            qtest_writel(q, GROUP_BASE + 0x20 + f * 32 + tap * 4,
+                         tap == 3 ? 1 : tap == 4 + f ? 127 : 0);
+        }
+    }
+    for (unsigned i = 0; i < 65; i++) {
+        qtest_writel(q, GROUP_BASE + 0x80 + i * 4, MIN(i * 1024, 65535));
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(cursor); i++) {
+        qtest_writel(q, GROUP_BASE + offsets[i], cursor[i]);
+    }
+    qtest_memset(q, GROUP_BUFFER - 16, 0xa5, 0x7000);
+    qtest_writel(q, CAPTURE + 0x10, 0x2d);
+    qtest_writel(q, CAPTURE + 8, 0x2d);
+    qtest_writel(q, CAPTURE + 0x100, 0x15);
+}
+
+static void group_input(QTestState *q)
+{
+    qtest_writel(q, CAPTURE + 0x210, 1);
+    main_input_rise(q);
+    pipeline_step(q, 10000);
+}
+
+static void test_group_payload(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint32_t base = GROUP_BUFFER + 0x5800;
+    uint8_t record[40];
+
+    group_configure(q);
+    qtest_irq_intercept_out_named(q, "/machine/capture-control", "sysbus-irq");
+    qtest_writel(q, CAPTURE + 0x260, 1);
+    group_rise(q); /* Metadata advances without input; no payload/completion. */
+    pipeline_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    qtest_writel(q, CAPTURE + 0x104, 0x10); /* Restore initial ring cursor. */
+    group_input(q);
+    group_rise(q);
+    g_assert_cmphex(qtest_readl(q, base + 8), ==, 0xa5a5a5a5);
+    pipeline_step(q, 1000000);
+    qtest_memread(q, base, record, sizeof(record));
+    g_assert_cmpuint(ldl_le_p(record + 8), ==, 114864);
+    g_assert_cmpuint(ldl_le_p(record + 12), ==, 64);
+    g_assert_cmpuint(ldl_le_p(record + 16), ==, 6132);
+    g_assert_cmpuint(ldl_le_p(record + 24), ==, 12264);
+    g_assert_cmpuint(ldl_le_p(record + 32), ==, 18396);
+    g_assert_cmpuint(ldl_le_p(record) & 0xfff, ==, 287);
+    g_assert_cmpuint((ldl_le_p(record) >> 12) |
+                     ((ldl_le_p(record + 4) & 7) << 20), ==, 114864);
+    g_assert_cmpuint(ldl_le_p(record + 4) >> 3, ==,
+                     16u * (1028u * 1028 + 2056u * 2056 + 4095u * 4095));
+    g_assert_cmpuint(lduw_le_p(record + 20), ==, 1794);
+    g_assert_cmphex(lduw_le_p(record + 22), ==, 0xa5a5);
+    g_assert_cmphex(lduw_le_p(record + 30), ==, 0xa5a5);
+    g_assert_cmphex(lduw_le_p(record + 38), ==, 0xa5a5);
+    g_assert_cmpuint(qtest_readl(q, base + 0x80), ==, 114864);
+    g_assert_cmpuint(qtest_readl(q, base + 0x84), ==, 64);
+    g_assert_cmpuint(qtest_readl(q, base + 0x88), ==, 6132);
+    g_assert_cmphex(qtest_readl(q, base + 0x94), ==, 0xa5a5a5a5);
+    for (unsigned i = 0; i < 4; i++) {
+        static const unsigned mean[] = { 0, 1028, 2056, 4095 };
+
+        g_assert_cmpuint(qtest_readl(q, base + 0xd8 + i * 32), ==, mean[i] * 16);
+        g_assert_cmpuint(qtest_readl(q, base + 0xdc + i * 32), ==, 16);
+    }
+    g_assert_cmphex(qtest_readl(q, base - 4), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, base + 0x150), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, GROUP_BUFFER), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 1);
+    g_assert_true(qtest_get_irq(q, NIKON_CAPTURE_THIRD_EVENT));
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+    /* Even masked pending work owns its output until the matching ACK. */
+    qtest_writel(q, CAPTURE + 0x260, 0);
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+    qtest_writel(q, CAPTURE + 0x270, 2);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+    qtest_writel(q, CAPTURE + 0x270, 1);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 2);
+    qtest_writel(q, CAPTURE + 0x270, 1);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 2);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_group_boundaries(void)
+{
+    static const uint32_t bad[][2] = {
+        { 0x80, 65535 }, { 0x20c, 1 }, { 0x23c, 9 }, { 0x298, 1 },
+        { 0x580, 32 }, { 0x360, 0x80000000 }, { 0x450, GROUP_BUFFER },
+        { 0x230, 0 }, { 0x80 + 16 * 4, 0 },
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(bad); i++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+
+        group_configure(q);
+        qtest_writel(q, GROUP_BASE + bad[i][0], bad[i][1]);
+        if (!i) {
+            for (unsigned point = 0; point < 65; point++) {
+                qtest_writel(q, GROUP_BASE + 0x80 + point * 4, 65535);
+            }
+        }
+        qtest_writel(q, CAPTURE + 0x104, 0x10);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "rejected"), ==, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+        g_assert_cmphex(qtest_readl(q, GROUP_BUFFER + 0x5808), ==, 0xa5a5a5a5);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
+static void test_group_cancellation(void)
+{
+    static const unsigned controls[] = { 0xc, 0x14, 0, 0x104 };
+
+    for (unsigned i = 0; i < 5; i++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+
+        group_configure(q);
+        group_input(q);
+        group_rise(q);
+        if (i == 4) {
+            qtest_system_reset(q);
+        } else {
+            qtest_writel(q, CAPTURE + controls[i], i == 3 ? 0x10 : 0x20);
+        }
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "cancelled"), ==, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+        g_assert_cmphex(qtest_readl(q, GROUP_BUFFER + 0x5808), ==, 0xa5a5a5a5);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 #define WORK_PATH "/machine/capture-processing"
 #define WORK_BUFFER (RAM + 0x100000)
 
@@ -6709,6 +6908,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/statistics/storage-period",
                    test_statistics_storage_period);
     qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
+    qtest_add_func("/nikon/cmos/group/payload", test_group_payload);
+    qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
+    qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/main-boundaries",

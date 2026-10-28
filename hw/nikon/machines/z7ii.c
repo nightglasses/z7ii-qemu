@@ -1239,6 +1239,12 @@ static void z7ii_init(MachineState *machine)
         }
         /* Original status/command interface; external publication is unbound. */
         object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
+        if (pipeline) {
+            object_property_set_link(OBJECT(group), "pipeline", OBJECT(pipeline),
+                                      &error_fatal);
+            object_property_set_link(OBJECT(group), "capture", OBJECT(capture),
+                                      &error_fatal);
+        }
         sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
         for (i = 0; i < 2; i++) {
