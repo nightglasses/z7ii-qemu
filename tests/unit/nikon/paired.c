@@ -1007,6 +1007,33 @@ static NikonPairedGridFrame grid_frame(uint64_t generation)
     };
 }
 
+static void test_raw_backing_alias(void)
+{
+    PairedFixture *f = fixture_new();
+    MemoryRegion view;
+    NikonPairedRawFrame raw = raw_frame(0, 1);
+    NikonPairedGridFrame grid = grid_frame(1);
+
+    /* A different PA covering identical backing is not exact PA/span reuse. */
+    memory_region_init_alias(&view, NULL, "paired-raw-alias", &f->ram,
+                              0, 0x1000);
+    memory_region_add_subregion(get_system_memory(), 0x30000000, &view);
+    write_port(f, 0x224, 0x30000000);
+    write_port(f, 0x31c, 0x30000000);
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    nikon_paired_grid_frame(f->dev, &grid);
+    nikon_paired_frame(f->dev, &raw);
+    advance(2000000);
+    unpublished(f);
+    g_assert_cmpuint(counter(f, "rejected"), >, 0);
+    g_assert_true(runtime_has(f, "bank0 request=2 active=0"));
+    g_assert_true(runtime_has(f, "inflight=0"));
+    memory_region_del_subregion(get_system_memory(), &view);
+    object_unparent(OBJECT(&view));
+    fixture_free(f);
+}
+
 static void test_grid_dependency(void)
 {
     PairedFixture *f = fixture_new();
@@ -1452,6 +1479,7 @@ int main(int argc, char **argv)
     g_test_add_data_func("/nikon/paired/async/bank-stop", GINT_TO_POINTER(1),
                          test_async_bank_clear);
     g_test_add_func("/nikon/paired/async/bank-invalid", test_async_bank_invalid);
+    g_test_add_func("/nikon/paired/raw-backing-alias", test_raw_backing_alias);
     g_test_add_func("/nikon/paired/grid-dependency", test_grid_dependency);
     g_test_add_func("/nikon/paired/grid-snapshot", test_grid_snapshot);
     g_test_add_func("/nikon/paired/grid-rejection", test_grid_rejection);

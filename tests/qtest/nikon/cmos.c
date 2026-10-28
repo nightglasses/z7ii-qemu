@@ -7982,6 +7982,105 @@ static void test_paired_cycle(void)
     unlink(bundle);
 }
 
+static void test_paired_raw_reuse(void)
+{
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+
+    /* A complete tuple may reuse one physical RAW span at different times.
+     * Even its future duplicate must not block the current fresh phase.
+     */
+    qtest_writel(q, PAIRED + 0x224, WORK_BUFFER + 0x1000);
+    qtest_writel(q, PAIRED + 0x31c, WORK_BUFFER + 0x1000);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    for (unsigned phase = 0; phase < 3; phase++) {
+        paired_raw_input(q);
+        if (phase == 1) {
+            /* Leave phase0 pending until fresh phase1 RAW is retained. Its
+             * real W1C retry must accept the complete duplicate future tuple.
+             */
+            g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+            qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+        }
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
+                         phase + 1);
+        paired_pixels(q, PAIRED_MAIN, phase % 2);
+        paired_pixels(q, PAIRED_WORK, phase % 2);
+        paired_pixels(q, PAIRED_GRID, phase);
+        g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+        if (phase != 0) {
+            qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+        }
+        work_ack(q);
+    }
+    /* Phase3 names physical slot1, whose generation was consumed by phase0.
+     * ACKs, kicks and time cannot reuse it; the next DMA writes slot0 first.
+     */
+    qtest_writel(q, PAIRED + 0x10, 1);
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 4);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+    work_ack(q);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 5);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
+    paired_pixels(q, PAIRED_MAIN, 1);
+    paired_pixels(q, PAIRED_WORK, 1);
+    paired_pixels(q, PAIRED_GRID, 3);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1402);
+    qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+    work_ack(q);
+    /* The cyclic next phase0 names the same slot: generation5 is not replay. */
+    qtest_writel(q, PAIRED + 0x10, 1);
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+    g_assert_false(qtest_get_irq(q, 99 - 32));
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_paired_raw_reuse_boundaries(void)
+{
+    static const uint32_t addresses[] = {
+        WORK_BUFFER + 0x1020, /* Only identical full read spans may be reused. */
+        PAIRED_MAIN,          /* A future input must not alias any output. */
+        0x10020000,           /* Every phase still needs actual RAM. */
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+
+        qtest_writel(q, PAIRED + 0x224, addresses[i]);
+        qtest_writel(q, PAIRED + 0x31c, addresses[i]);
+        qtest_writel(q, PAIRED + 0x10, 1);
+        qtest_writel(q, PAIRED + 8, 1);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
+        paired_untouched(q);
+        qtest_quit(q);
+        unlink(scene);
+        unlink(bundle);
+    }
+}
+
 static void test_paired_publication(void)
 {
     for (unsigned front_first = 0; front_first < 2; front_first++) {
@@ -8958,6 +9057,9 @@ int main(int argc, char **argv)
                    test_paired_coverage_cancellation);
     qtest_add_func("/nikon/cmos/paired/second-batch", test_paired_second_batch);
     qtest_add_func("/nikon/cmos/paired/cycle", test_paired_cycle);
+    qtest_add_func("/nikon/cmos/paired/raw-reuse", test_paired_raw_reuse);
+    qtest_add_func("/nikon/cmos/paired/raw-reuse-boundaries",
+                   test_paired_raw_reuse_boundaries);
     qtest_add_func("/nikon/cmos/paired/cfa/reduction", test_paired_cfa_reduction);
     qtest_add_func("/nikon/cmos/paired/cfa/color", test_paired_cfa_color);
     qtest_add_func("/nikon/cmos/paired/transfer/transaction", test_paired_transfer);

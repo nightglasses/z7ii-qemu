@@ -1590,7 +1590,13 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
             return false;
         }
         for (unsigned q = 0; q < p; q++) {
-            if (paired_overlap(address, input_span,
+            /* Finite temporal-reuse hypothesis: all phases have input_span,
+             * but a job snapshots only its current phase and consumes that
+             * physical slot's RAW generation. Only exact PA/span reads may
+             * repeat; partial overlaps and different PA backing aliases fail.
+             */
+            if (address != paired_source(b, q) &&
+                paired_overlap(address, input_span,
                                paired_source(b, q), input_span)) {
                 qemu_log_mask(LOG_GUEST_ERROR,
                     "nikon-paired: batch-input-overlap bank=%u phases=%u/%u "
