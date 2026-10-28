@@ -4184,7 +4184,7 @@ static void test_paired_transfer_boundaries(void)
     }
 }
 
-static void paired_untouched(QTestState *q)
+static void paired_outputs_untouched(QTestState *q)
 {
     uint8_t expected[0xce0], actual[sizeof(expected)];
 
@@ -4202,6 +4202,11 @@ static void paired_untouched(QTestState *q)
                       sizeof(actual));
         g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
     }
+}
+
+static void paired_untouched(QTestState *q)
+{
+    paired_outputs_untouched(q);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
     g_assert_false(qtest_get_irq(q, 99 - 32));
 }
@@ -8713,7 +8718,8 @@ static void test_paired_capacity(void)
     g_assert_cmphex(qtest_readl(q, PAIRED_GATE + 0x20), ==, 8);
     g_assert_true(qtest_get_irq(q, 102 - 32));
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
-    paired_untouched(q);
+    paired_outputs_untouched(q);
+    g_assert_false(qtest_get_irq(q, 99 - 32));
     /* Both ordinary pending words fence reuse of the sole public input. */
     pipeline_step(q, 2000000);
     paired_gate_output(q, 1, false, 0, 0, 0);
@@ -8760,8 +8766,9 @@ static void test_paired_capacity_cancel(void)
 
         paired_capacity_fill(q, scene, gate);
         if (mode == 0) {
-            /* Commit a different route, then restore the accepted tuple
-             * before deferred revalidation. Equality cannot restore its epoch.
+            /* Commit a different route, then restore the accepted tuple.
+             * Main-loop gaps may already reject the old result; equality
+             * cannot restore its epoch in either ordering.
              */
             paired_gate_input(q, 9);
             paired_gate_input(q, 8);
@@ -8776,18 +8783,24 @@ static void test_paired_capacity_cancel(void)
         } else {
             paired_stop(q, PAIRED);
         }
-        pipeline_step(q, 2000000);
+        /* Check the revoked ready result before another numerical deadline.
+         * A later1ms deadline can legitimately recompute unconsumed RAW under
+         * the restored epoch; it is distinct from publishing that old result.
+         * The paired stop has its separate normal drain deadline.
+         */
+        pipeline_step(q, mode == 4 ? 2000000 : 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, mode < 3);
         g_assert_cmpuint(property_at(q, gate, "processed"), ==, 0);
         g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, mode == 3 ? 0 : 1);
         paired_stream_pixels(q, gate, mode == 4);
-        paired_untouched(q);
+        paired_outputs_untouched(q);
+        g_assert_false(qtest_get_irq(q, 99 - 32));
         for (unsigned phase = 0; phase < 4; phase++) {
             paired_gate_output(q, phase, false, 0, 0, 0);
         }
         if (mode == 4) {
-            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 2);
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x014a0080);
         } else {
             g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
         }

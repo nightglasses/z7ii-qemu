@@ -1356,7 +1356,7 @@ static void test_device_reuse(void)
     qdev_unrealize(g->dev);
     g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,
                      NIKON_GATE_INPUT_UNSUPPORTED);
-    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(g->dev), &error_abort));
+    object_property_set_bool(OBJECT(g->dev), "realized", true, &error_abort);
     sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 0, GATE_BASE);
     gate_configure(g);
     g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &after), ==,

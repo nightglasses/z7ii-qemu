@@ -550,7 +550,7 @@ immutable job: decoded parameters, RAW samples and qualified history are copied
 before submission. Workers never read guest RAM, access device state, perform
 DMA or raise an IRQ. One aggregate job per bank bounds outstanding ownership,
 including cancelled work that has not returned. Its fixed numerical stages use
-at most four pool tasks at a time:
+at most twelve pool tasks at a time:
 
 | Stage | Independent work | Join before |
 | --- | --- | --- |
@@ -559,14 +559,18 @@ at most four pool tasks at a time:
 | `2` temporal | Disjoint bands of complete 2×2 blocks | Neighboring radial reads |
 | `3` radial | CFA rows read one immutable mosaic and write distinct corrected pixels; MONO skips this stage | MAIN color |
 | `4` color | Up to four even-row MAIN bands | Spatial post-processing |
-| `5` post | Three independent channels, each keeping its five-pass order and private scratch | UV averaging |
+| `5` post | Each of five ordered passes uses up to four row bands per active channel | Next pass, then UV averaging |
 | `6` pack | Disjoint Y/UV bands and actual LE16 WORK bytes | Final result availability |
 
 Each MAIN band starts with the three LFSR states reached by scanning exactly
 its number of preceding pixels. Enabled channels alone step, and each band
 retains the original 2×2, `dy`, `dx` traversal. No noise state is reset at a band
-boundary. The two dead RAW intermediates become two channel scratch planes;
-only the third scratch needs another MAIN-sized allocation. The synchronous
+boundary. Each post band reads the complete immutable input plane for its
+current pass and writes disjoint rows. All bands join before swapping the
+active channel's input and scratch; neutral channels do not swap. This preserves
+cross-band neighborhoods and all five scalar pass boundaries. The two dead RAW
+intermediates become two channel scratch planes; only the third scratch needs
+another MAIN-sized allocation. The synchronous
 pixel interface composes these same stage bodies and copies results only after
 the complete private operation succeeds.
 
@@ -579,7 +583,7 @@ submission time, not a promise of completion within 1 ms or a physical frame rat
 
 Before publication, the main thread checks the bank's cancellation token, phase
 and unconsumed RAW generation, current whole-batch memory/overlap constraints,
-peer ownership and downstream gate generation. Only then can actual DMA and the
+peer ownership and downstream gate epoch/capacity. Only then can actual DMA and the
 existing completion transition run. Source withdrawal still permits an immutable
 snapshot to finish, but cannot establish history for a newer source epoch.
 Cancellation or reset invalidates the task and releases logical ownership;
@@ -588,6 +592,23 @@ then discards its result without DMA, consumed-generation updates or completion 
 disables admission and drains these callbacks before device resources are freed.
 This separation removes long pixel computation from the BQL callback. It does
 not by itself establish the cause of missed host controls or normal GUI startup.
+
+A supported but occupied MAIN input can admit the next immutable paired
+computation into that same single aggregate. It cannot admit a second aggregate.
+When computation finishes, the complete memory, alias, peer and ownership
+preflight still runs. BUSY retains the private ready result without DMA, RAW
+consumption, history, phase movement or pending bits. A genuine gate input
+release pulses an internal `input-capacity` GPIO, which schedules a virtual-clock
+recheck after the current MMIO transaction. It is not a guest completion cause.
+The paused clock cannot publish the retained result.
+
+Normal successful MAIN consumption changes the gate generation but preserves
+its input epoch. A waiting paired job can publish into the then-current free
+generation of that same epoch. Stop, reset, committed input binding or topology
+changes revoke the epoch; the old result fails the ordinary ownership check.
+Malformed current memory or peer ownership also rejects, even while capacity
+is occupied. This one-result precomputation and epoch law are explicit functional
+pipeline hypotheses, not recovered hardware queue depth or latch timing.
 
 Address publication is distinct from initial `10/08` admission. Both front
 (`218..234`) and back (`310..32c`) views have four slots, with a separate
@@ -657,7 +678,9 @@ Per-bank `compute` is `0` before host submission or after release, `1` while a
 task is queued/running and `2` after its callback has returned a result for
 virtual-clock publication. Unlike MMIO `18`, `active` describes an admitted job,
 including its host computation. `stage` reports the fixed stage above (`7` done),
-and `remaining` counts children awaiting their Aio callbacks. Reading these fields
+and `remaining` counts children awaiting their Aio callbacks. `postpass` reports
+the current post pass; `capacity-wait` marks a computed result retained for the
+real gate input, and `capacity-pending` marks its virtual recheck timer. Reading these fields
 performs no work or events.
 The same string distinguishes the live `selected` view from the `staged` `fc`
 readback; `commit` is its queued target, or `-1` if no complete commit is pending.

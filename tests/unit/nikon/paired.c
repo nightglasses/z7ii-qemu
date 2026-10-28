@@ -320,14 +320,22 @@ static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
         device_cold_reset(f->gate);
         object_property_set_link(OBJECT(f->dev), "gate", OBJECT(f->gate),
                                   &error_abort);
-        qdev_connect_gpio_out_named(f->gate, "input-capacity", 0,
-            qdev_get_gpio_in_named(f->dev, "input-capacity", 0));
     }
     f->irq = qemu_allocate_irq(irq_level, f, 0);
     sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 0, f->irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
     g_assert_cmpint(unlink(path), ==, 0);
     device_cold_reset(f->dev);
+    if (stream) {
+        /* GPIO links resolve through QOM paths. Realize the receiver first so
+         * its input has a rooted path, as it does in the machine wiring.
+         */
+        qdev_connect_gpio_out_named(f->gate, "input-capacity", 0,
+            qdev_get_gpio_in_named(f->dev, "input-capacity", 0));
+        g_assert_true(object_property_get_link(OBJECT(f->gate),
+            "input-capacity[0]", &error_abort) ==
+            OBJECT(qdev_get_gpio_in_named(f->dev, "input-capacity", 0)));
+    }
     configure_raw(f, raw_words);
     vm_start();
     return f;
@@ -1265,6 +1273,12 @@ static void stream_poll(PairedFixture *f, const char *state)
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 
     while (!runtime_has(f, state)) {
+        if (g_get_monotonic_time() >= deadline) {
+            g_autofree char *runtime = object_property_get_str(OBJECT(f->dev),
+                "runtime", &error_abort);
+
+            g_error("paired stream wait for %s: %s", state, runtime);
+        }
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         aio_poll(qemu_get_aio_context(), false);
         if (runstate_is_running()) {
@@ -1327,6 +1341,7 @@ static void test_stream_ready_lifecycle(gconstpointer opaque)
     if (mode == 0) {
         vm_stop(RUN_STATE_PAUSED);
         stream_gate_write(f, 4, 0); /* Actual epoch withdrawal while paused. */
+        g_assert_true(runtime_has(f, "capacity-pending=1"));
         aio_poll(qemu_get_aio_context(), false);
         g_assert_true(runtime_has(f, "capacity-wait=1"));
         g_assert_cmpuint(counter(f, "rejected"), ==, 0);

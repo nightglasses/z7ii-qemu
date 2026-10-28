@@ -108,8 +108,12 @@ in reverse graph order. Every one of the42 known ports now admits that request
 only after successful import, with reset deasserted and no outstanding start.
 The finite readback is0 before request and1 afterward. The original status
 predicate `103bdbbe` checks `(word &3) !=3`; no successful result is invented.
-Local reset cancels only that node's request and imported configuration;
-whole-device reset clears all requests. Neither produces pixels or events.
+The local `14=1/0` pulse opens and arms a replacement upload; the committed
+packet stays valid until a successful `10` import. Source `103bded0` performs
+this pulse without stopping the graph. The [MAIN ownership contract](../gate/processing.md)
+therefore preserves an already owned numerical snapshot and blocks future
+admissions during an incomplete upload. Whole-device reset clears all requests.
+Neither upload nor reset produces pixels or completion events.
 
 The separate [type0 capture contract](../gate/slots.md) atomically installs
 thirteen staged words at selector2c. Configuration-only worker
