@@ -8,6 +8,8 @@
 #include "qemu/bswap.h"
 #include "qemu/bitops.h"
 #include "qemu/timer.h"
+#include "qemu/aio-wait.h"
+#include "block/thread-pool.h"
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-properties.h"
@@ -32,6 +34,29 @@ static const hwaddr cursor_offsets[] = {
     0x350, 0x450, 0x550, 0x360, 0x460, 0x560,
 };
 
+typedef struct GroupRectangle {
+    unsigned x, y, width, height;
+} GroupRectangle;
+
+typedef struct GroupJob {
+    uint32_t configuration[CAPTURE_GROUP_WORDS];
+    uint32_t results[ARRAY_SIZE(result_offsets)];
+    NikonCaptureInput input;
+    uint8_t *input_data, *data;
+    GroupRectangle roi[2];
+    unsigned width, height, cells, sizes[3];
+    uint32_t address[3];
+    int coefficients[3][8], offsets[3][8];
+    unsigned taps[3], magnitude[3];
+} GroupJob;
+
+typedef struct GroupTask {
+    NikonCaptureGroupState *owner;
+    GroupJob job;
+    uint64_t token;
+    bool submitted, ready, success;
+} GroupTask;
+
 struct NikonCaptureGroupState {
     SysBusDevice parent_obj;
     MemoryRegion memory;
@@ -52,26 +77,32 @@ struct NikonCaptureGroupState {
     bool reported_error;
     DeviceState *pipeline, *capture;
     QEMUTimer *timer;
-    uint32_t committed[CAPTURE_GROUP_WORDS], job[CAPTURE_GROUP_WORDS];
-    uint32_t job_results[ARRAY_SIZE(result_offsets)];
-    NikonCaptureInput input;
-    uint8_t *input_data;
-    bool busy;
+    uint32_t committed[CAPTURE_GROUP_WORDS];
+    GroupTask *compute;
+    uint64_t token, inflight;
+    bool busy, stopping;
     uint64_t last_input, completed, rejected, cancelled, blocked;
 };
 
+static void group_task_free(GroupTask *task);
+static void group_input_ready(void *opaque, int index, int level);
+
 static void group_cancel(NikonCaptureGroupState *s)
 {
+    s->token++;
     if (s->busy) {
         timer_del(s->timer);
         s->busy = false;
         s->cancelled++;
     }
+    if (s->compute && (!s->compute->submitted || s->compute->ready)) {
+        group_task_free(s->compute);
+    }
 }
 
-static uint32_t group_word(NikonCaptureGroupState *s, unsigned offset)
+static uint32_t group_word(const GroupJob *j, unsigned offset)
 {
-    return s->job[offset / 4];
+    return j->configuration[offset / 4];
 }
 
 static bool group_ram(uint64_t address, uint64_t bytes)
@@ -94,10 +125,6 @@ static bool group_ram(uint64_t address, uint64_t bytes)
     return true;
 }
 
-typedef struct GroupRectangle {
-    unsigned x, y, width, height;
-} GroupRectangle;
-
 static bool group_rectangle(GroupRectangle r, unsigned width, unsigned height)
 {
     return r.width && r.height && r.x < width && r.y < height &&
@@ -105,7 +132,7 @@ static bool group_rectangle(GroupRectangle r, unsigned width, unsigned height)
 }
 
 /* The declared numerical profile has no undocumented correction modes. */
-static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
+static bool group_profile(GroupJob *j, GroupRectangle roi[2],
                           unsigned *width, unsigned *height, unsigned *cells)
 {
     static const unsigned zero[] = {
@@ -113,21 +140,21 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
         0x21c, 0x220, 0x224, 0x228, 0x294, 0x298, 0x29c, 0x2a0,
         0x2a4, 0x2a8, 0x2ac, 0x2b0, 0x2b4, 0x2b8,
     };
-    unsigned columns = group_word(s, 0) + 1;
-    unsigned rows = group_word(s, 4) + 1;
-    unsigned step_x = group_word(s, 0x10), step_y = group_word(s, 0x14);
-    unsigned families = group_word(s, 0x22c);
+    unsigned columns = group_word(j, 0) + 1;
+    unsigned rows = group_word(j, 4) + 1;
+    unsigned step_x = group_word(j, 0x10), step_y = group_word(j, 0x14);
+    unsigned families = group_word(j, 0x22c);
 
-    *width = group_word(s, 0x208);
-    *height = group_word(s, 0x20c);
+    *width = group_word(j, 0x208);
+    *height = group_word(j, 0x20c);
     *cells = columns * rows;
     if (*width > 16384 || *height > 16384 || !*width || !*height ||
         !families || families > 3 ||
-        ((families & 1) && group_word(s, 0x230) != 1)) {
+        ((families & 1) && group_word(j, 0x230) != 1)) {
         return false;
     }
     for (unsigned i = 0; i < ARRAY_SIZE(zero); i++) {
-        if (group_word(s, zero[i])) {
+        if (group_word(j, zero[i])) {
             return false;
         }
     }
@@ -135,30 +162,30 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
         unsigned base = 0x234 + i * 16;
 
         roi[i] = (GroupRectangle) {
-            group_word(s, base), group_word(s, base + 4),
-            group_word(s, base + 8), group_word(s, base + 12),
+            group_word(j, base), group_word(j, base + 4),
+            group_word(j, base + 8), group_word(j, base + 12),
         };
         if (!group_rectangle(roi[i], *width, *height)) {
             return false;
         }
     }
     if ((families & 2) && (columns > 9 || rows > 9 || !step_x || !step_y ||
-        group_word(s, 8) < step_x / 2 ||
-        group_word(s, 12) < step_y / 2 ||
-        (uint64_t)group_word(s, 8) + (columns - 1) * step_x +
+        group_word(j, 8) < step_x / 2 ||
+        group_word(j, 12) < step_y / 2 ||
+        (uint64_t)group_word(j, 8) + (columns - 1) * step_x +
             (step_x + 1) / 2 > *width ||
-        (uint64_t)group_word(s, 12) + (rows - 1) * step_y +
+        (uint64_t)group_word(j, 12) + (rows - 1) * step_y +
             (step_y + 1) / 2 > *height)) {
         return false;
     }
     for (unsigned i = 0; i < 65; i++) {
-        unsigned value = group_word(s, 0x80 + i * 4);
+        unsigned value = group_word(j, 0x80 + i * 4);
 
-        if (i && value < group_word(s, 0x80 + (i - 1) * 4)) {
+        if (i && value < group_word(j, 0x80 + (i - 1) * 4)) {
             return false;
         }
     }
-    if (group_word(s, 0x80) == group_word(s, 0x180)) {
+    if (group_word(j, 0x80) == group_word(j, 0x180)) {
         return false;
     }
     return true;
@@ -220,101 +247,97 @@ static void group_record(const uint64_t *integral, unsigned width,
     }
 }
 
-static void group_complete(void *opaque)
+static bool group_routes(GroupJob *j)
 {
-    NikonCaptureGroupState *s = opaque;
-    GroupRectangle roi[2];
-    unsigned width, height, cells;
-    unsigned sizes[3];
-    uint32_t address[3];
-    int coefficients[3][8], offsets[3][8];
-    unsigned taps[3] = { 0 }, magnitude[3] = { 0 };
-    g_autofree uint64_t *integral = NULL;
-    g_autofree uint16_t *pixels = NULL;
-    g_autofree uint8_t *data = NULL;
-    unsigned iw = s->input.width, ih = s->input.height;
-    size_t plane = (size_t)(iw + 1) * (ih + 1);
-
-    s->busy = false;
-    if (nikon_capture_group_pending(s->capture)) {
-        s->blocked++;
-        return;
-    }
-    if (!group_profile(s, roi, &width, &height, &cells)) {
-        s->rejected++;
-        return;
-    }
-    /* Omit only zero contributions, preserving signed taps and their order. */
-    for (unsigned f = 0; f < 3; f++) {
-        for (unsigned tap = 0; tap < 8; tap++) {
-            int coefficient = sextract32(group_word(s,
-                0x20 + f * 32 + tap * 4), 0, tap ? 7 : 8);
-
-            if (coefficient) {
-                unsigned at = taps[f]++;
-
-                coefficients[f][at] = coefficient;
-                offsets[f][at] = (int)tap - 3;
-                magnitude[f] += abs(coefficient);
-            }
-        }
-        if (!magnitude[f]) {
-            s->rejected++;
-            return;
-        }
-    }
-    sizes[0] = group_word(s, 0x22c) & 1 ? 40 : 0;
-    sizes[1] = group_word(s, 0x22c) & 1 ? 24 : 0;
-    sizes[2] = group_word(s, 0x22c) & 2 ? cells * 32 : 0;
     /* Validate both address sets and every ring slot before the first write. */
     for (unsigned bank = 0; bank < 2; bank++) {
         for (unsigned i = 0; i < 3; i++) {
-            uint32_t base = group_word(s, 0x350 + bank * 16 + i * 0x100);
-            uint32_t stride = group_word(s, 0x380 + i * 0x100);
-            unsigned count = group_word(s, 0x348) + 1;
+            uint32_t base = group_word(j, 0x350 + bank * 16 + i * 0x100);
+            uint32_t stride = group_word(j, 0x380 + i * 0x100);
+            unsigned count = group_word(j, 0x348) + 1;
 
-            if (!sizes[i]) {
+            if (!j->sizes[i]) {
                 continue;
             }
-            if (sizes[i] > stride) {
-                s->rejected++;
-                return;
+            if (j->sizes[i] > stride) {
+                return false;
             }
             for (unsigned slot = 0; slot < count; slot++) {
                 uint64_t a = (uint64_t)base + (uint64_t)slot * stride;
 
-                if (!group_ram(a, sizes[i])) {
-                    s->rejected++;
-                    return;
+                if (!group_ram(a, j->sizes[i])) {
+                    return false;
                 }
-                for (unsigned j = 0; j < i; j++) {
-                    if (!sizes[j]) {
+                for (unsigned family = 0; family < i; family++) {
+                    if (!j->sizes[family]) {
                         continue;
                     }
                     for (unsigned other = 0; other < count; other++) {
-                        uint64_t b = (uint64_t)group_word(s,
-                            0x350 + bank * 16 + j * 0x100) +
-                            (uint64_t)other * group_word(s, 0x380 + j * 0x100);
+                        uint64_t b = (uint64_t)group_word(j,
+                            0x350 + bank * 16 + family * 0x100) +
+                            (uint64_t)other *
+                            group_word(j, 0x380 + family * 0x100);
 
-                        if (a < b + sizes[j] && b < a + sizes[i]) {
-                            s->rejected++;
-                            return;
+                        if (a < b + j->sizes[family] && b < a + j->sizes[i]) {
+                            return false;
                         }
                     }
                 }
             }
-            if (bank == s->job_results[0]) {
-                address[i] = base + s->job_results[1] * stride;
+            if (bank == j->results[0]) {
+                j->address[i] = base + j->results[1] * stride;
             }
         }
     }
+    return true;
+}
+
+static bool group_prepare(GroupJob *j)
+{
+    if (!group_profile(j, j->roi, &j->width, &j->height, &j->cells)) {
+        return false;
+    }
+    /* Omit only zero contributions, preserving signed taps and their order. */
+    for (unsigned f = 0; f < 3; f++) {
+        for (unsigned tap = 0; tap < 8; tap++) {
+            int coefficient = sextract32(group_word(j,
+                0x20 + f * 32 + tap * 4), 0, tap ? 7 : 8);
+
+            if (coefficient) {
+                unsigned at = j->taps[f]++;
+
+                j->coefficients[f][at] = coefficient;
+                j->offsets[f][at] = (int)tap - 3;
+                j->magnitude[f] += abs(coefficient);
+            }
+        }
+        if (!j->magnitude[f]) {
+            return false;
+        }
+    }
+    j->sizes[0] = group_word(j, 0x22c) & 1 ? 40 : 0;
+    j->sizes[1] = group_word(j, 0x22c) & 1 ? 24 : 0;
+    j->sizes[2] = group_word(j, 0x22c) & 2 ? j->cells * 32 : 0;
+    return group_routes(j);
+}
+
+static int group_compute(void *opaque)
+{
+    GroupTask *task = opaque;
+    GroupJob *j = &task->job;
+    unsigned iw = j->input.width, ih = j->input.height;
+    size_t plane = (size_t)(iw + 1) * (ih + 1);
+    g_autofree uint64_t *integral = NULL;
+    g_autofree uint16_t *pixels = NULL;
+
     pixels = g_new(uint16_t, (size_t)iw * ih);
     for (unsigned y = 0; y < ih; y++) {
         for (unsigned x = 0; x < iw; x++) {
-            unsigned raw = lduw_le_p(s->input_data + y * s->input.stride + x * 2);
+            unsigned raw = lduw_le_p(j->input_data + y * j->input.stride +
+                                     x * 2);
             unsigned index = raw >> 10, fraction = raw & 1023;
-            unsigned a = group_word(s, 0x80 + index * 4);
-            unsigned b = group_word(s, 0x84 + index * 4);
+            unsigned a = group_word(j, 0x80 + index * 4);
+            unsigned b = group_word(j, 0x84 + index * 4);
 
             pixels[y * iw + x] = ((a * (1024 - fraction) + b * fraction) /
                                   1024) >> 4;
@@ -331,13 +354,13 @@ static void group_complete(void *opaque)
             for (unsigned f = 0; f < 3; f++) {
                 int response = 0;
 
-                for (unsigned tap = 0; tap < taps[f]; tap++) {
-                    unsigned sx = CLAMP((int)x + offsets[f][tap],
+                for (unsigned tap = 0; tap < j->taps[f]; tap++) {
+                    unsigned sx = CLAMP((int)x + j->offsets[f][tap],
                                         0, (int)iw - 1);
 
-                    response += coefficients[f][tap] * pixels[y * iw + sx];
+                    response += j->coefficients[f][tap] * pixels[y * iw + sx];
                 }
-                values[2 + f] = abs(response) / magnitude[f];
+                values[2 + f] = abs(response) / j->magnitude[f];
             }
             for (unsigned i = 0; i < 5; i++) {
                 row[i] += values[i];
@@ -346,55 +369,155 @@ static void group_complete(void *opaque)
             }
         }
     }
-    data = g_malloc(sizes[0] + sizes[1] + sizes[2]);
+    j->data = g_malloc0(j->sizes[0] + j->sizes[1] + j->sizes[2]);
     unsigned offset = 0;
 
     for (unsigned i = 0; i < 3; i++) {
-        if (!sizes[i]) {
+        if (!j->sizes[i]) {
             continue;
         }
-        if (dma_memory_read(&address_space_memory, address[i], data + offset,
-                            sizes[i], MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-            s->rejected++;
-            return;
-        }
         if (i < 2) {
-            group_record(integral, iw, ih, width, height, roi[i], data + offset, i);
+            group_record(integral, iw, ih, j->width, j->height, j->roi[i],
+                         j->data + offset, i);
         } else {
-            unsigned columns = group_word(s, 0) + 1;
-            unsigned sx = group_word(s, 0x10), sy = group_word(s, 0x14);
+            unsigned columns = group_word(j, 0) + 1;
+            unsigned sx = group_word(j, 0x10), sy = group_word(j, 0x14);
 
-            for (unsigned cell = 0; cell < cells; cell++) {
+            for (unsigned cell = 0; cell < j->cells; cell++) {
                 GroupRectangle r = {
-                    group_word(s, 8) + cell % columns * sx - sx / 2,
-                    group_word(s, 12) + cell / columns * sy - sy / 2, sx, sy,
+                    group_word(j, 8) + cell % columns * sx - sx / 2,
+                    group_word(j, 12) + cell / columns * sy - sy / 2, sx, sy,
                 };
 
-                group_record(integral, iw, ih, width, height, r,
-                              data + offset + cell * 32, 2);
+                group_record(integral, iw, ih, j->width, j->height, r,
+                              j->data + offset + cell * 32, 2);
             }
         }
-        offset += sizes[i];
+        offset += j->sizes[i];
+    }
+    return 0;
+}
+
+static void group_task_free(GroupTask *task)
+{
+    NikonCaptureGroupState *s = task->owner;
+
+    assert(s->compute == task);
+    s->compute = NULL;
+    if (task->submitted) {
+        assert(s->inflight == 1);
+        s->inflight--;
+    }
+    g_free(task->job.input_data);
+    g_free(task->job.data);
+    g_free(task);
+    aio_wait_kick();
+    object_unref(OBJECT(s));
+}
+
+static void group_computed(void *opaque, int ret)
+{
+    GroupTask *task = opaque;
+    NikonCaptureGroupState *s = task->owner;
+
+    task->ready = true;
+    task->success = ret == 0;
+    if (s->stopping || !s->busy || task->token != s->token) {
+        object_ref(OBJECT(s));
+        group_task_free(task);
+        if (!s->stopping) {
+            group_input_ready(s, 0, 1);
+        }
+        object_unref(OBJECT(s));
+        return;
+    }
+    /* Host completion cannot publish while the virtual clock is stopped. */
+    timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+static void group_complete(void *opaque)
+{
+    NikonCaptureGroupState *s = opaque;
+    GroupTask *task = s->compute;
+    GroupJob *j;
+    g_autofree uint8_t *data = NULL;
+    unsigned offset = 0;
+
+    if (!s->busy) {
+        return;
+    }
+    assert(task && task->token == s->token);
+    if (!task->submitted) {
+        task->submitted = true;
+        s->inflight++;
+        thread_pool_submit_aio(group_compute, task, group_computed, task);
+        return;
+    }
+    assert(task->ready);
+    s->busy = false;
+    j = &task->job;
+    if (nikon_capture_group_pending(s->capture)) {
+        s->blocked++;
+        goto out;
+    }
+    if (!task->success || !group_routes(j)) {
+        s->rejected++;
+        goto out;
+    }
+    data = g_malloc(j->sizes[0] + j->sizes[1] + j->sizes[2]);
+    /* Preserve unclassified destination bytes as they exist at publication. */
+    for (unsigned i = 0; i < 3; i++) {
+        if (!j->sizes[i]) {
+            continue;
+        }
+        if (dma_memory_read(&address_space_memory, j->address[i], data + offset,
+                            j->sizes[i], MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            s->rejected++;
+            goto out;
+        }
+        unsigned records = i == 2 ? j->cells : 1;
+        unsigned stride = i == 0 ? 40 : i == 1 ? 24 : 32;
+
+        for (unsigned record = 0; record < records; record++) {
+            uint8_t *to = data + offset + record * stride;
+            const uint8_t *from = j->data + offset + record * stride;
+
+            memcpy(to, from, 20);
+            if (i != 1) {
+                memcpy(to + 20, from + 20, 2);
+                memcpy(to + 24, from + 24, 6);
+                if (i == 0) {
+                    memcpy(to + 32, from + 32, 6);
+                }
+            }
+        }
+        offset += j->sizes[i];
     }
     offset = 0;
     for (unsigned i = 0; i < 3; i++) {
-        if (!sizes[i]) {
+        if (!j->sizes[i]) {
             continue;
         }
-        if (dma_memory_write(&address_space_memory, address[i], data + offset,
-                             sizes[i], MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        if (dma_memory_write(&address_space_memory, j->address[i],
+                             data + offset, j->sizes[i],
+                             MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             s->rejected++;
-            return;
+            goto out;
         }
-        offset += sizes[i];
+        offset += j->sizes[i];
     }
-    memcpy(s->results, s->job_results, sizeof(s->results));
+    memcpy(s->results, j->results, sizeof(s->results));
     s->result_state = GROUP_RESULT_PUBLISHED;
     uint32_t causes[2] = { 1, 0 };
 
+    s->completed++;
+    group_task_free(task);
+    /* Synchronous consumers may ACK, stop or reset from the event callback. */
     nikon_capture_publish(s->capture, NIKON_CAPTURE_THIRD_EVENT,
                           causes, 2, &error_abort);
-    s->completed++;
+    return;
+out:
+    group_task_free(task);
 }
 
 static int nikon_capture_group_result(hwaddr offset)
@@ -430,11 +553,13 @@ static void group_input_ready(void *opaque, int index, int level)
 {
     NikonCaptureGroupState *s = opaque;
 
-    if (!level || !s->running || !s->active_valid || !s->started) {
+    if (!level || s->stopping || !s->running || !s->active_valid ||
+        !s->started) {
         return;
     }
-    if (s->pipeline && s->capture && !s->busy && s->committed[0x22c / 4]) {
+    if (s->pipeline && s->capture && !s->compute && s->committed[0x22c / 4]) {
         NikonCaptureInput input;
+        GroupTask *task;
 
         if (nikon_capture_group_pending(s->capture)) {
             s->blocked++;
@@ -451,13 +576,22 @@ static void group_input_ready(void *opaque, int index, int level)
             s->rejected++;
             return;
         }
-        g_free(s->input_data);
-        s->input_data = g_memdup2(input.data,
-                                  (size_t)input.stride * input.height);
-        s->input = input;
-        s->input.data = s->input_data;
-        memcpy(s->job, s->committed, sizeof(s->job));
-        memcpy(s->job_results, s->results, sizeof(s->job_results));
+        task = g_new0(GroupTask, 1);
+        task->owner = s;
+        task->token = s->token;
+        memcpy(task->job.configuration, s->committed, sizeof(s->committed));
+        memcpy(task->job.results, s->results, sizeof(s->results));
+        if (!group_prepare(&task->job)) {
+            s->rejected++;
+            g_free(task);
+            return;
+        }
+        task->job.input = input;
+        task->job.input_data = g_memdup2(input.data,
+                                        (size_t)input.stride * input.height);
+        task->job.input.data = task->job.input_data;
+        object_ref(OBJECT(s));
+        s->compute = task;
         s->busy = true;
         timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
     }
@@ -655,10 +789,8 @@ static void nikon_capture_group_reset(DeviceState *dev)
     NikonCaptureGroupState *s = NIKON_CAPTURE_GROUP(dev);
 
     group_cancel(s);
-    g_clear_pointer(&s->input_data, g_free);
     s->last_input = 0;
     memset(s->committed, 0, sizeof(s->committed));
-    memset(s->job, 0, sizeof(s->job));
     memset(s->configuration, 0, sizeof(s->configuration));
     memset(s->commit_selected, 0, sizeof(s->commit_selected));
     memset(s->active, 0, sizeof(s->active));
@@ -670,6 +802,15 @@ static void nikon_capture_group_reset(DeviceState *dev)
     s->started = false;
     s->result_state = GROUP_RESULT_COLD;
     s->reported_error = false;
+}
+
+static void nikon_capture_group_unrealize(DeviceState *dev)
+{
+    NikonCaptureGroupState *s = NIKON_CAPTURE_GROUP(dev);
+
+    s->stopping = true;
+    nikon_capture_group_reset(dev);
+    AIO_WAIT_WHILE(NULL, s->inflight);
 }
 
 static void nikon_capture_group_init(Object *obj)
@@ -684,6 +825,8 @@ static void nikon_capture_group_init(Object *obj)
     object_property_add_uint64_ptr(obj, "cancelled", &s->cancelled,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "blocked", &s->blocked,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "inflight", &s->inflight,
                                    OBJ_PROP_FLAG_READ);
     memory_region_init_io(&s->memory, obj, &nikon_capture_group_ops, s,
                           "nikon.capture-group", CAPTURE_GROUP_SIZE);
@@ -703,7 +846,7 @@ static void nikon_capture_group_finalize(Object *obj)
     NikonCaptureGroupState *s = NIKON_CAPTURE_GROUP(obj);
 
     timer_free(s->timer);
-    g_free(s->input_data);
+    assert(!s->compute && !s->inflight);
 }
 
 static const Property group_properties[] = {
@@ -725,7 +868,7 @@ static void nikon_capture_group_class_init(ObjectClass *oc, const void *data)
     dc->vmsd = &nikon_capture_group_vmstate;
     dc->user_creatable = false;
     device_class_set_props(dc, group_properties);
-    dc->unrealize = nikon_capture_group_reset;
+    dc->unrealize = nikon_capture_group_unrealize;
     device_class_set_legacy_reset(dc, nikon_capture_group_reset);
 }
 

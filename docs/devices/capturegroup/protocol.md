@@ -750,8 +750,8 @@ classification does not turn unread bytes into padding.
 
 The existing TG address packet remains independent metadata. Once that boundary
 has selected a cursor, a fresh completed MAIN generation, after selected commit
-and effective unit20 run, admits one owned computation with a declared 1 ms
-virtual latency. MAIN data-ready tries admission immediately; a TG boundary
+and effective unit20 run, admits one owned computation with a declared minimum
+1 ms virtual latency. MAIN data-ready tries admission immediately; a TG boundary
 also tries a previously delivered, still unconsumed generation. The job snapshots
 the committed configuration, cursor packet and input bytes. Requiring an extra
 TG after actual acquisition completion was a previous functional scheduling
@@ -760,14 +760,31 @@ that extra latency without changing the job's numerical or ownership conditions.
 Both address sets and every ring slot of selected families must cover writable
 RAM spans. Selected families must not overlap within a bank; the mutually
 selected banks may share storage. Each selected stride must cover its record
-family. All computation and private record construction precede output writes.
+family. Admission validates the profile and complete output batch and copies
+the input on QEMU's main thread. After the minimum virtual delay, QEMU's existing
+thread pool performs only the LUT, FIR, integral and record arithmetic against
+that immutable private job. The integer operations, tap order and rounding are
+unchanged. There is at most one owned task per device, bounded by the existing
+four-million-sample input limit; busy TG edges do not queue work or time credit.
+Worker completion only marks its private result ready and arms a virtual timer.
+It cannot DMA, change guest-visible state or publish while the virtual clock is
+stopped. The virtual timer revalidates the complete RAM batch, reads destination
+records and merges only classified fields before DMA, preserving unclassified
+bytes as they exist at publication. All computation and private record
+construction precede output writes.
 Successful DMA of all selected families latches the job's coherent packet,
 increments `completed` and publishes
 capture `THIRD_EVENT {1,0}` (raw3 bit0). A TG edge without input still updates
 metadata but cannot publish data completion.
 
 Selected commit, effective run-low/disable/reset and whole-model reset cancel
-pending work without DMA or completion. A selected commit or run transition
+pending work without DMA or completion. Cancellation invalidates its token;
+an executing worker retains its private buffers until host completion and then
+discards them. Device unrealize drains that bounded worker through QEMU AIO.
+After a cancelled worker is released, ordinary admission may retry a newer
+qualified MAIN generation; it cannot replay the cancelled generation or bypass
+run, commit, synchronization, cursor or pending-event guards.
+A selected commit or run transition
 also prevents replay of an already delivered input generation. Pending raw3
 bit0 blocks admission even when masked; unrelated pending causes do not.
 Only the matching guest ACK releases that ownership and retries ordinary
@@ -778,7 +795,8 @@ units and reset state cannot create a job. Invalid geometry,
 unsupported modes, erased/invalid curves, insufficient strides, overlapping
 routes or uncovered RAM increment `rejected` and leave payloads/completion
 untouched. The read-only `completed/rejected/cancelled/blocked` properties
-expose this bounded lifecycle.
+expose this bounded lifecycle. Read-only `inflight` distinguishes owned host
+work from a published result.
 
 ### Explicit resource39 input
 
@@ -809,7 +827,15 @@ resource into guest RAM; this tool neither edits firmware nor prefills RAM.
 Native CMOS tests under `/nikon/cmos/group/` cover packed-prefix decoding,
 all three families, actual brightness/filter response arithmetic, guard-byte
 preservation, bank/ring selection, stale input, masked pending/ACK ownership,
-invalid profiles/geometry/RAM and cancellation. Module codec/CLI tests cover
+invalid profiles/geometry/RAM and cancellation. Worker cases preserve destination
+bytes changed after admission and issue stop, selected commit and reset after
+submitting arithmetic, then compute a fresh input with a different declared
+curve. They accept both legal host interleavings (publication before cancellation
+or cancellation before publication) and verify real RAM retention in either
+case. They do not deterministically intercept an executing worker or a ready
+worker while the VM is stopped; those ownership and virtual-timer boundaries
+remain code-review coverage rather than a native fixture claim.
+Module codec/CLI tests cover
 the declared fields, exact-size rejection and byte-for-byte preservation
 outside them. These are synthetic fixtures; parent native validation and
 original-firmware execution are reported separately, and no complete boot or
