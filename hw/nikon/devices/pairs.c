@@ -2634,8 +2634,9 @@ static char *paired_runtime(Object *obj, Error **errp)
     GString *state = g_string_new(NULL);
 
     g_string_append_printf(state, "source-epoch=%" PRIu64
-        " inflight=%u capacity-pending=%u\n", s->source_epoch, s->inflight,
-        timer_pending(s->capacity_timer));
+        " inflight=%u capacity-pending=%u grid-epoch=%" PRIu64 "\n",
+        s->source_epoch, s->inflight, timer_pending(s->capacity_timer),
+        s->grid_epoch);
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
 
@@ -2653,7 +2654,10 @@ static char *paired_runtime(Object *obj, Error **errp)
                                    slot ? "," : "", b->consumed[slot]);
         }
         g_string_append_printf(state, " history-revision=%" PRIu64
-            " stage=%u remaining=%u capacity-wait=%u postpass=%u prefixpass=%u\n",
+            " stage=%u remaining=%u capacity-wait=%u postpass=%u prefixpass=%u"
+            " pending=%x mask=%x inputs=%x input=%x input-size=%ux%u"
+            " input-stride=%u grid=%x grid-enabled=%u grid-size=%ux%u"
+            " grid-stride=%u grid-epoch=%" PRIu64 " grid-consumed=",
             b->history_revision,
             b->compute && b->compute->pixels ?
                 nikon_paired_pixels_stage(b->compute->pixels) :
@@ -2663,7 +2667,19 @@ static char *paired_runtime(Object *obj, Error **errp)
             b->compute && b->compute->pixels ?
                 nikon_paired_pixels_post_pass(b->compute->pixels) : 0,
             b->compute && b->compute->pixels ?
-                nikon_paired_pixels_prefix_pass(b->compute->pixels) : 0);
+                nikon_paired_pixels_prefix_pass(b->compute->pixels) : 0,
+            b->pending, b->mask, b->inputs, paired_source(b, b->phase),
+            b->config[0x48 / 4] >> 16, b->config[0x48 / 4] & 0xffff,
+            b->config[0x30c / 4],
+            b->config[0x398 / 4 + 4 * b->selected + b->phase],
+            b->config[0x12c / 4], (b->config[0xb48 / 4] >> 16) + 1,
+            (b->config[0xb48 / 4] & 0xffff) + 1, b->config[0x394 / 4],
+            b->grid_epoch);
+        for (unsigned slot = 0; slot < ARRAY_SIZE(b->grid_consumed); slot++) {
+            g_string_append_printf(state, "%s%x:%" PRIu64, slot ? "," : "",
+                b->grid_consumed_address[slot], b->grid_consumed[slot]);
+        }
+        g_string_append_c(state, '\n');
         for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
             if (paired_online_open(b->online_written[group])) {
                 g_string_append_printf(state,
@@ -2679,6 +2695,14 @@ static char *paired_runtime(Object *obj, Error **errp)
         g_string_append_printf(state,
                                "raw%u address=%x generation=%" PRIu64 "\n",
                                i, s->raw[i].address, s->raw[i].generation);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->grid); i++) {
+        const NikonPairedGridFrame *grid = &s->grid[i];
+
+        g_string_append_printf(state,
+            "grid%u address=%x generation=%" PRIu64
+            " size=%ux%u stride=%u\n", i, grid->address, grid->generation,
+            grid->width, grid->height, grid->stride);
     }
     return g_string_free(state, false);
 }
