@@ -220,6 +220,18 @@ or allow replay. Third/fourth back groups `330..34c` remain zero, and `fc>1`
 rejects. Inactive RAW/grid/main staging is retained without executing it or
 cancelling active work. Its complete memory/profile checks apply when selected.
 
+The source descriptor builders at MAS VA `102bec2e/102beb6a` and publishers
+`1036a56c/1036a672` copy the addresses without a uniqueness assertion. That
+alone does not establish hardware alias behavior. The finite model permits
+different sequential phases to name exactly the same PA and complete RAW span:
+an owned job reads only its current phase, and each later use still requires
+a genuinely newer completed generation from the actual physical RAW slot.
+ACKs, kicks and elapsed time cannot replay that generation. Current and future
+phase checks still reject partial input overlaps, different-PA backing aliases,
+input/output conflicts, missing RAM and peer conflicts. Complete front/back
+publication remains required. This temporal read/read reuse is a declared,
+falsifiable ownership hypothesis, not an address exception or hardware proof.
+
 The related output rings follow the same software selection byte but retain
 their own plane types. VA `102beaa8` and setter `1036a82a` publish the two grid
 groups. VA `102be8a0` and setter `1036ab54` publish both work and main plane

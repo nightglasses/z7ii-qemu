@@ -889,5 +889,109 @@
     },
     "preceding_rejection": "batch-input-overlap bank0 phases3/0 with exact same PA0x56b0d000 and span1909440; currentphase1 reads another source",
     "qualification": "Explicit finite-model unsupported boundary, not an allocator/AF exception and not success. A prior independent observation73 also retains exact duplicate future input spans across many RAW generations; source intent is unresolved. No broad alias waiver is accepted by this receipt."
+  },
+  "raw_temporal_reuse": {
+    "implementation_base": "6377352a",
+    "fresh_fixture_base": "cc1963c4",
+    "source_facts": "102bec2e/102beb6a build RAW address groups and1036a56c/1036a672 publish them without uniqueness assertions. Their lack of assertion alone does not establish hardware alias behavior.",
+    "functional_hypothesis": "Different sequential phases may read exactly the same PA and common full RAW span; every reuse needs a genuinely newer successful generation of the physical producer slot. Only the current phase is snapshotted by one owned aggregate.",
+    "retained_guards": [
+      "Complete front/back publication",
+      "Partial RAW overlap",
+      "Different-PA backing alias using real MemoryRegion alias fixture",
+      "All current/future input to output conflicts",
+      "Actual RAM/read-only output/peer checks",
+      "ACK/kick/time cannot replay consumed generations"
+    ],
+    "fresh_pixel_oracle": {
+      "old_gray": 128,
+      "new_gray": 130,
+      "actual_new_raw12": 2088,
+      "prior_luma": 2056,
+      "quarter_blend": "(2088*192+2056*64+128)/256",
+      "expected_main_yuv": [
+        130,
+        144,
+        96
+      ],
+      "expected_work_luma": 2080,
+      "expected_work_deviation": 32,
+      "padding_and_old_output_guards": true
+    },
+    "original": {
+      "base": "cc1963c4",
+      "unchanged_firmware": true,
+      "debugger": false,
+      "guest_writes": false,
+      "host_seconds": 35.7101,
+      "paired_completed": 545,
+      "paired_counters": {
+        "cancelled": 0,
+        "rejected": 0,
+        "blocked": 1
+      },
+      "main_graph": {
+        "processed": 544,
+        "processing-cancelled": 0,
+        "processing-compute": 0,
+        "processing-inflight": 0,
+        "processing-phase": 0,
+        "input-epoch": 15,
+        "input-generation": 559,
+        "input-frames": 545,
+        "input-size": 1886496
+      },
+      "grid": {
+        "grid-completed": 1393,
+        "grid-errors": 0,
+        "grid-cancelled": 787,
+        "grid-result": 0,
+        "grid-phase": 1
+      },
+      "main_acquisitions": 941,
+      "pc_mas_va": "0x1021d7ce",
+      "dfar": "0x0",
+      "task": "0x01000018",
+      "captured_diagnostic_bytes": 311442,
+      "snapshots": [
+        {
+          "host_seconds": 35.7436,
+          "admission_sequence": 669,
+          "active_records": 128,
+          "software_event_pool0_free_bits": 99
+        },
+        {
+          "host_seconds": 8.2887,
+          "admission_sequence": 0,
+          "active_records": 5,
+          "software_event_pool0_free_bits": 466
+        },
+        {
+          "host_seconds": 18.9551,
+          "admission_sequence": 255,
+          "active_records": 43,
+          "software_event_pool0_free_bits": 354
+        },
+        {
+          "host_seconds": 28.6171,
+          "admission_sequence": 486,
+          "active_records": 79,
+          "software_event_pool0_free_bits": 244
+        }
+      ],
+      "passed": false,
+      "qualification": "Independent AF failure before allocator exhaustion. Same PC is not same-run proof of historical AS overwrite. Zero paired rejections crosses the exact RAW reuse boundary but does not prove bounded backlog, repeated mode acceptance or physical precision."
+    },
+    "native": {
+      "base": "cc1963c4",
+      "cases": {
+        "cmos_paired": 137,
+        "paired_lifecycle": 42
+      },
+      "total": 179,
+      "cmos_host_seconds": 358.39,
+      "normal_tap_and_exit": true,
+      "independent_review": "No blocking findings; strengthened the fresh-generation vector to change actual scene pixels before DMA. Other272-case baseline coverage remains qualified separately; no claim these are451 distinct tests."
+    }
   }
 }

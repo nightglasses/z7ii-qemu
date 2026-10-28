@@ -193,7 +193,7 @@ paired and776 MAIN jobs without cancellations or rejections before allocator
 sampled head stays at admission388, although normal result supply continues.
 A separate run rejects1680 RAW attempts at a repeated whole-batch input-address
 overlap and stops at237 paired results; this is a distinct online ring-publication
-boundary requiring investigation. It cannot be treated as a controlled rate
+boundary in the preceding model. It cannot be treated as a controlled rate
 comparison. After PREFIX pass/row separation, another window completes1044
 paired/MAIN jobs with zero cancellation/rejection but reaches the same allocator
 at62.12 seconds; it still has only four COLOR tasks.
@@ -211,6 +211,25 @@ live bits are leaks. The diagnostic ends at debugger-stop, with no guest
 exception; its pauses cannot establish native rates or the initial pressure's
 cause. The remaining backlog is therefore not established as only slow
 arithmetic or one missing hardware completion.
+
+The subsequent [RAW temporal-reuse model](../devices/pairs/pixels.md)
+permits identical complete PA spans in different sequential input phases while
+retaining actual physical-slot generation consumption and all partial,
+backing-alias and output conflicts. A fresh gray130 DMA produces new MAIN130
+and WORK2080/residual32 in the synthetic fixture, distinguishing it from the
+old gray128 snapshot; ACK alone still cannot replay a generation. This is a
+finite ownership hypothesis, not recovered physical alias behavior.
+The final applicable rerun passes137 CMOS/paired and42 lifecycle cases, with
+normal TAP and exits; CMOS takes358.39 host seconds. That179-case batch is
+separate from the preceding272-case pipeline receipt, not451 distinct tests.
+
+A new unchanged, debugger-free fixed-M window crosses the earlier RAW rejection
+and reaches545 paired results with zero cancellation/rejection and544 MAIN graph
+outputs. At35.71 host seconds it fails at the independent AF
+`1021d7ce/DFAR0`, task `01000018`. At the stopped snapshot active records are128
+and software event pool0 still has99 available bits. This window precedes pool
+exhaustion and does not prove that growing backlog is fixed. The same AF PC also
+does not prove the historical AS writer executed in this run.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.
