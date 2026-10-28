@@ -53,9 +53,33 @@ and the post-window exception/watchdog flags and diagnostic length are0.
 ![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
 
 All menu categories, setting acceptance and return to live view remain
-unverified. One separate session fails to settle M→A and accumulates
-exception/watchdog diagnostic text; its cause remains unresolved despite the
-successful repeated transitions. The final window does not erase that failure.
+unverified. Separate mode-change sessions reproduce an AF data abort at MAS VA
+`0x1021D7CE`. Delayed OnVd records accumulate in the 60-entry CaptureService
+FIFO; the AS history copier at VA `0x10394314` overwrites an AF-ring pointer
+when its timestamp window becomes too large. The
+earlier successful window does not erase this failure.
+
+The missing [capture-group numerical work](../devices/capturegroup/protocol.md)
+and [completed-input dispatch](../devices/readoutpipeline/input.md) now execute
+through actual result DMA and normal interrupt acknowledgement. CMOS chunks
+also retain absolute acquisition deadlines rather than adding host dispatch
+lateness to every chunk. The delayed-dispatch native fixture fails on the old
+implementation and passes with this correction; all five CMOS timing cases,
+ten SPI cases and 116 CMOS/paired integration cases pass. Normal W1C result
+acknowledgement now also retries admission of retained fresh input after the
+complete blocking predicate clears. Three real-output regressions fail on the
+old implementation and pass with this connection; the complete expanded suite
+passes 119 cases. A separate exact CMOS coordinate optimization passes a scalar
+gradient oracle on both implementations, all six timing/identity unit cases,
+and 19 pipeline integration cases. These device results do not establish
+mode-change acceptance: the unchanged five-CPU MTTCG run at `d813dcf7` still
+fills the FIFO and raises the AF exception at 44.99 host seconds.
+A separate debugger-assisted trace finds successful FE and capture waits but
+continued OnVd backlog; its durations include debugger overhead and are not a
+camera frame-rate measurement. Host profiling identifies synchronous numerical
+work under QEMU's global device lock as a remaining scheduling cost. Its effect
+on the original failure remains under investigation; no frame suppression,
+queue clearing or guest event injection is used to hide the backlog.
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
