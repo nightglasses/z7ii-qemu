@@ -3392,5 +3392,15 @@
   },
   "devices/pairs/conversion.md": {
     "records": []
+  },
+  "devices/gate/grid.md": {
+    "records": [
+      {
+        "run": "grid",
+        "title": "Independent grid wait, missing completion and diagnostic limits",
+        "href": "/evidence/runtime/grid.json",
+        "kind": "Curated diagnostic observation"
+      }
+    ]
   }
 }

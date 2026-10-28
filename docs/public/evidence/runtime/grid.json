@@ -1,0 +1,59 @@
+{
+  "scope": "Curated read-only diagnostic observation, not normal uninstrumented mode-change acceptance",
+  "revision": "aafb8aba",
+  "firmware": "Original C1.70 MAS, unchanged",
+  "profile": "Five-CPU MTTCG; cold-neutral resource80; explicit virtual resource39; normal UART battery, virtual lens and FAT32 card",
+  "instrument": {
+    "kind": "Eight hardware-PC probes through QEMU GDB",
+    "recorded_thread_filter": "GDB global thread numbers <=2",
+    "window_host_seconds": 106.112,
+    "time_limit": "Host durations include debugger stops; no native frame-period conclusion",
+    "guest_memory_writes": false,
+    "probe_mas_va": {
+      "wait-enter": "0x1026830e",
+      "wait-leave": "0x10268312",
+      "producer": "0x10262dfc",
+      "event-set": "0x103610cc",
+      "distribute": "0x102ba530",
+      "retire": "0x103d0c3a",
+      "alloc-error": "0x1034ff5c",
+      "gate-isr": "0x103bce38"
+    }
+  },
+  "observations": {
+    "wait_call_mas_va": "0x1026830e",
+    "event_mas_va": "0xb1864850",
+    "pattern": "0x81000000",
+    "timeout_native_api_units": 1000,
+    "wait_entries": 17,
+    "completed_waits": 16,
+    "returned_r0": 0,
+    "returned_pattern_all": "0x81000000",
+    "normal_callback_mas_va": "0x10262dfc",
+    "normal_callback_recorded_entries": 0,
+    "main_isr_samples": 192,
+    "main_isr_masks": [
+      "0x1",
+      "0x71",
+      "0x03ff7ffc"
+    ],
+    "main_isr_pending": [
+      "0",
+      "0x61",
+      "0x8"
+    ],
+    "context8_raw2_bit2_samples": 0
+  },
+  "source_join": {
+    "normal_context8_cause": "raw2 bit2 -> whole flags bit0 -> context8 request callback -> event bit0x01000000 after initial discard",
+    "existing_main_cause": "raw2 bit3 -> separate context9 request",
+    "missing_work": "Independent eleven-node context8 RGB-grid graph is imported but not numerically executed"
+  },
+  "unresolved": [
+    "Type17 resource73 active numerical controls and all four coefficient rows",
+    "Kind25 output packing and simultaneous paired398 port direction",
+    "Type11/type7 graph backedge and phase/map publication cadence",
+    "Separate AF history overwrite and its D0 timing producer"
+  ],
+  "omitted": "Raw factory bytes, disassembly, full debugger output and machine-specific paths; original mode acceptance is still failing"
+}

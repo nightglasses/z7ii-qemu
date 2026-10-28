@@ -5,6 +5,8 @@ configuration, committed parameter slots, imported commands, one owned tight
 NV12 image and a phase in `[0,4)`. It owns neither scheduling nor the input
 queue, phase advancement, reset, cancellation or IRQ publication. A synchronous
 successful return means that all three output images were actually written.
+The separate [context8 grid graph](grid.md) has its own RGB input, destination
+and whole-frame route; importing its commands does not execute that graph.
 
 ## Admission and source facts
 

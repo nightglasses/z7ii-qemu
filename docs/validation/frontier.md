@@ -69,10 +69,21 @@ read-only, debugger-free observation verifies growing active-record counts
 58, 326 and 575 while both submission lists stay empty. Sampled old records
 remain in lane2/cell0; a later snapshot locates the oldest lane2 worker at its
 second microstep, VA `0x102682AE`. Other records wait on its dependency chain.
-This identifies a concrete retirement boundary, not yet its missing producer
-or a common cause with the AF overwrite. Guest virtual addresses in these
-snapshots are translated with QEMU's debugger translation before physical
-reads. No frame suppression, queue clearing or event injection is used.
+The worker waits at VA `0x1026830e` for event `0xb1864850`, pattern
+`0x81000000`, with timeout 1000 in the native wait API. A separate eight-PC
+diagnostic trace records GDB threads1/2: all sixteen completed sampled waits
+time out, with zero recorded entries to callback VA `0x10262dfc`, which normally
+sets bit `0x01000000`. Actual context9 MAIN DMA continues:
+192 sampled gate interrupts carry raw2 bit3, while the required context8
+raw2 bit2 is absent. The two bits belong to separate processing graphs.
+The model imports context8's eleven-node RGB-grid graph but does not execute
+its numerical work. Adding its completion to context9 would acknowledge work
+that never ran. The [independent grid path](../devices/gate/grid.md) records
+the input, output, callback chain and remaining numerical/ownership questions.
+This is a missing producer for the sampled retirement wait, not proof of a
+common cause with the AF overwrite. Guest virtual addresses in the snapshots
+are translated with QEMU's debugger translation before physical reads.
+No frame suppression, queue clearing or event injection is used.
 
 The missing [capture-group numerical work](../devices/capturegroup/protocol.md)
 and [completed-input dispatch](../devices/readoutpipeline/input.md) now execute
