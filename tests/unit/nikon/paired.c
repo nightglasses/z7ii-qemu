@@ -4,9 +4,11 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/bswap.h"
+#include "qemu/atomic.h"
 #include "qemu/main-loop.h"
 #include "qemu/thread.h"
 #include "qemu/timer.h"
+#include "qemu/aio-wait.h"
 #include "block/thread-pool.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
@@ -17,6 +19,7 @@
 #include "system/cpu-timers.h"
 #include "system/runstate.h"
 #include "system/system.h"
+#include "system/iothread.h"
 
 int (*qemu_main)(void);
 
@@ -25,8 +28,14 @@ int (*qemu_main)(void);
 #define MAIN_OFFSET 0x10000
 #define GRID_OFFSET 0x16000
 
+typedef struct PoolBarrier PoolBarrier;
+
 typedef struct PairedFixture {
     DeviceState *dev, *gate;
+    AioContext *ctx;
+    PoolBarrier *held_marker;
+    unsigned workers;
+    char *calibration;
     MemoryRegion ram;
     uint8_t *bytes;
     qemu_irq irq;
@@ -36,10 +45,16 @@ typedef struct PairedFixture {
     NikonRawEncoding encoding;
 } PairedFixture;
 
-typedef struct PoolBarrier {
+struct PoolBarrier {
     QemuSemaphore entered, release;
+    QemuSemaphore callbacks_entered, callbacks_release;
+    PairedFixture *fixture;
+    PoolBarrier *next;
     bool block, done;
-} PoolBarrier;
+};
+
+static void wait_launch(PairedFixture *f);
+static void finish_queued(PairedFixture *f, PoolBarrier *blocker);
 
 static int barrier_worker(void *opaque)
 {
@@ -57,22 +72,47 @@ static void barrier_completed(void *opaque, int ret)
     PoolBarrier *b = opaque;
 
     g_assert_cmpint(ret, ==, 0);
-    b->done = true;
+    qatomic_set(&b->done, true);
 }
 
-static void barrier_submit(PoolBarrier *b, bool block)
+static void barrier_init(PairedFixture *f, PoolBarrier *b, bool block)
 {
-    *b = (PoolBarrier) { .block = block };
+    *b = (PoolBarrier) { .block = block, .fixture = f };
     qemu_sem_init(&b->entered, 0);
     qemu_sem_init(&b->release, 0);
+    qemu_sem_init(&b->callbacks_entered, 0);
+    qemu_sem_init(&b->callbacks_release, 0);
+}
+
+static void barrier_queue(void *opaque)
+{
+    PoolBarrier *b = opaque;
+
     thread_pool_submit_aio(barrier_worker, b, barrier_completed, b);
 }
 
-static void blocker_start(PoolBarrier *b)
+static void release_callbacks(PairedFixture *f)
+{
+    if (f->held_marker) {
+        PoolBarrier *marker = f->held_marker;
+
+        f->held_marker = NULL;
+        qemu_sem_post(&marker->callbacks_release);
+    }
+}
+
+static void blocker_start(PairedFixture *f, PoolBarrier *b)
 {
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 
-    barrier_submit(b, true);
+    barrier_init(f, b, true);
+    if (f->held_marker) {
+        /* Its IOContext queues this blocker before delivering old callbacks. */
+        f->held_marker->next = b;
+        release_callbacks(f);
+    } else {
+        aio_bh_schedule_oneshot(f->ctx, barrier_queue, b);
+    }
     while (qemu_sem_timedwait(&b->entered, 0)) {
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         aio_poll(qemu_get_aio_context(), false);
@@ -80,23 +120,59 @@ static void blocker_start(PoolBarrier *b)
     }
 }
 
+static void marker_hold_callbacks(void *opaque)
+{
+    PoolBarrier *marker = opaque;
+
+    barrier_queue(marker);
+    qemu_sem_post(&marker->callbacks_entered);
+    qemu_sem_wait(&marker->callbacks_release);
+    if (marker->next) {
+        barrier_queue(marker->next);
+    }
+}
+
 static void worker_returned(PoolBarrier *blocker, PoolBarrier *marker)
 {
-    /* The single-worker FIFO makes this marker a public host-work barrier.
-     * No main-Aio polling occurs between releasing the blocker and this wait.
+    PairedFixture *f = blocker->fixture;
+
+    /* Hold only the test IOContext, not a pool worker, while the current
+     * stage and its FIFO marker return. This replaces the old main-Aio fence.
      */
-    barrier_submit(marker, false);
+    g_assert_null(f->held_marker);
+    wait_launch(f);
+    barrier_init(f, marker, false);
+    aio_bh_schedule_oneshot(f->ctx, marker_hold_callbacks, marker);
+    g_assert_cmpint(qemu_sem_timedwait(&marker->callbacks_entered, 5000), ==, 0);
+    f->held_marker = marker;
     qemu_sem_post(&blocker->release);
     g_assert_cmpint(qemu_sem_timedwait(&marker->entered, 5000), ==, 0);
-    g_assert_false(blocker->done);
-    g_assert_false(marker->done);
+    g_assert_false(qatomic_read(&blocker->done));
+    g_assert_false(qatomic_read(&marker->done));
 }
 
 static void barrier_clear(PoolBarrier *b)
 {
-    g_assert_true(b->done);
+    g_assert_true(qatomic_read(&b->done));
     qemu_sem_destroy(&b->entered);
     qemu_sem_destroy(&b->release);
+    qemu_sem_destroy(&b->callbacks_entered);
+    qemu_sem_destroy(&b->callbacks_release);
+}
+
+static void context_fence(void *opaque)
+{
+}
+
+static void release_marker(PairedFixture *f, PoolBarrier *marker)
+{
+    int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+
+    release_callbacks(f);
+    while (!qatomic_read(&marker->done)) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_thread_yield();
+    }
 }
 
 static void irq_level(void *opaque, int n, int level)
@@ -142,18 +218,37 @@ static bool runtime_has(PairedFixture *f, const char *text)
     return strstr(runtime, text) != NULL;
 }
 
+static void wait_launch(PairedFixture *f)
+{
+    int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+
+    while (runtime_has(f, " stage=0 remaining=0") &&
+           runtime_has(f, "bank0 request=2 active=1")) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_thread_yield();
+    }
+}
+
 static void poll_until(PairedFixture *f, const char *text,
                        PoolBarrier *blocker, PoolBarrier *marker)
 {
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 
-    while (!runtime_has(f, text) || !blocker->done || !marker->done) {
+    release_callbacks(f);
+    while (!runtime_has(f, text) || !qatomic_read(&blocker->done) ||
+           !qatomic_read(&marker->done)) {
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         aio_poll(qemu_get_aio_context(), false);
         if (runstate_is_running()) {
             qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
         }
         g_thread_yield();
+    }
+    if (qdev_is_realized(f->dev)) {
+        /* done can be observed inside the pool BH. Join its entire callback
+         * pass before testing the next queued stage, without advancing time.
+         */
+        aio_wait_bh_oneshot(f->ctx, context_fence, NULL);
     }
 }
 
@@ -290,6 +385,24 @@ static void configure(PairedFixture *f)
     configure_raw(f, 8);
 }
 
+static void fixture_pool_params(void *opaque)
+{
+    PairedFixture *f = opaque;
+
+    aio_context_set_thread_pool_params(f->ctx, 0, f->workers, &error_abort);
+}
+
+static void fixture_arithmetic(PairedFixture *f, unsigned workers)
+{
+    Object *arithmetic = object_resolve_path_component(OBJECT(f->dev),
+                                                      "arithmetic");
+
+    g_assert_nonnull(arithmetic);
+    f->ctx = iothread_get_aio_context(IOTHREAD(arithmetic));
+    f->workers = workers;
+    aio_wait_bh_oneshot(f->ctx, fixture_pool_params, f);
+}
+
 static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
 {
     PairedFixture *f = g_new0(PairedFixture, 1);
@@ -304,6 +417,7 @@ static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
     stl_le_p(calibration + 0xb90, 0x80000000);
     g_assert_true(g_file_set_contents(path, (const char *)calibration,
                                       sizeof(calibration), NULL));
+    f->calibration = g_strdup(path);
     memory_region_init_ram_flags_nomigrate(&f->ram, NULL, "paired-test-ram",
                                            RAM_SIZE, 0, &error_abort);
     memory_region_add_subregion(get_system_memory(), RAM_BASE, &f->ram);
@@ -324,8 +438,8 @@ static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
     f->irq = qemu_allocate_irq(irq_level, f, 0);
     sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 0, f->irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
-    g_assert_cmpint(unlink(path), ==, 0);
     device_cold_reset(f->dev);
+    fixture_arithmetic(f, 1);
     if (stream) {
         /* GPIO links resolve through QOM paths. Realize the receiver first so
          * its input has a rooted path, as it does in the machine wiring.
@@ -348,6 +462,7 @@ static PairedFixture *fixture_new(void)
 
 static void fixture_free(PairedFixture *f)
 {
+    g_assert_null(f->held_marker);
     if (qdev_is_realized(f->dev)) {
         qdev_unrealize(f->dev);
     }
@@ -364,6 +479,8 @@ static void fixture_free(PairedFixture *f)
     qemu_free_irq(f->irq);
     memory_region_del_subregion(get_system_memory(), &f->ram);
     object_unparent(OBJECT(&f->ram));
+    g_assert_cmpint(unlink(f->calibration), ==, 0);
+    g_free(f->calibration);
     g_free(f);
 }
 
@@ -403,6 +520,10 @@ static void admit(PairedFixture *f)
     advance(1);
     g_assert_true(runtime_has(f, "inflight=1"));
     g_assert_true(runtime_has(f, "compute=1"));
+    /* Wait for IOContext launch without delivering its terminal main BH.
+     * With a single-worker blocker, PREPARE is now truly queued behind it.
+     */
+    wait_launch(f);
     unpublished(f);
 }
 
@@ -445,7 +566,7 @@ static void test_async_completion(gconstpointer opaque)
     if (flags & 2) {
         f->encoding = NIKON_RAW_RGGB;
     }
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     admit(f);
     memset(f->bytes, 0, 96 * 36); /* An admitted job owns a frozen RAW copy. */
     if (pause) {
@@ -482,7 +603,7 @@ static void test_async_cancel(gconstpointer opaque)
     if (flags & 4) {
         f->encoding = NIKON_RAW_RGGB;
     }
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     admit(f);
     if (mode == 2) {
         g_assert_cmpint(vm_stop(RUN_STATE_PAUSED), ==, 0);
@@ -535,16 +656,25 @@ static void test_async_unrealize(gconstpointer opaque)
     if (GPOINTER_TO_UINT(opaque)) {
         f->encoding = NIKON_RAW_RGGB;
     }
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     admit(f);
     worker_returned(&blocker, &marker);
     unpublished(f);
+    release_marker(f, &marker);
     qdev_unrealize(f->dev); /* Drains main-Aio owner cleanup before returning. */
     g_assert_true(runtime_has(f, "inflight=0"));
     unpublished(f);
     poll_until(f, "inflight=0", &blocker, &marker);
     barrier_clear(&blocker);
     barrier_clear(&marker);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
+    device_cold_reset(f->dev);
+    fixture_arithmetic(f, 1);
+    configure(f);
+    blocker_start(f, &blocker);
+    admit(f);
+    finish_queued(f, &blocker);
+    published(f);
     fixture_free(f);
     advance(2000000);
 }
@@ -565,7 +695,7 @@ static void test_stage_cancel(gconstpointer opaque)
         write_port(f, 0xb58, (32 << 16) | 16);
         write_port(f, 0xd28, (8 << 8) | 4);
     }
-    blocker_start(&blockers[0]);
+    blocker_start(f, &blockers[0]);
     admit(f);
     g_assert_true(runtime_has(f, " stage=0 remaining=1"));
     while (!runtime_has(f, text) ||
@@ -578,7 +708,7 @@ static void test_stage_cancel(gconstpointer opaque)
          * stage number. The single-worker FIFO marker, rather than a presumed
          * enum increment, proves every prior child callback was delivered.
          */
-        blocker_start(&blockers[hop + 1]);
+        blocker_start(f, &blockers[hop + 1]);
         poll_until(f, "inflight=1", &blockers[hop], &markers[hop]);
         hop++;
         unpublished(f);
@@ -587,6 +717,7 @@ static void test_stage_cancel(gconstpointer opaque)
     if (unrealize) {
         worker_returned(&blockers[hop], &markers[hop]);
         unpublished(f);
+        release_marker(f, &markers[hop]);
         qdev_unrealize(f->dev);
     } else {
         device_cold_reset(f->dev);
@@ -611,8 +742,7 @@ static void test_parallel_completion(void)
     PairedFixture *f = fixture_new();
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 
-    aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 4,
-                                       &error_abort);
+    fixture_arithmetic(f, 4);
     f->encoding = NIKON_RAW_RGGB;
     admit(f);
     memset(f->bytes, 0, 96 * 36); /* All shards must use the owned input. */
@@ -627,8 +757,85 @@ static void test_parallel_completion(void)
     advance(2000000);
     published(f);
     fixture_free(f);
-    aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 1,
-                                       &error_abort);
+}
+
+static void test_background_completion(gconstpointer opaque)
+{
+    unsigned mode = GPOINTER_TO_UINT(opaque);
+    PairedFixture *f = fixture_new();
+    int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+
+    f->encoding = NIKON_RAW_RGGB;
+    fixture_arithmetic(f, 4);
+    admit(f);
+    memset(f->bytes, 0, 96 * 36);
+    if (mode == 1) {
+        vm_stop(RUN_STATE_PAUSED);
+    }
+    /* Keep the BQL and do not poll main AioContext: every fixed arithmetic
+     * barrier must finish independently, leaving only the terminal main BH.
+     */
+    while (!runtime_has(f, " stage=7 remaining=0")) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_thread_yield();
+    }
+    g_assert_true(runtime_has(f, "compute=1"));
+    unpublished(f);
+    if (mode == 2) {
+        device_cold_reset(f->dev); /* Terminal BH is queued, ready is not set. */
+        g_assert_true(runtime_has(f, "inflight=1"));
+    }
+    while (!runtime_has(f, mode == 1 ? "compute=2" : "inflight=0")) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        aio_poll(qemu_get_aio_context(), false);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        g_thread_yield();
+    }
+    if (mode == 1) {
+        unpublished(f);
+        vm_start();
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    }
+    if (mode == 2) {
+        unpublished(f);
+        g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    } else {
+        published(f);
+    }
+    fixture_free(f);
+}
+
+static void test_reset_before_launch(void)
+{
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker, marker;
+    NikonPairedRawFrame raw = {
+        .generation = 1, .address = RAM_BASE, .width = 64, .height = 36,
+        .stride = 96, .bits = 12, .encoding = NIKON_RAW_RGGB,
+        .transfer = { .codec = NIKON_RAW_LINEAR }, .slot = 0,
+    };
+    NikonPairedGridFrame grid = {
+        .generation = 1, .address = RAM_BASE + GRID_OFFSET,
+        .width = 60, .height = 40, .stride = 96,
+    };
+
+    blocker_start(f, &blocker);
+    worker_returned(&blocker, &marker); /* Hold IO callbacks before admission. */
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    nikon_paired_grid_frame(f->dev, &grid);
+    nikon_paired_frame(f->dev, &raw);
+    advance(1000000);
+    g_assert_true(runtime_has(f, "inflight=1"));
+    g_assert_true(runtime_has(f, " stage=0 remaining=0"));
+    device_cold_reset(f->dev);
+    unpublished(f);
+    poll_until(f, "inflight=0", &blocker, &marker);
+    unpublished(f);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    barrier_clear(&blocker);
+    barrier_clear(&marker);
+    fixture_free(f);
 }
 
 static void test_irq_reset(void)
@@ -638,7 +845,7 @@ static void test_irq_reset(void)
 
     f->encoding = NIKON_RAW_RGGB;
     f->reset_on_irq = true;
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     admit(f);
     worker_returned(&blocker, &marker);
     poll_until(f, "inflight=0", &blocker, &marker);
@@ -745,7 +952,7 @@ static void first_phase(PairedFixture *f)
     PoolBarrier blocker;
 
     alternate_outputs(f);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     admit(f);
     finish_queued(f, &blocker);
     published(f);
@@ -756,7 +963,7 @@ static void first_phase(PairedFixture *f)
 static void queue_phase(PairedFixture *f, PoolBarrier *blocker,
                         unsigned selected, unsigned phase)
 {
-    blocker_start(blocker);
+    blocker_start(f, blocker);
     notify_phase(f, selected, phase);
     advance(1000000);
     g_assert_true(runtime_has(f, "inflight=1"));
@@ -797,7 +1004,7 @@ static void test_async_bank_staging(void)
     g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
     g_assert_true(f->level);
     g_assert_cmpmem(f->bytes + 0x8000, sizeof(before), before, sizeof(before));
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     write_port(f, 0x24, UINT32_MAX);
     g_assert_false(f->level);
     advance(1000000);
@@ -839,7 +1046,7 @@ static void test_async_bank_partial(void)
     g_assert_true(runtime_has(f, "inflight=0"));
     g_assert_cmphex(read_port(f, 0x24), ==, 0);
     g_assert_false(f->level);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     write_port(f, 0x10, 1);
     advance(1000000);
     g_assert_true(runtime_has(f, "inflight=1"));
@@ -887,7 +1094,7 @@ static void test_async_bank_commit_rewrite(void)
     g_assert_cmphex(read_port(f, 0x24), ==, 0);
     g_assert_false(f->level);
     g_assert_cmpmem(f->bytes + 0x8000, sizeof(before), before, sizeof(before));
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     write_port(f, 0x10, 1);
     advance(1000000);
     g_assert_true(runtime_has(f, "inflight=1"));
@@ -917,7 +1124,7 @@ static void test_async_initial_partial(void)
     unpublished(f);
     g_assert_true(runtime_has(f, "inflight=0"));
     g_assert_cmpuint(counter(f, "rejected"), ==, 0);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     write_port(f, 0x10, 1);
     advance(1000000);
     g_assert_true(runtime_has(f, "inflight=1"));
@@ -963,7 +1170,7 @@ static void test_async_bank_clear(gconstpointer opaque)
         configure(f);
     }
     g_assert_false(f->level);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     write_port(f, 0x10, 1);
     write_port(f, 8, 1);
     notify_phase(f, 0, 0);
@@ -1056,7 +1263,7 @@ static void test_transfer_decode(void)
         transfer_raw(f, &raw.transfer);
         memcpy(input, f->bytes, sizeof(input));
         memset(f->bytes + MAIN_OFFSET, 0xa5, RAM_SIZE - MAIN_OFFSET);
-        blocker_start(&blocker);
+        blocker_start(f, &blocker);
         write_port(f, 0x10, 1);
         write_port(f, 8, 1);
         nikon_paired_grid_frame(f->dev, &grid);
@@ -1169,7 +1376,7 @@ static void test_grid_dependency(void)
     nikon_paired_grid_frame(f->dev, &grid);
     advance(2000000);
     unpublished(f);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     grid.generation = 1;
     nikon_paired_grid_frame(f->dev, &grid);
     advance(999999);
@@ -1188,7 +1395,7 @@ static void test_grid_dependency(void)
     advance(2000000);
     g_assert_cmpuint(counter(f, "completed"), ==, 1);
     nikon_paired_grid_frame(f->dev, NULL); /* New epoch may restart numbering. */
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     nikon_paired_grid_frame(f->dev, &grid);
     advance(1000000);
     finish_queued(f, &blocker);
@@ -1223,7 +1430,7 @@ static void test_grid_snapshot(void)
         for (unsigned y = 0; y < 40; y++) {
             memset(f->bytes + GRID_OFFSET + y * 96, variant == 2 ? 0 : 255, 90);
         }
-        blocker_start(&blocker);
+        blocker_start(f, &blocker);
         write_port(f, 0x10, 1);
         write_port(f, 8, 1);
         nikon_paired_grid_frame(f->dev, &grid);
@@ -1316,7 +1523,7 @@ static void test_grid_memory(gconstpointer opaque)
     write_port(f, 0x10, 1);
     write_port(f, 8, 1);
     if (readonly) {
-        blocker_start(&blocker);
+        blocker_start(f, &blocker);
     }
     nikon_paired_grid_frame(f->dev, &grid);
     nikon_paired_frame(f->dev, &raw);
@@ -1358,7 +1565,7 @@ static void test_grid_pool_epoch(void)
     unpublished(f);
     g_assert_cmpuint(counter(f, "rejected"), ==, 1);
     nikon_paired_grid_frame(f->dev, NULL);
-    blocker_start(&blocker);
+    blocker_start(f, &blocker);
     nikon_paired_grid_frame(f->dev, &grid);
     advance(1000000);
     finish_queued(f, &blocker);
@@ -1585,6 +1792,14 @@ int main(int argc, char **argv)
                          GUINT_TO_POINTER(1 | 32 | 8), test_stage_cancel);
     g_test_add_func("/nikon/paired/async/parallel-completion",
                     test_parallel_completion);
+    g_test_add_data_func("/nikon/paired/async/background-completion",
+                         GUINT_TO_POINTER(0), test_background_completion);
+    g_test_add_data_func("/nikon/paired/async/background-pause",
+                         GUINT_TO_POINTER(1), test_background_completion);
+    g_test_add_data_func("/nikon/paired/async/background-reset-handoff",
+                         GUINT_TO_POINTER(2), test_background_completion);
+    g_test_add_func("/nikon/paired/async/reset-before-launch",
+                    test_reset_before_launch);
     g_test_add_func("/nikon/paired/async/irq-reset", test_irq_reset);
     g_test_add_func("/nikon/paired/async/bank-staging", test_async_bank_staging);
     g_test_add_func("/nikon/paired/async/bank-partial", test_async_bank_partial);

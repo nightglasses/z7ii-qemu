@@ -6,6 +6,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/atomic.h"
 #include "qemu/host-utils.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
@@ -23,6 +24,7 @@
 #include "hw/nikon/gridinput.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
+#include "system/iothread.h"
 
 #define BANK_SIZE 0x5e00
 #define PAIRED_ONLINE_GROUPS 17
@@ -70,6 +72,11 @@ struct PairedTask {
     PairedChild child[12];
     uint64_t token;
     unsigned bank, remaining;
+    /* IOContext owns pixels/children until the main-Aio terminal handoff.
+     * Only cancellation and this packed diagnostic snapshot cross contexts.
+     */
+    bool cancelled;
+    unsigned progress;
     bool ready, success, waiting_capacity;
 };
 
@@ -121,6 +128,7 @@ struct NikonPairedEventBanksState {
     uint64_t source_epoch;
     char *calibration_path;
     DeviceState *gate;
+    IOThread *arithmetic;
     QEMUTimer *capacity_timer;
     uint32_t calibration[BANK_SIZE / 4];
     bool calibration_loaded;
@@ -318,6 +326,9 @@ static void paired_release(NikonPairedEventBanksBank *b)
 static void paired_cancel(NikonPairedEventBanksBank *b)
 {
     b->token++;
+    if (b->compute) {
+        qatomic_set(&b->compute->cancelled, true);
+    }
     if (b->active) {
         timer_del(b->timer);
         paired_release(b);
@@ -1858,6 +1869,57 @@ static void paired_task_free(PairedTask *task)
 
 static void paired_submit(PairedTask *task);
 
+static void paired_progress(PairedTask *task)
+{
+    /* One atomic snapshot: stage3, remaining4, post3 and prefix4 bits. */
+    unsigned progress = nikon_paired_pixels_stage(task->pixels) |
+        (task->remaining << 3) |
+        (nikon_paired_pixels_post_pass(task->pixels) << 7) |
+        (nikon_paired_pixels_prefix_pass(task->pixels) << 10);
+
+    qatomic_store_release(&task->progress, progress);
+}
+
+/* Main AioContext, with BQL: the IOContext no longer accesses this task. */
+static void paired_computation_done(void *opaque)
+{
+    PairedTask *task = opaque;
+    NikonPairedEventBanksState *s = task->owner;
+    NikonPairedEventBanksBank *b = &s->bank[task->bank];
+
+    assert(!task->remaining && b->compute == task);
+    if (s->stopping || !b->active || task->token != b->token) {
+        object_ref(OBJECT(s));
+        paired_task_free(task);
+        if (!s->stopping) {
+            for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
+                paired_try(&s->bank[i], 0, 0);
+            }
+        }
+        object_unref(OBJECT(s));
+        return;
+    }
+    task->ready = true;
+    /* Host completion cannot publish while the virtual clock is stopped. */
+    timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+/* Exactly one terminal handoff; no task access after scheduling the BH. */
+static void paired_return(PairedTask *task)
+{
+    const NikonPairedPixelResult *result;
+
+    assert(!task->remaining);
+    if (task->success && !qatomic_read(&task->cancelled)) {
+        result = nikon_paired_pixels_result(task->pixels);
+        assert(result);
+        task->y = result->y;
+        task->uv = result->uv;
+        task->work = result->work;
+    }
+    aio_bh_schedule_oneshot(qemu_get_aio_context(), paired_computation_done, task);
+}
+
 static int paired_compute(void *opaque)
 {
     PairedChild *child = opaque;
@@ -1870,50 +1932,35 @@ static void paired_computed(void *opaque, int ret)
 {
     PairedChild *child = opaque;
     PairedTask *task = child->task;
-    NikonPairedEventBanksState *s = task->owner;
-    NikonPairedEventBanksBank *b = &s->bank[task->bank];
 
     assert(task->remaining);
     task->success &= ret == 0;
-    if (--task->remaining) {
+    task->remaining--;
+    paired_progress(task);
+    if (task->remaining) {
         return;
     }
-    /* A token revokes every later stage. Current children all retain the same
-     * aggregate owner until this barrier, including queued children on reset.
-     */
-    if (s->stopping || !b->active || task->token != b->token) {
-        object_ref(OBJECT(s));
-        paired_task_free(task);
-        if (!s->stopping) {
-            for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
-                paired_try(&s->bank[i], 0, 0);
-            }
-        }
-        object_unref(OBJECT(s));
-        return;
-    }
-    if (task->success) {
+    if (task->success && !qatomic_read(&task->cancelled)) {
         task->success = nikon_paired_pixels_advance(task->pixels);
         if (task->success) {
             paired_submit(task);
             return;
         }
     }
-    task->ready = true;
-    /* Host completion cannot publish while the virtual clock is stopped. */
-    timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    paired_return(task);
 }
 
-/* Only the AioContext coordinator submits the next fixed stage. Pool workers
- * neither submit nor wait on pool work, so one pool thread remains sufficient.
+/* Only the arithmetic IOContext submits the next fixed stage. Pool workers
+ * neither submit nor wait on pool work; no stage barrier needs the BQL.
  */
 static void paired_submit(PairedTask *task)
 {
-    NikonPairedEventBanksBank *b = &task->owner->bank[task->bank];
-    const NikonPairedPixelResult *result;
-
-    assert(!task->remaining && !task->ready);
+    assert(!task->remaining);
     while (nikon_paired_pixels_stage(task->pixels) != NIKON_PAIRED_PIXEL_DONE) {
+        if (qatomic_read(&task->cancelled)) {
+            paired_return(task);
+            return;
+        }
         task->remaining = nikon_paired_pixels_tasks(task->pixels);
         if (task->remaining) {
             assert(task->remaining <= ARRAY_SIZE(task->child));
@@ -1922,22 +1969,23 @@ static void paired_submit(PairedTask *task)
                 thread_pool_submit_aio(paired_compute, &task->child[i],
                                         paired_computed, &task->child[i]);
             }
+            paired_progress(task);
             return;
         }
         /* MONO needs no intermediate CFA radial mosaic. */
         if (!nikon_paired_pixels_advance(task->pixels)) {
             task->success = false;
-            task->ready = true;
-            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+            paired_return(task);
             return;
         }
     }
-    result = nikon_paired_pixels_result(task->pixels);
-    task->y = result->y;
-    task->uv = result->uv;
-    task->work = result->work;
-    task->ready = true;
-    timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    paired_progress(task);
+    paired_return(task);
+}
+
+static void paired_start_computation(void *opaque)
+{
+    paired_submit(opaque);
 }
 
 static void paired_complete(void *opaque)
@@ -1971,7 +2019,10 @@ static void paired_complete(void *opaque)
         task->pixels = nikon_paired_pixels_new(&task->job.pixels, task->job.raw,
             task->job.history, task->job.residual, task->job.grid);
         if (task->pixels) {
-            paired_submit(task);
+            /* Remaining becomes nonzero only after IOContext submission. */
+            task->progress = NIKON_PAIRED_PIXEL_PREPARE;
+            aio_bh_schedule_oneshot(iothread_get_aio_context(s->arithmetic),
+                                    paired_start_computation, task);
         } else {
             task->success = false;
             task->ready = true;
@@ -2588,10 +2639,11 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
     g_autofree char *data = NULL;
     g_autoptr(GError) error = NULL;
     gsize bytes;
+    Object *arithmetic;
 
     s->stopping = false;
     if (!s->calibration_path) {
-        return;
+        goto create_arithmetic;
     }
     if (!g_file_get_contents(s->calibration_path, &data, &bytes, &error)) {
         error_setg(errp, "paired calibration: %s", error->message);
@@ -2617,6 +2669,12 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
         }
     }
     s->calibration_loaded = true;
+create_arithmetic:
+    arithmetic = object_new_with_props(TYPE_IOTHREAD, OBJECT(s), "arithmetic",
+                                        errp, NULL);
+    if (arithmetic) {
+        s->arithmetic = IOTHREAD(arithmetic);
+    }
 }
 
 static void nikon_paired_event_banks_unrealize(DeviceState *dev)
@@ -2626,6 +2684,10 @@ static void nikon_paired_event_banks_unrealize(DeviceState *dev)
     s->stopping = true;
     nikon_paired_event_banks_reset(dev);
     AIO_WAIT_WHILE(NULL, s->inflight);
+    /* Keep its event loop alive until every child and terminal main BH drains. */
+    iothread_stop(s->arithmetic);
+    iothread_destroy(s->arithmetic);
+    s->arithmetic = NULL;
 }
 
 static char *paired_runtime(Object *obj, Error **errp)
@@ -2639,6 +2701,8 @@ static char *paired_runtime(Object *obj, Error **errp)
         s->grid_epoch);
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
+        unsigned progress = b->compute ?
+            qatomic_load_acquire(&b->compute->progress) : NIKON_PAIRED_PIXEL_DONE;
 
         g_string_append_printf(state,
             "bank%u request=%u active=%u phase=%u seen=%x refill=%x "
@@ -2659,15 +2723,9 @@ static char *paired_runtime(Object *obj, Error **errp)
             " input-stride=%u grid=%x grid-enabled=%u grid-size=%ux%u"
             " grid-stride=%u grid-epoch=%" PRIu64 " grid-consumed=",
             b->history_revision,
-            b->compute && b->compute->pixels ?
-                nikon_paired_pixels_stage(b->compute->pixels) :
-                NIKON_PAIRED_PIXEL_DONE,
-            b->compute ? b->compute->remaining : 0,
+            progress & 7, (progress >> 3) & 15,
             b->compute ? b->compute->waiting_capacity : false,
-            b->compute && b->compute->pixels ?
-                nikon_paired_pixels_post_pass(b->compute->pixels) : 0,
-            b->compute && b->compute->pixels ?
-                nikon_paired_pixels_prefix_pass(b->compute->pixels) : 0,
+            (progress >> 7) & 7, (progress >> 10) & 15,
             b->pending, b->mask, b->inputs, paired_source(b, b->phase),
             b->config[0x48 / 4] >> 16, b->config[0x48 / 4] & 0xffff,
             b->config[0x30c / 4],
