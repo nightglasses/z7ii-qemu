@@ -109,6 +109,19 @@ an overflowing readout deadline ends in ERROR without a fabricated chunk or
 DONE. These are scheduling rules for the finite virtual provider, not recovered
 physical exposure or sensor-rate measurements.
 
+For C1.70 P6 acquisition, CMOS computes two one-dimensional coordinate maps
+once per acquisition. Each X/Y entry retains the original two floors:
+`sensor = crop_origin + floor(output_coordinate * crop_extent / output_extent)`,
+then `image = floor(sensor * image_extent / sensor_extent)`. Combining these
+into a single division would change samples and is not permitted. The maps
+contain coordinates only, with storage proportional to width plus height;
+each chunk still reads the actual bound image bytes. Every CFA LE16 sample
+and its unchanged Q12 spectral-response rounding are calculated once per
+pixel and emitted as its two bytes. Chunk boundaries, DMA extents, row padding,
+timers and completion stay unchanged. Maps are discarded before completion,
+cancellation or error callbacks and on reset/rebinding, so a reentrant or later
+acquisition builds its own maps from its own configuration and image geometry.
+
 MAIN stop or changed committed geometry cancels only an owned MAIN acquisition
 and invalidates its completed snapshot. If the latest-acquisition interface
 currently points to MAIN, that reference is cleared before its bytes are freed.
@@ -155,3 +168,11 @@ partial W1C, missing freshness, stop and reset preserve untouched destinations.
 The checks retain exact payload/mean/count values and row guards, and verify
 that group acknowledgement leaves its cursor unchanged. These are native
 synthetic scheduling checks, separate from original-firmware execution.
+
+The native `/nikon/cmos/cfa-coordinate-identity` case compares every output
+sample against an independent scalar reference using both coordinate floors
+and red/blue responses 2198/2966. Odd-sized P6 gradients, nonzero crops,
+fractional scale, even CFA output wider than one 4096-byte chunk, row-padding
+guards, fine/late dispatch identity and reset/image rebinding cover this exact
+arithmetic optimization. It does not claim different numerical behavior or
+physical spectral calibration.
