@@ -2550,7 +2550,18 @@ static char *paired_runtime(Object *obj, Error **errp)
             g_string_append_printf(state, "%s%" PRIu64,
                                    slot ? "," : "", b->consumed[slot]);
         }
-        g_string_append_c(state, '\n');
+        g_string_append_printf(state, " history-revision=%" PRIu64 "\n",
+                               b->history_revision);
+        for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
+            if (paired_online_open(b->online_written[group])) {
+                g_string_append_printf(state,
+                    "bank%u upload%u words=%" PRIx64 ":%" PRIx64 ":%"
+                    PRIx64 " dirty=%u\n", i, group,
+                    b->online_written[group][0],
+                    b->online_written[group][1],
+                    b->online_written[group][2], b->online_dirty[group]);
+            }
+        }
     }
     for (unsigned i = 0; i < ARRAY_SIZE(s->raw); i++) {
         g_string_append_printf(state,
