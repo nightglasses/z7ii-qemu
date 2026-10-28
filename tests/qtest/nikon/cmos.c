@@ -1973,7 +1973,8 @@ static void group_configure(QTestState *q)
 static void group_input_complete(QTestState *q)
 {
     uint64_t expected = property_at(q, PIPELINE_PATH, "main-completed") + 1;
-    int64_t start = qtest_clock_step(q, 0);
+    /* These acquisitions begin with one exposure nanosecond before readout. */
+    int64_t start = qtest_clock_step(q, 1);
 
     /* Stop on actual MAIN DONE: a fixed 10 us step overshoots group admission. */
     while (property_at(q, PIPELINE_PATH, "main-completed") < expected) {
