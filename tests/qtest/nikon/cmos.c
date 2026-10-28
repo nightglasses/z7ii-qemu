@@ -3538,7 +3538,10 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
         { 0xc4, 64 }, { 0xd4, 0x0c060202 }, { 0xd8, 9 },
         { 0xdc, 0x30300 }, { 0xe0, 0x158 }, { 0xf0, 0x8e }, { 0xf8, 1 },
         { 0x100, 1 }, { 0x108, 3 }, { 0x11c, 1 }, { 0x120, 1 },
-        { 0x124, 1 }, { 0x12c, 1 }, { 0x204, (36 << 16) | 64 },
+        /* These independent MAIN/WORK fixtures select the optional-grid-off
+         * profile. A connected unit8 producer must supply an enabled grid.
+         */
+        { 0x124, 1 }, { 0x12c, 0 }, { 0x204, (36 << 16) | 64 },
         { 0x30c, 96 }, { 0x394, 96 }, { 0x3d8, 2 },
         { 0x400, (4 << 16) | 28 }, { 0x404, 1 }, { 0x408, 1 },
         { 0x40c, (56 << 16) | 4 }, { 0x410, 1 },
@@ -3673,11 +3676,8 @@ static void paired_pixels(QTestState *q, uint32_t base, unsigned phase)
             }
         }
     } else {
-        for (unsigned y = 0; y < 34; y++) {
-            for (unsigned x = 0; x < 90; x += 3) {
-                memcpy(expected + 16 + 96 * y + x, "\x08\x88\x80", 3);
-            }
-        }
+        g_assert_cmphex(base, ==, PAIRED_GRID);
+        /* A confidence map is input, never an output of paired processing. */
     }
     qtest_memread(q, base + phase * (base == PAIRED_GRID ? 0x1000 : 0x2000)
                      - 16, actual, sizeof(actual));
@@ -4079,9 +4079,9 @@ static void test_paired_processing(void)
 static void test_paired_preflight(void)
 {
     static const uint32_t targets[] = {
-        0x10020000,       /* The last necessary grid is ROM. */
-        PAIRED_GRID,      /* Independent grid phases must not overlap. */
-        0xfffffff0,       /* The final grid extent cannot wrap PA32. */
+        0x10020000,           /* The final enabled MAIN destination is ROM. */
+        PAIRED_WORK + 0x2000, /* MAIN cannot overwrite its phase's WORK. */
+        0xfffffff0,           /* The final MAIN Y/UV extent cannot wrap PA32. */
     };
 
     for (unsigned i = 0; i < ARRAY_SIZE(targets); i++) {
@@ -4089,7 +4089,8 @@ static void test_paired_preflight(void)
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
-        qtest_writel(q, PAIRED + 0x3a4, targets[i]);
+        qtest_writel(q, PAIRED + 0x494, targets[i]);
+        qtest_writel(q, PAIRED + 0x4a4, targets[i] + 64 * 28);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
         paired_raw_input(q);
@@ -4307,10 +4308,11 @@ static void test_paired_matrix_encoding(void)
         { 0xdf8, 0x80000001 }, /* Reducible feedback. */
         { 0xe04, 0x00100000 }, /* A shifrt above15 is unsuppoted. */
         { 0xe10, 0x040003fc }, /* A noise limit exceeds ten bits. */
+        { 0x12c, 2 },         /* Unknown optional-grid control rejects. */
         { 0x218, 0 },         /* The primary front/back ring must agree. */
         { 0x228, PAIRED_MAIN }, /* Partial or unrelated second rings reject. */
         { 0xfc, 1 },          /* Secondary selection needs every mirror. */
-        { 0x3a8, PAIRED_GRID }, /* A grid mirror needs all four slots. */
+        { 0x450, PAIRED_WORK + 4 }, /* Enabled WORK mirrors must agree. */
         { 0x4a8, PAIRED_MAIN }, /* Main Y alone is not a complete Y/UV group. */
         { 0x4b8, PAIRED_MAIN + 64 * 28 }, /* UV alone is also incomplete. */
     };
@@ -4320,15 +4322,10 @@ static void test_paired_matrix_encoding(void)
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
-        if (invalid[i].offset == 0x228 || invalid[i].offset == 0x3a8 ||
+        if (invalid[i].offset == 0x228 ||
             invalid[i].offset == 0x4a8 || invalid[i].offset == 0x4b8 ||
             (invalid[i].offset == 0xfc && invalid[i].value == 1)) {
             paired_secondary(q, 0);
-            if (invalid[i].offset == 0x3a8) {
-                for (unsigned p = 0; p < 4; p++) {
-                    qtest_writel(q, PAIRED + 0x3a8 + 4 * p, 0);
-                }
-            }
             if (invalid[i].offset == 0x4a8 || invalid[i].offset == 0x4b8 ||
                 invalid[i].offset == 0xfc) {
                 for (unsigned p = 0; p < 8; p++) {
@@ -4372,9 +4369,6 @@ static void test_paired_source_history(void)
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, true);
         uint8_t expected[0xce0], actual[sizeof(expected)];
-        static const uint8_t grid[][3] = {
-            { 0x14, 0x48, 0x81 }, { 0x18, 0x88, 0x81 },
-        };
 
         if (mode >= 4) {
             qtest_writel(q, PAIRED + 0x700, 0x101);
@@ -4447,14 +4441,7 @@ static void test_paired_source_history(void)
         }
         qtest_memread(q, PAIRED_WORK - 16, actual, sizeof(actual));
         g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
-        memset(expected, 0xa5, sizeof(expected));
-        for (unsigned y = 0; y < 34; y++) {
-            for (unsigned x = 0; x < 90; x += 3) {
-                memcpy(expected + 16 + 96 * y + x, grid[invalidate], 3);
-            }
-        }
-        qtest_memread(q, PAIRED_GRID + 0x2000 - 16, actual, sizeof(actual));
-        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        paired_pixels(q, PAIRED_GRID, 2);
         g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
         qtest_quit(q);
         unlink(scene);
@@ -4658,7 +4645,7 @@ static void test_paired_curves(void)
         pipeline_step(q, 1000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x08808808);
         paired_main_oracle(q, cases[mode].y, cases[mode].u, cases[mode].v);
-        /* Curves affect color only; history and grid keep pre-color samples. */
+        /* Curves affect MAIN color only; WORK history and grid input persist. */
         paired_pixels(q, PAIRED_WORK, 0);
         paired_pixels(q, PAIRED_GRID, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
@@ -5118,10 +5105,10 @@ static void test_paired_post(void)
     qtest_memread(q, PAIRED_MAIN - 16, actual, sizeof(actual));
     g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
-    /* WORK/grid retain real pre-color values and padding. */
+    /* WORK retains real pre-color values and padding; grid input is untouched. */
     g_assert_cmphex(qtest_readl(q, PAIRED_WORK), ==, 0x04040404);
     g_assert_cmphex(qtest_readl(q, PAIRED_WORK + 64), ==, 0xa5a5a5a5);
-    g_assert_cmphex(qtest_readl(q, PAIRED_GRID), ==, 0x04404404);
+    paired_pixels(q, PAIRED_GRID, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED_GRID + 92), ==, 0xa5a5a5a5);
     qtest_quit(q);
     unlink(scene);
@@ -5883,7 +5870,7 @@ static void test_paired_adaptive(void)
         g_autofree char *bundle = NULL;
         g_autofree char *scene = NULL;
         g_autofree char *image = g_malloc(prefix + 64 * 36);
-        uint8_t pixels[64 * 28], cell[3];
+        uint8_t pixels[64 * 28];
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
         memcpy(image, header, prefix);
@@ -5910,16 +5897,13 @@ static void test_paired_adaptive(void)
             }
         }
         /* Pre-suffix impulse is2072/1012; exact suffix gives2063/1021.
-         * The2x2 block at(30,16) averages2060/1024 in WORK and GRID.
+         * The2x2 block at(30,16) averages2060/1024 in WORK.
          */
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 8 * 80 + 15 * 2),
                          ==, sign ? 1024 : 2060);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 26 * 80 + 15 * 2),
                          ==, 0);
-        qtest_memread(q, PAIRED_GRID + 16 * 96 + 43, cell, sizeof(cell));
-        unsigned grid = ((cell[0] | cell[1] << 8 | cell[2] << 16) >> 4) & 4095;
-
-        g_assert_cmpuint(grid, ==, sign ? 1024 : 2060);
+        paired_pixels(q, PAIRED_GRID, 0);
         g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
         qtest_writel(q, PAIRED + 0xe8, 0);
         g_assert_true(qtest_get_irq(q, 99 - 32));
@@ -6470,7 +6454,7 @@ static void test_paired_colorfilter(void)
         g_autofree char *bundle = NULL;
         g_autofree char *scene = NULL;
         g_autofree char *image = g_malloc(prefix + 64 * 36);
-        uint8_t pixels[64 * 28], cell[3];
+        uint8_t pixels[64 * 28];
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
         memcpy(image, header, prefix);
@@ -6497,10 +6481,7 @@ static void test_paired_colorfilter(void)
         g_assert_cmpuint(pixels[13 * 64 + 27], ==, sign ? 64 : 129);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 8 * 80 + 15 * 2), ==,
                          sign ? 1025 : 2060);
-        qtest_memread(q, PAIRED_GRID + 16 * 96 + 43, cell, sizeof(cell));
-        unsigned grid = ((cell[0] | cell[1] << 8 | cell[2] << 16) >> 4) & 4095;
-
-        g_assert_cmpuint(grid, ==, sign ? 1025 : 2060);
+        paired_pixels(q, PAIRED_GRID, 0);
         for (unsigned row = 0; row < 28; row++) {
             for (unsigned x = 56; x < 64; x++) {
                 g_assert_cmphex(pixels[row * 64 + x], ==, 0xa5);
@@ -7007,7 +6988,7 @@ static void test_paired_stride(void)
         QTestState *q = paired_start(&bundle, &scene, true, false);
 
         qtest_writel(q, PAIRED + (mode == 0 ? 0x4c8 :
-                                  mode == 1 ? 0x470 : 0x394), 0);
+                                  mode == 1 ? 0x470 : 0x30c), 0);
         for (unsigned phase = 0; phase < 4 && mode != 2; phase++) {
             if (mode == 0) {
                 qtest_writel(q, PAIRED + 0x498 + 4 * phase,
@@ -7469,7 +7450,7 @@ static void test_paired_selections(void)
         paired_main_at(q, PAIRED_MAIN + extra + (phase % 2) * 0x2000,
                        130, 144, 96);
         g_assert_cmphex(qtest_readl(q, PAIRED_GRID + extra + phase * 0x1000),
-                        ==, 0x18818818);
+                        ==, 0xa5a5a5a5);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + (phase % 2) * 0x2000),
                         ==, 2072);
         paired_pixels(q, PAIRED_MAIN, phase % 2);
@@ -7554,7 +7535,7 @@ static void paired_second_batch(bool update)
     g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
     g_assert_cmphex(qtest_readw(q, PAIRED_WORK), ==, 2072);
     g_assert_cmphex(qtest_readw(q, PAIRED_WORK + 80 * 18), ==, 0);
-    g_assert_cmphex(qtest_readl(q, PAIRED_GRID) & 0xffffff, ==, 0x818818);
+    paired_pixels(q, PAIRED_GRID, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x118), ==, 5 * 56 * 28);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
     qtest_writel(q, PAIRED + 0x10, 1);
