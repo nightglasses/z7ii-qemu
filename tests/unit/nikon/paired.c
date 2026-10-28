@@ -32,6 +32,7 @@ typedef struct PairedFixture {
     qemu_irq irq;
     bool level;
     unsigned rises;
+    NikonRawEncoding encoding;
 } PairedFixture;
 
 typedef struct PoolBarrier {
@@ -351,7 +352,7 @@ static void admit(PairedFixture *f)
 {
     NikonPairedRawFrame frame = {
         .generation = 1, .address = RAM_BASE, .width = 64, .height = 36,
-        .stride = 96, .bits = 12, .encoding = NIKON_RAW_MONO,
+        .stride = 96, .bits = 12, .encoding = f->encoding,
         .transfer = { .codec = NIKON_RAW_LINEAR }, .slot = 0,
     };
     NikonPairedGridFrame grid = {
@@ -401,10 +402,14 @@ static void published(PairedFixture *f)
 
 static void test_async_completion(gconstpointer opaque)
 {
-    bool pause = GPOINTER_TO_INT(opaque);
+    unsigned flags = GPOINTER_TO_UINT(opaque);
+    bool pause = flags & 1;
     PoolBarrier blocker, marker;
     PairedFixture *f = fixture_new();
 
+    if (flags & 2) {
+        f->encoding = NIKON_RAW_RGGB;
+    }
     blocker_start(&blocker);
     admit(f);
     memset(f->bytes, 0, 96 * 36); /* An admitted job owns a frozen RAW copy. */
@@ -434,10 +439,14 @@ static void test_async_completion(gconstpointer opaque)
 
 static void test_async_cancel(gconstpointer opaque)
 {
-    unsigned mode = GPOINTER_TO_UINT(opaque);
+    unsigned flags = GPOINTER_TO_UINT(opaque);
+    unsigned mode = flags & 3;
     PoolBarrier blocker, marker;
     PairedFixture *f = fixture_new();
 
+    if (flags & 4) {
+        f->encoding = NIKON_RAW_RGGB;
+    }
     blocker_start(&blocker);
     admit(f);
     if (mode == 2) {
@@ -483,11 +492,14 @@ static void test_async_cancel(gconstpointer opaque)
     fixture_free(f);
 }
 
-static void test_async_unrealize(void)
+static void test_async_unrealize(gconstpointer opaque)
 {
     PoolBarrier blocker, marker;
     PairedFixture *f = fixture_new();
 
+    if (GPOINTER_TO_UINT(opaque)) {
+        f->encoding = NIKON_RAW_RGGB;
+    }
     blocker_start(&blocker);
     admit(f);
     worker_returned(&blocker, &marker);
@@ -500,6 +512,79 @@ static void test_async_unrealize(void)
     barrier_clear(&marker);
     fixture_free(f);
     advance(2000000);
+}
+
+static void test_stage_cancel(gconstpointer opaque)
+{
+    unsigned target = GPOINTER_TO_UINT(opaque) & 7;
+    bool unrealize = GPOINTER_TO_UINT(opaque) & 8;
+    PoolBarrier blockers[7], markers[7];
+    PairedFixture *f = fixture_new();
+
+    f->encoding = NIKON_RAW_RGGB;
+    blocker_start(&blockers[0]);
+    admit(f);
+    g_assert_true(runtime_has(f, " stage=0 remaining=1"));
+    for (unsigned stage = 0; stage < target; stage++) {
+        g_autofree char *text = g_strdup_printf(" stage=%u remaining=",
+                                                stage + 1);
+
+        worker_returned(&blockers[stage], &markers[stage]);
+        /* Queue the next blocker before delivering the current stage's Aio
+         * callbacks. All next-stage children then wait behind that blocker,
+         * including with a pool limited to one worker. No worker waits for
+         * another worker to finish numerical work.
+         */
+        blocker_start(&blockers[stage + 1]);
+        poll_until(f, text, &blockers[stage], &markers[stage]);
+        unpublished(f);
+        g_assert_true(runtime_has(f, "inflight=1"));
+    }
+    if (unrealize) {
+        worker_returned(&blockers[target], &markers[target]);
+        unpublished(f);
+        qdev_unrealize(f->dev);
+    } else {
+        device_cold_reset(f->dev);
+        g_assert_true(runtime_has(f, "inflight=1"));
+        unpublished(f);
+        worker_returned(&blockers[target], &markers[target]);
+    }
+    poll_until(f, "inflight=0", &blockers[target], &markers[target]);
+    unpublished(f);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    advance(2000000);
+    unpublished(f);
+    for (unsigned stage = 0; stage <= target; stage++) {
+        barrier_clear(&blockers[stage]);
+        barrier_clear(&markers[stage]);
+    }
+    fixture_free(f);
+}
+
+static void test_parallel_completion(void)
+{
+    PairedFixture *f = fixture_new();
+    int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+
+    aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 4,
+                                       &error_abort);
+    f->encoding = NIKON_RAW_RGGB;
+    admit(f);
+    memset(f->bytes, 0, 96 * 36); /* All shards must use the owned input. */
+    while (counter(f, "completed") != 1) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        aio_poll(qemu_get_aio_context(), false);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        g_thread_yield();
+    }
+    g_assert_true(runtime_has(f, "inflight=0"));
+    published(f);
+    advance(2000000);
+    published(f);
+    fixture_free(f);
+    aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 1,
+                                       &error_abort);
 }
 
 static void alternate_outputs(PairedFixture *f)
@@ -1099,7 +1184,30 @@ int main(int argc, char **argv)
                          test_async_cancel);
     g_test_add_data_func("/nikon/paired/async/reset-ready", GUINT_TO_POINTER(2),
                          test_async_cancel);
-    g_test_add_func("/nikon/paired/async/unrealize", test_async_unrealize);
+    g_test_add_data_func("/nikon/paired/async/unrealize", GUINT_TO_POINTER(0),
+                         test_async_unrealize);
+    g_test_add_data_func("/nikon/paired/async/cfa-completion", GUINT_TO_POINTER(2),
+                         test_async_completion);
+    g_test_add_data_func("/nikon/paired/async/cfa-pause", GUINT_TO_POINTER(3),
+                         test_async_completion);
+    g_test_add_data_func("/nikon/paired/async/cfa-reset-queued",
+                         GUINT_TO_POINTER(4), test_async_cancel);
+    g_test_add_data_func("/nikon/paired/async/cfa-config-queued",
+                         GUINT_TO_POINTER(5), test_async_cancel);
+    g_test_add_data_func("/nikon/paired/async/cfa-reset-ready",
+                         GUINT_TO_POINTER(6), test_async_cancel);
+    g_test_add_data_func("/nikon/paired/async/cfa-unrealize", GUINT_TO_POINTER(1),
+                         test_async_unrealize);
+    for (unsigned stage = 0; stage < 7; stage++) {
+        g_autofree char *name = g_strdup_printf(
+            "/nikon/paired/async/stage%u-reset", stage);
+
+        g_test_add_data_func(name, GUINT_TO_POINTER(stage), test_stage_cancel);
+    }
+    g_test_add_data_func("/nikon/paired/async/prefix-unrealize",
+                         GUINT_TO_POINTER(1 | 8), test_stage_cancel);
+    g_test_add_func("/nikon/paired/async/parallel-completion",
+                    test_parallel_completion);
     g_test_add_func("/nikon/paired/async/bank-staging", test_async_bank_staging);
     g_test_add_func("/nikon/paired/async/bank-partial", test_async_bank_partial);
     g_test_add_func("/nikon/paired/async/bank-commit-rewrite",
