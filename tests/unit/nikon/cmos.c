@@ -329,7 +329,9 @@ static void cfa_configure(CmosFixture *f, unsigned x, unsigned y)
     };
 
     for (unsigned i = 0; i < ARRAY_SIZE(words); i++) {
-        write_word(f, i * 4, words[i]);
+        if (i * 4 != 0x34) { /* Active buffer index is read-only. */
+            write_word(f, i * 4, words[i]);
+        }
     }
     write_word(f, 0x48, EXPOSURE);
     write_word(f, 0x58, READOUT);
