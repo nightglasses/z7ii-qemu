@@ -58,6 +58,49 @@ That event must not be replaced with a hardware completion. IRQ99/100 handlers
 `103699a4/10369968` consume raw pending at+`24` through existing W1C and callback
 routing. Raw progress classes and numerical result production remain separate.
 
+### Completion credits and work-record retirement
+
+C1.70 has separate paired, MAIN and RGB-grid completion credits. An unchanged
+fixed-M diagnostic distinguishes their producers and follows the same twelve
+admitted records through their real release calls. It establishes that these
+sampled records retire; it does not establish a bounded long-running queue.
+The [runtime receipt](/evidence/runtime/grid.json) separates this instrumented
+trace from debugger-free execution.
+
+| Dependency | Source route in MAS VA | Credit and software event |
+| --- | --- | --- |
+| Paired numerical result | IRQ99 `103699a4` reads/W1C-ACKs raw pending, callback `102e468a` forwards it as `42190805` to `102637c2`; branch `102639e6` tests raw `1000` | After initial discard, increment `b18648d8`; `10263a14` sets `00400000` on event object `b1864850` |
+| MAIN/context9 result | Callback `10262e40` accepts `42193081` with flag bit0; the context9 dispatcher normalizes its raw2 bit3 to this flag | After separate initial discard, increment `b18648dc`; `10262ed6` sets `00800000` on the same event object |
+| RGB-grid/context8 result | Independent unit8 terminal work and callback | Its `01000000` dependency is distinct from either credit above; see the [grid contract](../gate/grid.md) |
+
+Lane0 cell2, VA `10268ba4`, waits at `10268c2a` for pattern `80400000`
+with native timeout1000. Lane3 cell1, VA `1026903a`, waits at `102690c2`
+for pattern `80800000` with the same timeout. Later admissions may consume
+already accumulated credit without waiting. The per-frame cadence tuple comes
+from `103f6a70/103f6a82`, indexed by frame byte14. In the observed mode it is
+`[2,0]`. Both selected and unselected output phases consume paired credit;
+this divisor does not halve the software graph's completion demand.
+
+Record word0 and record+`64` are different counters. Admission at
+`103cc1c8..103cc1d6` assigns the latter from `b1864da4`; it is not a paired
+hardware job index. The generic worker marks each finished lane state3 and
+lane0 checks all eleven states before removing the active descriptor and
+calling `103d0c3a`. That callback separately waits for side-processing bits
+at record+`3e30`, removes the membership selected by ownership bits at+`6c`,
+and may retain a successful record for another consumer. Entering this callback
+alone therefore does not prove a free. Non-retained records actually call
+`1034febc` from `103d0da2`; the descriptor is released separately via `103d0dac`.
+
+In the bounded hardware-breakpoint diagnostic, admissions12..23 each return
+from both waits with the corresponding completion bit, reach all eleven lane
+states3, and call the actual work-record free. Observed admit-to-free host
+durations grow from5.60 to12.02 seconds. Debugger stops contribute to those
+durations; they are neither guest deadlines nor a processing-rate benchmark.
+Separately translated, sequential debugger-free snapshots show active records
+growing60→326→591→798→877 and the oldest admission advancing5→61 before
+allocator failure. This is growing backlog with continuing retirement, not
+evidence of one permanently stuck lane or a missing unconditional free.
+
 ## All graph-node requests and parameter reload
 
 `103b4cea ->103bd07c` writes backend+`0=1` for configured processing nodes,

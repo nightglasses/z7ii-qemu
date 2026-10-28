@@ -181,15 +181,15 @@ direct RAW12 units, lane-to-RGB order and placement before the two curves
 are declared choices. Neither the actual Bayer phase nor the physical
 RAW14 arithmetic is recovered. This monochrome source does not establish
 color-sensor demosaicing. The existing Q8 RGB gains, noise and matrices follow
-the curves. Work/grid/residual planes remain pre-color; changing this group
-cancels active work but preserves previously published numerical history.
+the curves. Work/grid/residual planes remain pre-color; a complete affine
+upload supplies future work and preserves the current immutable job and history.
 Reset clears the configuration and cancels pending work through the existing
 device lifecycle. No completion is posted without successful RAW consumption,
 numerical processing and all output writes.
 
 The native vectors use unequal gains, signed offsets, unequal pedestals,
 clipping and subsequent curves; qtests check actual DMA pixels, padding,
-result flags, retained writes, changed-write cancellation, reset and negative
+result flags, retained writes, numerical publication, reset and negative
 encodings. [Affine evidence](/evidence/paired/affine.json) separates those
 fixtures from the unchanged-firmware observation.
 
@@ -493,6 +493,19 @@ nonzero RAM, another bank's output or a new calibration configuration cannot
 seed history. Reusing alternating phase aliases can reuse such established
 history; a source epoch change makes the old contents numerically ineligible.
 
+The implementation preserves the complete scalar law while omitting proven
+identities. Zero-strength refinement, unity curves/gains and exact A/C identity
+are qualified once per job; noise still steps for every enabled channel.
+Integer CFA interpolation reduces the generic Q17 expression to exact one-,
+two- or four-tap averages with one final rounding. Zero neighborhood residuals
+contribute no correction. For nonzero color taps, the validated threshold is
+at most2360. A small reciprocal table uses `m=ceil(2^32/d)`: for unsigned
+`n<2^32`, `(n*m)>>32` can overestimate `floor(n/d)` by at most one. Comparing
+`q*d>n` corrects that possible excess before restoring signed nearest-away
+rounding. The rounding numerator fits21 bits. Independent fixtures continue
+to execute full scalar divisions, filters, bilinear sampling and color stages;
+these optimizations do not widen the numerical profile or change DMA/events.
+
 ## Work, completion and cancellation
 
 The RAW producer withdraws a slot with generation zero before overwriting it,
@@ -639,17 +652,15 @@ return the staged `fc` readback to the live selector. A kick during the stop
 sequence rejects. Reset clears both selectors to zero and invalidates any
 queued commit before releasing old work.
 
-A changed retained configuration word cancels an active job, except for staged
-`fc` selection, inactive
-RAW/grid/main address staging and the dedicated `0c`, `f0` and `84` controls.
-It also invalidates its bank's
-numerical-history ownership unless it belongs to the main-only noise group
-`df4..e10`, RAW pointer groups `218..234/310..32c`, or main/grid pointers
-`488..4c4/398..3b4`, or bounded selection `fc`. These target/source-address,
-selection and noise changes preserve pre-color work history; actual source-epoch
-withdrawal still prevents old history from being reused. First publication of a table/curve word also changes its
-coverage state and cancels work even when its value is zero. Rewriting an
-already covered word with the same value preserves work. These writes
+A changed strict control, topology or uninterpreted profile word cancels an
+active job. Staged `fc`, inactive RAW/grid/main pointers, dedicated request
+controls and the source-confirmed numerical uploads below retain their separate
+rules. RAW/main/grid pointer and selection changes preserve pre-color history;
+source-epoch withdrawal still prevents obsolete history from being reused.
+First publication of an opaque table word changes coverage and cancels work
+even when its value is zero. Numerical tables instead follow their complete
+publication contracts. Rewriting an already covered word equally preserves work.
+These writes
 preserve already published pixels and pending results; they do not synthesize
 a replacement completion. Device reset preserves external GPIO levels and
 does not turn a retained high level into a new rising event.
@@ -663,6 +674,83 @@ and visible menus are not established by that session. The whole CMOS qtest
 batch is not reported as passing: interrupted macOS runs expose a dummy-CPU
 shutdown wait in upstream `pause_all_vcpus`. No upstream source or guest state
 is changed to hide that validation limit.
+
+### Online numerical uploads
+
+The running-request path at MAS VA `102c04c6` rebuilds configuration through
+`102c0b68`, calls `102e55fa/102e560e`, then `102e49fe` with its initialization
+arguments zero. The path skips the initial-start branch. Its following setters
+perform plain packing/stores without a stop, drain or hardware-completion wait:
+
+| Packet | Setter VA | Bank-relative store order |
+| --- | --- | --- |
+| Noise | `1036c862` | `df4,df8,dfc,e00,e0c,e04,e08,e10` |
+| RGB gain | `1036bb04` | `9d0,9d4,9cc` |
+| Radial coefficients | `1036b3ee/1036b408` | `724,728,72c,730,734,738` |
+| Denoise | `1036adac` | Seven words `660..678` |
+| Adaptive spatial filter | `1036af16/1036af3a/1036b12a` | `594`, then three channels of six interleaved words at `598..5dc`, then `608` |
+| MAIN affine | `1036b35a` | Seven words `708..720` |
+| Detail | `1036b49c/1036b4de/1036b4fc/1036b51e/1036b554` | Eight words `73c..758` |
+| Axial correction | `1036b576` | Eight words `75c..778` |
+| Color filtering | `1036b63a/1036b830/1036b866/1036ba6a/1036baa8` | 51 words: `900..950,954,958,95c..9b0,9d8,9b4,9b8..9c4` |
+| A and B matrices, independently | `1036bb78/1036beaa` | Five words each: `b00..b10` and `b64..b74` |
+| C matrix, weights and tail | `1036c02c/1036c0c0/1036c12a/1036c094` | Eleven words `b94..ba4,bac,bb0..bbc,ba8` |
+| Post smoothing | `1036c260` | 32 words `d20..d9c` |
+| Post edge family | `1036c744/1036c7e2/1036c828/1036c7a6/1036c818` | Twelve words `dc0..dd0,ddc,de0,de8,dec,dd4,dd8,de4` |
+| Confidence strength | `1036bcde` | `b58` only; preceding grid layout words retain strict cancellation |
+| Two gain curves, independently | `1036bb68 →1036ca74` | 129 words each: `2890..2a90` and `2a94..2c94` |
+
+Word ranges in this table include both ends and advance by four bytes. These
+are17 finite coverage groups. Existing uniform MAIN luma, saturation and optional
+radial tables keep their specialized ordered-publication and dual-slot validity
+checks under the same immutable-owner rule. The independent mode words
+`700/704`, grid layout, `9c8`, `3c4.bit15` and uninterpreted config40 fields are
+not numerical exemptions. No supported numerical value range is widened.
+
+A later running kick is separate: `102c0530 →102e5488 →1036a49a`.
+The noise producer deliberately advances its parameter index modulo64.
+Consequently a changed noise mask, RGB enable or radial coefficient is not
+source evidence of a cancellation request. In a separate unchanged fixed-M
+diagnostic, 33 actual active cancellations in25.55 host seconds all came from
+this former changed-word policy, predominantly `df8`, then `9cc` and `730`;
+no explicit stop or live-RAW-address cancellation was recorded in that scope.
+This diagnostic completed41 jobs from72 numerical computations. It is not
+a controlled host-rate benchmark.
+
+The finite model retains the current token, decoded parameters and private
+RAW/history/grid until that job finishes. These packets qualify future
+admission. The first store starts a fresh coverage round, every member is
+required, and an incomplete round retains actual unconsumed input without
+publishing completion. All groups must finish before another job is admitted;
+ordinary full-profile validation still rejects malformed completed values.
+Readback exposes actual staged words. A completed upload retries existing input
+through the normal admission predicate, without a new frame or event.
+Cold construction retains its existing qualification rules; an already opened
+round continues to require every member across a drain/rearm boundary.
+
+The completion-time whole-batch memory/alias check uses the owned whole
+numerical configuration and re-decodes only current topology. It never invokes
+future numerical/profile qualification; partially uploaded fields cannot reject
+an otherwise completed old computation. Current addresses, RAM backing, pending
+ownership and downstream generation are still checked. A partial round survives
+drain into quiescent state and can finish there before rearming; stop/reset
+discard its coverage and cancel owned work. Live-address invalidation retains
+its separate cancellation rule.
+
+Changed complete pre-color filter, denoise, detail, axial and color-filter
+uploads invalidate future history qualification. A separate bank/job history
+revision prevents an older task from restoring that history when it later
+finishes. Abandoning a partial round cannot discard its changed-history state.
+The old private input/history still computes and publishes normally. MAIN-only
+uploads preserve pre-color history. Source epochs remain separate from parameter
+revisions, and format/layout changes retain their strict cancellation boundary.
+
+The per-job latch and whole-packet admission boundary are functional hypotheses,
+not recovered silicon timing. They are falsifiable through old-output/new-output
+fixtures, each missing member of the first three packets, first/middle/last
+members of the remaining groups, curve bitmap boundaries, malformed staging,
+reset, explicit stop and drain/rearm. This corrects the old numerical-update-aborts-work hypothesis;
+it does not by itself prove sustained original-firmware retirement.
 
 ## Cycle-selected noise records
 
@@ -744,8 +832,8 @@ Seed, stepping order, bit slice, normalization, stage placement and limit
 semantics remain functional assumptions, not recovered physical arithmetic.
 Every polynomial cycle is computed through the same operator. Noise state is
 job-local: a cancelled or rejected job cannot advance another job's state,
-publish pixels or produce completion. Changing this group cancels in-flight
-work but preserves already established pre-color history. No physical-camera
+publish pixels or produce completion. A complete online upload supplies future
+snapshots and preserves current work and pre-color history. No physical-camera
 capture is required to execute this declared model; such evidence could
 distinguish it from the actual hardware algorithm.
 

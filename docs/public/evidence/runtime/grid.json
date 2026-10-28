@@ -164,5 +164,256 @@
       },
       "sampling": "A separate no-GDB host sample records235/259 sampled thread states in paired_compute, summed across reused workers; main post-processing and CFA stages dominate that computation. This is bounded host sampling, not guest-deadline proof or an established unique backlog cause"
     }
+  },
+  "completion_credit_audit": {
+    "revision_binding": "a2bbf768 and 127df1bb with explicitly diagnostic host instrumentation; original C1.70 bytes unchanged",
+    "source_established": {
+      "paired": "IRQ99 103699a4 raw1000 ->102e468a ->42190805/102637c2 ->102639e6 -> b18648d8++ ->10263a14 sets00400000",
+      "main": "context9 raw2.bit3 normalizedflag1 ->42193081/10262e40 ->b18648dc++ ->10262ed6 sets00800000",
+      "retirement": "Eleven terminal lane state3 ->103d0c3a ->side processing byte+3e30/ownership+6c/optional retention ->103d0da2 actualjobfree;103d0dac descriptorfree",
+      "admission": "job+64 assigned fromb1864da4 at103cc1c8..1d6; independent of recordword0 and hardware resultcounts",
+      "cadence": "Observed frame.byte14=4 ->B18a8c60 tuple[2,0]. Unselected output jobs still consume pairedcredit"
+    },
+    "fixed_m_sequential_snapshots": [
+      {
+        "host_seconds": 10.34,
+        "active_records": 60,
+        "oldest_word0": 11,
+        "oldest_admission": 5
+      },
+      {
+        "host_seconds": 20.3,
+        "active_records": 326,
+        "oldest_word0": 31,
+        "oldest_admission": 25
+      },
+      {
+        "host_seconds": 30.16,
+        "active_records": 591,
+        "oldest_word0": 49,
+        "oldest_admission": 43
+      },
+      {
+        "host_seconds": 37.86,
+        "active_records": 798,
+        "oldest_word0": 62,
+        "oldest_admission": 56
+      },
+      {
+        "host_seconds": 41.32,
+        "active_records": 877,
+        "oldest_word0": 67,
+        "oldest_admission": 61
+      }
+    ],
+    "same_record_hardware_breakpoints": {
+      "admissions": [
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "paired_wait_returns": 12,
+      "main_wait_returns": 12,
+      "eleven_lanes_terminal": 12,
+      "actual_job_free_calls": 12,
+      "admit_to_free_host_seconds_first_last": [
+        5.602,
+        12.017
+      ],
+      "instrument": "GDB hardware PC breakpoints; global thread<=2; no guest-memory writes. Host spans include debugger stops; bounded sample, not guest deadline or throughput"
+    },
+    "exact_numerical_changes": {
+      "commits": [
+        "127df1bb",
+        "06990d63",
+        "3d962964",
+        "f44d5f75",
+        "26f407a7"
+      ],
+      "contract": "Skip only mathematically neutral refinement/color passes; integer CFA single rounding equals generic Q17 lattice interpolation; preserve noise, nonzero equations, input sizes, DMA and events; zero-contribution tap/post guards and corrected bounded reciprocal division preserve signed rounding exactly",
+      "native": "39 then40 pixel cases with full scalar refinement, generic bilinear RGB and full unoptimized color oracles, plus19 paired cases PASS; complete integrated129 CMOS/paired +40pixel +19paired PASS in281.08s CMOS window; final41 pixel cases include480 threshold recipes and maximum bounded recipes against scalar division"
+    },
+    "uninstrumented_refinement_only": {
+      "host_seconds": 42.696,
+      "paired_completed": 81,
+      "paired_cancelled": 63,
+      "active_records_at_failure": 877,
+      "diagnostic_bytes": 314160,
+      "passed": false,
+      "failure": "Null-object data abort with near-exhausted General pool; no block can fit a0x3e44 work record. Immediate producer of the null object not established in this run",
+      "pc_mas_va": "0x10361044",
+      "dfar": "0x0",
+      "general_pool_free_bytes": 3280,
+      "general_pool_largest_block": 3064
+    }
+  },
+  "online_numerical_audit": {
+    "source_binding": "C1.70 MAS running102c04c6 ->102e55fa/102e560e ->102e49fe with initializationargumentszero; recovered setters write parameters without stop/drain/wait; exact silicon latch timing unknown",
+    "diagnostic_before_fix": {
+      "base": "127df1bb",
+      "host_seconds": 25.5541,
+      "numerical_calls": 72,
+      "paired_completed": 41,
+      "paired_cancelled": 33,
+      "paired_rejected": 0,
+      "active_cancel_offsets": {
+        "df8": 21,
+        "9cc": 7,
+        "730": 5
+      },
+      "explicit_stop_or_live_raw_cancel_observed": 0,
+      "thread_cpu_median_us": 198619.5,
+      "scope": "Temporary host logs; fixedM, no GDB, unchangedfirmware. Not an accepted startup window or controlled FPS comparison"
+    },
+    "three_packet_model": {
+      "commit": "c7621fa",
+      "contract": "Owned snapshot survives complete noise/RGBgain/radial uploads. Fresh packetcoverage blocks new admission; old memory checks use owned numerics. Stop/reset/layout/opaque invalidation retain cancellation. Drain/rearm preserves partial coverage.",
+      "native_red": "Old model admits second RAW during incomplete RGB packet: completed2 expected1; focused regression failed1.52s",
+      "native_green": "Focused online3cases PASS12.29s; integrated129 CMOS/paired,40pixel,19paired PASS, normal TAP/exits. Internal boundary loops cover every missing member, malformed staging, explicitstop/reset, drain/rearm and actual RAW phase0 refresh"
+    },
+    "uninstrumented_three_packet": {
+      "base": "06990d63+c7621fa",
+      "host_seconds": 38.8699,
+      "paired_completed": 117,
+      "paired_cancelled": 12,
+      "paired_rejected": 0,
+      "active_records_at_exception": 723,
+      "diagnostic_bytes": 304955,
+      "pc_mas_va": "0x1021d7ce",
+      "dfar": "0x01000042",
+      "task": "0x01000018",
+      "general_pool_free_bytes": 2811464,
+      "passed": false,
+      "meaning": "Independent AF pointer failure precedes General exhaustion; continuing backlog not yet accepted"
+    },
+    "remaining_cancel_diagnostic": {
+      "base": "3d962964",
+      "host_seconds": 25.629,
+      "numerical_calls": 85,
+      "paired_completed": 73,
+      "paired_cancelled": 12,
+      "paired_rejected": 0,
+      "active_cancel_offsets": {
+        "708": 9,
+        "70c": 2,
+        "2890": 1
+      },
+      "thread_cpu_median_us": 159498,
+      "scope": "Temporary host cancellation and threadCPU logs; actual equations unchanged. Remaining offsets belong to source running affine/curve uploads; does not establish normal throughput or stableGUI"
+    },
+    "remaining": [
+      "Bound numerical work and complete original graph backlog without changing pixels, suppressing frames or slowing guest time",
+      "Validate modes only after the fixedM loop is stable",
+      "Independent AF/AS history failure and physical accuracy"
+    ],
+    "complete_packet_model": {
+      "commits": [
+        "8e53b8d4",
+        "cd2a4eb8",
+        "d74fa18c"
+      ],
+      "source_established": "Seventeen finite running setter groups plus existing luma, saturation and radial-table producers; complete schemas and excluded strict controls are in pairs/pixels.md#online-numerical-uploads",
+      "functional_hypotheses": [
+        "Per-job immutable numerical latch and whole-packet boundary for future admission",
+        "Separate pre-color history revision prevents an old task from re-registering superseded history; MAIN-only uploads preserve history"
+      ],
+      "contract": "Owned RAW/history/grid and decoded numerical parameters finish actual computation/DMA/IRQ. Partial numerical uploads block future admission, not old completion. Layout, backing, aliases, freshness, pending ownership and strict cancellation remain checked. Stop/reset discard open rounds; a partial round survives drain/rearm. No supported numerical range is widened.",
+      "native": {
+        "cmos_paired_integration": 133,
+        "pairedpixels": 41,
+        "paired_lifecycle": 19,
+        "total_pass": 193,
+        "cmos_host_seconds": 325.41,
+        "exit": "Normal TAP plans and process exits; timeout multiplier16 for expanded suite, no per-job deadline change",
+        "coverage": "Each missing member of the first3 groups; first/middle/last members of later groups and curve bitmap boundaries; actual old/new output values, malformed staging, pre-color history revision, current RAM/backing/alias bounds, explicit stop/reset, drain/rearm and fresh RAW generations",
+        "fixture_corrections": "Queued B58 numerical update preserves old owned job. Affine/source-history fixtures publish complete7-word packets. Noise expectations use owned feedback rather than future live registers. Rearmed phase0 uses a real fresh ring generation.",
+        "independent_review": "No remaining findings in exact arithmetic or full17-group implementation"
+      },
+      "diagnostics": "Read-only runtime exposes per-bank history revision and actual open upload coverage; reading performs no work/events"
+    },
+    "uninstrumented_complete_model": {
+      "base": "d74fa18c",
+      "host_seconds": 48.4025,
+      "paired_completed": 209,
+      "paired_cancelled": 0,
+      "paired_rejected": 0,
+      "grid_completed": 1551,
+      "grid_errors": 0,
+      "grid_cancelled": 414,
+      "main_completed": 1360,
+      "main_rejected": 0,
+      "capture_work_requests": 1203,
+      "capture_work_completed": 1202,
+      "graph_errors": 0,
+      "active_records": [
+        {
+          "host_seconds": 10.946,
+          "count": 57,
+          "oldest_admission": 12
+        },
+        {
+          "host_seconds": 34.705,
+          "count": 568,
+          "oldest_admission": 137
+        },
+        {
+          "host_seconds": 48.426,
+          "count": 876,
+          "oldest_admission": 194
+        }
+      ],
+      "pc_mas_va": "0x1034fe78",
+      "dfar": "0x3c",
+      "passed": false,
+      "qualification": "FixedM, no debugger or guest writes, unchanged firmware and cold-neutral inputs. QMP reads are sequential. Partial diagnostic dump; final General-pool table not captured. Grid cancellations are a separate generation model, not paired cancellations.",
+      "meaning": "False numerical cancellations are removed; active records and oldest admission continue to advance, but completion supply remains insufficient. No open numerical packet is stuck in final runtime. Original mode stability and memory exhaustion remain unresolved."
+    },
+    "host_compute_admission_diagnostic": {
+      "base": "d74fa18c plus temporary host-only CLOCK_THREAD_CPUTIME_ID log; restored after run",
+      "host_seconds": 20.5149,
+      "numerical_calls": 62,
+      "thread_cpu_median_us": 145183.5,
+      "thread_cpu_mean_us": 146296.129,
+      "thread_cpu_min_max_us": [
+        141737,
+        152904
+      ],
+      "paired_completed": 61,
+      "paired_cancelled": 0,
+      "paired_rejected": 0,
+      "sequential_snapshots": [
+        {
+          "host_seconds": 8.8928,
+          "admission_sequence": 7,
+          "active_records": 8
+        },
+        {
+          "host_seconds": 19.2434,
+          "admission_sequence": 280,
+          "active_records": 226
+        }
+      ],
+      "meaning": "Submission grows much faster than numerical completion in this bounded host diagnostic. The two counters are sequential; no guest frame-period or controlled FPS claim. Not an original acceptance receipt."
+    },
+    "stage_cpu_diagnostic": {
+      "base": "d74fa18c plus temporary host-only CLOCK_THREAD_CPUTIME_ID log; restored after run",
+      "sample_count": 24,
+      "median_thread_cpu_us": {
+        "cfa_prefix": 54403.5,
+        "temporal": 2670,
+        "radial_quad": 7505,
+        "main": 78135.5
+      },
+      "qualification": "Separate bounded fixedM run; no debugger or guest writes. Medians are separate stage distributions, not a hardware timing claim."
+    }
   }
 }

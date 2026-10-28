@@ -122,8 +122,35 @@ another debugger-free window completes 1,362 grid jobs, 62 paired jobs and
 1,144 MAIN acquisitions, but still reaches the same allocation failure after
 41.69 host seconds. The optimization matches the complete five-pass scalar
 oracle; 38 pixel and 19 paired lifecycle cases pass. Its unchanged output does
-not establish a controlled processing-rate comparison. The growing backlog's
-remaining cause is unresolved.
+not establish a controlled processing-rate comparison.
+
+The subsequent [completion audit](../devices/pairs/requests.md#completion-credits-and-work-record-retirement)
+separates paired `00400000` from MAIN/lane3 `00800000`: twelve sampled records
+receive both normal credits, finish all eleven lanes and reach the actual job
+free call. Their successful retirement does not bound the entire queue.
+Running numerical setters also exposed a model error: changed parameters
+cancelled old computations despite no source stop/drain. The
+[online upload contract](../devices/pairs/pixels.md#online-numerical-uploads)
+now retains owned numerical snapshots across all17 confirmed groups and the
+existing specialized tables. Partial packets block future admission; pre-color
+history revisions prevent stale re-registration. The latch boundary remains a
+functional hypothesis, while memory, freshness, stop/reset and ownership checks
+remain strict. Exact neutral-pass, lattice and signed-division reductions do
+not change output equations. The final scoped batch passes133 CMOS/paired,
+41 pixel and19 lifecycle cases, with normal TAP plans and exits.
+
+A separate debugger-free fixed-M cold-neutral run completes209 paired jobs with
+zero paired cancellations or rejections,1551 grid jobs and1360 MAIN acquisitions.
+It still fails at allocator `1034fe78/DFAR3c` after48.40 host seconds. Active
+records grow57→568→876 while the oldest admission advances12→137→194; final
+runtime has an actual computation, not a stuck partial numerical upload.
+A bounded host-only diagnostic measures145184 microseconds median thread CPU
+per numerical job; sequential admission and active-list snapshots also grow
+faster than completion. This identifies a remaining numerical-supply deficit,
+not a missing completion event or a proven leak. Host time is not a native
+frame-period measurement, and no sustained GUI or mode acceptance is claimed.
+The [curated receipt](/evidence/runtime/grid.json) keeps these runs separate
+from the twelve-record breakpoint sample and the independent AF failure.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.
