@@ -1137,14 +1137,28 @@ static bool paired_targets(PairedJob *job, const NikonPairedRawFrame *input)
     for (unsigned i = 0; i < 5; i++) {
         PairedPlane *p = &job->plane[i];
         uint64_t span = paired_span(p);
+        const char *reason = NULL;
 
         if ((job->stream && i < 2) || (!job->work && (i == 2 || i == 3))) {
             continue;
         }
-        if ((p->address & 3) || p->stride < p->row_bytes ||
-            !paired_ram(p->address, span, true) ||
-            paired_overlap(p->address, span, input->address,
-                           (uint64_t)input->stride * input->height)) {
+        if (p->address & 3) {
+            reason = "alignment";
+        } else if (p->stride < p->row_bytes) {
+            reason = "stride";
+        } else if (!paired_ram(p->address, span, true)) {
+            reason = "writable-ram";
+        } else if (paired_overlap(p->address, span, input->address,
+                                  (uint64_t)input->stride * input->height)) {
+            reason = "input-overlap";
+        }
+        if (reason) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: target plane=%u reason=%s address=%x "
+                "span=%" PRIu64 " stride=%u row-bytes=%u height=%u "
+                "input=%x/%u/%u\n", i, reason, p->address, span,
+                p->stride, p->row_bytes, p->height, input->address,
+                input->stride, input->height);
             return false;
         }
         for (unsigned j = 0; j < i; j++) {
@@ -1153,6 +1167,11 @@ static bool paired_targets(PairedJob *job, const NikonPairedRawFrame *input)
             }
             if (paired_overlap(p->address, span, job->plane[j].address,
                                paired_span(&job->plane[j]))) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-paired: target-overlap planes=%u/%u "
+                    "address=%x/%x span=%" PRIu64 "/%" PRIu64 "\n",
+                    i, j, p->address, job->plane[j].address,
+                    span, paired_span(&job->plane[j]));
                 return false;
             }
         }
@@ -1207,17 +1226,38 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     size_t pixels = (size_t)g->width * g->height;
     unsigned row_bytes;
     g_autofree uint8_t *row = NULL;
+    bool transfer_valid = frame->bits == 12 &&
+                          paired_transfer_valid(&frame->transfer);
 
-    if (frame->bits != 12 || !paired_transfer_valid(&frame->transfer) ||
+    if (!transfer_valid ||
         (frame->width & 1) ||
         (unsigned)frame->encoding > NIKON_RAW_BGGR ||
         (frame->encoding != NIKON_RAW_MONO && ((g->width | g->height) & 1)) ||
         frame->width > 4096 || frame->height > 4096 ||
         x0 + g->width > frame->width || y0 + g->height > frame->height ||
         frame->stride != b->config[0x30c / 4] ||
-        frame->stride < (uint64_t)frame->width * 12 / 8 ||
-        !paired_ram(frame->address, (uint64_t)frame->stride * frame->height,
-                    false) || !paired_targets(j, frame)) {
+        frame->stride < (uint64_t)frame->width * 12 / 8) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "nikon-paired: snapshot-metadata bank=%u phase=%u "
+            "input=%x generation=%" PRIu64 " slot=%u bits=%u codec=%u "
+            "transfer-valid=%u "
+            "extent=%ux%u stride=%u encoding=%u roi=%u,%u/%ux%u "
+            "expected-stride=%u\n", b->index, b->phase,
+            frame->address, frame->generation, frame->slot, frame->bits,
+            frame->transfer.codec, transfer_valid, frame->width, frame->height,
+            frame->stride, frame->encoding, x0, y0, g->width, g->height,
+            b->config[0x30c / 4]);
+        return false;
+    }
+    if (!paired_ram(frame->address, (uint64_t)frame->stride * frame->height,
+                    false)) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "nikon-paired: snapshot-input-ram bank=%u address=%x "
+            "stride=%u height=%u\n", b->index, frame->address,
+            frame->stride, frame->height);
+        return false;
+    }
+    if (!paired_targets(j, frame)) {
         return false;
     }
     row_bytes = frame->width * 12 / 8;
@@ -1231,6 +1271,11 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
         if (dma_memory_read(&address_space_memory,
             (uint64_t)frame->address + (y + y0) * frame->stride,
             row, row_bytes, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: snapshot-input-dma bank=%u row=%u "
+                "address=%" PRIx64 " bytes=%u\n", b->index, y,
+                (uint64_t)frame->address + (y + y0) * frame->stride,
+                row_bytes);
             return false;
         }
         for (unsigned x = 0; x < g->width; x++) {
@@ -1240,6 +1285,10 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
             j->raw[y * g->width + x] = (value >> (bit % 8)) & 4095;
             if (!paired_transfer_sample(&frame->transfer,
                                          &j->raw[y * g->width + x])) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-paired: snapshot-code bank=%u x=%u y=%u "
+                    "sample=%u codec=%u\n", b->index, x, y,
+                    j->raw[y * g->width + x], frame->transfer.codec);
                 return false;
             }
         }
@@ -1268,6 +1317,11 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
                 if (dma_memory_read(&address_space_memory,
                     (uint64_t)p->address + y * p->stride, row, width * 2,
                     MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: snapshot-history-dma bank=%u "
+                        "plane=%u row=%u address=%" PRIx64 " bytes=%u\n",
+                        b->index, plane, y,
+                        (uint64_t)p->address + y * p->stride, width * 2);
                     return false;
                 }
                 for (unsigned x = 0; x < width; x++) {
@@ -1296,13 +1350,26 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
         uint32_t address = paired_source(b, p);
 
         if (!paired_profile(b, &batch[p], p, admission) ||
-            !paired_targets(&batch[p], frame) ||
-            !paired_ram(address, input_span, false)) {
+            !paired_targets(&batch[p], frame)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: batch bank=%u phase=%u check=profile-or-target\n",
+                b->index, p);
+            return false;
+        }
+        if (!paired_ram(address, input_span, false)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: batch-input-ram bank=%u phase=%u "
+                "address=%x span=%" PRIu64 "\n",
+                b->index, p, address, input_span);
             return false;
         }
         for (unsigned q = 0; q < p; q++) {
             if (paired_overlap(address, input_span,
                                paired_source(b, q), input_span)) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-paired: batch-input-overlap bank=%u phases=%u/%u "
+                    "address=%x/%x span=%" PRIu64 "\n", b->index, p, q,
+                    address, paired_source(b, q), input_span);
                 return false;
             }
         }
@@ -1315,6 +1382,12 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
             for (unsigned q = 0; q < 4; q++) {
                 if (paired_overlap(a->address, paired_span(a),
                     paired_source(b, q), input_span)) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: batch-output-input-overlap bank=%u "
+                        "phase=%u plane=%u input-phase=%u address=%x/%x "
+                        "span=%" PRIu64 "/%" PRIu64 "\n", b->index,
+                        p, i, q, a->address, paired_source(b, q),
+                        paired_span(a), input_span);
                     return false;
                 }
             }
@@ -1329,6 +1402,14 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
                                        other->address, paired_span(other)) &&
                         (i != j || i == 4 ||
                          memcmp(a, other, sizeof(*a)))) {
+                        qemu_log_mask(LOG_GUEST_ERROR,
+                            "nikon-paired: batch-output-overlap bank=%u "
+                            "phases=%u/%u planes=%u/%u address=%x/%x "
+                            "stride=%u/%u rows=%u/%u height=%u/%u\n",
+                            b->index, p, q, i, j, a->address, other->address,
+                            a->stride, other->stride,
+                            a->row_bytes, other->row_bytes,
+                            a->height, other->height);
                         return false;
                     }
                 }
@@ -1383,6 +1464,7 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     NikonPairedEventBanksState *s = b->parent;
     NikonPairedRawFrame *frame = NULL;
     uint32_t address = paired_source(b, b->phase);
+    const char *stage = "profile";
 
     if (s->stopping || b->active || b->compute || b->stop ||
         b->config[0xfc / 4] != b->selected ||
@@ -1429,8 +1511,11 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
         return;
     }
     memset(&b->job, 0, sizeof(b->job));
-    if (!paired_profile(b, &b->job, b->phase, true) ||
-        !paired_batch(b, frame, true)) {
+    if (!paired_profile(b, &b->job, b->phase, true)) {
+        goto reject;
+    }
+    stage = "batch";
+    if (!paired_batch(b, frame, true)) {
         goto reject;
     }
     if (b->job.stream) {
@@ -1443,6 +1528,7 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
             NIKON_GATE_INPUT_UNSUPPORTED;
 
         if (status == NIKON_GATE_INPUT_UNSUPPORTED) {
+            stage = "gate";
             goto reject;
         }
         if (status == NIKON_GATE_INPUT_BUSY) {
@@ -1454,6 +1540,7 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
         s->blocked++;
         return;
     }
+    stage = "snapshot";
     if (!paired_snapshot(b, frame)) {
         goto reject;
     }
@@ -1464,8 +1551,10 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
 reject:
     paired_release(b);
     s->rejected++;
-    qemu_log_mask(LOG_GUEST_ERROR, "nikon-paired: bank=%u rejected RAW job\n",
-                  b->index);
+    qemu_log_mask(LOG_GUEST_ERROR,
+        "nikon-paired: bank=%u rejected RAW job stage=%s phase=%u selected=%u "
+        "refill=%x input=%x generation=%" PRIu64 "\n", b->index, stage,
+        b->phase, b->selected, b->refill, frame->address, frame->generation);
     if (origin) {
         nikon_access_error(&s->reported_error, origin, 4, true, value,
                            "paired-frame-profile-or-memory-not-supported");
