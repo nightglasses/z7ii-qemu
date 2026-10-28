@@ -2322,7 +2322,7 @@ static void test_group_cancellation(void)
 
         group_configure(q);
         group_input(q);
-        group_rise(q);
+        /* Fresh input owns its initial job before TG; controls must cancel it. */
         if (i == 4) {
             qtest_system_reset(q);
         } else {
