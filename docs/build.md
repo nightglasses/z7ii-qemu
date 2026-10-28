@@ -114,6 +114,17 @@ SIGKILL exit. Existing paired boundary fixtures remain separate device
 validation. Host-runtime fixture results do not establish original-firmware
 startup, normal GUI output, or physical-camera behavior.
 
+The [native wake receipt](/evidence/runtime/qtest.json) records the new
+lifecycle fixture timing out after 120 seconds on the pinned implementation,
+then passing three times in 1.70–2.03 seconds with independent wake ownership.
+The complete CMOS suite of 107 cases passes three times, including all paired
+subtrees, with normal exits and one TAP plan per run. Each full run takes
+240.69–244.47 seconds on the captured Darwin host, so validation uses the
+existing Meson timeout multiplier 8 (480 seconds). The earlier 240-second
+attempt expired after 104 PASS and is not counted as a full success. The
+libqtest child exit checks remain unchanged. Linux and Windows execution
+remain unmeasured on this host.
+
 Host tools under `tools/nikon` compile through the same Meson graph and reuse `qemuutil`; their entry points register after the existing `pyvenv` subdirectory, preserving project tools even when upstream `--disable-tools` is specified. The default battery tool binary path is `work/build/qemu/tools/nikon/nikon-battery`; its interface and acceptance boundaries are documented in [batterytool.md](runtime/batterytool.md). Tools are not placed in the official submodule, and do not introduce separate compilation or test scripts.
 
 Device changes merge via normal PRs in this repository. Upstream dependency updates independently advance gitlinks with recorded release versions; do not modify or commit within the submodule worktree. The current migration fully incorporates compiled ARM/RX, loader, VR precise storage/offset alias, generic access, USIO, paired transfer planes from `f44817e`, along with 26 newly added PASS receipts (20 prior + 4 USIO + 1 planes + 1 RX). Subsequent `528446c` documentation receipts are synchronized concurrently. Original execution and complete GUI results continue to require corresponding runtime records; dependency migration does not assert completed boot.
