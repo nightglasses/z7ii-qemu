@@ -60,6 +60,7 @@ static void pipeline_step(QTestState *q, int64_t nanoseconds)
         g_assert_nonnull(inflight);
         pending = strtoul(inflight + strlen(" inflight="), NULL, 10) != 0;
         qobject_unref(reply);
+        pending |= property_at(q, "/machine/capture-group", "inflight") != 0;
         if (!pending) {
             return;
         }
@@ -1972,6 +1973,126 @@ static void group_input(QTestState *q)
     qtest_writel(q, CAPTURE + 0x210, 1);
     main_input_rise(q);
     pipeline_step(q, 10000);
+}
+
+static void group_worker_drain(QTestState *q)
+{
+    int64_t deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
+
+    /* Cancelled work releases its buffers without virtual publication. */
+    while (property_at(q, GROUP_PATH, "inflight")) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+    }
+}
+
+static void group_large_input(QTestState *q)
+{
+    qtest_writel(q, CAPTURE + 0x1d00, 1024 << 16);
+    qtest_writel(q, CAPTURE + 0x1d04, 1024 << 16);
+    qtest_writel(q, CAPTURE + 0x1e78, 1024 << 16);
+    qtest_writel(q, CAPTURE + 0x1e7c, 1024 << 16);
+    qtest_writel(q, CAPTURE + 0x100, 0x15);
+    group_input(q);
+}
+
+static void test_group_worker(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint32_t base = GROUP_BUFFER + 0x5800;
+
+    group_configure(q);
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 999999);
+    g_assert_cmphex(qtest_readl(q, base + 8), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 0);
+    /* Opaque destination writes made after admission survive actual DMA. */
+    qtest_writew(q, base + 22, 0x1234);
+    qtest_writew(q, base + 30, 0x5678);
+    qtest_writew(q, base + 38, 0x9abc);
+    qtest_writel(q, base + 0x94, 0x87654321);
+    qtest_writew(q, base + 0xe6, 0x2468);
+    /* Staging registers cannot replace the committed, owned configuration. */
+    qtest_writel(q, GROUP_BASE + 0x80, 65535);
+    pipeline_step(q, 1);
+    g_assert_cmpuint(qtest_readl(q, base + 8), ==, 114864);
+    g_assert_cmpuint(qtest_readl(q, base + 12), ==, 64);
+    g_assert_cmpuint(qtest_readl(q, base + 0x80), ==, 114864);
+    g_assert_cmpuint(qtest_readl(q, base + 0xdc), ==, 16);
+    g_assert_cmphex(qtest_readw(q, base + 22), ==, 0x1234);
+    g_assert_cmphex(qtest_readw(q, base + 30), ==, 0x5678);
+    g_assert_cmphex(qtest_readw(q, base + 38), ==, 0x9abc);
+    g_assert_cmphex(qtest_readl(q, base + 0x94), ==, 0x87654321);
+    g_assert_cmphex(qtest_readw(q, base + 0xe6), ==, 0x2468);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 1);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, GROUP_PATH, "inflight"), ==, 0);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_group_worker_cancel(void)
+{
+    for (unsigned control = 0; control < 3; control++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint32_t base = GROUP_BUFFER + 0x5800;
+        uint64_t published;
+        uint8_t retained[40], actual[40];
+
+        group_configure(q);
+        group_large_input(q);
+        group_rise(q);
+        /* Cancel after submitting arithmetic; publication may already have won. */
+        qtest_clock_step(q, 1000000);
+        if (control == 2) {
+            qtest_system_reset(q);
+        } else {
+            qtest_writel(q, CAPTURE + (control ? 0x104 : 0xc),
+                         control ? 0x10 : 0x20);
+        }
+        published = property_at(q, GROUP_PATH, "completed");
+        g_assert_cmpuint(published, <=, 1);
+        qtest_memread(q, base, retained, sizeof(retained));
+        g_assert_cmphex(ldl_le_p(retained + 8), ==,
+                       published ? 114864 : 0xa5a5a5a5);
+        g_assert_cmphex(ldl_le_p(retained + 12), ==,
+                       published ? 64 : 0xa5a5a5a5);
+        group_worker_drain(q);
+        pipeline_step(q, 2000000);
+        qtest_memread(q, base, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), retained, sizeof(retained));
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, published);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "cancelled"), ==,
+                         1 - published);
+
+        group_configure(q);
+        for (unsigned i = 0; i < 65; i++) {
+            qtest_writel(q, GROUP_BASE + 0x80 + i * 4, MIN(i * 512, 32767));
+        }
+        qtest_writel(q, CAPTURE + 0x104, 0x10);
+        group_rise(q);
+        pipeline_step(q, 2000000);
+        g_assert_cmphex(qtest_readl(q, base + 8), ==, 0xa5a5a5a5);
+        group_input(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(qtest_readl(q, base + 8), ==, 57424);
+        g_assert_cmpuint(qtest_readl(q, base + 12), ==, 64);
+        g_assert_cmpuint(qtest_readl(q, base + 0x80), ==, 57424);
+        g_assert_cmpuint(qtest_readl(q, base + 0x138), ==, 2047 * 16);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 1);
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        pipeline_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==,
+                         published + 1);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "inflight"), ==, 0);
+        qtest_quit(q);
+        unlink(bundle);
+    }
 }
 
 static void test_group_payload(void)
@@ -7324,6 +7445,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
     qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
     qtest_add_func("/nikon/cmos/group/families", test_group_families);
+    qtest_add_func("/nikon/cmos/group/worker", test_group_worker);
+    qtest_add_func("/nikon/cmos/group/worker-cancellation", test_group_worker_cancel);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/main-boundaries",
