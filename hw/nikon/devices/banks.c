@@ -377,7 +377,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     unsigned a = 1, b = 1, e = 1, f = 1, scaled_w, scaled_h;
     unsigned uv_height, row, col, i, j;
     hwaddr base_y = p[0x210 / 4], base_uv = p[0x220 / 4];
-    int matrix[2][3][3];
+    int32_t matrix[2][3][3];
     g_autofree uint8_t *luma = NULL;
     g_autofree uint8_t *chroma = NULL;
     pixman_image_t *image;
@@ -499,26 +499,27 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
 
         for (col = 0; col < width; col++) {
             const uint8_t *uv = chroma + (size_t)uv_row * width + (col & ~1U);
-            int input[3] = { luma[(size_t)row * width + col],
-                             uv[0] - 128, uv[1] - 128 };
-            int rgb[3], final[3];
+            int32_t input[3] = { luma[(size_t)row * width + col],
+                                 uv[0] - 128, uv[1] - 128 };
+            int32_t rgb[3], final[3];
 
             for (i = 0; i < 3; i++) {
-                int64_t value = 0;
+                /* Signed16 dot bound: 32768 * (255 + 128 + 128). */
+                int32_t value = 0;
 
                 for (j = 0; j < 3; j++) {
-                    value += (int64_t)matrix[0][i][j] * input[j];
+                    value += matrix[0][i][j] * input[j];
                 }
                 rgb[i] = CLAMP((value + 8192) >> 14, 0, 255);
             }
             for (i = 0; i < 3; i++) {
-                int64_t value = (int64_t)rgb[i] * 1024;
+                int32_t value = rgb[i] * 1024;
 
                 /* Profile byte22: finite bypass/apply interpretation. */
                 if (p[0x4f0 / 4]) {
                     value = 0;
                     for (j = 0; j < 3; j++) {
-                        value += (int64_t)matrix[1][i][j] * rgb[j];
+                        value += matrix[1][i][j] * rgb[j];
                     }
                 }
                 final[i] = CLAMP((value + 512) >> 10, 0, 255) * alpha / 255;

@@ -1040,6 +1040,123 @@ static void test_primary(void)
     qtest_quit(q);
 }
 
+static uint8_t primary_matrix_reference(const int coefficients[3],
+                                        const int input[3], unsigned shift)
+{
+    int64_t value = 0, divisor = INT64_C(1) << shift;
+
+    for (unsigned i = 0; i < 3; i++) {
+        value += (int64_t)coefficients[i] * input[i];
+    }
+    value += divisor / 2;
+    /* Explicit floor division, independent of the production signed shift. */
+    value = value < 0 ? -((-value + divisor - 1) / divisor) : value / divisor;
+    return CLAMP(value, 0, 255);
+}
+
+static void test_primary_matrix_bounds(void)
+{
+    static const int matrices[][2][3][3] = {
+        {
+            { { -32768, -32768, -32768 }, { 32767, 32767, 32767 },
+              { 32767, -32768, 32767 } },
+            { { -2048, -2048, -2048 }, { 2047, 2047, 2047 },
+              { 2047, -2048, 2047 } },
+        }, {
+            { { -32768, 32767, 32767 }, { 32767, -32768, 32767 },
+              { 32767, 32767, -32768 } },
+            { { 2047, -2048, 1024 }, { -2048, 2047, 1024 },
+              { 1024, 2047, -2048 } },
+        }, {
+            { { 16383, 8191, -8193 }, { 16385, -4097, 8193 },
+              { 16384, 16383, -1 } },
+            { { 1023, 511, -513 }, { -511, 1025, 513 },
+              { 513, -1, 1024 } },
+        }, {
+            { { 16384, 0, 0 }, { 16384, 0, 0 }, { 16384, 0, 0 } },
+            { { 2047, -2048, 1 }, { -2048, 2047, 2 },
+              { 1024, -2048, 2047 } },
+        },
+    };
+    static const uint8_t values[] = { 0, 1, 2, 127, 128, 129, 254, 255 };
+    static const unsigned alphas[] = { 1, 128, 255 };
+    QTestState *q = start();
+    uint8_t luma[8 * 12], uv[8 * 14], observed[sizeof(uv)];
+
+    for (unsigned mode = 0; mode <= 4; mode += 4) {
+        primary_packet(q, mode);
+        memset(luma, 0xa5, sizeof(luma));
+        memset(uv, 0x5a, sizeof(uv));
+        for (unsigned y = 0; y < 8; y++) {
+            for (unsigned x = 0; x < 8; x++) {
+                luma[y * 12 + x + 2] = values[(x + y) % 8];
+            }
+            for (unsigned x = 0; x < 8; x += 2) {
+                uv[y * 14 + x + 2] = values[(x / 2 + y) % 8];
+                uv[y * 14 + x + 3] = values[(3 * x / 2 + y + 4) % 8];
+            }
+        }
+        qtest_memwrite(q, RAM, luma, sizeof(luma));
+        qtest_memwrite(q, RAM + 0x4000, uv, sizeof(uv));
+        for (unsigned k = 0; k < ARRAY_SIZE(matrices); k++) {
+            for (unsigned row = 0; row < 3; row++) {
+                const int *first = matrices[k][0][row];
+                const int *second = matrices[k][1][row];
+
+                qtest_writel(q, BANK + 0x4a0 + row * 8,
+                             (uint16_t)first[0] |
+                             ((uint32_t)(uint16_t)first[1] << 16));
+                qtest_writel(q, BANK + 0x4a4 + row * 8, (uint16_t)first[2]);
+                qtest_writel(q, BANK + 0x4d0 + row * 8,
+                             (second[0] & 0xfff) |
+                             ((second[1] & 0xfff) << 16));
+                qtest_writel(q, BANK + 0x4d4 + row * 8, second[2] & 0xfff);
+            }
+            for (unsigned apply = 0; apply < 2; apply++) {
+                qtest_writel(q, BANK + 0x4f0, apply);
+                for (unsigned a = 0; a < ARRAY_SIZE(alphas); a++) {
+                    g_autofree char *image = NULL;
+
+                    qtest_writel(q, BANK + 0x500, alphas[a]);
+                    qtest_writel(q, BANK + 0x1200, 1);
+                    wait_completion(q);
+                    image = pixels(q);
+                    for (unsigned y = 0; y < 8; y++) {
+                        for (unsigned x = 0; x < 8; x++) {
+                            unsigned uv_row = mode == 4 ? y / 2 : y;
+                            unsigned index = uv_row * 14 + (x & ~1U) + 2;
+                            int input[3] = { luma[y * 12 + x + 2],
+                                             uv[index] - 128,
+                                             uv[index + 1] - 128 };
+                            int rgb[3];
+
+                            for (unsigned c = 0; c < 3; c++) {
+                                rgb[c] = primary_matrix_reference(
+                                    matrices[k][0][c], input, 14);
+                            }
+                            for (unsigned c = 0; c < 3; c++) {
+                                unsigned value = apply ?
+                                    primary_matrix_reference(
+                                        matrices[k][1][c], rgb, 10) : rgb[c];
+
+                                g_assert_cmpuint(
+                                    (uint8_t)image[(y * 8 + x) * 3 + c], ==,
+                                    value * alphas[a] / 255);
+                            }
+                        }
+                    }
+                    qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+                }
+            }
+        }
+        qtest_memread(q, RAM, observed, sizeof(luma));
+        g_assert_cmpmem(observed, sizeof(luma), luma, sizeof(luma));
+        qtest_memread(q, RAM + 0x4000, observed, sizeof(uv));
+        g_assert_cmpmem(observed, sizeof(uv), uv, sizeof(uv));
+    }
+    qtest_quit(q);
+}
+
 static void test_primary_controls(void)
 {
     const struct {
@@ -1381,6 +1498,8 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/yuva-frame", test_yuva_frame);
     qtest_add_func("/nikon/image/visible-area", test_visible_area);
     qtest_add_func("/nikon/image/primary", test_primary);
+    qtest_add_func("/nikon/image/primary-matrix-bounds",
+                   test_primary_matrix_bounds);
     qtest_add_func("/nikon/image/primary-controls", test_primary_controls);
     qtest_add_func("/nikon/image/primary-cache", test_primary_cache);
     qtest_add_func("/nikon/image/primary-composite", test_primary_composite);
