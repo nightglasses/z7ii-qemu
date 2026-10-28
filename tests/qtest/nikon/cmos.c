@@ -2199,6 +2199,87 @@ static void test_group_ready(void)
     unlink(bundle);
 }
 
+static void test_group_commit_input(void)
+{
+    for (unsigned overlap = 0; overlap < 2; overlap++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint32_t first = GROUP_BUFFER + 0xc00;
+        uint32_t second = GROUP_BUFFER + 0x1800;
+
+        group_configure(q);
+        group_rise(q);
+        group_input(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(qtest_readl(q, GROUP_BUFFER + 0x5808), ==, 114864);
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        qtest_writel(q, GROUP_BASE + 0x33c, 0);
+        qtest_writel(q, GROUP_BASE + 0x344, 1);
+        qtest_writel(q, CAPTURE + 0x104, 0x10);
+        pipeline_step(q, 2000000);
+        /* A commit cannot replay the already delivered MAIN generation. */
+        g_assert_cmphex(qtest_readl(q, first + 8), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 1);
+
+        main_input_rise(q);
+        /* Commit while actual MAIN acquisition is in flight, without group TG. */
+        qtest_writel(q, CAPTURE + 0x104, 0x10);
+        pipeline_step(q, 10000);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x370), ==, 1);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 2);
+        g_assert_cmphex(qtest_readl(q, first + 8), ==, 0xa5a5a5a5);
+        if (overlap) {
+            /* A real TG during owned work advances metadata, not the job. */
+            group_rise(q);
+        }
+        pipeline_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, first + 8), ==, 0xa5a5a5a5);
+        pipeline_step(q, 1);
+        /* RED: a fresh completion after commit needs no later group TG. */
+        g_assert_cmpuint(qtest_readl(q, first + 8), ==, 114864);
+        g_assert_cmpuint(qtest_readl(q, first + 12), ==, 64);
+        g_assert_cmpuint(qtest_readl(q, first + 0x80), ==, 114864);
+        g_assert_cmpuint(qtest_readl(q, first + 0xdc), ==, 16);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x370), ==, 0);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 1);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x378), ==, first);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x37c), ==,
+                       GROUP_BUFFER + 0x4c00);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 1);
+
+        group_input(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmphex(qtest_readl(q, second + 8), ==, 0xa5a5a5a5);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 2);
+        if (!overlap) {
+            /* The first actual TG advances the initial packet exactly once. */
+            group_rise(q);
+        }
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        pipeline_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, second + 8), ==, 0xa5a5a5a5);
+        pipeline_step(q, 1);
+        /* Capacity retry uses current cursor2, even after job1 latched results. */
+        g_assert_cmpuint(qtest_readl(q, second + 8), ==, 114864);
+        g_assert_cmpuint(qtest_readl(q, second + 12), ==, 64);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 2);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 3);
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        pipeline_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 3);
+        group_rise(q);
+        g_assert_cmphex(qtest_readl(q, GROUP_BASE + 0x374), ==, 0);
+        group_input(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(qtest_readl(q, GROUP_BUFFER + 8), ==, 114864);
+        g_assert_cmpuint(qtest_readl(q, GROUP_BUFFER + 12), ==, 64);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, 4);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void test_group_boundaries(void)
 {
     static const uint32_t bad[][2] = {
@@ -7551,6 +7632,7 @@ int main(int argc, char **argv)
                    test_acquisition_boundary);
     qtest_add_func("/nikon/cmos/group/payload", test_group_payload);
     qtest_add_func("/nikon/cmos/group/input-ready", test_group_ready);
+    qtest_add_func("/nikon/cmos/group/commit-input", test_group_commit_input);
     qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
     qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
     qtest_add_func("/nikon/cmos/group/families", test_group_families);
