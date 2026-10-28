@@ -218,6 +218,35 @@ static bool runtime_has(PairedFixture *f, const char *text)
     return strstr(runtime, text) != NULL;
 }
 
+static bool runtime_bank0_has(PairedFixture *f, const char *text)
+{
+    g_autofree char *runtime = object_property_get_str(OBJECT(f->dev),
+                                                     "runtime", &error_abort);
+    char *bank = strstr(runtime, "bank0 ");
+    char *end;
+
+    g_assert_nonnull(bank);
+    end = strchr(bank, '\n');
+    g_assert_nonnull(end);
+    *end = 0;
+    return strstr(bank, text) != NULL;
+}
+
+static void context_fence_signal(void *opaque)
+{
+    qemu_sem_post(opaque);
+}
+
+static void fence_without_main(PairedFixture *f)
+{
+    QemuSemaphore done;
+
+    qemu_sem_init(&done, 0);
+    aio_bh_schedule_oneshot(f->ctx, context_fence_signal, &done);
+    g_assert_cmpint(qemu_sem_timedwait(&done, 5000), ==, 0);
+    qemu_sem_destroy(&done);
+}
+
 static void wait_launch(PairedFixture *f)
 {
     int64_t deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
@@ -776,17 +805,22 @@ static void test_background_completion(gconstpointer opaque)
     /* Keep the BQL and do not poll main AioContext: every fixed arithmetic
      * barrier must finish independently, leaving only the terminal main BH.
      */
-    while (!runtime_has(f, " stage=7 remaining=0")) {
+    while (!runtime_bank0_has(f, " stage=7 remaining=0")) {
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         g_thread_yield();
     }
-    g_assert_true(runtime_has(f, "compute=1"));
+    /* DONE is mirrored just before the IO callback queues its terminal BH.
+     * Join that callback without polling main, so reset below tests handoff.
+     */
+    fence_without_main(f);
+    g_assert_true(runtime_bank0_has(f, "compute=1"));
     unpublished(f);
     if (mode == 2) {
         device_cold_reset(f->dev); /* Terminal BH is queued, ready is not set. */
         g_assert_true(runtime_has(f, "inflight=1"));
     }
-    while (!runtime_has(f, mode == 1 ? "compute=2" : "inflight=0")) {
+    while (!(mode == 1 ? runtime_bank0_has(f, "compute=2") :
+                        runtime_has(f, "inflight=0"))) {
         g_assert_cmpint(g_get_monotonic_time(), <, deadline);
         aio_poll(qemu_get_aio_context(), false);
         qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
