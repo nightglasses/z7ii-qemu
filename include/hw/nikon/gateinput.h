@@ -20,9 +20,18 @@ typedef enum NikonGateInputStatus {
     NIKON_GATE_INPUT_BUSY,
 } NikonGateInputStatus;
 
-/* Tokens expire on configuration cancellation, stop or reset. */
+typedef struct NikonGateInputVersion {
+    /* Cancellation changes epoch; successful consumption changes generation. */
+    uint64_t epoch, generation;
+} NikonGateInputVersion;
+
+/* Pure capacity read, including the current version while BUSY/unsupported.
+ * Tokens expire on consumption, configuration withdrawal, stop or reset.
+ * Named output input-capacity pulses on release or epoch change; its sink must
+ * defer rechecking because configuration writes may still be in progress.
+ */
 NikonGateInputStatus nikon_gate_input_status(DeviceState *dev,
-    const NikonGateInputShape *shape, uint64_t *generation);
+    const NikonGateInputShape *shape, NikonGateInputVersion *version);
 bool nikon_gate_input_publish(DeviceState *dev, uint64_t generation,
     const NikonGateInputShape *shape, const uint8_t *y, size_t y_size,
     const uint8_t *uv, size_t uv_size);

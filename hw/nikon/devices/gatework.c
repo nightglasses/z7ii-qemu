@@ -404,20 +404,35 @@ static void render(const uint8_t *input, unsigned width, unsigned height,
     }
 }
 
-NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *w)
+static const unsigned work_ports[] = {
+    0xe60, 0x900, 0xde0, 0x8a0, 0x8c0, 0x8e0,
+    0x9e0, 0x940, 0xba0, 0x920,
+};
+
+struct NikonGateWorkPlan {
+    NikonGatePixels pixels;
+    GateWorkOutput out[3];
+    uint8_t transforms[3][32];
+    uint32_t grid_address;
+    size_t grid_bytes;
+    uint8_t *input, *records, *warped;
+    uint32_t config[0x4080 / 4], slots[16][13];
+    NikonGatePacket packets[ARRAY_SIZE(work_ports)];
+    uint32_t auxiliary[ARRAY_SIZE(work_ports)][2];
+    unsigned phase;
+    bool computed;
+};
+
+/* Main-thread only: validate the entire batch against current RAM backing. */
+static NikonGateWorkResult layout(const NikonGateWork *w,
+                                  NikonGateWorkPlan *plan)
 {
-    static const unsigned offsets[] = {
-        0xe60, 0x900, 0xde0, 0x8a0, 0x8c0, 0x8e0,
-        0x9e0, 0x940, 0xba0, 0x920,
-    };
-    const NikonGateWorkCommand *c[ARRAY_SIZE(offsets)];
-    GateWorkOutput out[3] = { 0 };
-    NikonGatePixels pixels = { 0 };
+    const NikonGateWorkCommand *c[ARRAY_SIZE(work_ports)];
+    GateWorkOutput *out = plan->out;
+    NikonGatePixels *pixels = &plan->pixels;
     g_autoptr(GArray) reads = g_array_new(false, false, sizeof(GateWorkSpan));
     g_autoptr(GArray) writes = g_array_new(false, false, sizeof(GateWorkSpan));
-    g_autofree uint8_t *records = NULL;
-    g_autofree uint8_t *warped = NULL;
-    uint8_t transforms[3][32];
+    uint8_t (*transforms)[32] = plan->transforms;
     unsigned width, height;
     size_t grid_bytes;
     uint32_t grid_address;
@@ -441,7 +456,7 @@ NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *w)
         return result;
     }
     for (unsigned i = 0; i < ARRAY_SIZE(c); i++) {
-        c[i] = command(w, offsets[i]);
+        c[i] = command(w, work_ports[i]);
         if (!c[i]) {
             return NIKON_GATE_WORK_TOPOLOGY;
         }
@@ -462,13 +477,13 @@ NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *w)
         }
     }
     if (!grid(c[1]->packet, width, height, &grid_address, &grid_bytes,
-              &pixels)) {
+              pixels)) {
         return NIKON_GATE_WORK_GRID;
     }
     if (!ram(w, grid_address, grid_bytes, false, reads)) {
         return NIKON_GATE_WORK_MEMORY;
     }
-    for (unsigned i = 0; i < ARRAY_SIZE(out); i++) {
+    for (unsigned i = 0; i < 3; i++) {
         uint32_t address;
         unsigned window_w, window_h;
 
@@ -505,52 +520,172 @@ NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *w)
     if (aliases(writes, reads)) {
         return NIKON_GATE_WORK_ALIAS;
     }
-    records = g_malloc(grid_bytes);
-    if (dma_memory_read(w->as, grid_address, records, grid_bytes,
-                        MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-        return NIKON_GATE_WORK_MEMORY;
+    plan->grid_address = grid_address;
+    plan->grid_bytes = grid_bytes;
+    return NIKON_GATE_WORK_OK;
+}
+
+void nikon_gate_work_free(NikonGateWorkPlan *plan)
+{
+    if (!plan) {
+        return;
     }
-    pixels.input = w->input;
-    pixels.input_size = w->input_size;
-    pixels.src_width = w->width;
-    pixels.src_height = w->height;
-    pixels.records = records;
-    pixels.records_size = grid_bytes;
-    warped = g_malloc((size_t)width * height * 3 / 2);
-    if (!nikon_gate_pixels_nv12(&pixels, warped,
+    g_free(plan->input);
+    g_free(plan->records);
+    g_free(plan->warped);
+    for (unsigned i = 0; i < 3; i++) {
+        g_free(plan->out[i].pixels);
+    }
+    g_free(plan);
+}
+
+NikonGateWorkResult nikon_gate_work_prepare(const NikonGateWork *w,
+                                           NikonGateWorkPlan **prepared)
+{
+    NikonGateWorkPlan *plan = g_try_new0(NikonGateWorkPlan, 1);
+    NikonGateWorkResult result;
+
+    *prepared = NULL;
+    if (!plan) {
+        return NIKON_GATE_WORK_PIXELS;
+    }
+    result = layout(w, plan);
+    if (result != NIKON_GATE_WORK_OK) {
+        goto fail;
+    }
+    memcpy(plan->config, w->config, sizeof(plan->config));
+    memcpy(plan->slots, w->slots, sizeof(plan->slots));
+    plan->phase = w->phase;
+    for (unsigned i = 0; i < ARRAY_SIZE(work_ports); i++) {
+        const NikonGateWorkCommand *c = command(w, work_ports[i]);
+
+        plan->packets[i] = *c->packet;
+        memcpy(plan->auxiliary[i], c->auxiliary, sizeof(c->auxiliary));
+    }
+    plan->input = g_try_malloc(w->input_size);
+    plan->records = g_try_malloc(plan->grid_bytes);
+    plan->warped = g_try_malloc((size_t)plan->pixels.dst_width *
+                                plan->pixels.dst_height * 3 / 2);
+    for (unsigned i = 0; i < 3; i++) {
+        GateWorkOutput *o = &plan->out[i];
+        o->pixels = g_try_malloc((size_t)o->width *
+                                 (o->height + o->uv_height));
+    }
+    if (!plan->input || !plan->records || !plan->warped ||
+        !plan->out[0].pixels || !plan->out[1].pixels || !plan->out[2].pixels) {
+        result = NIKON_GATE_WORK_PIXELS;
+        goto fail;
+    }
+    memcpy(plan->input, w->input, w->input_size);
+    if (dma_memory_read(w->as, plan->grid_address, plan->records,
+                        plan->grid_bytes, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+        result = NIKON_GATE_WORK_MEMORY;
+        goto fail;
+    }
+    plan->pixels.input = plan->input;
+    plan->pixels.input_size = w->input_size;
+    plan->pixels.src_width = w->width;
+    plan->pixels.src_height = w->height;
+    plan->pixels.records = plan->records;
+    plan->pixels.records_size = plan->grid_bytes;
+    *prepared = plan;
+    return NIKON_GATE_WORK_OK;
+fail:
+    nikon_gate_work_free(plan);
+    return result;
+}
+
+/* Pure numerical worker: no guest memory or device state is reachable here. */
+NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan)
+{
+    unsigned width = plan->pixels.dst_width, height = plan->pixels.dst_height;
+
+    if (!nikon_gate_pixels_nv12(&plan->pixels, plan->warped,
                                 (size_t)width * height * 3 / 2)) {
         return NIKON_GATE_WORK_PIXELS;
     }
-    for (unsigned i = 0; i < ARRAY_SIZE(out); i++) {
-        out[i].pixels = g_malloc((size_t)out[i].width *
-                                 (out[i].height + out[i].uv_height));
-        render(warped, width, height, &out[i]);
+    for (unsigned i = 0; i < 3; i++) {
+        render(plan->warped, width, height, &plan->out[i]);
     }
-    /*
-     * BQL caller keeps the direct-RAM topology stable throughout this call.
-     * Every actual row has passed direct writable-RAM and alias preflight.
-     */
-    for (unsigned i = 0; i < ARRAY_SIZE(out); i++) {
+    plan->computed = true;
+    return NIKON_GATE_WORK_OK;
+}
+
+NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
+                                           const NikonGateWork *current)
+{
+    NikonGateWorkPlan now = { 0 };
+    NikonGateWorkResult result = layout(current, &now);
+
+    if (result != NIKON_GATE_WORK_OK) {
+        return result;
+    }
+    if (!plan->computed || current->phase != plan->phase ||
+        current->width != plan->pixels.src_width ||
+        current->height != plan->pixels.src_height ||
+        current->config[0x2104 / 4] != plan->config[0x2104 / 4] ||
+        current->config[0x4054 / 4] != plan->config[0x4054 / 4] ||
+        memcmp(current->slots[8], plan->slots[8], sizeof(plan->slots[8])) ||
+        now.grid_address != plan->grid_address ||
+        now.grid_bytes != plan->grid_bytes ||
+        now.pixels.dst_width != plan->pixels.dst_width ||
+        now.pixels.dst_height != plan->pixels.dst_height ||
+        memcmp(now.transforms, plan->transforms, sizeof(now.transforms))) {
+        return NIKON_GATE_WORK_CONFIG;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(work_ports); i++) {
+        const NikonGateWorkCommand *c = command(current, work_ports[i]);
+
+        if (!equal(c->packet, &plan->packets[i]) ||
+            memcmp(c->auxiliary, plan->auxiliary[i], sizeof(c->auxiliary))) {
+            return NIKON_GATE_WORK_CONFIG;
+        }
+    }
+    for (unsigned i = 0; i < 3; i++) {
+        GateWorkOutput *a = &plan->out[i], *b = &now.out[i];
+        unsigned slot = word(&plan->packets[6 + i], 8) & 15;
+
+        if (memcmp(a->address, b->address, sizeof(a->address)) ||
+            memcmp(a->pitch, b->pitch, sizeof(a->pitch)) ||
+            memcmp(current->slots[slot], plan->slots[slot],
+                   sizeof(plan->slots[slot])) ||
+            a->width != b->width || a->height != b->height ||
+            a->uv_height != b->uv_height) {
+            return NIKON_GATE_WORK_CONFIG;
+        }
+    }
+    /* All rows and aliases were revalidated together under BQL, before DMA. */
+    for (unsigned i = 0; i < 3; i++) {
+        GateWorkOutput *o = &plan->out[i];
         size_t source = 0;
 
         for (unsigned plane = 0; plane < 2; plane++) {
-            unsigned rows = plane ? out[i].uv_height : out[i].height;
+            unsigned rows = plane ? o->uv_height : o->height;
 
             for (unsigned y = 0; y < rows; y++) {
-                MemTxResult tx = dma_memory_write(w->as,
-                    out[i].address[plane] + (uint64_t)y * out[i].pitch[plane],
-                    out[i].pixels + source, out[i].width,
-                    MEMTXATTRS_UNSPECIFIED);
-
+                MemTxResult tx = dma_memory_write(current->as,
+                    o->address[plane] + (uint64_t)y * o->pitch[plane],
+                    o->pixels + source, o->width, MEMTXATTRS_UNSPECIFIED);
                 g_assert(tx == MEMTX_OK);
-                source += out[i].width;
+                source += o->width;
             }
         }
     }
-    result = NIKON_GATE_WORK_OK;
-    for (unsigned i = 0; i < ARRAY_SIZE(out); i++) {
-        g_free(out[i].pixels);
+    return NIKON_GATE_WORK_OK;
+}
+
+NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *w)
+{
+    NikonGateWorkPlan *plan;
+    NikonGateWorkResult result = nikon_gate_work_prepare(w, &plan);
+
+    if (result == NIKON_GATE_WORK_OK) {
+        result = nikon_gate_work_compute(plan);
+        if (result == NIKON_GATE_WORK_OK) {
+            result = nikon_gate_work_publish(plan, w);
+        }
     }
+    nikon_gate_work_free(plan);
     return result;
 }
 

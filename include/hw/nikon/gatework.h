@@ -41,7 +41,19 @@ typedef enum NikonGateWorkResult {
     NIKON_GATE_WORK_PIXELS,
 } NikonGateWorkResult;
 
-/* Synchronous, without consumption/phase/IRQ effects; failure never writes. */
+typedef struct NikonGateWorkPlan NikonGateWorkPlan;
+
+/* Prepare/publish require the main thread; compute touches only owned data.
+ * Every failure leaves guest RAM unchanged. Publish checks CURRENT layout and
+ * RAM backing, not just the saved destination addresses.
+ */
+NikonGateWorkResult nikon_gate_work_prepare(const NikonGateWork *work,
+                                           NikonGateWorkPlan **plan);
+NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan);
+NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
+                                           const NikonGateWork *current);
+void nikon_gate_work_free(NikonGateWorkPlan *plan);
+/* Synchronous composition of the same three operations. */
 NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *work);
 const char *nikon_gate_work_result_name(NikonGateWorkResult result);
 
