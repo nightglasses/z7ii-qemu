@@ -70,15 +70,25 @@ acknowledgement now also retries admission of retained fresh input after the
 complete blocking predicate clears. Three real-output regressions fail on the
 old implementation and pass with this connection; the complete expanded suite
 passes 119 cases. A separate exact CMOS coordinate optimization passes a scalar
-gradient oracle on both implementations, all six timing/identity unit cases,
-and 19 pipeline integration cases. These device results do not establish
-mode-change acceptance: the unchanged five-CPU MTTCG run at `d813dcf7` still
-fills the FIFO and raises the AF exception at 44.99 host seconds.
-A separate debugger-assisted trace finds successful FE and capture waits but
-continued OnVd backlog; its durations include debugger overhead and are not a
-camera frame-rate measurement. Host profiling identifies synchronous numerical
-work under QEMU's global device lock as a remaining scheduling cost. Its effect
-on the original failure remains under investigation; no frame suppression,
+gradient oracle on both implementations. Pure group arithmetic now runs in
+QEMU's existing worker pool over owned snapshots; only the normal device path
+validates destination RAM, performs DMA and publishes results. Cancellation
+invalidates the work token and prevents stale output from reaching the guest.
+MAIN/RAW and statistics also retain their separate pending-result ownership:
+unacknowledged statistics no longer block unrelated acquisition or RAW output,
+while each producer still respects its own result capacity. The final native
+batch passes all 122 CMOS/paired integration cases, six CMOS timing/identity
+unit cases and ten SPI unit cases, with normal TAP plans and process exits.
+
+These device results do not establish mode-change acceptance. At `994ccce5`,
+the unchanged five-CPU MTTCG cold-neutral run still raises the same AF exception
+at 39.34 host seconds, with 37 retained CaptureService records. Separate
+read-only debugger traces find successful FE and capture waits; median FE wait
+is about 2.3 ms after the changes, but complete OnVd handling still takes about
+38 ms and accumulates old records. AF, AE and post-fence descriptor handling
+are individually short in that trace. Remaining mutex, queue preparation and
+configuration spans are being isolated. Debugger durations include probe
+overhead and are not a camera frame-rate measurement. No frame suppression,
 queue clearing or guest event injection is used to hide the backlog.
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
