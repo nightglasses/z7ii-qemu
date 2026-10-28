@@ -89,7 +89,9 @@ static void matrix(void)
 {
     const int32_t input[] = { 1, -3, 5, -7, 9, -11 };
     const int32_t expected[] = { 3, -1, -2, 5, 30, 0, -6, -6 };
+    const int32_t chained[] = { 3, -1, -2, 5, 30, 0, 37, -4 };
     NikonGateGridMatrix p = matrix_config();
+    NikonGateGridMatrix next = { .constant = 1 };
     g_autofree void *storage = g_malloc(sizeof(expected));
     int32_t out[8];
 
@@ -98,6 +100,22 @@ static void matrix(void)
     memcpy(storage, input, sizeof(input));
     g_assert_true(nikon_gate_grid_matrix4(&p, storage, 2, storage, 8));
     g_assert_cmpmem(storage, sizeof(expected), expected, sizeof(expected));
+    /* The next matrix reads the first three signed feature planes directly;
+     * the fourth output remains available to the caller's later projection.
+     */
+    for (unsigned r = 0; r < 4; r++) {
+        next.row[r].lower = INT32_MIN;
+        next.row[r].upper = INT32_MAX;
+        if (r < 3) {
+            next.row[r].coefficient[r] = 1;
+        }
+    }
+    next.row[3].coefficient[0] = 1;
+    next.row[3].coefficient[1] = -1;
+    next.row[3].coefficient[2] = 1;
+    next.row[3].coefficient[3] = 2;
+    g_assert_true(nikon_gate_grid_matrix4(&next, out, 2, out, 8));
+    g_assert_cmpmem(out, sizeof(out), chained, sizeof(chained));
 
     /* Bounds must permit a full wide sum before the signed output clamp. */
     int32_t maximum[] = { INT32_MAX, INT32_MAX, INT32_MAX };
