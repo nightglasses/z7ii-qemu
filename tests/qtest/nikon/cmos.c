@@ -2410,6 +2410,112 @@ static void test_front_capacity(void)
     }
 }
 
+static void test_capture_domains(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint8_t raw[32], actual[128], statistics[10][128];
+    const uint32_t statistics_base = RAM + 0x600000;
+
+    work_configure(q, 2, true);
+    statistics_configure(q);
+    /* Independent contracts require disjoint output storage, including banks. */
+    for (unsigned n = 0; n < 10; n++) {
+        unsigned addresses = (n >= 2 && n <= 4) || n == 9 ? 4 : 1;
+        uint32_t port = 0x2006a400 + n * 0x100;
+        uint32_t base = statistics_base + n * 0x10000;
+
+        for (unsigned bank = 0; bank < 2; bank++) {
+            for (unsigned a = 0; a < addresses; a++) {
+                qtest_writel(q, port + 0x50 + bank * 16 + a * 4, base);
+            }
+        }
+        qtest_memset(q, base, 0xa5, 0x3000);
+    }
+    qtest_writel(q, CAPTURE + 0x100, 8);
+    main_input_rise(q);
+    pipeline_step(q, 10000);
+    pipeline_step(q, 2000000);
+    qtest_memread(q, WORK_BUFFER + 0x1000, raw, sizeof(raw));
+    g_assert_cmphex((uint32_t)ldl_le_p(raw), ==, 0);
+    g_assert_cmpuint(qtest_readl(q, statistics_base + 0x1008), ==, 2);
+    g_assert_cmpuint(qtest_readl(q, statistics_base + 0x100c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x58, ==, 0x58);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290) & 0x80, ==, 0x80);
+    for (unsigned n = 0; n < 10; n++) {
+        qtest_memread(q, statistics_base + n * 0x10000 + 0x1000,
+                      statistics[n], sizeof(statistics[n]));
+    }
+
+    /* ACK only RAW's packet; statistics retains its actual data and raw0.bit6. */
+    qtest_writel(q, CAPTURE + 0x210, 0x18);
+    qtest_writel(q, CAPTURE + 0x290, 0x80);
+    main_input_rise(q);
+    pipeline_step(q, 10000);
+    pipeline_step(q, 2000000);
+    qtest_memread(q, WORK_BUFFER, actual, sizeof(raw));
+    /* RED: the old cross-domain gate leaves this real RAW DMA at its sentinel. */
+    g_assert_cmpmem(actual, sizeof(raw), raw, sizeof(raw));
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics", "completed"),
+                     ==, 1);
+    for (unsigned n = 0; n < 10; n++) {
+        qtest_memread(q, statistics_base + n * 0x10000 + 0x1000,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), statistics[n], sizeof(actual));
+    }
+
+    qtest_memset(q, WORK_BUFFER + 0x1000, 0xa5, sizeof(raw));
+    main_input_rise(q);
+    pipeline_step(q, 10000);
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 3);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+    /* RAW's own complete aggregate still blocks, independently of statistics. */
+    qtest_writel(q, CAPTURE + 0x210, 0);
+    qtest_writel(q, CAPTURE + 0x210, 0x10000000);
+    qtest_writel(q, CAPTURE + 0x210, 8);
+    pipeline_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+    qtest_writel(q, CAPTURE + 0x210, 0x10);
+    pipeline_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+    qtest_writel(q, CAPTURE + 0x290, 0x80);
+    pipeline_step(q, 999999);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+    pipeline_step(q, 1);
+    qtest_memread(q, WORK_BUFFER + 0x1000, actual, sizeof(raw));
+    g_assert_cmpmem(actual, sizeof(raw), raw, sizeof(raw));
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x58, ==, 0x58);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 3);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics", "completed"),
+                     ==, 1);
+    for (unsigned n = 0; n < 10; n++) {
+        qtest_memread(q, statistics_base + n * 0x10000 + 0x1000,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), statistics[n], sizeof(actual));
+    }
+
+    /* Only its own ACK permits statistics to consume the latest MAIN snapshot. */
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    pipeline_step(q, 999999);
+    g_assert_cmphex(qtest_readl(q, statistics_base + 0x2008), ==, 0xa5a5a5a5);
+    pipeline_step(q, 1);
+    g_assert_cmpuint(qtest_readl(q, statistics_base + 0x2008), ==, 2);
+    g_assert_cmpuint(qtest_readl(q, statistics_base + 0x200c), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x58, ==, 0x58);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics", "completed"),
+                     ==, 2);
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
+    pipeline_step(q, 2000000);
+    g_assert_cmphex(qtest_readl(q, statistics_base + 8), ==, 0xa5a5a5a5);
+    g_assert_cmpuint(property_at(q, "/machine/capture-statistics", "completed"),
+                     ==, 2);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 static void test_statistics_capacity(void)
 {
     for (unsigned cancellation = 0; cancellation < 3; cancellation++) {
@@ -7431,6 +7537,7 @@ int main(int argc, char **argv)
                    test_statistics_storage_period);
     qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
     qtest_add_func("/nikon/cmos/capacity/front", test_front_capacity);
+    qtest_add_func("/nikon/cmos/capacity/domains", test_capture_domains);
     qtest_add_func("/nikon/cmos/capacity/statistics", test_statistics_capacity);
     qtest_add_func("/nikon/cmos/capacity/group", test_group_capacity);
     qtest_add_func("/nikon/cmos/pipeline/two-views", test_acquisition_views);
