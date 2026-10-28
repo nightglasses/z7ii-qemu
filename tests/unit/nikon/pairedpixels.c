@@ -2737,6 +2737,58 @@ static void colorfilter_cfa(void)
     }
 }
 
+static void color_division(void)
+{
+    static const uint16_t maximum[2][10] = {
+        { 400, 300, 100, 500, 120, 300, 80, 800, 120, 300 },
+        { 480, 600, 480, 800, 540, 500, 500, 650, 320, 620 },
+    };
+
+    for (unsigned encoding = NIKON_RAW_MONO;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        for (unsigned variant = 0; variant < 484; variant++) {
+            NikonPairedPixelConfig p = config();
+            uint16_t raw[64], actual[64];
+
+            p.encoding = encoding;
+            p.width = p.height = p.output_width = p.output_height = 8;
+            p.colorfilter = color_active();
+            p.colorfilter.strength = 0;
+            for (unsigned i = 0; i < 2; i++) {
+                NikonPairedColorBlock *b = &p.colorfilter.block[i];
+
+                b->base = variant < 481 ? variant : maximum[i][0];
+                b->slope = variant < 481 ? 0 : maximum[i][1];
+                for (unsigned j = 0; j < 2; j++) {
+                    NikonPairedColorBranch *n = &b->branch[j];
+                    unsigned k = 2 + 4 * j;
+
+                    n->negative_base = variant < 481 ? 0 : maximum[i][k];
+                    n->negative_slope = variant < 481 ? 0 : maximum[i][k + 1];
+                    n->positive_base = variant < 481 ? 0 : maximum[i][k + 2];
+                    n->positive_slope = variant < 481 ? 0 : maximum[i][k + 3];
+                }
+                if (variant < 481 && !i) {
+                    /* Isolate the second block's complete fixed-threshold
+                     * range, including zero, one and signed rounding ties.
+                     */
+                    b->base = 0;
+                    memset(b->strength, 0, sizeof(b->strength));
+                }
+            }
+            for (unsigned i = 0; i < ARRAY_SIZE(raw); i++) {
+                unsigned texture = (i * 73 + i * i * 19) % 240;
+
+                raw[i] = variant < 481 ? 1900 + texture :
+                         variant == 481 ? 3800 + texture :
+                         variant == 482 ? texture :
+                         i % 8 < 4 ? 0 : 4095;
+            }
+            color_check(p, raw, actual);
+        }
+    }
+}
+
 static void refine_neutral(void)
 {
     for (unsigned encoding = NIKON_RAW_MONO;
@@ -3919,6 +3971,7 @@ int main(int argc, char **argv)
                      colorfilter_fields);
     g_test_add_func("/nikon/pairedpixels/colorfilter-cfa", colorfilter_cfa);
     g_test_add_func("/nikon/pairedpixels/refine-neutral", refine_neutral);
+    g_test_add_func("/nikon/pairedpixels/color-division", color_division);
     g_test_add_func("/nikon/pairedpixels/color-identities", color_identities);
     g_test_add_func("/nikon/pairedpixels/colorfilter-invalid",
                      colorfilter_invalid);
