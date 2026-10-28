@@ -693,6 +693,7 @@ static void nikon_capture_group_init(Object *obj)
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_commit, "commit", 2);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_run, "run", 1);
     qdev_init_gpio_in_named(DEVICE(s), group_input_ready, "input-ready", 1);
+    qdev_init_gpio_in_named(DEVICE(s), group_input_ready, "capacity-ready", 1);
     qdev_init_gpio_in_named(DEVICE(s), nikon_capture_group_automatic_rise,
                            "automatic-rise", 1);
 }

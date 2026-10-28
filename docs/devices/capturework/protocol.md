@@ -99,6 +99,15 @@ requirement. This input signal does not acknowledge the preceding output or
 publish a new processing cause: pending ownership still blocks admission, and
 only the completed packing/DMA job supplies its normal causes.
 
+Capture-control also retries this same admission path when an accepted W1C
+clears the complete frontend predicate: raw0 bits `0x58` and raw4 bit `0x80`
+must all be clear. Partial/unrelated ACKs do not retry. A fresh qualified MAIN
+snapshot can therefore begin its actual packing/DMA job immediately after
+capacity returns, while generation, run, configuration and active-job checks
+still prevent replay or completion from ACK alone. The shared
+[capacity contract](../readoutpipeline/input.md#fresh-edge-arbitration-and-lifetime)
+defines the independent statistics/group predicates and native checks.
+
 There is no group completion, guest callback, cache write, display enable or
 guessed953c-family result. Configuration retention alone remains silent.
 

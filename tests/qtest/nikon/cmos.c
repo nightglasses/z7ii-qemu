@@ -1070,9 +1070,10 @@ static void test_statistics_stage_completion(void)
     statistics_rise(q);
     pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);
-    qtest_writel(q, CAPTURE + 0x210, 0x40);
     qtest_writel(q, 0x2006a450, 0x10020000);
     qtest_writel(q, CAPTURE + 0x100, 8);
+    /* ACK now admits the blocked input, so commit its invalid route first. */
+    qtest_writel(q, CAPTURE + 0x210, 0x40);
     statistics_rise(q);
     pipeline_step(q, 2000000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, 0);

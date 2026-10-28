@@ -36,7 +36,9 @@ flowchart TD
 ```
 
 While raw6 is pending and enabled in the capture mask, the next job is
-backpressured. ACK permits a later job
+backpressured. A W1C that clears this predicate retries admission against the
+latest completed input without another TG; no fresh generation means no job.
+ACK permits replacement
 even if software did not read the preceding results; empty queues can discard
 a completed frame.
 The diagram follows the data-consumer IRQ94 route. The separate stage-fence
@@ -292,8 +294,9 @@ and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
 The endpoint1 ring tail additionally publishes raw3.bit7.
 Published packages
 survive staging, commit and stop until a new successful replacement or reset.
-While enabled raw6 is pending, a new TG is backpressured. Once software ACKs it,
-a new input/TG may replace unread values: an empty software queue may discard
+While enabled raw6 is pending, input readiness is backpressured. Once software
+ACKs it, an already completed fresh input may replace unread values without a
+new input/TG: an empty software queue may discard
 a completed frame. No historical event is replayed to a later root. Read
 masks are read-only QOM diagnostics and never qualification for another job.
 An asynchronous consumer can see newer values; multiple MMIO reads are not
