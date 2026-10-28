@@ -84,6 +84,7 @@ typedef struct NikonPairedEventBanksBank {
     bool main_gain_valid;
     uint8_t saturation_words[2];
     uint8_t radial_table_words[2];
+    uint8_t online_written[3];
     uint8_t denoise_written, detail_written, adaptive_written, radial_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
@@ -461,6 +462,32 @@ static bool paired_live_word(unsigned offset)
     default:
         return false;
     }
+}
+
+/* Running-request setters publish whole numerical packets without stop/drain:
+ * 1036c862 (noise), 1036bb04 (RGB gain), 1036b3ee/1036b408 (radial).
+ * The first store starts a fresh upload; old coverage cannot finish it.
+ */
+static int paired_online_word(unsigned offset, unsigned *word,
+                               unsigned *count)
+{
+    static const unsigned offsets[][8] = {
+        { 0xdf4, 0xdf8, 0xdfc, 0xe00, 0xe0c, 0xe04, 0xe08, 0xe10 },
+        { 0x9d0, 0x9d4, 0x9cc },
+        { 0x724, 0x728, 0x72c, 0x730, 0x734, 0x738 },
+    };
+    static const unsigned counts[] = { 8, 3, 6 };
+
+    for (unsigned group = 0; group < ARRAY_SIZE(offsets); group++) {
+        for (unsigned i = 0; i < counts[group]; i++) {
+            if (offset == offsets[group][i]) {
+                *word = i;
+                *count = counts[group];
+                return group;
+            }
+        }
+    }
+    return -1;
 }
 
 static void paired_matrix(NikonPairedEventBanksBank *b, unsigned offset,
@@ -1137,16 +1164,23 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     if (g->c[0] != 1024 || g->c[1] || g->c[2] || g->c[3] || g->c[6]) {
         return paired_profile_reject(b, 0xb94);
     }
-    /* 1036bb04 packs three u16 gains and four independent control bytes. */
-    if ((c[0x9cc / 4] & ~0x01010101U) || (c[0x9d4 / 4] & 0xffff0000U)) {
-        return paired_profile_reject(b, 0x9cc);
-    }
-    g->gain[0] = c[0x9d0 / 4] >> 16;
-    g->gain[1] = c[0x9d0 / 4];
-    g->gain[2] = c[0x9d4 / 4];
-    for (unsigned i = 0; i < 3; i++) {
-        g->gain_enabled[i] = (c[0x9cc / 4] & (1U << 24)) &&
-                            (c[0x9cc / 4] & (1U << (16 - 8 * i)));
+    if (admission) {
+        /* 1036bb04 packs three u16 gains and four boolean control bytes. */
+        if ((c[0x9cc / 4] & ~0x01010101U) ||
+            (c[0x9d4 / 4] & 0xffff0000U)) {
+            return paired_profile_reject(b, 0x9cc);
+        }
+        g->gain[0] = c[0x9d0 / 4] >> 16;
+        g->gain[1] = c[0x9d0 / 4];
+        g->gain[2] = c[0x9d4 / 4];
+        for (unsigned i = 0; i < 3; i++) {
+            g->gain_enabled[i] = (c[0x9cc / 4] & (1U << 24)) &&
+                                (c[0x9cc / 4] & (1U << (16 - 8 * i)));
+        }
+    } else {
+        memcpy(g->gain, b->job.pixels.gain, sizeof(g->gain));
+        memcpy(g->gain_enabled, b->job.pixels.gain_enabled,
+               sizeof(g->gain_enabled));
     }
     for (unsigned table = 0; table < 2; table++) {
         unsigned written = ctpop64(b->curve_written[table][0]) +
@@ -1162,26 +1196,33 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
             g->curve[table][i] = c[base / 4 + i / 2] >> (16 * (i % 2));
         }
     }
-    /* 1036c862 publishes three full LFSR records and two packed limits. */
-    if ((c[0xdf4 / 4] | c[0xe04 / 4] | c[0xe08 / 4] |
-         c[0xe0c / 4]) & 0xff000000U) {
-        return paired_profile_reject(b, 0xdf4);
-    }
-    g->noise_negative = c[0xe10 / 4] >> 16;
-    g->noise_positive = c[0xe10 / 4];
-    for (unsigned i = 0; i < 3; i++) {
-        unsigned shift = 16 - 8 * i;
+    /* Completion rechecks memory ownership, not a future numerical upload. */
+    if (!admission) {
+        memcpy(g->noise, b->job.pixels.noise, sizeof(g->noise));
+        g->noise_negative = b->job.pixels.noise_negative;
+        g->noise_positive = b->job.pixels.noise_positive;
+    } else {
+        /* 1036c862 publishes three full LFSR records and two packed limits. */
+        if ((c[0xdf4 / 4] | c[0xe04 / 4] | c[0xe08 / 4] |
+             c[0xe0c / 4]) & 0xff000000U) {
+            return paired_profile_reject(b, 0xdf4);
+        }
+        g->noise_negative = c[0xe10 / 4] >> 16;
+        g->noise_positive = c[0xe10 / 4];
+        for (unsigned i = 0; i < 3; i++) {
+            unsigned shift = 16 - 8 * i;
 
-        g->noise[i] = (NikonPairedNoise) {
-            .feedback = c[0xdf8 / 4 + i],
-            .enabled = c[0xdf4 / 4] >> shift,
-            .gain = c[0xe0c / 4] >> shift,
-            .shift = c[0xe04 / 4] >> shift,
-            .offset = c[0xe08 / 4] >> shift,
-        };
-    }
-    if (!nikon_paired_noise_valid(g)) {
-        return paired_profile_reject(b, 0xdf4);
+            g->noise[i] = (NikonPairedNoise) {
+                .feedback = c[0xdf8 / 4 + i],
+                .enabled = c[0xdf4 / 4] >> shift,
+                .gain = c[0xe0c / 4] >> shift,
+                .shift = c[0xe04 / 4] >> shift,
+                .offset = c[0xe08 / 4] >> shift,
+            };
+        }
+        if (!nikon_paired_noise_valid(g)) {
+            return paired_profile_reject(b, 0xdf4);
+        }
     }
     /* Reject controls/reserved bits instead of silently truncating matrices. */
     for (unsigned m = 0; m < 3; m++) {
@@ -1608,6 +1649,8 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     const char *stage = "profile";
 
     if (s->stopping || b->active || b->compute || b->stop ||
+        b->online_written[0] || b->online_written[1] ||
+        b->online_written[2] ||
         b->config[0xfc / 4] != b->selected ||
         (b->refill & paired_refill_mask(b->selected)) || b->pending ||
         b->request != PAIRED_AWAIT_INPUT) {
@@ -2082,6 +2125,24 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         int radial_table = offset >= 0x1200 && offset <= 0x1244 ?
                            (int)((offset - 0x1200) / 36) : -1;
         bool radial_complete = false;
+        unsigned online_word, online_count;
+        int online = paired_online_word(offset, &online_word, &online_count);
+        bool online_complete = false;
+
+        if (online >= 0 && (b->request == PAIRED_AWAIT_INPUT ||
+                            b->request == PAIRED_DRAIN_PENDING ||
+                            b->online_written[online])) {
+            uint8_t *written = &b->online_written[online];
+
+            if (!online_word) {
+                *written = 0;
+            }
+            *written |= 1U << online_word;
+            if (*written == (1U << online_count) - 1) {
+                *written = 0;
+                online_complete = true;
+            }
+        }
 
         if (radial_table >= 0) {
             unsigned word = ((offset - 0x1200) % 36) / 4;
@@ -2201,7 +2262,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->colorfilter_written & bit);
             b->colorfilter_written |= bit;
         }
-        if (changed && !main_gain &&
+        if (changed && !main_gain && online < 0 &&
             offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
             paired_cancel(b);
@@ -2223,6 +2284,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             b->config[0xfc / 4] = b->selected;
             paired_cancel(b);
             b->stop = 1;
+            memset(b->online_written, 0, sizeof(b->online_written));
         }
         if (offset == 0xf0 && value == 0xfc400 && b->stop == 1) {
             b->stop = 2;
@@ -2261,6 +2323,9 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             }
         }
         paired_finish(b);
+        if (online_complete) {
+            paired_try(b, b->regs.addr + offset, value);
+        }
         if (main_gain && b->main_gain_valid &&
             b->main_gain_written[(offset - 0x1900) / 64] == UINT16_MAX &&
             b->request == PAIRED_AWAIT_INPUT) {
@@ -2309,6 +2374,8 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].detail_written = 0;
         s->bank[i].adaptive_written = 0;
         s->bank[i].radial_written = 0;
+        memset(s->bank[i].online_written, 0,
+               sizeof(s->bank[i].online_written));
         memset(s->bank[i].radial_table_words, 0,
                sizeof(s->bank[i].radial_table_words));
         s->bank[i].radial_tables_published = false;
