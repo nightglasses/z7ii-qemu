@@ -819,6 +819,7 @@ struct NikonCaptureControl {
     uint32_t configuration[CAPTURE_WORDS];
     bool known[CAPTURE_WORDS];
     uint32_t pending[CAPTURE_STATUS_WORDS];
+    qemu_irq front_capacity, data_capacity, group_capacity;
     uint32_t levels[CAPTURE_STATUS_WORDS], seen[CAPTURE_STATUS_WORDS];
     uint32_t event_levels;
     NikonCaptureStop stop[ARRAY_SIZE(nikon_capture_stops)];
@@ -1124,8 +1125,24 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         return nikon_capture_error(s, offset, size, true, value);
     }
     if (offset >= 0x210 && offset <= 0x2f0 && (offset & 0x1f) == 0x10) {
+        bool front = nikon_capture_front_pending(DEVICE(s));
+        bool data = nikon_capture_data_pending(DEVICE(s));
+        bool group = nikon_capture_group_pending(DEVICE(s));
+
         s->pending[(offset - 0x210) / 0x20] &= ~value;
         nikon_capture_irqs(s);
+        front &= !nikon_capture_front_pending(DEVICE(s));
+        data &= !nikon_capture_data_pending(DEVICE(s));
+        group &= !nikon_capture_group_pending(DEVICE(s));
+        if (front) {
+            qemu_irq_pulse(s->front_capacity);
+        }
+        if (data) {
+            qemu_irq_pulse(s->data_capacity);
+        }
+        if (group) {
+            qemu_irq_pulse(s->group_capacity);
+        }
         return MEMTX_OK;
     }
     if (offset == 8 || offset == 0xc) {
@@ -1293,6 +1310,12 @@ static void nikon_capture_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(s), s->command_data, "command-data", 64);
     qdev_init_gpio_out_named(DEVICE(s), s->command_publish, "command-publish", 2);
     qdev_init_gpio_out_named(DEVICE(s), s->run_state, "run-state", 12);
+    qdev_init_gpio_out_named(DEVICE(s), &s->front_capacity,
+                             "front-capacity-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->data_capacity,
+                             "data-capacity-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->group_capacity,
+                             "group-capacity-ready", 1);
 }
 
 static void nikon_capture_finalize(Object *obj)

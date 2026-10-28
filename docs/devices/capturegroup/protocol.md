@@ -770,7 +770,11 @@ Selected commit, effective run-low/disable/reset and whole-model reset cancel
 pending work without DMA or completion. A selected commit or run transition
 also prevents replay of an already delivered input generation. Pending raw3
 bit0 blocks admission even when masked; unrelated pending causes do not.
-Only the matching guest ACK releases that ownership. Invalid geometry,
+Only the matching guest ACK releases that ownership and retries ordinary
+input admission. This opportunity never advances TG metadata: it snapshots
+the current cursor only when a fresh synchronized MAIN generation and all
+existing job guards qualify. Zero/unrelated ACKs, no fresh input, stopped
+units and reset state cannot create a job. Invalid geometry,
 unsupported modes, erased/invalid curves, insufficient strides, overlapping
 routes or uncovered RAM increment `rejected` and leave payloads/completion
 untouched. The read-only `completed/rejected/cancelled/blocked` properties

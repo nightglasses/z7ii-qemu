@@ -64,6 +64,32 @@ is no mandatory extra TG between completed acquisition and processing admission.
 Group's TG cursor remains metadata; its numerical job snapshots the cursor at
 processing admission, including when acquisition crosses another boundary.
 
+A successful guest W1C that changes a processing-capacity predicate from
+blocked to clear supplies a second admission opportunity for already completed
+input. Capture-control first clears the accepted status bits and recomputes
+IRQs, then pulses the corresponding internal `*-capacity-ready` output:
+
+| Output | Complete blocking predicate |
+| --- | --- |
+| `front-capacity-ready` | raw0 bits `0x58` or raw4 bit `0x80` pending |
+| `data-capacity-ready` | raw0 bit `0x40` both pending and enabled |
+| `group-capacity-ready` | raw3 bit `0x1` pending, including when masked |
+
+The consuming device uses the same admission checks as input publication:
+valid committed configuration, effective run, no active job, a fresh qualified
+generation, and its current pending predicate. It fetches and copies the
+current immutable acquisition only after those checks. No input pointer or TG
+credit is queued while blocked. Group retries use its current metadata cursor
+without advancing that cursor. Existing commit/run generation barriers remain
+in force, so restoring capacity cannot revive input from an earlier epoch.
+
+Zero, unrelated or partial acknowledgements that leave the aggregate predicate
+blocked produce no opportunity. IRQ masking, run/stop and reset do not pulse
+capacity readiness. Clearing capacity without fresh input produces no job,
+DMA or completion; valid fresh input still runs the complete existing numerical
+operation and DMA before publishing its normal causes. This internal functional
+scheduling rule does not inject a guest event or infer a physical ready pin.
+
 CMOS exposure and row-bounded readout chunks use one absolute deadline within
 each owned acquisition. Begin anchors that deadline to the current virtual
 time; exposure and each chunk add their declared durations to the preceding
@@ -121,3 +147,11 @@ row-padding guard against fine-grained dispatch, observes actual IRQ and
 pipeline DONE, and checks cancellation/reset, fresh acquisition timing,
 reentrant submission and deadline overflow. This scoped timer evidence is
 separate from original-firmware execution and complete boot claims.
+
+The `/nikon/cmos/capacity/` fixtures exercise all three processing paths with
+actual prior output pending and a fresh blocked acquisition. Final W1C alone
+must admit the next real output without a further TG, while zero/unrelated/
+partial W1C, missing freshness, stop and reset preserve untouched destinations.
+The checks retain exact payload/mean/count values and row guards, and verify
+that group acknowledgement leaves its cursor unchanged. These are native
+synthetic scheduling checks, separate from original-firmware execution.

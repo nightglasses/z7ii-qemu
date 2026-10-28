@@ -404,6 +404,7 @@ static void statistics_init(Object *obj)
     qdev_init_gpio_in_named(dev, statistics_run, "run", 1);
     qdev_init_gpio_in_named(dev, statistics_bank_run, "bank-run", 2);
     qdev_init_gpio_in_named(dev, statistics_rise, "input-ready", 1);
+    qdev_init_gpio_in_named(dev, statistics_rise, "capacity-ready", 1);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,

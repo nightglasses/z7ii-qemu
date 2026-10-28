@@ -1397,6 +1397,12 @@ static void z7ii_init(MachineState *machine)
                                        qdev_get_gpio_in(ready, 0));
             qdev_connect_gpio_out_named(pipeline, "input-ready", 0,
                 qdev_get_gpio_in_named(statistics, "input-ready", 0));
+            qdev_connect_gpio_out_named(capture, "front-capacity-ready", 0,
+                qdev_get_gpio_in_named(work, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "data-capacity-ready", 0,
+                qdev_get_gpio_in_named(statistics, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "group-capacity-ready", 0,
+                qdev_get_gpio_in_named(group, "capacity-ready", 0));
         }
         for (unsigned i = 0; i < 4; i++) {
             static const unsigned bits[] = { 0, 2, 3, 9 };
