@@ -774,10 +774,48 @@ static uint16_t paired_quad(const NikonPairedPixelConfig *p, uint16_t sample,
                  MIN(p->quad_limit, PAIRED_MAX_SAMPLE));
 }
 
-static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
+typedef struct PairedColorActive {
+    bool curve[2], gain[3], a, c;
+} PairedColorActive;
+
+static bool paired_matrix_identity(const int16_t matrix[9])
+{
+    for (unsigned i = 0; i < 9; i++) {
+        if (matrix[i] != (i % 4 ? 0 : 1024)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static PairedColorActive paired_color_active(const NikonPairedPixelConfig *p)
+{
+    PairedColorActive active = { 0 };
+
+    for (unsigned table = 0; table < 2; table++) {
+        if (p->curve_enabled[table]) {
+            for (unsigned i = 0; i < ARRAY_SIZE(p->curve[table]); i++) {
+                if (p->curve[table][i] != 1024) {
+                    active.curve[table] = true;
+                    break;
+                }
+            }
+        }
+    }
+    for (unsigned channel = 0; channel < 3; channel++) {
+        active.gain[channel] = p->gain_enabled[channel] && p->gain[channel] != 256;
+    }
+    active.a = !paired_matrix_identity(p->a);
+    active.c = !paired_matrix_identity(p->c);
+    return active;
+}
+
+static void paired_rgb_yuv(const NikonPairedPixelConfig *p,
+                            const PairedColorActive *active, uint16_t rgb[3],
                             uint32_t noise_state[3], uint16_t output[3])
 {
     uint16_t after_a[3];
+    const uint16_t *color = rgb;
     int32_t yuv[3];
     unsigned row, column;
 
@@ -786,7 +824,7 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
 
         /* Two source-published curves: Q10 gain knots at sample steps of16. */
         for (unsigned table = 0; table < 2; table++) {
-            if (p->curve_enabled[table]) {
+            if (active->curve[table]) {
                 unsigned sample = rgb[column];
                 unsigned index = sample >> 4, fraction = sample & 15;
                 unsigned gain =
@@ -796,7 +834,7 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
                 rgb[column] = paired_clamp(paired_round(sample * gain, 10));
             }
         }
-        if (p->gain_enabled[column]) {
+        if (active->gain[column]) {
             rgb[column] = paired_clamp(paired_round(rgb[column] *
                                                    p->gain[column], 8));
         }
@@ -813,12 +851,16 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
             rgb[column] = paired_clamp((int32_t)rgb[column] + noise);
         }
     }
-    paired_matrix(p->a, rgb, after_a);
+    /* Q10 identity preserves already clamped RGB, including after noise. */
+    if (active->a) {
+        paired_matrix(p->a, rgb, after_a);
+        color = after_a;
+    }
     for (row = 0; row < 3; row++) {
         int32_t sum = 0;
 
         for (column = 0; column < 3; column++) {
-            sum += p->b[3 * row + column] * after_a[column];
+            sum += p->b[3 * row + column] * color[column];
         }
         yuv[row] = CLAMP(paired_round(sum, 9), row ? -2048 : 0,
                         row ? 2047 : 4095);
@@ -829,10 +871,18 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p, uint16_t rgb[3],
                      p->saturation[index + 1] * fraction + 64) / 128;
 
     for (row = 1; row < 3; row++) {
-        int32_t transformed = paired_round(p->c[3 * row + 1] * yuv[1] +
-                                           p->c[3 * row + 2] * yuv[2], 10);
-        int32_t mixed = paired_round(p->post.original * yuv[row] +
-                                     p->post.transformed * transformed, 8);
+        int32_t mixed = yuv[row];
+
+        /* For identity C, its signed Q10 round is exact. The validated
+         * complementary Q8 weights then sum to 256, so that round is exact too.
+         */
+        if (active->c) {
+            int32_t transformed = paired_round(p->c[3 * row + 1] * yuv[1] +
+                                               p->c[3 * row + 2] * yuv[2], 10);
+
+            mixed = paired_round(p->post.original * yuv[row] +
+                                  p->post.transformed * transformed, 8);
+        }
 
         /* One source Q8 curve scales signed chroma before bias/clipping. */
         mixed = paired_divide((int64_t)mixed * gain, 256);
@@ -885,6 +935,7 @@ static uint16_t paired_radial_sample(const uint16_t *raw,
 }
 
 static void paired_yuv(const NikonPairedPixelConfig *p, const uint16_t *raw,
+                        const PairedColorActive *active,
                         unsigned x, unsigned y,
                         uint32_t noise_state[3], uint16_t output[3])
 {
@@ -895,7 +946,7 @@ static void paired_yuv(const NikonPairedPixelConfig *p, const uint16_t *raw,
         paired_quad(p, paired_radial_sample(raw, p, 3, x, y), 3),
     };
 
-    paired_rgb_yuv(p, rgb, noise_state, output);
+    paired_rgb_yuv(p, active, rgb, noise_state, output);
 }
 
 /* Interpolate one lane on its half-resolution lattice. Edge samples are
@@ -931,6 +982,7 @@ static uint16_t paired_cfa_sample(const uint16_t *raw,
 }
 
 static void paired_cfa_yuv(const uint16_t *raw, const NikonPairedPixelConfig *p,
+                            const PairedColorActive *active,
                             unsigned x, unsigned y, uint32_t noise_state[3],
                             uint16_t output[3])
 {
@@ -943,7 +995,7 @@ static void paired_cfa_yuv(const uint16_t *raw, const NikonPairedPixelConfig *p,
         paired_cfa_sample(raw, p, 3, x, y),
     };
 
-    paired_rgb_yuv(p, rgb, noise_state, output);
+    paired_rgb_yuv(p, active, rgb, noise_state, output);
 }
 
 static uint8_t paired_byte(unsigned value)
@@ -1081,6 +1133,10 @@ static void paired_main(const uint16_t *filtered,
     unsigned x, y, dx, dy;
     size_t pixels = (size_t)p->output_width * p->output_height;
     uint32_t noise_state[] = { 1, 1, 1 };
+    /* Only all 257 Q10 unity knots make a gain curve neutral. Resolve this and
+     * the exact Q8 gain/matrix identities once per job, never per pixel.
+     */
+    PairedColorActive active = paired_color_active(p);
 
     /* Preserve the original 2x2 noise-state traversal while materializing only
      * actual computed YUV. No RGB side buffer supplies any sample.
@@ -1093,10 +1149,10 @@ static void paired_main(const uint16_t *filtered,
                     size_t at = (size_t)(y + dy) * p->output_width + x + dx;
 
                     if (p->encoding == NIKON_RAW_MONO) {
-                        paired_yuv(p, filtered, p->x + x + dx,
+                        paired_yuv(p, filtered, &active, p->x + x + dx,
                                    p->y + y + dy, noise_state, yuv);
                     } else {
-                        paired_cfa_yuv(filtered, p, p->x + x + dx,
+                        paired_cfa_yuv(filtered, p, &active, p->x + x + dx,
                                        p->y + y + dy, noise_state, yuv);
                     }
                     for (unsigned channel = 0; channel < 3; channel++) {

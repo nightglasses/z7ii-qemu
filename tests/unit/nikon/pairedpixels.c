@@ -2897,6 +2897,269 @@ static void refine_neutral(void)
     }
 }
 
+/* Deliberately evaluate every enabled color stage, including identities. Keep
+ * division/remainder rounding and the conditional LFSR recurrence independent
+ * of the implementation's shifts, masks and job-level identity decisions.
+ */
+static void color_pixel_reference(const NikonPairedPixelConfig *p,
+                                  uint16_t rgb[3], uint32_t state[3],
+                                  uint16_t output[3])
+{
+    int after_a[3], yuv[3];
+
+    for (unsigned channel = 0; channel < 3; channel++) {
+        for (unsigned table = 0; table < 2; table++) {
+            if (p->curve_enabled[table]) {
+                unsigned index = rgb[channel] / 16, fraction = rgb[channel] % 16;
+                unsigned gain = filter_reference_round(
+                    p->curve[table][index] * (16 - fraction) +
+                    p->curve[table][index + 1] * fraction, 16);
+
+                rgb[channel] = CLAMP(filter_reference_round(
+                    (int64_t)rgb[channel] * gain, 1024), 0, 4095);
+            }
+        }
+        if (p->gain_enabled[channel]) {
+            rgb[channel] = CLAMP(filter_reference_round(
+                (int64_t)rgb[channel] * p->gain[channel], 256), 0, 4095);
+        }
+        if (p->noise[channel].enabled) {
+            const NikonPairedNoise *n = &p->noise[channel];
+            bool carry = state[channel] % 2;
+            int noise;
+
+            state[channel] /= 2;
+            if (carry) {
+                state[channel] ^= n->feedback;
+            }
+            noise = CLAMP((int)(state[channel] / (1U << 21)) - 1024,
+                          -(int)p->noise_negative, p->noise_positive);
+            noise = filter_reference_round(noise * n->gain, 1024);
+            noise = filter_reference_round(noise + n->offset, 1U << n->shift);
+            rgb[channel] = CLAMP((int)rgb[channel] + noise, 0, 4095);
+        }
+    }
+    for (unsigned row = 0; row < 3; row++) {
+        int64_t sum = 0;
+
+        for (unsigned channel = 0; channel < 3; channel++) {
+            sum += (int64_t)p->a[row * 3 + channel] * rgb[channel];
+        }
+        after_a[row] = CLAMP(filter_reference_round(sum, 1024), 0, 4095);
+    }
+    for (unsigned row = 0; row < 3; row++) {
+        int64_t sum = 0;
+
+        for (unsigned channel = 0; channel < 3; channel++) {
+            sum += (int64_t)p->b[row * 3 + channel] * after_a[channel];
+        }
+        yuv[row] = CLAMP(filter_reference_round(sum, 512), row ? -2048 : 0,
+                         row ? 2047 : 4095);
+    }
+    output[0] = yuv[0];
+    unsigned index = yuv[0] / 128, fraction = yuv[0] % 128;
+    unsigned gain = filter_reference_round(
+        p->saturation[index] * (128 - fraction) +
+        p->saturation[index + 1] * fraction, 128);
+
+    for (unsigned row = 1; row < 3; row++) {
+        int transformed = filter_reference_round(
+            (int64_t)p->c[row * 3 + 1] * yuv[1] +
+            (int64_t)p->c[row * 3 + 2] * yuv[2], 1024);
+        int mixed = filter_reference_round(
+            (int64_t)p->post.original * yuv[row] +
+            (int64_t)p->post.transformed * transformed, 256);
+
+        output[row] = CLAMP(filter_reference_round((int64_t)mixed * gain, 256) +
+                            2048, 0, 4095);
+    }
+}
+
+static void color_identities(void)
+{
+    static const int16_t matrix[] = {
+        198, 309, 5, -65, -497, 562, 477, -478, 1,
+    };
+
+    for (unsigned encoding = NIKON_RAW_MONO;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        for (unsigned crop = 0; crop < 2; crop++) {
+            for (unsigned pattern = 0; pattern < 4; pattern++) {
+                for (unsigned variant = 0; variant < 16; variant++) {
+                    NikonPairedPixelConfig p = config();
+                    uint16_t raw[16], half[4], residual[4], reference[16];
+                    uint16_t planes[3][16];
+                    uint32_t state[] = { 1, 1, 1 };
+                    uint8_t y[16], uv[8];
+
+                    p.encoding = encoding;
+                    p.grid_width = p.grid_height = 4;
+                    if (crop) {
+                        p.x = p.y = 1;
+                        p.output_width = p.output_height = 2;
+                    }
+                    fill(p.curve[0], 257, 1024);
+                    fill(p.curve[1], 257, 1024);
+                    p.curve_enabled[0] = p.curve_enabled[1] = variant != 0;
+                    p.post.original = 147;
+                    p.post.transformed = 109;
+                    memcpy(p.b, matrix, sizeof(p.b));
+                    for (unsigned i = 0; i < 33; i++) {
+                        p.saturation[i] = 110 + (17 * i) % 148;
+                    }
+                    for (unsigned channel = 0; channel < 3; channel++) {
+                        p.gain[channel] = 256;
+                        p.gain_enabled[channel] = variant != 0;
+                        p.noise[channel] = (NikonPairedNoise) {
+                            .feedback = channel ? 0x80200003 : 0xf8200000,
+                            .enabled = variant != 0,
+                            .gain = channel ? 21 : 255,
+                            .shift = channel ? 4 : 0,
+                            .offset = channel == 2 ? 255 : 0,
+                        };
+                    }
+                    p.noise_negative = p.noise_positive = 1020;
+                    switch (variant) {
+                    case 0:
+                        fill(p.curve[0], 257, 65535);
+                        fill(p.curve[1], 257, 0);
+                        p.gain[0] = 0;
+                        p.gain[1] = p.gain[2] = 65535;
+                        break;
+                    case 2: fill(p.curve[0], 257, 512); break;
+                    case 3: fill(p.curve[1], 257, 2048); break;
+                    case 4:
+                        fill(p.curve[0], 257, 65535);
+                        fill(p.curve[1], 257, 512);
+                        break;
+                    case 5:
+                        p.gain[0] = 0;
+                        p.gain[1] = 65535;
+                        p.gain[2] = 128;
+                        break;
+                    case 6:
+                        p.curve_enabled[0] = false;
+                        fill(p.curve[0], 257, 65535);
+                        p.gain_enabled[0] = false;
+                        p.gain[0] = 65535;
+                        p.noise[0].enabled = false;
+                        break;
+                    case 7: p.a[0] = 1023; break;
+                    case 8:
+                        p.a[0] = -4096;
+                        p.a[2] = p.a[4] = 4095;
+                        p.a[3] = -4096;
+                        p.a[8] = 2048;
+                        break;
+                    case 9:
+                        p.c[4] = p.c[8] = -4096;
+                        p.c[5] = p.c[7] = 4095;
+                        break;
+                    case 10: p.c[4] = 1023; break;
+                    case 11:
+                        fill(p.curve[0], 257, 65535);
+                        fill(p.curve[1], 257, 512);
+                        p.gain[0] = 512;
+                        p.a[0] = -4096;
+                        p.c[4] = p.c[8] = 0;
+                        p.c[5] = -1024;
+                        p.c[7] = 1024;
+                        break;
+                    case 12: p.curve[0][256] = 2048; break;
+                    case 13: p.curve[1][1] = 2048; break;
+                    case 14:
+                        p.post.original = 0;
+                        p.post.transformed = 256;
+                        break;
+                    case 15:
+                        p.post.original = 256;
+                        p.post.transformed = 0;
+                        break;
+                    }
+                    for (unsigned i = 0; i < 16; i++) {
+                        raw[i] = pattern == 0 ? 0 : pattern == 1 ? 4095 :
+                            pattern == 2 ? 15 : 300 + (i * 197) % 3200;
+                    }
+                    memset(y, 0xa5, sizeof(y));
+                    memset(uv, 0xa5, sizeof(uv));
+                    g_assert_true(pixels_checked(&p, raw, NULL, NULL,
+                        half, residual, reference, y, uv));
+                    for (unsigned row = 0; row < p.output_height; row += 2) {
+                        for (unsigned x = 0; x < p.output_width; x += 2) {
+                            for (unsigned dy = 0; dy < 2; dy++) {
+                                for (unsigned dx = 0; dx < 2; dx++) {
+                                    unsigned xx = p.x + x + dx;
+                                    unsigned yy = p.y + row + dy;
+                                    unsigned at = (row + dy) * p.output_width +
+                                                  x + dx;
+                                    uint16_t rgb[3], output[3];
+
+                                    if (encoding == NIKON_RAW_MONO) {
+                                        rgb[0] = rgb[1] = rgb[2] =
+                                            reference[yy * p.width + xx];
+                                    } else {
+                                        unsigned lane = (encoding - 1) ^
+                                            ((yy & 1) * 2 + (xx & 1));
+
+                                        rgb[0] = radial_reference(reference, 4, 4,
+                                            encoding - 1, true, xx, yy);
+                                        rgb[2] = radial_reference(reference, 4, 4,
+                                            3 ^ (encoding - 1), true, xx, yy);
+                                        rgb[1] = lane == 1 || lane == 2 ?
+                                            reference[yy * 4 + xx] :
+                                            filter_reference_round(
+                                                radial_reference(reference, 4, 4,
+                                                    1 ^ (encoding - 1), true,
+                                                    xx, yy) +
+                                                radial_reference(reference, 4, 4,
+                                                    2 ^ (encoding - 1), true,
+                                                    xx, yy), 2);
+                                    }
+                                    color_pixel_reference(&p, rgb, state, output);
+                                    for (unsigned channel = 0; channel < 3;
+                                         channel++) {
+                                        planes[channel][at] = output[channel];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for (unsigned channel = 0; channel < 3; channel++) {
+                        post_reference_size(&p.post, channel, planes[channel],
+                                             p.output_width, p.output_height);
+                    }
+                    unsigned pixels = p.output_width * p.output_height;
+
+                    for (unsigned i = 0; i < sizeof(y); i++) {
+                        g_assert_cmpuint(y[i], ==, i < pixels ? MIN(255,
+                            filter_reference_round(planes[0][i], 16)) : 0xa5);
+                    }
+                    for (unsigned row = 0; row < p.output_height; row += 2) {
+                        for (unsigned x = 0; x < p.output_width; x += 2) {
+                            unsigned at = row * p.output_width + x;
+
+                            for (unsigned channel = 1; channel < 3; channel++) {
+                                uint16_t *plane = planes[channel];
+                                unsigned mean = filter_reference_round(
+                                    plane[at] + plane[at + 1] +
+                                    plane[at + p.output_width] +
+                                    plane[at + p.output_width + 1], 4);
+
+                                g_assert_cmpuint(uv[row / 2 * p.output_width +
+                                    x + channel - 1], ==, MIN(255,
+                                    filter_reference_round(mean, 16)));
+                            }
+                        }
+                    }
+                    for (unsigned i = pixels / 2; i < sizeof(uv); i++) {
+                        g_assert_cmphex(uv[i], ==, 0xa5);
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void colorfilter_invalid(void)
 {
     NikonPairedPixelConfig p = config();
@@ -3656,6 +3919,7 @@ int main(int argc, char **argv)
                      colorfilter_fields);
     g_test_add_func("/nikon/pairedpixels/colorfilter-cfa", colorfilter_cfa);
     g_test_add_func("/nikon/pairedpixels/refine-neutral", refine_neutral);
+    g_test_add_func("/nikon/pairedpixels/color-identities", color_identities);
     g_test_add_func("/nikon/pairedpixels/colorfilter-invalid",
                      colorfilter_invalid);
     g_test_add_func("/nikon/pairedpixels/radial", radial);
