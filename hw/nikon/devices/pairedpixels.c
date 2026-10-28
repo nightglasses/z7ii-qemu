@@ -544,7 +544,7 @@ static void paired_color_block(const uint16_t *input, uint16_t *output,
                     int gate = MAX(0, threshold - abs(difference));
                     unsigned weight = 1U << n->shift[d];
 
-                    if (threshold) {
+                    if (difference && gate) {
                         sum += weight * paired_divide(
                             (int64_t)difference * gate, threshold);
                     }
@@ -1104,6 +1104,10 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
                     input[up * width + x] + input[down * width + x];
             }
             n -= 4 * center;
+            if (!n) {
+                output[y * width + x] = center;
+                continue;
+            }
             if (pass == 0) {
                 correction = paired_ratio(-(int64_t)n *
                     p->unsharp[!!channel] * paired_confidence(config, grid,
