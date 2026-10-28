@@ -617,6 +617,94 @@ static void assert_yuva(const char *image, unsigned width, unsigned height)
     }
 }
 
+static void test_alpha_endpoints(void)
+{
+    static const uint16_t rgb565[] = { 0xf800, 0x07e0, 0x001f, 0xffe0 };
+    static const uint8_t rgb[][3] = {
+        { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 0 },
+    };
+    static const uint8_t opacity4[] = { 0, 1, 7, 15 };
+    static const uint8_t opacity8[] = { 0, 1, 128, 255 };
+    QTestState *q = start();
+    uint8_t data[8 * 24], alpha[8 * 12], after[sizeof(data)];
+
+    /* White port0 exposes both transparent retention and OVER rounding. */
+    qtest_memset(q, RAM + 0x8000, 0xff, 8 * 40);
+    packet(q, 0, 0);
+    qtest_writel(q, BANK + 0x2440, RAM + 0x8000);
+    for (unsigned format = 0; format < 3; format++) {
+        unsigned mode = format ? 6 : 5;
+
+        memset(data, 0xa5, sizeof(data));
+        for (unsigned y = 0; y < 8; y++) {
+            for (unsigned x = 0; x < 8; x++) {
+                if (format == 2) {
+                    memcpy(data + y * 24 + (x & ~1U) * 2,
+                           yuva_colors[(x / 2 + y) % 4].pair, 4);
+                } else {
+                    stw_le_p(data + y * 24 + x * 2, rgb565[(x + y) % 4]);
+                }
+            }
+        }
+        qtest_memwrite(q, RAM, data, sizeof(data));
+        yuva_packet(q, 0, 1, 0, 8, 8, RAM, RAM + 0x4000, 24, 12);
+        qtest_writel(q, BANK + 0x3200, format == 2 ? 0x30006 : mode);
+        for (unsigned pattern = 0; pattern < 3; pattern++) {
+            g_autofree char *image = NULL;
+
+            memset(alpha, 0x5a, sizeof(alpha));
+            for (unsigned y = 0; y < 8; y++) {
+                for (unsigned x = 0; x < 8; x++) {
+                    unsigned value = pattern == 0 ? 0 : pattern == 1 ?
+                        (mode == 5 ? 15 : 255) : mode == 5 ?
+                        opacity4[(x + y) % 4] : opacity8[(x + y) % 4];
+
+                    if (mode == 5) {
+                        unsigned shift = (x & 1) * 4;
+                        uint8_t *byte = &alpha[y * 12 + x / 2];
+
+                        *byte = (*byte & ~(15U << shift)) | (value << shift);
+                    } else {
+                        alpha[y * 12 + x] = value;
+                    }
+                }
+            }
+            qtest_memwrite(q, RAM + 0x4000, alpha, sizeof(alpha));
+            qtest_writel(q, BANK + 0x1200, 1);
+            wait_completion(q);
+            image = pixels(q);
+            for (unsigned y = 0; y < 8; y++) {
+                for (unsigned x = 0; x < 8; x++) {
+                    unsigned a = pattern == 0 ? 0 : pattern == 1 ? 255 :
+                        mode == 5 ? opacity4[(x + y) % 4] * 17 :
+                        opacity8[(x + y) % 4];
+                    const uint8_t *color = format == 2 ?
+                        yuva_colors[(x / 2 + y) % 4].rgb[x & 1] :
+                        rgb[(x + y) % 4];
+
+                    for (unsigned c = 0; c < 3; c++) {
+                        g_assert_cmpuint((uint8_t)image[(y * 8 + x) * 3 + c],
+                                        ==, color[c] * a / 255 + 255 - a);
+                    }
+                }
+            }
+            qtest_memread(q, RAM, after, sizeof(after));
+            g_assert_cmpmem(after, sizeof(after), data, sizeof(data));
+            qtest_memread(q, RAM + 0x4000, after, sizeof(alpha));
+            g_assert_cmpmem(after, sizeof(alpha), alpha, sizeof(alpha));
+            qtest_writel(q, BANK + 0x1214, FRAME_PENDING);
+            if (!pattern) {
+                /* Zero opacity must not bypass the actual DMA preflight. */
+                qtest_writel(q, BANK + 0x3440, BANK);
+                qtest_clock_step(q, 1000000);
+                g_assert_false(qtest_get_irq(q, 111 - 32));
+                qtest_writel(q, BANK + 0x3440, RAM);
+            }
+        }
+    }
+    qtest_quit(q);
+}
+
 static void test_yuva(void)
 {
     static const unsigned providers[][3] = {
@@ -1288,6 +1376,7 @@ void nikon_image_add_tests(const char *bios)
     qtest_add_func("/nikon/image/refresh", test_refresh);
     qtest_add_func("/nikon/image/crop", test_crop);
     qtest_add_func("/nikon/image/yuva", test_yuva);
+    qtest_add_func("/nikon/image/alpha-endpoints", test_alpha_endpoints);
     qtest_add_func("/nikon/image/yuva-fault", test_yuva_fault);
     qtest_add_func("/nikon/image/yuva-frame", test_yuva_frame);
     qtest_add_func("/nikon/image/visible-area", test_visible_area);

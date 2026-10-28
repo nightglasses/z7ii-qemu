@@ -611,13 +611,22 @@ static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
             goto out;
         }
         for (column = 0; column < width; column++) {
-            uint32_t pixel = yuva ?
-                nikon_banks_yuva(row + (column & ~1U) * 2, column) :
-                nikon_banks_pixel(row + column * bytes, mode, control, lanes);
+            unsigned opacity = 255;
+            uint32_t pixel;
+
             if (mode >= 5) {
-                unsigned opacity = mode == 5 ?
+                opacity = mode == 5 ?
                     ((alpha[column / 2] >> ((column & 1) * 4)) & 15) * 17 :
                     alpha[column];
+                if (!opacity) {
+                    pixels[row_index * pitch + column] = 0;
+                    continue;
+                }
+            }
+            pixel = yuva ?
+                nikon_banks_yuva(row + (column & ~1U) * 2, column) :
+                nikon_banks_pixel(row + column * bytes, mode, control, lanes);
+            if (opacity != 255) {
                 pixel = (opacity << 24) |
                     ((((pixel >> 16) & 255) * opacity / 255) << 16) |
                     ((((pixel >> 8) & 255) * opacity / 255) << 8) |
