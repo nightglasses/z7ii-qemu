@@ -7984,9 +7984,13 @@ static void test_paired_cycle(void)
 
 static void test_paired_raw_reuse(void)
 {
+    static const uint8_t gray[] = {
+        'P', '5', '\n', '1', ' ', '1', '\n', '2', '5', '5', '\n', 130,
+    };
     g_autofree char *bundle = NULL;
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, false);
+    uint8_t expected[0xce0], actual[sizeof(expected)];
 
     /* A complete tuple may reuse one physical RAW span at different times.
      * Even its future duplicate must not block the current fresh phase.
@@ -8030,12 +8034,32 @@ static void test_paired_raw_reuse(void)
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
     work_ack(q);
+    g_assert_true(g_file_set_contents(scene, (const char *)gray,
+                                      sizeof(gray), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
     paired_raw_input(q);
     pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 5);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x28828828);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 4);
-    paired_pixels(q, PAIRED_MAIN, 1);
-    paired_pixels(q, PAIRED_WORK, 1);
+    /* Gray130 is RAW2088, not the old2056. With residual0 the quarter-history
+     * blend is (2088*192 + 2056*64 + 128)/256 =2080, deviation32. Constant
+     * mono and the configured matrices yield MAIN Y130/U144/V96.
+     */
+    paired_main_at(q, PAIRED_MAIN + 0x2000, 130, 144, 96);
+    memset(expected, 0xa5, sizeof(expected));
+    for (unsigned y = 0; y < 18; y++) {
+        for (unsigned x = 0; x < 32; x++) {
+            stw_le_p(expected + 16 + 80 * y + 2 * x, 2080);
+            stw_le_p(expected + 16 + 80 * (18 + y) + 2 * x, 32);
+        }
+    }
+    qtest_memread(q, PAIRED_WORK + 0x2000 - 16, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    paired_pixels(q, PAIRED_MAIN, 0);
+    paired_pixels(q, PAIRED_WORK, 0);
     paired_pixels(q, PAIRED_GRID, 3);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1402);
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
