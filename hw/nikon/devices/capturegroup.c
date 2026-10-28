@@ -549,17 +549,27 @@ static bool nikon_capture_group_cursor_valid(NikonCaptureGroupState *s)
     return true;
 }
 
+static void group_cursor_packet(NikonCaptureGroupState *s, unsigned cursor,
+                                uint32_t results[ARRAY_SIZE(result_offsets)])
+{
+    results[0] = s->active[0];
+    results[1] = cursor;
+    for (unsigned i = 0; i < 6; i++) {
+        results[2 + i] = s->active[6 + i] + cursor * s->active[3 + i % 3];
+    }
+}
+
 static void group_input_ready(void *opaque, int index, int level)
 {
     NikonCaptureGroupState *s = opaque;
 
-    if (!level || s->stopping || !s->running || !s->active_valid ||
-        !s->started) {
+    if (!level || s->stopping || !s->running || !s->active_valid) {
         return;
     }
     if (s->pipeline && s->capture && !s->compute && s->committed[0x22c / 4]) {
         NikonCaptureInput input;
         GroupTask *task;
+        unsigned cursor = s->started ? s->cursor : s->active[1];
 
         if (nikon_capture_group_pending(s->capture)) {
             s->blocked++;
@@ -580,7 +590,8 @@ static void group_input_ready(void *opaque, int index, int level)
         task->owner = s;
         task->token = s->token;
         memcpy(task->job.configuration, s->committed, sizeof(s->committed));
-        memcpy(task->job.results, s->results, sizeof(s->results));
+        /* A completion latch may describe an older job than the TG cursor. */
+        group_cursor_packet(s, cursor, task->job.results);
         if (!group_prepare(&task->job)) {
             s->rejected++;
             g_free(task);
@@ -593,6 +604,9 @@ static void group_input_ready(void *opaque, int index, int level)
         object_ref(OBJECT(s));
         s->compute = task;
         s->busy = true;
+        /* A fresh valid job owns the initial cursor before any later TG. */
+        s->cursor = cursor;
+        s->started = true;
         timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
     }
 }
@@ -608,12 +622,7 @@ static void nikon_capture_group_automatic_rise(void *opaque, int index, int leve
     s->cursor = s->started ? (s->cursor + 1) % (s->active[2] + 1) :
                             s->active[1];
     s->started = true;
-    s->results[0] = s->active[0];
-    s->results[1] = s->cursor;
-    for (unsigned i = 0; i < 6; i++) {
-        s->results[2 + i] = s->active[6 + i] +
-                            s->cursor * s->active[3 + i % 3];
-    }
+    group_cursor_packet(s, s->cursor, s->results);
     s->result_state = GROUP_RESULT_PUBLISHED;
     group_input_ready(s, 0, 1);
 }

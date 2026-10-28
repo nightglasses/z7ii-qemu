@@ -748,15 +748,26 @@ grid `+16/+1e` halfwords and companion final word `+14`. Gaps between record
 families and after the last cell are also preserved. Source-consumer
 classification does not turn unread bytes into padding.
 
-The existing TG address packet remains independent metadata. Once that boundary
-has selected a cursor, a fresh completed MAIN generation, after selected commit
-and effective unit20 run, admits one owned computation with a declared minimum
-1 ms virtual latency. MAIN data-ready tries admission immediately; a TG boundary
+The existing TG address packet remains independent metadata. A fresh completed
+MAIN generation, after selected commit and effective unit20 run, admits one
+owned computation with a declared minimum 1 ms virtual latency.
+MAIN data-ready tries admission immediately; a TG boundary
 also tries a previously delivered, still unconsumed generation. The job snapshots
-the committed configuration, cursor packet and input bytes. Requiring an extra
-TG after actual acquisition completion was a previous functional scheduling
-choice, not a recovered hardware requirement. The data-ready association removes
-that extra latency without changing the job's numerical or ownership conditions.
+the committed configuration, cursor packet and input bytes. If no cursor has
+yet been initialized in this configuration/run epoch, a valid admitted job
+privately selects the committed initial cursor and owns that initial packet.
+Commit alone retains the previous public latch; only TG metadata publication
+or actual successful job DMA replaces it. The next real TG advances once from
+that owned cursor, whether it arrives during or after the first job. It does
+not select the initial packet a second time. Every subsequent job derives its
+private packet from the current active cursor, since an older worker's completed
+packet may have replaced the public latch after TG already advanced metadata.
+
+The earlier requirement to see the first TG after commit could discard a fresh
+MAIN completion from an acquisition already in flight and add a whole input
+period. No audited source protocol establishes that prerequisite; removing it
+is a functional scheduling inference, not measured physical timing. This refines
+the data-ready association without changing numerical or ownership conditions.
 Both address sets and every ring slot of selected families must cover writable
 RAM spans. Selected families must not overlap within a bank; the mutually
 selected banks may share storage. Each selected stride must cover its record
@@ -835,6 +846,12 @@ or cancellation before publication) and verify real RAM retention in either
 case. They do not deterministically intercept an executing worker or a ready
 worker while the VM is stopped; those ownership and virtual-timer boundaries
 remain code-review coverage rather than a native fixture claim.
+The commit/input case additionally completes a real MAIN acquisition after
+selected commit without a subsequent group TG, checks its actual initial-cursor
+DMA and retained-latch boundary, and covers TG during owned work, current-cursor
+capacity retry and exactly-once next-edge advancement. Cancellation cases stop,
+disable, reset or recommit a fresh initial job before its first TG, retaining
+untouched output and silent completion.
 Module codec/CLI tests cover
 the declared fields, exact-size rejection and byte-for-byte preservation
 outside them. These are synthetic fixtures; parent native validation and
