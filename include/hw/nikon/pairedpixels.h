@@ -268,6 +268,12 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * free. Distinct tasks of the current stage may run concurrently, each exactly
  * once; the caller joins every task before advance/free. No worker schedules
  * other work. Results are private and available only after DONE.
+ * PREFIX repeats twelve pass barriers (prefix_pass0..11): CFA gather, DPC,
+ * spatial, filter, optional vertical refinement, denoise, detail, adaptive,
+ * two color blocks, color tail and CFA scatter. MONO omits gather/scatter.
+ * CFA has up to three row bands per active lattice (12 tasks); MONO up to four.
+ * Every band reads the complete immutable previous plane, including neighbors
+ * across band boundaries. Neutral passes/lanes do not exchange buffers.
  * POST repeats five pass barriers (post_pass0..4). Each pass has up to12 tasks:
  * up to four disjoint row bands per nonneutral channel, reading the immutable
  * previous pass. A zero-task neutral pass still requires advance. Only advance
@@ -294,6 +300,8 @@ NikonPairedPixels *nikon_paired_pixels_new(const NikonPairedPixelConfig *config,
     const uint16_t *raw, const uint16_t *prior_luma,
     const uint16_t *prior_residual, const uint16_t *grid);
 NikonPairedPixelStage nikon_paired_pixels_stage(const NikonPairedPixels *pixels);
+/* Zero before PREFIX; 0..11 during PREFIX; 12 after its last barrier. */
+unsigned nikon_paired_pixels_prefix_pass(const NikonPairedPixels *pixels);
 /* Zero before POST; 0..4 during POST; 5 after its last barrier. */
 unsigned nikon_paired_pixels_post_pass(const NikonPairedPixels *pixels);
 unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *pixels);

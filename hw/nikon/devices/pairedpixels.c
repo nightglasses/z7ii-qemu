@@ -328,11 +328,12 @@ static uint16_t paired_dpc(const uint16_t *raw, unsigned width, unsigned height,
 }
 
 static void paired_spatial(const uint16_t *dpc, uint16_t *filtered,
-                            unsigned width, unsigned height)
+                            unsigned width, unsigned height,
+                            unsigned first, unsigned last)
 {
     unsigned x, y;
 
-    for (y = 0; y < height; y++) {
+    for (y = first; y < last; y++) {
         unsigned up = y ? y - 1 : y;
         unsigned down = y + 1 < height ? y + 1 : y;
 
@@ -350,9 +351,10 @@ static void paired_spatial(const uint16_t *dpc, uint16_t *filtered,
 
 static void paired_filter_pass(const uint16_t *input, uint16_t *output,
                                 unsigned width, unsigned height,
-                                const NikonPairedFilter *f, unsigned axis)
+                                const NikonPairedFilter *f, unsigned axis,
+                                unsigned first, unsigned last)
 {
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         unsigned up = y >= f->radius ? y - f->radius : 0;
         unsigned down = MIN(y + f->radius, height - 1);
 
@@ -388,38 +390,17 @@ static void paired_filter_pass(const uint16_t *input, uint16_t *output,
     }
 }
 
-static bool paired_filter(uint16_t *filtered, unsigned width, unsigned height,
-                           const NikonPairedFilter *f)
-{
-    g_autofree uint16_t *scratch = NULL;
-    size_t count = (size_t)width * height;
-
-    if (!f->enabled || !f->radius || f->retain == 16383) {
-        return true;
-    }
-    scratch = g_try_new(uint16_t, count);
-    if (!scratch) {
-        return false;
-    }
-    paired_filter_pass(filtered, scratch, width, height, f, f->refine ? 1 : 0);
-    if (f->refine) {
-        paired_filter_pass(scratch, filtered, width, height, f, 2);
-    } else {
-        memcpy(filtered, scratch, count * sizeof(*filtered));
-    }
-    return true;
-}
-
 static void paired_denoise(const uint16_t *input, uint16_t *output,
                            unsigned width, unsigned height,
-                           const NikonPairedDenoise *n)
+                           const NikonPairedDenoise *n,
+                           unsigned first, unsigned last)
 {
     int low = n->threshold + n->low + n->bias;
     int high = n->threshold + n->high + n->bias;
     int scale = high - low;
     int divisor = 4 * scale * (n->retain + n->axial + n->diagonal);
 
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         unsigned ys[] = { y ? y - 1 : y, y, MIN(y + 1, height - 1) };
 
         for (unsigned x = 0; x < width; x++) {
@@ -452,9 +433,10 @@ static void paired_denoise(const uint16_t *input, uint16_t *output,
 
 static void paired_detail(const uint16_t *input, uint16_t *output,
                           unsigned width, unsigned height,
-                          const NikonPairedDetail *d)
+                          const NikonPairedDetail *d,
+                          unsigned first, unsigned last)
 {
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         unsigned ys[] = { y ? y - 1 : y, y, MIN(y + 1, height - 1) };
 
         for (unsigned x = 0; x < width; x++) {
@@ -484,12 +466,13 @@ static void paired_detail(const uint16_t *input, uint16_t *output,
 
 static void paired_adaptive(const uint16_t *input, uint16_t *output,
                             unsigned width, unsigned height,
-                            const NikonPairedAdaptive *a)
+                            const NikonPairedAdaptive *a,
+                            unsigned first, unsigned last)
 {
     int64_t weight = (int64_t)a->weight * a->dose;
     int64_t denominator = 4 * ((16 << a->precision) + weight);
 
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         unsigned up = y ? y - 1 : y;
         unsigned down = MIN(y + 1, height - 1);
 
@@ -533,15 +516,16 @@ static int paired_color_divide(int value, unsigned divisor, uint64_t multiplier)
     return value < 0 ? -(int)quotient : quotient;
 }
 
-static bool paired_color_block(const uint16_t *input, uint16_t *output,
-                               unsigned width, unsigned height,
-                               const NikonPairedColorBlock *b, unsigned strength)
-{
-    static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
-    static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
-    unsigned limit = 0, weights[2] = { 0 };
+typedef struct PairedColorBlockActive {
+    unsigned weights[2];
     uint64_t weight_multiplier[2];
-    g_autofree uint64_t *multipliers = NULL;
+    uint64_t *multipliers;
+} PairedColorBlockActive;
+
+static bool paired_color_prepare(const NikonPairedColorBlock *b,
+                                  PairedColorBlockActive *active)
+{
+    unsigned limit = 0;
 
     for (unsigned branch = 0; branch < 2; branch++) {
         const NikonPairedColorBranch *n = &b->branch[branch];
@@ -551,24 +535,34 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
 
         limit = MAX(limit, bound);
         for (unsigned d = 0; d < 4; d++) {
-            weights[branch] += 1U << n->shift[d];
+            active->weights[branch] += 1U << n->shift[d];
         }
-        weight_multiplier[branch] = ((UINT64_C(1) << 32) +
-                                     weights[branch] - 1) / weights[branch];
+        active->weight_multiplier[branch] = ((UINT64_C(1) << 32) +
+            active->weights[branch] - 1) / active->weights[branch];
     }
     /* All thresholds are nonnegative and bounded by the validated packet.
      * At most 2361 u64 entries; constant-threshold packets need far fewer.
      */
-    multipliers = g_try_new(uint64_t, limit + 1);
-    if (!multipliers) {
+    active->multipliers = g_try_new(uint64_t, limit + 1);
+    if (!active->multipliers) {
         return false;
     }
-    multipliers[0] = 0;
+    active->multipliers[0] = 0;
     for (unsigned d = 1; d <= limit; d++) {
-        multipliers[d] = ((UINT64_C(1) << 32) + d - 1) / d;
+        active->multipliers[d] = ((UINT64_C(1) << 32) + d - 1) / d;
     }
+    return true;
+}
 
-    for (unsigned y = 0; y < height; y++) {
+static void paired_color_block(const uint16_t *input, uint16_t *output,
+    unsigned width, unsigned height, const NikonPairedColorBlock *b,
+    const PairedColorBlockActive *active, unsigned strength,
+    unsigned first, unsigned last)
+{
+    static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
+    static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
+
+    for (unsigned y = first; y < last; y++) {
         for (unsigned x = 0; x < width; x++) {
             unsigned at = y * width + x;
             int center = 4 * input[at];
@@ -598,7 +592,7 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
                     if (difference && gate) {
                         sum += (int64_t)weight * paired_color_divide(
                             difference * gate, threshold,
-                            multipliers[threshold]);
+                            active->multipliers[threshold]);
                     }
                 }
                 /* T <= 2360 bounds each rounded tap by ceil(T/4) <= 590.
@@ -606,8 +600,8 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
                  * This signed32 reciprocal is exact after the same one-step
                  * correction. Its divisor is independent of the T table.
                  */
-                mean[branch] = paired_color_divide((int)sum, weights[branch],
-                                                   weight_multiplier[branch]);
+                mean[branch] = paired_color_divide((int)sum,
+                    active->weights[branch], active->weight_multiplier[branch]);
             }
             int correction = paired_divide(
                 paired_divide(mean[0] + mean[1], 2) * strength, 31);
@@ -618,16 +612,16 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
                                        2) / 4);
         }
     }
-    return true;
 }
 
 static void paired_color_tail(const uint16_t *input, uint16_t *output,
                               unsigned width, unsigned height,
-                              const NikonPairedColorFilter *f)
+                              const NikonPairedColorFilter *f,
+                              unsigned first, unsigned last)
 {
     unsigned divisor = 31 * 4 * (1U << f->shift) * (1U << f->precision);
 
-    for (unsigned y = 0; y < height; y++) {
+    for (unsigned y = first; y < last; y++) {
         for (unsigned x = 0; x < width; x++) {
             uint16_t neighbors[9];
             int center = 4 * input[y * width + x];
@@ -657,49 +651,12 @@ static void paired_color_tail(const uint16_t *input, uint16_t *output,
     }
 }
 
-/* All inputs and stage outputs are clamped to 12 bits. With a zero correction,
- * the Q2 stages also preserve each sample exactly: (4 * sample + 2) / 4.
- * Keep the original stage order and immutable inputs, exchanging buffers only
- * for nonneutral stages. No intermediate copies are needed.
- */
-static uint16_t *paired_refine(uint16_t *image, uint16_t *scratch,
-                               unsigned width, unsigned height,
-                               const NikonPairedPixelConfig *p, unsigned lane)
+static unsigned paired_color_strength(const NikonPairedColorBlock *b,
+                                      unsigned lane)
 {
-    const NikonPairedColorFilter *f = &p->colorfilter;
-    uint16_t *buffers[] = { image, scratch };
-    unsigned current = 0;
-
-    if (p->detail.strength) {
-        paired_detail(buffers[current], buffers[current ^ 1], width, height,
-                       &p->detail);
-        current ^= 1;
-    }
-    if (p->adaptive.weight && p->adaptive.dose) {
-        paired_adaptive(buffers[current], buffers[current ^ 1], width, height,
-                         &p->adaptive);
-        current ^= 1;
-    }
-    for (unsigned i = 0; i < 2; i++) {
-        const NikonPairedColorBlock *b = &f->block[i];
-        unsigned strength = lane == 4 ?
-            (b->strength[0] + b->strength[1] + b->strength[2] + 1) / 3 :
-            b->strength[lane == 3 ? 2 : lane != 0];
-
-        if (strength) {
-            if (!paired_color_block(buffers[current], buffers[current ^ 1],
-                                     width, height, b, strength)) {
-                return NULL;
-            }
-            current ^= 1;
-        }
-    }
-    if (f->strength) {
-        paired_color_tail(buffers[current], buffers[current ^ 1],
-                           width, height, f);
-        current ^= 1;
-    }
-    return buffers[current];
+    return lane == 4 ?
+        (b->strength[0] + b->strength[1] + b->strength[2] + 1) / 3 :
+        b->strength[lane == 3 ? 2 : lane != 0];
 }
 
 static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
@@ -759,23 +716,6 @@ static void paired_temporal(uint16_t *filtered, unsigned width, unsigned height,
             out_residual[index] = deviation;
         }
     }
-}
-
-static uint16_t *paired_filter_plane(const uint16_t *raw,
-    unsigned width, unsigned height, const NikonPairedPixelConfig *p,
-    unsigned lane, uint16_t *dpc, uint16_t *filtered)
-{
-    for (unsigned y = 0; y < height; y++) {
-        for (unsigned x = 0; x < width; x++) {
-            dpc[y * width + x] = paired_dpc(raw, width, height, x, y);
-        }
-    }
-    paired_spatial(dpc, filtered, width, height);
-    if (!paired_filter(filtered, width, height, &p->filter)) {
-        return NULL;
-    }
-    paired_denoise(filtered, dpc, width, height, &p->denoise);
-    return paired_refine(dpc, filtered, width, height, p, lane);
 }
 
 static void paired_matrix(const int16_t matrix[9], const uint16_t input[3],
@@ -1283,10 +1223,28 @@ static bool paired_buffers_disjoint(const void *const *inputs,
  * input references never change while a task runs. Scratch is reused only after
  * the last reader's barrier, including the RAW allocations reused by POST.
  */
+enum {
+    PAIRED_PREFIX_GATHER,
+    PAIRED_PREFIX_DPC,
+    PAIRED_PREFIX_SPATIAL,
+    PAIRED_PREFIX_FILTER,
+    PAIRED_PREFIX_VERTICAL,
+    PAIRED_PREFIX_DENOISE,
+    PAIRED_PREFIX_DETAIL,
+    PAIRED_PREFIX_ADAPTIVE,
+    PAIRED_PREFIX_COLOR0,
+    PAIRED_PREFIX_COLOR1,
+    PAIRED_PREFIX_TAIL,
+    PAIRED_PREFIX_SCATTER,
+    PAIRED_PREFIX_DONE,
+};
+
 struct NikonPairedPixels {
     NikonPairedPixelConfig p;
     const uint16_t *raw, *prior, *residual, *grid;
     uint16_t *dpc, *filtered, *prefix_dpc, *prefix_filtered;
+    uint16_t *prefix_input[4], *prefix_output[4];
+    PairedColorBlockActive prefix_color[2];
     uint16_t *planes, *post_scratch, *half_luma, *half_residual;
     uint16_t *post_input[3], *post_output[3];
     uint8_t *y, *uv, *work;
@@ -1294,8 +1252,8 @@ struct NikonPairedPixels {
     NikonPairedPixelResult result;
     NikonPairedPixelStage stage;
     uint32_t seed[4][3];
-    unsigned post_pass;
-    bool complete[12], success[12], mono_swap;
+    unsigned prefix_pass, post_pass;
+    bool complete[12], success[12];
 };
 
 static unsigned paired_bands(unsigned rows)
@@ -1306,6 +1264,47 @@ static unsigned paired_bands(unsigned rows)
 static unsigned paired_band(unsigned rows, unsigned task, unsigned tasks)
 {
     return rows * task / tasks;
+}
+
+static unsigned paired_prefix_bands(const NikonPairedPixels *c)
+{
+    return c->p.encoding == NIKON_RAW_MONO ? paired_bands(c->p.height) :
+                                             MIN(c->p.height / 2, 3U);
+}
+
+static bool paired_prefix_active(const NikonPairedPixels *c, unsigned phase)
+{
+    const NikonPairedPixelConfig *p = &c->p;
+    bool mono = p->encoding == NIKON_RAW_MONO;
+    bool filter = p->filter.enabled && p->filter.radius &&
+                  p->filter.retain != 16383;
+
+    switch (c->prefix_pass) {
+    case PAIRED_PREFIX_GATHER:
+    case PAIRED_PREFIX_SCATTER:
+        return !mono;
+    case PAIRED_PREFIX_DPC:
+    case PAIRED_PREFIX_SPATIAL:
+    case PAIRED_PREFIX_DENOISE:
+        return true;
+    case PAIRED_PREFIX_FILTER:
+        return filter;
+    case PAIRED_PREFIX_VERTICAL:
+        return filter && p->filter.refine;
+    case PAIRED_PREFIX_DETAIL:
+        return p->detail.strength != 0;
+    case PAIRED_PREFIX_ADAPTIVE:
+        return p->adaptive.weight && p->adaptive.dose;
+    case PAIRED_PREFIX_COLOR0:
+    case PAIRED_PREFIX_COLOR1:
+        return paired_color_strength(
+            &p->colorfilter.block[c->prefix_pass - PAIRED_PREFIX_COLOR0],
+            mono ? 4 : phase ^ (p->encoding - 1)) != 0;
+    case PAIRED_PREFIX_TAIL:
+        return p->colorfilter.strength != 0;
+    default:
+        g_assert_not_reached();
+    }
 }
 
 NikonPairedPixels *nikon_paired_pixels_new(const NikonPairedPixelConfig *config,
@@ -1338,13 +1337,25 @@ unsigned nikon_paired_pixels_post_pass(const NikonPairedPixels *c)
     return c->post_pass;
 }
 
+unsigned nikon_paired_pixels_prefix_pass(const NikonPairedPixels *c)
+{
+    return c->prefix_pass;
+}
+
 unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *c)
 {
     switch (c->stage) {
     case NIKON_PAIRED_PIXEL_PREPARE:
         return 1;
-    case NIKON_PAIRED_PIXEL_PREFIX:
-        return c->p.encoding == NIKON_RAW_MONO ? 1 : 4;
+    case NIKON_PAIRED_PIXEL_PREFIX: {
+        unsigned phases = c->p.encoding == NIKON_RAW_MONO ? 1 : 4;
+        unsigned active = 0;
+
+        for (unsigned phase = 0; phase < phases; phase++) {
+            active += paired_prefix_active(c, phase);
+        }
+        return active * paired_prefix_bands(c);
+    }
     case NIKON_PAIRED_PIXEL_TEMPORAL:
         return paired_bands((c->p.height + 1) / 2);
     case NIKON_PAIRED_PIXEL_RADIAL:
@@ -1408,6 +1419,29 @@ static bool paired_prepare(NikonPairedPixels *c)
         !c->half_luma || !c->half_residual || !c->y || !c->uv || !c->work) {
         return false;
     }
+    for (unsigned block = 0; block < 2; block++) {
+        const NikonPairedColorBlock *b = &p->colorfilter.block[block];
+        bool active = false;
+
+        for (unsigned phase = 0; phase <
+             (p->encoding == NIKON_RAW_MONO ? 1 : 4); phase++) {
+            unsigned lane = p->encoding == NIKON_RAW_MONO ? 4 :
+                            phase ^ (p->encoding - 1);
+
+            active |= paired_color_strength(b, lane) != 0;
+        }
+        if (active && !paired_color_prepare(b, &c->prefix_color[block])) {
+            return false;
+        }
+    }
+    if (p->encoding == NIKON_RAW_MONO) {
+        c->prefix_output[0] = c->dpc;
+    } else {
+        for (unsigned phase = 0; phase < 4; phase++) {
+            c->prefix_output[phase] = c->filtered +
+                                    phase * (pixels / 4);
+        }
+    }
     c->active = paired_color_active(p);
     bands = paired_bands(p->output_height / 2);
     noise = p->noise[0].enabled || p->noise[1].enabled || p->noise[2].enabled;
@@ -1436,41 +1470,88 @@ static bool paired_prepare(NikonPairedPixels *c)
     return true;
 }
 
-static bool paired_prefix(NikonPairedPixels *c, unsigned phase)
+static void paired_prefix(NikonPairedPixels *c, unsigned task)
 {
     const NikonPairedPixelConfig *p = &c->p;
-    uint16_t *result;
+    bool mono = p->encoding == NIKON_RAW_MONO;
+    unsigned width = mono ? p->width : p->width / 2;
+    unsigned height = mono ? p->height : p->height / 2;
+    unsigned bands = paired_prefix_bands(c);
+    unsigned band = task % bands, phase_task = task / bands, phase;
+    unsigned first = paired_band(height, band, bands);
+    unsigned last = paired_band(height, band + 1, bands);
+    const uint16_t *input;
+    uint16_t *output;
 
-    if (p->encoding == NIKON_RAW_MONO) {
-        result = paired_filter_plane(c->raw, p->width, p->height, p, 4,
-                                     c->dpc, c->filtered);
-        c->mono_swap = result == c->filtered;
-        return result != NULL;
-    } else {
-        unsigned width = p->width / 2, height = p->height / 2;
-        size_t count = (size_t)width * height;
-        unsigned px = phase & 1, py = phase >> 1;
-        uint16_t *plane = c->filtered + phase * count;
-
-        for (unsigned y = 0; y < height; y++) {
+    for (phase = 0; phase < (mono ? 1 : 4); phase++) {
+        if (paired_prefix_active(c, phase)) {
+            if (!phase_task) {
+                break;
+            }
+            phase_task--;
+        }
+    }
+    input = c->prefix_input[phase];
+    output = c->prefix_output[phase];
+    switch (c->prefix_pass) {
+    case PAIRED_PREFIX_GATHER:
+        for (unsigned y = first; y < last; y++) {
             for (unsigned x = 0; x < width; x++) {
-                plane[y * width + x] =
-                    c->raw[(2 * y + py) * p->width + 2 * x + px];
+                output[y * width + x] =
+                    c->raw[(2 * y + phase / 2) * p->width + 2 * x + phase % 2];
             }
         }
-        result = paired_filter_plane(plane, width, height, p,
-            phase ^ (p->encoding - 1), c->prefix_dpc + phase * count,
-            c->prefix_filtered + phase * count);
-        if (!result) {
-            return false;
-        }
-        for (unsigned y = 0; y < height; y++) {
+        break;
+    case PAIRED_PREFIX_DPC:
+        for (unsigned y = first; y < last; y++) {
             for (unsigned x = 0; x < width; x++) {
-                c->dpc[(2 * y + py) * p->width + 2 * x + px] =
-                    result[y * width + x];
+                output[y * width + x] = paired_dpc(mono ? c->raw : input,
+                                                   width, height, x, y);
             }
         }
-        return true;
+        break;
+    case PAIRED_PREFIX_SPATIAL:
+        paired_spatial(input, output, width, height, first, last);
+        break;
+    case PAIRED_PREFIX_FILTER:
+    case PAIRED_PREFIX_VERTICAL:
+        paired_filter_pass(input, output, width, height, &p->filter,
+            c->prefix_pass == PAIRED_PREFIX_VERTICAL ? 2 : p->filter.refine,
+            first, last);
+        break;
+    case PAIRED_PREFIX_DENOISE:
+        paired_denoise(input, output, width, height, &p->denoise, first, last);
+        break;
+    case PAIRED_PREFIX_DETAIL:
+        paired_detail(input, output, width, height, &p->detail, first, last);
+        break;
+    case PAIRED_PREFIX_ADAPTIVE:
+        paired_adaptive(input, output, width, height, &p->adaptive, first, last);
+        break;
+    case PAIRED_PREFIX_COLOR0:
+    case PAIRED_PREFIX_COLOR1: {
+        unsigned block = c->prefix_pass - PAIRED_PREFIX_COLOR0;
+        const NikonPairedColorBlock *b = &p->colorfilter.block[block];
+
+        paired_color_block(input, output, width, height, b,
+            &c->prefix_color[block], paired_color_strength(b,
+                mono ? 4 : phase ^ (p->encoding - 1)), first, last);
+        break;
+    }
+    case PAIRED_PREFIX_TAIL:
+        paired_color_tail(input, output, width, height, &p->colorfilter,
+                           first, last);
+        break;
+    case PAIRED_PREFIX_SCATTER:
+        for (unsigned y = first; y < last; y++) {
+            for (unsigned x = 0; x < width; x++) {
+                c->dpc[(2 * y + phase / 2) * p->width + 2 * x + phase % 2] =
+                    input[y * width + x];
+            }
+        }
+        break;
+    default:
+        g_assert_not_reached();
     }
 }
 
@@ -1488,7 +1569,7 @@ bool nikon_paired_pixels_run(NikonPairedPixels *c, unsigned task)
         success = paired_prepare(c);
         break;
     case NIKON_PAIRED_PIXEL_PREFIX:
-        success = paired_prefix(c, task);
+        paired_prefix(c, task);
         break;
     case NIKON_PAIRED_PIXEL_TEMPORAL:
         paired_temporal(c->dpc, p->width, p->height, c->prior, c->residual,
@@ -1568,13 +1649,41 @@ bool nikon_paired_pixels_advance(NikonPairedPixels *c)
         }
     }
     if (c->stage == NIKON_PAIRED_PIXEL_PREFIX) {
-        g_clear_pointer(&c->prefix_dpc, g_free);
-        g_clear_pointer(&c->prefix_filtered, g_free);
-        if (c->mono_swap) {
-            uint16_t *scratch = c->dpc;
+        bool mono = c->p.encoding == NIKON_RAW_MONO;
+        size_t plane = (size_t)c->p.width * c->p.height / 4;
 
-            c->dpc = c->filtered;
-            c->filtered = scratch;
+        for (unsigned phase = 0; phase < (mono ? 1 : 4); phase++) {
+            uint16_t *input = c->prefix_input[phase];
+
+            if (!paired_prefix_active(c, phase) ||
+                c->prefix_pass == PAIRED_PREFIX_SCATTER) {
+                continue;
+            }
+            c->prefix_input[phase] = c->prefix_output[phase];
+            if (c->prefix_pass == PAIRED_PREFIX_GATHER) {
+                c->prefix_output[phase] = c->prefix_dpc + phase * plane;
+            } else if (c->prefix_pass == PAIRED_PREFIX_DPC) {
+                c->prefix_output[phase] = mono ? c->filtered :
+                    c->prefix_filtered + phase * plane;
+            } else {
+                /* A zero correction preserves RAW12 exactly. Swap only the
+                 * active lanes after every reader of this pass has joined.
+                 */
+                c->prefix_output[phase] = input;
+            }
+        }
+        if (++c->prefix_pass == PAIRED_PREFIX_DONE) {
+            g_clear_pointer(&c->prefix_dpc, g_free);
+            g_clear_pointer(&c->prefix_filtered, g_free);
+            for (unsigned block = 0; block < 2; block++) {
+                g_clear_pointer(&c->prefix_color[block].multipliers, g_free);
+            }
+            if (mono && c->prefix_input[0] == c->filtered) {
+                uint16_t *scratch = c->dpc;
+
+                c->dpc = c->filtered;
+                c->filtered = scratch;
+            }
         }
     }
     if (c->stage == NIKON_PAIRED_PIXEL_COLOR) {
@@ -1604,7 +1713,9 @@ bool nikon_paired_pixels_advance(NikonPairedPixels *c)
         }
         c->post_pass++;
     }
-    if (c->stage != NIKON_PAIRED_PIXEL_POST || c->post_pass == 5) {
+    if ((c->stage != NIKON_PAIRED_PIXEL_POST || c->post_pass == 5) &&
+        (c->stage != NIKON_PAIRED_PIXEL_PREFIX ||
+         c->prefix_pass == PAIRED_PREFIX_DONE)) {
         c->stage++;
     }
     memset(c->complete, 0, sizeof(c->complete));
@@ -1631,6 +1742,9 @@ void nikon_paired_pixels_free(NikonPairedPixels *c)
     g_free(c->filtered);
     g_free(c->prefix_dpc);
     g_free(c->prefix_filtered);
+    for (unsigned block = 0; block < 2; block++) {
+        g_free(c->prefix_color[block].multipliers);
+    }
     g_free(c->planes);
     g_free(c->post_scratch);
     g_free(c->half_luma);
