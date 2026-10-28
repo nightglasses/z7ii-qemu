@@ -547,10 +547,33 @@ events to advance a consumer.
 
 The QEMU thread pool computes pixels and packs output bytes from a detached,
 immutable job: decoded parameters, RAW samples and qualified history are copied
-before submission. It never reads guest RAM, accesses device state, performs DMA
-or raises an IRQ. One physical task per bank bounds outstanding work, including
-cancelled tasks that have not returned. Completion returns to the main
-AioContext and schedules virtual-clock publication; a paused virtual clock does
+before submission. Workers never read guest RAM, access device state, perform
+DMA or raise an IRQ. One aggregate job per bank bounds outstanding ownership,
+including cancelled work that has not returned. Its fixed numerical stages use
+at most four pool tasks at a time:
+
+| Stage | Independent work | Join before |
+| --- | --- | --- |
+| `0` prepare | Validate immutable samples, allocate private outputs, scan exact noise seeds | Any pixel processing |
+| `1` prefix | Four CFA lattices, or one MONO plane; each keeps complete DPC/filter/refinement order | Temporal history |
+| `2` temporal | Disjoint bands of complete 2×2 blocks | Neighboring radial reads |
+| `3` radial | CFA rows read one immutable mosaic and write distinct corrected pixels; MONO skips this stage | MAIN color |
+| `4` color | Up to four even-row MAIN bands | Spatial post-processing |
+| `5` post | Three independent channels, each keeping its five-pass order and private scratch | UV averaging |
+| `6` pack | Disjoint Y/UV bands and actual LE16 WORK bytes | Final result availability |
+
+Each MAIN band starts with the three LFSR states reached by scanning exactly
+its number of preceding pixels. Enabled channels alone step, and each band
+retains the original 2×2, `dy`, `dx` traversal. No noise state is reset at a band
+boundary. The two dead RAW intermediates become two channel scratch planes;
+only the third scratch needs another MAIN-sized allocation. The synchronous
+pixel interface composes these same stage bodies and copies results only after
+the complete private operation succeeds.
+
+Only main-AioContext callbacks submit the next fixed stage, after every child
+of the current stage returns. Workers neither submit nor wait on other pool
+work, so the same graph can run with a single pool worker. Final completion
+schedules the existing virtual-clock publication; a paused virtual clock does
 not publish an already computed result. The 1 ms interval is an earliest
 submission time, not a promise of completion within 1 ms or a physical frame rate.
 
@@ -560,8 +583,8 @@ peer ownership and downstream gate generation. Only then can actual DMA and the
 existing completion transition run. Source withdrawal still permits an immutable
 snapshot to finish, but cannot establish history for a newer source epoch.
 Cancellation or reset invalidates the task and releases logical ownership;
-the worker retains its private buffers until it returns, then discards its
-result without DMA, consumed-generation updates or completion events. Unrealize
+every submitted child retains the private aggregate until the last callback,
+then discards its result without DMA, consumed-generation updates or completion events. Unrealize
 disables admission and drains these callbacks before device resources are freed.
 This separation removes long pixel computation from the BQL callback. It does
 not by itself establish the cause of missed host controls or normal GUI startup.
@@ -629,11 +652,13 @@ These counters do not measure physical frame rate or electrical throughput.
 The read-only QOM string `runtime` reports each bank's request enum
 (`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active admitted
 job, phase, traversal/publication masks, publication flags and consumed generations,
-plus the four actual RAW slots, source epoch and physical `inflight` task count.
+plus the four actual RAW slots, source epoch and `inflight` aggregate count.
 Per-bank `compute` is `0` before host submission or after release, `1` while a
 task is queued/running and `2` after its callback has returned a result for
 virtual-clock publication. Unlike MMIO `18`, `active` describes an admitted job,
-including its host computation. Reading these fields performs no work or events.
+including its host computation. `stage` reports the fixed stage above (`7` done),
+and `remaining` counts children awaiting their Aio callbacks. Reading these fields
+performs no work or events.
 The same string distinguishes the live `selected` view from the `staged` `fc`
 readback; `commit` is its queued target, or `-1` if no complete commit is pending.
 
@@ -701,20 +726,20 @@ perform plain packing/stores without a stop, drain or hardware-completion wait:
 | Two gain curves, independently | `1036bb68 →1036ca74` | 129 words each: `2890..2a90` and `2a94..2c94` |
 
 Word ranges in this table include both ends and advance by four bytes. These
-are17 finite coverage groups. Existing uniform MAIN luma, saturation and optional
+are 17 finite coverage groups. Existing uniform MAIN luma, saturation and optional
 radial tables keep their specialized ordered-publication and dual-slot validity
 checks under the same immutable-owner rule. The independent mode words
 `700/704`, grid layout, `9c8`, `3c4.bit15` and uninterpreted config40 fields are
 not numerical exemptions. No supported numerical value range is widened.
 
 A later running kick is separate: `102c0530 →102e5488 →1036a49a`.
-The noise producer deliberately advances its parameter index modulo64.
+The noise producer deliberately advances its parameter index modulo 64.
 Consequently a changed noise mask, RGB enable or radial coefficient is not
 source evidence of a cancellation request. In a separate unchanged fixed-M
-diagnostic, 33 actual active cancellations in25.55 host seconds all came from
+diagnostic, 33 actual active cancellations in 25.55 host seconds all came from
 this former changed-word policy, predominantly `df8`, then `9cc` and `730`;
 no explicit stop or live-RAW-address cancellation was recorded in that scope.
-This diagnostic completed41 jobs from72 numerical computations. It is not
+This diagnostic completed 41 jobs from 72 numerical computations. It is not
 a controlled host-rate benchmark.
 
 The finite model retains the current token, decoded parameters and private

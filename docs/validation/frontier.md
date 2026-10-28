@@ -131,26 +131,49 @@ free call. Their successful retirement does not bound the entire queue.
 Running numerical setters also exposed a model error: changed parameters
 cancelled old computations despite no source stop/drain. The
 [online upload contract](../devices/pairs/pixels.md#online-numerical-uploads)
-now retains owned numerical snapshots across all17 confirmed groups and the
+now retains owned numerical snapshots across all 17 confirmed groups and the
 existing specialized tables. Partial packets block future admission; pre-color
 history revisions prevent stale re-registration. The latch boundary remains a
 functional hypothesis, while memory, freshness, stop/reset and ownership checks
 remain strict. Exact neutral-pass, lattice and signed-division reductions do
-not change output equations. The final scoped batch passes133 CMOS/paired,
-41 pixel and19 lifecycle cases, with normal TAP plans and exits.
+not change output equations. The final scoped batch passes 133 CMOS/paired,
+41 pixel and 19 lifecycle cases, with normal TAP plans and exits.
 
-A separate debugger-free fixed-M cold-neutral run completes209 paired jobs with
-zero paired cancellations or rejections,1551 grid jobs and1360 MAIN acquisitions.
-It still fails at allocator `1034fe78/DFAR3c` after48.40 host seconds. Active
-records grow57→568→876 while the oldest admission advances12→137→194; final
+A separate debugger-free fixed-M cold-neutral run completes 209 paired jobs with
+zero paired cancellations or rejections, 1551 grid jobs and 1360 MAIN acquisitions.
+It still fails at allocator `1034fe78/DFAR3c` after 48.40 host seconds. Active
+records grow 57→568→876 while the oldest admission advances 12→137→194; final
 runtime has an actual computation, not a stuck partial numerical upload.
-A bounded host-only diagnostic measures145184 microseconds median thread CPU
+A bounded host-only diagnostic measures 145184 microseconds median thread CPU
 per numerical job; sequential admission and active-list snapshots also grow
 faster than completion. This identifies a remaining numerical-supply deficit,
 not a missing completion event or a proven leak. Host time is not a native
 frame-period measurement, and no sustained GUI or mode acceptance is claimed.
 The [curated receipt](/evidence/runtime/grid.json) keeps these runs separate
 from the twelve-record breakpoint sample and the independent AF failure.
+
+The subsequent fixed-stage operator keeps one owned aggregate while executing
+independent CFA lattices, temporal blocks, radial rows, exact-seeded MAIN bands,
+and post channels through the existing QEMU pool. Workers never wait for other
+workers; DMA/IRQ remain in the final virtual-clock callback. The complete batch
+passes 133 CMOS/paired, 44 pixel and 35 lifecycle cases (212 total). Reset at each
+stage, single-worker execution and four-worker completion are covered. A separate
+synchronous IRQ-reset fixture reproduced a SIGSEGV; retiring the completed task
+before calling the IRQ sink fixes that lifetime error. Later exact division
+reductions pass a scoped 46 pixel/35 lifecycle rerun with independent scalar
+noise and legal-weight oracles.
+
+Original fixed-M execution still fails independently: the stage version reaches
+98 paired completions and 109 active records before AF `1021d7ce/DFAR0` at
+19.07 host seconds; the later arithmetic version reaches 190 completions and
+200 active records before the same AF site at 26.65 seconds. Both have zero
+paired cancellations/rejections. They do not reach the earlier allocator limit,
+and cannot establish that memory growth is fixed. Source also confirms that
+MAIN's following warp/three-output work still runs synchronously in BQL, with
+next paired computation excluded while its input is occupied. Its exact share
+of the remaining gap is unmeasured. Owned MAIN work, capacity epochs and bounded
+pre-computation are the next integration boundary; they are not claimed as
+passing in these receipts.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.

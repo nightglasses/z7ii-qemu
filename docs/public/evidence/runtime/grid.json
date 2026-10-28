@@ -415,5 +415,146 @@
       },
       "qualification": "Separate bounded fixedM run; no debugger or guest writes. Medians are separate stage distributions, not a hardware timing claim."
     }
+  },
+  "paired_stage_model": {
+    "commits": [
+      "58451254",
+      "f8901ad5",
+      "15c42300",
+      "5972808",
+      "387bdcdc",
+      "f579e634"
+    ],
+    "contract": "One owned aggregate per bank; fixed prepare/CFA-prefix/temporal/radial/color/post/pack graph; bounded independent pool shards join through main AioContext. Workers never submit or wait on pool children, access guest RAM or publish events. Final virtual timer retains original profile/layout/backing/freshness/ownership/DMA/IRQ checks.",
+    "noise": "Each even-row MAIN band receives exactly the original per-channel LFSR state after all preceding emitted pixels; local2x2/dy/dx order is retained.",
+    "exact_reductions": "DPC sufficient center bound skips only provably unnecessary median sort; coefficient0 radial direct read requires same source lattice. Unsigned magnitude shift preserves signed-nearest rounding; separate branch-weight reciprocals are corrected exactly.",
+    "lifecycle_red_green": {
+      "red": "Synchronous completion IRQ sink resets the device; old publication order SIGSEGV in0.76s",
+      "fix": "Release completed aggregate before external IRQ callback, retaining a device reference through reentry",
+      "green": "Actual pixels/padding, one completion, zero cancellation, reset pending0/no IRQ and no delayed publication pass"
+    },
+    "native": {
+      "base": "387bdcdc",
+      "cmos_paired_integration": 133,
+      "pairedpixels": 44,
+      "paired_lifecycle": 35,
+      "total_pass": 212,
+      "cmos_host_seconds": 331.69,
+      "exit": "Normal TAP plans and process exits",
+      "coverage": "All prior numerical/memory/freshness boundaries, scalar full-chain pixel equations plus reverse shard order, mono/CFA/crop/history/noise/minimum dimensions, reset at every fixed stage, single-worker drain, four-worker completion, pause, unrealize and synchronous IRQ reset"
+    },
+    "later_exact_arithmetic": {
+      "base": "f579e634",
+      "pairedpixels": 46,
+      "paired_lifecycle": 35,
+      "total_pass": 81,
+      "exit": "Normal TAP plans/exits; scoped arithmetic rerun, not another full CMOS batch",
+      "coverage": "Unsigned offset0..255, shifts0..15, signed noise sums, maximum valid coefficients/gains, every legal branch shift tuple and nearest attainable half residues. INT_MIN/shift31 are algebraically proved, outside valid pixel fixture calls.",
+      "independent_review": "No remaining findings in stage ownership, DPC/radial shortcuts or exact arithmetic"
+    }
+  },
+  "paired_stage_original": {
+    "base": "387bdcdc",
+    "host_seconds": 19.0708,
+    "paired_completed": 98,
+    "paired_cancelled": 0,
+    "paired_rejected": 0,
+    "active_records": 109,
+    "admission_sequence": 205,
+    "oldest_admission": 97,
+    "pc_mas_va": "0x1021d7ce",
+    "dfar": "0x0",
+    "task": "0x01000018",
+    "diagnostic_bytes": 302908,
+    "variable_pool_mpl0001": {
+      "free_bytes": 14032928,
+      "largest_block": 14032584
+    },
+    "passed": false,
+    "qualification": "Unchanged fixedM/cold-neutral, no debugger or guest writes. Independent AF failure precedes allocator exhaustion. Same PC is not same-run proof of the historical AS writer. Backlog remains; no stability or controlled FPS conclusion."
+  },
+  "paired_stage_host_diagnostic": {
+    "base": "387bdcdc plus temporary host-only CPU/Aio-join logs; restored afterward",
+    "host_seconds": 21.8991,
+    "paired_completed": 127,
+    "paired_cancelled": 0,
+    "paired_rejected": 0,
+    "diagnostic_flags": [
+      0,
+      0,
+      0
+    ],
+    "fully_joined_jobs": 127,
+    "job_sum_stage_wall_median_us": 59911,
+    "per_stage_median_us": [
+      {
+        "stage": 0,
+        "child_cpu": 1513,
+        "aio_join_wall": 1719.5
+      },
+      {
+        "stage": 1,
+        "child_cpu": 14727.5,
+        "aio_join_wall": 17636
+      },
+      {
+        "stage": 2,
+        "child_cpu": 666,
+        "aio_join_wall": 761
+      },
+      {
+        "stage": 3,
+        "child_cpu": 1243,
+        "aio_join_wall": 1408
+      },
+      {
+        "stage": 4,
+        "child_cpu": 11364,
+        "aio_join_wall": 12297.5
+      },
+      {
+        "stage": 5,
+        "child_cpu": 7466,
+        "aio_join_wall": 19645
+      },
+      {
+        "stage": 6,
+        "child_cpu": 372,
+        "aio_join_wall": 487
+      }
+    ],
+    "sequential_snapshots": [
+      {
+        "host_seconds": 8.9886,
+        "admission_sequence": 6,
+        "active_records": 5
+      },
+      {
+        "host_seconds": 19.4086,
+        "admission_sequence": 220,
+        "active_records": 118
+      }
+    ],
+    "qualification": "Stage distributions are separate medians; total is computed from seven joins of each complete job. Host wall includes pool queue and Aio dispatch, not silicon timing. Zero diagnostic flags only in this bounded diagnostic window; no mode acceptance."
+  },
+  "later_exact_original": {
+    "base": "f579e634",
+    "host_seconds": 26.6541,
+    "paired_completed": 190,
+    "paired_cancelled": 0,
+    "paired_rejected": 0,
+    "active_records": 200,
+    "admission_sequence": 388,
+    "pc_mas_va": "0x1021d7ce",
+    "dfar": "0x0",
+    "task": "0x01000018",
+    "diagnostic_bytes": 3779,
+    "passed": false,
+    "qualification": "Unchanged fixedM/cold-neutral, no debugger or guest writes; partial AF diagnostic append captured. Independent AF stop before allocator limit. A preceding trial ended only because a sequential observer raced a recycled descriptor and attempted unmapped frame0; it is not classified as guest failure or acceptance."
+  },
+  "main_pipeline_followup": {
+    "source_fact": "gate.c process_frame calls gatework_execute synchronously from the default virtual timer: full NV12 warp, three affine renders and DMA happen before sole input_data release. Paired admission rejects BUSY capacity before starting its numerical work.",
+    "evidence_limit": "Source proves serialization, not its measured share of the inter-job gap. Single-input capacity and pre-compute exclusion were finite model choices, not recovered ASIC FIFO depth.",
+    "work_in_progress": "Private MAIN snapshot/pure-pool/publish, explicit binding epoch, capacity release notification and bounded paired private pre-computation; not included in the receipts above and not yet accepted."
   }
 }
