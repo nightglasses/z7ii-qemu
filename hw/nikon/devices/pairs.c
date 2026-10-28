@@ -1378,29 +1378,6 @@ static bool paired_transfer_valid(const NikonRawTransfer *t)
     return true;
 }
 
-static bool paired_transfer_sample(const NikonRawTransfer *t, uint16_t *sample)
-{
-    unsigned low = 0, high = 256;
-
-    if (t->codec == NIKON_RAW_LINEAR) {
-        return true;
-    }
-    while (low < high) {
-        unsigned middle = low + (high - low) / 2;
-
-        if (t->lookup[middle] < *sample) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-    if (low == 256 || t->lookup[low] != *sample) {
-        return false;
-    }
-    *sample = (low * 257) >> 4;
-    return true;
-}
-
 static bool paired_snapshot(NikonPairedEventBanksBank *b,
                              const NikonPairedRawFrame *frame)
 {
@@ -1410,6 +1387,7 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     unsigned y0 = b->config[0x44 / 4] & 0xffff;
     size_t pixels = (size_t)g->width * g->height;
     unsigned row_bytes;
+    uint16_t inverse[4096];
     g_autofree uint8_t *row = NULL;
     bool transfer_valid = frame->bits == 12 &&
                           paired_transfer_valid(&frame->transfer);
@@ -1445,6 +1423,13 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     if (!paired_targets(j, frame)) {
         return false;
     }
+    if (frame->transfer.codec == NIKON_RAW_LOOKUP8) {
+        /* The validated knots are unique RAW12 codes; all other codes reject. */
+        memset(inverse, 0xff, sizeof(inverse));
+        for (unsigned i = 0; i < ARRAY_SIZE(frame->transfer.lookup); i++) {
+            inverse[frame->transfer.lookup[i]] = (i * 257) >> 4;
+        }
+    }
     row_bytes = frame->width * 12 / 8;
     g->encoding = frame->encoding == NIKON_RAW_MONO ? NIKON_RAW_MONO :
         1 + ((frame->encoding - 1) ^ (x0 & 1) ^ ((y0 & 1) << 1));
@@ -1469,15 +1454,19 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
             unsigned bit = (x + x0) * 12, byte = bit / 8;
             uint32_t value = row[byte] | row[byte + 1] << 8;
 
-            j->raw[y * g->width + x] = (value >> (bit % 8)) & 4095;
-            if (!paired_transfer_sample(&frame->transfer,
-                                         &j->raw[y * g->width + x])) {
-                qemu_log_mask(LOG_GUEST_ERROR,
-                    "nikon-paired: snapshot-code bank=%u x=%u y=%u "
-                    "sample=%u codec=%u\n", b->index, x, y,
-                    j->raw[y * g->width + x], frame->transfer.codec);
-                return false;
+            uint16_t sample = (value >> (bit % 8)) & 4095;
+
+            if (frame->transfer.codec == NIKON_RAW_LOOKUP8) {
+                if (inverse[sample] == UINT16_MAX) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: snapshot-code bank=%u x=%u y=%u "
+                        "sample=%u codec=%u\n", b->index, x, y,
+                        sample, frame->transfer.codec);
+                    return false;
+                }
+                sample = inverse[sample];
             }
+            j->raw[y * g->width + x] = sample;
         }
     }
     /* Only successful publication qualifies RAM as numerical history. */

@@ -1007,6 +1007,124 @@ static NikonPairedGridFrame grid_frame(uint64_t generation)
     };
 }
 
+static void transfer_raw(PairedFixture *f, const NikonRawTransfer *transfer)
+{
+    for (unsigned i = 0; i < 64 * 36; i += 2) {
+        unsigned a = i % 256, b = (i + 1) % 256;
+
+        if (transfer->codec == NIKON_RAW_LOOKUP8) {
+            a = transfer->lookup[a];
+            b = transfer->lookup[b];
+        } else {
+            /* Independent LINEAR control contains the specified decoded data. */
+            a = a * 257 / 16;
+            b = b * 257 / 16;
+        }
+        f->bytes[3 * i / 2] = a;
+        f->bytes[3 * i / 2 + 1] = (a >> 8) | (b << 4);
+        f->bytes[3 * i / 2 + 2] = b >> 4;
+    }
+}
+
+static void test_transfer_decode(void)
+{
+    PairedFixture *f = fixture_new();
+    g_autofree uint8_t *expected = g_malloc(RAM_SIZE - MAIN_OFFSET);
+    uint8_t input[96 * 36];
+
+    for (unsigned pass = 0; pass < 4; pass++) {
+        NikonPairedRawFrame raw = raw_frame(0, 1);
+        NikonPairedGridFrame grid = grid_frame(1);
+        PoolBarrier blocker;
+
+        if (pass) {
+            device_cold_reset(f->dev);
+            configure(f);
+            /* Reset withdraws the old metadata; time alone cannot replay it. */
+            advance(2000000);
+            g_assert_cmpuint(counter(f, "completed"), ==, pass);
+            g_assert_cmphex(read_port(f, 0x24), ==, 0);
+            g_assert_false(f->level);
+        }
+        if (pass == 1 || pass == 2) {
+            raw.transfer.codec = NIKON_RAW_LOOKUP8;
+            for (unsigned i = 0; i < 256; i++) {
+                raw.transfer.lookup[i] = i == 255 ? 4095 :
+                    pass == 1 ? 16 * i : 15 * i + 1;
+            }
+        }
+        transfer_raw(f, &raw.transfer);
+        memcpy(input, f->bytes, sizeof(input));
+        memset(f->bytes + MAIN_OFFSET, 0xa5, RAM_SIZE - MAIN_OFFSET);
+        blocker_start(&blocker);
+        write_port(f, 0x10, 1);
+        write_port(f, 8, 1);
+        nikon_paired_grid_frame(f->dev, &grid);
+        nikon_paired_frame(f->dev, &raw);
+        g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+        advance(999999);
+        g_assert_cmpuint(counter(f, "completed"), ==, pass);
+        advance(1);
+        finish_queued(f, &blocker);
+        g_assert_cmpuint(counter(f, "completed"), ==, pass + 1);
+        g_assert_cmpuint(counter(f, "bytes"), ==, (pass + 1) * 56 * 42);
+        g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
+        g_assert_true(f->level);
+        g_assert_cmpuint(f->rises, ==, pass + 1);
+        g_assert_cmpmem(f->bytes, sizeof(input), input, sizeof(input));
+        if (!pass) {
+            memcpy(expected, f->bytes + MAIN_OFFSET, RAM_SIZE - MAIN_OFFSET);
+        } else {
+            /* Both full 256-code LUTs, then LINEAR after reset, must produce
+             * the control's actual complete MAIN pixels and untouched guards.
+             */
+            g_assert_cmpmem(f->bytes + MAIN_OFFSET, RAM_SIZE - MAIN_OFFSET,
+                            expected, RAM_SIZE - MAIN_OFFSET);
+        }
+    }
+    fixture_free(f);
+}
+
+static void test_transfer_decode_rejection(void)
+{
+    for (unsigned variant = 0; variant < 5; variant++) {
+        PairedFixture *f = fixture_new();
+        NikonPairedRawFrame raw = raw_frame(0, 1);
+        NikonPairedGridFrame grid = grid_frame(1);
+
+        raw.transfer.codec = NIKON_RAW_LOOKUP8;
+        for (unsigned i = 0; i < 256; i++) {
+            raw.transfer.lookup[i] = i == 255 ? 4095 : 16 * i;
+        }
+        transfer_raw(f, &raw.transfer);
+        if (variant < 3) {
+            unsigned code = variant == 0 ? 1 : variant == 1 ? 4094 : 0;
+
+            if (variant == 2) {
+                raw.transfer.lookup[0] = 1; /* Code0 is below the first knot. */
+                transfer_raw(f, &raw.transfer);
+            }
+            /* A late missing code must not expose an earlier partial result. */
+            f->bytes[96 * 36 - 2] =
+                (f->bytes[96 * 36 - 2] & 15) | (code << 4);
+            f->bytes[96 * 36 - 1] = code >> 4;
+        } else if (variant == 3) {
+            raw.transfer.lookup[255] = 4096;
+        } else {
+            raw.transfer.lookup[128] = raw.transfer.lookup[127];
+        }
+        write_port(f, 0x10, 1);
+        write_port(f, 8, 1);
+        nikon_paired_grid_frame(f->dev, &grid);
+        nikon_paired_frame(f->dev, &raw);
+        advance(2000000);
+        g_assert_cmpuint(counter(f, "rejected"), >, 0);
+        g_assert_true(runtime_has(f, "inflight=0"));
+        unpublished(f);
+        fixture_free(f);
+    }
+}
+
 static void test_raw_backing_alias(void)
 {
     PairedFixture *f = fixture_new();
@@ -1480,6 +1598,9 @@ int main(int argc, char **argv)
                          test_async_bank_clear);
     g_test_add_func("/nikon/paired/async/bank-invalid", test_async_bank_invalid);
     g_test_add_func("/nikon/paired/raw-backing-alias", test_raw_backing_alias);
+    g_test_add_func("/nikon/paired/transfer-decode", test_transfer_decode);
+    g_test_add_func("/nikon/paired/transfer-decode-rejection",
+                    test_transfer_decode_rejection);
     g_test_add_func("/nikon/paired/grid-dependency", test_grid_dependency);
     g_test_add_func("/nikon/paired/grid-snapshot", test_grid_snapshot);
     g_test_add_func("/nikon/paired/grid-rejection", test_grid_rejection);
