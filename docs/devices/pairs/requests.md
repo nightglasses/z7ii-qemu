@@ -101,6 +101,61 @@ growing60→326→591→798→877 and the oldest admission advancing5→61 befor
 allocator failure. This is growing backlog with continuing retirement, not
 evidence of one permanently stuck lane or a missing unconditional free.
 
+### Software event-bit admission
+
+Later C1.70 source analysis identifies a separate resource boundary before
+these completion waits. All addresses in this subsection are MAS VA. Pool0
+at `b1f59acc` contains fifteen event objects and fifteen available-bit words
+at offsets `40..78`, initially all ones: 480 software event bits, not hardware
+pending bits. Guard `1026654c` first calls `102664cc` to allocate three join
+bits into job offsets `24/30/3c` (count at `60`) for the observed frame mode2.
+It then calls `10266460` to allocate one notification bit into job offset `10`.
+These offsets are hexadecimal; frame mode and counts are decimal.
+
+The normal notification producer `10268b08` sets that bit through `1026648e`
+and `102b49c4`. Lane2's first `10268b04` consumes it through `10266476`, then
+`102b49a8/102e6582` returns it. Other lanes signal their join bits through
+`102664ba/102b48f0`; lane0's terminal `102664a0/102b4962` waits for all joins,
+then `102e666a/102e6582` returns them. Actual work-record free remains a later,
+separate operation.
+
+The batch allocator `102e668e` rolls back its own partial failure. The outer
+guard has a different failure boundary: after a successful three-bit batch,
+a failed notification allocation returns without releasing that batch. A
+subsequent batch attempt clears its saved count before allocating again.
+Thus source permits unreturned join identities to be overwritten on retry.
+This is a potential permanent admission failure, not permission for the board
+to release software bits or manufacture the missing completion.
+
+Direct translated snapshots in a debugger-free fixed-M/cold-neutral run show
+all fifteen available-bit words zero at 35.98 and 46.18 host seconds. Another
+run retains admission388 at the head while paired/MAIN work continues and
+sampled workers wait for mailbox input. These observations establish exhaustion
+and a stalled dispatch boundary, but do not distinguish every normal live
+holder from an orphaned bit. Some records in the first run still legitimately
+hold joins. Other source paths also allocate from pool0, so total ownership
+cannot be inferred solely from active-record count.
+
+A separate failure-only hardware-breakpoint diagnostic directly confirms the
+outer rollback defect. Its initial probe stops only at allocator failure
+`102e656e`; it then records a bounded allocation/free/retry window. Seven
+same-job retries preserve three old join identities until batch reentry and
+overwrite all three output records without an intervening successful free.
+These are 21 distinct orphaned bits, all still unreturned at the window end.
+Three identities come from the first failure snapshot; the other eighteen
+allocations are observed directly. In contrast, all39 observed batch failures
+finish with count zero after their own rollback.
+
+The final43 observed live bits comprise those21 orphans,21 still-recorded joins
+and one notification bit. Of80 observed successful frees,41 return identities
+allocated before the detailed window; an unmatched observation is not a failed
+free. The final probe stops before one real free store executes, so its bitmap
+snapshot also precedes that store. Hardware-breakpoint pauses change execution
+timing; this diagnostic proves the ownership-loss sequence, not native rates or
+why initial pressure appears. Ending the probe leaves QEMU in debugger-stop
+state and terminates the observer window; that is not a guest exception.
+The firmware and software pool remain unchanged.
+
 ## All graph-node requests and parameter reload
 
 `103b4cea ->103bd07c` writes backend+`0=1` for configured processing nodes,

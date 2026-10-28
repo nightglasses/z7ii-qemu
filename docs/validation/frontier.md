@@ -168,12 +168,49 @@ Original fixed-M execution still fails independently: the stage version reaches
 19.07 host seconds; the later arithmetic version reaches 190 completions and
 200 active records before the same AF site at 26.65 seconds. Both have zero
 paired cancellations/rejections. They do not reach the earlier allocator limit,
-and cannot establish that memory growth is fixed. Source also confirms that
-MAIN's following warp/three-output work still runs synchronously in BQL, with
-next paired computation excluded while its input is occupied. Its exact share
-of the remaining gap is unmeasured. Owned MAIN work, capacity epochs and bounded
-pre-computation are the next integration boundary; they are not claimed as
-passing in these receipts.
+and cannot establish that memory growth is fixed. Those windows predate the
+owned MAIN pipeline. Its former synchronous BQL warp/three-output work and
+exclusion of paired computation while input is occupied were source-confirmed
+serialization boundaries; their exact share of the gap was not measured.
+
+The [owned MAIN pipeline](../devices/gate/processing.md) now separates private
+pool math from current-state DMA publication, retains numerical snapshots across
+normal uploads, and exposes actual input epochs/capacity. Paired can compute one
+private next result while MAIN owns the input; real consumption wakes its
+strict recheck. POST joins row bands after every pass. This model passes269
+native cases, including135 CMOS/paired integration cases with normal TAP and
+exit. Paused/reset/unrealize and pending-result fences remain separate guards;
+no guest slots, software events or completion causes are forced.
+The subsequent complete pass-banded PREFIX and twelve-band COLOR model passes
+272 cases:135 CMOS/paired,48 pixel,41 paired lifecycle and48 MAIN/grid unit
+cases. The CMOS fixture exits normally after356.92 host seconds. Independent
+scalar noise, uneven twelve-band division and mid-PREFIX reset/unrealize are
+covered; this remains separate from original execution below.
+
+Original fixed-M execution still fails. One debugger-free window completes776
+paired and776 MAIN jobs without cancellations or rejections before allocator
+`1034fe78/DFAR3c` at51.88 host seconds. Active records grow431→875 while the
+sampled head stays at admission388, although normal result supply continues.
+A separate run rejects1680 RAW attempts at a repeated whole-batch input-address
+overlap and stops at237 paired results; this is a distinct online ring-publication
+boundary requiring investigation. It cannot be treated as a controlled rate
+comparison. After PREFIX pass/row separation, another window completes1044
+paired/MAIN jobs with zero cancellation/rejection but reaches the same allocator
+at62.12 seconds; it still has only four COLOR tasks.
+
+The [software event-bit audit](../devices/pairs/requests.md#software-event-bit-admission)
+identifies the concrete admission resource: pool0 has480 bits, and translated
+snapshots show all fifteen available-bit words zero. The outer guard allocates
+three joins before a notification bit, without returning the joins if the
+second allocation fails. Its retry can overwrite the saved identities. This
+source failure path explains a possible permanent dispatch stall. A separate
+failure-only breakpoint diagnostic now proves seven such retries orphan21
+distinct bits;39 batch-level failures still roll back normally. Its final43
+observed live bits also include21 valid joins and one notification, so not all
+live bits are leaks. The diagnostic ends at debugger-stop, with no guest
+exception; its pauses cannot establish native rates or the initial pressure's
+cause. The remaining backlog is therefore not established as only slow
+arithmetic or one missing hardware completion.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.

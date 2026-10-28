@@ -555,12 +555,20 @@ at most twelve pool tasks at a time:
 | Stage | Independent work | Join before |
 | --- | --- | --- |
 | `0` prepare | Validate immutable samples, allocate private outputs, scan exact noise seeds | Any pixel processing |
-| `1` prefix | Four CFA lattices, or one MONO plane; each keeps complete DPC/filter/refinement order | Temporal history |
+| `1` prefix | Twelve ordered passes, each with up to three row bands per CFA lattice or four MONO bands | Next prefix pass, then temporal history |
 | `2` temporal | Disjoint bands of complete 2×2 blocks | Neighboring radial reads |
 | `3` radial | CFA rows read one immutable mosaic and write distinct corrected pixels; MONO skips this stage | MAIN color |
-| `4` color | Up to four even-row MAIN bands | Spatial post-processing |
+| `4` color | Up to twelve even-row MAIN bands | Spatial post-processing |
 | `5` post | Each of five ordered passes uses up to four row bands per active channel | Next pass, then UV averaging |
 | `6` pack | Disjoint Y/UV bands and actual LE16 WORK bytes | Final result availability |
+
+PREFIX gathers the four CFA lattices, then joins DPC, spatial, filter,
+optional vertical refinement, denoise, detail, adaptive, two color blocks,
+color tail and final scatter in that order. Each pass reads the complete
+immutable preceding plane and writes disjoint rows. Neutral lanes keep their
+input pointer. Scatter joins before releasing its private scratch. The MONO
+path uses the same pass bodies without gather/scatter. Color-block reciprocal
+tables are prepared once per job and shared read-only by its bands.
 
 Each MAIN band starts with the three LFSR states reached by scanning exactly
 its number of preceding pixels. Enabled channels alone step, and each band
@@ -679,7 +687,8 @@ task is queued/running and `2` after its callback has returned a result for
 virtual-clock publication. Unlike MMIO `18`, `active` describes an admitted job,
 including its host computation. `stage` reports the fixed stage above (`7` done),
 and `remaining` counts children awaiting their Aio callbacks. `postpass` reports
-the current post pass; `capacity-wait` marks a computed result retained for the
+the current post pass; `prefixpass` reports the twelve-pass prefix cursor.
+`capacity-wait` marks a computed result retained for the
 real gate input, and `capacity-pending` marks its virtual recheck timer. Reading these fields
 performs no work or events.
 The same string distinguishes the live `selected` view from the `staged` `fc`
