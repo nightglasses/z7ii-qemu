@@ -2758,6 +2758,137 @@ static void test_capture_processing(void)
     unlink(bundle);
 }
 
+static void test_capture_work_snapshot(void)
+{
+    static const uint8_t white[] = {
+        'P', '5', '\n', '2', ' ', '2', '\n', '2', '5', '5', '\n',
+        255, 255, 255, 255,
+    };
+    static const uint8_t expected[2][12] = {
+        { 0, 0, 0, 0, 0, 0, 0xc0, 0, 0xc, 0xc0, 0, 0xc },
+        { 0x80, 1, 0x18, 0x80, 1, 0x18, 0xfd, 0xd2, 0x2f,
+          0xfd, 0xd2, 0x2f },
+    };
+    static const uint8_t packed_white[12] = {
+        0xfd, 0xd2, 0x2f, 0xfd, 0xd2, 0x2f,
+        0xfd, 0xd2, 0x2f, 0xfd, 0xd2, 0x2f,
+    };
+    g_autofree char *bundle = NULL;
+    g_autofree char *path = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    uint8_t row[16];
+    int fd = g_file_open_tmp("nikonrawwhiteXXXXXX", &path, NULL);
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)white,
+                                      sizeof(white), NULL));
+    work_configure(q, 2, true);
+    main_input_rise(q);
+    pipeline_step(q, 3); /* One exposure tick and two complete MAIN rows. */
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    main_input_rise(q);
+    pipeline_step(q, 3); /* Replaces pipeline MAIN bytes while job1 owns input. */
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
+    qtest_writel(q, 0x20069a54, WORK_BUFFER + 0x3000);
+    qtest_writel(q, 0x20069600, 0xffffffff); /* Uncommitted staging only. */
+    qtest_writel(q, WORK_BUFFER + 0x100c, 0x12345678);
+    qtest_writel(q, WORK_BUFFER + 0x101c, 0x87654321);
+    pipeline_step(q, 999996); /* Exactly admission + 999999 ns. */
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0);
+    pipeline_step(q, 1);
+    for (unsigned y = 0; y < 2; y++) {
+        qtest_memread(q, WORK_BUFFER + 0x1000 + 16 * y, row, sizeof(row));
+        g_assert_cmpmem(row, 12, expected[y], 12);
+        g_assert_cmphex((uint32_t)ldl_le_p(row + 12), ==,
+                       y ? 0x87654321 : 0x12345678);
+    }
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1020), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0x18);
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290) & 0x80, ==, 0x80);
+    qtest_writel(q, CAPTURE + 0x210, 0x18);
+    qtest_writel(q, CAPTURE + 0x290, 0x80);
+    pipeline_step(q, 999999);
+    g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+    pipeline_step(q, 1);
+    for (unsigned y = 0; y < 2; y++) {
+        qtest_memread(q, WORK_BUFFER + 16 * y, row, sizeof(row));
+        g_assert_cmpmem(row, 12, packed_white, sizeof(packed_white));
+        g_assert_cmphex((uint32_t)ldl_le_p(row + 12), ==, 0xa5a5a5a5);
+    }
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "bytes"), ==, 48);
+    qtest_writel(q, CAPTURE + 0x210, 0x18);
+    qtest_writel(q, CAPTURE + 0x290, 0x80);
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
+    qtest_quit(q);
+    unlink(bundle);
+    unlink(path);
+}
+
+static void test_capture_work_submitted_cancel(void)
+{
+    for (unsigned control = 0; control < 3; control++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint64_t published;
+
+        work_configure(q, 2, true);
+        main_input_rise(q);
+        pipeline_step(q, 3);
+        /* Submit at the minimum; cancellation may race a completed publication. */
+        qtest_clock_step(q, 1000000);
+        if (control == 2) {
+            qtest_system_reset(q);
+        } else if (control == 1) {
+            qtest_writel(q, 0x20069514, 4);
+            qtest_writel(q, CAPTURE + 0x104, 0x80);
+        } else {
+            qtest_writel(q, CAPTURE + 0xc, 0x200);
+        }
+        published = property_at(q, WORK_PATH, "completed");
+        g_assert_cmpuint(published, <=, 1);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==,
+                       published ? 0 : 0xa5a5a5a5);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "cancelled"), ==,
+                         1 - published);
+        /* Reconfigure and deliver new input before waiting on cancelled work. */
+        work_configure(q, 0, false);
+        qtest_writel(q, CAPTURE + 0x210, 0x18);
+        qtest_writel(q, CAPTURE + 0x290, 0x80);
+        main_input_rise(q);
+        pipeline_step(q, 10000);
+        pipeline_step(q, 2000000);
+        for (unsigned y = 0; y < 2; y++) {
+            for (unsigned x = 0; x < 8; x++) {
+                static const uint16_t gray[2][2] = {
+                    { 0, 0x4040 }, { 0x8080, 0xffff },
+                };
+
+                g_assert_cmpuint(qtest_readw(q, WORK_BUFFER + 0x1000 +
+                                            y * 16 + x * 2), ==,
+                                 gray[y][x / 4]);
+            }
+        }
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1020), ==, 0xa5a5a5a5);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==,
+                         published + 1);
+        qtest_writel(q, CAPTURE + 0x210, 0x18);
+        qtest_writel(q, CAPTURE + 0x290, 0x80);
+        pipeline_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==,
+                         published + 1);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void test_capture_work_lifecycle(void)
 {
     for (unsigned operation = 0; operation < 9; operation++) {
@@ -7673,6 +7804,9 @@ int main(int argc, char **argv)
                    test_capture_work_boundaries);
     qtest_add_func("/nikon/cmos/processing/formats", test_capture_work_formats);
     qtest_add_func("/nikon/cmos/processing/freshness", test_capture_work_freshness);
+    qtest_add_func("/nikon/cmos/processing/snapshot", test_capture_work_snapshot);
+    qtest_add_func("/nikon/cmos/processing/submitted-cancel",
+                   test_capture_work_submitted_cancel);
     qtest_add_func("/nikon/cmos/processing/main-domain",
                    test_capture_work_main_domain);
     qtest_add_func("/nikon/cmos/paired/transaction", test_paired_processing);
