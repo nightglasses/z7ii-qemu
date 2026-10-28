@@ -9,7 +9,7 @@ changes until another publication or whole-model reset. This retention is an
 explicit functional hypothesis. There
 is no readiness or completion implied by this metadata. In the bundle
 composition, a separate owned job computes the finite RAW statistics profile
-below and publishes completion only after its three output families reach RAM.
+below and publishes completion only after its selected output families reach RAM.
 Its arithmetic is a declared reference operator, not recovered ASIC arithmetic.
 
 ## Original producers and masks
@@ -704,9 +704,12 @@ origin zero and positive width/height at most 16384. The two `ba34..ba50`
 rectangles have positive width/height and must fit that domain. Count mask
 `ba30=1` selects one primary/companion pair. Each grid rectangle starts half
 an extent before its center. Nonzero correction/mode fields are rejected:
-`b818/b81c/b984`, `ba10`, `ba14..ba28`, and `ba94..bab8`; `ba2c=3` selects
-the complete primary/companion and grid profile. Other selections remain
-retained MMIO configuration but do not qualify this numerical operation.
+`b818/b81c/b984`, `ba10`, `ba14..ba28`, and `ba94..bab8`. As a source-consumer
+inference, `ba2c` bit0 selects primary/companion and bit1 selects grid.
+Values 1 through 3 compute only the selected families; 0 admits no job and
+values above 3 reject. Inactive ROI/grid geometry and DMA destinations do
+not qualify or block active families, while shared metadata cursor validity
+keeps its earlier independent bounds.
 Other metadata continues to have its existing opaque readback contract.
 
 The normalized MAIN input is an immutable, synchronized, little-endian RAW16
@@ -749,10 +752,11 @@ The existing TG address packet remains independent metadata. A fresh MAIN
 generation on an automatic rise, after selected commit and effective unit20
 run, admits one owned computation with a declared 1 ms virtual latency. The
 job snapshots the committed configuration, cursor packet and input bytes.
-Both address sets and every ring slot must cover nonoverlapping writable RAM
-spans; each stride must cover its record family. All computation and private
-record construction precede output writes. Successful DMA of all three
-families latches the job's coherent packet, increments `completed` and publishes
+Both address sets and every ring slot of selected families must cover
+nonoverlapping writable RAM spans; each selected stride must cover its record
+family. All computation and private record construction precede output writes.
+Successful DMA of all selected families latches the job's coherent packet,
+increments `completed` and publishes
 capture `THIRD_EVENT {1,0}` (raw3 bit0). A TG edge without input still updates
 metadata but cannot publish data completion.
 

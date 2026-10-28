@@ -116,13 +116,14 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
     unsigned columns = group_word(s, 0) + 1;
     unsigned rows = group_word(s, 4) + 1;
     unsigned step_x = group_word(s, 0x10), step_y = group_word(s, 0x14);
+    unsigned families = group_word(s, 0x22c);
 
     *width = group_word(s, 0x208);
     *height = group_word(s, 0x20c);
     *cells = columns * rows;
     if (*width > 16384 || *height > 16384 || !*width || !*height ||
-        columns > 9 || rows > 9 || !step_x || !step_y ||
-        group_word(s, 0x22c) != 3 || group_word(s, 0x230) != 1) {
+        !families || families > 3 ||
+        ((families & 1) && group_word(s, 0x230) != 1)) {
         return false;
     }
     for (unsigned i = 0; i < ARRAY_SIZE(zero); i++) {
@@ -130,7 +131,7 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
             return false;
         }
     }
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; (families & 1) && i < 2; i++) {
         unsigned base = 0x234 + i * 16;
 
         roi[i] = (GroupRectangle) {
@@ -141,12 +142,13 @@ static bool group_profile(NikonCaptureGroupState *s, GroupRectangle roi[2],
             return false;
         }
     }
-    if (group_word(s, 8) < step_x / 2 ||
+    if ((families & 2) && (columns > 9 || rows > 9 || !step_x || !step_y ||
+        group_word(s, 8) < step_x / 2 ||
         group_word(s, 12) < step_y / 2 ||
         (uint64_t)group_word(s, 8) + (columns - 1) * step_x +
             (step_x + 1) / 2 > *width ||
         (uint64_t)group_word(s, 12) + (rows - 1) * step_y +
-            (step_y + 1) / 2 > *height) {
+            (step_y + 1) / 2 > *height)) {
         return false;
     }
     for (unsigned i = 0; i < 65; i++) {
@@ -253,9 +255,9 @@ static void group_complete(void *opaque)
         s->rejected++;
         return;
     }
-    sizes[0] = 40;
-    sizes[1] = 24;
-    sizes[2] = cells * 32;
+    sizes[0] = group_word(s, 0x22c) & 1 ? 40 : 0;
+    sizes[1] = group_word(s, 0x22c) & 1 ? 24 : 0;
+    sizes[2] = group_word(s, 0x22c) & 2 ? cells * 32 : 0;
     /* Validate both address sets and every ring slot before the first write. */
     for (unsigned bank = 0; bank < 2; bank++) {
         for (unsigned i = 0; i < 3; i++) {
@@ -263,6 +265,9 @@ static void group_complete(void *opaque)
             uint32_t stride = group_word(s, 0x380 + i * 0x100);
             unsigned count = group_word(s, 0x348) + 1;
 
+            if (!sizes[i]) {
+                continue;
+            }
             if (sizes[i] > stride) {
                 s->rejected++;
                 return;
@@ -275,6 +280,9 @@ static void group_complete(void *opaque)
                     return;
                 }
                 for (unsigned j = 0; j < i; j++) {
+                    if (!sizes[j]) {
+                        continue;
+                    }
                     for (unsigned other = 0; other < count; other++) {
                         uint64_t b = (uint64_t)group_word(s,
                             0x350 + bank * 16 + j * 0x100) +
@@ -337,6 +345,9 @@ static void group_complete(void *opaque)
     unsigned offset = 0;
 
     for (unsigned i = 0; i < 3; i++) {
+        if (!sizes[i]) {
+            continue;
+        }
         if (dma_memory_read(&address_space_memory, address[i], data + offset,
                             sizes[i], MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             s->rejected++;
@@ -362,6 +373,9 @@ static void group_complete(void *opaque)
     }
     offset = 0;
     for (unsigned i = 0; i < 3; i++) {
+        if (!sizes[i]) {
+            continue;
+        }
         if (dma_memory_write(&address_space_memory, address[i], data + offset,
                              sizes[i], MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             s->rejected++;
@@ -425,7 +439,7 @@ static void nikon_capture_group_automatic_rise(void *opaque, int index, int leve
                             s->cursor * s->active[3 + i % 3];
     }
     s->result_state = GROUP_RESULT_PUBLISHED;
-    if (s->pipeline && s->capture && !s->busy) {
+    if (s->pipeline && s->capture && !s->busy && s->committed[0x22c / 4]) {
         NikonCaptureInput input;
 
         if (nikon_capture_group_pending(s->capture)) {

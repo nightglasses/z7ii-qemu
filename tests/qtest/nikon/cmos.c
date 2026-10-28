@@ -1915,6 +1915,43 @@ static void test_group_cancellation(void)
     }
 }
 
+static void test_group_families(void)
+{
+    for (unsigned families = 0; families < 3; families++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint32_t base = GROUP_BUFFER + 0x5800;
+
+        group_configure(q);
+        qtest_writel(q, GROUP_BASE + 0x22c, families);
+        /* Inactive family destinations are deliberately outside RAM. */
+        for (unsigned bank = 0; bank < 2; bank++) {
+            if (!(families & 1)) {
+                qtest_writel(q, GROUP_BASE + 0x350 + bank * 16, 0x80000000);
+                qtest_writel(q, GROUP_BASE + 0x450 + bank * 16, 0x80000000);
+            }
+            if (!(families & 2)) {
+                qtest_writel(q, GROUP_BASE + 0x550 + bank * 16, 0x80000000);
+            }
+        }
+        qtest_writel(q, CAPTURE + 0x104, 0x10);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmphex(qtest_readl(q, base + 8), ==,
+                       families & 1 ? 114864 : 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, base + 0x80), ==,
+                       families & 1 ? 114864 : 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, base + 0xd8), ==,
+                       families & 2 ? 0 : 0xa5a5a5a5);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x270), ==, !!families);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, !!families);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "rejected"), ==, 0);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 #define WORK_PATH "/machine/capture-processing"
 #define WORK_BUFFER (RAM + 0x100000)
 
@@ -6911,6 +6948,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/group/payload", test_group_payload);
     qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
     qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
+    qtest_add_func("/nikon/cmos/group/families", test_group_families);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/main-boundaries",
