@@ -2074,7 +2074,10 @@ static uint16_t radial_reference_quad(uint16_t sample, bool quad)
 
 static void radial(void)
 {
-    static const int coefficients[] = { -128, 0, 127 };
+    /* Generic scalar interpolation covers zero's integer lattice collapse,
+     * and both nearest nonzero coefficients must retain actual displacement.
+     */
+    static const int coefficients[] = { -128, -1, 0, 1, 127 };
     static const uint16_t step[] = { 0, 256, 1792, 2048 };
     static const int centers[] = { -4095, 256, 65535 };
 

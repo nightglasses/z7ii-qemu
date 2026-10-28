@@ -948,11 +948,20 @@ static uint16_t paired_radial_sample(const uint16_t *raw,
 {
     int coefficient = lane == 0 ? p->radial.red :
                       lane == 3 ? p->radial.blue : 0;
-    int64_t sx = ((int64_t)x << 16) +
-                 ((int64_t)x - p->radial.center_x) * coefficient;
-    int64_t sy = ((int64_t)y << 16) +
-                 ((int64_t)y - p->radial.center_y) * coefficient;
+    int64_t sx, sy;
 
+    /* Zero displacement is one exact tap on MONO's Q16 unit lattice or
+     * this same CFA phase's Q17 lattice: both fractions are zero, including
+     * replicated edges. Cross-lane coordinates still require interpolation.
+     */
+    if (!coefficient && (p->encoding == NIKON_RAW_MONO ||
+        (lane ^ (p->encoding - 1)) == ((y & 1) * 2 + (x & 1)))) {
+        return raw[y * p->width + x];
+    }
+    sx = ((int64_t)x << 16) +
+         ((int64_t)x - p->radial.center_x) * coefficient;
+    sy = ((int64_t)y << 16) +
+         ((int64_t)y - p->radial.center_y) * coefficient;
     return paired_lattice_sample(raw, p, lane, sx, sy);
 }
 
