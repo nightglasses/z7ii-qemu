@@ -2235,6 +2235,155 @@ static void work_ack(QTestState *q)
     qtest_writel(q, CAPTURE + 0x290, qtest_readl(q, CAPTURE + 0x290));
 }
 
+static void test_front_capacity(void)
+{
+    for (unsigned cancellation = 0; cancellation < 3; cancellation++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint8_t expected[32], actual[32];
+
+        work_configure(q, 2, true);
+        work_input(q);
+        pipeline_step(q, 2000000);
+        qtest_memread(q, WORK_BUFFER + 0x1000, expected, sizeof(expected));
+        g_assert_cmphex(ldl_le_p(expected), ==, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0x18);
+        g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290) & 0x80, ==, 0x80);
+        main_input_rise(q);
+        pipeline_step(q, 10000); /* A fresh MAIN is blocked by the old packet. */
+        qtest_writel(q, CAPTURE + 0x210, 0);
+        qtest_writel(q, CAPTURE + 0x210, 0x10000000);
+        qtest_writel(q, CAPTURE + 0x210, 8);
+        pipeline_step(q, 2000000);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+        qtest_writel(q, CAPTURE + 0x210, 0x10);
+        pipeline_step(q, 2000000);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+        if (cancellation == 1) {
+            qtest_writel(q, CAPTURE + 0xc, 0x200);
+        } else if (cancellation == 2) {
+            qtest_system_reset(q);
+        }
+        qtest_writel(q, CAPTURE + 0x290, 0x80); /* Aggregate capacity restored. */
+        pipeline_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+        pipeline_step(q, 1);
+        if (!cancellation) {
+            /* RED: no TG or new input arrives between ACK and this real DMA. */
+            qtest_memread(q, WORK_BUFFER, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+            g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x18, ==, 0x18);
+            g_assert_cmphex(qtest_readl(q, CAPTURE + 0x290) & 0x80, ==, 0x80);
+            qtest_memset(q, WORK_BUFFER + 0x1000, 0xa5, sizeof(actual));
+            work_ack(q); /* No new generation: freeing capacity is no result. */
+            pipeline_step(q, 2000000);
+            g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
+        } else {
+            g_assert_cmphex(qtest_readl(q, WORK_BUFFER), ==, 0xa5a5a5a5);
+        }
+        g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==,
+                         cancellation ? 1 : 2);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
+static void test_statistics_capacity(void)
+{
+    for (unsigned cancellation = 0; cancellation < 3; cancellation++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint8_t input[0x400];
+        uint32_t target = RAM + 0x102000;
+
+        statistics_configure(q);
+        statistics_input(q, NULL);
+        pipeline_step(q, 2000000);
+        statistics_input(q, input);
+        qtest_writel(q, CAPTURE + 0x210, 0);
+        qtest_writel(q, CAPTURE + 0x210, 8);
+        qtest_writel(q, CAPTURE + 0x270, 0x20); /* Stage ACK is not data capacity. */
+        pipeline_step(q, 2000000);
+        g_assert_cmphex(qtest_readl(q, target), ==, 0xa5a5a5a5);
+        if (cancellation == 1) {
+            qtest_writel(q, CAPTURE + 0xc, 0x10);
+        } else if (cancellation == 2) {
+            qtest_system_reset(q);
+        }
+        qtest_writel(q, CAPTURE + 0x210, 0x40);
+        pipeline_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, target), ==, 0xa5a5a5a5);
+        pipeline_step(q, 1);
+        if (!cancellation) {
+            g_assert_cmpuint(qtest_readl(q, target + 8), ==, 64);
+            g_assert_cmpuint(qtest_readl(q, target + 12), ==,
+                             (statistics_sum(input, 0, 0, 32, 2) + 32) / 64);
+            g_assert_cmphex(qtest_readl(q, target + 128), ==, 0xa5a5a5a5);
+            g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 0x40, ==, 0x40);
+            qtest_writel(q, CAPTURE + 0x210, 0x40);
+            pipeline_step(q, 2000000);
+            g_assert_cmphex(qtest_readl(q, RAM + 0x100000), ==, 0xa5a5a5a5);
+        } else {
+            g_assert_cmphex(qtest_readl(q, target), ==, 0xa5a5a5a5);
+        }
+        g_assert_cmpuint(property_at(q, "/machine/capture-statistics", "completed"),
+                         ==, cancellation ? 1 : 2);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
+static void test_group_capacity(void)
+{
+    for (unsigned cancellation = 0; cancellation < 3; cancellation++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        uint8_t expected[40], actual[40];
+        uint32_t target = GROUP_BUFFER + 0x4000;
+
+        group_configure(q);
+        group_rise(q);
+        group_input(q);
+        pipeline_step(q, 2000000);
+        qtest_memread(q, GROUP_BUFFER + 0x5800, expected, sizeof(expected));
+        g_assert_cmpuint(ldl_le_p(expected + 8), ==, 114864);
+        group_input(q);
+        group_rise(q); /* Select next metadata cursor while data is blocked. */
+        g_assert_cmpuint(qtest_readl(q, GROUP_BASE + 0x374), ==, 0);
+        qtest_writel(q, CAPTURE + 0x270, 0);
+        qtest_writel(q, CAPTURE + 0x270, 2);
+        qtest_writel(q, CAPTURE + 0x290, 0x80);
+        pipeline_step(q, 2000000);
+        g_assert_cmphex(qtest_readl(q, target + 8), ==, 0xa5a5a5a5);
+        if (cancellation == 1) {
+            qtest_writel(q, CAPTURE + 0xc, 0x20);
+        } else if (cancellation == 2) {
+            qtest_system_reset(q);
+        }
+        qtest_writel(q, CAPTURE + 0x270, 1);
+        g_assert_cmpuint(qtest_readl(q, GROUP_BASE + 0x374), ==, 0);
+        pipeline_step(q, 999999);
+        g_assert_cmphex(qtest_readl(q, target + 8), ==, 0xa5a5a5a5);
+        pipeline_step(q, 1);
+        if (!cancellation) {
+            qtest_memread(q, target, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+            g_assert_cmpuint(qtest_readl(q, target + 0x80), ==, 114864);
+            g_assert_cmpuint(qtest_readl(q, target + 0xdc), ==, 16);
+            g_assert_cmpuint(qtest_readl(q, GROUP_BASE + 0x374), ==, 0);
+            qtest_writel(q, CAPTURE + 0x270, 1);
+            pipeline_step(q, 2000000);
+            g_assert_cmphex(qtest_readl(q, GROUP_BUFFER + 0x4c08), ==, 0xa5a5a5a5);
+        } else {
+            g_assert_cmphex(qtest_readl(q, target + 8), ==, 0xa5a5a5a5);
+        }
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==,
+                         cancellation ? 1 : 2);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void test_capture_processing(void)
 {
     g_autofree char *bundle = NULL;
@@ -7159,6 +7308,9 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/statistics/storage-period",
                    test_statistics_storage_period);
     qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
+    qtest_add_func("/nikon/cmos/capacity/front", test_front_capacity);
+    qtest_add_func("/nikon/cmos/capacity/statistics", test_statistics_capacity);
+    qtest_add_func("/nikon/cmos/capacity/group", test_group_capacity);
     qtest_add_func("/nikon/cmos/pipeline/two-views", test_acquisition_views);
     qtest_add_func("/nikon/cmos/pipeline/view-cancellation",
                    test_acquisition_cancellation);
