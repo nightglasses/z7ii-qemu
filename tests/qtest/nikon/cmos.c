@@ -24,6 +24,7 @@ static char *source;
 
 static void statistics_configure(QTestState *q);
 static void statistics_rise(QTestState *q);
+static char *paired_gate_path(QTestState *q);
 
 static uint64_t property_at(QTestState *q, const char *path,
                             const char *property)
@@ -44,25 +45,62 @@ static void pipeline_step(QTestState *q, int64_t nanoseconds)
 {
     int64_t deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
     int64_t now;
+    g_autofree char *gate = paired_gate_path(q);
 
     now = qtest_clock_step(q, nanoseconds);
-    /* Host computation is asynchronous. Drain only jobs already submitted at
-     * this virtual time, including their normal virtual-clock publication.
+    /* Drain host math and due virtual publications/capacity wakes at this
+     * fixed virtual time. A validated ready result may wait for real capacity;
+     * no future1ms deadline is advanced merely to make the helper return.
      */
     for (;;) {
-        QDict *reply = qtest_qmp(q,
-            "{'execute':'qom-get','arguments':"
-            "{'path':'/machine/paired-processing','property':'runtime'}}");
-        const char *state = qdict_get_str(reply, "return");
-        const char *inflight = strstr(state, " inflight=");
+        /* Read upstream workers before paired's wake/ready state: a gate
+         * completion between these reads either remains inflight here or has
+         * already scheduled the capacity timer observed below.
+         */
         bool pending;
+        unsigned gate_compute;
+        QDict *reply;
+        const char *state, *inflight, *capacity, *bank;
 
-        g_assert_nonnull(inflight);
-        pending = strtoul(inflight + strlen(" inflight="), NULL, 10) != 0;
-        qobject_unref(reply);
-        pending |= property_at(q, "/machine/capture-group", "inflight") != 0;
+        pending = property_at(q, "/machine/capture-group", "inflight") != 0;
         pending |= property_at(q, "/machine/capture-processing", "inflight") != 0;
         pending |= property_at(q, "/machine/capture-statistics", "inflight") != 0;
+        gate_compute = property_at(q, gate, "processing-compute");
+        pending |= gate_compute == 1;
+        if (gate_compute == 2) {
+            /* Deliver the normal due ready-result check once. A gate result
+             * held behind real pending ACKs may stay ready without host math.
+             */
+            qtest_clock_set(q, now);
+        }
+        reply = qtest_qmp(q,
+            "{'execute':'qom-get','arguments':"
+            "{'path':'/machine/paired-processing','property':'runtime'}}");
+        state = qdict_get_str(reply, "return");
+        inflight = strstr(state, " inflight=");
+        capacity = strstr(state, " capacity-pending=");
+        bank = state;
+
+        g_assert_nonnull(inflight);
+        g_assert_nonnull(capacity);
+        pending |= strtoul(capacity + strlen(" capacity-pending="), NULL, 10) != 0;
+        while ((bank = strstr(bank, " compute="))) {
+            unsigned compute = strtoul(bank + strlen(" compute="), NULL, 10);
+            const char *wait = strstr(bank, " capacity-wait=");
+            const char *end = strchr(bank, '\n');
+
+            g_assert_cmpuint(compute, <=, 2);
+            g_assert_nonnull(wait);
+            g_assert_nonnull(end);
+            g_assert_true(wait < end);
+            /* Ready BUSY results intentionally retain their aggregate. Every
+             * other ready result still needs its normal virtual-clock check.
+             */
+            pending |= compute == 1 || (compute == 2 &&
+                !strtoul(wait + strlen(" capacity-wait="), NULL, 10));
+            bank = end;
+        }
+        qobject_unref(reply);
         if (!pending) {
             return;
         }
@@ -7470,6 +7508,229 @@ static void paired_gate_input(QTestState *q, unsigned upstream)
     qtest_writel(q, PAIRED_GATE + 0xe70, RAM + 0x150000);
 }
 
+#define PAIRED_GATE_OUTPUT (RAM + 0x200000)
+#define PAIRED_GATE_MAP (RAM + 0x180000)
+#define PAIRED_GATE_AFFINE (RAM + 0x181000)
+
+static unsigned paired_gate_block(uint8_t *data, const uint32_t *words,
+                                  unsigned offset, unsigned count, bool last)
+{
+    stl_le_p(data, offset | (count << 16) |
+                   (last ? 0x01000000 : 0x11000000));
+    for (unsigned i = 1; i < count; i++) {
+        stl_le_p(data + 4 * i, words[offset / 4 + i - 1]);
+    }
+    return 4 * count;
+}
+
+static void paired_gate_command(QTestState *q, unsigned index,
+                                const uint32_t *words)
+{
+    static const unsigned ports[] = {
+        0xe60, 0x900, 0xde0, 0x8a0, 0x8c0, 0x8e0,
+        0x9e0, 0x940, 0xba0, 0x920,
+    };
+    uint8_t data[512];
+    unsigned n = 0;
+    uint32_t address = RAM + 0x182000 + 512 * index;
+    unsigned port = ports[index];
+
+    if (!index) {
+        n += paired_gate_block(data + n, words, 0, 4, false);
+        n += paired_gate_block(data + n, words, 0x200, 81, false);
+        n += paired_gate_block(data + n, words, 0x400, 4, true);
+    } else if (index == 1) {
+        n += paired_gate_block(data, words, 0, 34, true);
+    } else if (index >= 3 && index <= 5) {
+        n += paired_gate_block(data + n, words, 0, 28, false);
+        n += paired_gate_block(data + n, words, 0x78, 4, true);
+    } else if (index == 9) {
+        n += paired_gate_block(data + n, words, 0, 3, false);
+        n += paired_gate_block(data + n, words, 0x10, 7, false);
+        n += paired_gate_block(data + n, words, 0x40, 2, false);
+        n += paired_gate_block(data + n, words, 0x60, 9, true);
+    } else {
+        n += paired_gate_block(data + n, words, 0, 10, false);
+        n += paired_gate_block(data + n, words, 0x40, 8, false);
+        n += paired_gate_block(data + n, words, 0x80, 17, true);
+    }
+    qtest_memwrite(q, address, data, n);
+    qtest_writel(q, PAIRED_GATE + port + 0x14, 1);
+    qtest_writel(q, PAIRED_GATE + port + 0x14, 0);
+    if (index >= 6 && index <= 8) {
+        qtest_writel(q, PAIRED_GATE + port + 8, 0x200087e0);
+        qtest_writel(q, PAIRED_GATE + port + 0xc, 0x88000);
+    }
+    qtest_writel(q, PAIRED_GATE + port + 0x10, address);
+}
+
+static void paired_gate_window(uint32_t *words, bool terminal)
+{
+    words[0x18 / 4] = terminal ? 0xff010000 : 0xff000000;
+    words[0x80 / 4] = 6;
+    words[0x8c / 4] = words[0x94 / 4] = 0xff;
+    words[0xa8 / 4] = words[0xb0 / 4] = 0xff;
+}
+
+/* Synthetic complete MAIN graph: real imported packets, identity Q8 warp and
+ * three actual affine outputs. The 64x32 intermediate replicates the borders
+ * of the paired56x28 input; constant source pixels remain exact. RUN is left
+ * stopped so the finite input slot can fill before the next private job.
+ */
+static void paired_gate_main(QTestState *q)
+{
+    uint32_t words[0x40c / 4] = { 0 };
+    static const unsigned routes[] = { 0x40, 7, 0x46 };
+    static const struct { unsigned offset; uint32_t value; } config[] = {
+        { 0x2100, 0x121 }, { 0x2104, 0xc2 }, { 0x2110, 0x200087e0 },
+        { 0x2114, 0x88000 }, { 0x2118, 0x139 }, { 0x2600, 0x305 },
+        { 0x2604, 28 }, { 0x2608, 1 }, { 0x2618, 3 },
+        { 0x4050, 2 }, { 0x4054, 64 | (8 << 16) },
+    };
+
+    paired_gate_slot(q, 56);
+    words[0] = 8;
+    words[1] = 0x30;
+    words[2] = 0x202;
+    words[0x400 / 4] = 0x31;
+    words[0x404 / 4] = 8;
+    words[0x408 / 4] = 0xfe;
+    paired_gate_command(q, 0, words);
+    memset(words, 0, sizeof(words));
+    words[0] = 0x6a;
+    words[1] = words[2] = words[3] = 0xff;
+    words[0x10 / 4] = 0x30;
+    words[0x14 / 4] = 0x10000000;
+    words[0x18 / 4] = 0x4080;
+    words[0x1c / 4] = 0x120;
+    words[0x28 / 4] = 1;
+    for (unsigned offset = 0x30; offset <= 0x3c; offset += 4) {
+        words[offset / 4] = 0x100000;
+    }
+    for (unsigned offset = 0x40; offset <= 0x4c; offset += 4) {
+        words[offset / 4] = 0xff;
+    }
+    words[0x50 / 4] = (4 << 16) | 1;
+    words[0x54 / 4] = PAIRED_GATE_MAP;
+    words[0x64 / 4] = 4;
+    words[0x68 / 4] = 0x40302;
+    words[0x78 / 4] = 0x31;
+    words[0x7c / 4] = 0x3000;
+    words[0x80 / 4] = 0x10;
+    paired_gate_command(q, 1, words);
+    for (unsigned row = 0; row < 4; row++) {
+        uint8_t record[40] = { 0 };
+
+        for (unsigned corner = 0; corner < 4; corner++) {
+            stl_le_p(record + 8 * corner, (corner & 1 ? 64 : 0) << 8);
+            stl_le_p(record + 8 * corner + 4,
+                      (row * 8 + (corner & 2 ? 8 : 0)) << 8);
+        }
+        stl_le_p(record + 32, 0x306);
+        qtest_memwrite(q, PAIRED_GATE_MAP + row * 40, record, sizeof(record));
+    }
+    memset(words, 0, sizeof(words));
+    paired_gate_window(words, false);
+    words[0] = 0x90000;
+    words[1] = 0xff0000;
+    words[2] = 0x10500;
+    words[0x40 / 4] = 63 << 16;
+    words[0x44 / 4] = 31 << 16;
+    words[0x48 / 4] = 0x400040;
+    words[0x4c / 4] = 0x80008;
+    paired_gate_command(q, 2, words);
+    for (unsigned branch = 0; branch < 3; branch++) {
+        unsigned width = branch ? 28 : 56, height = branch ? 14 : 28;
+        unsigned scale = branch ? 2 : 1, slot = branch + 3;
+        uint8_t transform[32] = { 0 };
+        uint32_t parameters[] = {
+            0x9000201, 0x15500, 0, 0, 64, 64, 0, 0,
+            width | (height << 16), 0, 0x800, 0, 0,
+        };
+
+        memset(words, 0, sizeof(words));
+        words[0] = branch == 1 ? 0xa : 0xff;
+        words[1] = branch == 0 ? 0x14 : branch == 2 ? 0x16 : 0xff;
+        words[2] = words[3] = 0xff;
+        words[0x10 / 4] = branch == 2 ? 0x10 : 0x13;
+        words[0x14 / 4] = 0x10000000;
+        words[0x18 / 4] = 0x5050;
+        words[0x1c / 4] = 0x300;
+        words[0x20 / 4] = branch == 0 ? 0x10 : 0;
+        words[0x40 / 4] = words[0x44 / 4] = words[0x48 / 4] = 0xff;
+        words[0x50 / 4] = 0x10001;
+        words[0x54 / 4] = PAIRED_GATE_AFFINE + branch * 32;
+        words[0x64 / 4] = 0xd;
+        words[0x78 / 4] = 1;
+        paired_gate_command(q, 3 + branch, words);
+        stl_le_p(transform, branch == 0 ? 0x80000000 : 0);
+        stl_le_p(transform + 4, branch == 0 ? 0x80000000 : 0);
+        stl_le_p(transform + 8, scale << 16);
+        stl_le_p(transform + 20, scale << 16);
+        stl_le_p(transform + 24, width | (height << 16));
+        qtest_memwrite(q, PAIRED_GATE_AFFINE + branch * 32,
+                       transform, sizeof(transform));
+        memset(words, 0, sizeof(words));
+        paired_gate_window(words, true);
+        words[0] = routes[branch] << 16;
+        words[2] = 0x10000 | slot;
+        words[0x40 / 4] = (width - 1) << 16;
+        words[0x44 / 4] = (height - 1) << 16;
+        words[0x48 / 4] = branch == 2 ? 0x400040 : 0x1000100;
+        words[0x4c / 4] = 0x20002;
+        paired_gate_command(q, 6 + branch, words);
+        for (unsigned word = 0; word < ARRAY_SIZE(parameters); word++) {
+            qtest_writel(q, PAIRED_GATE + 0x400 + slot * 64 + word * 4,
+                         parameters[word]);
+        }
+        qtest_writel(q, PAIRED_GATE + 0x2c, slot);
+        for (unsigned phase = 0; phase < 4; phase++) {
+            uint32_t address = PAIRED_GATE_OUTPUT + phase * 0x10000 + branch * 0x4000;
+
+            qtest_memset(q, address - 16, 0xa5, 0xc20);
+            qtest_writel(q, PAIRED_GATE + 0x2200 + phase * 64 + slot * 4, address);
+        }
+    }
+    memset(words, 0, sizeof(words));
+    words[0x10 / 4] = 0x20200;
+    words[0x14 / 4] = 0x20201;
+    words[0x18 / 4] = 0x20202;
+    words[0x1c / 4] = 0x203;
+    paired_gate_command(q, 9, words);
+    for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+        qtest_writel(q, PAIRED_GATE + config[i].offset, config[i].value);
+    }
+    for (unsigned phase = 0; phase < 4; phase++) {
+        qtest_writel(q, PAIRED_GATE + 0x2200 + phase * 64 + 8 * 4, 0x40000000);
+    }
+    qtest_writel(q, PAIRED_GATE + 0x10, 0x61);
+    qtest_writel(q, PAIRED_GATE + 0x14, 8);
+}
+
+static void paired_gate_output(QTestState *q, unsigned phase, bool present,
+                                uint8_t luma, uint8_t u, uint8_t v)
+{
+    for (unsigned branch = 0; branch < 3; branch++) {
+        unsigned width = branch ? 28 : 56, height = branch ? 14 : 28;
+        uint32_t address = PAIRED_GATE_OUTPUT + phase * 0x10000 + branch * 0x4000;
+        uint8_t expected[0xc20], actual[sizeof(expected)];
+
+        memset(expected, 0xa5, sizeof(expected));
+        if (present) {
+            for (unsigned row = 0; row < height; row++) {
+                memset(expected + 16 + row * 64, luma, width);
+            }
+            for (unsigned row = 0; row < height / 2; row++) {
+                for (unsigned x = 0; x < width; x++) {
+                    expected[16 + 0x800 + row * 64 + x] = x & 1 ? v : u;
+                }
+            }
+        }
+        qtest_memread(q, address - 16, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+}
+
 static void paired_stream(QTestState *q, uint32_t base)
 {
     paired_photo(q, base);
@@ -7480,7 +7741,8 @@ static void paired_stream(QTestState *q, uint32_t base)
     }
 }
 
-static void paired_stream_pixels(QTestState *q, const char *path, bool present)
+static void paired_stream_samples(QTestState *q, const char *path, bool present,
+                                   uint8_t luma, uint8_t u, uint8_t v)
 {
     QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
                                "{'path':%s,'property':'input-data'}}", path);
@@ -7491,11 +7753,16 @@ static void paired_stream_pixels(QTestState *q, const char *path, bool present)
     g_assert_cmpuint(length, ==, present ? 56 * 42 : 0);
     if (present) {
         for (unsigned i = 0; i < 56 * 42; i++) {
-            g_assert_cmpuint(pixels[i], ==, i < 56 * 28 ? 129 :
-                             i % 2 ? 96 : 144);
+            g_assert_cmpuint(pixels[i], ==, i < 56 * 28 ? luma :
+                             i % 2 ? v : u);
         }
     }
     qobject_unref(reply);
+}
+
+static void paired_stream_pixels(QTestState *q, const char *path, bool present)
+{
+    paired_stream_samples(q, path, present, 129, 144, 96);
 }
 
 static void test_paired_stream(void)
@@ -7561,7 +7828,7 @@ static void test_paired_stream_cancel(void)
         if (mode == 0) {
             paired_gate_slot(q, 54);
         } else if (mode == 1) {
-            qtest_writel(q, PAIRED_GATE + 0xe74, 1);
+            paired_gate_input(q, 9);
         } else if (mode == 2) {
             qtest_system_reset(q);
         }
@@ -7633,6 +7900,7 @@ static void test_paired_stream_lifecycle(void)
         pipeline_step(q, 1000000);
         paired_stream_pixels(q, gate, true);
         if (mode == 0) {
+            paired_gate_input(q, 9);
             paired_gate_input(q, 8);
         } else if (mode == 1) {
             qtest_writel(q, PAIRED_GATE + 4, 0);
@@ -8369,6 +8637,167 @@ static void test_paired_online_history_race(void)
     unlink(bundle);
 }
 
+static void paired_capacity_wait(QTestState *q)
+{
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+        "{'path':'/machine/paired-processing','property':'runtime'}}");
+    const char *state = qdict_get_str(reply, "return");
+
+    g_assert_nonnull(strstr(state, " inflight=1 "));
+    g_assert_nonnull(strstr(state, " compute=2 "));
+    g_assert_nonnull(strstr(state, " stage=7 remaining=0 capacity-wait=1"));
+    qobject_unref(reply);
+}
+
+static void paired_capacity_fill(QTestState *q, const char *scene, const char *gate)
+{
+    static const uint8_t gray[] = {
+        'P', '5', '\n', '1', ' ', '1', '\n', '2', '5', '5', '\n', 64,
+    };
+
+    paired_gate_main(q);
+    paired_stream(q, PAIRED);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    paired_stream_pixels(q, gate, true);
+    qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+    work_ack(q);
+    g_assert_true(g_file_set_contents(scene, (const char *)gray, sizeof(gray), NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
+    paired_capacity_wait(q);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+    g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, 1);
+    g_assert_cmpuint(property_at(q, gate, "processed"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+    paired_stream_pixels(q, gate, true);
+    paired_untouched(q);
+    for (unsigned phase = 0; phase < 4; phase++) {
+        paired_gate_output(q, phase, false, 0, 0, 0);
+    }
+    g_assert_false(qtest_get_irq(q, 102 - 32));
+}
+
+static void test_paired_capacity(void)
+{
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+    g_autofree char *gate = paired_gate_path(q);
+
+    paired_capacity_fill(q, scene, gate);
+    qtest_writel(q, PAIRED_GATE + 4, 1);
+    pipeline_step(q, 999999);
+    paired_capacity_wait(q);
+    paired_gate_output(q, 0, false, 0, 0, 0);
+    pipeline_step(q, 1);
+    /* Old input really reached all three DMA outputs before capacity returned.
+     * That release wakes exactly the already computed new result, with no new
+     * RAW edge, ACK, forced slot release or extra virtual-time latency.
+     */
+    g_assert_cmpuint(property_at(q, gate, "processed"), ==, 1);
+    g_assert_cmpuint(property_at(q, gate, "processing-inflight"), ==, 0);
+    g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, 2);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
+    paired_gate_output(q, 0, true, 129, 144, 96);
+    paired_stream_samples(q, gate, true, 64, 136, 112);
+    g_assert_cmphex(qtest_readl(q, PAIRED_GATE + 0x1c), ==, 0x61);
+    g_assert_cmphex(qtest_readl(q, PAIRED_GATE + 0x20), ==, 8);
+    g_assert_true(qtest_get_irq(q, 102 - 32));
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
+    paired_untouched(q);
+    /* Both ordinary pending words fence reuse of the sole public input. */
+    pipeline_step(q, 2000000);
+    paired_gate_output(q, 1, false, 0, 0, 0);
+    qtest_writel(q, PAIRED_GATE + 0x1c, 0x61);
+    pipeline_step(q, 2000000);
+    g_assert_cmpuint(property_at(q, gate, "processed"), ==, 1);
+    paired_gate_output(q, 1, false, 0, 0, 0);
+    paired_stream_samples(q, gate, true, 64, 136, 112);
+    /* A third actual RAW remains retained behind paired's own pending word. */
+    work_ack(q);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
+    qtest_writel(q, PAIRED_GATE + 0x20, 8);
+    pipeline_step(q, 999999);
+    paired_gate_output(q, 1, false, 0, 0, 0);
+    pipeline_step(q, 1);
+    g_assert_cmpuint(property_at(q, gate, "processed"), ==, 2);
+    paired_gate_output(q, 1, true, 64, 136, 112);
+    paired_stream_samples(q, gate, false, 0, 0, 0);
+    /* Capacity cannot bypass paired's own unacknowledged result. */
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, 2);
+    qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
+    pipeline_step(q, 999999);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
+    pipeline_step(q, 1);
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
+    g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, 3);
+    paired_stream_samples(q, gate, true, 64, 136, 112);
+    paired_gate_output(q, 2, false, 0, 0, 0);
+    qtest_quit(q);
+    unlink(bundle);
+    unlink(scene);
+}
+
+static void test_paired_capacity_cancel(void)
+{
+    for (unsigned mode = 0; mode < 5; mode++) {
+        g_autofree char *bundle = NULL;
+        g_autofree char *scene = NULL;
+        QTestState *q = paired_start(&bundle, &scene, true, false);
+        g_autofree char *gate = paired_gate_path(q);
+
+        paired_capacity_fill(q, scene, gate);
+        if (mode == 0) {
+            /* Commit a different route, then restore the accepted tuple
+             * before deferred revalidation. Equality cannot restore its epoch.
+             */
+            paired_gate_input(q, 9);
+            paired_gate_input(q, 8);
+        } else if (mode == 1) {
+            qtest_writel(q, PAIRED_GATE + 4, 0);
+            qtest_writel(q, PAIRED_GATE + 4, 1);
+        } else if (mode == 2) {
+            paired_gate_slot(q, 54);
+            paired_gate_slot(q, 56);
+        } else if (mode == 3) {
+            qtest_system_reset(q);
+        } else {
+            paired_stop(q, PAIRED);
+        }
+        pipeline_step(q, 2000000);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+        g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, mode < 3);
+        g_assert_cmpuint(property_at(q, gate, "processed"), ==, 0);
+        g_assert_cmpuint(property_at(q, gate, "input-frames"), ==, mode == 3 ? 0 : 1);
+        paired_stream_pixels(q, gate, mode == 4);
+        paired_untouched(q);
+        for (unsigned phase = 0; phase < 4; phase++) {
+            paired_gate_output(q, phase, false, 0, 0, 0);
+        }
+        if (mode == 4) {
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 2);
+        } else {
+            g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
+        }
+        g_assert_false(qtest_get_irq(q, 102 - 32));
+        qtest_quit(q);
+        unlink(bundle);
+        unlink(scene);
+    }
+}
+
 int main(int argc, char **argv)
 {
     uint32_t idle = cpu_to_le32(0xeafffffe);
@@ -8586,6 +9015,9 @@ int main(int argc, char **argv)
                    test_paired_adaptive_history);
     qtest_add_func("/nikon/cmos/paired/photo", test_paired_photo);
     qtest_add_func("/nikon/cmos/paired/stride", test_paired_stride);
+    qtest_add_func("/nikon/cmos/paired/stream/capacity", test_paired_capacity);
+    qtest_add_func("/nikon/cmos/paired/stream/capacity-cancel",
+                   test_paired_capacity_cancel);
     qtest_add_func("/nikon/cmos/paired/stream/transaction", test_paired_stream);
     qtest_add_func("/nikon/cmos/paired/stream/cancel",
                    test_paired_stream_cancel);

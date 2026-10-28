@@ -1220,6 +1220,8 @@ static void z7ii_init(MachineState *machine)
     object_property_set_link(OBJECT(paired), "gate", OBJECT(gate), &error_fatal);
     qdev_connect_gpio_out_named(gate, "grid-ready", 0,
         qdev_get_gpio_in_named(paired, "grid-ready", 0));
+    qdev_connect_gpio_out_named(gate, "input-capacity", 0,
+        qdev_get_gpio_in_named(paired, "input-capacity", 0));
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);

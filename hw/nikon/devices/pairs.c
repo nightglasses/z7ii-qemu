@@ -50,7 +50,7 @@ typedef struct PairedJob {
     uint64_t generation;
     uint64_t epoch;
     uint64_t history_revision;
-    uint64_t gate_generation;
+    uint64_t gate_epoch;
     unsigned phase, slot, grid_slot;
     bool work, stream;
 } PairedJob;
@@ -67,10 +67,10 @@ struct PairedTask {
     PairedJob job;
     NikonPairedPixels *pixels;
     const uint8_t *y, *uv, *work;
-    PairedChild child[4];
+    PairedChild child[12];
     uint64_t token;
     unsigned bank, remaining;
-    bool ready, success;
+    bool ready, success, waiting_capacity;
 };
 
 typedef struct NikonPairedEventBanksBank {
@@ -121,6 +121,7 @@ struct NikonPairedEventBanksState {
     uint64_t source_epoch;
     char *calibration_path;
     DeviceState *gate;
+    QEMUTimer *capacity_timer;
     uint32_t calibration[BANK_SIZE / 4];
     bool calibration_loaded;
     uint64_t completed, rejected, cancelled, blocked, bytes;
@@ -1790,18 +1791,20 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
             b->job.pixels.output_width, b->job.pixels.output_height,
             b->job.plane[0].stride
         };
+        NikonGateInputVersion version = { 0 };
         NikonGateInputStatus status = s->gate ?
-            nikon_gate_input_status(s->gate, &shape, &b->job.gate_generation) :
+            nikon_gate_input_status(s->gate, &shape, &version) :
             NIKON_GATE_INPUT_UNSUPPORTED;
 
         if (status == NIKON_GATE_INPUT_UNSUPPORTED) {
             stage = "gate";
             goto reject;
         }
-        if (status == NIKON_GATE_INPUT_BUSY) {
-            s->blocked++;
-            return;
-        }
+        /* One private owned result may compute while the single public MAIN
+         * input is occupied. This finite overlap does not reserve a future
+         * generation or add a gate input slot; publication still waits below.
+         */
+        b->job.gate_epoch = version.epoch;
     }
     if (paired_peer_busy(b)) {
         s->blocked++;
@@ -1951,6 +1954,8 @@ static void paired_complete(void *opaque)
     NikonPairedPixelConfig *g;
     size_t half, main;
     bool success;
+    NikonGateInputStatus gate_status = NIKON_GATE_INPUT_UNSUPPORTED;
+    NikonGateInputVersion gate_version = { 0 };
 
     if (!b->active) {
         return;
@@ -1980,6 +1985,7 @@ static void paired_complete(void *opaque)
         return;
     }
     assert(task->ready && task->token == b->token);
+    task->waiting_capacity = false;
     j = &task->job;
     g = &j->pixels;
     half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
@@ -1995,11 +2001,9 @@ static void paired_complete(void *opaque)
         NikonGateInputShape shape = {
             g->output_width, g->output_height, j->plane[0].stride
         };
-        uint64_t generation;
-
-        success = nikon_gate_input_status(s->gate, &shape, &generation) ==
-                      NIKON_GATE_INPUT_READY &&
-                  generation == j->gate_generation;
+        gate_status = nikon_gate_input_status(s->gate, &shape, &gate_version);
+        success = gate_status != NIKON_GATE_INPUT_UNSUPPORTED &&
+                  gate_version.epoch == j->gate_epoch;
     }
 
     for (unsigned i = 0; i < ARRAY_SIZE(j->plane) && success; i++) {
@@ -2008,6 +2012,16 @@ static void paired_complete(void *opaque)
         }
         success = paired_ram(j->plane[i].address, paired_span(&j->plane[i]),
                               true);
+    }
+    if (success && j->stream && gate_status == NIKON_GATE_INPUT_BUSY) {
+        /* All current layout/backing/alias/token checks passed. Keep only this
+         * ready aggregate until an actual capacity/epoch notification. Neither
+         * RAW/grid freshness nor WORK/history nor a guest completion advances.
+         * Failures above always terminate, even while capacity remains busy.
+         */
+        task->waiting_capacity = true;
+        s->blocked++;
+        return;
     }
     if (success) {
         success = (j->stream ||
@@ -2021,7 +2035,7 @@ static void paired_complete(void *opaque)
                 g->output_width, g->output_height, j->plane[0].stride
             };
 
-            success = nikon_gate_input_publish(s->gate, j->gate_generation,
+            success = nikon_gate_input_publish(s->gate, gate_version.generation,
                                                 &shape, task->y, main,
                                                 task->uv, main / 2);
         }
@@ -2072,6 +2086,38 @@ static void paired_complete(void *opaque)
     }
     nikon_paired_event_banks_irq(b);
     object_unref(OBJECT(s));
+}
+
+static void paired_capacity_recheck(void *opaque)
+{
+    NikonPairedEventBanksState *s = opaque;
+
+    if (s->stopping) {
+        return;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
+        NikonPairedEventBanksBank *b = &s->bank[i];
+
+        if (b->active && b->compute && b->compute->ready) {
+            b->compute->waiting_capacity = false;
+            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        } else if (!b->active) {
+            paired_try(b, 0, 0);
+        }
+    }
+}
+
+static void paired_input_capacity(void *opaque, int index, int level)
+{
+    NikonPairedEventBanksState *s = opaque;
+
+    if (level && !s->stopping) {
+        /* Gate pulses can occur inside MMIO configuration cancellation. Read
+         * its complete state later on the virtual clock, never reenter MMIO
+         * midway through a packet, and never publish while that clock stops.
+         */
+        timer_mod(s->capacity_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    }
 }
 
 static void nikon_paired_event_banks_input(void *opaque, int index, int level)
@@ -2482,6 +2528,7 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(dev);
     unsigned i;
 
+    timer_del(s->capacity_timer);
     for (i = 0; i < 2; i++) {
         s->bank[i].commit_pending = false;
         paired_cancel(&s->bank[i]);
@@ -2591,8 +2638,9 @@ static char *paired_runtime(Object *obj, Error **errp)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
     GString *state = g_string_new(NULL);
 
-    g_string_append_printf(state, "source-epoch=%" PRIu64 " inflight=%u\n",
-                           s->source_epoch, s->inflight);
+    g_string_append_printf(state, "source-epoch=%" PRIu64
+        " inflight=%u capacity-pending=%u\n", s->source_epoch, s->inflight,
+        timer_pending(s->capacity_timer));
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
 
@@ -2610,11 +2658,15 @@ static char *paired_runtime(Object *obj, Error **errp)
                                    slot ? "," : "", b->consumed[slot]);
         }
         g_string_append_printf(state, " history-revision=%" PRIu64
-            " stage=%u remaining=%u\n", b->history_revision,
+            " stage=%u remaining=%u capacity-wait=%u postpass=%u\n",
+            b->history_revision,
             b->compute && b->compute->pixels ?
                 nikon_paired_pixels_stage(b->compute->pixels) :
                 NIKON_PAIRED_PIXEL_DONE,
-            b->compute ? b->compute->remaining : 0);
+            b->compute ? b->compute->remaining : 0,
+            b->compute ? b->compute->waiting_capacity : false,
+            b->compute && b->compute->pixels ?
+                nikon_paired_pixels_post_pass(b->compute->pixels) : 0);
         for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
             if (paired_online_open(b->online_written[group])) {
                 g_string_append_printf(state,
@@ -2639,6 +2691,7 @@ static void nikon_paired_event_banks_init(Object *obj)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
     unsigned i;
 
+    s->capacity_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, paired_capacity_recheck, s);
     for (i = 0; i < 2; i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
 
@@ -2653,6 +2706,7 @@ static void nikon_paired_event_banks_init(Object *obj)
     }
     qdev_init_gpio_in_named(DEVICE(obj), nikon_paired_event_banks_input, "pending-bit", 64);
     qdev_init_gpio_in_named(DEVICE(obj), paired_grid_ready, "grid-ready", 1);
+    qdev_init_gpio_in_named(DEVICE(obj), paired_input_capacity, "input-capacity", 1);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,
@@ -2670,6 +2724,7 @@ static void nikon_paired_event_banks_finalize(Object *obj)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
 
     assert(!s->inflight);
+    timer_free(s->capacity_timer);
     for (unsigned i = 0; i < 2; i++) {
         timer_free(s->bank[i].timer);
         paired_release(&s->bank[i]);
