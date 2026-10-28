@@ -305,7 +305,13 @@ static uint16_t paired_dpc(const uint16_t *raw, unsigned width, unsigned height,
         low = MIN(low, cross[i]);
         high = MAX(high, cross[i]);
     }
-    if (high - low > 64) {
+    /* The five-sample median is within the four neighbors' [low, high].
+     * This sufficient signed bound proves the replacement test is false;
+     * differences exactly 1024 keep the center as in the scalar sort.
+     */
+    if (high - low > 64 ||
+        ((int)center >= (int)high - 1024 &&
+         (int)center <= (int)low + 1024)) {
         return center;
     }
     for (i = 1; i < ARRAY_SIZE(cross); i++) {

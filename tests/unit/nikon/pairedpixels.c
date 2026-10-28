@@ -4261,9 +4261,77 @@ static void stages_invalid(void)
     stages_check(&p, raw, NULL, NULL, map, out.half, out.residual, out.y, out.uv);
 }
 
+static void dpc_bounds(void)
+{
+    static const int centers[] = {
+        -1089, -1088, -1025, -1024, -1023, -961, -960, -959,
+        0, 1023, 1024, 1025, 1088, 1089,
+    };
+    static const unsigned bases[] = { 0, 1024, 2048, 3071, 4030 };
+    static const unsigned spans[] = { 0, 64, 65 };
+
+    for (unsigned encoding = NIKON_RAW_MONO;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        unsigned phases = encoding == NIKON_RAW_MONO ? 1 : 4;
+        unsigned step = encoding == NIKON_RAW_MONO ? 1 : 2;
+
+        for (unsigned phase = 0; phase < phases; phase++) {
+            for (unsigned b = 0; b < ARRAY_SIZE(bases); b++) {
+                for (unsigned s = 0; s < ARRAY_SIZE(spans); s++) {
+                    for (unsigned v = 0; v < ARRAY_SIZE(centers); v++) {
+                        NikonPairedPixelConfig p = config();
+                        uint16_t raw[64], half[16], residual[16], reference[64];
+                        uint16_t expected[64];
+                        uint8_t y[64], uv[32];
+                        int center = (int)bases[b] + centers[v];
+                        unsigned x = step + (step == 2 ? phase % 2 : 0);
+                        unsigned row = step + (step == 2 ? phase / 2 : 0);
+
+                        if (center < 0 || center > 4095) {
+                            continue;
+                        }
+                        p.encoding = encoding;
+                        p.width = p.height = p.output_width = p.output_height = 8;
+                        p.grid_width = p.grid_height = 8;
+                        memset(p.b, 0, sizeof(p.b));
+                        p.b[0] = 512;
+                        fill(raw, 64, bases[b]);
+                        raw[row * 8 + x] = center;
+                        raw[row * 8 + x + step] = bases[b] + spans[s];
+                        raw[(row - step) * 8 + x] = bases[b] + spans[s] / 2;
+                        raw[(row + step) * 8 + x] = bases[b] + spans[s];
+                        /* reference_plane always sorts all five scalar taps;
+                         * compare both WORK/history and the actual MAIN bytes.
+                         */
+                        g_assert_true(pixels_checked(&p, raw, NULL, NULL, half,
+                            residual, reference, y, uv));
+                        for (unsigned yy = 0; yy < 8; yy++) {
+                            for (unsigned xx = 0; xx < 8; xx++) {
+                                expected[yy * 8 + xx] = encoding == NIKON_RAW_MONO ?
+                                    reference[yy * 8 + xx] :
+                                    radial_reference(reference, 8, 8,
+                                        encoding - 1, true, xx, yy);
+                            }
+                        }
+                        post_reference_size(&p.post, 0, expected, 8, 8);
+                        for (unsigned i = 0; i < 64; i++) {
+                            g_assert_cmpuint(y[i], ==, MIN(255,
+                                filter_reference_round(expected[i], 16)));
+                        }
+                        for (unsigned i = 0; i < 32; i++) {
+                            g_assert_cmpuint(uv[i], ==, 128);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add_func("/nikon/pairedpixels/dpc-bounds", dpc_bounds);
     g_test_add_func("/nikon/pairedpixels/stages", stages);
     g_test_add_func("/nikon/pairedpixels/stages-invalid", stages_invalid);
     g_test_add_func("/nikon/pairedpixels/post-packet", post_packet);
