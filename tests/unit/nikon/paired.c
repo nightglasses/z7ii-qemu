@@ -31,6 +31,7 @@ typedef struct PairedFixture {
     uint8_t *bytes;
     qemu_irq irq;
     bool level;
+    bool reset_on_irq;
     unsigned rises;
     NikonRawEncoding encoding;
 } PairedFixture;
@@ -104,6 +105,10 @@ static void irq_level(void *opaque, int n, int level)
 
     f->rises += level && !f->level;
     f->level = !!level;
+    if (level && f->reset_on_irq) {
+        f->reset_on_irq = false;
+        device_cold_reset(f->dev);
+    }
 }
 
 static void write_port(PairedFixture *f, unsigned offset, uint32_t value)
@@ -376,14 +381,8 @@ static void admit(PairedFixture *f)
     unpublished(f);
 }
 
-static void published(PairedFixture *f)
+static void published_pixels(PairedFixture *f)
 {
-    g_assert_cmpuint(counter(f, "completed"), ==, 1);
-    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
-    g_assert_cmpuint(counter(f, "bytes"), ==, 56 * 28 * 3 / 2);
-    g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
-    g_assert_true(f->level);
-    g_assert_cmpuint(f->rises, ==, 1);
     for (unsigned y = 0; y < 42; y++) {
         for (unsigned x = 0; x < 64; x++) {
             unsigned expected = x >= 56 ? 0xa5 : y < 28 ? 128 :
@@ -398,6 +397,17 @@ static void published(PairedFixture *f)
                              0xa5);
         }
     }
+}
+
+static void published(PairedFixture *f)
+{
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+    g_assert_cmpuint(counter(f, "bytes"), ==, 56 * 28 * 3 / 2);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
+    g_assert_true(f->level);
+    g_assert_cmpuint(f->rises, ==, 1);
+    published_pixels(f);
 }
 
 static void test_async_completion(gconstpointer opaque)
@@ -585,6 +595,33 @@ static void test_parallel_completion(void)
     fixture_free(f);
     aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 1,
                                        &error_abort);
+}
+
+static void test_irq_reset(void)
+{
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker, marker;
+
+    f->encoding = NIKON_RAW_RGGB;
+    f->reset_on_irq = true;
+    blocker_start(&blocker);
+    admit(f);
+    worker_returned(&blocker, &marker);
+    poll_until(f, "inflight=0", &blocker, &marker);
+    g_assert_false(f->reset_on_irq);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_false(f->level);
+    g_assert_cmpuint(f->rises, ==, 1);
+    published_pixels(f);
+    advance(2000000);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_false(f->level);
+    barrier_clear(&blocker);
+    barrier_clear(&marker);
+    fixture_free(f);
 }
 
 static void alternate_outputs(PairedFixture *f)
@@ -1208,6 +1245,7 @@ int main(int argc, char **argv)
                          GUINT_TO_POINTER(1 | 8), test_stage_cancel);
     g_test_add_func("/nikon/paired/async/parallel-completion",
                     test_parallel_completion);
+    g_test_add_func("/nikon/paired/async/irq-reset", test_irq_reset);
     g_test_add_func("/nikon/paired/async/bank-staging", test_async_bank_staging);
     g_test_add_func("/nikon/paired/async/bank-partial", test_async_bank_partial);
     g_test_add_func("/nikon/paired/async/bank-commit-rewrite",

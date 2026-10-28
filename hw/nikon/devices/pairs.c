@@ -2058,6 +2058,12 @@ static void paired_complete(void *opaque)
     }
     paired_release(b);
     paired_latch(b);
+    /* A synchronous IRQ sink may reset, stop or ACK and admit another job.
+     * Detach the completed aggregate before calling it, while retaining the
+     * device through any reentrant unrealize or ownership change.
+     */
+    object_ref(OBJECT(s));
+    paired_task_free(task);
     if (!success) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "nikon-paired: bank=%u asynchronous pixel job failed\n",
@@ -2065,7 +2071,7 @@ static void paired_complete(void *opaque)
         paired_try(&s->bank[1 - b->index], 0, 0);
     }
     nikon_paired_event_banks_irq(b);
-    paired_task_free(task);
+    object_unref(OBJECT(s));
 }
 
 static void nikon_paired_event_banks_input(void *opaque, int index, int level)
