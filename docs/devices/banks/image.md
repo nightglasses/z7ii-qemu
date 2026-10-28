@@ -179,6 +179,26 @@ hypothesis, not a recovered hardware division by64. The8-bit families use
 main1510 bank management, independently of unit0's04c0. Unconfigured12-bit
 tables are not described as an identity operator.
 
+Each bank retains at most one converted primary image, its complete frame
+packet, and the exact owned Y/UV bytes. Every frame still validates the live
+packet, neutral curve contents and RAM extents, and reads both current planes.
+Only an identical packet and identical sampled bytes reuse the converted
+Pixman image. Pitch padding is outside those sampled bytes. Any changed
+sample, coefficient, geometry, scale or control causes a fresh conversion and
+transform. This is an exact host computation cache; it does not infer guest
+memory dirtiness or reduce frame cadence, composition, console publication or
+completion IRQs.
+
+Primary disable, main pause/stop, frame failure, reset, unrealize and finalization
+release the retained image and byte buffers. Each source extent and converted
+image remains bounded by the existing `16 * 1024 * 1024` pixel budget. Read-only QOM
+properties `primary-conversions` and `primary-reuses` count successful primary
+conversions and exact matches across both banks; reset clears both counters.
+The native `/arm/nikon/image/primary-cache` fixture checks reuse with actual
+console pixels, single-byte Y/U changes, ignored pitch padding, scaling, alpha,
+matrix changes, curve failure/recovery, disable and reset. Its results remain
+synthetic host-runtime validation, separate from original-firmware timing.
+
 Synthetic native fixtures cover both UV heights, nonneutral chroma, signed
 coefficients in both matrices, source padding, live updates, global alpha,
 scaled destination placement and composition beneath an RGBA overlay.
