@@ -2056,9 +2056,9 @@ static void test_group_worker_cancel(void)
         published = property_at(q, GROUP_PATH, "completed");
         g_assert_cmpuint(published, <=, 1);
         qtest_memread(q, base, retained, sizeof(retained));
-        g_assert_cmphex(ldl_le_p(retained + 8), ==,
+        g_assert_cmphex((uint32_t)ldl_le_p(retained + 8), ==,
                        published ? 114864 : 0xa5a5a5a5);
-        g_assert_cmphex(ldl_le_p(retained + 12), ==,
+        g_assert_cmphex((uint32_t)ldl_le_p(retained + 12), ==,
                        published ? 64 : 0xa5a5a5a5);
         group_worker_drain(q);
         pipeline_step(q, 2000000);
