@@ -128,6 +128,47 @@ static QTestState *pipeline_start(char **bundle, const char *extra_options)
     return q;
 }
 
+static void test_pipeline_cpu_lifecycle(void)
+{
+    for (unsigned instance = 0; instance < 4; instance++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+        QDict *reply = qtest_qmp(q, "{'execute':'query-cpus-fast'}");
+
+        /* Two MAS, two SLA and one EX DUMMY thread share the qtest clock. */
+        g_assert_cmpuint(qlist_size(qdict_get_qlist(reply, "return")), ==, 5);
+        qobject_unref(reply);
+        for (unsigned cycle = 0; cycle < 32; cycle++) {
+            for (unsigned poll = 0; poll < 8; poll++) {
+                /* Each EX millisecond poll synchronously queues real CPU work. */
+                qtest_clock_step(q, 1000000);
+            }
+            reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                             "{'path':'/machine/ex',"
+                             "'property':'first-exception'}}");
+            g_assert_false(qdict_get_bool(reply, "return"));
+            qobject_unref(reply);
+
+            qtest_qmp_assert_success(q, "{'execute':'stop'}");
+            qtest_qmp_eventwait(q, "STOP");
+            reply = qtest_qmp(q, "{'execute':'query-status'}");
+            g_assert_false(qdict_get_bool(qdict_get_qdict(reply, "return"),
+                                          "running"));
+            qobject_unref(reply);
+            qtest_qmp_assert_success(q, "{'execute':'cont'}");
+            qtest_qmp_eventwait(q, "RESUME");
+            qtest_clock_step(q, 1000000);
+            if (cycle % 8 == 7) {
+                qtest_system_reset(q);
+                qtest_clock_step(q, 1000000);
+            }
+        }
+        /* libqtest checks normal exit; a forced SIGKILL is still a failure. */
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
 static void pipeline_configure(QTestState *q, uint32_t destination,
                                uint32_t stride, uint32_t span,
                                uint32_t format)
@@ -6923,6 +6964,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/period", test_period);
     qtest_add_func("/nikon/cmos/pipeline/valid-silent",
                    test_pipeline_valid_and_silent);
+    qtest_add_func("/nikon/cmos/pipeline/cpu-lifecycle",
+                   test_pipeline_cpu_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/input-boundary",
                    test_pipeline_input_boundary);
     qtest_add_func("/nikon/cmos/pipeline/run-completion",

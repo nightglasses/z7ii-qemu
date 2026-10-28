@@ -1,0 +1,69 @@
+{
+  "scope": "Darwin qtest wake ownership; synthetic native fixtures, not original-firmware startup",
+  "implementation": "e32b35da",
+  "baseline": "d82e1d87",
+  "upstream_qemu": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
+  "host_control": {
+    "method": "Block SIGUSR1, direct it with pthread_kill to one thread which never calls sigwait, then call sigwait on a different thread",
+    "other_thread_received_before_own_signal": true
+  },
+  "native_red": {
+    "scope": "New five-CPU lifecycle fixture only; pinned DUMMY implementation without adaptation",
+    "command": "make -C work/build/qemu check-nikon MTESTARGS='nikon_cmos --test-args=\"-p /arm/nikon/cmos/pipeline/cpu-lifecycle\"' TIMEOUT_MULTIPLIER=2",
+    "result": "TIMEOUT",
+    "seconds": 120.01
+  },
+  "focused_green": {
+    "repeat": 3,
+    "seconds": [
+      2.03,
+      1.7,
+      1.74
+    ],
+    "exit_status": [
+      0,
+      0,
+      0
+    ]
+  },
+  "complete_green": {
+    "command": "make check MTESTARGS='nikon_cmos --repeat 3' TIMEOUT_MULTIPLIER=8",
+    "results": [
+      {
+        "result": "OK",
+        "seconds": 244.47,
+        "exit_status": 0,
+        "tap_plan": "1..107",
+        "passed": 107
+      },
+      {
+        "result": "OK",
+        "seconds": 241.37,
+        "exit_status": 0,
+        "tap_plan": "1..107",
+        "passed": 107
+      },
+      {
+        "result": "OK",
+        "seconds": 240.69,
+        "exit_status": 0,
+        "tap_plan": "1..107",
+        "passed": 107
+      }
+    ],
+    "total_passed": 321,
+    "qualification": "Single legal TAP plan per run, all assertions passed, normal libqtest process exits; no -S or ignored SIGKILL"
+  },
+  "suite_budget": {
+    "short_attempt": "240 seconds expired after 104 PASS; not a complete PASS",
+    "validated_limit_seconds": 480,
+    "qualification": "Upstream Meson timeout multiplier only; per-child libqtest exit checks unchanged"
+  },
+  "review": "Independent source review found no actionable issue; parent built and ran fixtures",
+  "official_checkout": "Tracked upstream contents remain clean; temporary diagnostic overlays restored",
+  "limits": [
+    "Darwin execution only; Linux and Windows paths reviewed but not executed on this host",
+    "Synthetic CPU/device fixtures do not establish original-firmware startup, completed GUI boot or physical camera fidelity"
+  ],
+  "omitted": "Firmware bytes, raw debugger captures, inherited environment and private paths"
+}
