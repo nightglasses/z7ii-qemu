@@ -61,6 +61,7 @@ static void pipeline_step(QTestState *q, int64_t nanoseconds)
         pending = strtoul(inflight + strlen(" inflight="), NULL, 10) != 0;
         qobject_unref(reply);
         pending |= property_at(q, "/machine/capture-group", "inflight") != 0;
+        pending |= property_at(q, "/machine/capture-processing", "inflight") != 0;
         if (!pending) {
             return;
         }
