@@ -104,8 +104,11 @@ edge treatment, pass order and the meaning of `0x608` remain hypotheses.
 The largest product is `16380 * 16383`, within signed 32-bit range. One bounded
 scratch image separates input and output. Allocation or validation failure
 occurs before any public output is changed. The pure operator owns no timers,
-DMA, events or register state; device snapshot, changed-write cancellation,
-reset and completion remain device responsibilities.
+DMA, events or register state. Device ownership follows
+[online numerical uploads](pixels.md#online-numerical-uploads): complete changed
+filter packets invalidate future pre-color history, while the owned job may
+finish its frozen computation and DMA. Its older history revision cannot
+register new history; stop/reset still cancel owned work.
 
 ## Validation scope and limits
 

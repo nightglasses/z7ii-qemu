@@ -114,13 +114,13 @@ this different-pair allowance at the next admission. A busy job still completes
 from its immutable snapshot before considering another admission. Malformed
 order or padding never obtains this allowance.
 
-Uploads are staging data. An active job keeps its already-validated immutable
-curve during a partial or ambiguous new publication. Completion rechecks all
-existing memory and peer fences but uses that frozen curve, rather than
-reinterpreting current staging coverage. An unambiguous completed curve that
-differs from the active snapshot cancels that job through the existing
-lifecycle. Equal complete re-publication does not cancel it. Such MAIN-only
-changes preserve pre-color temporal history.
+Uploads are staging data under
+[online numerical uploads](pixels.md#online-numerical-uploads). An active job
+keeps its validated immutable curve through partial, ambiguous or changed
+complete publications. Completion uses that frozen curve and live layout,
+RAM, alias and peer fences; the new curve qualifies only future admission.
+These MAIN-only changes preserve pre-color temporal history. Stop/reset remain
+cancellation boundaries; reset clears the curve publication state.
 
 Completing a usable publication reconsiders real eligible RAW only for an
 already existing AwaitInput request. It neither creates the `10/08` start

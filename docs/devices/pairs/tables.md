@@ -48,9 +48,11 @@ width/height interpretation or a physical processing format.
 The later [uniform luma contract](luma.md) interprets entries20/21 of the
 64-byte family; the [saturation contract](saturation.md) interprets entries2/3
 of the68-byte family. Both use complete, ordered publication rounds and
-immutable active job snapshots. Their staging and admission rules supersede
-generic table-change cancellation for those ranges. Other table roles retain their explicit profile
-qualification; retaining arbitrary words does not establish a pixel algorithm.
+immutable active job snapshots. Complete gain or saturation changes apply to
+future jobs and preserve pre-color history, under the shared
+[online numerical upload contract](pixels.md#online-numerical-uploads).
+Other table roles retain strict cancellation and explicit profile qualification;
+retaining arbitrary words does not establish a pixel algorithm.
 
 `hw/nikon/devices/pairs.c` retains aligned full32-bit words independently in
 each bank. Source `1036ca74` copies words without masking them, so no legal-bit
@@ -74,10 +76,12 @@ those results merely by being present. Active-work cancellation and publication
 coverage are also governed by that pixel contract; a new coverage bit matters
 even when the stored parameter value remains zero.
 
-## Native validation
+## Historical native validation
 
-The old model fails the focused HMP read at bank0+`1400`. The accepted native
-batch passes all23 SLA subtests. Its paired-bank fixture writes and compares
+This receipt predates online numerical uploads and does not validate their
+current ownership rules. The old model fails the focused HMP read at
+bank0+`1400`; the recorded native batch passes all23 SLA subtests. Its
+paired-bank fixture writes and compares
 every one of the590 words in both banks using distinct full32-bit patterns,
 checks bank isolation, traverses the unequal-stride group seams and verifies
 reset clears the full added extent. Wrong widths/alignment and surrounding
@@ -91,7 +95,8 @@ physical table-function verification.
 
 ## Historical unchanged-firmware continuation
 
-The same bounded NOR resource35/cold-neutral resource80, quadrant scene,
+This historical run predates the implemented paired pixel lifecycle. The same
+bounded NOR resource35/cold-neutral resource80, quadrant scene,
 healthy paced UART/RNG0/held F4/five-CPU MTTCG profile runs for60 host seconds
 without an in-window GDB pause. Bank0 retains499 nonzero words across the full
 590-word extent; its first word is `00f600fa` and last word is `21f`. Bank1's
@@ -103,11 +108,11 @@ The first uncovered transaction becomes CPU1 PC `10369fb4`, WRITE32 PA
 `20380010=1`, in the independently located start helper `10369faa`. The graph
 still retains18 packets/649 words and busy slots1/2/3/4/5/8. This crosses the
 table publication family and reaches actual paired-processing start; neither
-that operation nor the graph's later reverse-start is completed by this model.
+that operation nor the graph's later reverse-start was completed by that model.
 
 The run completes128 main acquisitions and463 statistics jobs, with zero
 rejections/statistics cancellations and one main cancellation. Error6433,
 GUI readiness and information records remain zero; neither display head has
-a console. The next required capability is paired input/operation/output and
-its real completion/cancellation lifecycle. No menu, normal GUI publication or
-reusable processing-slot cycle is claimed.
+a console. The missing capability at that checkpoint was paired
+input/operation/output and its real completion/cancellation lifecycle. That run
+claims no menu, normal GUI publication or reusable processing-slot cycle.

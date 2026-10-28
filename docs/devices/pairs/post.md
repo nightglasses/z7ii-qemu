@@ -180,14 +180,15 @@ edge remains colorless, or that clipping preserves the image's global mean.
 
 ## Publication and validation
 
-All64 words across the four groups must have been explicitly written since
-reset, including zero-valued words. A first write changes publication coverage
-even if its retained value was already zero. It cancels an active immutable job;
-a changed covered value also cancels. Equal, already-covered writes preserve
-the job. MAIN-only post-color changes preserve pre-color history qualification.
-Whole-model reset clears all four coverage masks. Normal RAW ownership,
-preflight, output DMA, pending backpressure and completion publication remain
-the existing paired transaction's responsibility.
+Initial admission requires explicit publication of all64 words across the four
+groups, including zero-valued words. Online B58, C/BAC, D20..D9C and DC0..DEC
+uploads follow [online numerical uploads](pixels.md#online-numerical-uploads):
+the owned job finishes with its frozen parameters, while complete new groups
+qualify only future admission. These MAIN-only changes preserve pre-color
+history. Grid coordinates/layout and unknown opaque controls retain strict
+cancellation and profile checks; this does not expand their value domains.
+Reset clears coverage and cancels owned work. Live layout, RAM, alias, input
+ownership and pending-result fences still apply at completion.
 
 Synthetic pure fixtures independently compose centered C/BAC and exact rational
 spatial passes from independent pre-color reference scratch, covering asymmetric chroma, borders,
@@ -199,6 +200,7 @@ must leave every output unchanged. Integration fixtures use real P5 acquisition,
 packed RAW DMA and complete guest-side parameter publication, compare MAIN Y/UV
 including pitch guards, gray and colored edges, and cover every cold DC0..DEC
 prefix, malformed/reserved fields, tuple relations, opaque mismatches, reset,
-changed-configuration cancellation and equal-write preservation. Native results
-and unchanged-firmware progress are reported separately by the integration owner;
-the fixture definitions do not establish physical camera color or complete boot.
+future-snapshot uploads, immutable completion and reset cancellation. Native
+results and unchanged-firmware progress are reported separately by the
+integration owner; the fixture definitions do not establish physical camera
+color or complete boot.

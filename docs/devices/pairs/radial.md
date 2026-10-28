@@ -154,8 +154,10 @@ its frozen head-coefficient computation, including during incomplete or
 unsupported new table uploads. Completion retains every existing memory and
 peer fence but does not requalify live optional tables. A valid complete zero
 publication is numerically unchanged and preserves that job. Changed prefix
-values still use the existing cancellation path. These MAIN-only inputs preserve
-pre-color numerical history.
+values also apply only to future snapshots under
+[online numerical uploads](pixels.md#online-numerical-uploads). These MAIN-only
+inputs preserve pre-color numerical history; complete profile qualification
+remains an admission check, with live layout/RAM/alias fences at completion.
 
 A warm partial publication holds an existing AwaitInput request and its real
 unconsumed RAW until both slots complete. Initial partial coverage, malformed
@@ -176,9 +178,9 @@ RAW ROI and odd MAIN crop. They verify changed dark/bright edge samples,
 padding, completion and IRQ acknowledgement. Other fixtures cover every wire
 class, signed encoding, omitted and complete authored-zero publication,
 every cold prefix and every missing new-round word, nonzero words/padding,
-unchanged-write retention, frozen completion, warm staging, changed-prefix
-cancellation and reset. In particular, the nonzero-head edge fixtures also
-publish both complete zero curves, so accepting those curves cannot silently
+unchanged-write retention, frozen completion, warm staging, future-prefix
+admission and reset cancellation. In particular, the nonzero-head edge fixtures
+also publish both complete zero curves, so accepting those curves cannot silently
 turn off the actual radial calculation.
 These are specified tests; native results and unchanged-firmware continuation
 are reported separately by integration.
