@@ -963,8 +963,8 @@ static void test_pipeline_backpressure_and_stale(void)
 
 static void statistics_rise(QTestState *q)
 {
-    qtest_set_irq_in(q, "/machine/capture-statistics", "automatic-rise", 0, 0);
-    qtest_set_irq_in(q, "/machine/capture-statistics", "automatic-rise", 0, 1);
+    qtest_set_irq_in(q, "/machine/capture-statistics", "input-ready", 0, 0);
+    qtest_set_irq_in(q, "/machine/capture-statistics", "input-ready", 0, 1);
 }
 
 static void statistics_configure(QTestState *q)
@@ -1257,6 +1257,148 @@ static void main_input_configure(QTestState *q)
     qtest_writel(q, CAPTURE + 0x14, 0xc2);
     qtest_writel(q, CAPTURE + 0x10, 0x1d);
     qtest_writel(q, CAPTURE + 8, 0x1d);
+}
+
+static void acquisition_configure(QTestState *q)
+{
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", source);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'fixture-provider','value':false}}");
+    main_input_configure(q);
+    pipeline_configure(q, RAM, 0x100, 0x200,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    qtest_writel(q, CAPTURE + 0x10, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    qtest_memset(q, RAM, 0xa5, 0x200);
+}
+
+static void test_acquisition_views(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+
+    acquisition_configure(q);
+    pipeline_request(q); /* One fresh TG admits MAIN and the owned auxiliary. */
+    for (unsigned i = 0; i < 8; i++) {
+        pipeline_input(q); /* Busy TG edges cannot become later credits. */
+    }
+    pipeline_step(q, 10000);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x1fc), ==, 0xffffffff);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    /* RED: alternating views require another TG and leave this zero. */
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-width"), ==, 128);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-height"), ==, 4);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "input-notifications"), ==, 2);
+    g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 2);
+    pipeline_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    pipeline_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    pipeline_input(q);
+    pipeline_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, "/machine/cmos", "frame-count"), ==, 4);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_acquisition_cancellation(void)
+{
+    for (unsigned operation = 0; operation < 5; operation++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+
+        acquisition_configure(q);
+        pipeline_request(q);
+        if (operation == 0) {
+            qtest_writel(q, CAPTURE + 0xc, 1); /* MAIN only. */
+        } else if (operation == 1) {
+            qtest_writel(q, CAPTURE + 0xc, 2); /* Queued auxiliary only. */
+        } else if (operation == 2) {
+            qtest_writel(q, CAPTURE + 0x1e7c, 64 << 16);
+            qtest_writel(q, CAPTURE + 0x104, 4); /* Changed MAIN snapshot. */
+        } else if (operation == 3) {
+            qtest_system_reset(q);
+        } else {
+            /* MAIN's exposure plus four row chunks finish at5ns; the admitted
+             * auxiliary has started but has not written its first row. */
+            pipeline_step(q, 5);
+            g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"),
+                             ==, 1);
+            qtest_writel(q, CAPTURE + 0xc, 2);
+        }
+        pipeline_step(q, 10000);
+        bool main_done = operation == 1 || operation == 4;
+        bool auxiliary_done = operation == 0 || operation == 2;
+
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==,
+                         main_done);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==,
+                         auxiliary_done);
+        g_assert_cmphex(qtest_readl(q, RAM), ==,
+                       auxiliary_done ? 0 : 0xa5a5a5a5);
+        pipeline_step(q, 10000);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==,
+                         main_done);
+        qtest_quit(q);
+        unlink(bundle);
+    }
+}
+
+static void test_acquisition_late_request(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+
+    acquisition_configure(q);
+    pipeline_request(q);
+    /* Replace the queued auxiliary request while MAIN is already in flight. */
+    qtest_writel(q, CAPTURE + 0xc, 2);
+    qtest_writel(q, CAPTURE + 8, 2);
+    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
+    pipeline_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
+    pipeline_input(q);
+    pipeline_step(q, 10000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 2);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_acquisition_boundary(void)
+{
+    for (unsigned bad = 0; bad < 2; bad++) {
+        g_autofree char *bundle = NULL;
+        QTestState *q = pipeline_start(&bundle, NULL);
+
+        acquisition_configure(q);
+        if (bad) {
+            /* Invalid auxiliary transport cannot invalidate an eligible MAIN. */
+            pipeline_configure(q, 0x80000000, 0x100, 0x200,
+                               NIKON_READOUT_C170_FORMAT_PRIMARY);
+        } else {
+            /* Invalid MAIN geometry cannot discard a valid admitted auxiliary. */
+            qtest_writel(q, CAPTURE + 0x1e7c, 257 << 16);
+            qtest_writel(q, CAPTURE + 0x104, 4);
+        }
+        pipeline_request(q);
+        pipeline_step(q, 10000);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, bad);
+        g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, !bad);
+        g_assert_cmphex(qtest_readl(q, RAM), ==, bad ? 0xa5a5a5a5 : 0);
+        qtest_quit(q);
+        unlink(bundle);
+    }
 }
 
 static void test_main_input(void)
@@ -1998,8 +2140,8 @@ static void test_group_families(void)
 
 static void work_rise(QTestState *q)
 {
-    qtest_set_irq_in(q, WORK_PATH, "automatic-rise", 0, 0);
-    qtest_set_irq_in(q, WORK_PATH, "automatic-rise", 0, 1);
+    qtest_set_irq_in(q, WORK_PATH, "input-ready", 0, 0);
+    qtest_set_irq_in(q, WORK_PATH, "input-ready", 0, 1);
 }
 
 static void work_configure(QTestState *q, unsigned format, bool lookup)
@@ -2320,36 +2462,16 @@ static void test_capture_work_main_domain(void)
     pipeline_request(q);
     pipeline_step(q, 10000);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 0);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
-                     0);
-    g_assert_cmphex(qtest_readl(q, auxiliary), ==, 0x20201010);
-    work_ack(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
-    /* The old shared-input implementation consumes auxiliary pixels here. */
-    g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 0);
-    g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0xa5a5a5a5);
-
-    qtest_writel(q, READOUT_PARAMETERS + 0x400, 1);
-    pipeline_input(q);
-    pipeline_step(q, 10000);
-    /* Pending auxiliary work cannot starve the independent MAIN run intent. */
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 2);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, auxiliary), ==, 0x20201010);
+    /* One edge produces both views. MAIN consumers retain MAIN's independent
+     * pixels after the later auxiliary snapshot replaces the legacy input. */
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
                      1);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-width"), ==, 8);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-height"), ==, 8);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-stride"), ==,
                      16);
-    pipeline_input(q);
-    pipeline_step(q, 10000);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 2);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-completed"), ==, 1);
-    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "main-input-generation"), ==,
-                     1);
     work_ack(q);
     work_rise(q);
     pipeline_step(q, 2000000);
@@ -6988,6 +7110,13 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/statistics/storage-period",
                    test_statistics_storage_period);
     qtest_add_func("/nikon/cmos/pipeline/main-input", test_main_input);
+    qtest_add_func("/nikon/cmos/pipeline/two-views", test_acquisition_views);
+    qtest_add_func("/nikon/cmos/pipeline/view-cancellation",
+                   test_acquisition_cancellation);
+    qtest_add_func("/nikon/cmos/pipeline/view-late-request",
+                   test_acquisition_late_request);
+    qtest_add_func("/nikon/cmos/pipeline/view-boundary",
+                   test_acquisition_boundary);
     qtest_add_func("/nikon/cmos/group/payload", test_group_payload);
     qtest_add_func("/nikon/cmos/group/boundaries", test_group_boundaries);
     qtest_add_func("/nikon/cmos/group/cancellation", test_group_cancellation);
