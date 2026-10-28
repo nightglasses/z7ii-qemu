@@ -852,6 +852,11 @@ DMA and retained-latch boundary, and covers TG during owned work, current-cursor
 capacity retry and exactly-once next-edge advancement. Cancellation cases stop,
 disable, reset or recommit a fresh initial job before its first TG, retaining
 untouched output and silent completion.
+The no-early checks anchor their 999999 ns plus 1 ns interval at actual MAIN
+DONE using qtest's next-timer stepping. A fixed 10 us acquisition helper could
+already spend part of the group's 1 ms minimum after input-ready admission;
+its later 999999 ns assertion then crossed the legitimate deadline. That was
+a fixture timing error, not evidence of early device completion.
 Module codec/CLI tests cover
 the declared fields, exact-size rejection and byte-for-byte preservation
 outside them. These are synthetic fixtures; parent native validation and
