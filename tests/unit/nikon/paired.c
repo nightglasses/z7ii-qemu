@@ -275,6 +275,8 @@ static void configure_raw(PairedFixture *f, unsigned raw_words)
     matrix(f, 0xb00, 13, false, a);
     matrix(f, 0xb64, 12, false, b);
     matrix(f, 0xb94, 13, true, c);
+    write_port(f, 0xb44, 0x2e8b2e8b);
+    write_port(f, 0xb48, 0x003b0027);
 }
 
 static void configure(PairedFixture *f)
@@ -352,9 +354,14 @@ static void admit(PairedFixture *f)
         .stride = 96, .bits = 12, .encoding = NIKON_RAW_MONO,
         .transfer = { .codec = NIKON_RAW_LINEAR }, .slot = 0,
     };
+    NikonPairedGridFrame grid = {
+        .generation = 1, .address = RAM_BASE + GRID_OFFSET,
+        .width = 60, .height = 40, .stride = 96,
+    };
 
     write_port(f, 0x10, 1);
     write_port(f, 8, 1);
+    nikon_paired_grid_frame(f->dev, &grid);
     nikon_paired_frame(f->dev, &frame);
     g_assert_cmpuint(counter(f, "rejected"), ==, 0);
     g_assert_true(runtime_has(f, "bank0 request=2 active=1"));
@@ -372,7 +379,7 @@ static void published(PairedFixture *f)
 {
     g_assert_cmpuint(counter(f, "completed"), ==, 1);
     g_assert_cmpuint(counter(f, "rejected"), ==, 0);
-    g_assert_cmpuint(counter(f, "bytes"), ==, 56 * 28 * 3 / 2 + 90 * 34);
+    g_assert_cmpuint(counter(f, "bytes"), ==, 56 * 28 * 3 / 2);
     g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
     g_assert_true(f->level);
     g_assert_cmpuint(f->rises, ==, 1);
@@ -384,12 +391,10 @@ static void published(PairedFixture *f)
             g_assert_cmpuint(f->bytes[MAIN_OFFSET + y * 64 + x], ==, expected);
         }
     }
-    for (unsigned y = 0; y < 34; y++) {
+    for (unsigned y = 0; y < 40; y++) {
         for (unsigned x = 0; x < 96; x++) {
-            static const uint8_t pair[] = { 0, 8, 128 };
-
             g_assert_cmpuint(f->bytes[GRID_OFFSET + y * 96 + x], ==,
-                             x < 90 ? pair[x % 3] : 0xa5);
+                             0xa5);
         }
     }
 }
@@ -502,11 +507,16 @@ static void notify_phase(PairedFixture *f, unsigned selected, unsigned phase)
         .encoding = NIKON_RAW_MONO,
         .transfer = { .codec = NIKON_RAW_LINEAR }, .slot = phase,
     };
+    NikonPairedGridFrame grid = {
+        .generation = 2, .address = RAM_BASE + GRID_OFFSET + phase * 0x1000,
+        .width = 60, .height = 40, .stride = 96,
+    };
     unsigned offset = frame.address - RAM_BASE;
 
     for (unsigned i = 0; i < 96 * 36; i += 3) {
         memcpy(f->bytes + offset + i, "\x00\x08\x80", 3);
     }
+    nikon_paired_grid_frame(f->dev, &grid);
     nikon_paired_frame(f->dev, &frame);
 }
 
@@ -540,13 +550,11 @@ static void phase_pixels(PairedFixture *f, unsigned selected, unsigned phase)
             g_assert_cmpuint(f->bytes[main + y * 64 + x], ==, expected);
         }
     }
-    for (unsigned y = 0; y < 34; y++) {
+    for (unsigned y = 0; y < 40; y++) {
         for (unsigned x = 0; x < 96; x++) {
-            static const uint8_t pair[] = { 0, 8, 128 };
-
             g_assert_cmpuint(f->bytes[GRID_OFFSET + phase * 0x1000 +
                                       y * 96 + x], ==,
-                             x < 90 ? pair[x % 3] : 0xa5);
+                             0xa5);
         }
     }
 }
@@ -811,6 +819,240 @@ static void test_async_bank_invalid(void)
     fixture_free(f);
 }
 
+static NikonPairedRawFrame raw_frame(unsigned phase, uint64_t generation)
+{
+    return (NikonPairedRawFrame) {
+        .generation = generation, .address = RAM_BASE + phase * 0x1000,
+        .width = 64, .height = 36, .stride = 96, .bits = 12,
+        .encoding = NIKON_RAW_MONO, .slot = phase,
+    };
+}
+
+static NikonPairedGridFrame grid_frame(uint64_t generation)
+{
+    return (NikonPairedGridFrame) {
+        .generation = generation, .address = RAM_BASE + GRID_OFFSET,
+        .width = 60, .height = 40, .stride = 96,
+    };
+}
+
+static void test_grid_dependency(void)
+{
+    PairedFixture *f = fixture_new();
+    NikonPairedRawFrame raw = raw_frame(0, 1);
+    NikonPairedGridFrame grid = grid_frame(0);
+    PoolBarrier blocker;
+
+    write_port(f, 0x39c, grid.address); /* Two RAW phases read one map address. */
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    nikon_paired_frame(f->dev, &raw);
+    advance(2000000);
+    unpublished(f); /* Nonzero packed RAM is not a producer publication. */
+    g_assert_true(runtime_has(f, "bank0 request=2 active=0"));
+    nikon_paired_grid_frame(f->dev, &grid);
+    advance(2000000);
+    unpublished(f);
+    blocker_start(&blocker);
+    grid.generation = 1;
+    nikon_paired_grid_frame(f->dev, &grid);
+    advance(999999);
+    unpublished(f);
+    advance(1);
+    finish_queued(f, &blocker);
+    published(f);
+    write_port(f, 0x24, UINT32_MAX);
+    raw = raw_frame(1, 2);
+    nikon_paired_frame(f->dev, &raw);
+    advance(2000000);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_true(runtime_has(f, "bank0 request=2 active=0"));
+    nikon_paired_grid_frame(f->dev, &grid); /* Same generation stays consumed. */
+    advance(2000000);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    nikon_paired_grid_frame(f->dev, NULL); /* New epoch may restart numbering. */
+    blocker_start(&blocker);
+    nikon_paired_grid_frame(f->dev, &grid);
+    advance(1000000);
+    finish_queued(f, &blocker);
+    g_assert_cmpuint(counter(f, "completed"), ==, 2);
+    for (unsigned i = 0; i < 4 * 0x1000; i++) {
+        g_assert_cmphex(f->bytes[GRID_OFFSET + i], ==, 0xa5);
+    }
+    fixture_free(f);
+}
+
+static void test_grid_snapshot(void)
+{
+    uint8_t baseline[64 * 42], zero[64 * 42];
+
+    for (unsigned variant = 0; variant < 3; variant++) {
+        PairedFixture *f = fixture_new();
+        NikonPairedRawFrame raw = raw_frame(0, 1);
+        NikonPairedGridFrame grid = grid_frame(1);
+        PoolBarrier blocker;
+
+        write_port(f, 0xb58, 0x01000080);
+        for (unsigned y = 0; y < 36; y++) {
+            for (unsigned x = 0; x < 64; x += 2) {
+                unsigned a = x < 24 ? 300 : x < 40 ? 3600 : 1000;
+                unsigned at = y * 96 + x * 3 / 2;
+
+                f->bytes[at] = a;
+                f->bytes[at + 1] = a >> 8 | a << 4;
+                f->bytes[at + 2] = a >> 4;
+            }
+        }
+        for (unsigned y = 0; y < 40; y++) {
+            memset(f->bytes + GRID_OFFSET + y * 96, variant == 2 ? 0 : 255, 90);
+        }
+        blocker_start(&blocker);
+        write_port(f, 0x10, 1);
+        write_port(f, 8, 1);
+        nikon_paired_grid_frame(f->dev, &grid);
+        nikon_paired_frame(f->dev, &raw);
+        g_assert_true(runtime_has(f, "bank0 request=2 active=1"));
+        advance(1000000);
+        if (variant == 1) {
+            grid.generation = 0;
+            nikon_paired_grid_frame(f->dev, &grid);
+            for (unsigned y = 0; y < 40; y++) {
+                memset(f->bytes + GRID_OFFSET + y * 96, 0, 90);
+            }
+        }
+        finish_queued(f, &blocker);
+        g_assert_cmpuint(counter(f, "completed"), ==, 1);
+        if (variant == 0) {
+            memcpy(baseline, f->bytes + MAIN_OFFSET, sizeof(baseline));
+        } else if (variant == 1) {
+            g_assert_cmpmem(f->bytes + MAIN_OFFSET, sizeof(baseline),
+                            baseline, sizeof(baseline));
+        } else {
+            memcpy(zero, f->bytes + MAIN_OFFSET, sizeof(zero));
+        }
+        for (unsigned y = 0; y < 40; y++) {
+            for (unsigned x = 0; x < 96; x++) {
+                unsigned expected = x >= 90 ? 0xa5 : variant == 0 ? 255 : 0;
+
+                g_assert_cmphex(f->bytes[GRID_OFFSET + y * 96 + x], ==, expected);
+            }
+        }
+        fixture_free(f);
+    }
+    g_assert_cmpint(memcmp(baseline, zero, sizeof(baseline)), !=, 0);
+}
+
+static void test_grid_rejection(void)
+{
+    for (unsigned bad = 0; bad < 7; bad++) {
+        PairedFixture *f = fixture_new();
+        NikonPairedRawFrame raw = raw_frame(0, 1);
+        NikonPairedGridFrame grid = grid_frame(1);
+
+        switch (bad) {
+        case 0: grid.width = 58; break;
+        case 1: grid.height = 39; break;
+        case 2: grid.stride = 92; break;
+        case 3:
+            grid.address = 0x40000000;
+            write_port(f, 0x398, grid.address);
+            break;
+        case 4:
+            grid.address = RAM_BASE + MAIN_OFFSET;
+            write_port(f, 0x398, grid.address);
+            break;
+        case 5: write_port(f, 0xb38, 1); break;
+        case 6: write_port(f, 0xb48, 0x003a0027); break;
+        }
+        write_port(f, 0x10, 1);
+        write_port(f, 8, 1);
+        nikon_paired_grid_frame(f->dev, &grid);
+        nikon_paired_frame(f->dev, &raw);
+        advance(2000000);
+        unpublished(f);
+        g_assert_cmpuint(counter(f, "rejected"), >, 0);
+        g_assert_true(runtime_has(f, "inflight=0"));
+        fixture_free(f);
+    }
+}
+
+static void test_grid_memory(gconstpointer opaque)
+{
+    bool readonly = GPOINTER_TO_INT(opaque);
+    PairedFixture *f = fixture_new();
+    MemoryRegion view;
+    NikonPairedRawFrame raw = raw_frame(0, 1);
+    NikonPairedGridFrame grid = grid_frame(1);
+    PoolBarrier blocker;
+
+    if (readonly) {
+        memory_region_init_rom(&view, NULL, "paired-grid-rom", 0x1000,
+                                &error_abort);
+        memset(memory_region_get_ram_ptr(&view), 0xa5, 0x1000);
+    } else {
+        memory_region_init_alias(&view, NULL, "paired-grid-alias", &f->ram,
+                                  MAIN_OFFSET, 0x1000);
+    }
+    memory_region_add_subregion(get_system_memory(), 0x30000000, &view);
+    grid.address = 0x30000000;
+    write_port(f, 0x398, grid.address);
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    if (readonly) {
+        blocker_start(&blocker);
+    }
+    nikon_paired_grid_frame(f->dev, &grid);
+    nikon_paired_frame(f->dev, &raw);
+    advance(1000000);
+    if (readonly) {
+        finish_queued(f, &blocker);
+        published(f);
+        for (unsigned i = 0; i < 0x1000; i++) {
+            g_assert_cmphex(((uint8_t *)memory_region_get_ram_ptr(&view))[i],
+                            ==, 0xa5);
+        }
+    } else {
+        unpublished(f);
+        g_assert_cmpuint(counter(f, "rejected"), >, 0);
+    }
+    memory_region_del_subregion(get_system_memory(), &view);
+    object_unparent(OBJECT(&view));
+    fixture_free(f);
+}
+
+static void test_grid_pool_epoch(void)
+{
+    PairedFixture *f = fixture_new();
+    NikonPairedGridFrame grid = grid_frame(1);
+    NikonPairedRawFrame raw = raw_frame(0, 1);
+    PoolBarrier blocker;
+
+    for (unsigned i = 0; i < 8; i++) {
+        grid.address = RAM_BASE + GRID_OFFSET + 4 * i;
+        nikon_paired_grid_frame(f->dev, &grid);
+    }
+    grid.address += 4;
+    write_port(f, 0x398, grid.address);
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    nikon_paired_frame(f->dev, &raw);
+    nikon_paired_grid_frame(f->dev, &grid);
+    advance(2000000);
+    unpublished(f);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 1);
+    nikon_paired_grid_frame(f->dev, NULL);
+    blocker_start(&blocker);
+    nikon_paired_grid_frame(f->dev, &grid);
+    advance(1000000);
+    finish_queued(f, &blocker);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    for (unsigned i = 0; i < 4 * 0x1000; i++) {
+        g_assert_cmphex(f->bytes[GRID_OFFSET + i], ==, 0xa5);
+    }
+    fixture_free(f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -854,6 +1096,14 @@ int main(int argc, char **argv)
     g_test_add_data_func("/nikon/paired/async/bank-stop", GINT_TO_POINTER(1),
                          test_async_bank_clear);
     g_test_add_func("/nikon/paired/async/bank-invalid", test_async_bank_invalid);
+    g_test_add_func("/nikon/paired/grid-dependency", test_grid_dependency);
+    g_test_add_func("/nikon/paired/grid-snapshot", test_grid_snapshot);
+    g_test_add_func("/nikon/paired/grid-rejection", test_grid_rejection);
+    g_test_add_data_func("/nikon/paired/grid-readonly", GINT_TO_POINTER(1),
+                         test_grid_memory);
+    g_test_add_data_func("/nikon/paired/grid-alias", GINT_TO_POINTER(0),
+                         test_grid_memory);
+    g_test_add_func("/nikon/paired/grid-pool-epoch", test_grid_pool_epoch);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

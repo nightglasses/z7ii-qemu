@@ -115,7 +115,15 @@ capture ring in order1/2/3/0, pitch `0x820`. Its source ROI is1380×778 within
 the existing1380×918 capture. A four-pixel border and main output1372×770
 correspond to kind26 pitch `0x560` and plane offset `0x102ac0`, also retained in
 the downstream gate slot8 packet. Kind25's four addresses match slot2's map,
-with decimal pitch96 and downstream60×34 dimensions.
+with decimal pitch96. The later recovered B48 maximum indices59/39 establish
+the consumer's full60×40 extent; the former60×34 output interpretation is removed.
+
+Unit8 producer VA `102643e2` publishes those kind25 descriptors through
+`102cd202`/`102cd176` into registry queue+144. Paired VA `1026405a` pops the
+same queue through `102cd2ba`: kind25 is a read dependency. VA `102be6b0`
+constructs RAW-relative map geometry; VA `1036bcde` packs it at B38..B58, while
+VA `1037f624` computes the dynamic B58 strengths. Their confidence-map numerical
+meaning remains an explicit [functional hypothesis](pixels.md).
 
 These joins establish bounded input and target storage.
 The kind31 work/reference pair is also enabled, with pitch `0x570`, two-plane

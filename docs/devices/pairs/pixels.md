@@ -1,7 +1,7 @@
 # Paired pixel processing
 
 The Z7II paired model consumes completed RAW12 DMA buffers and produces main
-Y/UV pixels, work history/residual planes and a packed grid before publishing
+Y/UV pixels and work history/residual planes before publishing
 completion. It supports an explicit virtual calibration profile with mono or
 [CFA color input](color.md) for C1.70 MAS. The address joins and software request paths are source-backed;
 the filters, temporal arithmetic, gain scales, output encodings and event
@@ -57,7 +57,8 @@ up to two Q10 gain curves, independent
 Q8 RGB gains, bounded LFSR noise, A Q10/B Q9 conversion and
 [signed-chroma C processing](post.md), bounded MAIN processing and a
 [completely published uniform luma gain](luma.md) to the main image. Its work
-planes are half-resolution luma and residual; its grid contains area means.
+planes are half-resolution luma and residual. An enabled grid is a separately
+produced packed12 confidence-map input, never a paired output.
 Those numerical meanings are hypotheses made explicit here so they
 can be tested and replaced when a discriminating consumer or physical record
 becomes available. They are not arbitrary gains inferred from the opaque tables.
@@ -84,7 +85,7 @@ f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
 594, 598..5dc, 608, 660..678, 708..778, b00..b10, b64..b74, b94..ba4
 1200..1244
 900..9c4, 9cc, 9d0, 9d4, 9d8, df4..e10, 2890..2c94
-b58, bac, d28, dd4, dd8
+b3c..b4c, b58, bac, d28, dd4, dd8
 1900..197c
 1a08..1a8c
 ```
@@ -281,7 +282,7 @@ range means that every listed word has the stated value.
 | `b8`, `bc`, `c0`, `c8`, `cc` | `1`, `1`, `0`, `0`, `0` |
 | `d4`, `d8`, `dc`, `e0`, `e4` | `0c060202`, `9`, `30300`, `158`, `0` |
 | `f8`, `fc`, `100`, `104`, `108`, `10c`, `110` | `1`, `0 or 1`, `1`, `0`, `3`, `0`, `0` |
-| `11c`, `120`, `124`, `128`, `12c`, `130`, `134`, `138`, `13c`, `140`, `144` | `1`, `1`, `1`, `0`, `1`, `0`, `0`, `0`, `0`, `0`, `0` |
+| `11c`, `120`, `124`, `128`, `12c`, `130`, `134`, `138`, `13c`, `140`, `144` | `1`, `1`, `1`, `0`, grid enable0/1, `0`, `0`, `0`, `0`, `0`, `0` |
 | `300`, `3d8`, `404`, `408`, `410`, `420`, `428`, `42c` | `0`, `2`, `1`, `1`, `1`, `1`, `1`, `3` |
 | `b14`, `b60`, `b90` | `80000000` each |
 | `330..34c` | Zero each |
@@ -306,7 +307,7 @@ Let `W/H` be the source ROI extent and `OW/OH` the main output extent:
 | Main rectangle | `40c.low16 = x`, `400.high16 = y`, `40c.high16 = OW`, `400.low16 = OH` |
 | Consistency fields | `9c = H-1`, `c4 = W`, `204 = (H<<16)\|W` |
 
-The device requires `60 <= W <= 4096`, `34 <= H <= 4096`, positive even main
+The device requires `1 <= W,H <= 4096`, positive even main
 dimensions and a main rectangle contained in the ROI. The completed RAW frame
 must have an even width, dimensions at most 4096, bit depth 12, enough pixels
 for the ROI and a stride equal to `30c`, at least `frame_width*12/8` bytes.
@@ -316,7 +317,7 @@ processing; later producer overwrites cannot change that snapshot.
 
 Phase `p` starts at zero and advances modulo four only after successful output.
 The next input must match `0x310+0x10*fc+4p` and have a generation greater than that
-producer slot's last consumed generation. The same phase selects every output:
+producer slot's last consumed generation. The same phase selects these ports:
 
 | Output | Address | Stride | Active row bytes and rows |
 | --- | --- | --- | --- |
@@ -324,7 +325,7 @@ producer slot's last consumed generation. The same phase selects every output:
 | Main UV | `0x498+0x20*fc+4p` | `4c8` | `OW`, `OH/2` |
 | Work luma | `0x430+0x20*fc+4p` | `470` | `2*ceil(W/2)`, `ceil(H/2)` |
 | Work residual | `0x440+0x20*fc+4p` | `470` | Same as work luma |
-| Grid | `0x398+0x10*fc+4p` | `394` | 90 bytes, 34 rows |
+| Grid input, when `12c=1` | `0x398+0x10*fc+4p` | `394` | `3*GW/2`, `GH` |
 
 The work address aliases at `450+4p` and `460+4p` must equal the selected luma
 and residual addresses. UV must immediately follow the full pitched Y extent;
@@ -332,10 +333,11 @@ residual must immediately follow the full pitched work-luma extent.
 
 Every target is four-byte aligned, has stride at least its active row size and
 fits writable direct RAM without 32-bit address wrap. The full pitched extents
-of all four phases are preflighted, including RAW buffers not yet consumed.
+of all four phases are preflighted, including RAW and grid buffers not yet consumed.
 RAW phases cannot overlap. Targets cannot overlap any RAW extent or another
 target plane. Exact same-plane aliases across phases are allowed for main and
-work outputs; grid phases must remain distinct. Overlap checks include shared
+work outputs. Grid reads may alias other reads; every grid extent must remain
+disjoint from every selected-phase output. Overlap checks include shared
 RAM backing, so different PA aliases cannot bypass these rules. A peer bank's
 active job or unacknowledged `1000` result also protects its target extents.
 
@@ -344,6 +346,52 @@ their previous contents. In the C1.70 address join, input phases select kind16
 units in order 1/2/3/0; kind31 work and kind26 main select two alternating units,
 while kind25 grid selects four distinct units. Their source-declared allocation
 sizes do not become inferred active image dimensions.
+
+### Confidence-map input
+
+C1.70 MAS VA `102643e2` supplies unit8's kind25 descriptors to
+`102cd202`/`102cd176`, which enqueue them through registry queue+144. Paired
+VA `1026405a` consumes that same queue through `102cd2ba`. This establishes the
+read direction at `398..3b4`; the former paired60×34 area-mean output is removed.
+The observed `b48.high16/low16` maximum indices59/39 imply a60×40 map. The model
+decodes variable `GW/GH` as those fields plus one, bounded to4096 with an even
+width for packed12. Pitch comes from `394`, independently of RAW dimensions.
+Grid RAM may be readonly; output RAM must be writable.
+
+The public `nikon_paired_grid_frame` descriptor carries address, dimensions,
+pitch and a completed generation. Positive publication is permitted only after
+all producer DMA; generation zero withdraws that address before overwrite, and
+NULL invalidates the producer epoch. The device retains at most eight address
+descriptors, sufficient for two four-phase views. Slots remain stable within
+an epoch, including after withdrawal; a ninth distinct address rejects until
+NULL starts a new pool epoch. Per-bank address and epoch consumption prevents
+replay. A matching fresh descriptor is required
+before taking either the grid or RAW snapshot. Nonzero RAM is never readiness.
+Withdrawal after admission leaves the owned immutable copy valid.
+
+The board's `grid-ready` input queries the linked gate's published descriptor
+through `nikon_gate_plane_output`. It passes that descriptor to the same public
+API; it never sets a paired pending cause. Reset invalidates retained descriptors.
+Final preflight again rejects aliases between grid reads and any output writes,
+including shared backing aliases and protected peer-bank outputs.
+
+The local coordinates below are a declared virtual interpretation of source
+producer VA `102be6b0` and setter VA `1036bcde`, including their factor16:
+
+```text
+gx_Q22 = b3c + 16 * (RAW_X - b4c.high16) * b44.high16
+gy_Q22 = b40 + 16 * (RAW_Y - b4c.low16)  * b44.low16
+```
+
+`RAW_X/Y` include the source ROI origin and MAIN crop. The starts are unsigned
+Q22 and the unsigned16 steps have effective Q18 scale. Clamp each coordinate to
+the grid edge, then bilinearly interpolate its four actual twelve-bit samples
+with one final nearest rounding. Grid dimensions, starts, steps and origins are
+live bounded numerical fields. The remaining `b38/b50/b54` controls must match
+the complete explicit calibration tuple; no unknown control variant is bypassed.
+The scalar map modulates the existing B58 residual exactly once as specified in
+the [post-color contract](post.md). Its confidence meaning and coordinate scale
+are functional hypotheses, not recovered silicon arithmetic.
 
 ## Numerical operator and formats
 
@@ -394,9 +442,8 @@ the recovered publication sizes and packing do not prove the silicon equation.
    current sample as `(current*(256-weight)+prior_luma*weight+128)/256`.
    Store the resulting block mean as luma and `d` as residual. Without prior
    luma, the weight and residual are zero.
-4. **Grid.** Partition the entire filtered ROI into 60-by-34 cells using floor
-   boundaries `floor(i*extent/cells)`. Each cell contains its rounded area mean,
-   before the color matrices and independently of the main crop.
+4. **Grid input.** Snapshot and decode the independently completed confidence
+   map described below. It does not alter WORK/history or produce a paired DMA.
 5. **Main color, curves and gains.** Apply the four-lane affine correction above
    to each cropped mono sample, or replicate mono into RGB for the synthetic
    neutral packet. For each resulting channel sample `m`, process enabled
@@ -417,8 +464,8 @@ the recovered publication sizes and packing do not prove the silicon equation.
    UV stores the rounded mean of each 2-by-2 block's U and V, interleaved U first
    (NV12).
 
-Curves and RGB gains affect main color output only. Work luma/residual and the
-grid are computed from the filtered image before these stages. Curve and gain
+Curves and RGB gains affect main color output only. Work luma/residual are
+computed from the filtered image before these stages. Curve and gain
 multiplications use the same symmetric nearest rounding and 12-bit clamp as
 the matrix stages; their stage order is part of this finite operator, not a
 claim about the physical processing pipeline.
@@ -434,9 +481,10 @@ matrix order and saturation are functional interpretations of the recovered
 coefficient layouts, not a claim of identical physical arithmetic.
 
 Work luma and residual are little-endian 16-bit words holding RAW12-range
-values. Grid pairs `a,b` are packed into three bytes:
-`a.low8`, `(a>>8) | ((b&15)<<4)`, `b>>4`. Thus each 60-sample grid row writes
-90 bytes. NV12, these work meanings and grid averaging are explicit finite
+values. Input grid pairs `a,b` are packed into three bytes:
+`a.low8`, `(a>>8) | ((b&15)<<4)`, `b>>4`. Thus each 60-sample grid row contains
+90 bytes. Paired reads those bytes without modifying payload or padding.
+NV12, these work meanings and confidence modulation are explicit finite
 formats; the full physical meaning of work mode `42c=3` remains unresolved.
 
 Prior work RAM is trusted only after this bank successfully published that
@@ -596,7 +644,7 @@ A changed retained configuration word cancels an active job, except for staged
 RAW/grid/main address staging and the dedicated `0c`, `f0` and `84` controls.
 It also invalidates its bank's
 numerical-history ownership unless it belongs to the main-only noise group
-`df4..e10`, RAW pointer groups `218..234/310..32c`, or main/grid target pointers
+`df4..e10`, RAW pointer groups `218..234/310..32c`, or main/grid pointers
 `488..4c4/398..3b4`, or bounded selection `fc`. These target/source-address,
 selection and noise changes preserve pre-color work history; actual source-epoch
 withdrawal still prevents old history from being reused. First publication of a table/curve word also changes its
@@ -687,8 +735,8 @@ column-within-block order. Disabled channels neither step nor alter pixels.
 Limits are unsigned 10-bit values; gain/offset are unsigned bytes, shift is
 0..15 and enabled is boolean. A nonzero feedback must be primitive even for a
 disabled channel; a zero feedback is permitted only while disabled. Top bytes
-of `df4/e04/e08/e0c` are reserved and reject when nonzero. Work and grid data
-remain pre-color results. With the observed shift 4 and zero offset, gain 255
+of `df4/e04/e08/e0c` are reserved and reject when nonzero. Work data remains
+pre-color; grid input is independently owned. With shift4 and zero offset, gain255
 bounds the added term to about 16 RAW12 units; other shifts/offsets have their
 explicit configuration-dependent bound.
 
@@ -705,7 +753,7 @@ distinguish it from the actual hardware algorithm.
 
 Missing calibration, partial opaque-table or curve coverage, an omitted nonzero
 opaque table, nonzero curve padding, unsupported control/gain/matrix encodings,
-wrong RAW format, inconsistent geometry, bad pitch, RAM holes, readonly memory,
+wrong RAW format, inconsistent geometry, bad pitch, RAM holes, readonly outputs,
 address wrap and forbidden overlap reject without publishing completion or
 consuming input freshness. An already pending result is backpressure, not an
 excuse to overwrite its outputs. A failed RAW producer publishes no fresh frame.
@@ -718,9 +766,9 @@ no history. This distinction prevents a partial memory transfer from becoming
 a successful frame. Unknown MMIO accesses and commands remain explicit errors.
 
 `tests/unit/nikon/pairedpixels.c` contains arithmetic fixtures for constants,
-history, impulse/spatial filtering, crop/grid geometry, gains, curves, matrices
+history, impulse/spatial filtering, crop geometry, confidence interpolation, gains, curves, matrices
 and invalid inputs. The paired cases in `tests/qtest/nikon/cmos.c` exercise actual RAW DMA,
-all three target families, phase aliases, table publication boundaries, memory preflight,
+MAIN/WORK targets and grid inputs, phase aliases, table publication boundaries, memory preflight,
 backpressure, retained results, matrix encoding, cancellation/reset and source
 history epochs. These synthetic fixtures test the declared model. Their verdicts
 and unchanged-firmware execution receipts belong to the accepted validation
@@ -728,9 +776,9 @@ record. The [pixel receipt](/evidence/imagerequest/pixels.json) records the
 accepted 51 CMOS, 23 SLA and 8 numerical unit subtests, including retained-ring
 continuation, real non-unit color results and same-value publication
 cancellation. Native fixtures do not establish complete startup. Effective RAM
-backing-alias guards were independently reviewed; the present qtest board has
-no decoder seam to inject a second alias, so that case is not claimed as an
-executed alias fixture.
+backing-alias guards were independently reviewed; the historical qtest board had
+no decoder seam to inject a second alias. The new public-device grid fixture
+adds a backing alias; its native verdict remains separately required.
 
 The later [noise and selected-group receipt](/evidence/imagerequest/noise.json)
 records 54 CMOS and 10 numerical subtests, alongside 23 SLA cases. It adds
@@ -763,3 +811,11 @@ the later 60-second run reaches 108 paired jobs, 287,426,880 payload bytes and
 The [storage receipt](/evidence/storage/presence.json) records that integrated
 result. Neither one progressing window nor a status console establishes stable
 normal live view across all input profiles.
+
+The grid-consumer fixtures additionally cover actual packed12 read ownership,
+missing/withdrawn/repeated generations, epoch restart, readonly grid RAM,
+backing aliases, immutable worker snapshots and zero/full confidence laws.
+The numerical fixture's former pre-color output observations are now independent
+scalar reference scratch, checked against actual half/residual and MAIN outputs.
+No replacement intermediate-output API is provided. These new cases require
+native integration results; they do not establish unchanged-firmware acceptance.

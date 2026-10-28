@@ -1,6 +1,6 @@
 /*
  * Finite mono/CFA RAW12 operator. Filter thresholds, temporal weights,
- * matrix rounding and grid averaging are explicit functional hypotheses,
+ * matrix rounding and confidence modulation are explicit functional hypotheses,
  * not recovered silicon processing or physical-camera calibration.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -248,8 +248,12 @@ static bool paired_config_valid(const NikonPairedPixelConfig *p)
         p->x >= p->width || p->y >= p->height ||
         p->output_width > p->width - p->x ||
         p->output_height > p->height - p->y ||
-        !p->grid_width || !p->grid_height ||
-        p->grid_width > p->width || p->grid_height > p->height ||
+        (p->grid_enabled &&
+         (!p->grid_width || !p->grid_height ||
+          p->grid_width > PAIRED_MAX_DIMENSION ||
+          p->grid_height > PAIRED_MAX_DIMENSION ||
+          p->grid_origin_x < -4095 || p->grid_origin_x > 65535 ||
+          p->grid_origin_y < -4095 || p->grid_origin_y > 65535)) ||
         !nikon_paired_noise_valid(p) ||
         !nikon_paired_filter_valid(&p->filter) ||
         !nikon_paired_denoise_valid(&p->denoise) ||
@@ -713,31 +717,6 @@ static bool paired_cfa_filter(const uint16_t *raw, uint16_t *output,
     return true;
 }
 
-static void paired_grid(const uint16_t *filtered,
-                         const NikonPairedPixelConfig *p, uint16_t *grid)
-{
-    unsigned gx, gy, x, y;
-
-    for (gy = 0; gy < p->grid_height; gy++) {
-        unsigned first_y = gy * p->height / p->grid_height;
-        unsigned last_y = (gy + 1) * p->height / p->grid_height;
-
-        for (gx = 0; gx < p->grid_width; gx++) {
-            unsigned first_x = gx * p->width / p->grid_width;
-            unsigned last_x = (gx + 1) * p->width / p->grid_width;
-            unsigned count = (last_x - first_x) * (last_y - first_y);
-            uint64_t sum = 0;
-
-            for (y = first_y; y < last_y; y++) {
-                for (x = first_x; x < last_x; x++) {
-                    sum += filtered[y * p->width + x];
-                }
-            }
-            grid[gy * p->grid_width + gx] = (sum + count / 2) / count;
-        }
-    }
-}
-
 static void paired_matrix(const int16_t matrix[9], const uint16_t input[3],
                            uint16_t output[3])
 {
@@ -929,6 +908,36 @@ static int32_t paired_ratio(int64_t numerator, int64_t denominator)
                            (numerator + denominator / 2) / denominator;
 }
 
+static unsigned paired_confidence(const NikonPairedPixelConfig *p,
+                                   const uint16_t *grid, unsigned x, unsigned y)
+{
+    const uint64_t one = UINT64_C(1) << 22;
+    int64_t xx = (int64_t)p->grid_start_x +
+        16 * ((int64_t)x - p->grid_origin_x) * p->grid_step_x;
+    int64_t yy = (int64_t)p->grid_start_y +
+        16 * ((int64_t)y - p->grid_origin_y) * p->grid_step_y;
+    unsigned x0, y0, x1, y1;
+    uint64_t fx, fy, sum;
+
+    if (!p->grid_enabled) {
+        return 4095;
+    }
+    xx = CLAMP(xx, 0, (int64_t)((p->grid_width - 1) * one));
+    yy = CLAMP(yy, 0, (int64_t)((p->grid_height - 1) * one));
+    x0 = xx / one;
+    y0 = yy / one;
+    x1 = MIN(x0 + 1, p->grid_width - 1);
+    y1 = MIN(y0 + 1, p->grid_height - 1);
+    fx = xx % one;
+    fy = yy % one;
+    /* Four products sum below2^56; round once after both coordinates. */
+    sum = grid[y0 * p->grid_width + x0] * (one - fx) * (one - fy) +
+          grid[y0 * p->grid_width + x1] * fx * (one - fy) +
+          grid[y1 * p->grid_width + x0] * (one - fx) * fy +
+          grid[y1 * p->grid_width + x1] * fx * fy;
+    return (sum + one * one / 2) / (one * one);
+}
+
 static int32_t paired_post_kernel(const uint16_t *input, unsigned width,
                                   unsigned height, unsigned x, unsigned y,
                                   const NikonPairedPost *p)
@@ -965,9 +974,12 @@ static int32_t paired_post_kernel(const uint16_t *input, unsigned width,
 
 static void paired_post_pass(const uint16_t *input, uint16_t *output,
                               unsigned width, unsigned height,
-                              const NikonPairedPost *p, unsigned channel,
+                              const NikonPairedPixelConfig *config,
+                              const uint16_t *grid, unsigned channel,
                               unsigned pass)
 {
+    const NikonPairedPost *p = &config->post;
+
     for (unsigned y = 0; y < height; y++) {
         unsigned up = y ? y - 1 : y;
         unsigned down = MIN(y + 1, height - 1);
@@ -993,7 +1005,8 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
             n -= 4 * center;
             if (pass == 0) {
                 correction = paired_ratio(-(int64_t)n *
-                                           p->unsharp[!!channel], 4 * 256);
+                    p->unsharp[!!channel] * paired_confidence(config, grid,
+                        config->x + x, config->y + y), 4 * 256 * 4095);
             } else if (pass < 3) {
                 correction = paired_ratio((int64_t)n * p->smooth[pass - 1],
                                            4 * 32);
@@ -1012,6 +1025,7 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
 
 static void paired_main(const uint16_t *filtered,
                          const NikonPairedPixelConfig *p,
+                         const uint16_t *grid,
                          uint16_t *planes, uint16_t *scratch,
                          uint8_t *out_y, uint8_t *out_uv)
 {
@@ -1053,7 +1067,7 @@ static void paired_main(const uint16_t *filtered,
             paired_post_pass(pass & 1 ? scratch : plane,
                               pass & 1 ? plane : scratch,
                               p->output_width, p->output_height,
-                              &p->post, channel, pass);
+                              p, grid, channel, pass);
         }
         memcpy(plane, scratch, pixels * sizeof(*plane));
     }
@@ -1080,13 +1094,46 @@ static void paired_main(const uint16_t *filtered,
     }
 }
 
+static bool paired_buffers_disjoint(const void *const *inputs,
+                                    const size_t *input_sizes,
+                                    void *const outputs[4],
+                                    const size_t output_sizes[4])
+{
+    for (unsigned i = 0; i < 4; i++) {
+        uintptr_t start = (uintptr_t)outputs[i];
+
+        if (output_sizes[i] > UINTPTR_MAX - start) {
+            return false;
+        }
+        for (unsigned j = 0; j < 4; j++) {
+            uintptr_t other = (uintptr_t)inputs[j];
+
+            if (inputs[j] &&
+                (input_sizes[j] > UINTPTR_MAX - other ||
+                 (start < other + input_sizes[j] &&
+                  other < start + output_sizes[i]))) {
+                return false;
+            }
+        }
+        for (unsigned j = 0; j < i; j++) {
+            uintptr_t other = (uintptr_t)outputs[j];
+
+            if (start < other + output_sizes[j] &&
+                other < start + output_sizes[i]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                          const uint16_t *raw_contiguous_ROI,
                          const uint16_t *prior_half_luma_nullable,
                          const uint16_t *prior_half_residual_nullable,
                          uint16_t *out_half_luma,
                          uint16_t *out_half_residual,
-                         uint16_t *out_grid,
+                         const uint16_t *confidence_grid_nullable,
                          uint8_t *out_y, uint8_t *out_uv)
 {
     g_autofree uint16_t *dpc = NULL;
@@ -1096,16 +1143,33 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
     unsigned x, y;
 
     if (!paired_config_valid(config) || !raw_contiguous_ROI ||
-        !out_half_luma || !out_half_residual || !out_grid || !out_y ||
+        !out_half_luma || !out_half_residual || !out_y ||
+        (config->grid_enabled && !confidence_grid_nullable) ||
         !out_uv) {
         return false;
     }
     pixels = (size_t)config->width * config->height;
     half_pixels = (size_t)((config->width + 1) / 2) *
                   ((config->height + 1) / 2);
+    {
+        const void *inputs[] = { raw_contiguous_ROI, prior_half_luma_nullable,
+            prior_half_residual_nullable,
+            config->grid_enabled ? confidence_grid_nullable : NULL };
+        size_t input_sizes[] = { pixels * 2, half_pixels * 2, half_pixels * 2,
+            (size_t)config->grid_width * config->grid_height * 2 };
+        void *outputs[] = { out_half_luma, out_half_residual, out_y, out_uv };
+        size_t main = (size_t)config->output_width * config->output_height;
+        size_t output_sizes[] = { half_pixels * 2, half_pixels * 2, main, main / 2 };
+
+        if (!paired_buffers_disjoint(inputs, input_sizes, outputs, output_sizes)) {
+            return false;
+        }
+    }
     if (!paired_samples_valid(raw_contiguous_ROI, pixels) ||
         !paired_samples_valid(prior_half_luma_nullable, half_pixels) ||
-        !paired_samples_valid(prior_half_residual_nullable, half_pixels)) {
+        !paired_samples_valid(prior_half_residual_nullable, half_pixels) ||
+        (config->grid_enabled && !paired_samples_valid(confidence_grid_nullable,
+            (size_t)config->grid_width * config->grid_height))) {
         return false;
     }
     dpc = g_try_new(uint16_t, pixels);
@@ -1142,7 +1206,6 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                     prior_half_luma_nullable, prior_half_residual_nullable,
                     out_half_luma, out_half_residual,
                     config->encoding != NIKON_RAW_MONO);
-    paired_grid(dpc, config, out_grid);
     if (config->encoding != NIKON_RAW_MONO) {
         for (y = 0; y < config->height; y++) {
             for (x = 0; x < config->width; x++) {
@@ -1156,6 +1219,6 @@ bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
         }
     }
     paired_main(config->encoding == NIKON_RAW_MONO ? dpc : filtered,
-                 config, planes, dpc, out_y, out_uv);
+                 config, confidence_grid_nullable, planes, dpc, out_y, out_uv);
     return true;
 }

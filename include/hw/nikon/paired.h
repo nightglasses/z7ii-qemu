@@ -35,4 +35,17 @@ typedef struct NikonPairedRawFrame {
  */
 void nikon_paired_frame(DeviceState *dev, const NikonPairedRawFrame *frame);
 
+typedef struct NikonPairedGridFrame {
+    uint64_t generation;
+    uint32_t address, width, height, stride;
+} NikonPairedGridFrame;
+
+/* Completed packed12 confidence-map DMA. NULL invalidates the producer epoch;
+ * generation zero withdraws this address before overwrite. Owned copies survive.
+ * At most eight distinct addresses belong to one epoch; a new pool requires
+ * NULL invalidation. Slots stay stable so withdrawal cannot erase consumption.
+ */
+void nikon_paired_grid_frame(DeviceState *dev,
+                            const NikonPairedGridFrame *frame);
+
 #endif
