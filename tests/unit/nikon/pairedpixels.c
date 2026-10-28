@@ -2519,7 +2519,11 @@ static void stages_check(const NikonPairedPixelConfig *p, const uint16_t *raw,
 
         g_assert_cmpuint(nikon_paired_pixels_stage(c), ==, stage);
         g_assert_cmpuint(tasks, <=, stage == NIKON_PAIRED_PIXEL_POST ||
-                         stage == NIKON_PAIRED_PIXEL_PREFIX ? 12 : 4);
+                         stage == NIKON_PAIRED_PIXEL_PREFIX ||
+                         stage == NIKON_PAIRED_PIXEL_COLOR ? 12 : 4);
+        if (stage == NIKON_PAIRED_PIXEL_COLOR) {
+            g_assert_cmpuint(tasks, ==, MIN(p->output_height / 2, 12U));
+        }
         if (stage == NIKON_PAIRED_PIXEL_PREFIX) {
             g_assert_cmpuint(prefix, <, 12);
             g_assert_cmpuint(tasks, ==, prefix_tasks(p, prefix));
@@ -4125,7 +4129,7 @@ static void confidence_invalid(void)
     }
 }
 
-/* Four MAIN bands (including unequal band lengths), every CFA phase, odd
+/* Twelve MAIN bands (including unequal band lengths), every CFA phase, odd
  * mono extents, crop origins and history. The oracle keeps a whole scalar
  * pre-color mosaic, generic floating-coordinate bilinear sampling, original
  * sequential noise order and all five scalar post passes.
@@ -4134,14 +4138,14 @@ static void stages(void)
 {
     for (unsigned encoding = NIKON_RAW_MONO;
          encoding <= NIKON_RAW_BGGR; encoding++) {
-        for (unsigned geometry = 0; geometry < 4; geometry++) {
+        for (unsigned geometry = 0; geometry < 5; geometry++) {
             for (unsigned pattern = 0; pattern < 7; pattern++) {
                 NikonPairedPixelConfig p = config();
-                uint16_t raw[121], prior[36], old_residual[36];
-                uint16_t half[36], residual[36], reference[121], corrected[121];
-                uint16_t planes[3][100];
+                uint16_t raw[420], prior[105], old_residual[105];
+                uint16_t half[105], residual[105], reference[420], corrected[420];
+                uint16_t planes[3][260];
                 uint32_t state[3] = { 1, 1, 1 };
-                uint8_t y[100], uv[50];
+                uint8_t y[260], uv[130];
                 bool cfa = encoding != NIKON_RAW_MONO;
 
                 p.encoding = encoding;
@@ -4164,6 +4168,15 @@ static void stages(void)
                     p.y = 1;
                     p.output_width = 6;
                     p.output_height = 10;
+                } else if (geometry == 4) {
+                    /* Thirteen 2-row blocks split into twelve bands. An odd
+                     * crop keeps source coordinates distinct from seed order.
+                     */
+                    p.width = 14;
+                    p.height = 30;
+                    p.x = p.y = 3;
+                    p.output_width = 10;
+                    p.output_height = 26;
                 }
                 p.grid_width = p.width;
                 p.grid_height = p.height;
@@ -4224,7 +4237,9 @@ static void stages(void)
                     p.gain[channel] = 193 + 73 * channel;
                     p.noise[channel] = (NikonPairedNoise) {
                         .feedback = channel ? 0x80200003 : 0xf8200000,
-                        .enabled = pattern != 2 || channel != 1,
+                        .enabled = geometry == 4 ?
+                            (pattern + channel) % 3 != 0 :
+                            pattern != 2 || channel != 1,
                         .gain = channel ? 21 : 255,
                         .shift = channel ? 4 : 0,
                         .offset = channel == 2 ? 255 : 0,
@@ -4236,7 +4251,7 @@ static void stages(void)
                              (i * 113 + i * i * 31) % 4096 :
                              pattern == 1 ? 0 : 4095;
                 }
-                for (unsigned i = 0; i < 36; i++) {
+                for (unsigned i = 0; i < ARRAY_SIZE(prior); i++) {
                     prior[i] = 1900 + i * 7;
                     old_residual[i] = (i * 85) % 4096;
                 }

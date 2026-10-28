@@ -274,6 +274,10 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * CFA has up to three row bands per active lattice (12 tasks); MONO up to four.
  * Every band reads the complete immutable previous plane, including neighbors
  * across band boundaries. Neutral passes/lanes do not exchange buffers.
+ * COLOR has up to12 bands of complete two-row blocks. PREPARE records each
+ * band's three exact sequential LFSR start states; tasks keep the original
+ * 2x2-block/dy/dx traversal and never share mutable noise state. TEMPORAL,
+ * RADIAL and PACK retain at most four bands; POST retains its own bound below.
  * POST repeats five pass barriers (post_pass0..4). Each pass has up to12 tasks:
  * up to four disjoint row bands per nonneutral channel, reading the immutable
  * previous pass. A zero-task neutral pass still requires advance. Only advance
