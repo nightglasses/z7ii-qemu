@@ -18,16 +18,18 @@ static uint16_t paired_clamp(int32_t value)
 
 static int32_t paired_round(int32_t value, unsigned shift)
 {
-    int32_t half, scale;
+    uint32_t magnitude, quotient;
 
     if (!shift) {
         return value;
     }
-    half = 1U << (shift - 1);
-    scale = 1U << shift;
-
-    /* Symmetric nearest rounding, with half-way values away from zero. */
-    return value < 0 ? -((-value + half) / scale) : (value + half) / scale;
+    /* All callers use shifts 1..15 (or fixed 8/9/10). Form the magnitude in
+     * unsigned arithmetic before negation, preserving symmetric nearest ties
+     * away from zero even for INT32_MIN and any shift 1..31.
+     */
+    magnitude = value < 0 ? 0U - (uint32_t)value : (uint32_t)value;
+    quotient = (magnitude + (1U << (shift - 1))) >> shift;
+    return value < 0 ? -(int32_t)quotient : (int32_t)quotient;
 }
 
 static uint32_t paired_multiply(uint32_t a, uint32_t b, uint32_t polynomial)
@@ -538,6 +540,7 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
     static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
     static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
     unsigned limit = 0, weights[2] = { 0 };
+    uint64_t weight_multiplier[2];
     g_autofree uint64_t *multipliers = NULL;
 
     for (unsigned branch = 0; branch < 2; branch++) {
@@ -550,6 +553,8 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
         for (unsigned d = 0; d < 4; d++) {
             weights[branch] += 1U << n->shift[d];
         }
+        weight_multiplier[branch] = ((UINT64_C(1) << 32) +
+                                     weights[branch] - 1) / weights[branch];
     }
     /* All thresholds are nonnegative and bounded by the validated packet.
      * At most 2361 u64 entries; constant-threshold packets need far fewer.
@@ -596,7 +601,13 @@ static bool paired_color_block(const uint16_t *input, uint16_t *output,
                             multipliers[threshold]);
                     }
                 }
-                mean[branch] = paired_divide(sum, weights[branch]);
+                /* T <= 2360 bounds each rounded tap by ceil(T/4) <= 590.
+                 * Validated weights sum to at most 56, so |sum| <= 33040.
+                 * This signed32 reciprocal is exact after the same one-step
+                 * correction. Its divisor is independent of the T table.
+                 */
+                mean[branch] = paired_color_divide((int)sum, weights[branch],
+                                                   weight_multiplier[branch]);
             }
             int correction = paired_divide(
                 paired_divide(mean[0] + mean[1], 2) * strength, 31);
