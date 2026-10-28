@@ -3651,14 +3651,21 @@ static void paired_untouched(QTestState *q);
 static void paired_main_at(QTestState *q, uint32_t address, uint8_t luma,
                            uint8_t u, uint8_t v);
 
+static void paired_raw_input(QTestState *q)
+{
+    work_input(q);
+    work_rise(q);
+    /* Actual RAW publication starts paired's own independent 1 ms deadline. */
+    pipeline_step(q, 1000000);
+}
+
 static void paired_cfa_input(QTestState *q)
 {
     qtest_writel(q, CAPTURE + 0x1d00, 72 << 16);
     qtest_writel(q, CAPTURE + 0x1e78, 72 << 16);
     qtest_writel(q, CAPTURE + 0x100, 0x85);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
 }
 
 static void paired_cfa_reduction(unsigned rows)
@@ -3994,9 +4001,8 @@ static void test_paired_preflight(void)
         qtest_writel(q, PAIRED + 0x3a4, targets[i]);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
@@ -4062,9 +4068,8 @@ static void test_paired_coverage_and_raw_failure(void)
             /* Complete coverage still requires matching calibration values. */
             qtest_writel(q, PAIRED + 0x1400, 1);
         }
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==,
                          operation == 1 ? 0 : 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
@@ -4090,9 +4095,8 @@ static void test_paired_preserve_results(void)
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
@@ -4121,14 +4125,12 @@ static void test_paired_backpressure(void)
     g_autofree char *scene = NULL;
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     work_ack(q); /* Leave the paired result pending while RAW continues. */
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
@@ -4141,9 +4143,8 @@ static void test_paired_backpressure(void)
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
     /* A later real RAW publication also permits an earlier queued phase. */
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 2);
     paired_pixels(q, PAIRED_MAIN, 1);
     paired_pixels(q, PAIRED_WORK, 1);
@@ -4165,9 +4166,8 @@ static void test_paired_c_matrix(void)
     qtest_writel(q, PAIRED + 0xbac, 0x00800080);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     /* B gives Y2056/U257/V-514. C rotates chroma to514/257. The half
      * blend gives U386/V-129 (signed ties away), before adding2048.
      */
@@ -4257,9 +4257,8 @@ static void test_paired_matrix_encoding(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -4295,9 +4294,8 @@ static void test_paired_source_history(void)
 
         /* Two successful publications establish both aliased history units. */
         for (unsigned phase = 0; phase < 2; phase++) {
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             paired_pixels(q, PAIRED_WORK, phase);
@@ -4338,9 +4336,8 @@ static void test_paired_source_history(void)
         qtest_qmp_assert_success(q,
             "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
             "'property':'image','value':%s}}", scene);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x3000), ==, 0x18818818);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
 
@@ -4420,9 +4417,8 @@ static void test_paired_gain(void)
         qtest_writel(q, PAIRED + 0x9d4, 64);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x08808808);
         paired_main_oracle(q, cases[mode].y, cases[mode].u, cases[mode].v);
         paired_pixels(q, PAIRED_WORK, 0);
@@ -4461,9 +4457,8 @@ static void test_paired_quad(void)
         qtest_writel(q, PAIRED + 0x720, 4095);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         /* RAW=2056; RGB=(3076,2104,1164), then the fixture A/B matrices. */
         paired_main_oracle(q, 192, 152, 65);
@@ -4568,9 +4563,8 @@ static void test_paired_curves(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x08808808);
         paired_main_oracle(q, cases[mode].y, cases[mode].u, cases[mode].v);
         /* Curves affect color only; history and grid keep pre-color samples. */
@@ -4599,9 +4593,8 @@ static void test_paired_curve_encoding(void)
         paired_curve(q, mode / 2, 512, mode % 2 ? 129 : 128, mode % 2);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -4795,9 +4788,8 @@ static void test_paired_noise(void)
             qtest_writel(q, PAIRED + 0x10, 1);
         }
         for (unsigned phase = 0; phase < 4; phase++) {
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             if (batch == 1 && phase == 0) {
                 /* The selected ring still needs all four publications. */
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
@@ -4984,9 +4976,8 @@ static void test_paired_post(void)
     qtest_writel(q, PAIRED + 0xdd4, 18);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     /* Source P5 produces RAW1028/3084. Existing five-tap spatial filtering
@@ -5088,9 +5079,8 @@ static void test_paired_post_packet(void)
         qtest_writel(q, PAIRED + 0xdec, p.diagonal << 8 | p.diagonal);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         for (unsigned y = 0; y < 28; y++) {
@@ -5169,9 +5159,8 @@ static void test_paired_main_gain(void)
         paired_main_gain(q, test % 2, gains[test], 0, 16);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         paired_main_oracle(q, expected[test], 144, 96);
@@ -5203,9 +5192,8 @@ static void test_paired_main_gain_spatial(void)
     paired_main_gain(q, 0, 128, 0, 16);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     for (unsigned y = 0; y < 28; y++) {
         for (unsigned x = 0; x < 56; x++) {
@@ -5281,9 +5269,8 @@ static void test_paired_main_gain_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (test == 2 || test == 4) {
@@ -5354,9 +5341,8 @@ static void test_paired_main_gain_lifecycle(void)
         if (test == 0) {
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
             work_ack(q);
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 2);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
@@ -5415,9 +5401,8 @@ static void test_paired_post_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
@@ -5511,9 +5496,8 @@ static void test_paired_filter(void)
                        mode == 2 ? 0 : 16383, 0);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -5569,9 +5553,8 @@ static void test_paired_filter_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
@@ -5635,9 +5618,8 @@ static void test_paired_denoise(void)
     paired_denoise(q, PAIRED, 103, 43, 17, 10, 12, 8, 7);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
     for (unsigned row = 0; row < 28; row++) {
@@ -5699,9 +5681,8 @@ static void test_paired_denoise_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -5774,9 +5755,8 @@ static void test_paired_detail(void)
         paired_detail(q, PAIRED, 31, 32, 16, 8);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -5826,9 +5806,8 @@ static void test_paired_adaptive(void)
         paired_adaptive(q, PAIRED, 15, 8);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
         for (unsigned row = 0; row < 28; row++) {
@@ -5891,9 +5870,8 @@ static void test_paired_adaptive_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -5955,9 +5933,8 @@ static void test_paired_adaptive_history(void)
         QTestState *q = paired_start(&bundle, &scene, true, true);
 
         for (unsigned phase = 0; phase < 2; phase++) {
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
@@ -5969,9 +5946,8 @@ static void test_paired_adaptive_history(void)
         qtest_qmp_assert_success(q,
             "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
             "'property':'image','value':%s}}", scene);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x3000), ==, 0x18818818);
         /* Uniform pixels make dose1 numerically neutral. Only a real config
@@ -6017,9 +5993,8 @@ static void test_paired_detail_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -6226,9 +6201,8 @@ static void test_paired_saturation_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (mode == 33 || mode == 35) {
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
@@ -6297,9 +6271,8 @@ static void test_paired_saturation_staging(void)
         QTestState *q = paired_start(&bundle, &scene, true, armed);
 
         paired_saturation(q, PAIRED, 0, 128, 128, 16);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         if (armed) {
@@ -6337,9 +6310,8 @@ static void test_paired_saturation_staging(void)
         qtest_writel(q, PAIRED + 8, 1);
         /* Alias publication uploads the new first slot before the second. */
         paired_saturation(q, PAIRED, 0, 128, 128, 17);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
@@ -6376,9 +6348,8 @@ static void test_paired_saturation_history(void)
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
     for (unsigned phase = 0; phase < 2; phase++) {
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, phase + 1);
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
@@ -6389,9 +6360,8 @@ static void test_paired_saturation_history(void)
     qtest_qmp_assert_success(q,
         "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
         "'property':'image','value':%s}}", scene);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
     g_assert_cmpuint(qtest_readw(q, PAIRED_WORK), ==, 2068);
     g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 18 * 80), ==, 16);
@@ -6422,9 +6392,8 @@ static void test_paired_colorfilter(void)
         paired_colorfilter(q, PAIRED, 31, 51, false);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
         qtest_memread(q, PAIRED_MAIN, pixels, sizeof(pixels));
@@ -6490,9 +6459,8 @@ static void test_paired_colorfilter_boundaries(void)
         qtest_writel(q, PAIRED + invalid[test].offset, invalid[test].value);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -6526,9 +6494,8 @@ static void test_paired_colorfilter_publication(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -6589,9 +6556,8 @@ static void test_paired_colorfilter_history(void)
         QTestState *q = paired_start(&bundle, &scene, true, true);
 
         for (unsigned phase = 0; phase < 2; phase++) {
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
@@ -6606,9 +6572,8 @@ static void test_paired_colorfilter_history(void)
         qtest_qmp_assert_success(q,
             "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
             "'property':'image','value':%s}}", scene);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 3);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK), ==, changed ? 2072 : 2068);
         g_assert_cmpuint(qtest_readw(q, PAIRED_WORK + 18 * 80), ==,
@@ -6701,9 +6666,8 @@ static void test_paired_radial(void)
                 if (cfa) {
                     paired_cfa_input(q);
                 } else {
-                    work_input(q);
-                    work_rise(q);
-                    pipeline_step(q, 2000000);
+                    paired_raw_input(q);
+                    pipeline_step(q, 1000000);
                 }
                 g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                                  ==, 1);
@@ -6774,9 +6738,8 @@ static void test_paired_radial_boundaries(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
         paired_untouched(q);
@@ -6862,9 +6825,8 @@ static void test_paired_radial_tables(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         if (mode == 25 || mode == 34) {
             /* A missing final word leaves a valid warm staging prefix. */
@@ -6907,9 +6869,8 @@ static void test_paired_radial_tables_lifecycle(void)
             paired_pixels(q, PAIRED_MAIN, 0);
         } else if (mode == 3) {
             paired_radial_tables(q, 10);
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), ==, 0);
@@ -6935,9 +6896,8 @@ static void test_paired_radial_tables_lifecycle(void)
             paired_radial_tables(q, 9);
             qtest_writel(q, PAIRED + 0x10, 1);
             qtest_writel(q, PAIRED + 8, 1);
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "rejected"), >, 0);
             paired_untouched(q);
@@ -6970,9 +6930,8 @@ static void test_paired_stride(void)
         }
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
         paired_untouched(q);
         qtest_quit(q);
@@ -7073,9 +7032,8 @@ static void test_paired_stream(void)
     paired_stream_pixels(q, gate, false);
     qtest_writel(q, PAIRED + 0x10, 1);
     qtest_writel(q, PAIRED + 8, 1);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x1002);
     paired_pixels(q, PAIRED_GRID, 0);
@@ -7090,9 +7048,8 @@ static void test_paired_stream(void)
     paired_gate_slot(q, 56); /* Same committed shape preserves ownership. */
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
     g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0);
@@ -7193,9 +7150,8 @@ static void test_paired_stream_lifecycle(void)
         paired_stream(q, PAIRED);
         qtest_writel(q, PAIRED + 0x10, 1);
         qtest_writel(q, PAIRED + 8, 1);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         paired_stream_pixels(q, gate, true);
         if (mode == 0) {
             paired_gate_input(q, 8);
@@ -7232,9 +7188,8 @@ static void paired_stop(QTestState *q, uint32_t base)
 static void paired_first_batch(QTestState *q, bool acknowledge_last)
 {
     for (unsigned phase = 0; phase < 4; phase++) {
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          phase + 1);
         paired_pixels(q, PAIRED_MAIN, phase % 2);
@@ -7254,9 +7209,8 @@ static void test_paired_cycle(void)
     QTestState *q = paired_start(&bundle, &scene, true, true);
 
     for (unsigned frame = 0; frame < 12; frame++) {
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                          frame + 1);
         paired_pixels(q, PAIRED_MAIN, frame % 2);
@@ -7285,9 +7239,8 @@ static void test_paired_publication(void)
         g_autofree char *scene = NULL;
         QTestState *q = paired_start(&bundle, &scene, true, true);
 
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
         work_input(q);
@@ -7330,9 +7283,8 @@ static void test_paired_publication(void)
         qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
         work_ack(q);
         for (unsigned phase = 2; phase < 4; phase++) {
-            work_input(q);
-            work_rise(q);
-            pipeline_step(q, 2000000);
+            paired_raw_input(q);
+            pipeline_step(q, 1000000);
             g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==,
                              phase + 1);
             g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==,
@@ -7383,9 +7335,8 @@ static void test_paired_selections(void)
     qtest_writel(q, PAIRED + 0x24, UINT32_MAX);
     work_ack(q);
     for (unsigned phase = 1; phase < 4; phase++) {
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                          ==, phase + 1);
         paired_pixels(q, PAIRED_MAIN, phase % 2);
@@ -7416,9 +7367,8 @@ static void test_paired_selections(void)
     for (unsigned phase = 0; phase < 4; phase++) {
         unsigned slot = (phase + 1) % 4;
 
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"),
                          ==, phase + 5);
         g_assert_cmphex(qtest_readl(q, WORK_BUFFER + extra + slot * 0x1000),
@@ -7468,9 +7418,8 @@ static void paired_second_batch(bool update)
         /* Even an unchanged address starts an explicit publication barrier. */
         qtest_writel(q, PAIRED + 0x310, WORK_BUFFER + 0x1000);
     }
-    work_input(q);
-    work_rise(q);
-    pipeline_step(q, 2000000);
+    paired_raw_input(q);
+    pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 5);
     g_assert_cmphex(qtest_readl(q, WORK_BUFFER + 0x1000), ==, 0x18818818);
     if (update) {
@@ -7633,9 +7582,8 @@ static void test_capture_geometry_reduction(void)
         qtest_writel(q, 0x20069518, 60 << 16);
         qtest_writel(q, 0x2006951c, rows[mode] << 16);
         qtest_writel(q, CAPTURE + 0x100, 0x85);
-        work_input(q);
-        work_rise(q);
-        pipeline_step(q, 2000000);
+        paired_raw_input(q);
+        pipeline_step(q, 1000000);
         memset(expected, 0xa5, sizeof(expected));
         if (mode == 0) {
             /* The whole72-row image is sampled, not its first36-row crop. */
