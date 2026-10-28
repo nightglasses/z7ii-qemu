@@ -135,6 +135,13 @@ by adding half a unit before the arithmetic shift. These normalization,
 centering, rounding and intermediate-clipping rules are explicit numerical
 assumptions, not a claim of measured panel colorimetry. Coefficients are
 computed, rather than accepted only when equal to the observed matrices.
+Both dot products now use signed32 intermediates: the qualified signed16 Q14
+matrix with byte Y/signed-byte UV stays below16.8 million including rounding;
+the signed12 Q10 matrix after RGB clipping stays below1.57 million. Every
+partial product/sum fits as well. An independent signed64 floor-division oracle
+checks coefficient extremes, cancellation and rounding in48 actual frame
+updates, both UV layouts, bypass/application and three nonzero alpha values.
+This preserves the formula and does not establish a vectorization or rate gain.
 Likewise the interpretation of0500 as premultiplied global alpha is a finite
 inference: `102692ca` publishes message byte44 and `10445bec -> 1046c160`
 forwards that byte, but its complete physical semantics are not recovered.
@@ -268,6 +275,16 @@ object records then render clipped rectangles from their position and extent.
 Their three bytes use a named virtual RGB order. The two six-bit fields remain
 neutral retained values, not guessed alpha, rotation or format. These named
 conventions support functional output and need later source/hardware refinement.
+
+For external A4/A8 alpha, opacity0 yields the same transparent zero without
+color conversion; opacity255 retains the converted opaque pixel without
+redundant premultiplication. Intermediate opacity retains the existing integer
+formula. Both color and alpha planes still pass complete RAM validation and
+actual DMA reads, including fully transparent images. The endpoint fixture
+checks all-zero, all-opaque and mixed rows for RGB565+A4/A8 and asymmetric
+YYUV+A8 over a white background, preserving input/padding
+and invalid transparent-source rejection. This is exact arithmetic reduction,
+not a different pixel model, frame cadence or completion rule.
 
 ## Format17 YUVA provider
 

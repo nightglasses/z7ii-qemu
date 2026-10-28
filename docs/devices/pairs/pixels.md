@@ -594,9 +594,16 @@ another MAIN-sized allocation. The synchronous
 pixel interface composes these same stage bodies and copies results only after
 the complete private operation succeeds.
 
-Only main-AioContext callbacks submit the next fixed stage, after every child
-of the current stage returns. Workers neither submit nor wait on other pool
-work, so the same graph can run with a single pool worker. Final completion
+The device-owned arithmetic IOThread coordinates the fixed stages through its
+AioContext's QEMU thread pool, after every child of the current stage returns.
+The pool has a minimum and maximum of12 workers, matching the existing bounded
+child array. This prevents a warm idle worker from absorbing a whole stage
+burst without QEMU's lazy pool growing; it is a host execution policy, not a
+physical ASIC lane count.
+It only accesses the immutable private aggregate; workers neither submit nor
+wait on other pool work, so the same graph can run with a single pool worker.
+Cancellation and a packed diagnostic progress snapshot cross contexts atomically.
+Exactly one terminal main-AioContext BH returns ownership to the device and
 schedules the existing virtual-clock publication; a paused virtual clock does
 not publish an already computed result. The 1 ms interval is an earliest
 submission time, not a promise of completion within 1 ms or a physical frame rate.
@@ -609,9 +616,12 @@ snapshot to finish, but cannot establish history for a newer source epoch.
 Cancellation or reset invalidates the task and releases logical ownership;
 every submitted child retains the private aggregate until the last callback,
 then discards its result without DMA, consumed-generation updates or completion events. Unrealize
-disables admission and drains these callbacks before device resources are freed.
-This separation removes long pixel computation from the BQL callback. It does
-not by itself establish the cause of missed host controls or normal GUI startup.
+disables admission, drains the terminal handoff on the main AioContext, then
+stops and destroys the arithmetic IOThread. Re-realization creates a new one.
+This separation removes arithmetic stage barriers from BQL scheduling; DMA,
+history publication, capacity checks, pending-event acknowledgement and IRQs
+remain on the original device path. It does not by itself establish normal GUI
+startup, bounded guest queues or a physical frame rate.
 
 A supported but occupied MAIN input can admit the next immutable paired
 computation into that same single aggregate. It cannot admit a second aggregate.
@@ -694,6 +704,10 @@ The read-only QOM string `runtime` reports each bank's request enum
 (`0` quiescent, `1` armed, `2` awaiting input, `3` drain pending), active admitted
 job, phase, traversal/publication masks, publication flags and consumed generations,
 plus the four actual RAW slots, source epoch and `inflight` aggregate count.
+It also reports each bank's pending/mask words, selected RAW/grid addresses and
+grid shape, local grid epoch/consumed generations, and every actually published
+grid slot. These fields distinguish ACK, address and freshness boundaries
+without attempting admission or changing device state.
 Per-bank `compute` is `0` before host submission or after release, `1` while a
 task is queued/running and `2` after its callback has returned a result for
 virtual-clock publication. Unlike MMIO `18`, `active` describes an admitted job,

@@ -993,5 +993,249 @@
       "normal_tap_and_exit": true,
       "independent_review": "No blocking findings; strengthened the fresh-generation vector to change actual scene pixels before DMA. Other272-case baseline coverage remains qualified separately; no claim these are451 distinct tests."
     }
+  },
+  "first_pressure_and_af_schedule_audit": {
+    "base": "674cc1c7",
+    "firmware": "Original C1.70 unchanged",
+    "guest_writes": false,
+    "credits": "D8/DC are remaining paired/MAIN credits; the later byte14=3 profile selects [1,0] for both. Join identity selection follows a remaining-count index, not a fixed lane-to-bit assignment.",
+    "debugger_free_census": {
+      "active_records": 64,
+      "admissions": [278, 341],
+      "occupied_pool0_bits": 195,
+      "uniquely_owned_by_active_records": 193,
+      "joins": 192,
+      "notifications": 1,
+      "unaccounted_bits": 2,
+      "duplicate_owners": 0,
+      "owners_naming_free_bits": 0,
+      "qualification": "Stopped final census; two bits outside this capture list can belong to other pool0 users. Initial pressure is associated with accumulating unfinished owners, not proof of orphaning before exhaustion. Earlier first-eight sampling remains separately limited."
+    },
+    "resource74_lifetime": {
+      "source": "10267c2c..10267c3e retains ten records at b23630e0; 10263d88 publishes job+3ce0; MAIN 1026916a ->102bdc20 ->102bd8ce follows record+4 at102bd93c",
+      "instrument": "Separate AF-PC-probe-assisted original execution, stopped final RAM census",
+      "actual_class_flag": 1,
+      "clear_bytes": 280,
+      "active_records": 20,
+      "event_pool_free_bits": 419,
+      "failing_serial": 166,
+      "failing_job_mas_va": "0xb2d5d400",
+      "retained_record_mas_va": "0xb2c9b4e0",
+      "record_prefix": "32 bytes zero",
+      "reuse": "Old serials161..165 point to the same records now labelled171..175;176..180 have not published their record pointer; FIFO count9",
+      "failure": "PC102bd93c/DFAR0/task010000fd",
+      "qualification": "Source actual-free/clear selection, exact ten-serial reuse, failing owner and stack agree with cache eviction ahead of a late consumer. No direct write-zero watch was taken; this is neither AS pointer corruption nor event-pool exhaustion."
+    },
+    "af_request_schedule": {
+      "instrument": "Separate six-PC read-only producer trace and AF pointer watch; bounded256-record tail",
+      "profiles_total": 1753,
+      "callback42_entries": 57,
+      "deferred_arm_entries": 0,
+      "deferred_callback_entries": 0,
+      "as_count_stores": 142,
+      "tail_normal_profiles": 200,
+      "tail_normal_duration_all": 0,
+      "tail_forced_command14_profiles": 17,
+      "normal_profile_age_us": [627000, 718000],
+      "source_condition": "10313a24 ->1031387c cancels both old schedules; byte0=0 and duration+16=0 then returns without rearm. Command14 byte0=1 forces an immediate request plus rearm, replaced by the next normal profile.",
+      "duration_source": "103976b0 ->04200001 ->1022f318 ->041a0001 ->10327976/10319d56 ->OnVd10325ff6 ->103250f2 ->103c5342 ->102f0f30; 10304a5e computes u32(period*count)/72 from Sensor object b18a769c fields156/148",
+      "pointer_watch": "Only initialization to b216e6c0 observed; no corrupting writer in these traces. Same historical AF failure PC does not establish a same-run writer.",
+      "transport_limit": "In the earlier eight-PC trace,87.6-96.9% of nine long AS gaps precedes the next op7 enqueue. Twenty-five retained op7 results succeed and one fails; this is not sustained queue starvation or proof of a missing peripheral completion.",
+      "timing_limit": "Counter48MHz /48 is already microseconds; quotient is truncated to a byte. No count clamp, clock change or periodic D0 injection."
+    }
+  },
+  "exact_bql_reductions_and_active_input": {
+    "implementation_base": "90e6263e",
+    "changes": [
+      "Snapshot-local4096-entry exact inverse removes RAW per-pixel binary search; unknown knots still reject and LINEAR is unchanged",
+      "External-alpha0 skips unused color conversion,255 skips redundant premultiplication; both real DMA planes still qualify",
+      "Qualified signed16/signed12 primary matrices use provably bounded int32 intermediates; formulas, rounding, clamp and cache are unchanged",
+      "Paired read-only runtime exposes pending/mask, selected RAW/grid addresses and grid generations",
+      "Cold-neutral resource80 declares all four subtypes in source-confirmed groups7/10; original cold subtype3 row and all other bytes remain unchanged"
+    ],
+    "native": {
+      "paired_lifecycle": 44,
+      "general_devices_including_image": 122,
+      "cmos_paired": 137,
+      "module": 8,
+      "total": 311,
+      "cmos_host_seconds": 359.16,
+      "normal_tap_and_exit": true,
+      "module_red": "New timing-groups fixture with old builder aborts at0 versus4096; restored builder passes all8 cases",
+      "arithmetic_qualification": "LUT, alpha and matrix fixtures establish exact output equivalence; no old-model semantic failure or rate gain is claimed for those reductions. Independent static reviews found no findings."
+    },
+    "active_input_original": {
+      "debugger_during_execution": false,
+      "loaded_timing_family_equals_supplied_bytes": true,
+      "nonzero_rows": 8,
+      "observed_mode14_subtype0": {"period": 4096, "count": 16},
+      "observed_mode11_subtype0": {"period": 4096, "counts": [586, 588]},
+      "paired_completed": 109,
+      "main_graph_completed": 108,
+      "exception_watchdog_flags": [0, 0, 0],
+      "diagnostic_length": 0,
+      "next_boundary": "CPU0 PC10243244 READ32 PA2c0a0804: spi-access-or-phase-not-supported; QEMU debug-stopped",
+      "qualification": "Input closes the observed zero-period/duration source through the original loader. SPI8 receive-drain rejection is a separate finite-model boundary; normal mode acceptance remains false."
+    },
+    "host_stage_delivery_diagnostic": {
+      "base": "fe34d2bd plus removed host-only instrumentation",
+      "jobs": 64,
+      "nonempty_stages": 960,
+      "median_per_job_sum_cpu_us": 132380,
+      "median_per_job_sum_stage_wall_us": 32590.5,
+      "median_per_job_sum_worker_wall_us": 23189,
+      "median_per_job_sum_tail_delivery_us": 8858,
+      "definition": "Tail delivery is last worker end to last Aio callback; per-job stage sums are reduced before taking the64-job median. Worker-wall and queue spans overlap and must not be added as disjoint CPU cost.",
+      "qualification": "Bounded diagnostic on the older input, not a physical frame-period result or proof that moving coordination fixes startup. Instrumentation was removed before rebuilding native/original validation."
+    },
+    "remaining": "Natural MAIN consumption still falls behind resource74 retention in independent unchanged runs. The following arithmetic-coordination receipt retains separate original failures; no forced event, slot return, frame suppression or clock change."
+  },
+  "arithmetic_iocontext_and_persistent_pressure": {
+    "implementation_base": "46ef3ba8",
+    "contract": "A device-owned standard QEMU IOThread coordinates immutable arithmetic through its AioContext thread pool; atomic cancellation/progress and exactly one terminal main-AioContext BH. Original virtual timer, RAM revalidation, DMA, capacity, history, pending ACK and IRQ remain unchanged. Unrealize drains terminal handoffs before stopping/destroying the IOThread.",
+    "native": {
+      "paired_lifecycle": 48,
+      "cmos_unit": 6,
+      "cmos_paired_qtest": 137,
+      "cmos_qtest_host_seconds": 360.02,
+      "selected_total": 191,
+      "scope": "Post-IOThread batch; overlaps the preceding311-case receipt and must not be added to it as distinct tests",
+      "normal_tap_and_exit": true,
+      "background_proof": "With BQL held and no main-Aio polling, bank0 reaches DONE; a semaphore BH fences its IOContext before reset, proving the terminal main BH has been queued. Idle bank1 cannot satisfy the assertion. Pause/reset-before-launch/reset-after-handoff and re-realize after drain are distinct cases.",
+      "independent_review": "Two fixture defects were corrected: sysbus re-realize replaced by the existing QOM realized property; bank0-scoped DONE plus IO fence replaced an idle-bank false positive. No remaining static product or fixture findings."
+    },
+    "debugger_free_fixed_m": {
+      "host_seconds": 42.986,
+      "paired_completed": 782,
+      "main_graph_completed": 782,
+      "paired_cancelled": 0,
+      "paired_rejected": 0,
+      "diagnostic_flags_at_last_poll": [0, 0, 0],
+      "diagnostic_length_at_last_poll": 0,
+      "af_pointers": ["0xb216e6c0", "0xb217a8b0"],
+      "boundary": "CPU0 PC10243244 READ32 PA2c0a0804 rejects an empty SPI8 RX FIFO. The later stopped diagnostic records this access abort, not AF.",
+      "sampled_pressure": [
+        {"host_seconds": 9.055, "admission": 4, "active": 4, "free_bits": 471},
+        {"host_seconds": 19.160, "admission": 294, "active": 219, "free_bits": 0},
+        {"host_seconds": 28.661, "admission": 573, "active": 356, "free_bits": 0},
+        {"host_seconds": 38.207, "admission": 854, "active": 638, "free_bits": 0}
+      ],
+      "stopped_census": {
+        "host_seconds": 43.292,
+        "admission": 991,
+        "active": 774,
+        "used_bits": 480,
+        "valid_capture_owned_bits": 0,
+        "paired_credit": 566,
+        "main_credit": 565,
+        "oldest_serial": 224,
+        "oldest_admission": 218,
+        "oldest_guard": "0x1026654d",
+        "all_active_join_counts_and_single_pointers": 0,
+        "qualification": "All active headers were captured. All four initial lanes are unstarted at the final guard blockage; completion credits accumulate after dispatch stops. Other pool users prevent treating all480 unaccounted bits as individually proven orphans. Earlier sample31 still has legitimate join owners waiting for paired/MAIN."
+      }
+    },
+    "error_only_instrumented_window": {
+      "instrument": "Temporary env-gated SPI first-error diagnostics; no debugger or successful-path prints; no SPI rejection occurred and instrumentation was removed afterward",
+      "host_seconds": 46.642,
+      "paired_completed": 276,
+      "boundary": "General allocator PC1034fe78/DFAR3c/LR1034ff5d, R0=40 R1=0, task0100001b; not AF",
+      "admission": 1089,
+      "active": 876,
+      "free_event_bits": 0,
+      "valid_capture_owned_bits": 0,
+      "af_pointers_intact": true,
+      "qualification": "Separate diagnostic window, not acceptance or a controlled rate comparison. It independently reaches persistent event guard blockage and later allocator failure."
+    },
+    "acceptance": false,
+    "remaining": "This historical cold-pool implementation serializes arithmetic, quantified and corrected below. The known outer join-allocation retry defect can make pressure persistent after exhaustion. No firmware/guest-state changes, forced event or slot release, frame suppression, timer-duration inflation or clock workaround."
+  },
+  "provisioned_arithmetic_pool": {
+    "implementation_base": "75d5698a",
+    "policy": "Standard IOThread thread-pool-min/max both match the existing12-child bound. This is a finite host parallelism policy, not a physical ASIC lane count or guest cadence change.",
+    "native": {
+      "old_product_new_test": "Actual concurrency assertion fails:1 blocking job entered versus12 required before any release; SIGABRT after5.78host seconds. This failure precedes the default-property checks.",
+      "paired_lifecycle_green": 49,
+      "cmos_unit_green": 6,
+      "cmos_paired_qtest_green": 137,
+      "qtest_host_seconds": 357.45,
+      "selected_total": 192,
+      "scope": "Post-provisioning49 lifecycle+6 CMOS unit+137 CMOS/paired qtest; overlaps the preceding191 and311-case receipts",
+      "normal_tap_and_exit": true,
+      "review": "Independent static review found no remaining product or fixture findings; ownership and teardown paths unchanged."
+    },
+    "bounded_host_profiles": {
+      "jobs_each": 64,
+      "stages_each": 960,
+      "children_each_job": 134,
+      "declared_input_bytes_match": true,
+      "before": {
+        "max_child_overlap_every_stage": 1,
+        "median_cpu_us": 123710.5,
+        "median_worker_wall_us": 124016,
+        "median_arithmetic_us": 124885.5,
+        "median_total_us": 126237.5,
+        "median_tail_callbacks_us": 91.5,
+        "median_terminal_main_handoff_us": 10.5
+      },
+      "after": {
+        "four_task_stage_overlap": 4,
+        "twelve_task_stage_overlap_range": [3, 12],
+        "twelve_task_stage_overlap_median": 9,
+        "median_cpu_us": 134540,
+        "median_worker_wall_us": 25067,
+        "median_arithmetic_us": 25853,
+        "median_total_us": 27082,
+        "median_tail_callbacks_us": 66,
+        "median_terminal_main_handoff_us": 16
+      },
+      "qualification": "First64 original jobs with removed host-only timestamps. Identical declared descriptor32, image, calibration and media bytes and stage/task composition; private per-job snapshots were not compared. Paths, ports, socket, QEMU name and observation length differ. Not physical frame-rate or whole-startup acceptance. Queue maxima include serialized child work and are not independent additional overhead."
+    },
+    "postfix_diagnostic_window": {
+      "paired_at_last_poll": 843,
+      "host_seconds_at_last_poll": 37.137,
+      "running": true,
+      "diagnostic_flags": [0, 0, 0],
+      "diagnostic_length": 0,
+      "three_censuses": "All111 started descriptors retired, active0 and pool0 free480 at samples31/47/63; credits increase as numeric streams continue",
+      "qualification": "No111 quota was found. CaptureService dequeue index freezes27 around13seconds and its FIFO grows10 to60; owner eligibility remains satisfied. This requires its actual current wait before treating the observed admission stop as normal steady-state or another bug."
+    },
+    "postfix_uninstrumented_original": {
+      "debugger_during_execution": false,
+      "host_seconds": 17.175,
+      "paired": 221,
+      "main_graph": 220,
+      "descriptor_starts": 215,
+      "active_records_at_stopped_census": 1,
+      "free_event_bits_at_stopped_census": 477,
+      "boundary": "CPU0 PC10243244 READ32 PA2c0a0804: SPI8 empty receive read",
+      "mode_changes_executed": 0,
+      "qualification": "The planned natural M/A/S/P/M input sequence did not reach its first switch. Pool exhaustion is absent at this failure; source timing extension and arithmetic throughput do not resolve SPI client overlap or establish stable mode changes."
+    },
+    "second_error_only_window": {
+      "host_seconds_at_last_poll": 138.789,
+      "paired_completed": 3881,
+      "running_at_last_poll": true,
+      "diagnostic_flags": [0, 0, 0],
+      "diagnostic_length": 0,
+      "spi_rejections": 0,
+      "instrument": "Temporary RX/EN/config history additionally retains SP/LR; emits only at first error, which did not occur; no debugger attached",
+      "observer_limit": "A second QMP connection timed out before greeting/capabilities; observer alone was paused for about3seconds and resumed, with no command sent or guest stop. Not a rate comparison or uninstrumented acceptance.",
+      "qualification": "Does not supersede the independent uninstrumented SPI failure or establish that CaptureService keeps dequeuing. Instrumentation removed and normal source rebuilt afterward."
+    },
+    "atomic_spi_ownership": {
+      "instrument": "Separate first-error-only host snapshot and last32 RX/EN/config accesses; no debugger before rejection and no guest changes",
+      "fault_local_progress": 0,
+      "fault_local_goal": 5,
+      "saved_guard_status": "0x0c",
+      "owner_progress_and_goal": [5, 5],
+      "hardware": "EN0 TX0 RX0, reset not asserted",
+      "preceding_operations": "Five actual RX pops, EN0 at102436d2, then resumed old activation's empty pop; no reset in retained history; all entries report CPU0",
+      "faulting_source_route": "capseq event800 ->103976b0 ->1026dbb6 ->102d9bd2 ->102d9a2c(1) ->102fe1ea(4) ->1030621e ->10367fe0 ->10370a14 ->10243468 ->102437f0 ->1024320c",
+      "upstream_condition": "Sensor operation b1868510 is6 or8, eligibility b18685a0 is0; sensor property batch before normal frame-profile publication",
+      "source_exclusion_audit": "Complete writer/wrapper/start prologues and returns plus immediate upper path contain no mutex, dispatch/IRQ mask or busy admission check. Mode0 polls without a finite timeout and its ISR does not drain RX. An unrelated real mutex wrapper is not called on this path.",
+      "remaining": "Other activation's upper caller and the intended serialization/timing condition remain unidentified. No empty-read latch, hidden device transaction queue or fabricated completion is justified."
+    },
+    "acceptance": false
   }
 }

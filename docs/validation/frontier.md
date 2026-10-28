@@ -223,13 +223,71 @@ The final applicable rerun passes137 CMOS/paired and42 lifecycle cases, with
 normal TAP and exits; CMOS takes358.39 host seconds. That179-case batch is
 separate from the preceding272-case pipeline receipt, not451 distinct tests.
 
-A new unchanged, debugger-free fixed-M window crosses the earlier RAW rejection
+A historical unchanged, debugger-free fixed-M window crosses the earlier RAW rejection
 and reaches545 paired results with zero cancellation/rejection and544 MAIN graph
 outputs. At35.71 host seconds it fails at the independent AF
 `1021d7ce/DFAR0`, task `01000018`. At the stopped snapshot active records are128
 and software event pool0 still has99 available bits. This window precedes pool
 exhaustion and does not prove that growing backlog is fixed. The same AF PC also
 does not prove the historical AS writer executed in this run.
+
+The [initial-pressure census](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates normal outstanding joins from the later allocation-retry defect.
+One stopped64-record census owns193 of195 used event bits; two unaccounted bits
+also have other source-established pool users. The oldest records can have
+paired and MAIN credits still outstanding. Separately, source and stopped
+records establish that the ten-entry resource74 FIFO can evict or reuse a record
+before a delayed MAIN consumer reads it. These observations do not authorize
+returning event bits, releasing input slots or extending the guest's caches.
+
+An independent AF scheduling gap was a missing declared input: active mode14
+and11 selected subtype0 timing rows that were zero in the previous virtual
+resource80. The [expanded cold-neutral input](../inputs/nor/virtual.md) supplies
+the same four declared timing fields in all four subtypes of groups7/10. Eight
+native tests and original-loader readback verify the extension; its numerical
+values remain an explicit virtual profile. It removes zero active period/count,
+without increasing the duration to force an AF timer branch. It does not prove
+that every historical AF abort had this cause.
+
+Exact inverse-lookup and display arithmetic reductions preserve pixel values.
+The [paired arithmetic IOThread](../devices/pairs/pixels.md) removes intermediate
+stage callback delivery from BQL scheduling, retaining one terminal main-thread
+handoff and all original DMA/capacity/ACK checks. A fresh unchanged, debugger-free
+fixed-M window reaches782 paired and782 MAIN results with zero paired
+cancellation/rejection, then stops at42.99 host seconds on an explicit SPI8
+empty-data read at MAS VA `10243244`, PA `2c0a0804`. AF pointers remain intact;
+flags/length are zero at the last QMP poll, but the subsequent stopped diagnostic
+records that SPI access abort. The final census also has774 active records,
+all480 event bits used, no valid capture-owned identities left in those headers,
+and566/565 paired/MAIN credits accumulating behind an unstarted allocation guard.
+A separate error-only-instrumented window reaches General allocator failure
+with876 active records and the same pool blockage; it does not fail in AF.
+Thus the IOThread change has not resolved pressure or established bounded queues.
+During the initial9–19-second window, paired completes76 results while RAW/group
+advance291, MAIN follows paired, and sampled paired jobs have no
+pending ACK or downstream-capacity wait. Outstanding computation and its
+completion delivery require further measurement. SPI remains an error pending
+atomic ownership evidence. Run-to-run timing is not a controlled speed comparison.
+
+The following bounded profile identifies a concrete host configuration defect:
+all960 stages in64 jobs execute children serially in the cold arithmetic pool.
+Provisioning its standard minimum/maximum to the existing12-child bound restores
+actual overlap; median worker wall time becomes25.07ms versus124.02ms and total
+job time27.08ms versus126.24ms under the same declared inputs. The new native
+barrier fails with1 of12 workers before the fix and succeeds afterward. The
+current scoped batch passes137 CMOS/paired qtests,49 paired lifecycle cases and6
+CMOS unit cases with normal TAP and exits; these192 cases overlap earlier batches.
+In a separate diagnostic window all111 started records retire and all480 bits return, but
+CaptureService later stops dequeuing; its actual wait remains unclassified.
+A separate uninstrumented run reaches221 paired/220 MAIN results and215
+descriptor starts, with one active record and477 event bits free at the stop.
+It still rejects the SPI8 empty read at17.17 host seconds, before any planned
+mode switch. [Atomic SPI ownership evidence](../devices/spi/protocol.md#shared-sensor-client-ownership-boundary)
+now shows another activation drained and stopped the shared transaction before
+the old caller resumed; that caller's source path and operation conditions are
+identified, while the other upper client remains unknown. This is no longer an
+event-pool-exhaustion failure, and it is not stable mode-change acceptance.
+
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.

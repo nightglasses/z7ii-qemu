@@ -77,13 +77,17 @@ Lane0 cell2, VA `10268ba4`, waits at `10268c2a` for pattern `80400000`
 with native timeout1000. Lane3 cell1, VA `1026903a`, waits at `102690c2`
 for pattern `80800000` with the same timeout. Later admissions may consume
 already accumulated credit without waiting. The per-frame cadence tuple comes
-from `103f6a70/103f6a82`, indexed by frame byte14. In the observed mode it is
-`[2,0]`. Both selected and unselected output phases consume paired credit;
+from `103f6a70/103f6a82`, indexed by frame byte14. The earlier byte14=4
+observation selects `[2,0]`; the later byte14=3 observations select `[1,0]`
+for both dependencies. The `b18648d8/dc` words are remaining credits, not cumulative
+completion totals. Both selected and unselected output phases consume credit;
 this divisor does not halve the software graph's completion demand.
 
-Record word0 and record+`64` are different counters. Admission at
-`103cc1c8..103cc1d6` assigns the latter from `b1864da4`; it is not a paired
-hardware job index. The generic worker marks each finished lane state3 and
+Record word0 and record+`64` are different counters. Descriptor-start callback
+`103cc1a6`, at `103cc1c8..103cc1d6`, assigns the latter from `b1864da4`; it is
+neither raw record creation nor a paired hardware job index. The actual creator
+`1032583e ->103d0db0` separately checks frame byte13 against owner byte2 and
+owner state byte1 in{1,2}. The generic worker marks each finished lane state3 and
 lane0 checks all eleven states before removing the active descriptor and
 calling `103d0c3a`. That callback separately waits for side-processing bits
 at record+`3e30`, removes the membership selected by ownership bits at+`6c`,
@@ -155,6 +159,51 @@ timing; this diagnostic proves the ownership-loss sequence, not native rates or
 why initial pressure appears. Ending the probe leaves QEMU in debugger-stop
 state and terminates the observer window; that is not a guest exception.
 The firmware and software pool remain unchanged.
+
+### Initial pressure and the smaller resource74 window
+
+Later unchanged fixed-M/cold-neutral observations distinguish initial pressure
+from the rollback failure above. A debugger-free snapshot has128 active records
+and381 occupied bits, consistent with127 sets of three joins. The oldest
+sampled record has completed lane1/2 and still waits for MAIN in lane3; only
+its last join is unset. Later records still need paired and MAIN. The join
+allocator selects a bit through a remaining-count index, so bit positions
+cannot be assigned permanently to lane numbers.
+
+A separate debugger-free, stopped final census walks all64 active records.
+Of195 occupied bits,193 have unique active owners:192 joins and one notification.
+No recorded owner names an available bit and no two recorded owners share an
+identity. Two occupied bits remain unaccounted for by this capture list; other
+pool0 users prevent classifying them as orphans. All64 records have error0,
+ownership4 and consecutive admissions278..341. This establishes accumulating
+unfinished owners before exhaustion, rather than completed owners failing to
+return their bits. It does not identify every upstream admission constraint.
+
+The active list's100 preallocated nodes are not a maximum: `1034fb4a` can
+allocate more nodes from General. No low-water admission test was found in the
+inspected guard/dispatch/list path. A different, smaller resource constrains
+MAIN consumers. In this mode, `10267c2c..10267c3e` retains ten resource74
+records in the FIFO at `b23630e0`, popping and releasing the oldest before
+creating the next through `102b64b0/1030d96e`. `10263d88` publishes the record
+through job+`3ce0`. MAIN's `1026916a ->102bdc20 ->102bd8ce` later follows this
+owner to record+4; PC `102bd93c` dereferences that final pointer.
+
+An independently qualified AF-probe-assisted run stops at that MAIN read with
+DFAR0, while419 event bits remain available. Its20 active records expose the
+ten-record reuse window: old serials161..165 point to the same records now
+labelled171..175. Failing serial166 retains record `b2c9b4e0`, whose captured
+prefix is zero, while176..180 have not published their resource74 pointer.
+The FIFO count is9. The actual class flag is1 and clear size is`118`, selecting
+the source free-and-clear path. The source release path, record identities and
+failure stack support eviction/reuse ahead of a late MAIN consumer. The exact
+write-zero instruction was not watched. This is distinct from AS/AF corruption
+and event-pool exhaustion; debugger time is not a throughput measurement.
+
+Device admission still requires real fresh RAW/grid input, a supported complete
+profile, ACK ownership and downstream capacity. Idle workers alone cannot
+identify a missing completion: the read-only paired `runtime` now exposes these
+pending/mask, selected-address, grid epoch and generation boundaries. No cache
+record, event identity, software slot or completion is supplied by the host.
 
 ## All graph-node requests and parameter reload
 

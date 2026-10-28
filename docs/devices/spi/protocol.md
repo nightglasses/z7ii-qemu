@@ -93,6 +93,49 @@ reset and cancellation discard that cadence. Completion from an asynchronous
 peer also discards it because external backpressure, rather than the local
 clock, determines when the next word can begin.
 
+## Shared sensor-client ownership boundary
+
+The expanded cold-neutral timing input exposes a separate SPI8 boundary in
+unchanged C1.70 execution. MAS VA `10243244` discards a received word only after
+checking RXEMPTY at PA `2c0a0814`. A temporary, error-only diagnostic captured
+the exact rejection and the preceding32 RX-pop/EN/configuration operations;
+successful accesses produced no output and no guest state was changed.
+
+At the first empty pop, the helper's local progress is0 and goal5, with saved
+status `0c` indicating RX data. Shared owner MAS VA `b1802350` already holds
+progress5/goal5, while the controller is disabled with empty TX/RX. The retained
+history contains five actual pops, then EN=0 at `102436d2`, followed by the
+resumed old helper's pop. There is no intervening reset. All retained operations
+report CPU0. This establishes overlapping software activations using stale
+local transaction state; it does not identify the draining activation's upper
+caller or establish a physical empty-read return value.
+
+The faulting route is source-established:
+
+```text
+capseq event800 ->103976b0 ->1026dbb6 ->102d9bd2 ->102d9a2c(1)
+ ->102fe1ea(4) ->1030621e ->10367fe0 ->10370a14
+ ->10243468 ->102437f0 ->1024320c
+```
+
+It requires sensor operation byte `b1868510` in{6,8} and eligibility byte
+`b18685a0` equal0, then updates the sensor property batch before publishing the
+normal frame profile. These are ordinary operation checks, not a lock. The
+complete writer, wrapper and low-level start paths contain no mutex, dispatch
+disable, IRQ mask or busy admission check. Mode0 polls completion/overflow/
+cancellation without a finite timeout; the common ISR drains RX only for mode3.
+SPI8 has no DMA consumer in this binding. A separate sensor-control route also
+uses the same owner and staging buffers, but its participation in this captured
+interleaving remains unproved.
+
+Returning a retained or zero word would hide stale ownership and could regress
+the shared progress counter. A device-side transaction queue would not repair
+the overwritten guest descriptor and staging buffer. Both remain unsupported
+repairs. The next evidence is the other activation's saved caller and the normal
+serialization/timing condition, not an invented receive completion. See the
+[curated pressure and ownership receipt](/evidence/runtime/grid.json). The
+temporary instrumentation was removed; SPI register behavior is unchanged.
+
 ## Source-selected input clocks
 
 The board connects each controller's `spi-clock` input to the clock device.
