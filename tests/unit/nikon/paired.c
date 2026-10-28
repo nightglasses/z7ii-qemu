@@ -429,10 +429,13 @@ static void fixture_arithmetic(PairedFixture *f, unsigned workers)
     g_assert_nonnull(arithmetic);
     f->ctx = iothread_get_aio_context(IOTHREAD(arithmetic));
     f->workers = workers;
-    aio_wait_bh_oneshot(f->ctx, fixture_pool_params, f);
+    if (workers) {
+        aio_wait_bh_oneshot(f->ctx, fixture_pool_params, f);
+    }
 }
 
-static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
+static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream,
+                                      unsigned workers)
 {
     PairedFixture *f = g_new0(PairedFixture, 1);
     uint8_t calibration[0x5e00] = { 0 };
@@ -468,7 +471,7 @@ static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
     sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 0, f->irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
     device_cold_reset(f->dev);
-    fixture_arithmetic(f, 1);
+    fixture_arithmetic(f, workers);
     if (stream) {
         /* GPIO links resolve through QOM paths. Realize the receiver first so
          * its input has a rooted path, as it does in the machine wiring.
@@ -486,7 +489,7 @@ static PairedFixture *fixture_new_raw(unsigned raw_words, bool stream)
 
 static PairedFixture *fixture_new(void)
 {
-    return fixture_new_raw(8, false);
+    return fixture_new_raw(8, false, 1);
 }
 
 static void fixture_free(PairedFixture *f)
@@ -786,6 +789,76 @@ static void test_parallel_completion(void)
     published(f);
     advance(2000000);
     published(f);
+    fixture_free(f);
+}
+
+static void pool_burst_submit(void *opaque)
+{
+    PoolBarrier *jobs = opaque;
+
+    for (unsigned i = 0; i < 12; i++) {
+        barrier_queue(&jobs[i]);
+    }
+}
+
+static void test_default_pool_concurrency(void)
+{
+    PairedFixture *f = fixture_new_raw(8, false, 0);
+    Object *arithmetic = object_resolve_path_component(OBJECT(f->dev),
+                                                      "arithmetic");
+    PoolBarrier warm, jobs[12];
+    unsigned started = 0;
+    int64_t deadline;
+
+    /* Keep the production pool parameters. Complete one job first: an idle
+     * worker must not make a subsequent whole burst remain serial.
+     */
+    barrier_init(f, &warm, false);
+    aio_bh_schedule_oneshot(f->ctx, barrier_queue, &warm);
+    g_assert_cmpint(qemu_sem_timedwait(&warm.entered, 5000), ==, 0);
+    deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (!qatomic_read(&warm.done)) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_thread_yield();
+    }
+    fence_without_main(f);
+    barrier_clear(&warm);
+    for (unsigned i = 0; i < ARRAY_SIZE(jobs); i++) {
+        barrier_init(f, &jobs[i], true);
+    }
+    aio_bh_schedule_oneshot(f->ctx, pool_burst_submit, jobs);
+    deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    for (; started < ARRAY_SIZE(jobs); started++) {
+        int64_t left = deadline - g_get_monotonic_time();
+
+        if (left <= 0 || qemu_sem_timedwait(&jobs[started].entered,
+                                           (left + 999) / 1000)) {
+            break;
+        }
+    }
+    /* No task has been released, so 12 starts prove real pool concurrency.
+     * Release and drain even on failure before reporting the bounded result.
+     */
+    for (unsigned i = 0; i < ARRAY_SIZE(jobs); i++) {
+        qemu_sem_post(&jobs[i].release);
+    }
+    deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    for (unsigned i = 0; i < ARRAY_SIZE(jobs); i++) {
+        while (!qatomic_read(&jobs[i].done)) {
+            g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+            g_thread_yield();
+        }
+    }
+    fence_without_main(f);
+    for (unsigned i = 0; i < ARRAY_SIZE(jobs); i++) {
+        barrier_clear(&jobs[i]);
+    }
+    g_assert_cmpuint(started, ==, ARRAY_SIZE(jobs));
+    g_assert_cmpint(object_property_get_int(arithmetic, "thread-pool-min",
+                                            &error_abort), ==, 12);
+    g_assert_cmpint(object_property_get_int(arithmetic, "thread-pool-max",
+                                            &error_abort), ==, 12);
+    unpublished(f);
     fixture_free(f);
 }
 
@@ -1144,7 +1217,7 @@ static void test_async_bank_commit_rewrite(void)
 
 static void test_async_initial_partial(void)
 {
-    PairedFixture *f = fixture_new_raw(7, false);
+    PairedFixture *f = fixture_new_raw(7, false, 1);
     PoolBarrier blocker;
 
     notify_phase(f, 0, 0);
@@ -1699,7 +1772,7 @@ static void stream_pixels(PairedFixture *f, bool present)
 static void test_stream_ready_lifecycle(gconstpointer opaque)
 {
     unsigned mode = GPOINTER_TO_UINT(opaque);
-    PairedFixture *f = fixture_new_raw(8, true);
+    PairedFixture *f = fixture_new_raw(8, true, 1);
     NikonPairedRawFrame frame = {
         .generation = 1, .address = RAM_BASE, .width = 64, .height = 36,
         .stride = 96, .bits = 12, .transfer = { .codec = NIKON_RAW_LINEAR },
@@ -1827,6 +1900,8 @@ int main(int argc, char **argv)
                          GUINT_TO_POINTER(1 | 32 | 8), test_stage_cancel);
     g_test_add_func("/nikon/paired/async/parallel-completion",
                     test_parallel_completion);
+    g_test_add_func("/nikon/paired/async/default-pool-concurrency",
+                    test_default_pool_concurrency);
     g_test_add_data_func("/nikon/paired/async/background-completion",
                          GUINT_TO_POINTER(0), test_background_completion);
     g_test_add_data_func("/nikon/paired/async/background-pause",

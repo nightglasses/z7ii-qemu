@@ -28,6 +28,7 @@
 
 #define BANK_SIZE 0x5e00
 #define PAIRED_ONLINE_GROUPS 17
+#define PAIRED_MAX_CHILDREN 12
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPairedEventBanksState, NIKON_PAIRED_EVENT_BANKS)
 
 typedef enum NikonPairedRequestState {
@@ -69,7 +70,7 @@ struct PairedTask {
     PairedJob job;
     NikonPairedPixels *pixels;
     const uint8_t *y, *uv, *work;
-    PairedChild child[12];
+    PairedChild child[PAIRED_MAX_CHILDREN];
     uint64_t token;
     unsigned bank, remaining;
     /* IOContext owns pixels/children until the main-Aio terminal handoff.
@@ -2670,8 +2671,10 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
     }
     s->calibration_loaded = true;
 create_arithmetic:
+    /* A warm idle worker can absorb a whole lazy batch without growing it. */
     arithmetic = object_new_with_props(TYPE_IOTHREAD, OBJECT(s), "arithmetic",
-                                        errp, NULL);
+        errp, "thread-pool-min", stringify(PAIRED_MAX_CHILDREN),
+        "thread-pool-max", stringify(PAIRED_MAX_CHILDREN), NULL);
     if (arithmetic) {
         s->arithmetic = IOTHREAD(arithmetic);
     }
