@@ -667,7 +667,8 @@ static void test_async_unrealize(gconstpointer opaque)
     poll_until(f, "inflight=0", &blocker, &marker);
     barrier_clear(&blocker);
     barrier_clear(&marker);
-    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
+    g_assert_true(object_property_set_bool(OBJECT(f->dev), "realized", true,
+                                           &error_abort));
     device_cold_reset(f->dev);
     fixture_arithmetic(f, 1);
     configure(f);
