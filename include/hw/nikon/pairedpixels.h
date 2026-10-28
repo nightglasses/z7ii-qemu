@@ -264,6 +264,40 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * rounded by10 bits. Add offset, round by shift (<=15), then add/clamp RGB12.
  * These seed, order, slice and scalar meanings are functional hypotheses.
  */
+/* Fixed stages for one owned frame. Inputs remain immutable and live until
+ * free. Distinct tasks of the current stage may run concurrently, each exactly
+ * once; the caller joins every task before advance/free. No worker schedules
+ * other work. Results are private and available only after DONE.
+ */
+typedef enum NikonPairedPixelStage {
+    NIKON_PAIRED_PIXEL_PREPARE,
+    NIKON_PAIRED_PIXEL_PREFIX,
+    NIKON_PAIRED_PIXEL_TEMPORAL,
+    NIKON_PAIRED_PIXEL_RADIAL,
+    NIKON_PAIRED_PIXEL_COLOR,
+    NIKON_PAIRED_PIXEL_POST,
+    NIKON_PAIRED_PIXEL_PACK,
+    NIKON_PAIRED_PIXEL_DONE,
+} NikonPairedPixelStage;
+
+typedef struct NikonPairedPixels NikonPairedPixels;
+typedef struct NikonPairedPixelResult {
+    const uint16_t *half_luma, *half_residual;
+    const uint8_t *y, *uv, *work;
+} NikonPairedPixelResult;
+
+NikonPairedPixels *nikon_paired_pixels_new(const NikonPairedPixelConfig *config,
+    const uint16_t *raw, const uint16_t *prior_luma,
+    const uint16_t *prior_residual, const uint16_t *grid);
+NikonPairedPixelStage nikon_paired_pixels_stage(const NikonPairedPixels *pixels);
+unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *pixels);
+bool nikon_paired_pixels_run(NikonPairedPixels *pixels, unsigned task);
+bool nikon_paired_pixels_advance(NikonPairedPixels *pixels);
+const NikonPairedPixelResult *nikon_paired_pixels_result(
+    const NikonPairedPixels *pixels);
+void nikon_paired_pixels_free(NikonPairedPixels *pixels);
+
+/* Explicit synchronous execution of the same fixed stages. */
 bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                          const uint16_t *raw_contiguous_ROI,
                          const uint16_t *prior_half_luma_nullable,

@@ -55,14 +55,23 @@ typedef struct PairedJob {
     bool work, stream;
 } PairedJob;
 
-typedef struct PairedTask {
+typedef struct PairedTask PairedTask;
+
+typedef struct PairedChild {
+    PairedTask *task;
+    unsigned index;
+} PairedChild;
+
+struct PairedTask {
     NikonPairedEventBanksState *owner;
     PairedJob job;
-    uint8_t *y, *uv, *work;
+    NikonPairedPixels *pixels;
+    const uint8_t *y, *uv, *work;
+    PairedChild child[4];
     uint64_t token;
-    unsigned bank;
+    unsigned bank, remaining;
     bool ready, success;
-} PairedTask;
+};
 
 typedef struct NikonPairedEventBanksBank {
     NikonPairedEventBanksState *parent;
@@ -1836,53 +1845,44 @@ static void paired_task_free(PairedTask *task)
     NikonPairedEventBanksState *s = task->owner;
     NikonPairedEventBanksBank *b = &s->bank[task->bank];
 
-    assert(b->compute == task && s->inflight);
+    assert(b->compute == task && s->inflight && !task->remaining);
     b->compute = NULL;
     s->inflight--;
     g_free(task->job.raw);
     g_free(task->job.history);
     g_free(task->job.residual);
     g_free(task->job.grid);
-    g_free(task->y);
-    g_free(task->uv);
-    g_free(task->work);
+    nikon_paired_pixels_free(task->pixels);
     g_free(task);
     aio_wait_kick();
     object_unref(OBJECT(s));
 }
 
+static void paired_submit(PairedTask *task);
+
 static int paired_compute(void *opaque)
 {
-    PairedTask *task = opaque;
-    PairedJob *j = &task->job;
-    NikonPairedPixelConfig *g = &j->pixels;
-    size_t half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
-    size_t main = (size_t)g->output_width * g->output_height;
-    g_autofree uint16_t *luma = g_new(uint16_t, half);
-    g_autofree uint16_t *residual = g_new(uint16_t, half);
+    PairedChild *child = opaque;
 
-    task->y = g_malloc(main);
-    task->uv = g_malloc(main / 2);
-    task->work = g_malloc(half * 4);
-    if (!nikon_paired_pixels(g, j->raw, j->history, j->residual,
-                             luma, residual, j->grid, task->y, task->uv)) {
-        return -EINVAL;
-    }
-    for (unsigned i = 0; i < half; i++) {
-        stw_le_p(task->work + 2 * i, luma[i]);
-        stw_le_p(task->work + 2 * half + 2 * i, residual[i]);
-    }
-    return 0;
+    return nikon_paired_pixels_run(child->task->pixels, child->index) ?
+           0 : -EINVAL;
 }
 
 static void paired_computed(void *opaque, int ret)
 {
-    PairedTask *task = opaque;
+    PairedChild *child = opaque;
+    PairedTask *task = child->task;
     NikonPairedEventBanksState *s = task->owner;
     NikonPairedEventBanksBank *b = &s->bank[task->bank];
 
-    task->success = ret == 0;
-    task->ready = true;
+    assert(task->remaining);
+    task->success &= ret == 0;
+    if (--task->remaining) {
+        return;
+    }
+    /* A token revokes every later stage. Current children all retain the same
+     * aggregate owner until this barrier, including queued children on reset.
+     */
     if (s->stopping || !b->active || task->token != b->token) {
         object_ref(OBJECT(s));
         paired_task_free(task);
@@ -1894,7 +1894,51 @@ static void paired_computed(void *opaque, int ret)
         object_unref(OBJECT(s));
         return;
     }
+    if (task->success) {
+        task->success = nikon_paired_pixels_advance(task->pixels);
+        if (task->success) {
+            paired_submit(task);
+            return;
+        }
+    }
+    task->ready = true;
     /* Host completion cannot publish while the virtual clock is stopped. */
+    timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+/* Only the AioContext coordinator submits the next fixed stage. Pool workers
+ * neither submit nor wait on pool work, so one pool thread remains sufficient.
+ */
+static void paired_submit(PairedTask *task)
+{
+    NikonPairedEventBanksBank *b = &task->owner->bank[task->bank];
+    const NikonPairedPixelResult *result;
+
+    assert(!task->remaining && !task->ready);
+    while (nikon_paired_pixels_stage(task->pixels) != NIKON_PAIRED_PIXEL_DONE) {
+        task->remaining = nikon_paired_pixels_tasks(task->pixels);
+        if (task->remaining) {
+            assert(task->remaining <= ARRAY_SIZE(task->child));
+            for (unsigned i = 0; i < task->remaining; i++) {
+                task->child[i] = (PairedChild) { task, i };
+                thread_pool_submit_aio(paired_compute, &task->child[i],
+                                        paired_computed, &task->child[i]);
+            }
+            return;
+        }
+        /* MONO needs no intermediate CFA radial mosaic. */
+        if (!nikon_paired_pixels_advance(task->pixels)) {
+            task->success = false;
+            task->ready = true;
+            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+            return;
+        }
+    }
+    result = nikon_paired_pixels_result(task->pixels);
+    task->y = result->y;
+    task->uv = result->uv;
+    task->work = result->work;
+    task->ready = true;
     timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
 }
 
@@ -1923,7 +1967,16 @@ static void paired_complete(void *opaque)
         b->compute = task;
         s->inflight++;
         object_ref(OBJECT(s));
-        thread_pool_submit_aio(paired_compute, task, paired_computed, task);
+        task->success = true;
+        task->pixels = nikon_paired_pixels_new(&task->job.pixels, task->job.raw,
+            task->job.history, task->job.residual, task->job.grid);
+        if (task->pixels) {
+            paired_submit(task);
+        } else {
+            task->success = false;
+            task->ready = true;
+            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        }
         return;
     }
     assert(task->ready && task->token == b->token);
@@ -2550,8 +2603,12 @@ static char *paired_runtime(Object *obj, Error **errp)
             g_string_append_printf(state, "%s%" PRIu64,
                                    slot ? "," : "", b->consumed[slot]);
         }
-        g_string_append_printf(state, " history-revision=%" PRIu64 "\n",
-                               b->history_revision);
+        g_string_append_printf(state, " history-revision=%" PRIu64
+            " stage=%u remaining=%u\n", b->history_revision,
+            b->compute && b->compute->pixels ?
+                nikon_paired_pixels_stage(b->compute->pixels) :
+                NIKON_PAIRED_PIXEL_DONE,
+            b->compute ? b->compute->remaining : 0);
         for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
             if (paired_online_open(b->online_written[group])) {
                 g_string_append_printf(state,
