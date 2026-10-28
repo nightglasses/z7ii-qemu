@@ -339,7 +339,7 @@ static void test_configured_frames(void)
         qtest_writel(q, CMOS + 0x060, 1);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_EXPOSING);
         g_assert_cmphex(qtest_readb(q, destination), ==, 0xa5);
-        pipeline_step(q, 10000);
+        qtest_clock_step(q, 10000);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, i + 1);
         g_assert_cmphex(qtest_readl(q, CMOS + 0x07c), ==, (i + 1) & 1);
@@ -383,7 +383,7 @@ static void test_crop_scale_and_unknown(void)
     g_assert_cmphex(qtest_readl(q, CMOS + 0x090), ==, 0xb1814321);
     qtest_memset(q, RAM, 0xa5, 64);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     qtest_memread(q, RAM, full, sizeof(full));
 
     qtest_writel(q, CMOS + 0x00c, 2);
@@ -395,7 +395,7 @@ static void test_crop_scale_and_unknown(void)
     qtest_writel(q, CMOS + 0x03c, RAM + 0x10000);
     qtest_memset(q, RAM + 0x10000, 0xa5, 64);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     qtest_memread(q, RAM + 0x10000, cropped, sizeof(cropped));
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     g_assert_cmphex(qtest_readb(q, RAM + 0x10000 + 6), ==, 0xa5);
@@ -415,7 +415,7 @@ static void test_invalid_and_cancel(void)
     qtest_memset(q, RAM, 0xa5, 48 * 8);
     qtest_writel(q, CMOS + 0x060, 1);
     qtest_writel(q, CMOS + 0x064, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_IDLE);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x070), ==, NIKON_CMOS_EVENT_CANCEL);
     g_assert_cmphex(qtest_readl(q, RAM), ==, 0xa5a5a5a5);
@@ -459,7 +459,7 @@ static void test_image_provider(void)
     configure(q, 2, 2, 1, 2);
     qtest_memset(q, RAM, 0xa5, 4);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     qtest_memread(q, RAM, output, sizeof(output));
     g_assert_cmphex(output[0], ==, 0);
     g_assert_cmphex(output[1], ==, 64);
@@ -501,7 +501,7 @@ static void test_image_source_contract(void)
     qobject_unref(reply);
     configure(q, 2, 2, 1, 2);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     qtest_memread(q, RAM, output, sizeof(output));
     g_assert_cmpmem(output, sizeof(output), pnm + sizeof(pnm) - 4, 4);
@@ -520,7 +520,7 @@ static void test_image_source_contract(void)
         "'property':'image','value':''}}");
     g_assert_true(qdict_haskey(reply, "error"));
     qobject_unref(reply);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     qtest_memread(q, RAM + 0x10000, cropped, sizeof(cropped));
     g_assert_cmpmem(cropped, sizeof(cropped), expected_crop,
                     sizeof(expected_crop));
@@ -674,7 +674,7 @@ static void test_image_raster_boundaries(void)
         configure(q, 2, 2, 1, 2);
         qtest_memset(q, RAM, 0xa5, sizeof(output));
         qtest_writel(q, CMOS + 0x060, 1);
-        pipeline_step(q, 10000);
+        qtest_clock_step(q, 10000);
         qtest_memread(q, RAM, output, sizeof(output));
         if (i < 2) {
             g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
@@ -695,14 +695,14 @@ static void test_period(void)
     configure(q, 4, 2, 1, 8);
     qtest_writel(q, CMOS + 0x050, 100000);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     qtest_writel(q, CMOS + 0x060, 1);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_ERROR);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, 1);
-    pipeline_step(q, 100001);
+    qtest_clock_step(q, 100001);
     qtest_writel(q, CMOS + 0x060, 1);
-    pipeline_step(q, 10000);
+    qtest_clock_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
     g_assert_cmphex(qtest_readl(q, CMOS + 0x078), ==, 2);
     qtest_quit(q);
