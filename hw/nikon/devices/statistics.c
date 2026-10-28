@@ -8,6 +8,8 @@
 #include "qemu/bswap.h"
 #include "qemu/log.h"
 #include "qemu/timer.h"
+#include "qemu/aio-wait.h"
+#include "block/thread-pool.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/nikon/devices.h"
@@ -24,20 +26,52 @@ typedef struct StatisticsOutput {
     uint32_t address, width, height, pitch, bytes;
 } StatisticsOutput;
 
+typedef struct StatisticsJob {
+    uint32_t configuration[NIKON_CAPTURE_ENDPOINT_WORDS];
+    unsigned cursor[10], banks;
+    uint64_t revision;
+    NikonCaptureInput input;
+    uint8_t *input_data, *data[10];
+    StatisticsOutput out[10];
+    uint32_t results[12], scalars[4];
+} StatisticsJob;
+
+typedef struct StatisticsTask {
+    NikonStatistics *owner;
+    StatisticsJob job;
+    uint64_t token;
+    bool submitted, ready, success;
+} StatisticsTask;
+
 struct NikonStatistics {
     SysBusDevice parent_obj;
     DeviceState *endpoints, *banks, *pipeline, *capture;
     QEMUTimer *timer;
     uint32_t committed[NIKON_CAPTURE_ENDPOINT_WORDS];
-    uint32_t job[NIKON_CAPTURE_ENDPOINT_WORDS];
-    unsigned cursor[10], job_cursor[10];
-    bool selected[2], valid, running, active;
-    unsigned job_banks;
-    NikonCaptureInput input;
-    uint8_t *input_data;
-    uint64_t revision, job_revision;
+    unsigned cursor[10];
+    bool selected[2], valid, running, active, stopping;
+    StatisticsTask *compute;
+    uint64_t token, inflight, revision;
     uint64_t last_input, completed, rejected, cancelled, blocked;
 };
+
+static void statistics_task_free(StatisticsTask *task);
+static void statistics_rise(void *opaque, int n, int level);
+
+static void statistics_cancel(NikonStatistics *s, bool record)
+{
+    s->token++;
+    if (s->active) {
+        timer_del(s->timer);
+        s->active = false;
+        if (record) {
+            s->cancelled++;
+        }
+    }
+    if (s->compute && (!s->compute->submitted || s->compute->ready)) {
+        statistics_task_free(s->compute);
+    }
+}
 
 static uint32_t global(const uint32_t *words, unsigned offset)
 {
@@ -84,13 +118,13 @@ static bool statistics_ram(uint64_t address, uint64_t bytes)
     return true;
 }
 
-static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
+static bool statistics_outputs(const StatisticsJob *j, StatisticsOutput out[10])
 {
     /* C1.70's constructors reserve six/four slots, independent of work count.
      * Endpoint1 alone selects a large-count pool. Cyclic reuse is a finite
      * functional hypothesis, not a recovered physical counter encoding. */
     static const unsigned storage_slots[] = { 6, 256, 6, 6, 6, 4, 4, 4, 4, 4 };
-    const uint32_t *w = s->job;
+    const uint32_t *w = j->configuration;
     bool any = false;
 
     for (unsigned n = 0; n < 10; n++) {
@@ -116,7 +150,7 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
         count = endpoint(w, n, 0x48) + 1;
         stride = endpoint(w, n, 0x80);
         if ((endpoint(w, n, 0x3c) >> 1) > 1 ||
-            endpoint(w, n, 0x44) >= count || s->job_cursor[n] >= count) {
+            endpoint(w, n, 0x44) >= count || j->cursor[n] >= count) {
             return false;
         }
         base = endpoint(w, n, 0x50 + bank * 0x10);
@@ -139,7 +173,7 @@ static bool statistics_outputs(NikonStatistics *s, StatisticsOutput out[10])
         bpp = n == 0 ? 16 : n <= 4 ? 2 : 1;
         out[n].pitch = ROUND_UP(out[n].width * bpp, 16);
         uint64_t bytes = (uint64_t)out[n].pitch * out[n].height;
-        unsigned slot = s->job_cursor[n] % MIN(count, storage_slots[n]);
+        unsigned slot = j->cursor[n] % MIN(count, storage_slots[n]);
         uint64_t address = (uint64_t)base + (uint64_t)slot * stride;
 
         if (!out[n].width || !out[n].height || out[n].height > 4096 ||
@@ -188,43 +222,32 @@ static void statistics_cell(const uint64_t *integral, unsigned width,
     result[3] = (sum + count / 2) / count;
 }
 
-static void statistics_complete(void *opaque)
+static int statistics_compute(void *opaque)
 {
-    NikonStatistics *s = opaque;
-    StatisticsOutput out[10] = { 0 };
-    uint32_t scalars[4], results[12] = { 0 };
-    unsigned width = s->input.width, height = s->input.height;
+    StatisticsTask *task = opaque;
+    StatisticsJob *j = &task->job;
+    unsigned width = j->input.width, height = j->input.height;
     unsigned pitch = width + 1;
     g_autofree uint64_t *integral = NULL;
 
-    s->active = false;
-    if ((statistics_banks(s) & s->job_banks) != s->job_banks) {
-        s->cancelled++;
-        return;
-    }
-    if (!statistics_outputs(s, out)) {
-        s->rejected++;
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "nikon statistics rejected output geometry/route/RAM\n");
-        return;
-    }
     integral = g_new0(uint64_t, (size_t)pitch * (height + 1));
     for (unsigned y = 0; y < height; y++) {
         uint64_t sum = 0;
 
         for (unsigned x = 0; x < width; x++) {
-            sum += lduw_le_p(s->input_data + y * s->input.stride + x * 2);
+            sum += lduw_le_p(j->input_data + y * j->input.stride + x * 2);
             integral[(y + 1) * pitch + x + 1] =
                 integral[y * pitch + x + 1] + sum;
         }
     }
     for (unsigned n = 0; n < 10; n++) {
-        StatisticsOutput *o = &out[n];
-        g_autofree uint8_t *data = g_malloc0(o->bytes);
+        const StatisticsOutput *o = &j->out[n];
+        uint8_t *data;
 
         if (!o->bytes) {
             continue;
         }
+        data = j->data[n] = g_malloc0(o->bytes);
         for (unsigned y = 0; y < o->height; y++) {
             for (unsigned x = 0; x < o->width; x++) {
                 uint32_t cell[4];
@@ -243,53 +266,147 @@ static void statistics_complete(void *opaque)
                 }
             }
         }
-        if (dma_memory_write(&address_space_memory, o->address, data, o->bytes,
-                              MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
-            s->rejected++;
-            return;
-        }
     }
     for (unsigned q = 0; q < 4; q++) {
         uint32_t cell[4];
         unsigned base = q < 2 ? q : q + 4;
 
         statistics_cell(integral, width, height, q % 2, q / 2, 2, 2, cell);
-        results[base] = cell[0];
-        results[base + 2] = cell[1];
-        results[base + 4] = cell[2];
-        scalars[q] = cell[3];
+        j->results[base] = cell[0];
+        j->results[base + 2] = cell[1];
+        j->results[base + 4] = cell[2];
+        j->scalars[q] = cell[3];
     }
-    nikon_capture_banks_results(s->banks, s->job_banks, results);
-    nikon_capture_endpoints_results(s->endpoints, scalars);
+    return 0;
+}
+
+static void statistics_task_free(StatisticsTask *task)
+{
+    NikonStatistics *s = task->owner;
+
+    assert(s->compute == task);
+    s->compute = NULL;
+    if (task->submitted) {
+        assert(s->inflight == 1);
+        s->inflight--;
+    }
+    g_free(task->job.input_data);
+    for (unsigned n = 0; n < 10; n++) {
+        g_free(task->job.data[n]);
+    }
+    g_free(task);
+    aio_wait_kick();
+    object_unref(OBJECT(s));
+}
+
+static void statistics_computed(void *opaque, int ret)
+{
+    StatisticsTask *task = opaque;
+    NikonStatistics *s = task->owner;
+
+    task->ready = true;
+    task->success = ret == 0;
+    if (s->stopping || !s->active || task->token != s->token) {
+        object_ref(OBJECT(s));
+        statistics_task_free(task);
+        if (!s->stopping) {
+            statistics_rise(s, 0, 1);
+        }
+        object_unref(OBJECT(s));
+        return;
+    }
+    /* Host completion cannot publish while the virtual clock is stopped. */
+    timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+static void statistics_complete(void *opaque)
+{
+    NikonStatistics *s = opaque;
+    StatisticsTask *task = s->compute;
+    StatisticsJob *j;
+    StatisticsOutput out[10] = { 0 };
     uint32_t causes[2] = { 0x40, 0 };
     uint32_t stage[2] = { 0x20, 0 };
+    uint64_t token = s->token;
+
+    if (!s->active) {
+        return;
+    }
+    assert(task && task->token == s->token);
+    j = &task->job;
+    if ((statistics_banks(s) & j->banks) != j->banks) {
+        statistics_cancel(s, true);
+        return;
+    }
+    if (!statistics_outputs(j, out)) {
+        s->rejected++;
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon statistics rejected output geometry/route/RAM\n");
+        goto out;
+    }
+    if (!task->submitted) {
+        memcpy(j->out, out, sizeof(out));
+        task->submitted = true;
+        s->inflight++;
+        thread_pool_submit_aio(statistics_compute, task,
+                               statistics_computed, task);
+        return;
+    }
+    assert(task->ready);
+    if (!task->success) {
+        s->rejected++;
+        goto out;
+    }
+    for (unsigned n = 0; n < 10; n++) {
+        const StatisticsOutput *o = &j->out[n];
+
+        if (o->bytes &&
+            dma_memory_write(&address_space_memory, o->address, j->data[n],
+                             o->bytes, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            s->rejected++;
+            goto out;
+        }
+    }
+    nikon_capture_banks_results(s->banks, j->banks, j->results);
+    nikon_capture_endpoints_results(s->endpoints, j->scalars);
 
     /* Mode1's source consumer switches endpoint1 after its ring completes. */
-    if (out[1].bytes &&
-        s->job_cursor[1] == endpoint(s->job, 1, 0x48)) {
+    if (out[1].bytes && j->cursor[1] == endpoint(j->configuration, 1, 0x48)) {
         stage[0] |= 0x80;
     }
+    s->completed++;
+    for (unsigned n = 0; n < 10; n++) {
+        if (out[n].bytes && j->revision == s->revision) {
+            s->cursor[n] = (j->cursor[n] + 1) %
+                           (endpoint(j->configuration, n, 0x48) + 1);
+        }
+    }
+    s->active = false;
+    object_ref(OBJECT(s));
+    statistics_task_free(task);
+    /* Synchronous consumers may ACK, stop or reset from either event. */
     /* sw8 configures these outputs; its fence follows this job's real work. */
     nikon_capture_publish(s->capture, NIKON_CAPTURE_THIRD_EVENT,
                           stage, 2, &error_abort);
-    nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
-                          causes, 2, &error_abort);
-    s->completed++;
-    for (unsigned n = 0; n < 10; n++) {
-        if (out[n].bytes && s->job_revision == s->revision) {
-            s->cursor[n] = (s->job_cursor[n] + 1) %
-                           (endpoint(s->job, n, 0x48) + 1);
-        }
+    if (!s->stopping && token == s->token) {
+        nikon_capture_publish(s->capture, NIKON_CAPTURE_FIRST_EVENT,
+                              causes, 2, &error_abort);
     }
+    object_unref(OBJECT(s));
+    return;
+out:
+    s->active = false;
+    statistics_task_free(task);
 }
 
 static void statistics_rise(void *opaque, int n, int level)
 {
     NikonStatistics *s = opaque;
     NikonCaptureInput input;
+    StatisticsTask *task;
     int64_t now;
 
-    if (!level || !s->valid || !s->running || s->active) {
+    if (!level || s->stopping || !s->valid || !s->running || s->compute) {
         return;
     }
     if (nikon_capture_data_pending(s->capture)) {
@@ -308,14 +425,19 @@ static void statistics_rise(void *opaque, int n, int level)
         s->rejected++;
         return;
     }
-    g_free(s->input_data);
-    s->input_data = g_memdup2(input.data, (size_t)input.stride * input.height);
-    s->input = input;
-    s->input.data = s->input_data;
-    memcpy(s->job, s->committed, sizeof(s->job));
-    s->job_revision = s->revision;
-    memcpy(s->job_cursor, s->cursor, sizeof(s->cursor));
-    s->job_banks = statistics_banks(s);
+    task = g_new0(StatisticsTask, 1);
+    task->owner = s;
+    task->token = s->token;
+    task->job.input_data = g_memdup2(input.data,
+                                    (size_t)input.stride * input.height);
+    task->job.input = input;
+    task->job.input.data = task->job.input_data;
+    memcpy(task->job.configuration, s->committed, sizeof(s->committed));
+    task->job.revision = s->revision;
+    memcpy(task->job.cursor, s->cursor, sizeof(s->cursor));
+    task->job.banks = statistics_banks(s);
+    object_ref(OBJECT(s));
+    s->compute = task;
     s->active = true;
     /* Virtual computation latency, not guest-queue synchronization. */
     timer_mod(s->timer, now + 1000000);
@@ -350,10 +472,8 @@ static void statistics_run(void *opaque, int n, int level)
     NikonStatistics *s = opaque;
 
     s->running = !!level;
-    if (!level && s->active) {
-        timer_del(s->timer);
-        s->active = false;
-        s->cancelled++;
+    if (!level) {
+        statistics_cancel(s, true);
     }
 }
 
@@ -361,10 +481,8 @@ static void statistics_bank_run(void *opaque, int n, int level)
 {
     NikonStatistics *s = opaque;
 
-    if (!level && s->active && (s->job_banks & (1u << n))) {
-        timer_del(s->timer);
-        s->active = false;
-        s->cancelled++;
+    if (!level && s->active && (s->compute->job.banks & (1u << n))) {
+        statistics_cancel(s, true);
     }
 }
 
@@ -372,21 +490,29 @@ static void statistics_reset(DeviceState *dev)
 {
     NikonStatistics *s = NIKON_STATISTICS(dev);
 
-    timer_del(s->timer);
-    s->valid = s->running = s->active = false;
+    statistics_cancel(s, false);
+    s->valid = s->running = false;
     s->last_input = 0;
-    s->revision = s->job_revision = 0;
+    s->revision = 0;
     memset(s->selected, 0, sizeof(s->selected));
     memset(s->committed, 0, sizeof(s->committed));
-    memset(s->job, 0, sizeof(s->job));
     memset(s->cursor, 0, sizeof(s->cursor));
-    g_clear_pointer(&s->input_data, g_free);
+}
+
+static void statistics_unrealize(DeviceState *dev)
+{
+    NikonStatistics *s = NIKON_STATISTICS(dev);
+
+    s->stopping = true;
+    statistics_reset(dev);
+    AIO_WAIT_WHILE(NULL, s->inflight);
 }
 
 static void statistics_realize(DeviceState *dev, Error **errp)
 {
     NikonStatistics *s = NIKON_STATISTICS(dev);
 
+    s->stopping = false;
     if (!s->endpoints || !s->banks || !s->pipeline || !s->capture) {
         error_setg(errp, "statistics requires endpoints, banks, pipeline, "
                    "capture");
@@ -413,6 +539,8 @@ static void statistics_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "blocked", &s->blocked,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "inflight", &s->inflight,
+                                   OBJ_PROP_FLAG_READ);
 }
 
 static void statistics_finalize(Object *obj)
@@ -420,7 +548,7 @@ static void statistics_finalize(Object *obj)
     NikonStatistics *s = NIKON_STATISTICS(obj);
 
     timer_free(s->timer);
-    g_free(s->input_data);
+    assert(!s->compute && !s->inflight);
 }
 
 static const Property statistics_properties[] = {
@@ -444,7 +572,7 @@ static void statistics_class_init(ObjectClass *oc, const void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = statistics_realize;
-    dc->unrealize = statistics_reset;
+    dc->unrealize = statistics_unrealize;
     dc->user_creatable = false;
     dc->vmsd = &statistics_vmstate;
     device_class_set_props(dc, statistics_properties);
