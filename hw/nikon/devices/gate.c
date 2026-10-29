@@ -376,7 +376,7 @@ static bool nikon_event_gate_input_shape(NikonEventGateState *s,
         shape->height > STREAM_INPUT_MAX_DIMENSION ||
         ((shape->width | shape->height) & 1) ||
         shape->stride < shape->width || shape->stride > 0x1ffff ||
-        (shape->stride & 63) || s->input_stopped ||
+        (shape->stride & 63) || s->input_stopped || s->config[0x20a4 / 4] ||
         !(s->parameter_valid & (1U << STREAM_INPUT_SLOT)) ||
         !(s->configured & (UINT64_C(1) << index)) ||
         !command->packet.present[0] || command->packet.value[0] != 8) {
@@ -761,6 +761,9 @@ bool nikon_gate_plane_input(DeviceState *dev, const NikonGatePlaneInput *frame)
             g_clear_pointer(&source->rgb, g_free);
         }
         return true;
+    }
+    if (s->config[0x20a4 / 4]) {
+        return false;
     }
     if (!frame->width || !frame->height ||
         frame->width > 256 || frame->height > 256) {
@@ -1347,6 +1350,22 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         }
         return MEMTX_OK;
     }
+    if (offset == 0x20a4) {
+        /*
+         * MAS10388b3c releases both shared contexts before103bd1c4 pulses.
+         * This quiescent hold retains data/configuration; it cannot cancel or
+         * complete work, including a revoked task still owned by the host.
+         */
+        if (value > 1 || (value &&
+            ((s->config[0x2000 / 4] & 0xf) ||
+             (s->config[0x2100 / 4] & 0xf) ||
+             s->config[0x2608 / 4] || s->config[0x2648 / 4] ||
+             s->frame_active || s->plane_active || s->frame_task))) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        s->config[offset / 4] = value;
+        return MEMTX_OK;
+    }
     if (offset == 0x2620 || offset == 0x2660) {
         bool plane = offset == 0x2660;
         unsigned input = plane ? 0x2000 : 0x2100;
@@ -1371,6 +1390,9 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
 
         if ((value & ~mask) ||
             ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1) ||
+            (s->config[0x20a4 / 4] &&
+             (((offset == 0x2000 || offset == 0x2100) && (value & 0xf)) ||
+              ((offset == 0x2608 || offset == 0x2648) && value))) ||
             (s->config[0x2620 / 4] &&
              ((offset == 0x2608 && value) ||
               (offset == 0x2100 && (value & 0xf)))) ||
@@ -1442,7 +1464,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
             timer_mod(s->stop_timer,
                       qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000);
         }
-    } else if (offset == 0 || offset == 8 || offset == 0x20a4) {
+    } else if (offset == 0 || offset == 8) {
         /*
          * Only observed inactive/deasserted control. Unknown activation
          * or reset pulses cannot clear fields, pending or invent completion.

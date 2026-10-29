@@ -445,8 +445,27 @@ The next pulse is global: actual `103bd1c4` stores1 then0, though decompilation
 eliminates the overwritten first store. Caller `10388b3c`, handling source
 message `421930e6`, first releases resources through `1038897e`, then calls it
 only when software bitmap MAS VA `b1d52228` has neither bit8 nor bit9 set.
-This is separate from the selected `2620/2660` holds; its device effects remain
-an explicit boundary.
+The [shared-input hold](../devices/gate/processing.md#shared-input-quiescent-stop)
+now requires both inputs/controls and all actual host work to be quiescent.
+It retains input, configuration and results, blocks reopening while held,
+and produces no cancellation, completion or ACK. The native red case fails
+in0.68 seconds on the preceding model. The33 gatework,9 gridflow and23 SLA
+cases then pass, including retained real input and a revoked host owner.
+
+Original cleanup acceptance remains open. The first ordinary main-switch OFF
+attempt continues to49.86 host seconds and1261 MAIN results without entering
+an observed cleanup state. A separate M-to-A attempt remains in M at73.39
+seconds/1945 MAIN results and has one affine phase2 rejection. Another normal
+M-to-A window reaches mode2/context31 and1276 MAIN results by50.47 seconds,
+with zero sampled graph errors; its stopped post-window private-EX memory
+inspection is inconclusive because the HMP queries lack an explicit CPU index.
+The next attempt also reaches mode2/context31, then stops at33.42 seconds:
+WRITE32 PA `20380d9c=1`, MAS VA `1036c5f6`, rejects paired profile
+offset `ba8=0` in phase2. Paired totals750 and MAIN749, with zero sampled
+exception/watchdog flags and diagnostic length. These windows do not prove
+that `20a4` executed, complete shutdown or stable mode changes. The
+[receipt](/evidence/runtime/grid.json) retains each window separately; the
+paired numerical gap and earlier affine/AF/FIFO boundaries remain unresolved.
 
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,

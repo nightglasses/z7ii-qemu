@@ -1798,6 +1798,152 @@ static void test_irq_reentry(void)
     }
 }
 
+static void test_input_stop(void)
+{
+    GateFixture *g = gate_fixture();
+    NikonGateInputShape shape = { .width = 64, .height = 16, .stride = 64 };
+    NikonGateInputVersion before, held;
+    uint32_t result[29], bins[1024];
+    unsigned pulses;
+
+    publish(g);
+    advance(1000000);
+    monitor_snapshot(result, bins);
+    publish(g); /* Queued behind real pending causes, not a running job. */
+    gate_write(0x2100, 0x120);
+    gate_write(0x2608, 0);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &before), ==,
+                    NIKON_GATE_INPUT_BUSY);
+    pulses = g->capacity_pulses;
+    gate_write(0x20a4, 1);
+    gate_write(0x20a4, 1);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &held), ==,
+                    NIKON_GATE_INPUT_UNSUPPORTED);
+    g_assert_cmpuint(before.epoch, ==, held.epoch);
+    g_assert_cmpuint(before.generation, ==, held.generation);
+    g_assert_false(nikon_gate_input_publish(g->dev, held.generation, &shape,
+        g->f->input, 1024, g->f->input + 1024, 512));
+    for (unsigned group = 0; group < 2; group++) {
+        unsigned input = group ? 0x2000 : 0x2100;
+        unsigned control = group ? 0x2648 : 0x2608;
+        uint8_t data[4];
+
+        stl_le_p(data, 1);
+        g_assert_cmpint(address_space_write(&address_space_memory,
+            GATE_BASE + input, MEMTXATTRS_UNSPECIFIED, data, 4), ==,
+            MEMTX_ERROR);
+        g_assert_cmpint(address_space_write(&address_space_memory,
+            GATE_BASE + control, MEMTXATTRS_UNSPECIFIED, data, 4), ==,
+            MEMTX_ERROR);
+        g_assert_cmphex(gate_read(input) & 0xf, ==, 0);
+        g_assert_cmphex(gate_read(control), ==, 0);
+    }
+    advance(2000000);
+    monitor_unchanged(result, bins);
+    g_assert_cmphex(gate_read(0x1c), ==, 0x61);
+    g_assert_cmphex(gate_read(0x20), ==, 8);
+    g_assert_true(g->level);
+    g_assert_cmpuint(g->capacity_pulses, ==, pulses);
+    g_assert_cmphex(gate_read(0x2060), ==, 1);
+    for (unsigned slot = 0; slot < 16; slot++) {
+        if (g->f->work.parameter_valid & (1U << slot)) {
+            for (unsigned word = 0; word < 13; word++) {
+                g_assert_cmphex(gate_read(0x400 + slot * 64 + word * 4), ==,
+                                g->f->slots[slot][word]);
+            }
+        }
+    }
+    for (unsigned i = 0; i < 10; i++) {
+        g_assert_cmphex(gate_read(g->f->commands[i].offset + 0x10), ==,
+                        RAM_BASE + 0x3000);
+    }
+    gate_write(0x20a4, 0);
+    g_assert_cmpint(nikon_gate_input_status(g->dev, &shape, &held), ==,
+                    NIKON_GATE_INPUT_BUSY);
+    g_assert_cmpuint(before.generation, ==, held.generation);
+    gate_write(0x2100, 0x121);
+    gate_write(0x2608, g->f->config[0x2608 / 4]);
+    advance(2000000);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(g->dev), "processed",
+                                             &error_abort), ==, 1);
+    gate_write(0x1c, 0x61);
+    gate_write(0x20, 8);
+    advance(1000000);
+    check_outputs(g->f, 0, 0);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(g->dev), "processed",
+                                             &error_abort), ==, 2);
+    gate_write(0x2100, 0x120);
+    gate_write(0x2608, 0);
+    gate_write(0x20a4, 1);
+    device_cold_reset(g->dev);
+    gate_configure(g);
+    publish(g);
+    advance(1000000);
+    check_outputs(g->f, 0, 0);
+    gate_cleanup(g);
+}
+
+static void input_stop_reject(unsigned offset, uint32_t value, unsigned size)
+{
+    uint8_t data[4];
+
+    stl_le_p(data, value);
+    g_assert_cmpint(address_space_write(&address_space_memory,
+        GATE_BASE + offset, MEMTXATTRS_UNSPECIFIED, data, size), ==,
+        MEMTX_ERROR);
+}
+
+static void test_input_stop_busy(void)
+{
+    GateFixture *g = gate_fixture();
+    PoolBarrier blocker;
+
+    publish(g);
+    input_stop_reject(0x20a4, 1, 4);
+    advance(1000000); /* Rejection must not cancel the scheduled frame. */
+    check_outputs(g->f, 0, 0);
+    gate_write(0x1c, 0x61);
+    gate_write(0x20, 8);
+    barrier_submit(&blocker, true);
+    qemu_sem_wait(&blocker.entered);
+    publish(g);
+    advance_clock(1000000); /* Real MAIN job queued behind the pool barrier. */
+    gate_write(0x2100, 0x120);
+    gate_write(0x2608, 0);
+    input_stop_reject(0x20a4, 1, 4); /* Revoked host owner still exists. */
+    qemu_sem_post(&blocker.release);
+    barrier_wait(&blocker);
+    settle();
+    gate_write(0x20a4, 1);
+    advance(2000000);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(g->dev), "processed",
+                                             &error_abort), ==, 1);
+    g_assert_cmphex(gate_read(0x1c), ==, 0);
+    g_assert_cmphex(gate_read(0x20), ==, 0);
+    g_assert_false(g->level);
+    gate_write(0x20a4, 0);
+    for (unsigned i = 0; i < 4; i++) {
+        static const unsigned controls[] = { 0x2000, 0x2100, 0x2608, 0x2648 };
+
+        gate_write(controls[i], 1);
+        input_stop_reject(0x20a4, 1, 4);
+        g_assert_cmphex(gate_read(controls[i]), ==, 1);
+        gate_write(controls[i], 0);
+    }
+    for (unsigned bit = 1; bit < 32; bit++) {
+        input_stop_reject(0x20a4, 1U << bit, 4);
+    }
+    input_stop_reject(0x20a4, 1, 1);
+    input_stop_reject(0x20a4, 1, 2);
+    input_stop_reject(0x20a5, 1, 4);
+    monitor_reject(0x20a4, 4, false);
+    input_stop_reject(0x20a0, 1, 4);
+    input_stop_reject(0x20a8, 1, 4);
+    gate_write(0x20a4, 1);
+    gate_write(0x20a4, 0);
+    gate_cleanup(g);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -1858,6 +2004,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/gatework/layout-commit", test_layout_commit);
     g_test_add_func("/nikon/gatework/device-reuse", test_device_reuse);
     g_test_add_func("/nikon/gatework/irq-reentry", test_irq_reentry);
+    g_test_add_func("/nikon/gatework/input-stop", test_input_stop);
+    g_test_add_func("/nikon/gatework/input-stop-busy", test_input_stop_busy);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

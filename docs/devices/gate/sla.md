@@ -62,8 +62,10 @@ The later MAS [type0 slot contract](slots.md) adds sixteen complete parameter
 packets, selector2c and retained busy ownership to the shared class. This is
 source/native MAS scope, not an original SLA slot-cycle observation. Request2800
 records an outstanding submit only. Unknown activation, pulses and monitor/data
-remain strict errors:20A4/2620/2660 assert1,2680, global00=1 and E74/E94 are not
-assigned fabricated operating effects. The model cannot claim
+remain strict errors in that historical checkpoint. The later
+[quiescent stop contracts](processing.md#shared-input-quiescent-stop) bound
+20A4/2620/2660 assertion, and the [route commit](routing.md) bounds2680.
+Global00=1 and E74/E94 still have no assigned operating effects. The model cannot claim
 successful execution of a whole compound method that reaches one of those
 unsupported operations. The later MAS [command contract](commands.md) adds
 source-bounded import, LUT and24010000 workspace storage to the shared class;

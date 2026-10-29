@@ -2572,5 +2572,210 @@
     "independent_review": "First review found EC settlement side effect; focused regression reproduced it. Dedicated EC store/return and final failed-drain fixture/contract reviewed CLEAR.",
     "next_source_join": "103BD1C4 actually stores1 then0 to201020A4. Caller10388B3C processes421930E6, releases resources via1038897E and pulses only if software bitmapB1D52228 has neither bit8 nor bit9. Decompiler had eliminated the overwritten first store; actual instructions establish both.",
     "omitted": "Firmware bytes/disassembly, raw traces/register dumps, machine-specific paths and input images"
+  },
+  "shared_input_quiescence": {
+    "scope": "Finite virtual shared-input quiescent hold; original cleanup acceptance remains open",
+    "base_revision": "95ad019ca77850652182ef70672125f6534906cb",
+    "source_overlay_files": [
+      "hw/nikon/devices/gate.c"
+    ],
+    "firmware": "Original C1.70 bundle, unchanged",
+    "source_facts": {
+      "allocator_mas_va": "0x10389bfa",
+      "resource_bitmap_mas_va": "0xb1d52228",
+      "shared_context_mask": "0x300",
+      "release_mas_va": "0x1038897e",
+      "callback_mas_va": "0x10388b3c",
+      "source_message": "0x421930e6",
+      "pulse_mas_va": "0x103bd1c4",
+      "pulse_pa": "0x201020a4",
+      "actual_writes": [
+        "1",
+        "0"
+      ],
+      "decompiler_limit": "The overwritten first store is absent from pseudocode; actual STR instructions establish both writes.",
+      "global_stop_mas_va": "0x1038891a",
+      "compound_recovery_mas_va": "0x103897b2"
+    },
+    "virtual_law": "Assert only after both selected inputs/controls are disabled and actual MAIN/RGB work plus any revoked MAIN host owner have returned. Retain data, versions, parameters, commands, maps, LUTs, output, monitor, pending and IRQ. Hold blocks fresh data and either input/control reopening. No cancellation, retry, capacity pulse, completion, ACK, timer or guest-slot release. Deassert releases only the hold; device reset clears it. Other values/widths/alignment/reads/neighbours reject.",
+    "native": {
+      "command": "make check MTESTARGS='nikon_gatework_unit nikon_gridflow_unit nikon_sla'",
+      "red": {
+        "case": "/nikon/gatework/input-stop",
+        "seconds": 0.68,
+        "failure": "Static quiet inputs and controls followed by20a4=1 returned MEMTX_ERROR"
+      },
+      "green": [
+        {
+          "suite": "nikon_gatework_unit",
+          "cases": 33,
+          "seconds": 0.06
+        },
+        {
+          "suite": "nikon_gridflow_unit",
+          "cases": 9,
+          "seconds": 0.54
+        },
+        {
+          "suite": "nikon_sla",
+          "cases": 23,
+          "seconds": 11.54
+        }
+      ],
+      "normal_tap_and_exit": true,
+      "coverage": "Actual queued MAIN input and pending fences; revoked-but-owned host task; RGB source retained behind result pending; complete maps/LUTs; producer rejection while held; no cancellation/publication/capacity/IRQ changes; explicit ACK and enable re-entry; reset; malformed writes and unbound reads"
+    },
+    "original_profile": "Five-CPU MTTCG; cold-neutral resource80; eight finite timing rows; normal RNG0 UART battery; virtual lens; explicit PGM scene and the accepted numerical calibration with interpreted00/04/EC zero; initial M and ordinary main-switch or mode-position inputs. First card is a fresh ordinary8GiB MBR/FAT32 input. No firmware, guest-state or framebuffer writes, debugger or forced events in the input windows.",
+    "original_windows": [
+      {
+        "role": "First uninstrumented ordinary main-switch OFF attempt",
+        "host_seconds": 49.85832020797534,
+        "samples": 86,
+        "initial_mode": [
+          3,
+          3,
+          32
+        ],
+        "final_mode": [
+          3,
+          3,
+          32
+        ],
+        "paired_completed": 1261,
+        "main_completed": 1261,
+        "graph_errors": 0,
+        "fifo_occupancy": 11,
+        "capture_service": "09050202200000070014140200000202",
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "running_at_last_sample": true,
+        "shared_pulse_execution_verified": false,
+        "complete_shutdown_verified": false
+      },
+      {
+        "role": "Uninstrumented M-to-A input attempt",
+        "host_seconds": 73.3948180419975,
+        "samples": 126,
+        "initial_mode": [
+          3,
+          3,
+          32
+        ],
+        "final_mode": [
+          3,
+          3,
+          32
+        ],
+        "paired_completed": 1945,
+        "main_completed": 1945,
+        "graph_errors": 1,
+        "fifo_occupancy": 11,
+        "capture_service": "09050202200000070014140200000202",
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "running_at_last_sample": true,
+        "shared_pulse_execution_verified": false,
+        "complete_shutdown_verified": false,
+        "media": "Clone of the preceding ordinary FAT32 card input; not a newly erased card",
+        "prior_affine_rejection": {
+          "first_sample_host_seconds": 62.730916334025096,
+          "phase": 2
+        }
+      },
+      {
+        "role": "M-to-A window with a separate stopped post-window inspection",
+        "host_seconds": 50.47082795802271,
+        "samples": 86,
+        "initial_mode": [
+          3,
+          3,
+          32
+        ],
+        "final_mode": [
+          2,
+          2,
+          31
+        ],
+        "paired_completed": 1276,
+        "main_completed": 1276,
+        "graph_errors": 0,
+        "fifo_occupancy": 10,
+        "capture_service": "090502021f0000070014140200000202",
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "running_at_last_sample": true,
+        "shared_pulse_execution_verified": false,
+        "complete_shutdown_verified": false,
+        "media": "Clone of the preceding ordinary FAT32 card input; not a newly erased card",
+        "inspection_limit": "Implicit-CPU HMP memory queries could not access the EX private address space; no queue or EX-producer conclusion is derived from them. Normal input window preceded the stopped inspection."
+      },
+      {
+        "role": "M-to-A attempt ending at an explicit paired numerical-profile boundary",
+        "host_seconds": 33.424316167016514,
+        "samples": 57,
+        "initial_mode": [
+          3,
+          3,
+          32
+        ],
+        "final_mode": [
+          2,
+          2,
+          31
+        ],
+        "paired_completed": 750,
+        "main_completed": 749,
+        "graph_errors": 0,
+        "fifo_occupancy": 5,
+        "capture_service": "090502021f0000070014140200000202",
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "running_at_last_sample": false,
+        "shared_pulse_execution_verified": false,
+        "complete_shutdown_verified": false,
+        "media": "Clone of the preceding ordinary FAT32 card input; not a newly erased card",
+        "first_blocking_access": {
+          "cpu": 1,
+          "mas_pc_va": "0x1036c5f6",
+          "pa": "0x20380d9c",
+          "direction": "write",
+          "width_bytes": 4,
+          "value": "0x1",
+          "reason": "paired-frame-profile-or-memory-not-supported",
+          "first_rejected_profile_offset": "0xba8",
+          "profile_value": "0x0",
+          "phase": 2,
+          "paired_rejected": 1,
+          "main_inflight": 1
+        }
+      }
+    ],
+    "acceptance": "Native finite contract passes. These original windows do not establish execution of the shared pulse or complete cleanup. Two bounded M-to-A windows reach mode2/context31; one continues to1276 MAIN results and another stops at the retained paired numerical gap. Earlier failures/non-reproductions are preserved; no successful shutdown or indefinite stability claim.",
+    "remaining": "Original shared cleanup execution; C-matrix adjacent BA8/BB0..BBC controls; distinct D20..D9C active-post arithmetic; MAIN affine rejection; AF/FIFO lifetime and overall stable mode changes. Physical reset/flush algebra and compound recovery remain unknown.",
+    "next_profile_source": {
+      "group": "B94..BBC C matrix, weights and adjacent controls; distinct from D20..D9C smoothing",
+      "publisher_mas_va": "0x102e57a6",
+      "BA8_setter_mas_va": "0x1036c094",
+      "BA8_input": "Configuration record+174 unsigned byte, written whole to selected bankBA8",
+      "adjacent_record_setter_mas_va": "0x1036c12a",
+      "adjacent_record_input": "Configuration record+158, four words atBB0..BBC",
+      "numerical_effect": "Unresolved; zero is not established as bypass or identity"
+    }
   }
 }
