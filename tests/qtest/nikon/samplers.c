@@ -35,7 +35,8 @@ static void publish(QTestState *q, const char *path, const uint32_t *words,
     }
 }
 
-static void pairs_requests(QTestState *q, uint64_t first, uint64_t second)
+static void pairs_requests(QTestState *q, const char *path, uint64_t first,
+                            uint64_t second)
 {
     const uint64_t base[] = { first, second };
     static const unsigned commands[] = { 8, 0x10 };
@@ -116,6 +117,38 @@ static void pairs_requests(QTestState *q, uint64_t first, uint64_t second)
     qtest_system_reset(q); /* An armed request is cancelled too. */
     qtest_writel(q, first + 8, 1);
     g_assert_cmphex(qtest_readl(q, first + 0x18), ==, 0);
+    for (bank = 0; bank < ARRAY_SIZE(base); bank++) {
+        qtest_writel(q, base[bank] + 0x10, 1);
+        qtest_writel(q, base[bank] + 8, 1);
+    }
+    qtest_writel(q, first + 0xe8, 8);
+    pulse(q, path, "pending-bit", 3);
+    pulse(q, path, "pending-bit", 63);
+    for (bank = 0; bank < ARRAY_SIZE(base); bank++) {
+        retained(q, base[bank], 0xec, 0xffffff71);
+        retained(q, base[bank], 0, 3);
+        retained(q, base[bank], 4, 3);
+        g_assert_cmphex(qtest_readl(q, base[bank] + 0x18), ==, 0);
+        if (!bank) {
+            g_assert_cmphex(qtest_readl(q, second + 0x18), ==, 1);
+        }
+        g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 8);
+        g_assert_cmphex(qtest_readl(q, second + 0x24), ==, 0x80000000);
+        g_assert_cmphex(qtest_readl(q, first + 0xe8), ==, 8);
+        g_assert_cmphex(qtest_readl(q, second + 0xe8), ==, 0);
+        g_assert_false(qtest_get_irq(q, 0));
+        g_assert_true(qtest_get_irq(q, 1));
+    }
+    qtest_writel(q, first + 0x24, 8);
+    qtest_writel(q, second + 0x24, 0x80000000);
+    qtest_writel(q, first + 0x10, 1);
+    qtest_writel(q, first + 8, 1);
+    g_assert_cmphex(qtest_readl(q, first + 0x18), ==, 1);
+    g_assert_cmphex(qtest_readl(q, second + 0x18), ==, 0);
+    qtest_system_reset(q);
+    for (bank = 0; bank < ARRAY_SIZE(base); bank++) {
+        g_assert_cmphex(qtest_readl(q, base[bank] + 0xec), ==, 0);
+    }
 }
 
 void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
@@ -251,7 +284,7 @@ void nikon_pairs_test(QTestState *q, const char *path, uint64_t first,
     g_assert_cmphex(qtest_readl(q, first + 0x5dfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, second + 0x5dfc), ==, 0);
     g_assert_cmphex(qtest_readl(q, first + 0x24), ==, 0);
-    pairs_requests(q, first, second);
+    pairs_requests(q, path, first, second);
 }
 
 void nikon_sampler_test(QTestState *q, const char *path, uint64_t base)

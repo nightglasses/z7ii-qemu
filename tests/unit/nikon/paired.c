@@ -304,6 +304,7 @@ static void matrix(PairedFixture *f, unsigned offset, unsigned bits,
 static void configure_raw(PairedFixture *f, unsigned raw_words)
 {
     static const struct { unsigned offset; uint32_t value; } controls[] = {
+        { 0, 3 }, { 4, 3 },
         { 0x40, 5 }, { 0x44, 0 }, { 0x48, 0x00400024 }, { 0x4c, 1 },
         { 0x84, 1 }, { 0x88, 0 }, { 0x8c, 3 }, { 0x98, 0x400 },
         { 0x9c, 35 }, { 0xa0, 3 }, { 0xa8, 4 }, { 0xb8, 1 }, { 0xbc, 1 },
@@ -718,6 +719,7 @@ static void test_stage_cancel(gconstpointer opaque)
     bool unrealize = GPOINTER_TO_UINT(opaque) & 8;
     bool middle_post = GPOINTER_TO_UINT(opaque) & 16;
     bool middle_prefix = GPOINTER_TO_UINT(opaque) & 32;
+    bool local = GPOINTER_TO_UINT(opaque) & 64;
     PoolBarrier blockers[32], markers[32];
     unsigned hop = 0;
     PairedFixture *f = fixture_new();
@@ -752,6 +754,14 @@ static void test_stage_cancel(gconstpointer opaque)
         unpublished(f);
         release_marker(f, &markers[hop]);
         qdev_unrealize(f->dev);
+    } else if (local) {
+        write_port(f, 0xec, 0xffffff71);
+        write_port(f, 0, 3);
+        write_port(f, 4, 3);
+        g_assert_true(runtime_bank0_has(f, "request=0 active=0"));
+        g_assert_true(runtime_has(f, "inflight=1"));
+        unpublished(f);
+        worker_returned(&blockers[hop], &markers[hop]);
     } else {
         device_cold_reset(f->dev);
         g_assert_true(runtime_has(f, "inflight=1"));
@@ -1290,6 +1300,168 @@ static void test_async_bank_clear(gconstpointer opaque)
     g_assert_cmpuint(counter(f, "rejected"), ==, 0);
     g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
     phase_pixels(f, 0, 0);
+    fixture_free(f);
+}
+
+static void test_shutdown_mask(void)
+{
+    static const unsigned offsets[] = { 0, 4, 0xec };
+    PairedFixture *f = fixture_new();
+    MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(f->dev), 0);
+    qemu_irq input = qdev_get_gpio_in_named(f->dev, "pending-bit", 31);
+    uint64_t value;
+
+    write_port(f, 0xe8, 0x80000000);
+    qemu_irq_pulse(input);
+    g_assert_false(f->level);
+    /* EC is an opaque source command, not an invented mask alias or ACK. */
+    write_port(f, 0xec, 0xffffff71);
+    g_assert_cmphex(read_port(f, 0xec), ==, 0xffffff71);
+    g_assert_cmphex(read_port(f, 0xe8), ==, 0x80000000);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x80000000);
+    g_assert_false(f->level);
+    for (unsigned bit = 0; bit < 32; bit++) {
+        g_assert_cmpint(memory_region_dispatch_write(mr, 0xec,
+            0xffffff71U ^ (1U << bit), MO_32, MEMTXATTRS_UNSPECIFIED), ==,
+            MEMTX_ERROR);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+        unsigned offset = offsets[i];
+
+        g_assert_cmpint(memory_region_dispatch_write(mr, offset, 3, MO_8,
+            MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        g_assert_cmpint(memory_region_dispatch_write(mr, offset, 3, MO_16,
+            MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        g_assert_cmpint(memory_region_dispatch_write(mr, offset + 1, 3, MO_32,
+            MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+        g_assert_cmpint(memory_region_dispatch_write(mr, offset, 0, MO_32,
+            MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+    }
+    write_port(f, 0, 3);
+    write_port(f, 4, 3);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x80000000);
+    g_assert_cmphex(read_port(f, 0xe8), ==, 0x80000000);
+    g_assert_cmphex(read_port(f, 0xec), ==, 0xffffff71);
+    g_assert_cmpuint(counter(f, "completed"), ==, 0);
+    device_cold_reset(f->dev);
+    g_assert_cmphex(read_port(f, 0xec), ==, 0);
+    g_assert_cmpint(memory_region_dispatch_read(mr, 0xf4, &value, MO_32,
+        MEMTXATTRS_UNSPECIFIED), ==, MEMTX_ERROR);
+    fixture_free(f);
+}
+
+static void test_shutdown_job(gconstpointer opaque)
+{
+    unsigned flags = GPOINTER_TO_UINT(opaque), control = (flags & 1) ? 4 : 0;
+    bool ready = flags & 2;
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker, marker;
+    uint8_t before[RAM_SIZE - 0x8000];
+    g_autofree char *state = NULL;
+    g_autofree char *retained = NULL;
+    const char *first, *last;
+    qemu_irq input = qdev_get_gpio_in_named(f->dev, "pending-bit", 31);
+
+    first_phase(f);
+    queue_phase(f, &blocker, 0, 1);
+    memcpy(before, f->bytes + 0x8000, sizeof(before));
+    if (ready) {
+        g_assert_cmpint(vm_stop(RUN_STATE_PAUSED), ==, 0);
+        worker_returned(&blocker, &marker);
+        poll_until(f, "compute=2", &blocker, &marker);
+    }
+    stage_ring(f, 8); /* Future commit must not latch during cancellation. */
+    write_port(f, 0x1900, 0x01000100); /* Partial future numerical upload. */
+    state = object_property_get_str(OBJECT(f->dev), "runtime", &error_abort);
+    first = strstr(state, "consumed=");
+    last = first ? strstr(first, " stage=") : NULL;
+
+    g_assert_nonnull(first);
+    g_assert_nonnull(last);
+    retained = g_strndup(first, last - first);
+    write_port(f, 0xe8, 0x80000000);
+    qemu_irq_pulse(input);
+    write_port(f, 0xec, 0xffffff71);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    g_assert_true(runtime_bank0_has(f, "request=2 active=1"));
+    g_assert_cmphex(read_port(f, control), ==, 3);
+    /* Same-value pulse must revoke real ownership. */
+    write_port(f, control, 3);
+    g_assert_true(runtime_bank0_has(f, "request=0 active=0"));
+    g_assert_true(runtime_bank0_has(f, "selected=0 staged=1 commit=-1"));
+    g_assert_true(runtime_bank0_has(f, retained));
+    g_assert_true(runtime_has(f, ready ? "inflight=0" : "inflight=1"));
+    write_port(f, 0, 3);
+    write_port(f, 4, 3);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x80000000);
+    g_assert_cmphex(read_port(f, 0xe8), ==, 0x80000000);
+    if (ready) {
+        barrier_clear(&blocker);
+        barrier_clear(&marker);
+    } else {
+        finish_queued(f, &blocker);
+    }
+    vm_start();
+    write_port(f, 0x24, 0x80000000);
+    notify_phase(f, 0, 0);
+    advance(2000000);
+    g_assert_true(runtime_has(f, "inflight=0"));
+    g_assert_true(runtime_bank0_has(f, "request=0 active=0"));
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    g_assert_cmphex(read_port(f, 0x118), ==, 56 * 28);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_false(f->level);
+    g_assert_cmpmem(f->bytes + 0x8000, sizeof(before), before, sizeof(before));
+    /* Reopen only through the original arm/start and real fresh RAW. */
+    blocker_start(f, &blocker);
+    write_port(f, 0xfc, 0);
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    advance(2000000);
+    g_assert_true(runtime_has(f, "inflight=0"));
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    for (unsigned word = 1; word < 16; word++) {
+        write_port(f, 0x1900 + 4 * word, 0x01000100);
+    }
+    advance(1000000);
+    g_assert_true(runtime_has(f, "inflight=1"));
+    finish_queued(f, &blocker);
+    g_assert_cmpuint(counter(f, "completed"), ==, 2);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 1);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
+    phase_pixels(f, 0, 0);
+    fixture_free(f);
+}
+
+static void test_shutdown_failed_drain(void)
+{
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker;
+    uint8_t before[RAM_SIZE - 0x8000];
+
+    first_phase(f);
+    queue_phase(f, &blocker, 0, 1);
+    memcpy(before, f->bytes + 0x8000, sizeof(before));
+    write_port(f, 0xc, 1);
+    memory_region_set_readonly(&f->ram, true);
+    finish_queued(f, &blocker);
+    g_assert_cmpuint(counter(f, "completed"), ==, 1);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 1);
+    g_assert_cmphex(read_port(f, 0x18), ==, 1);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    /* The old published frame must not turn EC into a new drain completion. */
+    write_port(f, 0xec, 0xffffff71);
+    g_assert_cmphex(read_port(f, 0x18), ==, 1);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_false(f->level);
+    write_port(f, 0, 3);
+    write_port(f, 4, 3);
+    g_assert_cmphex(read_port(f, 0x18), ==, 0);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_cmpmem(f->bytes + 0x8000, sizeof(before), before, sizeof(before));
+    memory_region_set_readonly(&f->ram, false);
     fixture_free(f);
 }
 
@@ -1922,6 +2094,19 @@ int main(int argc, char **argv)
     g_test_add_data_func("/nikon/paired/async/bank-stop", GINT_TO_POINTER(1),
                          test_async_bank_clear);
     g_test_add_func("/nikon/paired/async/bank-invalid", test_async_bank_invalid);
+    g_test_add_func("/nikon/paired/shutdown/mask", test_shutdown_mask);
+    g_test_add_func("/nikon/paired/shutdown/failed-drain",
+                    test_shutdown_failed_drain);
+    g_test_add_data_func("/nikon/paired/shutdown/prefix", GUINT_TO_POINTER(97),
+                         test_stage_cancel);
+    g_test_add_data_func("/nikon/paired/shutdown/post", GUINT_TO_POINTER(85),
+                         test_stage_cancel);
+    for (unsigned flags = 0; flags < 4; flags++) {
+        g_autofree char *name = g_strdup_printf(
+            "/nikon/paired/shutdown/job-%u", flags);
+
+        g_test_add_data_func(name, GUINT_TO_POINTER(flags), test_shutdown_job);
+    }
     g_test_add_func("/nikon/paired/raw-backing-alias", test_raw_backing_alias);
     g_test_add_func("/nikon/paired/transfer-decode", test_transfer_decode);
     g_test_add_func("/nikon/paired/transfer-decode-rejection",

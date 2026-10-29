@@ -421,6 +421,33 @@ coverage only. The [receipt](/evidence/runtime/grid.json) retains all three
 first scenarios and the separate observer. Paired stop controls, active post
 arithmetic, AF lifetime and FIFO boundedness remain independent work.
 
+The [paired local teardown](../devices/pairs/requests.md#bank-local-teardown)
+then separates retained EC storage from cancellation and drain settlement.
+Every same-value `00/04=3` pulse closes its bank before revoking owned work;
+actual host children drain normally, without a frame/stop event. The numerical
+calibration now leaves the interpreted `00/04/ec` slots zero. A native
+failed-DMA/drain counterexample first exposes an accidental EC-generated bit2;
+the isolated command path fixes it. The final 57 paired-unit and23 SLA cases,
+plus the focused CMOS peer-release case, pass; the preceding complete CMOS138
+batch remains separately recorded.
+
+In the first uninstrumented main-switch OFF window, both paired requests
+become quiescent with no active or inflight job. Paired jobs total736,
+MAIN processing735, paired rejected0/cancelled1, pending0 and FIFO5/60.
+The first next stop is WRITE32 PA `201020a4=1`, MAS VA `103bd1ca`, at33.24
+host seconds. Exception/watchdog flags and diagnostic length remain zero.
+A distinct MAIN affine phase3 rejection already occurs at26.24 seconds before
+the OFF input and is retained, not resolved by this cleanup. The
+[receipt](/evidence/runtime/grid.json) separates these limits from finite
+paired-bank acceptance. Complete shutdown and long stability remain unproved.
+
+The next pulse is global: actual `103bd1c4` stores1 then0, though decompilation
+eliminates the overwritten first store. Caller `10388b3c`, handling source
+message `421930e6`, first releases resources through `1038897e`, then calls it
+only when software bitmap MAS VA `b1d52228` has neither bit8 nor bit9 set.
+This is separate from the selected `2620/2660` holds; its device effects remain
+an explicit boundary.
+
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M

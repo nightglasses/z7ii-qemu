@@ -3619,6 +3619,7 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
         unsigned offset;
         uint32_t value;
     } controls[] = {
+        { 0, 3 }, { 4, 3 },
         { 0x40, 5 }, { 0x44, 0 }, { 0x48, (64 << 16) | 36 },
         { 0x4c, 1 }, { 0x84, 1 }, { 0x8c, 3 },
         { 0x98, 0x400 }, { 0x9c, 36 - 1 },
@@ -8393,8 +8394,9 @@ static void test_paired_stop_drain_race(void)
     unlink(bundle);
 }
 
-static void test_paired_peer_release(void)
+static void test_paired_peer_release(gconstpointer opaque)
 {
+    bool shutdown = GPOINTER_TO_UINT(opaque);
     const uint32_t peer = 0x203c0000;
     g_autofree char *bundle = NULL;
     g_autofree char *scene = NULL;
@@ -8409,12 +8411,19 @@ static void test_paired_peer_release(void)
     g_assert_cmpuint(property_at(q, WORK_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 0);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "blocked"), >, 0);
-    paired_stop(q, PAIRED);
+    if (shutdown) {
+        qtest_writel(q, PAIRED + 0xec, 0xffffff71);
+        qtest_writel(q, PAIRED, 3);
+        qtest_writel(q, PAIRED + 4, 3);
+    } else {
+        paired_stop(q, PAIRED);
+    }
     /* The peer retries owned RAW without a new input edge. */
     pipeline_step(q, 1000000);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
     g_assert_cmpuint(property_at(q, PAIRED_PATH, "cancelled"), ==, 1);
-    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==, 0x014a0080);
+    g_assert_cmphex(qtest_readl(q, PAIRED + 0x24), ==,
+                    shutdown ? 0 : 0x014a0080);
     g_assert_cmphex(qtest_readl(q, peer + 0x24), ==, 0x1002);
     paired_pixels(q, PAIRED_MAIN, 0);
     paired_pixels(q, PAIRED_WORK, 0);
@@ -8501,7 +8510,10 @@ static void test_paired_calibration_rejected(void)
 {
     static const char *const reasons[] = {
         "requires exactly", "interpreted configuration", "reserved slots",
+        "interpreted configuration", "interpreted configuration",
+        "interpreted configuration",
     };
+    static const unsigned offsets[] = { 0, 0x310, 0x14, 0, 4, 0xec };
 
     for (unsigned mode = 0; mode < ARRAY_SIZE(reasons); mode++) {
         uint8_t calibration[0x5e00] = { 0 };
@@ -8514,7 +8526,7 @@ static void test_paired_calibration_rejected(void)
         g_assert_cmpint(fd, >=, 0);
         close(fd);
         if (mode) {
-            stl_le_p(calibration + (mode == 1 ? 0x310 : 0x14), 1);
+            stl_le_p(calibration + offsets[mode], 1);
         }
         g_assert_true(g_file_set_contents(path, (const char *)calibration,
                                           sizeof(calibration) - (mode == 0),
@@ -9092,7 +9104,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/paired/publication", test_paired_publication);
     qtest_add_func("/nikon/cmos/paired/stop-drain-race",
                    test_paired_stop_drain_race);
-    qtest_add_func("/nikon/cmos/paired/peer-release", test_paired_peer_release);
+    qtest_add_data_func("/nikon/cmos/paired/peer-release", GUINT_TO_POINTER(0),
+                        test_paired_peer_release);
+    qtest_add_data_func("/nikon/cmos/paired/shutdown-peer", GUINT_TO_POINTER(1),
+                        test_paired_peer_release);
     qtest_add_func("/nikon/cmos/processing/geometry-reduction",
                    test_capture_geometry_reduction);
     qtest_add_func("/nikon/cmos/paired/calibration-rejected",
