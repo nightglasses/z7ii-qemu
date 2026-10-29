@@ -301,6 +301,69 @@ static void test_elapsed_cancel_clock(void)
     cleanup(f);
 }
 
+static void elapsed_clock_change(bool stop)
+{
+    SPIFixture *f = fixture(false);
+    SPIOracle *s = attach_oracle(f);
+    int64_t start;
+
+    elapsed_prepare(f);
+    for (unsigned i = 0; i < 6; i++) {
+        write_word(f, 0, 0x1200 + i);
+    }
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(start + 3 * 2240 + 100);
+    /* No MMIO/timer observation has yet retired the three old-rate words. */
+    clock_update_hz(f->clock, stop ? 0 : 50000000);
+    g_assert_cmpuint(s->count, ==, 3);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 3);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, (0x1200 + i) ^ 0xa55a);
+    }
+    /* The fourth word was already active when the input rate changed. */
+    cpus_set_virtual_clock(start + 4 * 2240 - 1);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    cpus_set_virtual_clock(start + 4 * 2240);
+    g_assert_cmphex(read_word(f, 4), ==, 0x1203 ^ 0xa55a);
+    if (stop) {
+        cpus_set_virtual_clock(start + 20000);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        g_assert_cmpuint(read_word(f, 0x2c), ==, 2);
+        g_assert_cmpuint(s->count, ==, 4);
+        clock_update_hz(f->clock, 100000000);
+        cpus_set_virtual_clock(start + 22239);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        cpus_set_virtual_clock(start + 22240);
+        g_assert_cmphex(read_word(f, 4), ==, 0x1204 ^ 0xa55a);
+        cpus_set_virtual_clock(start + 24480);
+    } else {
+        cpus_set_virtual_clock(start + 13439);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        cpus_set_virtual_clock(start + 13440);
+        g_assert_cmphex(read_word(f, 4), ==, 0x1204 ^ 0xa55a);
+        cpus_set_virtual_clock(start + 17920);
+    }
+    g_assert_cmphex(read_word(f, 4), ==, 0x1205 ^ 0xa55a);
+    g_assert_cmpuint(s->count, ==, 6);
+    for (unsigned i = 0; i < 6; i++) {
+        g_assert_cmphex(s->mosi[i], ==, 0x1200 + i);
+    }
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmpuint(s->count, ==, 6);
+    cleanup(f);
+}
+
+static void test_elapsed_rate_change(void)
+{
+    elapsed_clock_change(false);
+}
+
+static void test_elapsed_clock_stop(void)
+{
+    elapsed_clock_change(true);
+}
+
 typedef struct AsyncOracle {
     unsigned requests, cancellations;
     uint64_t token;
@@ -890,6 +953,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/spi/elapsed/observations", test_elapsed_observations);
     g_test_add_func("/nikon/spi/elapsed/invalid", test_elapsed_invalid);
     g_test_add_func("/nikon/spi/elapsed/cancel-clock", test_elapsed_cancel_clock);
+    g_test_add_func("/nikon/spi/elapsed/rate-change", test_elapsed_rate_change);
+    g_test_add_func("/nikon/spi/elapsed/clock-stop", test_elapsed_clock_stop);
     g_test_add_func("/nikon/spi/elapsed/async", test_elapsed_async);
     g_test_add_func("/nikon/spi/elapsed/reentrant-mmio",
                     test_elapsed_reentrant_mmio);

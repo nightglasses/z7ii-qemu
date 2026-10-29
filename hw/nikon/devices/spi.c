@@ -108,14 +108,6 @@ static void nikon_spi_schedule(NikonSPIState *s)
     timer_mod(s->timer, s->next_deadline_ns);
 }
 
-static void nikon_spi_clock_update(void *opaque, ClockEvent event)
-{
-    NikonSPIState *s = opaque;
-
-    /* An active word keeps its sampled rate; changes apply to its successor. */
-    nikon_spi_schedule(s);
-}
-
 static void nikon_spi_complete(NikonSPIState *s, uint32_t received,
                                 bool transmit)
 {
@@ -214,6 +206,19 @@ static void nikon_spi_catchup(NikonSPIState *s)
         nikon_spi_shift(s);
     }
     s->catching_up = false;
+}
+
+static void nikon_spi_clock_update(void *opaque, ClockEvent event)
+{
+    NikonSPIState *s = opaque;
+
+    if (event == ClockPreUpdate) {
+        /* Retire elapsed queued words while their old input rate is visible. */
+        nikon_spi_catchup(s);
+    } else {
+        /* An active word keeps its sampled rate; changes affect its successor. */
+        nikon_spi_schedule(s);
+    }
 }
 
 bool nikon_spi_slave_clock(DeviceState *dev, uint32_t received, unsigned bits,
@@ -580,7 +585,8 @@ static void nikon_spi_init(Object *obj)
     fifo32_create(&s->rx, SPI_DEPTH);
     s->bus = ssi_create_bus(DEVICE(obj), "spi");
     s->clock = qdev_init_clock_in(DEVICE(obj), "spi-clock",
-                                 nikon_spi_clock_update, s, ClockUpdate);
+                                 nikon_spi_clock_update, s,
+                                 ClockPreUpdate | ClockUpdate);
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_spi_shift, s);
     memory_region_init_io(&s->regs, obj, &nikon_spi_ops, s, "nikon.spi", 0x100);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
