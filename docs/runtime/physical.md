@@ -127,7 +127,8 @@ While standard `GetDeviceInfo` reports only 21 general properties, vendor opcode
 
 * Raw inventory binary: [`payload_90ca.bin`](/evidence/physical/payload_90ca.bin) (522 bytes, 259 `u16` codes);
 * Range: `0xD016` to `0xD314`;
-* Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), mapping data types, `GetSet` access flags, default values, and active values.
+* Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), mapping data types, `GetSet` access flags, default values, and active values;
+* Detailed technical registry: [Nikon Vendor Device Properties Inventory](ptp_vendor_properties.md), mapping every property to its hardware/firmware subsystem, data type, access rights, and menu function.
 
 ## Exhaustive F0 service table mapping (0xF000..0xF200)
 

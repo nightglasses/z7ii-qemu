@@ -357,6 +357,7 @@ export default defineConfig({
               { text: 'Shared Sending Ring', link: '/runtime/ring' },
               { text: 'PTP Command Boundary (F091)', link: '/runtime/ptp' },
               { text: 'Physical Camera Evidence', link: '/runtime/physical' },
+              { text: 'Nikon Vendor Properties (259)', link: '/runtime/ptp_vendor_properties' },
               { text: 'TL4 Coprocessor Startup', link: '/runtime/coprocessor' },
               { text: 'Private EX Composition', link: '/runtime/ex' },
               { text: 'EX Analog Input Contract', link: '/runtime/analog' },
