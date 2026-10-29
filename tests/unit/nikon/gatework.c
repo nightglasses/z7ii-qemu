@@ -310,6 +310,119 @@ static void test_grid_translation(void)
     cleanup(f);
 }
 
+static unsigned affine_oracle_index(int64_t coordinate, unsigned extent,
+                                     unsigned unit)
+{
+    if (coordinate <= 0) {
+        return 0;
+    }
+    if (coordinate >= (int64_t)(extent - 1) * unit) {
+        return extent - 1;
+    }
+    return (coordinate + unit / 2) / unit;
+}
+
+static void test_affine_differential(void)
+{
+    static const int32_t offsets[] = {
+        -1073741824, -65537, -32769, -32768, -32767, -1, 0,
+        32767, 32768, 32769, 65535, 65536, 1073741823,
+    };
+    static const uint32_t scales[] = {
+        1, 32767, 32768, 65535, 65536, 98304, 131072, 8388607,
+    };
+    Fixture *f = fixture();
+    uint32_t random = 0x2468ace1;
+
+    for (unsigned i = 0; i < sizeof(f->input); i++) {
+        random = random * 1664525U + 1013904223U;
+        f->input[i] = random >> 24;
+    }
+    for (unsigned vector = 0; vector <= ARRAY_SIZE(offsets) * 2; vector++) {
+        unsigned phase = vector % 4;
+        int32_t x[3], y[3];
+        uint32_t sx[3], sy[3];
+
+        memset(f->bytes + 0x10000, 0xa5, RAM_SIZE - 0x10000);
+        f->work.phase = phase;
+        for (unsigned branch = 0; branch < 3; branch++) {
+            uint8_t *a = f->bytes + TRANSFORM + branch * 32;
+            unsigned width = branch ? 32 : 64, height = branch ? 8 : 16;
+            uint32_t qualifier = branch == 0 ? 0x80000000 : 0;
+
+            if (vector == ARRAY_SIZE(offsets) * 2 && !branch) {
+                /* Exercise every entry of the maximum validated X map. */
+                width = 4096;
+                height = 2;
+                f->slots[3][4] = f->slots[3][5] = width;
+                f->slots[3][8] = width | (height << 16);
+                f->slots[3][10] = 0x4000;
+            }
+            x[branch] = offsets[(vector + branch) % ARRAY_SIZE(offsets)];
+            y[branch] = offsets[(vector * 3 + branch) % ARRAY_SIZE(offsets)];
+            sx[branch] = scales[(vector + branch) % ARRAY_SIZE(scales)];
+            sy[branch] = scales[(vector * 3 + branch) % ARRAY_SIZE(scales)];
+            if (vector == ARRAY_SIZE(offsets) * 2 && !branch) {
+                x[branch] = y[branch] = 0;
+                sx[branch] = sy[branch] = 65536;
+            }
+            stl_le_p(a, ((uint32_t)x[branch] & 0x7fffffff) | qualifier);
+            stl_le_p(a + 4, ((uint32_t)y[branch] & 0x7fffffff) | qualifier);
+            stl_le_p(a + 8, sx[branch]);
+            stl_le_p(a + 20, sy[branch]);
+            /* Alternate a larger output window with the same actual crop. */
+            if ((vector & 1) && branch) {
+                height = 16;
+            }
+            set(&f->packets[6 + branch], 0x40, (width - 1) << 16);
+            set(&f->packets[6 + branch], 0x44, (height - 1) << 16);
+            stl_le_p(a + 24, width | (height << 16));
+        }
+        g_assert_cmpint(nikon_gate_work_execute(&f->work), ==,
+                         NIKON_GATE_WORK_OK);
+        /* The grid is identity. Use the original per-byte nearest formula. */
+        for (unsigned branch = 0; branch < 3; branch++) {
+            const uint32_t *slot = f->slots[3 + branch];
+            unsigned width = slot[8] & 0xffff, height = slot[8] >> 16;
+            size_t base = 0x10000 * (branch + 1) + phase * 0x40000;
+
+            for (unsigned plane = 0; plane < 2; plane++) {
+                unsigned rows = plane ? height / 2 : height;
+                unsigned unit = plane ? 131072 : 65536;
+                unsigned source_width = plane ? 32 : 64;
+                unsigned source_height = plane ? 8 : 16;
+                const uint8_t *source = f->input + (plane ? 1024 : 0);
+                unsigned pitch = slot[4 + plane];
+                size_t destination = base + (plane ? slot[10] : 0);
+
+                for (unsigned row = 0; row < rows; row++) {
+                    for (unsigned column = 0; column < pitch; column++) {
+                        unsigned expected = 0xa5;
+
+                        if (column < width) {
+                            unsigned sample_x = affine_oracle_index(
+                                x[branch] + (int64_t)(plane ? column & ~1U :
+                                                     column) * sx[branch],
+                                source_width, unit);
+                            unsigned sample_y = affine_oracle_index(
+                                y[branch] + (int64_t)(plane ? row * 2 : row) *
+                                            sy[branch], source_height, unit);
+
+                            expected = source[sample_y * 64 +
+                                (plane ? sample_x * 2 + (column & 1) : sample_x)];
+                        }
+                        g_assert_cmpuint(f->bytes[destination + row * pitch +
+                                                   column], ==, expected);
+                    }
+                }
+                g_assert_cmphex(f->bytes[destination - 1], ==, 0xa5);
+                g_assert_cmphex(f->bytes[destination + rows * pitch], ==, 0xa5);
+            }
+        }
+    }
+    cleanup(f);
+}
+
 static void test_private_plan(void)
 {
     Fixture *f = fixture();
@@ -1415,6 +1528,8 @@ int main(int argc, char **argv)
     aio_context_set_thread_pool_params(qemu_get_aio_context(), 0, 1,
                                        &error_abort);
     g_test_add_func("/nikon/gatework/pixels-phases", test_pixels);
+    g_test_add_func("/nikon/gatework/affine-differential",
+                    test_affine_differential);
     g_test_add_func("/nikon/gatework/grid-translation", test_grid_translation);
     g_test_add_func("/nikon/gatework/private-plan", test_private_plan);
     g_test_add_func("/nikon/gatework/current-layout", test_current_layout);

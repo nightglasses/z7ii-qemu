@@ -199,6 +199,77 @@ failure stack support eviction/reuse ahead of a late MAIN consumer. The exact
 write-zero instruction was not watched. This is distinct from AS/AF corruption
 and event-pool exhaustion; debugger time is not a throughput measurement.
 
+A later read-only QEMU TCG-plugin diagnostic closes the overflow route in one
+execution. At MAS VA `1030d9a4`, resource74 release has LR `10267c43`, identifying
+the pressure path rather than stop cleanup. Job84 still has lane3 unfinished;
+lane1 and lane2 are done. The same record enters its clear path, is allocated
+to94, and is then read by the old job84 consumer as sequence94. Across the
+bounded trace,30 releases retain an unfinished lane3 owner,27 consumers read a
+record ten sequences newer, and the last job268 reads a zero prefix before
+taking the same `102bd93c` exception. The clear-entry probe precedes the actual
+clear; it is not an after-clear memory snapshot. Later reuse and the final
+zero read are directly observed. All these lifecycle events execute on CPU1.
+
+The software joins do not permanently name lanes. Job+`1c` is the total join
+count and+`20` the remaining count; completion selects triple remaining−1 and
+then decrements it. The separately sampled old job393 still needs lane1's
+last join, but its queued conditional microstep `1026a0fc` alone does not prove
+a hardware wait. A request14/15 would submit a separate seven-node one-shot
+graph and return tag `42193009`, setting software bit`200`. Neither submission
+nor this callback occurs in the272-frame lifecycle trace. It therefore provides
+no justification to add that completion.
+
+The following bounded credit trace also closes without missing notification:
+193 normalized MAIN flag1 callbacks equal one initial discard,182 actual
+resource consumers, eight strict excess-credit skips and two startup cadence
+skips. The192 accepted credits are consumed by179 normal waited decrements,
+eight fast decrements and five startup resets. All184 waits succeed. The fast
+path requires credit greater than the quota, and deliberately bypasses the
+resource consumer. These are unlabelled ordered credits, not frame IDs. This
+window excludes an unexplained credit deficit; it does not prove that every
+historical failure shares its timing.
+
+Host-only latency measurements place the continuous MAIN cost in actual
+arithmetic: median17.94ms, compared with10us worker queueing,235us preparation,
+105us callback delivery and408us from ready callback through publication.
+Paired arithmetic separately measures24.93ms and total26.77ms. These diagnostic
+measurements motivate exact pixel-work reductions, not a clock change, pool
+tuning, invented completion or a larger firmware retention queue. Plugin
+callbacks and host timing instrumentation qualify this as diagnostic execution,
+separate from uninstrumented startup and mode-change acceptance.
+
+Exact warp numerator recurrence and separable output sampling reduce the MAIN
+cost without changing its equations or completion route. The candidate's first
+uninstrumented cold-neutral window completes two A/S/P/M cycles,3992 paired and
+3992 MAIN processing results over143.15 host seconds. Its nine sequential work
+censuses remain at1–2 active records; available event bits vary471–477. This
+supports bounded mode-change and record-retirement acceptance, not indefinite
+stability or a change to the firmware's ten-record lifetime assumption.
+
+### CaptureService callback backlog
+
+CaptureService's separate FIFO at MAS VA `b23ede14` contains callback work,
+not resource74 records. Original initializer `10328650 ->10225864` declares60
+entries of92 bytes at `b23ede2c`. Header+`0c` is the current count and+`10` the
+circular read index. Each entry contains a callback pointer, a callback-specific
+word, up to80 payload bytes, and zero padding. There is no shared kind or
+timestamp schema. Builder `10319d56` submits it; consumer `103191c2` synchronously
+calls its callback and then continues popping until empty. A full push returns
+zero; the builder does not propagate that failure. This is a source-established
+loss possibility, not an observed dropped request.
+
+Normal `041a0001` notifications conditionally queue callback `10325ff7` (OnVd)
+with16 payload bytes; alternate phase/state branches and independent completion
+and API requests have their own callbacks. A separate two-PC read-only plugin
+trace observes2244 successful OnVd enqueues and2188 dequeues. Every other
+callback class balances, and all56 entries in the stopped FIFO are OnVd. There
+are zero RAM read failures; paired/MAIN processing reaches2187 with zero
+exception flags. The trace stops at82.26 host seconds before the60-entry limit.
+Its instrumentation affects scheduling and it is not another acceptance run.
+The uninstrumented mode window separately reaches41 queued entries. The next
+boundary is OnVd's producer cadence versus actual per-callback waits and work;
+there is no basis to discard callbacks, enlarge the FIFO or fabricate completion.
+
 Device admission still requires real fresh RAW/grid input, a supported complete
 profile, ACK ownership and downstream capacity. Idle workers alone cannot
 identify a missing completion: the read-only paired `runtime` now exposes these

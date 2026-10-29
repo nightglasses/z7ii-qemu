@@ -1601,5 +1601,348 @@
       },
       "conclusion": "No permanent CaptureService mutex wait, device wait or missing completion established across these distinct observations"
     }
+  },
+  "resource74_lifetime_and_main_latency": {
+    "scope": "Original C1.70 source analysis, distinct bounded read-only diagnostics, and exact arithmetic verification; mode acceptance remains separately qualified",
+    "base_revision": "9e73cb37",
+    "arithmetic_candidate": "65b9941526d9d50bc23c848fbc1bdb2ec6955a08",
+    "profile": "Five-CPU MTTCG; cold-neutral eight finite timing rows; M; normal UART battery, virtual lens and FAT32 media; firmware unchanged",
+    "lifetime_diagnostic": {
+      "instrument": "Pinned upstream QEMU TCG plugin; six specific original MAS instruction PCs; register/RAM reads only; no GDB stops, guest calls or state writes",
+      "timing_qualification": "Instrumentation can affect scheduling; not original mode acceptance or a physical frame-rate measurement",
+      "valid_registers_and_memory": "All16 MAS register descriptors resolved, including valid opaque handle0; read buffers reset before each read; zero reported RAM read failures",
+      "invalid_observer_attempts": "Earlier register-buffer/opaque-handle attempts are excluded from causal counts",
+      "events": 1058,
+      "publications": 272,
+      "releases": 263,
+      "clear_entries": 263,
+      "consumer_reads": 260,
+      "first_matched_sequence": [
+        {
+          "event": 284,
+          "pc_mas_va": "0x10267c54",
+          "action": "publish84",
+          "record_mas_va": "0xb2c991e0"
+        },
+        {
+          "event": 320,
+          "pc_mas_va": "0x1030d9a4",
+          "action": "release84",
+          "lr_mas_va": "0x10267c43",
+          "lane1": "DONE",
+          "lane2": "DONE",
+          "lane3": "unfinished cell1 micro0",
+          "record_mas_va": "0xb2c991e0"
+        },
+        {
+          "event": 321,
+          "pc_mas_va": "0x10298fc2",
+          "action": "enter record clear; snapshot still contains84"
+        },
+        {
+          "event": 322,
+          "pc_mas_va": "0x10267c54",
+          "action": "publish94 into same record; old84 still references it"
+        },
+        {
+          "event": 323,
+          "pc_mas_va": "0x102bd92a",
+          "action": "consumer84 reads record tagged94"
+        }
+      ],
+      "unfinished_lane3_releases": 30,
+      "newer_sequence_reads": 27,
+      "sequence_difference": 10,
+      "final_consumer_job": 268,
+      "final_record_prefix": "zero",
+      "exception_pc_mas_va": "0x102bd93c",
+      "exception_dfar": "0x0",
+      "last_poll_host_seconds": 17.590758959006052,
+      "last_poll_paired": 264,
+      "all_lifecycle_events_cpu": 1,
+      "consumer_identity_rule": "job = borrowed field VA -0x3ce0, joined to earlier publication owner",
+      "production_lead_median_by_consecutive_consumer_blocks": [
+        2,
+        6,
+        8,
+        7,
+        9,
+        9
+      ],
+      "recipe14_15_submissions": 0,
+      "recipe14_15_callback42193009": 0,
+      "conclusion": "FIFO10 overflow release overtakes an unfinished MAIN consumer; no dynamic stop-cleanup ambiguity in this trace"
+    },
+    "main_credit_ledger": {
+      "instrument": "Additional read-only original instruction beacons; separate bounded diagnostic, not acceptance",
+      "normalized_flag1_callbacks": 193,
+      "explicit_initial_discard": 1,
+      "accepted_increments": 192,
+      "normal_waited_decrements": 179,
+      "strict_excess_credit_fast_decrements": 8,
+      "startup_credit_resets": 5,
+      "final_remaining": 0,
+      "successful_waits": 184,
+      "actual_resource_reads": 182,
+      "startup_cadence_unselected": 2,
+      "identities": [
+        "193 =1 initial discard +182 resource reads +8 fast skips +2 startup cadence skips",
+        "192 =179 normal decrements +8 fast decrements +5 startup resets"
+      ],
+      "fast_path": "Remaining credit > quota; it bypasses resource74 processing",
+      "all_observed_credit_updates_cpu": 1,
+      "conclusion": "No unexplained missing callback or completion credit in this window",
+      "limits": "A queued conditional lane1 microstep does not prove a submitted one-shot request; these counts do not establish every historical interleaving"
+    },
+    "host_latency_before": {
+      "instrument": "Temporary host-only timing; first64 paired and128 MAIN observations, exclude first8 from medians; separate from acceptance",
+      "paired": {
+        "samples": 64,
+        "arithmetic_median_us": 24930.0,
+        "handoff_median_us": 752.5,
+        "total_median_us": 26771.0
+      },
+      "main": {
+        "samples": 128,
+        "prepare_us": 235.0,
+        "queue_us": 10.0,
+        "compute_us": 17936.5,
+        "delivery_us": 105.0,
+        "ready_to_publish_us": 408.0
+      },
+      "limits": "Host scheduling and instrumentation affect durations; not physical FPS or a private same-frame comparison"
+    },
+    "controlled_warp_comparison": {
+      "input": "Generated deterministic NV12 1380x918, non-affine grid with partial tail; output1372x770",
+      "measured_iterations": 32,
+      "warmup_iterations": 3,
+      "output_bytes": 1584660,
+      "comparison": "Every output byte compared directly, equal",
+      "old_median_us": 8830,
+      "new_median_us": 4336,
+      "old_min_max_us": [
+        8651,
+        9051
+      ],
+      "new_min_max_us": [
+        4288,
+        4458
+      ],
+      "qualification": "Host compute benchmark of compiled device operator; not physical FPS, firmware timing or factory calibration"
+    },
+    "implementation": "Exact unrounded tile/row numerator recurrence and power-of-two signed rounding; affine X-index and row-Y reuse; no clock, pool, event, guest lifetime or input-slot changes",
+    "independent_review": "No actionable findings in recurrence, signed bounds, partial tiles, uint16 index map, NV12 sampling, validation or publication",
+    "acceptance": {
+      "scope": "FIRST uninstrumented original-firmware cold-neutral acceptance of this candidate; no retry-until-success",
+      "verdict": "PASS within bounded window",
+      "host_seconds": 143.1536445840029,
+      "five_cpu_mttcg": true,
+      "original_firmware_unchanged": true,
+      "gdb_or_tcg_plugin_in_window": false,
+      "normal_input": "Virtual mode-position contact through original EX/MAS; initial M then A/S/P/M twice; held normal F4 live-view input; scene, virtual lens and fresh MBR/FAT32 media unchanged",
+      "settle_rule": "Three consecutive 0.5s polls, existing45s deadline, then20 half-second dwell polls; verify typed mode/context and advancing paired/MAIN counters on each transition",
+      "transitions": [
+        {
+          "cycle": 0,
+          "mode": "A",
+          "request_host_seconds": 34.19542166701285,
+          "settled_host_seconds": 35.927717874990776,
+          "paired_before": 733,
+          "paired_after": 1128,
+          "readout_main_before": 874,
+          "readout_main_after": 1271
+        },
+        {
+          "cycle": 0,
+          "mode": "S",
+          "request_host_seconds": 47.6673621670343,
+          "settled_host_seconds": 49.40041404200019,
+          "paired_before": 1132,
+          "paired_after": 1534,
+          "readout_main_before": 1277,
+          "readout_main_after": 1687
+        },
+        {
+          "cycle": 0,
+          "mode": "P",
+          "request_host_seconds": 61.48335454199696,
+          "settled_host_seconds": 63.26200733403675,
+          "paired_before": 1539,
+          "paired_after": 1939,
+          "readout_main_before": 1692,
+          "readout_main_after": 2093
+        },
+        {
+          "cycle": 0,
+          "mode": "M",
+          "request_host_seconds": 74.9746700419928,
+          "settled_host_seconds": 76.75681479199557,
+          "paired_before": 1945,
+          "paired_after": 2359,
+          "readout_main_before": 2098,
+          "readout_main_after": 2512
+        },
+        {
+          "cycle": 1,
+          "mode": "A",
+          "request_host_seconds": 88.64286504202755,
+          "settled_host_seconds": 90.40667495899834,
+          "paired_before": 2365,
+          "paired_after": 2768,
+          "readout_main_before": 2518,
+          "readout_main_after": 2921
+        },
+        {
+          "cycle": 1,
+          "mode": "S",
+          "request_host_seconds": 102.28912933403626,
+          "settled_host_seconds": 104.05198208399815,
+          "paired_before": 2774,
+          "paired_after": 3180,
+          "readout_main_before": 2927,
+          "readout_main_after": 3335
+        },
+        {
+          "cycle": 1,
+          "mode": "P",
+          "request_host_seconds": 116.01799920899794,
+          "settled_host_seconds": 117.74361754202982,
+          "paired_before": 3188,
+          "paired_after": 3589,
+          "readout_main_before": 3343,
+          "readout_main_after": 3751
+        },
+        {
+          "cycle": 1,
+          "mode": "M",
+          "request_host_seconds": 129.78274995903485,
+          "settled_host_seconds": 131.53406012500636,
+          "paired_before": 3594,
+          "paired_after": 3992,
+          "readout_main_before": 3756,
+          "readout_main_after": 4153
+        }
+      ],
+      "final": {
+        "paired": 3992,
+        "main_processing": 3992,
+        "readout_requests": 4019,
+        "readout_completed": 4017,
+        "readout_main": 4153,
+        "exception_watchdog_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "graph_errors": 0,
+        "paired_cancelled": 0,
+        "paired_rejected": 0
+      },
+      "sequential_retirement_censuses": [
+        {
+          "checkpoint": "baseline",
+          "active_records": 2,
+          "available_event_bits": 475,
+          "admission_sequence": 729
+        },
+        {
+          "checkpoint": "cycle0-A",
+          "active_records": 1,
+          "available_event_bits": 476,
+          "admission_sequence": 1125
+        },
+        {
+          "checkpoint": "cycle0-S",
+          "active_records": 1,
+          "available_event_bits": 473,
+          "admission_sequence": 1525
+        },
+        {
+          "checkpoint": "cycle0-P",
+          "active_records": 1,
+          "available_event_bits": 474,
+          "admission_sequence": 1930
+        },
+        {
+          "checkpoint": "cycle0-M",
+          "active_records": 1,
+          "available_event_bits": 471,
+          "admission_sequence": 2347
+        },
+        {
+          "checkpoint": "cycle1-A",
+          "active_records": 1,
+          "available_event_bits": 473,
+          "admission_sequence": 2753
+        },
+        {
+          "checkpoint": "cycle1-S",
+          "active_records": 2,
+          "available_event_bits": 477,
+          "admission_sequence": 3164
+        },
+        {
+          "checkpoint": "cycle1-P",
+          "active_records": 2,
+          "available_event_bits": 474,
+          "admission_sequence": 3571
+        },
+        {
+          "checkpoint": "cycle1-M",
+          "active_records": 1,
+          "available_event_bits": 477,
+          "admission_sequence": 3971
+        }
+      ],
+      "retirement_qualification": "Active graph records remain1\u20132; available event bitmap bits vary471\u2013477 as workers progress. Earlier constant451 interpretation was incorrect. Sequential RAM reads are not atomic whole-machine snapshots; other users also own event bits.",
+      "remaining_boundary": "Distinct CaptureService callback FIFO capacity60 grows to41 queued entries by143s; no full/drop observed in this acceptance. This does not establish indefinite queue stability or complete AF/optical fidelity."
+    },
+    "host_latency_after": {
+      "instrument": "Same bounded host-only timing, separate candidate diagnostic",
+      "main_compute_median_us": 7067.5,
+      "main_queue_median_us": 11.0,
+      "paired_arithmetic_median_us": 24686.5,
+      "paired_total_median_us": 26572.5,
+      "paired_handoff_median_us": 185.0,
+      "qualification": "Diagnostic timing is not an acceptance retry or a physical frame-rate measurement"
+    },
+    "native_validation": {
+      "gatepixels_unit": 12,
+      "gatework_unit": 26,
+      "cmos_processing_qtest": 137,
+      "total_pass": 175,
+      "normal_tap_and_process_exits": true,
+      "coverage": "Signed half-boundaries, all warp exponents, partial tiles, multicolumn and mult-row non-affine grids, NV12/guards, 26 affine tuples, width4096; existing reset/cancellation/negative boundaries retained"
+    },
+    "capture_callback_diagnostic": {
+      "scope": "Separate bounded read-only two-PC QEMU TCG plugin diagnostic; not mode acceptance",
+      "instrument_pcs_mas_va": {
+        "successful_enqueue": "0x102258ba",
+        "dequeue_before_callback": "0x103191c2"
+      },
+      "entry_copy": "Immediately copy all92 bytes; classify by callback word0; header count+0x0c and readindex+0x10",
+      "capacity": 60,
+      "host_seconds": 82.25513199996203,
+      "events": 4470,
+      "ram_read_errors": 0,
+      "onvd_callback_mas_va": "0x10325ff7",
+      "onvd_enqueued": 2244,
+      "onvd_dequeued": 2188,
+      "other_callback_classes": "Every class balances",
+      "stopped_fifo_count": 56,
+      "stopped_fifo_classification": "All56 entries are OnVd, counted only from the live circular index/count",
+      "paired_completed": 2187,
+      "main_processing_completed": 2187,
+      "exception_watchdog_flags": [
+        0,
+        0,
+        0
+      ],
+      "diagnostic_length": 0,
+      "full_or_drop_observed": false,
+      "source_full_behavior": "Push returns0 when count>=60; builder does not propagate failure",
+      "qualification": "Plugin observation changes scheduling; faster count growth cannot be used as the uninstrumented rate. Diagnose actual OnVd cost/cadence rather than discard, coalesce, enlarge or force completion."
+    }
   }
 }

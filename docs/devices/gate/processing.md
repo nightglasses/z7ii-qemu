@@ -77,6 +77,17 @@ edge replication. Chroma is co-sited with even destination luma coordinates.
 These filters, phase association and chroma ordering are explicit functional
 choices. They do not claim physical DSP or Bayer fidelity.
 
+The warp evaluates the same four-corner integer numerator by tile and row.
+It decodes each40-byte record once, advances the unrounded numerator with an
+exact integer recurrence, and applies the existing signed half-away rounding
+at each sample. The validated width is a power of two, so an unsigned-magnitude
+shift replaces division without changing negative half ties. All record and
+alias checks still finish before any output write. The affine branches reuse
+their separable X indices, calculate Y once per row, and share the actual U/V
+address; every output sample remains present. Source and output dimensions are
+bounded by4096, so the temporary uint16 X map uses at most8KiB on a host worker
+stack. No guest stack or persistent cache is added.
+
 Only a complete successful graph is eligible for the caller's existing three
 terminal causes and separate whole-frame cause. The source maps resources49,
 54 and55 to raw1 bits0,5 and6, respectively. The selected whole-frame raw2 bit3

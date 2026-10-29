@@ -312,9 +312,12 @@ dereference, not the previous SPI access or allocator exhaustion. Resource74's
 producer retains ten records in FIFO `b23630e0`, freeing the oldest on overflow;
 the consumer borrows the record without a retain. The stopped graph shows
 jobs393/403 sharing the same record, now tagged403, and394/404 likewise tagged404.
-Job395's retained record is entirely zero. This establishes stale/reused
-ownership in the snapshot. The precise release call, including overflow versus
-stop cleanup, has not been traced dynamically.
+Job395's captured record prefix is zero. This establishes stale/reused
+ownership in that snapshot. A later targeted read-only trace identifies the
+overflow release caller, follows old job84's record into reuse by94, and records
+the old consumer reading94. It ends with the same null dereference. The
+[resource74 lifetime analysis](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates this diagnostic from the first uninstrumented failure.
 
 The oldest job393 is also waiting for three software dependency masks through
 `102664a0 ->102b4962`; it is not polling a newly discovered hardware register.
@@ -332,8 +335,43 @@ measure before the fault, not an established permanent wait or a justification
 to bypass the lock.
 A separate bounded diagnostic reaches the historical AF abort at `1021d7ce`
 after48.57 host seconds; it does not reproduce or explain this resource74 fault.
-The first acceptance failure is retained; stable M/A/S/P transitions are still
-unaccepted.
+That revision's first acceptance failure is retained. The later arithmetic
+candidate has its own bounded mode acceptance below.
+
+The later credit ledger matches every MAIN callback to its normal consumer,
+fast skip or startup discard. Conditional one-shot requests14/15 are not
+submitted in the lifecycle trace, so their completion is not a demonstrated
+missing producer. A host-only profile instead measures17.94ms median continuous
+MAIN arithmetic against10us worker queueing. Exact warp recurrence and separable
+affine index reuse preserve every sample and rounding boundary. A controlled
+operator comparison matches all1,584,660 output bytes and reduces median warp
+time from8830 to4336 microseconds. A separate bounded host profile measures
+MAIN computation at7.07ms after the change; this is not a physical FPS claim.
+The applicable native batch passes12 pixel,26 processing and137 CMOS cases
+(175 total), with normal TAP and process exits. Independent review finds no
+remaining arithmetic, bounds, validation or publication defect.
+
+The candidate's first uninstrumented cold-neutral acceptance lasts143.15 host
+seconds and completes two A/S/P/M cycles from initial M. All eight normal
+mode-position requests settle to their original typed setting and context;
+paired and readout MAIN counts advance during every dwell. At the last poll,
+paired and MAIN processing both reach3992, readout MAIN reaches4153, and graph
+errors, paired rejection/cancellation, exception/watchdog flags and diagnostic
+length remain zero. Nine sequential censuses have only1–2 active work records
+while admissions advance729→3971. Available event bitmap bits vary471–477;
+the earlier constant451 interpretation was incorrect. These snapshots show
+retirement without sustained graph/event-pool growth in this window, not an
+atomic count of every user of that pool. No original firmware, cache depth,
+clock, input ownership or completion event is changed.
+
+A separate CaptureService input FIFO remains a longer-run boundary: its
+capacity is60 and the observed count reaches41 by143 seconds. This is a callback
+queue, distinct from resource74's ten records and from the retired work graph.
+No full queue or dropped request is observed in the acceptance. Its entry
+production and synchronous callback consumption need independent rate/wait
+analysis before indefinite stability can be claimed. The
+[receipt](/evidence/runtime/grid.json) preserves the first historical failures,
+read-only diagnostics, exact numerical comparison and this separate acceptance.
 
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that

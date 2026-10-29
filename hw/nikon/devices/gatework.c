@@ -365,41 +365,45 @@ static bool affine(const uint8_t data[32], unsigned width, unsigned height,
     return o->sx > 0 && o->sy > 0;
 }
 
-static uint8_t sample(const uint8_t *p, unsigned width, unsigned height,
-                      unsigned stride, unsigned step, unsigned component,
-                      int64_t x, int64_t y, unsigned fractional)
+static unsigned sample_index(int64_t coordinate, unsigned extent,
+                              unsigned fractional)
 {
     int64_t half = INT64_C(1) << (fractional - 1);
-    unsigned ix, iy;
 
     /* Nearest, half-up, replicate edges. This is an explicit finite rule. */
-    x = CLAMP(x, 0, ((int64_t)width - 1) << fractional);
-    y = CLAMP(y, 0, ((int64_t)height - 1) << fractional);
-    ix = (x + half) >> fractional;
-    iy = (y + half) >> fractional;
-    return p[(size_t)iy * stride + ix * step + component];
+    coordinate = CLAMP(coordinate, 0, ((int64_t)extent - 1) << fractional);
+    return (coordinate + half) >> fractional;
 }
 
 static void render(const uint8_t *input, unsigned width, unsigned height,
                     GateWorkOutput *o)
 {
     size_t ybytes = (size_t)o->width * o->height;
+    uint16_t xindex[4096]; /* Output width is validated before worker admission. */
 
+    /* Each affine coordinate is separable; every row uses the same X mapping. */
+    for (unsigned x = 0; x < o->width; x++) {
+        xindex[x] = sample_index(o->x + (int64_t)x * o->sx, width, 16);
+    }
     for (unsigned y = 0; y < o->height; y++) {
+        unsigned iy = sample_index(o->y + (int64_t)y * o->sy, height, 16);
+        const uint8_t *row = input + (size_t)iy * width;
+
         for (unsigned x = 0; x < o->width; x++) {
-            o->pixels[(size_t)y * o->width + x] = sample(input, width, height,
-                width, 1, 0, o->x + (int64_t)x * o->sx,
-                o->y + (int64_t)y * o->sy, 16);
+            o->pixels[(size_t)y * o->width + x] = row[xindex[x]];
         }
     }
+    for (unsigned x = 0; x < o->width; x += 2) {
+        xindex[x / 2] = sample_index(o->x + (int64_t)x * o->sx, width / 2, 17);
+    }
     for (unsigned y = 0; y < o->uv_height; y++) {
+        unsigned iy = sample_index(o->y + (int64_t)(y * 2) * o->sy,
+                                    height / 2, 17);
+        const uint8_t *row = input + (size_t)width * height + (size_t)iy * width;
+
         for (unsigned x = 0; x < o->width; x += 2) {
-            for (unsigned c = 0; c < 2; c++) {
-                o->pixels[ybytes + (size_t)y * o->width + x + c] = sample(
-                    input + (size_t)width * height, width / 2, height / 2,
-                    width, 2, c, o->x + (int64_t)x * o->sx,
-                    o->y + (int64_t)(y * 2) * o->sy, 17);
-            }
+            memcpy(o->pixels + ybytes + (size_t)y * o->width + x,
+                   row + 2 * xindex[x / 2], 2);
         }
     }
 }
