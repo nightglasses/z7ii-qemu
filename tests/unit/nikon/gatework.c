@@ -690,6 +690,7 @@ static void test_reject(void)
 }
 
 #define GATE_BASE 0x30000000
+#define GATE_WORKSPACE (GATE_BASE + 0x10000)
 
 typedef struct GateFixture {
     Fixture *f;
@@ -697,17 +698,25 @@ typedef struct GateFixture {
     qemu_irq irq;
     bool level;
     bool reset_on_irq, ack_on_irq;
+    bool monitor_on_irq;
+    unsigned monitor_irqs;
     unsigned capacity_pulses;
     qemu_irq capacity;
 } GateFixture;
 
 static void gate_write(unsigned offset, uint32_t value);
+static uint32_t gate_read(unsigned offset);
 
 static void gate_irq(void *opaque, int index, int level)
 {
     GateFixture *g = opaque;
 
     g->level = level;
+    if (level && g->monitor_on_irq) {
+        g->monitor_on_irq = false;
+        g_assert_cmpuint(gate_read(0x284), >, 0);
+        g->monitor_irqs++;
+    }
     if (level && g->reset_on_irq) {
         g->reset_on_irq = false;
         device_cold_reset(g->dev);
@@ -824,6 +833,7 @@ static GateFixture *gate_fixture(void)
                                OBJECT(g->dev));
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(g->dev), &error_abort));
     sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 0, GATE_BASE);
+    sysbus_mmio_map(SYS_BUS_DEVICE(g->dev), 2, GATE_WORKSPACE);
     g->irq = qemu_allocate_irq(gate_irq, g, 0);
     sysbus_connect_irq(SYS_BUS_DEVICE(g->dev), 0, g->irq);
     g->capacity = qemu_allocate_irq(gate_capacity, g, 0);
@@ -948,6 +958,191 @@ static void test_device_frames(void)
     check_outputs(g->f, 1, 0);
     g_assert_cmpuint(object_property_get_uint(OBJECT(g->dev), "processed",
                                              &error_abort), ==, 2);
+    gate_cleanup(g);
+}
+
+static void monitor_snapshot(uint32_t result[29], uint32_t bins[1024])
+{
+    unsigned n = 0;
+
+    result[n++] = gate_read(0x200);
+    for (unsigned offset = 0x220; offset <= 0x25c; offset += 4) {
+        result[n++] = gate_read(offset);
+    }
+    for (unsigned offset = 0x280; offset <= 0x2ac; offset += 4) {
+        result[n++] = gate_read(offset);
+    }
+    for (unsigned i = 0; i < 1024; i++) {
+        uint8_t data[4];
+
+        g_assert_cmpint(address_space_read(&address_space_memory,
+            GATE_WORKSPACE + i * 4, MEMTXATTRS_UNSPECIFIED, data, 4), ==,
+            MEMTX_OK);
+        bins[i] = ldl_le_p(data);
+    }
+    g_assert_cmpuint(n, ==, 29);
+}
+
+static void monitor_check(GateFixture *g, unsigned phase)
+{
+    const unsigned width = 32, height = 8, pitch = 64;
+    const uint8_t *image = g->f->bytes + 0x20000 + phase * 0x40000;
+    uint32_t result[29], bins[1024];
+
+    monitor_snapshot(result, bins);
+    g_assert_cmphex(result[0], ==, 0); /* Every admitted sum fits signed49. */
+    for (unsigned c = 0; c < 4; c++) {
+        unsigned min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+        int min = INT_MAX, max = INT_MIN;
+        uint64_t sum = 0, weighted = 0;
+        uint32_t histogram[256] = { 0 }, count = 0;
+
+        /* Independent per-population oracle over active DMA rows. */
+        for (unsigned y = c / 2; y < height; y += 2) {
+            for (unsigned x = c % 2; x < width; x += 2) {
+                unsigned raw = image[y * pitch + x];
+                int sample = raw * 64;
+
+                histogram[raw]++;
+                sum += sample;
+                if (sample < min) {
+                    min = sample;
+                    min_x = x;
+                    min_y = y;
+                }
+                if (sample > max) {
+                    max = sample;
+                    max_x = x;
+                    max_y = y;
+                }
+            }
+        }
+        g_assert_cmphex(result[1 + 2 * c], ==, min_x | (min_y << 16));
+        g_assert_cmphex(result[2 + 2 * c], ==, min);
+        g_assert_cmphex(result[9 + 2 * c], ==, max_x | (max_y << 16));
+        g_assert_cmphex(result[10 + 2 * c], ==, max);
+        g_assert_cmphex(result[17 + 3 * c], ==,
+                        (width - 2 + c % 2) | ((height - 2 + c / 2) << 16));
+        g_assert_cmpuint(result[18 + 3 * c] |
+                        ((uint64_t)result[19 + 3 * c] << 32), ==, sum);
+        g_assert_cmpuint(sum, >, 0);
+        for (unsigned b = 0; b < 256; b++) {
+            g_assert_cmpuint(bins[256 * c + b], ==, histogram[b]);
+            count += histogram[b];
+            weighted += (uint64_t)histogram[b] * b * 64;
+        }
+        g_assert_cmpuint(count, ==, width * height / 4);
+        g_assert_cmpuint(weighted, ==, sum);
+    }
+    /* Device output never masquerades as CPU workspace provisioning. */
+    g_assert_cmphex(gate_read(0x148), ==, 0);
+}
+
+static void test_device_monitor(void)
+{
+    GateFixture *g = gate_fixture();
+
+    for (unsigned phase = 0; phase < 4; phase++) {
+        if (phase) {
+            gate_write(0x1c, 0x61);
+            gate_write(0x20, 8);
+        }
+        publish(g);
+        advance(1000000);
+        check_outputs(g->f, phase, 0);
+        monitor_check(g, phase);
+    }
+    gate_cleanup(g);
+}
+
+static void monitor_unchanged(const uint32_t result[29],
+                              const uint32_t bins[1024])
+{
+    uint32_t current[29], workspace[1024];
+
+    monitor_snapshot(current, workspace);
+    g_assert_cmpmem(current, sizeof(current), result, 29 * sizeof(*result));
+    g_assert_cmpmem(workspace, sizeof(workspace), bins, 1024 * sizeof(*bins));
+}
+
+static void monitor_reject(unsigned offset, unsigned width, bool write)
+{
+    uint8_t data[8] = { 0 };
+    MemTxResult ret;
+
+    ret = write ? address_space_write(&address_space_memory, GATE_BASE + offset,
+                                     MEMTXATTRS_UNSPECIFIED, data, width) :
+                  address_space_read(&address_space_memory, GATE_BASE + offset,
+                                    MEMTXATTRS_UNSPECIFIED, data, width);
+    g_assert_cmpint(ret, !=, MEMTX_OK);
+}
+
+static void test_monitor_boundaries(void)
+{
+    static const unsigned offsets[] = { 0x200, 0x220, 0x280 };
+    GateFixture *g = gate_fixture();
+    uint32_t result[29], bins[1024];
+
+    monitor_reject(0x200, 4, false);
+    monitor_reject(0x220, 4, false);
+    monitor_reject(0x280, 4, false);
+    publish(g);
+    advance(1000000);
+    monitor_snapshot(result, bins);
+    for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+        unsigned offset = offsets[i];
+
+        monitor_reject(offset, 1, false);
+        monitor_reject(offset, 2, false);
+        monitor_reject(offset + 1, 4, false);
+        monitor_reject(offset, 4, true);
+    }
+    for (unsigned offset = 0x204; offset < 0x220; offset += 4) {
+        monitor_reject(offset, 4, false);
+    }
+    for (unsigned offset = 0x260; offset < 0x280; offset += 4) {
+        monitor_reject(offset, 4, false);
+    }
+    monitor_reject(0x2b0, 4, false);
+    monitor_unchanged(result, bins);
+    /* Provisioning requests retain bytes and require real CPU writes. */
+    gate_write(0x2c0, 1);
+    monitor_unchanged(result, bins);
+    g_assert_cmphex(gate_read(0x148), ==, 0);
+    device_cold_reset(g->dev);
+    monitor_reject(0x200, 4, false);
+    monitor_reject(0x25c, 4, false);
+    monitor_reject(0x2ac, 4, false);
+    gate_cleanup(g);
+}
+
+static void test_monitor_inputs(void)
+{
+    GateFixture *g = gate_fixture();
+    uint32_t result[29], bins[1024], changed[29], histogram[1024];
+
+    publish(g);
+    advance(1000000);
+    monitor_snapshot(result, bins);
+    gate_write(0x1c, 0x61);
+    gate_write(0x20, 8);
+    memset(g->f->input + 1024, 0xff, 512);
+    publish(g);
+    advance(1000000);
+    monitor_check(g, 1);
+    monitor_unchanged(result, bins); /* UV and row padding are not samples. */
+    gate_write(0x1c, 0x61);
+    gate_write(0x20, 8);
+    memset(g->f->input, 255, 1024);
+    publish(g);
+    memset(g->f->input, 0, 1024); /* The accepted job owns its input. */
+    advance(1000000);
+    monitor_check(g, 2);
+    monitor_snapshot(changed, histogram);
+    g_assert_cmpuint(changed[18], !=, result[18]);
+    g_assert_cmpuint(histogram[255], ==, 64);
+    g_assert_cmphex(changed[1], ==, 0); /* First coordinate wins all ties. */
+    g_assert_cmphex(changed[9], ==, 0);
     gate_cleanup(g);
 }
 
@@ -1456,6 +1651,96 @@ static void test_layout_commit(void)
     }
 }
 
+static void test_monitor_publication(void)
+{
+    GateFixture *g = gate_fixture();
+    PoolBarrier blocker, marker;
+    uint32_t result[29], bins[1024];
+
+    publish(g);
+    advance(1000000);
+    monitor_snapshot(result, bins);
+    /* An older terminal result fences this new job, including its monitor. */
+    memset(g->f->input, 255, 1024);
+    publish(g);
+    advance(2000000);
+    monitor_unchanged(result, bins);
+    gate_write(0x1c, 0x61);
+    advance(2000000);
+    monitor_unchanged(result, bins);
+    blocker_start(&blocker);
+    gate_write(0x20, 8);
+    advance_clock(1000000);
+    g_assert_cmpuint(gate_counter(g, "processing-compute"), ==, 1);
+    /* A partial future type18 upload cannot manufacture or revoke results. */
+    gate_write(0x934, 1);
+    gate_write(0x934, 0);
+    g_assert_cmpint(vm_stop(RUN_STATE_PAUSED), ==, 0);
+    worker_returned(&blocker, &marker);
+    barrier_wait(&blocker);
+    barrier_wait(&marker);
+    monitor_unchanged(result, bins);
+    g_assert_cmpuint(gate_counter(g, "processing-compute"), ==, 2);
+    vm_start();
+    advance(0);
+    monitor_check(g, 1);
+    g_assert_cmpuint(gate_counter(g, "processed"), ==, 2);
+    gate_cleanup(g);
+}
+
+static void test_monitor_retention(void)
+{
+    for (unsigned variant = 0; variant < 5; variant++) {
+        GateFixture *g = gate_fixture();
+        PoolBarrier blocker, marker;
+        uint32_t result[29], bins[1024];
+
+        publish(g);
+        advance(1000000);
+        monitor_snapshot(result, bins);
+        gate_write(0x1c, 0x61);
+        gate_write(0x20, 8);
+        memset(g->f->input, 255, 1024);
+        if (variant == 4) {
+            /* A complete but unknown monitor profile stays unsupported. */
+            set(&g->f->packets[9], 0x60, 1);
+            gate_load(g, 9);
+            publish(g);
+            advance(2000000);
+        } else {
+            blocker_start(&blocker);
+            publish(g);
+            advance_clock(1000000);
+            if (variant == 0) {
+                gate_write(0x2100, 0x120);
+                gate_write(0x2608, 0);
+            } else if (variant == 1) {
+                gate_write(4, 0);
+            } else if (variant == 2) {
+                /* Revoked current output layout cancels the private job. */
+                gate_write(0x2200 + 64 + 3 * 4, RAM_BASE + 0x90000);
+                gate_write(0x2100, 0x120);
+            } else {
+                /* A future source alias rejects atomic output publication. */
+                set(&g->f->packets[3], 0x54, RAM_BASE + 0x50000);
+                gate_load(g, 3);
+            }
+            worker_returned(&blocker, &marker);
+            barrier_wait(&blocker);
+            barrier_wait(&marker);
+            advance(0);
+            if (!variant) {
+                gate_write(0x2620, 1); /* Real quiescent stop, not an ACK. */
+            }
+        }
+        monitor_unchanged(result, bins);
+        g_assert_false(g->level);
+        g_assert_cmpuint(gate_counter(g, "processed"), ==, 1);
+        g_assert_cmpuint(g->f->bytes[0x50000], ==, 0xa5);
+        gate_cleanup(g);
+    }
+}
+
 static void test_device_reuse(void)
 {
     GateFixture *g = gate_fixture();
@@ -1490,10 +1775,17 @@ static void test_irq_reentry(void)
 
         g->reset_on_irq = reset;
         g->ack_on_irq = !reset;
+        g->monitor_on_irq = true;
         publish(g);
         advance(1000000);
         check_outputs(g->f, 0, 0);
         g_assert_false(g->level);
+        g_assert_cmpuint(g->monitor_irqs, ==, 1);
+        if (reset) {
+            monitor_reject(0x200, 4, false);
+        } else {
+            monitor_check(g, 0);
+        }
         g_assert_cmpuint(gate_read(0x1c), ==, 0);
         g_assert_cmpuint(gate_read(0x20), ==, 0);
         g_assert_cmpuint(object_property_get_uint(OBJECT(g->dev), "processed",
@@ -1541,6 +1833,14 @@ int main(int argc, char **argv)
                     test_future_source_memory);
     g_test_add_func("/nikon/gatework/preflight", test_reject);
     g_test_add_func("/nikon/gatework/device-frames", test_device_frames);
+    g_test_add_func("/nikon/gatework/device-monitor", test_device_monitor);
+    g_test_add_func("/nikon/gatework/monitor-boundaries",
+                    test_monitor_boundaries);
+    g_test_add_func("/nikon/gatework/monitor-inputs", test_monitor_inputs);
+    g_test_add_func("/nikon/gatework/monitor-publication",
+                    test_monitor_publication);
+    g_test_add_func("/nikon/gatework/monitor-retention",
+                    test_monitor_retention);
     g_test_add_func("/nikon/gatework/device-cancel", test_device_cancel);
     g_test_add_func("/nikon/gatework/device-reject", test_device_reject);
     g_test_add_func("/nikon/gatework/device-started", test_device_started);

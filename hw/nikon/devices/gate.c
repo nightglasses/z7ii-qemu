@@ -124,6 +124,8 @@ struct NikonEventGateState {
     bool plane_active, plane_phase_valid;
     bool table_written[TABLE_SIZE / 4];
     unsigned table_words;
+    NikonGateMonitor monitor;
+    bool monitor_valid;
 };
 
 static void nikon_event_gate_try_frame(NikonEventGateState *s);
@@ -568,6 +570,15 @@ static void nikon_event_gate_process_frame(void *opaque)
      * are still computing. Retire only requests this job actually observed.
      */
     if (result == NIKON_GATE_WORK_OK) {
+        const NikonGateMonitor *monitor = nikon_gate_work_monitor(task->plan);
+
+        assert(monitor);
+        s->monitor = *monitor;
+        s->monitor_valid = true;
+        for (unsigned i = 0; i < 4; i++) {
+            memcpy(s->work + 256 * i, monitor->channel[i].histogram, 1024);
+        }
+        /* Numerical publication is not a CPU provisioning write. */
         for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
             if (nikon_event_gate_stream_port(command_ports[i].offset) &&
                 s->command[i].generation == task->command_generation[i]) {
@@ -1080,6 +1091,46 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
     if (size != 4 || (offset & 3)) {
         return nikon_event_gate_error(s, offset, size, false, 0);
     }
+    if (offset == 0x200 || (offset >= 0x220 && offset <= 0x25c) ||
+        (offset >= 0x280 && offset <= 0x2ac)) {
+        const NikonGateMeasurement *m;
+        unsigned index;
+
+        if (!s->monitor_valid) {
+            return nikon_event_gate_error(s, offset, size, false, 0);
+        }
+        if (offset == 0x200) {
+            for (unsigned i = 0; i < 4; i++) {
+                *value |= (uint32_t)s->monitor.channel[i].overflow << (8 * i);
+            }
+        } else if (offset < 0x280) {
+            bool maximum = offset >= 0x240;
+
+            index = (offset - (maximum ? 0x240 : 0x220)) / 8;
+            m = &s->monitor.channel[index];
+            if (offset & 4) {
+                *value = (maximum ? m->maximum : m->minimum) & 0x7fff;
+            } else {
+                *value = maximum ? m->maximum_x | (m->maximum_y << 16) :
+                                   m->minimum_x | (m->minimum_y << 16);
+            }
+        } else {
+            index = (offset - 0x280) / 12;
+            m = &s->monitor.channel[index];
+            switch ((offset - 0x280) % 12) {
+            case 0:
+                *value = m->end_x | (m->end_y << 16);
+                break;
+            case 4:
+                *value = (uint32_t)m->sum;
+                break;
+            case 8:
+                *value = ((uint64_t)m->sum >> 32) & 0x1ffff;
+                break;
+            }
+        }
+        return MEMTX_OK;
+    }
     index = nikon_event_gate_command(offset);
     if (index >= 0) {
         GateCommand *command = &s->command[index];
@@ -1527,6 +1578,8 @@ static void nikon_event_gate_reset(DeviceState *dev)
     s->stopping = false;
     s->stop_ack = false;
     s->submit_pending = false;
+    memset(&s->monitor, 0, sizeof(s->monitor));
+    s->monitor_valid = false;
     memset(s->committed, 0, sizeof(s->committed));
     s->parameter_valid = 0;
     s->parameter_commits = 0;

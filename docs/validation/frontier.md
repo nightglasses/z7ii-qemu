@@ -401,6 +401,26 @@ stops execution. Separate observer FIFO-full and SPI8 failures are retained.
 The [receipt](/evidence/runtime/grid.json) distinguishes these from the earlier
 143.15-second mode acceptance and from fixtures; no indefinite stability is claimed.
 
+The [resource34 monitor](../devices/gate/family.md#type18-provisioning-and-result-ownership)
+now consumes actual resource49 active luma under a bounded, explicitly virtual
+parity/extrema/histogram law. Publication follows successful three-output DMA,
+with no new completion event; stopped results remain readable. Native gatework31
+and CMOS137 pass. The first long-M attempt fails at AF `10372abe`/DFAR `818`
+after83.27 host seconds; after an exact histogram-sum reduction, a separate
+normal-switch window completes one A/S/P/M cycle, then fails at AF
+`1021d7ce`/DFAR0 at100.20 seconds with FIFO60. Neither passes long stability.
+
+Normal main-switch OFF supplies a distinct cleanup test. Its first
+uninstrumented run stops at34.94 host seconds on WRITE32 PA
+`203800ec=ffffff71`, MAS VA `10369f02`, with789 paired jobs, FIFO20/60 and
+zero exception/watchdog flags and diagnostic length. A separate read-only
+observer verifies that the original resource34 getter executes all30 reads,
+returns four nonzero wide values and reaches cleanup with R0=0 before that
+same next stop. Optional workspace pointers are zero; their copying is native
+coverage only. The [receipt](/evidence/runtime/grid.json) retains all three
+first scenarios and the separate observer. Paired stop controls, active post
+arithmetic, AF lifetime and FIFO boundedness remain independent work.
+
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
