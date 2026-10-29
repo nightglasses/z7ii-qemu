@@ -92,6 +92,9 @@ class PTPClient:
         self.lib.libusb_release_interface.argtypes = [ctypes.c_void_p, ctypes.c_int]
         self.lib.libusb_release_interface.restype = ctypes.c_int
 
+        self.lib.libusb_clear_halt.argtypes = [ctypes.c_void_p, ctypes.c_uint8]
+        self.lib.libusb_clear_halt.restype = ctypes.c_int
+
         self.lib.libusb_bulk_transfer.argtypes = [
             ctypes.c_void_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint8),
             ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_uint
@@ -138,6 +141,11 @@ class PTPClient:
 
         return True
 
+    def clear_halt(self):
+        if self.handle:
+            self.lib.libusb_clear_halt(self.handle, self.EP_IN)
+            self.lib.libusb_clear_halt(self.handle, self.EP_OUT)
+
     def close(self):
         if self.handle:
             if self.session_open:
@@ -175,6 +183,8 @@ class PTPClient:
             self.handle, self.EP_OUT, buf, len(pkt), ctypes.byref(transferred), 3000
         )
         if ret != 0:
+            if ret == -9: # LIBUSB_ERROR_PIPE (endpoint stalled)
+                self.clear_halt()
             raise RuntimeError(f"send_cmd bulk transfer OUT failed: {ret}")
         return tx
 
@@ -185,6 +195,8 @@ class PTPClient:
             self.handle, self.EP_IN, raw_buf, 131072, ctypes.byref(transferred), timeout
         )
         if ret != 0:
+            if ret == -9:
+                self.clear_halt()
             return None
         if transferred.value < 12:
             return None

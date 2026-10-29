@@ -1,0 +1,2333 @@
+{
+  "0xd016": {
+    "code": "0xd016",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd017": {
+    "code": "0xd017",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd018": {
+    "code": "0xd018",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd019": {
+    "code": "0xd019",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd01a": {
+    "code": "0xd01a",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd01b": {
+    "code": "0xd01b",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd01c": {
+    "code": "0xd01c",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd01d": {
+    "code": "0xd01d",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd01e": {
+    "code": "0xd01e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "5000",
+    "current_value": "6500",
+    "form_flag": 1,
+    "raw_value_hex": "6419"
+  },
+  "0xd01f": {
+    "code": "0xd01f",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd021": {
+    "code": "0xd021",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd022": {
+    "code": "0xd022",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd023": {
+    "code": "0xd023",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd024": {
+    "code": "0xd024",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd026": {
+    "code": "0xd026",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd027": {
+    "code": "0xd027",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd028": {
+    "code": "0xd028",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd029": {
+    "code": "0xd029",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd02e": {
+    "code": "0xd02e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd02f": {
+    "code": "0xd02f",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd030": {
+    "code": "0xd030",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd032": {
+    "code": "0xd032",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd034": {
+    "code": "0xd034",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "255",
+    "current_value": "255",
+    "form_flag": 2,
+    "raw_value_hex": "ff"
+  },
+  "0xd038": {
+    "code": "0xd038",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd039": {
+    "code": "0xd039",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd03a": {
+    "code": "0xd03a",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd03b": {
+    "code": "0xd03b",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd03c": {
+    "code": "0xd03c",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd03d": {
+    "code": "0xd03d",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd03e": {
+    "code": "0xd03e",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd03f": {
+    "code": "0xd03f",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd046": {
+    "code": "0xd046",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "2",
+    "form_flag": 1,
+    "raw_value_hex": "02"
+  },
+  "0xd048": {
+    "code": "0xd048",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd049": {
+    "code": "0xd049",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "03"
+  },
+  "0xd053": {
+    "code": "0xd053",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd054": {
+    "code": "0xd054",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd056": {
+    "code": "0xd056",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "2",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd059": {
+    "code": "0xd059",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "12",
+    "current_value": "12",
+    "form_flag": 2,
+    "raw_value_hex": "0c"
+  },
+  "0xd05a": {
+    "code": "0xd05a",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd05b": {
+    "code": "0xd05b",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd05c": {
+    "code": "0xd05c",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd05d": {
+    "code": "0xd05d",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "32800",
+    "current_value": "32800",
+    "form_flag": 2,
+    "raw_value_hex": "2080"
+  },
+  "0xd061": {
+    "code": "0xd061",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd067": {
+    "code": "0xd067",
+    "data_type": "0x0005",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "212993",
+    "form_flag": 0,
+    "raw_value_hex": "01400300"
+  },
+  "0xd068": {
+    "code": "0xd068",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "5",
+    "form_flag": 2,
+    "raw_value_hex": "05"
+  },
+  "0xd069": {
+    "code": "0xd069",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "200",
+    "current_value": "200",
+    "form_flag": 1,
+    "raw_value_hex": "c8"
+  },
+  "0xd06a": {
+    "code": "0xd06a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd06b": {
+    "code": "0xd06b",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd06c": {
+    "code": "0xd06c",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd070": {
+    "code": "0xd070",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd072": {
+    "code": "0xd072",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "",
+    "current_value": "",
+    "form_flag": 0,
+    "raw_value_hex": "010000"
+  },
+  "0xd073": {
+    "code": "0xd073",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "",
+    "current_value": "",
+    "form_flag": 0,
+    "raw_value_hex": "010000"
+  },
+  "0xd074": {
+    "code": "0xd074",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "65736",
+    "current_value": "2147549384",
+    "form_flag": 2,
+    "raw_value_hex": "c8000180"
+  },
+  "0xd075": {
+    "code": "0xd075",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "65596",
+    "current_value": "65538",
+    "form_flag": 2,
+    "raw_value_hex": "02000100"
+  },
+  "0xd078": {
+    "code": "0xd078",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd079": {
+    "code": "0xd079",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd07a": {
+    "code": "0xd07a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd07c": {
+    "code": "0xd07c",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd07d": {
+    "code": "0xd07d",
+    "data_type": "0x0005",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "21219947",
+    "form_flag": 0,
+    "raw_value_hex": "6bca4301"
+  },
+  "0xd07e": {
+    "code": "0xd07e",
+    "data_type": "0x0005",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "-1",
+    "form_flag": 0,
+    "raw_value_hex": "ffffffff"
+  },
+  "0xd08a": {
+    "code": "0xd08a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd08d": {
+    "code": "0xd08d",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd08f": {
+    "code": "0xd08f",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "2",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd090": {
+    "code": "0xd090",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "",
+    "current_value": "",
+    "form_flag": 0,
+    "raw_value_hex": "010000"
+  },
+  "0xd091": {
+    "code": "0xd091",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd093": {
+    "code": "0xd093",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd09c": {
+    "code": "0xd09c",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd0a0": {
+    "code": "0xd0a0",
+    "data_type": "0x0008",
+    "access": "GetSet",
+    "default_value": "540436593853071360",
+    "current_value": "1080873187699851264",
+    "form_flag": 2,
+    "raw_value_hex": "000018007008000f"
+  },
+  "0xd0a2": {
+    "code": "0xd0a2",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd0a3": {
+    "code": "0xd0a3",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0a4": {
+    "code": "0xd0a4",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "24576",
+    "form_flag": 0,
+    "raw_value_hex": "00600000"
+  },
+  "0xd0a7": {
+    "code": "0xd0a7",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd0a8": {
+    "code": "0xd0a8",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "15",
+    "current_value": "15",
+    "form_flag": 1,
+    "raw_value_hex": "0f"
+  },
+  "0xd0aa": {
+    "code": "0xd0aa",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd0ac": {
+    "code": "0xd0ac",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd0ad": {
+    "code": "0xd0ad",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd0ae": {
+    "code": "0xd0ae",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "25600",
+    "current_value": "25600",
+    "form_flag": 2,
+    "raw_value_hex": "00640000"
+  },
+  "0xd0af": {
+    "code": "0xd0af",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd0b4": {
+    "code": "0xd0b4",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "100",
+    "current_value": "64",
+    "form_flag": 2,
+    "raw_value_hex": "40000000"
+  },
+  "0xd0b5": {
+    "code": "0xd0b5",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "100",
+    "current_value": "64",
+    "form_flag": 0,
+    "raw_value_hex": "40000000"
+  },
+  "0xd0b6": {
+    "code": "0xd0b6",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "5408x3600",
+    "current_value": "5408x3600",
+    "form_flag": 2,
+    "raw_value_hex": "0a3500340030003800780033003600300030000000"
+  },
+  "0xd0b7": {
+    "code": "0xd0b7",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd0ba": {
+    "code": "0xd0ba",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0bb": {
+    "code": "0xd0bb",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd0bc": {
+    "code": "0xd0bc",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0bd": {
+    "code": "0xd0bd",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "00000000"
+  },
+  "0xd0be": {
+    "code": "0xd0be",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00000000"
+  },
+  "0xd0bf": {
+    "code": "0xd0bf",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0c0": {
+    "code": "0xd0c0",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd0c1": {
+    "code": "0xd0c1",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "6",
+    "current_value": "6",
+    "form_flag": 2,
+    "raw_value_hex": "06"
+  },
+  "0xd0c2": {
+    "code": "0xd0c2",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "1027",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd0c3": {
+    "code": "0xd0c3",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd0c4": {
+    "code": "0xd0c4",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0c5": {
+    "code": "0xd0c5",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "1027",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd0c6": {
+    "code": "0xd0c6",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "2",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd0c7": {
+    "code": "0xd0c7",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "65535",
+    "current_value": "65535",
+    "form_flag": 2,
+    "raw_value_hex": "ffff"
+  },
+  "0xd0cc": {
+    "code": "0xd0cc",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0cd": {
+    "code": "0xd0cd",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd0e0": {
+    "code": "0xd0e0",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "11",
+    "form_flag": 0,
+    "raw_value_hex": "0b00"
+  },
+  "0xd0e1": {
+    "code": "0xd0e1",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd0e2": {
+    "code": "0xd0e2",
+    "data_type": "0x0008",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "0000000000000000"
+  },
+  "0xd0e3": {
+    "code": "0xd0e3",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "5000",
+    "current_value": "1600",
+    "form_flag": 0,
+    "raw_value_hex": "40060000"
+  },
+  "0xd0e4": {
+    "code": "0xd0e4",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "5000",
+    "current_value": "5000",
+    "form_flag": 0,
+    "raw_value_hex": "88130000"
+  },
+  "0xd0e5": {
+    "code": "0xd0e5",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "140",
+    "current_value": "350",
+    "form_flag": 0,
+    "raw_value_hex": "5e01"
+  },
+  "0xd0e6": {
+    "code": "0xd0e6",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "1600",
+    "current_value": "630",
+    "form_flag": 0,
+    "raw_value_hex": "7602"
+  },
+  "0xd0e7": {
+    "code": "0xd0e7",
+    "data_type": "0x0008",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "176",
+    "form_flag": 0,
+    "raw_value_hex": "b000000000000000"
+  },
+  "0xd0f7": {
+    "code": "0xd0f7",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "4",
+    "form_flag": 2,
+    "raw_value_hex": "0400"
+  },
+  "0xd0f8": {
+    "code": "0xd0f8",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd0fc": {
+    "code": "0xd0fc",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "19",
+    "current_value": "19",
+    "form_flag": 1,
+    "raw_value_hex": "13"
+  },
+  "0xd100": {
+    "code": "0xd100",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "73536",
+    "current_value": "65538",
+    "form_flag": 2,
+    "raw_value_hex": "02000100"
+  },
+  "0xd101": {
+    "code": "0xd101",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd102": {
+    "code": "0xd102",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "00000000"
+  },
+  "0xd104": {
+    "code": "0xd104",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd105": {
+    "code": "0xd105",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd106": {
+    "code": "0xd106",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd109": {
+    "code": "0xd109",
+    "data_type": "0x0001",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd10b": {
+    "code": "0xd10b",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd10c": {
+    "code": "0xd10c",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "2",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd10e": {
+    "code": "0xd10e",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd112": {
+    "code": "0xd112",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd113": {
+    "code": "0xd113",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd118": {
+    "code": "0xd118",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd120": {
+    "code": "0xd120",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd121": {
+    "code": "0xd121",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd122": {
+    "code": "0xd122",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd124": {
+    "code": "0xd124",
+    "data_type": "0x0001",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd125": {
+    "code": "0xd125",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd126": {
+    "code": "0xd126",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd12d": {
+    "code": "0xd12d",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd12e": {
+    "code": "0xd12e",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd130": {
+    "code": "0xd130",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd131": {
+    "code": "0xd131",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "255",
+    "current_value": "255",
+    "form_flag": 2,
+    "raw_value_hex": "ff"
+  },
+  "0xd132": {
+    "code": "0xd132",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "0300"
+  },
+  "0xd133": {
+    "code": "0xd133",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd138": {
+    "code": "0xd138",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd141": {
+    "code": "0xd141",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd148": {
+    "code": "0xd148",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd149": {
+    "code": "0xd149",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "14",
+    "current_value": "14",
+    "form_flag": 2,
+    "raw_value_hex": "0e"
+  },
+  "0xd14e": {
+    "code": "0xd14e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "65535",
+    "form_flag": 2,
+    "raw_value_hex": "ffff"
+  },
+  "0xd14f": {
+    "code": "0xd14f",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 1,
+    "raw_value_hex": "03"
+  },
+  "0xd150": {
+    "code": "0xd150",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "24",
+    "current_value": "24",
+    "form_flag": 1,
+    "raw_value_hex": "18"
+  },
+  "0xd152": {
+    "code": "0xd152",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd153": {
+    "code": "0xd153",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd154": {
+    "code": "0xd154",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd155": {
+    "code": "0xd155",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd156": {
+    "code": "0xd156",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd158": {
+    "code": "0xd158",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd159": {
+    "code": "0xd159",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd15a": {
+    "code": "0xd15a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd15b": {
+    "code": "0xd15b",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "100",
+    "current_value": "102",
+    "form_flag": 1,
+    "raw_value_hex": "6600"
+  },
+  "0xd15c": {
+    "code": "0xd15c",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd15e": {
+    "code": "0xd15e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd164": {
+    "code": "0xd164",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "4294967295",
+    "current_value": "4294967295",
+    "form_flag": 2,
+    "raw_value_hex": "ffffffff"
+  },
+  "0xd16a": {
+    "code": "0xd16a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd16e": {
+    "code": "0xd16e",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd17a": {
+    "code": "0xd17a",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd17b": {
+    "code": "0xd17b",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd17c": {
+    "code": "0xd17c",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd17d": {
+    "code": "0xd17d",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd17e": {
+    "code": "0xd17e",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "4",
+    "current_value": "4",
+    "form_flag": 1,
+    "raw_value_hex": "04"
+  },
+  "0xd183": {
+    "code": "0xd183",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "25600",
+    "current_value": "1000",
+    "form_flag": 2,
+    "raw_value_hex": "e8030000"
+  },
+  "0xd197": {
+    "code": "0xd197",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd199": {
+    "code": "0xd199",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "4294967295",
+    "current_value": "4294967295",
+    "form_flag": 2,
+    "raw_value_hex": "ffffffff"
+  },
+  "0xd19c": {
+    "code": "0xd19c",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1a2": {
+    "code": "0xd1a2",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1a4": {
+    "code": "0xd1a4",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "00000000"
+  },
+  "0xd1a6": {
+    "code": "0xd1a6",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1a8": {
+    "code": "0xd1a8",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "73536",
+    "current_value": "65561",
+    "form_flag": 2,
+    "raw_value_hex": "19000100"
+  },
+  "0xd1a9": {
+    "code": "0xd1a9",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd1aa": {
+    "code": "0xd1aa",
+    "data_type": "0x0006",
+    "access": "GetSet",
+    "default_value": "100",
+    "current_value": "64",
+    "form_flag": 2,
+    "raw_value_hex": "40000000"
+  },
+  "0xd1ab": {
+    "code": "0xd1ab",
+    "data_type": "0x0003",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "-1333",
+    "form_flag": 2,
+    "raw_value_hex": "cbfa"
+  },
+  "0xd1ac": {
+    "code": "0xd1ac",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "2",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd1ad": {
+    "code": "0xd1ad",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1af": {
+    "code": "0xd1af",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "0300"
+  },
+  "0xd1b0": {
+    "code": "0xd1b0",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1b1": {
+    "code": "0xd1b1",
+    "data_type": "0x0001",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "-6",
+    "form_flag": 1,
+    "raw_value_hex": "fa"
+  },
+  "0xd1b2": {
+    "code": "0xd1b2",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1b3": {
+    "code": "0xd1b3",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1b4": {
+    "code": "0xd1b4",
+    "data_type": "0x0004",
+    "access": "GetOnly",
+    "default_value": "360",
+    "current_value": "20",
+    "form_flag": 1,
+    "raw_value_hex": "1400"
+  },
+  "0xd1b7": {
+    "code": "0xd1b7",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "50",
+    "current_value": "20",
+    "form_flag": 1,
+    "raw_value_hex": "14"
+  },
+  "0xd1b8": {
+    "code": "0xd1b8",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1b9": {
+    "code": "0xd1b9",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "03"
+  },
+  "0xd1ba": {
+    "code": "0xd1ba",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1bb": {
+    "code": "0xd1bb",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1bc": {
+    "code": "0xd1bc",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1bd": {
+    "code": "0xd1bd",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "0000"
+  },
+  "0xd1c5": {
+    "code": "0xd1c5",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1de": {
+    "code": "0xd1de",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1df": {
+    "code": "0xd1df",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "248",
+    "current_value": "248",
+    "form_flag": 2,
+    "raw_value_hex": "f800"
+  },
+  "0xd1e2": {
+    "code": "0xd1e2",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1e3": {
+    "code": "0xd1e3",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1e4": {
+    "code": "0xd1e4",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "00000000"
+  },
+  "0xd1e5": {
+    "code": "0xd1e5",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1e6": {
+    "code": "0xd1e6",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00000000"
+  },
+  "0xd1e7": {
+    "code": "0xd1e7",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 0,
+    "raw_value_hex": "00"
+  },
+  "0xd1e8": {
+    "code": "0xd1e8",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "255",
+    "form_flag": 2,
+    "raw_value_hex": "ff"
+  },
+  "0xd1e9": {
+    "code": "0xd1e9",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1ea": {
+    "code": "0xd1ea",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 0,
+    "raw_value_hex": "01"
+  },
+  "0xd1ec": {
+    "code": "0xd1ec",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1ed": {
+    "code": "0xd1ed",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1f1": {
+    "code": "0xd1f1",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "8282",
+    "form_flag": 1,
+    "raw_value_hex": "5a200000"
+  },
+  "0xd1f2": {
+    "code": "0xd1f2",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1f4": {
+    "code": "0xd1f4",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd1f8": {
+    "code": "0xd1f8",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "32800",
+    "current_value": "32800",
+    "form_flag": 2,
+    "raw_value_hex": "2080"
+  },
+  "0xd1f9": {
+    "code": "0xd1f9",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "100",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1fa": {
+    "code": "0xd1fa",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "2",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd1fb": {
+    "code": "0xd1fb",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1fc": {
+    "code": "0xd1fc",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd1fd": {
+    "code": "0xd1fd",
+    "data_type": "0x4002",
+    "access": "GetOnly",
+    "default_value": "None",
+    "current_value": "None",
+    "form_flag": 5,
+    "raw_value_hex": "050000000200000000"
+  },
+  "0xd1fe": {
+    "code": "0xd1fe",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd1ff": {
+    "code": "0xd1ff",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "0100"
+  },
+  "0xd200": {
+    "code": "0xd200",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "8",
+    "current_value": "203",
+    "form_flag": 2,
+    "raw_value_hex": "cb00"
+  },
+  "0xd20d": {
+    "code": "0xd20d",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "2",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd20f": {
+    "code": "0xd20f",
+    "data_type": "0x0002",
+    "access": "GetOnly",
+    "default_value": "0",
+    "current_value": "2",
+    "form_flag": 2,
+    "raw_value_hex": "02"
+  },
+  "0xd211": {
+    "code": "0xd211",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd212": {
+    "code": "0xd212",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd213": {
+    "code": "0xd213",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd214": {
+    "code": "0xd214",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 1,
+    "raw_value_hex": "03"
+  },
+  "0xd215": {
+    "code": "0xd215",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd216": {
+    "code": "0xd216",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd218": {
+    "code": "0xd218",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd219": {
+    "code": "0xd219",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd21a": {
+    "code": "0xd21a",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "5000",
+    "current_value": "5000",
+    "form_flag": 1,
+    "raw_value_hex": "8813"
+  },
+  "0xd21b": {
+    "code": "0xd21b",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "24",
+    "current_value": "24",
+    "form_flag": 1,
+    "raw_value_hex": "18"
+  },
+  "0xd21c": {
+    "code": "0xd21c",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 1,
+    "raw_value_hex": "01"
+  },
+  "0xd21d": {
+    "code": "0xd21d",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd21e": {
+    "code": "0xd21e",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd21f": {
+    "code": "0xd21f",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd220": {
+    "code": "0xd220",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd221": {
+    "code": "0xd221",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd222": {
+    "code": "0xd222",
+    "data_type": "0xffff",
+    "access": "GetSet",
+    "default_value": "                                    ",
+    "current_value": "                                    ",
+    "form_flag": 0,
+    "raw_value_hex": "252000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020002000200020000000"
+  },
+  "0xd223": {
+    "code": "0xd223",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd224": {
+    "code": "0xd224",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd225": {
+    "code": "0xd225",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd226": {
+    "code": "0xd226",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd227": {
+    "code": "0xd227",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd228": {
+    "code": "0xd228",
+    "data_type": "0x0006",
+    "access": "GetOnly",
+    "default_value": "134219776",
+    "current_value": "230165216",
+    "form_flag": 0,
+    "raw_value_hex": "e00ab80d"
+  },
+  "0xd229": {
+    "code": "0xd229",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22a": {
+    "code": "0xd22a",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22b": {
+    "code": "0xd22b",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22c": {
+    "code": "0xd22c",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22d": {
+    "code": "0xd22d",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22e": {
+    "code": "0xd22e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd22f": {
+    "code": "0xd22f",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd230": {
+    "code": "0xd230",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd231": {
+    "code": "0xd231",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd232": {
+    "code": "0xd232",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd233": {
+    "code": "0xd233",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd234": {
+    "code": "0xd234",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd236": {
+    "code": "0xd236",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "0300"
+  },
+  "0xd237": {
+    "code": "0xd237",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "100",
+    "current_value": "8",
+    "form_flag": 2,
+    "raw_value_hex": "0800"
+  },
+  "0xd239": {
+    "code": "0xd239",
+    "data_type": "0x0001",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  },
+  "0xd23a": {
+    "code": "0xd23a",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "32789",
+    "current_value": "32789",
+    "form_flag": 2,
+    "raw_value_hex": "1580"
+  },
+  "0xd23b": {
+    "code": "0xd23b",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "3",
+    "form_flag": 2,
+    "raw_value_hex": "0300"
+  },
+  "0xd23c": {
+    "code": "0xd23c",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "612",
+    "current_value": "612",
+    "form_flag": 1,
+    "raw_value_hex": "6402"
+  },
+  "0xd23d": {
+    "code": "0xd23d",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 2,
+    "raw_value_hex": "00"
+  },
+  "0xd23e": {
+    "code": "0xd23e",
+    "data_type": "0x0004",
+    "access": "GetSet",
+    "default_value": "3",
+    "current_value": "100",
+    "form_flag": 2,
+    "raw_value_hex": "6400"
+  },
+  "0xd23f": {
+    "code": "0xd23f",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "1",
+    "current_value": "1",
+    "form_flag": 2,
+    "raw_value_hex": "01"
+  },
+  "0xd314": {
+    "code": "0xd314",
+    "data_type": "0x0002",
+    "access": "GetSet",
+    "default_value": "0",
+    "current_value": "0",
+    "form_flag": 1,
+    "raw_value_hex": "00"
+  }
+}

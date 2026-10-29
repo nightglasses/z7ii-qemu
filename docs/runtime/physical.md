@@ -120,10 +120,43 @@ This directly confirms the MAS firmware analysis in [`docs/runtime/ptp.md`](ptp.
 * Subcommand `0xF001` is the single bypass past the mode predicate;
 * Subcommand `0xF091` requires service state and enters the display-service broadcast.
 
+## Full vendor device property enumeration (0xD016..0xD314)
+
+While standard `GetDeviceInfo` reports only 21 general properties, vendor opcode
+`0x90CA` publishes the complete inventory of **259 Nikon vendor device properties**:
+
+* Raw inventory binary: [`payload_90ca.bin`](/evidence/physical/payload_90ca.bin) (522 bytes, 259 `u16` codes);
+* Range: `0xD016` to `0xD314`;
+* Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), mapping data types, `GetSet` access flags, default values, and active values.
+
+## Exhaustive F0 service table mapping (0xF000..0xF200)
+
+A systematic scan of the `0xF000..0xF200` range through `0x94FD` in unlocked state
+discovered **490 active service table entries** (matching the MAS firmware table
+at VA `0x119E405C`):
+
+* **Success responses**: 111 subcommands return `0x2001` (OK) directly with zero or default arguments;
+* **Data-returning subcommands**: 11 subcommands stream structured binary responses:
+  * `0xF006`: 4-byte engine status word;
+  * `0xF04C`: 60-byte task and clock telemetry record;
+  * `0xF050` / `0xF051` / `0xF052`: 28, 28, and 80-byte component identification tables containing ASCII `'01000160'`;
+  * `0xF06E`: 296-byte body parameter record;
+  * `0xF113` / `0xF114`: 8 and 12-byte sensor/timing timestamps;
+  * `0xF162` / `0xF163`: 12-byte status and 1402-byte bootstrap scratch block;
+  * `0xF1F9`: 8-byte subsystem status.
+
+All 11 payload captures are archived under [`service_payloads/`](/evidence/physical/service_payloads/manifest.json).
+
 ## Receipts and verification tools
 
 * Probe client: `tools/ptp/ptp_client.py`
 * Automated profile scanner: `tools/ptp/probe_full.py`
+* Vendor opcode scanner: `tools/ptp/scan_vendor_ops.py`
+* F0 service table scanner: `tools/ptp/scan_service_table.py`
+* Vendor property dumper: `tools/ptp/dump_vendor_properties.py`
+* Service payload dumper: `tools/ptp/dump_service_payloads.py`
 * Complete capability JSON: [ptp_profile.json](/evidence/physical/ptp_profile.json)
+* Vendor properties database: [vendor_properties_259.json](/evidence/physical/vendor_properties_259.json)
+* F0 service table scan results: [service_keys_scan.json](/evidence/physical/service_keys_scan.json)
 * Binary live view header: [liveview_header.bin](/evidence/physical/liveview_header.bin)
 * Live view sample image: [liveview_sample.jpg](/evidence/physical/liveview_sample.jpg)

@@ -325,6 +325,24 @@
         "title": "Nikon Z7II physical USB PTP interface and service mode baseline",
         "href": "/evidence/physical/ptp_profile.json",
         "kind": "Physical observation"
+      },
+      {
+        "run": "physicalvendorprops",
+        "title": "Nikon Z7II complete 259 vendor device properties database",
+        "href": "/evidence/physical/vendor_properties_259.json",
+        "kind": "Physical observation"
+      },
+      {
+        "run": "physicalservicescan",
+        "title": "Nikon Z7II MAS F0 service table 490 entries scan",
+        "href": "/evidence/physical/service_keys_scan.json",
+        "kind": "Physical observation"
+      },
+      {
+        "run": "physicalpayloads",
+        "title": "Nikon Z7II service subcommand binary payload captures",
+        "href": "/evidence/physical/service_payloads/manifest.json",
+        "kind": "Physical observation"
       }
     ]
   },
