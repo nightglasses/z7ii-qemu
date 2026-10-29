@@ -279,7 +279,7 @@ static void test_overlap(void)
 static void test_negative(void)
 {
     static const struct { unsigned offset; uint32_t value; } invalid[] = {
-        { 0, 1 }, { 0x18, 1 }, { 0x1c, 0 }, { 0x1c, 7 },
+        { 0x18, 1 }, { 0x1c, 0 }, { 0x1c, 7 },
         { 0x20, 7 }, { 0x24, 0 }, { 0x28, 0 },
         { 0x2c, 0xfffffffc }, { 0x30, 0xfffffffc },
     };
@@ -289,6 +289,16 @@ static void test_negative(void)
 
     memset(expected, 0xa5, SIZE);
     for (unsigned engine = 0; engine < 2; engine++) {
+        /* Offset 0 is engine enable: 0 and 1 are accepted; > 1 is rejected. */
+        g_assert_cmpint(write_port(f, engine, 0, 1, MO_32), ==, MEMTX_OK);
+        g_assert_cmpint(write_port(f, engine, 0, 2, MO_32), ==, MEMTX_ERROR);
+        configure(f, engine, 0x10, 16, 16, 8, 2, SOURCE, DESTINATION);
+        write_word(f, engine, 0, 1);
+        g_assert_cmpint(write_port(f, engine, 0x10, 1, MO_32), ==, MEMTX_OK);
+        g_assert_cmphex(read_word(f, engine, 8), ==, 1);
+        acknowledge(f, engine);
+        memset(f->dst, 0xa5, SIZE);
+
         for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
             device_cold_reset(f->dev);
             configure(f, engine, 0x10, 16, 16, 8, 2, SOURCE, DESTINATION);

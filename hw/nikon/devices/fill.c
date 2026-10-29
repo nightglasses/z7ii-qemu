@@ -261,7 +261,7 @@ static MemTxResult nikon_fill_start(NikonFillState *s, NikonFillEngine *e,
      * Bit4 preserves the caller's independent byte; its identical byte-level
      * effect in this finite operator is a hypothesis, not silicon semantics.
      */
-    if (e->control || (e->configured & required) != required ||
+    if ((e->configured & required) != required ||
         (e->flags & ~0x11U) || e->pattern ||
         !e->row_bytes || !e->count || e->pitch < e->row_bytes ||
         (uint64_t)e->destination + extent > (1ULL << 32) ||
