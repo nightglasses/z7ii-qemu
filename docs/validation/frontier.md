@@ -308,9 +308,32 @@ advances its FIFO consumer, with14 active work records and441 free event bits
 at the stopped census; no SPI empty-read error is reported. It nevertheless
 fails before the first planned mode switch: CPU1 task `010000fd` takes a data
 abort at MAS VA `102bd93c`, DFAR0. This is an indirect object-pointer
-dereference, not the previous SPI access or allocator exhaustion. Its upstream
-producer remains under investigation. That first failure is retained; stable
-M/A/S/P transitions are still unaccepted.
+dereference, not the previous SPI access or allocator exhaustion. Resource74's
+producer retains ten records in FIFO `b23630e0`, freeing the oldest on overflow;
+the consumer borrows the record without a retain. The stopped graph shows
+jobs393/403 sharing the same record, now tagged403, and394/404 likewise tagged404.
+Job395's retained record is entirely zero. This establishes stale/reused
+ownership in the snapshot. The precise release call, including overflow versus
+stop cleanup, has not been traced dynamically.
+
+The oldest job393 is also waiting for three software dependency masks through
+`102664a0 ->102b4962`; it is not polling a newly discovered hardware register.
+Its lane2 and lane3 have already finished. The later lane3 consumer waits for
+normal MAIN credit `00800000`, consumes that credit, and only then reads the
+resource. Available data does not separate delayed real MAIN production from
+ready-worker scheduling delay. No missing peripheral completion has yet been
+established, so neither a replacement pointer nor an extra event is justified.
+A post-exception task dump places CaptureService on configuration mutex37,
+owned by task18. A separate intentional pre-error stop at FIFO count10 instead
+finds CaptureService current on CPU0, while CAPTG/CAPSEQ wait on their normal
+dispatchers and the MAIN worker waits on its mailbox. That snapshot has only
+three active graph records. Consequently mutex contention is a candidate to
+measure before the fault, not an established permanent wait or a justification
+to bypass the lock.
+A separate bounded diagnostic reaches the historical AF abort at `1021d7ce`
+after48.57 host seconds; it does not reproduce or explain this resource74 fault.
+The first acceptance failure is retained; stable M/A/S/P transitions are still
+unaccepted.
 
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that

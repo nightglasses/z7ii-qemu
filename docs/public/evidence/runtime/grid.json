@@ -1458,6 +1458,148 @@
         "First planned mode switch was not reached",
         "New original null dereference requires its own producer analysis; no retries override this failure"
       ]
+    },
+    "resource74_next_boundary": {
+      "scope": "Original-byte source analysis and the same stopped first-failure snapshot; not a new peripheral model",
+      "dereference_mas_va": "0x102bd93c",
+      "meaning": "ctx+788 borrows owner+3ce0; that field points to a resource74 record; record+4 backing is dereferenced",
+      "r0_zero": "Explicit normal argument initialization, not evidence a previous callee failed",
+      "producer_mas_va": "0x102677de",
+      "overflow_free_mas_va": "0x10267c3e",
+      "fifo_mas_va": "0xb23630e0",
+      "normal_limit": 10,
+      "free_mas_va": "0x1030d9a4",
+      "resource": 74,
+      "free_chain": [
+        "10298c60 class mutex and inhibit check",
+        "10298f78 releases real backing through10297d2e",
+        "10298fc2 ->10361034 clears record"
+      ],
+      "reference_count_found": false,
+      "consumer_mas_va": "0x1026911a",
+      "consumer_guard": "owner+3ce0 nonzero; no record retain or backing lifetime check",
+      "snapshot": [
+        {
+          "jobs": [
+            393,
+            403
+          ],
+          "record_mas_va": "0xb2c99410",
+          "current_record_sequence": 403
+        },
+        {
+          "jobs": [
+            394,
+            404
+          ],
+          "record_mas_va": "0xb2c991e0",
+          "current_record_sequence": 404
+        },
+        {
+          "job": 395,
+          "record_mas_va": "0xb2c98fb0",
+          "all_eight_words_zero": true
+        }
+      ],
+      "oldest_software_wait": {
+        "job": 393,
+        "microstep_mas_va": "0x102664a0",
+        "wait_mas_va": "0x102b4962",
+        "native_timeout": 50,
+        "event_word_mas_va": "0xb1f59ad4",
+        "masks": [
+          "0x2000",
+          "0x20000",
+          "0x40000"
+        ],
+        "lane2": "DONE",
+        "lane3": "DONE"
+      },
+      "main_consumer": {
+        "wait_mas_va": "0x102690c2",
+        "credit_mask": "0x00800000",
+        "decrement_mas_va": "0x102690e2",
+        "resource_read_mas_va": "0x1026916a",
+        "observed_credit_remaining": "Usually0/1, occasional2; not an accumulating unused completion backlog"
+      },
+      "verified": "Retained old job pointers already refer to cleared or newer-sequence records",
+      "hypothesis": "Producer FIFO eviction can overtake a live consumer when processing falls more than ten records behind",
+      "unestablished": [
+        "The exact same-record dynamic pop/free versus stop-cleanup chain",
+        "Whether missing real MAIN production, ready-worker execution delay, or another upstream condition causes this overrun",
+        "A source-backed new peripheral event/ready response to add"
+      ]
+    },
+    "separate_diagnostic_after_first_failure": {
+      "scope": "Bounded read-only reproduction attempt, not mode acceptance; does not supersede firstfailure",
+      "host_seconds": 48.569035583990626,
+      "paired_completed": 1095,
+      "first_exception_pc_mas_va": "0x1021d7ce",
+      "dfar": "0x0",
+      "meaning": "Historical AF null-pointer failure, distinct from102bd93c",
+      "spi_empty_read_reported": false,
+      "pointer_snapshot_qualification": "Resource74 pointer observations after this different fault cannot establish the102bd93c release chain"
+    },
+    "configuration_mutex_qualification": {
+      "post_exception_dump": {
+        "scope": "First failure task dump after exception; not a prefault timing proof",
+        "capture_service": "WAIT mutex37",
+        "mutex_wrapper_mas_va": "0xb1868164",
+        "owner_task": "0x01000018",
+        "capture_stack_mas_returns": [
+          "10360f37",
+          "1026b58f",
+          "10358ecb",
+          "10359739",
+          "10319809"
+        ],
+        "owner_state": "READY",
+        "owner_stack_includes": "configuration lookup and AF1021e56b"
+      },
+      "source_lookup": {
+        "table_count_cell_mas_va": "0xb18aec04",
+        "table_base_cell_mas_va": "0xb18aec08",
+        "stride_bytes": 40,
+        "id_offset": 8,
+        "owner_tcb_pointer_offset": 24,
+        "mutex_wait_specs_mas_va": [
+          "0xb18aec14",
+          "0xb18aec20",
+          "0xb18aec2c"
+        ]
+      },
+      "separate_prefault_snapshot": {
+        "scope": "Intentional bounded read-only stop, not acceptance or reproduction of the first failure",
+        "host_seconds": 26.078884041984566,
+        "trigger": "CaptureService FIFO count first reaches10",
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "paired_completed": 523,
+        "main_processing_completed": 523,
+        "active_graph_records": 3,
+        "capture_service": {
+          "state": "READY and current/scheduled CPU0",
+          "internal_priority": 9,
+          "saved_context": "Stale while current; saved wait fields do not prove a mutex wait"
+        },
+        "task18": {
+          "state": "READY",
+          "current": false,
+          "internal_priority": 11
+        },
+        "main_worker_fd": {
+          "state": "WAIT",
+          "kind": "mailbox",
+          "object_id": "0x0100004e"
+        },
+        "capseq_and_captg": "WAIT on normal dispatchers",
+        "mutex_cb": "Not captured; table layout was resolved after the stop",
+        "guest_memory_writes": false
+      },
+      "conclusion": "No permanent CaptureService mutex wait, device wait or missing completion established across these distinct observations"
     }
   }
 }
