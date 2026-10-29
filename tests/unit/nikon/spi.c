@@ -25,6 +25,7 @@ typedef struct SPIFixture {
     DeviceState *dev;
     DeviceState *peripheral;
     MemoryRegion *regs;
+    Clock *clock;
     qemu_irq observed[4];
     bool level[4];
 } SPIFixture;
@@ -91,6 +92,10 @@ static SPIFixture *fixture(bool dma)
                               OBJECT(f->dev));
     qdev_prop_set_bit(f->dev, "dma", dma);
     qdev_prop_set_uint32(f->dev, "channel", dma ? 2 : 0);
+    /* Drive a source: updating the input directly does not call its callback. */
+    f->clock = clock_new(OBJECT(f->dev), "test-clock");
+    clock_set_hz(f->clock, 48000000);
+    qdev_connect_clock_in(f->dev, "spi-clock", f->clock);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
     for (unsigned i = 0; i < ARRAY_SIZE(f->observed); i++) {
         f->observed[i] = qemu_allocate_irq(observe, f, i);
@@ -160,7 +165,7 @@ static void enqueue(SPIFixture *f)
 static void elapsed_prepare(SPIFixture *f)
 {
     prepare(f);
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    clock_update_hz(f->clock, 100000000);
     write_word(f, 8, 6);
 }
 
@@ -273,21 +278,21 @@ static void test_elapsed_cancel_clock(void)
     g_assert_cmpuint(s->count, ==, 0);
 
     elapsed_prepare(f);
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 0);
+    clock_update_hz(f->clock, 0);
     write_word(f, 0, 0x3456);
     write_word(f, 0, 0x789a);
     write_word(f, 0x3c, 1);
     cpus_set_virtual_clock(start + 300000);
     g_assert_cmpuint(read_word(f, 0x30), ==, 0);
     g_assert_cmpuint(s->count, ==, 0);
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    clock_update_hz(f->clock, 100000000);
     cpus_set_virtual_clock(start + 301000);
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 0);
+    clock_update_hz(f->clock, 0);
     cpus_set_virtual_clock(start + 400000);
     g_assert_cmphex(read_word(f, 4), ==, 0x3456 ^ 0xa55a);
     g_assert_cmpuint(s->count, ==, 1); /* Active sampled word only. */
     g_assert_cmpuint(read_word(f, 0x2c), ==, 1);
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    clock_update_hz(f->clock, 100000000);
     cpus_set_virtual_clock(start + 402239);
     g_assert_cmpuint(read_word(f, 0x30), ==, 0);
     cpus_set_virtual_clock(start + 402240);
@@ -708,7 +713,7 @@ static void dma_cadence(unsigned words, bool late)
                                 qdev_get_gpio_in(dma, 9));
     qdev_connect_gpio_out_named(f->dev, "dma", 1,
                                 qdev_get_gpio_in(dma, 10));
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    clock_update_hz(f->clock, 100000000);
     bytes = memory_region_get_ram_ptr(&ram);
     memset(bytes, 0xff, 0x4000);
     for (unsigned i = 0; i < words; i++) {
