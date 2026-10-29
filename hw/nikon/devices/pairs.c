@@ -280,7 +280,7 @@ static bool nikon_paired_event_banks_config(hwaddr offset, unsigned bank)
      * MAS1036a2ac / SLA10096d20 write the full eight-field packet;
      * a8 retains byte2 without a modeled completion side effect.
      */
-    case 0xa8: case 0xac: case 0xf0: case 0x67c:
+    case 0xa8: case 0xac: case 0xec: case 0xf0: case 0x67c:
         return true;
     case 0xd0: case 0xb0:
         return bank == 0;
@@ -303,6 +303,8 @@ static bool nikon_paired_event_banks_value(hwaddr offset, uint32_t value)
         return value <= 1;
     case 0xfc:
         return value <= 1;
+    case 0xec:
+        return value == 0xffffff71;
     case 0xf0:
         return value == 0x8e || value == 0xfc400;
     default:
@@ -472,7 +474,8 @@ static bool paired_live_word(unsigned offset)
         return true;
     }
     switch (offset) {
-    case 0xc: case 0x84: case 0x88: case 0x8c: case 0xf0:
+    case 0: case 4: case 0xc: case 0x84: case 0x88: case 0x8c:
+    case 0xec: case 0xf0:
     case 0x40: case 0x44: case 0x48: case 0x4c: case 0x50:
     case 0x94: case 0x98: case 0x9c: case 0xa0: case 0xa8:
     case 0xb8: case 0xbc: case 0xc0: case 0xc4: case 0xc8: case 0xcc:
@@ -1126,6 +1129,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
                             unsigned p)
 {
     static const struct { unsigned offset; uint32_t value; } controls[] = {
+        { 0, 3 }, { 4, 3 },
         { 0x40, 5 }, { 0x4c, 1 }, { 0x50, 0 }, { 0x84, 1 },
         { 0x98, 0x400 }, { 0xa0, 3 },
         { 0xb8, 1 }, { 0xbc, 1 }, { 0xc0, 0 }, { 0xc8, 0 }, { 0xcc, 0 },
@@ -2228,6 +2232,33 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
 
     if (size != 4 || (offset & 3)) {
         return nikon_paired_event_banks_error(b, offset, size, true, value);
+    }
+    if (offset == 0 || offset == 4) {
+        if (value != 3) {
+            return nikon_paired_event_banks_error(b, offset, size, true, value);
+        }
+        /*
+         * MAS10369ac0/10369b58 and10369e4c share these local control pulses.
+         * Virtual law: quiesce on every write, including an unchanged3. Close
+         * admission before cancellation can latch/retry. Pending, mask, RAW
+         * freshness, history, numerical staging and prior results stay intact.
+         */
+        b->request = PAIRED_QUIESCENT;
+        b->commit_pending = false;
+        b->stop = 0;
+        paired_cancel(b);
+        b->config[offset / 4] = value;
+        paired_try(&b->parent->bank[1 - b->index],
+                   b->regs.addr + offset, value);
+        return MEMTX_OK;
+    }
+    if (offset == 0xec) {
+        if (!nikon_paired_event_banks_value(offset, value)) {
+            return nikon_paired_event_banks_error(b, offset, size, true, value);
+        }
+        /* Source10369e4c's opaque command has no proved mask/ACK operation. */
+        b->config[offset / 4] = value;
+        return MEMTX_OK;
     }
     if (offset == 0x10 || offset == 8) {
         NikonPairedRequestState required, next;

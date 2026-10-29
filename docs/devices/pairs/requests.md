@@ -58,6 +58,73 @@ That event must not be replaced with a hardware completion. IRQ99/100 handlers
 `103699a4/10369968` consume raw pending at+`24` through existing W1C and callback
 routing. Raw progress classes and numerical result production remain separate.
 
+### Bank-local teardown
+
+C1.70 MAS VA `10369e4c` selects a bank from object byte4, then writes
+`ec=ffffff71`, `00=3`, `04=3`. It next calls the selected controller methods,
+changes SYS selectors `50..53/58` or `54..57`, and clears its software state.
+The state2 branch also pulses a separate controller bit through
+`103b0954/103b095a`; these calls are not paired MMIO or a result producer.
+Setup `10369b58` writes `0c=1`, `00/04=3`, `e8=ffffff71`, `f0=8e`;
+initializer `10369ac0` also writes `00/04=3`. This establishes the complete
+software control family, not the physical meaning of individual reset domains.
+
+Repeated worker `102e4724` calls teardown after ordinary result/drain and
+from its error or abort branches. Callback `102e44b6` can enter it through the
+asynchronous stop route. Therefore model safety cannot depend on a successful
+preceding frame, an empty RAW provider or unchanged control values. The
+separate cancellation helper `10369fd2` writes `84=0`, `f0=fc400` and ordered
+`54/60/6c/78=1`; its aggregate stop-detail contract remains distinct.
+
+**Finite control law:** aligned 32-bit `00=3` or `04=3` quiesces the selected
+bank on every write, including a same-value pulse. It first closes admission,
+revokes a queued view commit and cancels an unfinished aggregate-stop sequence;
+then the existing token cancellation revokes owned numerical work. Queued or
+running host children retain their buffers until the normal terminal handoff.
+A ready private result can be discarded immediately because those children
+have already returned. Late arithmetic or capacity callbacks cannot reopen
+the quiesced request. The peer may retry its real input after conflicting
+ownership is released. No DMA, consumed-generation update, frame/drain/stop
+completion, ACK, software credit or IRQ is manufactured by these pulses.
+
+This is a bank-local cancellation hypothesis, not a recovered silicon reset.
+It retains last result/output bytes, phases until the next start, pending bits,
+mask, RAW freshness, numerical history, committed registers and incomplete
+numerical publication coverage. It differs from whole-device reset, which
+clears both banks and their provider epochs. The original `10=1` then `08=1`
+explicitly reopens a bank; pending ACK, complete parameter publication, fresh
+RAW and actual host-owner release still gate its next computation. Both
+`00/04` must contain3 for the finite numerical profile.
+
+`ec=ffffff71` is retained as the only source-established EC command shape;
+other values and malformed accesses reject. Its readback and cold zero are
+virtual storage conventions. EC alone does not cancel, ACK or alter E8's
+existing full-word mask. No source proves a generic mask-set/clear alias or
+the roles of the zero/one bits; a recovered independent EC writer or hardware
+readback is needed to distinguish those physical alternatives. Treating the
+whole known teardown recipe as a bounded control protocol does not justify
+accepting arbitrary EC values. E8 mask assignment, raw24 W1C and F0's retained
+command shapes keep their existing contracts.
+
+The interpreted control slots `00/04/ec` must be zero in the explicit
+[calibration input](pixels.md#explicit-calibration-input); guest MMIO supplies
+them. They no longer participate in opaque numerical-tuple comparison.
+No old-input fallback is provided. The native shutdown fixtures exercise
+same-value queued/ready revocation, PREFIX/POST stages, retained history and
+freshness, pending/mask isolation, cancelled future commits, incomplete gain
+publication, explicit reopen, both banks and actual peer retry. Native success
+is separate from unchanged-firmware shutdown and physical reset fidelity.
+
+The [teardown receipt](/evidence/runtime/grid.json) records the initial EC
+rejection and the later failed-DMA/drain false-completion regression before
+their fixes. The final 57 paired-unit/23 SLA checks and focused CMOS peer
+case pass; the preceding full CMOS138 run is separately scoped. In the first
+uninstrumented OFF window, both banks reach quiescent/no-host-owner with
+736 paired jobs, zero paired rejections and one actual cancellation. The
+next stop becomes gate PA `201020a4=1`, MAS VA `103bd1ca`, after33.24 host
+seconds. An earlier MAIN affine phase3 rejection remains unresolved. Neither
+that window nor native success proves complete power-off or long queue bounds.
+
 ### Completion credits and work-record retirement
 
 C1.70 has separate paired, MAIN and RGB-grid completion credits. An unchanged

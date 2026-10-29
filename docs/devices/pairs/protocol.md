@@ -6,6 +6,10 @@ containing `203800a8` and separates configuration from later start/wait paths.
 See the [startup frontier](../../validation/frontier.md) for current execution.
 The subsequent [pixel contract](pixels.md) supersedes the historical unsupported
 request/result boundary below; the archived measurements keep their earlier scope.
+The current [bank-local teardown](requests.md#bank-local-teardown) also replaces
+the historical opaque treatment of `00/04`: same-value pulses now quiesce the
+selected request without completion. EC is a qualified retained command with
+unrecovered mask algebra, not a generic write-discard aperture.
 
 Native C and fixture recipe are `bb5b833e7a1190822081dc3604d13776bb5bd8aa`, on the independent 2010 report `0fc69a8bcaf34921d56d4875b0291a16ccca3e86`. Source is `ba8c1869fc53b966b3abc8b85b8b882a198c2c17`, `research/z7ii/qemu-2038-control-contract.md` in the source worktree. Its continuous original-byte scope is2,190B/914 Thumb instructions, with two pools excluded. Initializer10369ac0 still lacks a saved enclosing native function; diagnostic continuity is not native/P-code/complete-EA acceptance. The separately saved status helper1036ca6e is1BB/6B/3 instructions: it computes the bank stride and reads, without producing or polling ready. Later methods beyond1036a246, parameters, physical IP identity and external producers remain unknown.
 

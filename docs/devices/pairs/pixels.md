@@ -76,7 +76,7 @@ provide their live controls, geometry, addresses and matrix coefficients.
 four-byte words and includes both endpoints:
 
 ```text
-0c, 84, 88, 8c, f0
+00, 04, 0c, 84, 88, 8c, ec, f0
 40, 44, 48, 4c, 50, 94, 98, 9c, a0, a8
 b8, bc, c0, c4, c8, cc, d4, d8, dc, e0, e4
 f8, fc, 100, 104, 108, 10c, 110, 11c, 120, 124, 128
@@ -289,6 +289,7 @@ range means that every listed word has the stated value.
 
 | Relative offsets | Required values |
 | --- | --- |
+| `00`, `04` | `3` each; live control pulses, not calibration coefficients |
 | `40`, `4c`, `50`, `94`, `98`, `a0`, `a8` | `5`, `1`, `0`, `0`, `400`, `3`, `4` |
 | `84`, `f0` | `1`, `8e` |
 | `b8`, `bc`, `c0`, `c8`, `cc` | `1`, `1`, `0`, `0`, `0` |
@@ -541,6 +542,7 @@ acknowledgement or elapsed timer alone supplies a completed RAW buffer.
 | Premature `10=1` while awaiting input | Accept a no-op kick; preserve request and all work/freshness state |
 | `0c=1` while awaiting input | Enter drain pending; stop admitting new jobs |
 | Drain has a successful publication, no active job and all pending bits acknowledged | Become quiescent and publish final bit `2` once |
+| `00=3` or `04=3`, including unchanged values | Quiesce the selected bank, revoke a queued commit and cancel owned work without completion; retain prior data/pending/mask and numerical staging |
 | Whole-device reset | Cancel owned work and clear request, configuration, table coverage, results, histories, source slots and pending state |
 
 Pending status is read at `24` and acknowledged by W1C at the same offset.
@@ -730,6 +732,9 @@ The supported stop sequence is `84=0`, `f0=fc400`, then `54=1`, `60=1`, `6c=1`,
 work. Only after all stop commands are accepted does the bank become quiescent
 and publish aggregate stop detail `014a0080`. Misordered or malformed stop
 commands reject. Stop acknowledgement is separate from a successful frame.
+The final [bank-local teardown](requests.md#bank-local-teardown) uses a different
+control family and produces no aggregate stop detail. EC's physical bit algebra
+remains unproved; the model does not silently treat it as a mask alias.
 The first stop step and normal drain request discard a queued view commit and
 return the staged `fc` readback to the live selector. A kick during the stop
 sequence rejects. Reset clears both selectors to zero and invalidates any
@@ -816,8 +821,10 @@ numerical configuration and re-decodes only current topology. It never invokes
 future numerical/profile qualification; partially uploaded fields cannot reject
 an otherwise completed old computation. Current addresses, RAM backing, pending
 ownership and downstream generation are still checked. A partial round survives
-drain into quiescent state and can finish there before rearming; stop/reset
-discard its coverage and cancel owned work. Live-address invalidation retains
+drain into quiescent state and can finish there before rearming; the aggregate
+`84` stop and whole-device reset discard its coverage and cancel owned work.
+Local `00/04` teardown pulses retain that coverage, so rearm cannot borrow
+missing words from an older publication. Live-address invalidation retains
 its separate cancellation rule.
 
 Changed complete pre-color filter, denoise, detail, axial and color-filter

@@ -2427,5 +2427,150 @@
       "next_stop": "Same strict WRITE32 PA203800EC=FFFFFF71 at MAS VA10369F02",
       "scope": "Original source getter and cleanup consume a complete nonzero virtual monitor after normal stop; optional workspace copying is covered natively, not observed here"
     }
+  },
+  "paired_bank_teardown": {
+    "source_binding": "Accompanying pairs.c bank-local teardown delta on accepted GUI3927af7f; per-run base and complete product overlay retained",
+    "firmware": "Original C1.70 unchanged; five-CPU MTTCG",
+    "source_established": [
+      "10369B58 setup: selected banks0C=1,00/04=3,E8=FFFFFF71,F0=8E;10369AC0 also writes00/04=3",
+      "10369E4C teardown: EC=FFFFFF71,00/04=3, then controller/SYS/software state handling; normal drain, error/abort102E4724 and async102E44B6 can call it",
+      "10369FD2 separately writes84=0,F0=FC400 and54/60/6C/78=1; it is not the final local-control family",
+      "Physical EC bit algebra and individual00/04 reset domains remain unproved"
+    ],
+    "functional_law": {
+      "EC": "Exact source command retained with virtual cold/readback storage; no mask algebra, ACK, cancellation, drain settlement or retry side effect",
+      "00_04": "Every aligned32-bit3 pulse quiesces only its bank, closes request admission and revokes pending view commit/aggregate-stop sequence before existing token cancellation",
+      "retained": "Last output/result, pending/mask, phase until next08, RAW/grid freshness, history and all numerical staging/partial coverage",
+      "owner": "Queued/running children retain buffers until actual terminal main-Aio handoff; ready private results can be freed immediately. Old callbacks cannot reopen the request. Peer may retry actual unconsumed input.",
+      "reopen": "Original10 then08, complete parameter coverage, acknowledged pending, real fresh RAW and host owner release; numerical profile requires00/04=3",
+      "absent": "No new timer/frame/drain/stop completion, guest callback, slot/credit release or forced ACK"
+    },
+    "input_contract": {
+      "profile": "Same cold-neutral resource80, eight finite timing rows, normal RNG0 UART battery, virtual lens, fresh8GiB MBR/FAT32 card, PGM scene and numerical calibration; initial M, maintained main switch ON then ordinary OFF",
+      "calibration_delta": "Interpreted00/04/EC input slots must be zero. Previous opaque00/04=3 become0; EC remains0. Guest MMIO supplies the actual controls. Other calibration bytes and firmware are unchanged; no old-input fallback."
+    },
+    "native": {
+      "initial_red": {
+        "case": "/nikon/paired/shutdown/mask",
+        "seconds": 0.6,
+        "failure": "Original EC write returns MEMTX_ERROR"
+      },
+      "first_green": {
+        "shutdown_cases": 5,
+        "seconds": 0.57
+      },
+      "first_full_batch_before_final_EC_isolation": [
+        {
+          "suite": "nikon_paired_unit",
+          "cases": 56,
+          "seconds": 0.69,
+          "result": "PASS"
+        },
+        {
+          "suite": "nikon_cmos",
+          "cases": 138,
+          "seconds": 367.41,
+          "result": "PASS"
+        },
+        {
+          "suite": "nikon_sla",
+          "cases": 23,
+          "seconds": 12.1,
+          "result": "PASS"
+        }
+      ],
+      "review_regression_red": {
+        "case": "/nikon/paired/shutdown/failed-drain",
+        "seconds": 0.65,
+        "failure": "Old successful publication plus failed current DMA/drain made generic EC config processing synthesize final bit2 and quiesce request"
+      },
+      "final_EC_isolation_checks": [
+        {
+          "suite": "nikon_paired_unit",
+          "cases": 57,
+          "seconds": 0.76,
+          "result": "PASS"
+        },
+        {
+          "suite": "nikon_sla",
+          "cases": 23,
+          "seconds": 11.35,
+          "result": "PASS"
+        },
+        {
+          "suite": "nikon_cmos /arm/nikon/cmos/paired/shutdown-peer",
+          "cases": 1,
+          "seconds": 0.51,
+          "result": "PASS"
+        }
+      ],
+      "normal_tap_and_exit": true,
+      "coverage": "Same-value00/04 queued and paused-ready revocation; PREFIX/POST children; no late DMA/freshness advancement or auto reopen; cancelled future commit does not latch; partial gain upload survives and blocks until complete; prior result/history/RAW/pending/mask preservation; both banks/actual peer retry; malformed EC bits/width/alignment/values; zero-control calibration requirements; failed-drain EC does not settle or IRQ"
+    },
+    "first_original_window": {
+      "role": "First uninstrumented normal main-switch OFF attempt for this source delta; whole-scenario failure retained",
+      "host_seconds": 33.24461595900357,
+      "scenario_pass": false,
+      "paired_bank_quiescence_crossed": true,
+      "paired_completed": 736,
+      "main_processing_completed": 735,
+      "paired_counters": {
+        "cancelled": 1,
+        "rejected": 0,
+        "blocked": 3
+      },
+      "paired_inflight": 0,
+      "bank_requests": [
+        0,
+        0
+      ],
+      "bank_active": [
+        false,
+        false
+      ],
+      "bank_pending": [
+        0,
+        0
+      ],
+      "bank_masks": [
+        "FFFFFF71",
+        "0"
+      ],
+      "capture_service_state_before_OFF": "09",
+      "capture_service_state_at_stop": "0a",
+      "capture_service_state_numeric_base": "hexadecimal",
+      "fifo_count": 5,
+      "diagnostic_flags": [
+        0,
+        0,
+        0
+      ],
+      "diagnostic_length": 0,
+      "qmp_status": {
+        "status": "debug",
+        "running": false
+      },
+      "next_stop": {
+        "mas_va_pc": "103BD1CA",
+        "pa": "201020A4",
+        "direction": "write",
+        "width": 4,
+        "value": 1,
+        "reason": "event-gate-access-or-command-not-supported"
+      },
+      "separate_prior_affine_rejection": {
+        "first_host_seconds": 26.239526791963726,
+        "count_at_stop": 1,
+        "stage": "MAIN affine phase3",
+        "before_OFF": true,
+        "physical_cause": "Unresolved; not erased by successful paired cleanup"
+      },
+      "debugger_or_plugin": false,
+      "guest_state_writes": false,
+      "limit": "No complete shutdown, long FIFO bound, normal all-mode acceptance or physical reset fidelity"
+    },
+    "independent_review": "First review found EC settlement side effect; focused regression reproduced it. Dedicated EC store/return and final failed-drain fixture/contract reviewed CLEAR.",
+    "next_source_join": "103BD1C4 actually stores1 then0 to201020A4. Caller10388B3C processes421930E6, releases resources via1038897E and pulses only if software bitmapB1D52228 has neither bit8 nor bit9. Decompiler had eliminated the overwritten first store; actual instructions establish both.",
+    "omitted": "Firmware bytes/disassembly, raw traces/register dumps, machine-specific paths and input images"
   }
 }
