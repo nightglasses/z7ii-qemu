@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Systematic RAM and Calibration Data Extraction Tool for Nikon Z 7II
-Dumps live physical memory, NVRAM blocks, and OS runtime structures for nightglass-qemu.
-Executes single-shot transfers for maximum speed and zero timeout risk.
+Service-address and annotated NVRAM capture tool for Nikon Z 7II
+Captures requested service-address ranges and NVRAM prefixes.
+Filenames and subsystem labels are annotations, not decoded resource identities.
 """
 
 import hashlib
@@ -15,7 +15,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ptp_client import PTPClient
 
-OUTPUT_DIR = "/Users/auturora/.codex/worktrees/physical-ptp/nightglass-qemu/docs/public/evidence/physical/ram_dumps"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "docs/public/evidence/physical/ram_dumps")
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -32,7 +33,7 @@ def main():
         client.execute_transaction(0x94fd, [0xF001, 0, 0, 0, 0])
 
         # 1. Early DRAM (0x04000000 - 1MB single shot)
-        print("[+] 1/6 Dumping 1MB Early DRAM (0x04000000) via 0xF032...")
+        print("[+] 1/6 Capturing 1MB requested address range (0x04000000) via 0xF032...")
         t0 = time.time()
         data, resp = client.execute_transaction(0x94fd, [0xF032, 0x04000000, 1024 * 1024, 0, 0], timeout=10000)
         dt = time.time() - t0
@@ -42,18 +43,21 @@ def main():
         with open(fpath, "wb") as f:
             f.write(dram_1mb)
         manifest[fname] = {
-            "type": "DRAM_PHYSICAL",
+            "type": "F032_ADDRESS_RANGE",
+            "address_domain": "Service-request address; VA/PA translation unverified",
+            "requested_length": 1024 * 1024,
+            "response_code": hex(resp["code"]) if resp else None,
             "base_address": "0x04000000",
             "length": len(dram_1mb),
             "sha256": sha256_bytes(dram_1mb),
             "duration_sec": round(dt, 3),
             "throughput_mb_s": round(len(dram_1mb) / max(dt, 0.001) / (1024 * 1024), 2),
-            "description": "Multi-core ARM Cortex exception vectors, boot trampolines, CPU mode stacks, and early staging heap."
+            "description": "F032 requested range at 0x04000000; ARM instruction patterns and stack literals, not a validated reset image."
         }
         print(f"    Saved {fname} ({len(dram_1mb)} bytes in {dt:.3f}s)")
 
         # 2. MAS Runtime Globals (0xB188B000 - 8KB single shot)
-        print("[+] 2/6 Dumping 8KB MAS Runtime Globals (0xB188B000) via 0xF032...")
+        print("[+] 2/6 Capturing 8KB requested runtime range (0xB188B000) via 0xF032...")
         data, resp = client.execute_transaction(0x94fd, [0xF032, 0xB188B000, 8192, 0, 0], timeout=3000)
         mas_globals = data['payload'] if data else b''
         fname = "dram_mas_globals_b188b000.bin"
@@ -61,23 +65,26 @@ def main():
         with open(fpath, "wb") as f:
             f.write(mas_globals)
         manifest[fname] = {
-            "type": "MAS_RUNTIME_GLOBALS",
+            "type": "F032_ADDRESS_RANGE",
+            "address_domain": "Service-request address; VA/PA translation unverified",
+            "requested_length": 8192,
+            "response_code": hex(resp["code"]) if resp else None,
             "base_address": "0xB188B000",
             "length": len(mas_globals),
             "sha256": sha256_bytes(mas_globals),
-            "description": "MAS OS kernel task control blocks, PTPCMD state byte (0xb188b768), session ID (0xb188bc6c), and service predicate (0xb188bc80)."
+            "description": "F032 requested range at 0xB188B000; target-version runtime field bindings unresolved."
         }
         print(f"    Saved {fname} ({len(mas_globals)} bytes)")
 
         # 3. NVRAM Resource Blocks via 0xF029 (sel 0..6)
         f029_blocks = [
-            (0, 65536, "nvram_resource_80_master.bin", "Resource 80 Master Calibration block (optical center, sensor geometry, bad pixel maps)."),
-            (1, 65536, "nvram_resource_71.bin", "Resource 71 Subsystem NVRAM parameter block."),
-            (2, 32768, "nvram_resource_70.bin", "Resource 70 Subsystem NVRAM parameter block."),
-            (3, 65536, "nvram_resource_79.bin", "Resource 79 Calibration mirror/shadow block."),
-            (4, 65536, "nvram_resource_11.bin", "Resource 11 Sensor analog frontend gain/offset block."),
-            (5, 65536, "nvram_resource_12.bin", "Resource 12 Exposure/metering calibration block."),
-            (6, 65536, "nvram_resource_67_afadjust.bin", "Resource 67 AFadjustkohatsu factory autofocus lens adjustment block.")
+            (0, 65536, "nvram_resource_80_master.bin", "F029 selector0 requested prefix; resource80 identity, extent and calibration fields are unverified."),
+            (1, 65536, "nvram_resource_71.bin", "F029 selector1 capture; resource71 label and subsystem field meanings are unverified."),
+            (2, 32768, "nvram_resource_70.bin", "F029 selector2 capture; resource70 label and timing-table interpretation are unverified."),
+            (3, 65536, "nvram_resource_79.bin", "F029 selector3 requested prefix; resource79 identity, extent and mirror semantics are unverified."),
+            (4, 65536, "nvram_resource_11.bin", "F029 selector4 capture; resource11 label and analog gain/offset interpretation are unverified."),
+            (5, 65536, "nvram_resource_12.bin", "F029 selector5 capture; resource12 label and exposure/metering interpretation are unverified."),
+            (6, 65536, "nvram_resource_67_afadjust.bin", "F029 selector6 requested prefix; resource67/AFadjustkohatsu labels and complete schema require byte validation.")
         ]
         print("[+] 3/6 Dumping NVRAM Resource Blocks (0xF029 sel 0..6)...")
         for sel, blk_len, fname, desc in f029_blocks:
@@ -91,6 +98,10 @@ def main():
                 "subcommand": "0xF029",
                 "selector": sel,
                 "length": len(raw),
+                "requested_length": blk_len,
+                "request_offset": 0,
+                "extent": "Requested prefix only; full block boundary and resource identity unverified",
+                "response_code": hex(resp["code"]) if resp else None,
                 "sha256": sha256_bytes(raw),
                 "description": desc
             }
@@ -98,11 +109,11 @@ def main():
 
         # 4. Specialized Hardware Subsystem Blocks
         subsys_blocks = [
-            (0xF021, 32768, "nvram_block_17_audio.bin", "Block 17 'AUDIO' DSP codec calibration and gains."),
-            (0xF025, 4096, "nvram_block_53_serial_otp.bin", "Block 53 Serial Number ('8027437') and factory OTP block."),
-            (0xF02D, 4096, "nvram_block_08.bin", "Block 8 Hardware configuration block."),
-            (0xF03D, 32768, "nvram_block_09.bin", "Block 9 Hardware subsystem calibration block."),
-            (0xF03A, 32768, "nvram_block_10.bin", "Block 10 Hardware subsystem calibration block."),
+            (0xF021, 32768, "nvram_block_17_audio.bin", "F021 requested prefix; block17/AUDIO label and codec/gain fields require byte validation."),
+            (0xF025, 4096, "nvram_block_53_serial_otp.bin", "F025 requested prefix; block53/serial label and OTP identity require byte validation."),
+            (0xF02D, 4096, "nvram_block_08.bin", "F02D capture; block8 label and security-boundary interpretation are unverified."),
+            (0xF03D, 32768, "nvram_block_09.bin", "F03D capture; block9 label and battery-profile interpretation are unverified."),
+            (0xF03A, 32768, "nvram_block_10.bin", "F03A requested prefix; block10 label and thermal-table interpretation are unverified."),
         ]
         print("[+] 4/6 Dumping Hardware Subsystem NVRAM Blocks...")
         for code, blk_len, fname, desc in subsys_blocks:
@@ -115,6 +126,10 @@ def main():
                 "type": "SUBSYSTEM_NVRAM_BLOCK",
                 "subcommand": hex(code),
                 "length": len(raw),
+                "requested_length": blk_len,
+                "request_offset": 0,
+                "extent": "Requested prefix only; full block boundary and resource identity unverified",
+                "response_code": hex(resp["code"]) if resp else None,
                 "sha256": sha256_bytes(raw),
                 "description": desc
             }
@@ -141,7 +156,8 @@ def main():
                 "selector": sel,
                 "label": label,
                 "value": text,
-                "hex": payload[:32].hex()
+                "hex": payload[:32].hex(),
+                "response_code": hex(resp["code"]) if resp else None
             }
         fname = "subsystem_versions_f003.json"
         fpath = os.path.join(OUTPUT_DIR, fname)
@@ -151,7 +167,7 @@ def main():
             "type": "SUBSYSTEM_METADATA",
             "subcommand": "0xF003",
             "items_count": len(subsys_versions),
-            "description": "Internal firmware module versions (C: 0160b1, LF: 012000, MA: 010100)."
+            "description": "F003 returned strings; collector subsystem labels are not independently verified."
         }
         print(f"    Saved {fname}")
 
@@ -159,7 +175,8 @@ def main():
         manifest_path = os.path.join(OUTPUT_DIR, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)
-        print(f"[+] All RAM and calibration data dumped successfully! Manifest: {manifest_path}")
+        print(f"[+] Capture manifest saved: {manifest_path}")
+        print("Inspect response codes and requested/returned lengths; resource identities and complete extents remain unverified.")
 
         # Relock service mode and close session
         client.execute_transaction(0x94fd, [0xF002, 0, 0, 0, 0])
