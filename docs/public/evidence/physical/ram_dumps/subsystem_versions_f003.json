@@ -1,0 +1,50 @@
+{
+  "selector_1_ModelName": {
+    "selector": 1,
+    "label": "ModelName",
+    "value": "Z 7_2",
+    "hex": "5a20375f32000000000000000000000000000000000000000000000000000000"
+  },
+  "selector_2_Subsystem_Boot_A": {
+    "selector": 2,
+    "label": "Subsystem_Boot_A",
+    "value": "Z 7_2",
+    "hex": "5a20375f32000000000000000000000000000000000000000000000000000000"
+  },
+  "selector_3_Subsystem_Boot_B": {
+    "selector": 3,
+    "label": "Subsystem_Boot_B",
+    "value": "Z 7_2",
+    "hex": "5a20375f32000000000000000000000000000000000000000000000000000000"
+  },
+  "selector_4_Firmware_C_Main": {
+    "selector": 4,
+    "label": "Firmware_C_Main",
+    "value": "0160b1",
+    "hex": "3031363062310000000000000000000000000000000000000000000000000000"
+  },
+  "selector_5_Firmware_LF_Lens": {
+    "selector": 5,
+    "label": "Firmware_LF_Lens",
+    "value": "012000",
+    "hex": "3031323030300000000000000000000000000000000000000000000000000000"
+  },
+  "selector_6_Region_Lang_Pack": {
+    "selector": 6,
+    "label": "Region_Lang_Pack",
+    "value": "003",
+    "hex": "3030330000000000000000000000000000000000000000000000000000000000"
+  },
+  "selector_8_Distortion_Profile": {
+    "selector": 8,
+    "label": "Distortion_Profile",
+    "value": "------",
+    "hex": "2d2d2d2d2d2d0000000000000000000000000000000000000000000000000000"
+  },
+  "selector_9_Firmware_MA_App": {
+    "selector": 9,
+    "label": "Firmware_MA_App",
+    "value": "010100",
+    "hex": "3031303130300000000000000000000000000000000000000000000000000000"
+  }
+}

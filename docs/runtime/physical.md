@@ -148,6 +148,21 @@ at VA `0x119E405C`):
 
 All 11 payload captures are archived under [`service_payloads/`](/evidence/physical/service_payloads/manifest.json).
 
+## Physical RAM, NVRAM, and calibration extraction
+
+Using physical memory read primitive `0xF032`, NVRAM resource selector `0xF029`,
+and subsystem block commands, a complete hardware ground-truth dataset was
+dumped and validated:
+
+* **Early DRAM (`0x04000000`)**: 1 MB boot vector and CPU mode stack image;
+* **MAS Runtime Globals (`0xB188B000`)**: 8 KB live OS state machine snapshot;
+* **Factory Calibration (Resource 80 & 67)**: 64 KB sensor geometry and AF adjustment tables;
+* **Subsystem NVRAM**: Audio DSP gains (Block 17), Body Serial Number OTP (Block 53), battery and thermal profiles (Blocks 09 & 10);
+* **Direct SDRAM Capture (`0x90C0`)**: Sensor pipeline execution to SDRAM with thumbnail recovery.
+
+See [Physical Camera RAM, NVRAM, and Calibration Ground Truth](physical_ram_nvram.md)
+for complete disassemblies, memory layouts, and architectural impact.
+
 ## Receipts and verification tools
 
 * Probe client: `tools/ptp/ptp_client.py`
@@ -156,8 +171,11 @@ All 11 payload captures are archived under [`service_payloads/`](/evidence/physi
 * F0 service table scanner: `tools/ptp/scan_service_table.py`
 * Vendor property dumper: `tools/ptp/dump_vendor_properties.py`
 * Service payload dumper: `tools/ptp/dump_service_payloads.py`
+* RAM and calibration dumper: `tools/ptp/dump_camera_ram.py`
 * Complete capability JSON: [ptp_profile.json](/evidence/physical/ptp_profile.json)
 * Vendor properties database: [vendor_properties_259.json](/evidence/physical/vendor_properties_259.json)
 * F0 service table scan results: [service_keys_scan.json](/evidence/physical/service_keys_scan.json)
+* RAM and calibration manifest: [ram_dumps/manifest.json](/evidence/physical/ram_dumps/manifest.json)
 * Binary live view header: [liveview_header.bin](/evidence/physical/liveview_header.bin)
 * Live view sample image: [liveview_sample.jpg](/evidence/physical/liveview_sample.jpg)
+* SDRAM captured thumbnail: [sdram_captured_thumb.jpg](/evidence/physical/sdram_captured_thumb.jpg)
