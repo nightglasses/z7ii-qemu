@@ -3708,6 +3708,10 @@ static void paired_configure(QTestState *q, unsigned table_mode, uint32_t base,
     }
     paired_post_config(q, base, post_words);
     paired_saturation(q, base, 0, 256, 256, saturation_words);
+    for (unsigned i = 0; i < 33; i++) {
+        qtest_writel(q, base + 0x4f20 + 4 * i,
+                     i == 32 ? 1024 : 0x04000400);
+    }
     paired_matrix(q, base, 0xb00, a, 13, false);
     paired_matrix(q, base, 0xb64, b, 12, false);
     paired_matrix(q, base, 0xb94, c, 13, true);
@@ -8512,8 +8516,12 @@ static void test_paired_calibration_rejected(void)
         "requires exactly", "interpreted configuration", "reserved slots",
         "interpreted configuration", "interpreted configuration",
         "interpreted configuration",
+        "interpreted configuration", "interpreted configuration",
+        "interpreted configuration",
     };
-    static const unsigned offsets[] = { 0, 0x310, 0x14, 0, 4, 0xec };
+    static const unsigned offsets[] = {
+        0, 0x310, 0x14, 0, 4, 0xec, 0xba8, 0x4f20, 0x5024,
+    };
 
     for (unsigned mode = 0; mode < ARRAY_SIZE(reasons); mode++) {
         uint8_t calibration[0x5e00] = { 0 };

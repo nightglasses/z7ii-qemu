@@ -85,6 +85,7 @@ typedef struct NikonPairedPixelConfig {
     uint16_t curve[2][257];
     bool curve_enabled[2];
     uint16_t saturation[33]; /* Mandatory Q8 MAIN chroma gain, Y step128. */
+    uint16_t chroma[65]; /* Selected Q10 gain; Y step64 is a hypothesis. */
     NikonPairedNoise noise[3];
     uint16_t noise_negative, noise_positive;
     NikonPairedFilter filter;
@@ -178,7 +179,10 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * in Q8, optionally perturbed by bounded LFSR noise, then transformed by
  * A Q10 and B Q9, then C Q10 in centered Y/chroma space. C preserves Y
  * and has no luma/chroma cross terms. BAC blends the original and C output
- * with complementary Q8 weights before centering chroma at2048. Curves/gains/noise affect main color
+ * with complementary Q8 weights. A separately selected65-knot Q10 curve scales
+ * both signed chroma values using Y step64, before the33-knot Q8 saturation
+ * curve and centering at2048. This axis, stage order and two separate rounds
+ * are functional hypotheses. Curves/gains/noise affect main color
  * output only. These choices do not establish the silicon algorithm.
  *
  * CFA encodings require even input dimensions. Lane R/Gr/Gb/B is

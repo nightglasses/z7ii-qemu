@@ -2777,5 +2777,117 @@
       "adjacent_record_input": "Configuration record+158, four words atBB0..BBC",
       "numerical_effect": "Unresolved; zero is not established as bypass or identity"
     }
+  },
+  "c_curve_bank_selection": {
+    "implementation_base": "d3fa777ad1d891edb0845f3b881709635447b4ba",
+    "scope": "Existing 11c=1 image profile: BA8 selects a complete 65-u16 C curve at4f20 or4fa4. This is a distinct family from the33-knot saturation curve. BB six-parameter arithmetic and11c=0 split129-knot processing remain unrecovered/unsupported.",
+    "source": {
+      "domain": "C1.70 MAS VA; paired aligned LE32 bank offsets from PA20380000/203c0000; structure offsets decimal",
+      "producer": "1026755e->10274562->1028856c->102d362c->102fd61a; metadata binding then copy8 previous-state+640 bytes to work+15400",
+      "selector": "102f9b40/102fa6b6 toggle previous-state byte647; flags14846/14847 select cache12416/12548. 102bf33c copies control[7] to config21+174 ->102e57a6->1036c094 BA8.",
+      "upload": "102bf33c maps flags to root pointer group28 at byte112;102e49fe->1036c0a0->1036ca74 copies132 bytes to4f20 or4fa4;32 packed words plus final low-u16 knot64",
+      "mode": "1036448e derives metadata54 from normalized148.103646fe copies it to compact+67;header publication->1036a41c writes11c. Mode1 downsamples129 internal values by2 to65;mode0 instead splits129 across both slots.",
+      "normalization": "102f9b40 uses selected PictureControl base curve and explicit1024-centered adjustments/normalized products; the wire retains fullu16 knots."
+    },
+    "functional_hypotheses": {
+      "axis": "Clamped B luma Y,65 knots at step64",
+      "placement": "After C/BAC, before independent33-knot Q8 saturation",
+      "arithmetic": "Nearest interpolation, signed64-bit products, separate Q10 then Q8 rounds with signed ties away from zero; preserve Y/RAW/WORK/grid/history",
+      "qualification": "BB0..BBC retain exact explicit calibration qualification; no invented tail equation, enable or fallback"
+    },
+    "native": {
+      "red": {
+        "scope": "Exact final /nikon/paired/chroma-control fixture against the previous pairs.c device qualification, candidate header/pixel/test sources retained; candidate device bytes restored immediately afterward",
+        "host_seconds": 0.62,
+        "result": "Admission rejected, SIGABRT; this controlled old-device comparison is not original-firmware execution"
+      },
+      "final_unit": [
+        {
+          "suite": "nikon_paired_unit",
+          "cases": 68,
+          "host_seconds": 0.69,
+          "result": "PASS"
+        },
+        {
+          "suite": "nikon_pairedpixels_unit",
+          "cases": 50,
+          "host_seconds": 1.38,
+          "result": "PASS"
+        }
+      ],
+      "integration": {
+        "suite": "nikon_cmos /arm/nikon/cmos/paired",
+        "cases": 28,
+        "host_seconds": 54.85,
+        "result": "PASS"
+      },
+      "coverage": [
+        "Different bank curves and explicit selector",
+        "Nonconstant MMIO low/high halfword packing and interpolation with fixed UV oracles",
+        "Unselected partial upload, selected partial retention and real-RAW continuation",
+        "Immutable active snapshot during selector and selected-curve replacement",
+        "Cold missing/partial/order/padding/selector rejection; reset clears old slot coverage",
+        "11c=0 remains explicit rejection",
+        "Every65-knot endpoint; extrema and signs; two independent curves rounding oracle U129 vs128",
+        "Interpreted calibration BA8/4f20/5024 nonzero rejection"
+      ],
+      "limits": "Synthetic native fixtures validate the declared finite equation and ownership, not physical image fidelity."
+    },
+    "original_windows": [
+      {
+        "kind": "First no-debugger candidate M-to-A attempt",
+        "host_seconds": 60.84649566595908,
+        "paired": 772,
+        "MAIN": 772,
+        "typed": [
+          3,
+          3,
+          32
+        ],
+        "context": 32,
+        "rejected": 0,
+        "cancelled": 0,
+        "graph_errors": 0,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "new_unsupported": 0,
+        "qmp": "running",
+        "result": "Bounded image continuation; requested mode2 did not reach the application."
+      },
+      {
+        "kind": "Extended independent no-debugger candidate M-to-A attempt",
+        "host_seconds": 129.89430058404105,
+        "paired": 1759,
+        "MAIN": 1760,
+        "non_atomic_counters": true,
+        "typed": [
+          3,
+          3,
+          32
+        ],
+        "context": 32,
+        "queue_used": 60,
+        "queue_capacity": 60,
+        "rejected": 0,
+        "cancelled": 0,
+        "graph_errors": 0,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "new_unsupported": 0,
+        "qmp": "running",
+        "result": "Mode delivery still absent while image processing continues; not stable mode-change acceptance."
+      }
+    ],
+    "profile": "Unchanged C1.70; cold-neutral resource80/eight timing rows, virtual lens, normal RNG0 UART battery, ordinary FAT32 card, PGM image and explicit calibration with newly interpreted slots zero. No guest firmware/PC/task changes, event injection, software slot release or framebuffer replacement.",
+    "retained_diagnostics": "Earlier source-probe runs stop at SLA FILL before C, or at separate AF/diagnostic boundaries. One probe fails signed-address conversion; corrected read-only watches identify the final BA8 copy and allocator reuse. Those diagnostics are not mode acceptance and do not establish an ASIC equation. Full ignored runs remain local; raw debugger logs are not published here.",
+    "acceptance": "Finite banked C-curve contract passes native checks and bounded original image continuation. Normal M-to-A delivery, original BA8=0 admission, BB numerical behavior and overall long-term coordination remain OPEN."
   }
 }

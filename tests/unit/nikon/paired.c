@@ -403,6 +403,9 @@ static void configure_raw(PairedFixture *f, unsigned raw_words)
     for (unsigned i = 0; i < 17; i++) {
         write_port(f, 0x1a08 + 4 * i, i == 16 ? 256 : 0x01000100);
     }
+    for (unsigned i = 0; i < 33; i++) {
+        write_port(f, 0x4f20 + 4 * i, i == 32 ? 1024 : 0x04000400);
+    }
     matrix(f, 0xb00, 13, false, a);
     matrix(f, 0xb64, 12, false, b);
     matrix(f, 0xb94, 13, true, c);
@@ -587,6 +590,70 @@ static void published(PairedFixture *f)
     g_assert_true(f->level);
     g_assert_cmpuint(f->rises, ==, 1);
     published_pixels(f);
+}
+
+static void test_chroma_control(void)
+{
+    for (unsigned selected = 0; selected < 2; selected++) {
+        PairedFixture *f = fixture_new();
+        PoolBarrier blocker;
+
+        for (unsigned i = 0; i < 33; i++) {
+            write_port(f, 0x4fa4 + 4 * i, 0);
+        }
+        for (unsigned offset = 0xb94; offset <= 0xbbc; offset += 4) {
+            write_port(f, offset, offset == 0xba8 ? selected :
+                       read_port(f, offset));
+        }
+        blocker_start(f, &blocker);
+        admit(f);
+        finish_queued(f, &blocker);
+        if (!selected) {
+            published(f);
+        } else {
+            g_assert_cmpuint(counter(f, "completed"), ==, 1);
+            for (unsigned y = 28; y < 42; y++) {
+                for (unsigned x = 0; x < 56; x++) {
+                    g_assert_cmpuint(f->bytes[MAIN_OFFSET + y * 64 + x], ==,
+                                     128);
+                }
+            }
+        }
+        fixture_free(f);
+    }
+}
+
+static void test_chroma_packing(void)
+{
+    static const unsigned levels[] = { 2048, 2080, 2112 };
+    static const unsigned expected[][2] = { { 136, 112 }, { 144, 96 },
+                                           { 153, 79 } };
+
+    for (unsigned sample = 0; sample < ARRAY_SIZE(levels); sample++) {
+        PairedFixture *f = fixture_new();
+        PoolBarrier blocker;
+        unsigned raw = levels[sample];
+        uint8_t packed[] = { raw, (raw >> 8) | ((raw & 15) << 4), raw >> 4 };
+
+        for (unsigned i = 0; i < 96 * 36; i += 3) {
+            memcpy(f->bytes + i, packed, sizeof(packed));
+        }
+        for (unsigned word = 0; word < 33; word++) {
+            write_port(f, 0x4f20 + 4 * word,
+                       word == 16 ? 0x06000200 : 0);
+        }
+        blocker_start(f, &blocker);
+        admit(f);
+        finish_queued(f, &blocker);
+        g_assert_cmpuint(counter(f, "completed"), ==, 1);
+        for (unsigned y = 28; y < 42; y++) {
+            for (unsigned x = 0; x < 56; x++) {
+                g_assert_cmpuint(f->bytes[MAIN_OFFSET + y * 64 + x], ==,
+                                 expected[sample][x & 1]);
+            }
+        }
+        fixture_free(f);
+    }
 }
 
 static void test_async_completion(gconstpointer opaque)
@@ -1086,6 +1153,122 @@ static void queue_phase(PairedFixture *f, PoolBarrier *blocker,
     advance(1000000);
     g_assert_true(runtime_has(f, "inflight=1"));
     g_assert_true(runtime_has(f, "compute=1"));
+}
+
+static void chroma_select(PairedFixture *f, unsigned slot)
+{
+    for (unsigned offset = 0xb94; offset <= 0xbbc; offset += 4) {
+        write_port(f, offset, offset == 0xba8 ? slot : read_port(f, offset));
+    }
+}
+
+static void chroma_upload(PairedFixture *f, unsigned slot, unsigned first,
+                          unsigned words, unsigned gain)
+{
+    for (unsigned word = first; word < words; word++) {
+        write_port(f, 0x4f20 + 132 * slot + 4 * word,
+                   word == 32 ? gain : gain | (gain << 16));
+    }
+}
+
+static void chroma_neutral_pixels(PairedFixture *f, unsigned phase)
+{
+    unsigned main = MAIN_OFFSET + (phase % 2) * 0x2000;
+
+    for (unsigned y = 0; y < 42; y++) {
+        for (unsigned x = 0; x < 64; x++) {
+            g_assert_cmpuint(f->bytes[main + y * 64 + x], ==,
+                             x >= 56 ? 0xa5 : 128);
+        }
+    }
+}
+
+static void test_chroma_staging(void)
+{
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker;
+
+    first_phase(f);
+    chroma_upload(f, 1, 0, 1, 0);
+    queue_phase(f, &blocker, 0, 1);
+    /* Select before the rest of its upload, while active. */
+    chroma_select(f, 1);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    finish_queued(f, &blocker);
+    phase_pixels(f, 0, 1); /* The active job retained its slot0 snapshot. */
+    write_port(f, 0x24, UINT32_MAX);
+    notify_phase(f, 0, 2);
+    advance(2000000);
+    g_assert_cmpuint(counter(f, "completed"), ==, 2);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0);
+    g_assert_false(f->level);
+    g_assert_true(runtime_has(f, "bank0 request=2 active=0"));
+    blocker_start(f, &blocker);
+    chroma_upload(f, 1, 1, 33, 0);
+    advance(1000000);
+    finish_queued(f, &blocker);
+    g_assert_cmpuint(counter(f, "completed"), ==, 3);
+    chroma_neutral_pixels(f, 2);
+    g_assert_cmphex(read_port(f, 0x24), ==, 0x1002);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    fixture_free(f);
+}
+
+static void test_chroma_snapshot(void)
+{
+    PairedFixture *f = fixture_new();
+    PoolBarrier blocker;
+
+    blocker_start(f, &blocker);
+    admit(f);
+    /* Even the selected upload is future-only. */
+    chroma_upload(f, 0, 0, 33, 0);
+    g_assert_cmpuint(counter(f, "cancelled"), ==, 0);
+    finish_queued(f, &blocker);
+    published(f);
+    write_port(f, 0x24, UINT32_MAX);
+    queue_phase(f, &blocker, 0, 1);
+    finish_queued(f, &blocker);
+    chroma_neutral_pixels(f, 1);
+    g_assert_cmpuint(counter(f, "completed"), ==, 2);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 0);
+    fixture_free(f);
+}
+
+static void test_chroma_invalid(gconstpointer opaque)
+{
+    unsigned mode = GPOINTER_TO_UINT(opaque);
+    PairedFixture *f = fixture_new();
+
+    if (mode == 5) {
+        chroma_upload(f, 1, 0, 33, 1024);
+        device_cold_reset(f->dev);
+        for (unsigned offset = 0x4f20; offset <= 0x5024; offset += 4) {
+            g_assert_cmphex(read_port(f, offset), ==, 0);
+        }
+        configure(f);
+    }
+    if (mode == 2 || mode == 3) {
+        chroma_upload(f, 1, 0, 1, 1024);
+        if (mode == 3) {
+            chroma_upload(f, 1, 2, 33, 1024);
+        }
+    } else if (mode == 4) {
+        chroma_upload(f, 0, 0, 32, 1024);
+        write_port(f, 0x4fa0, 0x00010400); /* Nonzero unused halfword. */
+    }
+    if (mode == 6) {
+        write_port(f, 0x11c, 0); /* The split129-knot mode is still explicit. */
+    }
+    chroma_select(f, mode == 0 ? 2 : mode == 4 || mode == 6 ? 0 : 1);
+    write_port(f, 0x10, 1);
+    write_port(f, 8, 1);
+    notify_phase(f, 0, 0);
+    advance(2000000);
+    g_assert_cmpuint(counter(f, "rejected"), ==, 1);
+    unpublished(f);
+    fixture_free(f);
 }
 
 static void test_async_bank_staging(void)
@@ -2119,6 +2302,16 @@ int main(int argc, char **argv)
     g_test_add_data_func("/nikon/paired/grid-alias", GINT_TO_POINTER(0),
                          test_grid_memory);
     g_test_add_func("/nikon/paired/grid-pool-epoch", test_grid_pool_epoch);
+    g_test_add_func("/nikon/paired/chroma-control", test_chroma_control);
+    g_test_add_func("/nikon/paired/chroma-packing", test_chroma_packing);
+    g_test_add_func("/nikon/paired/chroma-staging", test_chroma_staging);
+    g_test_add_func("/nikon/paired/chroma-snapshot", test_chroma_snapshot);
+    for (unsigned mode = 0; mode < 7; mode++) {
+        g_autofree char *path = g_strdup_printf(
+            "/nikon/paired/chroma-invalid/%u", mode);
+
+        g_test_add_data_func(path, GUINT_TO_POINTER(mode), test_chroma_invalid);
+    }
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

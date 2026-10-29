@@ -842,6 +842,9 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p,
     unsigned index = yuv[0] >> 7, fraction = yuv[0] & 127;
     unsigned gain = (p->saturation[index] * (128 - fraction) +
                      p->saturation[index + 1] * fraction + 64) / 128;
+    unsigned cindex = yuv[0] >> 6, cfraction = yuv[0] & 63;
+    unsigned cgain = (p->chroma[cindex] * (64 - cfraction) +
+                      p->chroma[cindex + 1] * cfraction + 32) / 64;
 
     for (row = 1; row < 3; row++) {
         int32_t mixed = yuv[row];
@@ -857,7 +860,8 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p,
                                   p->post.transformed * transformed, 8);
         }
 
-        /* One source Q8 curve scales signed chroma before bias/clipping. */
+        /* Separate Q10/Q8 curves; axis/order are finite hypotheses. */
+        mixed = paired_divide((int64_t)mixed * cgain, 1024);
         mixed = paired_divide((int64_t)mixed * gain, 256);
         output[row] = paired_clamp(mixed + 2048);
     }

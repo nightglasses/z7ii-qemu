@@ -59,6 +59,9 @@ static NikonPairedPixelConfig config(void)
     for (unsigned i = 0; i < ARRAY_SIZE(p.saturation); i++) {
         p.saturation[i] = 256;
     }
+    for (unsigned i = 0; i < ARRAY_SIZE(p.chroma); i++) {
+        p.chroma[i] = 1024;
+    }
     return p;
 }
 
@@ -3779,10 +3782,13 @@ static void main_gain(void)
     }
 }
 
-static void saturation(void)
+static void color_curve(gconstpointer opaque)
 {
     static const uint16_t levels[] = { 0, 127, 128, 129, 2047, 4095 };
     NikonPairedPixelConfig p = config();
+    unsigned knots = GPOINTER_TO_UINT(opaque), step = 4096 / (knots - 1);
+    unsigned scale = knots == 65 ? 1024 : 256;
+    uint16_t *table = knots == 65 ? p.chroma : p.saturation;
     uint16_t raw[16];
     bool changed[7] = { 0 };
 
@@ -3811,16 +3817,32 @@ static void saturation(void)
             FilterOutputs actual = { 0 };
             uint16_t planes[3][16];
 
-            for (unsigned i = 0; i < 33; i++) {
+            for (unsigned i = 0; i < knots; i++) {
                 switch (curve) {
-                case 0: p.saturation[i] = 256; break;
-                case 1: p.saturation[i] = 0; break;
-                case 2: p.saturation[i] = 128; break;
-                case 3: p.saturation[i] = 384; break;
-                case 4: p.saturation[i] = i * 2047; break;
-                case 5: p.saturation[i] = i & 1 ? 512 : 0; break;
-                case 6: p.saturation[i] = 96 + MIN(160, 8 * i); break;
-                case 7: p.saturation[i] = UINT16_MAX; break;
+                case 0:
+                    table[i] = scale;
+                    break;
+                case 1:
+                    table[i] = 0;
+                    break;
+                case 2:
+                    table[i] = scale / 2;
+                    break;
+                case 3:
+                    table[i] = scale * 3 / 2;
+                    break;
+                case 4:
+                    table[i] = i * (UINT16_MAX / (knots - 1));
+                    break;
+                case 5:
+                    table[i] = i & 1 ? scale * 2 : 0;
+                    break;
+                case 6:
+                    table[i] = scale / 2 + MIN(scale / 2, 8 * i);
+                    break;
+                case 7:
+                    table[i] = UINT16_MAX;
+                    break;
                 }
             }
             g_assert_true(pixels_checked(&p, raw, NULL, NULL, actual.half,
@@ -3835,16 +3857,16 @@ static void saturation(void)
                     (int)p.post.transformed * v, 256);
                 int cv = filter_reference_round(p.post.original * v +
                     (int)p.post.transformed * u, 256);
-                unsigned first = s / 128, remainder = s % 128;
+                unsigned first = s / step, remainder = s % step;
                 unsigned gain = filter_reference_round(
-                    p.saturation[first] * (128 - remainder) +
-                    p.saturation[first + 1] * remainder, 128);
+                    table[first] * (step - remainder) +
+                    table[first + 1] * remainder, step);
 
                 planes[0][i] = s;
                 planes[1][i] = CLAMP(filter_reference_round(
-                    (int64_t)cu * gain, 256) + 2048, 0, 4095);
+                    (int64_t)cu * gain, scale) + 2048, 0, 4095);
                 planes[2][i] = CLAMP(filter_reference_round(
-                    (int64_t)cv * gain, 256) + 2048, 0, 4095);
+                    (int64_t)cv * gain, scale) + 2048, 0, 4095);
             }
             for (unsigned channel = 0; channel < 3; channel++) {
                 post_reference(&p.post, channel, planes[channel]);
@@ -3886,17 +3908,42 @@ static void saturation(void)
     }
     /* Every knot is observable, including the4096 endpoint via Y4095. */
     p.grid_width = p.grid_height = 2;
-    for (unsigned knot = 0; knot < 33; knot++) {
+    for (unsigned knot = 0; knot < knots; knot++) {
         PairedOutputs before, actual;
 
-        for (unsigned i = 0; i < 33; i++) {
-            p.saturation[i] = 256;
+        for (unsigned i = 0; i < knots; i++) {
+            table[i] = scale;
         }
-        fill(raw, 16, MIN(4095, knot * 128 + (knot ? 0 : 64)));
+        fill(raw, 16, MIN(4095, knot * step + (knot ? 0 : step / 2)));
         g_assert_true(run(&p, raw, NULL, NULL, &before));
-        p.saturation[knot] = 512;
+        table[knot] = UINT16_MAX;
         g_assert_true(run(&p, raw, NULL, NULL, &actual));
         g_assert_cmpint(memcmp(before.uv, actual.uv, sizeof(actual.uv)), !=, 0);
+    }
+}
+
+static void color_curve_order(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[16];
+    PairedOutputs out;
+
+    p.a[4] = 512;
+    p.a[8] = 256;
+    memset(p.b, 0, sizeof(p.b));
+    p.b[0] = 512;
+    p.b[4] = 256;
+    p.b[5] = -256;
+    p.b[6] = -256;
+    p.b[7] = 256;
+    fill(raw, 16, 72); /* B produces signed U9/V-18. */
+    fill(p.chroma, 65, 512);
+    fill(p.saturation, 33, 384);
+    g_assert_true(run(&p, raw, NULL, NULL, &out));
+    for (unsigned i = 0; i < 8; i += 2) {
+        /* Two rounds give U8 ->129; reversed/fused gives U7 ->128. */
+        g_assert_cmpuint(out.uv[i], ==, 129);
+        g_assert_cmpuint(out.uv[i + 1], ==, 127);
     }
 }
 
@@ -4852,8 +4899,12 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/post-barriers", post_barriers);
     g_test_add_func("/nikon/pairedpixels/prefix-barriers", prefix_barriers);
     g_test_add_func("/nikon/pairedpixels/post-packet", post_packet);
-    g_test_add_func("/nikon/pairedpixels/saturation", saturation);
+    g_test_add_data_func("/nikon/pairedpixels/saturation",
+                         GUINT_TO_POINTER(33), color_curve);
+    g_test_add_data_func("/nikon/pairedpixels/chroma",
+                         GUINT_TO_POINTER(65), color_curve);
     g_test_add_func("/nikon/pairedpixels/saturation-cfa", saturation_cfa);
+    g_test_add_func("/nikon/pairedpixels/color-curve-order", color_curve_order);
     g_test_add_func("/nikon/pairedpixels/colorfilter", colorfilter);
     g_test_add_func("/nikon/pairedpixels/colorfilter-fields",
                      colorfilter_fields);

@@ -6,8 +6,9 @@ scales actual signed MAIN U/V while preserving Y. Source packing, gain
 normalization and software publication are established from C1.70 MAS. A Y axis
 with128-sample spacing and placement after B/C/BAC are explicit functional
 hypotheses. They do not establish the silicon pixel equation or physical-camera
-color fidelity. The other table subfamilies retain their strict explicit-profile
-checks; this change does not silently admit new opaque tables.
+color fidelity. The independent65-knot C curve below has a separate selector,
+publication and Q10 functional equation. The other table subfamilies retain
+their strict explicit-profile checks.
 
 ## Source and complete family
 
@@ -158,3 +159,99 @@ preservation, alias updates straddling a real RAW arrival and explicit
 different-pair rejection. Natural AwaitInput retry does not add an implicit
 start or RAW replay. Fixture execution and unchanged-firmware progress belong
 to separate integration receipts; this document does not claim either has passed.
+
+## Independent C curve and BA8 selection
+
+The C1.70 source establishes a different double-buffered table, not an enable
+or bypass bit for the C matrix. Bank offset `ba8` selects one of two65-u16
+curves at `[4f20,4fa4)` and `[4fa4,5028)`. Each slot is33 little-endian32-bit
+stores: knots0..63 occupy low/high halves of32 words, and knot64 occupies the
+last low half with a zero high half. Both slots may hold different curves.
+These are independent of the33-knot saturation records at `1a08/1a4c`.
+
+### Producer and mode relationship
+
+All function addresses below are MAS virtual addresses in C1.70; structure
+offsets and sizes are decimal. The physical V1.60 captures do not establish
+the same field layout or a silicon pixel equation.
+
+`1026755e →10274562 →1028856c →102d362c →102fd61a` binds color metadata,
+previous state and publication cache. `102fd61a` copies eight bytes from
+previous-state+640 to the current work record's control array at+15400.
+`102bf33c` copies array element7 to configuration record21+174, and
+`102e57a6 →1036c094` writes that complete byte to the selected bank's `ba8`.
+A read-only original execution watch independently observes the final copy;
+allocator reuse of the old work record is a separate lifetime observation.
+
+The normal producer `102f9b40` checks force and changes in metadata8, u16+2,
+33, u16+50,6,48,u16+52,36,35 and54. It builds129 values from the selected
+PictureControl base curve, blends where applicable, applies1024-centered
+adjustments and1024-normalized products. With metadata54 nonzero it toggles
+previous-state byte647, sets publication flag14846 or14847, and samples every
+second value into cache+12416 or+12548, respectively. The special metadata8
+path in `102fa6b6` toggles the same selector and copies the corresponding
+65-knot source. These conditions establish a buffer selection, not a disabled
+processing stage when the value is zero.
+
+`102bf33c` maps those two publication flags to root pointer group28 at byte112.
+`102e49fe →1036c0a0 →1036ca74` copies132 bytes from each non-NULL pointer to
+its corresponding MMIO slot. There is no selector change inferred from the
+last table store: the original explicit `ba8` publication selects the slot.
+
+`1036448e` derives metadata54 from normalized input148. `103646fe` also copies
+that condition to compact+67; the header path through `102bf33c`,
+`102e5826` and `1036a41c` writes it to bank offset `11c`. The existing finite
+image profile requires `11c=1`, so its contract is the two65-knot banks.
+For `11c=0`, `102f9b40` instead packs a129-knot curve across both slots;
+that distinct whole-image mode remains an explicit unsupported profile.
+It must not be interpreted as either65-knot bank or admitted by changing one
+register qualifier alone.
+
+### Finite numerical and ownership contract
+
+Source normalizations support a Q10 gain interpretation. The following
+functional equation chooses Y as the axis and places the stage after C/BAC,
+before the independent Q8 saturation curve. The axis,64-sample spacing,
+processing order and rounding remain hypotheses, not recovered ASIC behavior:
+
+```text
+i = Y / 64; f = Y % 64
+Cgain = round((Cknot[i]*(64-f) + Cknot[i+1]*f) / 64)
+chroma1 = round(signed_C_BAC_chroma * Cgain / 1024)
+chroma2 = round(chroma1 * saturation_gain / 256)
+output = clamp(chroma2 + 2048, 0, 4095)
+```
+
+All65 unsigned16 knots participate, including knot64 through interpolation at
+Y4095. Signed products use64-bit intermediates and nearest rounding with ties
+away from zero. All1024 knots are algebraically neutral; all0 knots remove
+chroma through the same calculation. Neither is an omitted-table fallback.
+Y, RAW, WORK/grid and pre-color history do not pass through this stage.
+
+Each slot has an independent ordered33-word publication round. Its first word
+opens a fresh round even if unchanged; a missing, duplicated or out-of-order
+non-header store cannot borrow old coverage. A fresh header restarts the round.
+Admission requires the explicitly selected slot to be complete with zero tail
+padding. Selector values above1 reject. No newest-slot, equal-slot or
+only-complete-slot fallback exists. An incomplete unselected slot does not
+block a complete selected slot. After a usable admission, switching to an
+incomplete selected slot holds the existing request and fresh RAW until its
+real upload finishes. Cold incomplete or malformed selected publications reject.
+
+The complete C scalar packet still publishes through its existing11-word
+coverage barrier. An active job owns a copy of its selected65 knots; later
+uploads or selector changes affect future jobs without cancellation, history
+invalidation, DMA, pending ACK or IRQ fabrication. Reset clears both slot
+rounds and data. Ordinary bank-local stop/cancellation retains the existing
+ownership behavior.
+
+The adjacent `bb0..bbc` record contains six source-selected and interpolated
+parameters plus two fixed4095 u16 values. Its pixel algebra is still unknown and
+its explicit calibration qualification remains strict. Establishing BA8's
+selector does not establish an enable bit or justify inventing that equation.
+
+Native fixtures check different selected curves, low/high-half decoding and
+interpolation with fixed output values, selected and unselected partial uploads,
+active snapshots, reset, illegal selectors, missing/order/padding boundaries,
+every65-knot endpoint, and separate rounding when both curve families are
+non-neutral. These are functional checks, not physical color calibration.
