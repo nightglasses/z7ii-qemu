@@ -285,6 +285,24 @@ static int capture_work_compute(void *opaque)
     CaptureJob *j = &task->job;
     const CapturePacking *p = &j->packing;
     unsigned width = j->width, height = j->height, bits = j->bits;
+    g_autofree unsigned *sx_table = g_new(unsigned, width);
+    uint16_t lut256[256];
+    bool use_table = (p->words[0] & 4) != 0;
+
+    if (use_table) {
+        for (unsigned i = 0; i < 256; i++) {
+            lut256[i] = (p->table[i / 2] >> (16 * (i % 2))) & 0xffff;
+        }
+    }
+
+    for (unsigned x = 0; x < width; x++) {
+        if (j->input.encoding != NIKON_RAW_MONO) {
+            sx_table[x] = 2 * ((uint64_t)(x / 2) * (j->input.width / 2) /
+                              (width / 2)) + (x & 1);
+        } else {
+            sx_table[x] = (uint64_t)x * j->input.width / width;
+        }
+    }
 
     j->packed = g_malloc((size_t)j->row_bytes * height);
     for (unsigned y = 0; y < height; y++) {
@@ -302,19 +320,14 @@ static int capture_work_compute(void *opaque)
                       (height / 2)) + (y & 1);
         }
 
+        const uint8_t *row_src = j->input.data + sy * j->input.stride;
+
         for (unsigned x = 0; x < width; x++) {
-            unsigned sx = (uint64_t)x * j->input.width / width;
-            if (j->input.encoding != NIKON_RAW_MONO) {
-                sx = 2 * ((uint64_t)(x / 2) * (j->input.width / 2) /
-                          (width / 2)) + (x & 1);
-            }
-            uint32_t value = lduw_le_p(j->input.data +
-                                       sy * j->input.stride + 2 * sx);
+            unsigned sx = sx_table[x];
+            uint32_t value = lduw_le_p(row_src + 2 * sx);
 
-            if (p->words[0] & 4) {
-                unsigned index = value >> 8;
-
-                value = (p->table[index / 2] >> (16 * (index % 2))) & 0xffff;
+            if (use_table) {
+                value = lut256[value >> 8];
             } else {
                 value >>= 16 - bits;
             }

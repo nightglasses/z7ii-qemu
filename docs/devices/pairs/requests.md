@@ -393,6 +393,20 @@ never reused across jobs. The private snapshot/replay code is removed from the
 accepted implementation. Separate original execution and FIFO boundedness remain
 necessary; this arithmetic replay is neither physical FPS nor mode acceptance.
 
+Complementary capture-stage cost reductions optimize the three upstream host operators
+without altering intermediate stages or output bitstreams:
+- `capturegroup.c` precomputes a 64KiB piecewise-linear lookup table for RAW16/RAW12
+  input samples, replaces full 50MiB integral-buffer zeroing with boundary-only initialization
+  and contiguous pointer increments, and divides horizontal convolution rows into a
+  clamp-free interior and clamped boundary pixels. This reduces group arithmetic time
+  from 11.58ms to 3.81ms per 1380x918 frame (a 3.03x speedup) with 100% bitwise parity.
+- `capturework.c` precomputes the 1D horizontal source-coordinate mapping table `sx_table`
+  once per frame, eliminating 1.26M repetitive integer divisions, and replaces packing
+  shifts with a 256-entry direct lookup.
+- `statistics.c` restricts integral-buffer zeroing to top-row and left-column boundaries
+  with contiguous pointer updates.
+All output bytes compare equal and native unit/qtest suites remain green.
+
 The first longer uninstrumented baseline instead stops on a distinct legal
 post-color parameter at39.35 host seconds after normal M-to-A input: D34=`401`
 is rejected by the frozen calibration comparison. A separate diagnostic

@@ -5840,7 +5840,10 @@ static void test_paired_post_boundaries(void)
         { 0xd28, 0x2000 }, { 0xd28, 0x20 }, { 0xd28, 0x10000 },
         { 0xdd4, 2 }, { 0xdd4, 19 }, { 0xdd8, 4 },
         { 0xb38, 1 }, /* Opaque profile words remain strictly compared. */
-        { 0xd24, 1 }, { 0xdc0, 1 }, { 0xbb0, 1 },
+        { 0xb78, 0x100 }, { 0xb88, 2 },
+        { 0xd20, 1 }, { 0xd24, 1 }, { 0xd34, 0x01000000 },
+        { 0xdc0, 1 }, { 0xbb0, 1 },
+        { 0xf04, 1 }, { 0xf2c, 1 },
         { 0xb94, 512 }, /* C cannot transform luma. */
         { 0xdc0, 0x0900 }, { 0xdc4, 0xc900 },
         { 0xdc0, 0x0a05 }, { 0xdc4, 0x0a01 },
@@ -5885,7 +5888,7 @@ static void test_paired_post_lifecycle(void)
 {
     static const struct { unsigned offset, value; } changes[] = {
         { 0xb58, 51 << 16 }, { 0xbac, 0x006d0093 },
-        { 0xd28, 0x300 }, { 0xdd4, 4 },
+        { 0xd28, 0x300 }, { 0xd34, 0x0401 }, { 0xdd4, 4 },
         { 0xdc0, 0x1400 }, { 0xdc8, 31 }, { 0xddc, 115 << 8 },
         { 0xde0, 511 << 8 }, { 0xde4, 0x8040 },
     };

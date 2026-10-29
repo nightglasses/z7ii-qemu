@@ -30,6 +30,8 @@ Original MAS at C revision `59711d4c31645768a84207ece774acd6c0d5d20c` configured
 
 The earlier paragraphs and receipts describe the initial startup layer. The current two-engine interface additionally retains the saved runtime register setters/getters, engine stride40hex, stop command0 with virtual stopped readback2, result mask and acknowledgement. Its ISR acknowledgement can clear the combined done/error mask11hex, and real pending status intersected with the guest mask drives the board's GIC103/104. This is the runtime extension already present at the task base; the historical statement about no IRQ applies only to the initial startup layer. No new fill C behavior or native run is added by the saved DMA and audio lifecycle audit.
 
+Both MAS VA `102DBBAA` and SLA VA `1006ACDE` initialize the fill engine by stopping the engine (`command = 0`), polling for idle (`command & 3 == 2`), and writing `+0 = 1` (engine enable). Writes of 0 and 1 to offset 0 are accepted; values greater than 1 return bus errors. The start check accepts requests with control 0 or 1, matching both cold-boot zero fill and runtime initialization.
+
 The saved runtime consumers cover configuration, submit/stop, mask/status and
 ISR paths. Nonzero patterns, other dimension modes and zero-count encoding
 remain unsupported. A RAM decode/bus failure cannot become done. The current

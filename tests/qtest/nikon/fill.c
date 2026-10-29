@@ -178,7 +178,7 @@ static void test_rows(void)
         unsigned offset;
         uint32_t value;
     } unsupported[] = {
-        { 0, 1 }, { 0x14, 0 }, { 0x18, 1 },
+        { 0x14, 0 }, { 0x18, 1 },
         { 0x1c, 1 }, { 0x2c, 1 },
     };
     uint8_t expected[512], actual[512];
@@ -237,6 +237,29 @@ static void test_rows(void)
         g_assert_cmpint(pread(fd, actual, sizeof(actual), DESTINATION - 4), ==,
                         sizeof(actual));
         g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+
+        /*
+         * Offset 0 enables engine: control == 1 completes operation normally.
+         */
+        memset(expected, 0xa5, sizeof(expected));
+        g_assert_cmpint(pwrite(fd, expected, sizeof(expected),
+                              DESTINATION - 4), ==, sizeof(expected));
+        configure_profile(q, base, 48, 31, 3, DESTINATION);
+        qtest_writel(q, base + 0, 1);
+        qtest_writel(q, base + 0x10, 1);
+        g_assert_cmphex(qtest_readl(q, base + 8), ==, 1);
+        g_assert_cmphex(qtest_readl(q, base + 0xc), ==, 0);
+        g_assert_cmphex(qtest_readl(q, base + 0x10), ==, 0);
+        g_assert_true(qtest_get_irq(q, engine));
+        for (unsigned row = 0; row < 3; row++) {
+            memset(expected + 4 + row * 48, 0, 31);
+        }
+        g_assert_cmpint(pread(fd, actual, sizeof(actual),
+                             DESTINATION - 4), ==, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        qtest_writel(q, base + 8, 1);
+        g_assert_false(qtest_get_irq(q, engine));
+        qtest_writel(q, base + 0, 0);
 
         /* A bus error after two rows keeps their real writes and padding. */
         g_assert_cmpint(pwrite(fd, expected, 128, BACKEND_SIZE - 128), ==, 128);

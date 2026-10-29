@@ -329,26 +329,64 @@ static int group_compute(void *opaque)
     size_t plane = (size_t)(iw + 1) * (ih + 1);
     g_autofree uint64_t *integral = NULL;
     g_autofree uint16_t *pixels = NULL;
+    uint16_t lut[65536];
+    int min_off = 0, max_off = 0;
+
+    for (unsigned raw = 0; raw < 65536; raw++) {
+        unsigned index = raw >> 10, fraction = raw & 1023;
+        unsigned a = group_word(j, 0x80 + index * 4);
+        unsigned b = group_word(j, 0x84 + index * 4);
+
+        lut[raw] = ((a * (1024 - fraction) + b * fraction) / 1024) >> 4;
+    }
 
     pixels = g_new(uint16_t, (size_t)iw * ih);
     for (unsigned y = 0; y < ih; y++) {
-        for (unsigned x = 0; x < iw; x++) {
-            unsigned raw = lduw_le_p(j->input_data + y * j->input.stride +
-                                     x * 2);
-            unsigned index = raw >> 10, fraction = raw & 1023;
-            unsigned a = group_word(j, 0x80 + index * 4);
-            unsigned b = group_word(j, 0x84 + index * 4);
+        const uint8_t *src = j->input_data + y * j->input.stride;
+        uint16_t *dst = pixels + y * iw;
 
-            pixels[y * iw + x] = ((a * (1024 - fraction) + b * fraction) /
-                                  1024) >> 4;
+        for (unsigned x = 0; x < iw; x++) {
+            dst[x] = lut[lduw_le_p(src + x * 2)];
         }
     }
-    integral = g_new0(uint64_t, plane * 5);
-    for (unsigned y = 0; y < ih; y++) {
-        uint64_t row[5] = { 0 };
 
-        for (unsigned x = 0; x < iw; x++) {
-            unsigned value = pixels[y * iw + x];
+    for (unsigned f = 0; f < 3; f++) {
+        for (unsigned tap = 0; tap < j->taps[f]; tap++) {
+            if (j->offsets[f][tap] < min_off) {
+                min_off = j->offsets[f][tap];
+            }
+            if (j->offsets[f][tap] > max_off) {
+                max_off = j->offsets[f][tap];
+            }
+        }
+    }
+    unsigned safe_x0 = (unsigned)(-min_off);
+    unsigned safe_x1 = iw > (unsigned)max_off ? iw - (unsigned)max_off : 0;
+    if (safe_x0 > iw) {
+        safe_x0 = iw;
+    }
+    if (safe_x1 < safe_x0) {
+        safe_x1 = safe_x0;
+    }
+
+    integral = g_new(uint64_t, plane * 5);
+    for (unsigned i = 0; i < 5; i++) {
+        memset(integral + i * plane, 0, (iw + 1) * sizeof(uint64_t));
+    }
+
+    for (unsigned y = 0; y < ih; y++) {
+        const uint16_t *row_pixels = pixels + y * iw;
+        uint64_t row[5] = { 0 };
+        uint64_t *prev[5], *curr[5];
+
+        for (unsigned i = 0; i < 5; i++) {
+            prev[i] = integral + i * plane + y * (iw + 1);
+            curr[i] = integral + i * plane + (y + 1) * (iw + 1);
+            curr[i][0] = 0;
+        }
+
+        for (unsigned x = 0; x < safe_x0; x++) {
+            unsigned value = row_pixels[x];
             uint64_t values[5] = { value, (uint64_t)value * value };
 
             for (unsigned f = 0; f < 3; f++) {
@@ -358,14 +396,53 @@ static int group_compute(void *opaque)
                     unsigned sx = CLAMP((int)x + j->offsets[f][tap],
                                         0, (int)iw - 1);
 
-                    response += j->coefficients[f][tap] * pixels[y * iw + sx];
+                    response += j->coefficients[f][tap] * row_pixels[sx];
                 }
                 values[2 + f] = abs(response) / j->magnitude[f];
             }
             for (unsigned i = 0; i < 5; i++) {
                 row[i] += values[i];
-                integral[i * plane + (y + 1) * (iw + 1) + x + 1] =
-                    integral[i * plane + y * (iw + 1) + x + 1] + row[i];
+                curr[i][x + 1] = prev[i][x + 1] + row[i];
+            }
+        }
+
+        for (unsigned x = safe_x0; x < safe_x1; x++) {
+            unsigned value = row_pixels[x];
+            uint64_t values[5] = { value, (uint64_t)value * value };
+
+            for (unsigned f = 0; f < 3; f++) {
+                int response = 0;
+
+                for (unsigned tap = 0; tap < j->taps[f]; tap++) {
+                    response += j->coefficients[f][tap] *
+                                row_pixels[x + j->offsets[f][tap]];
+                }
+                values[2 + f] = abs(response) / j->magnitude[f];
+            }
+            for (unsigned i = 0; i < 5; i++) {
+                row[i] += values[i];
+                curr[i][x + 1] = prev[i][x + 1] + row[i];
+            }
+        }
+
+        for (unsigned x = safe_x1; x < iw; x++) {
+            unsigned value = row_pixels[x];
+            uint64_t values[5] = { value, (uint64_t)value * value };
+
+            for (unsigned f = 0; f < 3; f++) {
+                int response = 0;
+
+                for (unsigned tap = 0; tap < j->taps[f]; tap++) {
+                    unsigned sx = CLAMP((int)x + j->offsets[f][tap],
+                                        0, (int)iw - 1);
+
+                    response += j->coefficients[f][tap] * row_pixels[sx];
+                }
+                values[2 + f] = abs(response) / j->magnitude[f];
+            }
+            for (unsigned i = 0; i < 5; i++) {
+                row[i] += values[i];
+                curr[i][x + 1] = prev[i][x + 1] + row[i];
             }
         }
     }
