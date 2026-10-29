@@ -1,19 +1,27 @@
 {
   "dram_boot_04000000.bin": {
-    "type": "DRAM_PHYSICAL",
+    "type": "F032_ADDRESS_RANGE",
     "base_address": "0x04000000",
     "length": 1048576,
     "sha256": "344205f14f341f0d706f09b1e249bb5c061b78e57928edd5ede0c985ef669344",
     "duration_sec": 0.06,
     "throughput_mb_s": 16.75,
-    "description": "Multi-core ARM Cortex exception vectors, boot trampolines, CPU mode stacks, and early staging heap."
+    "description": "F032 requested range at 0x04000000; ARM instruction patterns and stack literals, not a validated reset image.",
+    "response_code": null,
+    "requested_length": 1048576,
+    "address_domain": "Service-request address; VA/PA translation unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "dram_mas_globals_b188b000.bin": {
-    "type": "MAS_RUNTIME_GLOBALS",
+    "type": "F032_ADDRESS_RANGE",
     "base_address": "0xB188B000",
     "length": 8192,
     "sha256": "94bb4b8c4712fd3b6ebc2aff24c0cf37ac875bab8ace2625ff7915c7bcae72de",
-    "description": "MAS OS kernel task control blocks, PTPCMD state byte (0xb188b768), session ID (0xb188bc6c), and service predicate (0xb188bc80)."
+    "description": "F032 requested range at 0xB188B000; V1.60 runtime bytes, with target-version field bindings unresolved.",
+    "response_code": null,
+    "requested_length": 8192,
+    "address_domain": "Service-request address; VA/PA translation unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_80_master.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -21,7 +29,12 @@
     "selector": 0,
     "length": 65536,
     "sha256": "88ef6c26e33d03ec750c4cfa3094e861a53c99922a9f470023fb50dfe8fa4be9",
-    "description": "Resource 80 Master Calibration block (optical center, sensor geometry, bad pixel maps)."
+    "description": "F029 selector0 capture; identical to selector3. Resource80 identity, extent and calibration fields are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_71.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -29,7 +42,12 @@
     "selector": 1,
     "length": 65536,
     "sha256": "3bbf0bd2a8092c3d0b3e1b329ded03aa6d97f3c15fe0573eee47c74dc42caf53",
-    "description": "Resource 71 Subsystem NVRAM parameter block."
+    "description": "F029 selector1 capture; resource71 label and subsystem field meanings are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_70.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -37,7 +55,12 @@
     "selector": 2,
     "length": 32768,
     "sha256": "d10b917891da566386373bf0988b0d5107d79c5a98a4e831653c741b80b367b8",
-    "description": "Resource 70 Subsystem NVRAM parameter block."
+    "description": "F029 selector2 capture; resource70 label and timing-table interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 32768,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_79.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -45,7 +68,12 @@
     "selector": 3,
     "length": 65536,
     "sha256": "88ef6c26e33d03ec750c4cfa3094e861a53c99922a9f470023fb50dfe8fa4be9",
-    "description": "Resource 79 Calibration mirror/shadow block."
+    "description": "F029 selector3 capture; identical to selector0. Resource79 label and mirror semantics are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_11.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -53,7 +81,12 @@
     "selector": 4,
     "length": 65536,
     "sha256": "9cfff75c4f08223d840ad315d3572d47a2ea3e3580e61146a12f6eae19266c7f",
-    "description": "Resource 11 Sensor analog frontend gain/offset block."
+    "description": "F029 selector4 capture; resource11 label and analog gain/offset interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_12.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -61,7 +94,12 @@
     "selector": 5,
     "length": 65536,
     "sha256": "5999079d320014199cb2c4684752ccd769aba921cb0f556f88ee866a4fa4a390",
-    "description": "Resource 12 Exposure/metering calibration block."
+    "description": "F029 selector5 capture; resource12 label and exposure/metering interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_resource_67_afadjust.bin": {
     "type": "NVRAM_RESOURCE_BLOCK",
@@ -69,47 +107,79 @@
     "selector": 6,
     "length": 65536,
     "sha256": "ef9597bfa818087f72e6e4dc4e54e132b57bfe3502ca70358aba7edd53176b11",
-    "description": "Resource 67 AFadjustkohatsu factory autofocus lens adjustment block."
+    "description": "F029 selector6 capture; ASCII AFadjustkohatsu prefix. Resource67 label and complete schema are unverified.",
+    "response_code": null,
+    "requested_length": 65536,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_block_17_audio.bin": {
     "type": "SUBSYSTEM_NVRAM_BLOCK",
     "subcommand": "0xf021",
     "length": 32768,
     "sha256": "04b2c130fd3c977dd7277c5988b0d4c436158a74340c89d3f21ace19bbcbb379",
-    "description": "Block 17 'AUDIO' DSP codec calibration and gains."
+    "description": "F021 capture; ASCII AUDIO prefix. Block17 label and codec/gain fields are unverified.",
+    "response_code": null,
+    "requested_length": 32768,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_block_53_serial_otp.bin": {
     "type": "SUBSYSTEM_NVRAM_BLOCK",
     "subcommand": "0xf025",
     "length": 4096,
     "sha256": "97a3e75b9da141951c92b664729f399ad23f51b12f9f3bd9bc2f105150c6a53e",
-    "description": "Block 53 Serial Number ('8027437') and factory OTP block."
+    "description": "F025 capture; ASCII 8027437 prefix. Block53 label and OTP identity are unverified.",
+    "response_code": null,
+    "requested_length": 4096,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_block_08.bin": {
     "type": "SUBSYSTEM_NVRAM_BLOCK",
     "subcommand": "0xf02d",
     "length": 4096,
     "sha256": "ce20ccc82e5d4ac19e2b4e5bbcbaa0485cff1c7e12b8a8efe4ed2b5fbb456cc6",
-    "description": "Block 8 Hardware configuration block."
+    "description": "F02D capture; block8 label and security-boundary interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 4096,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_block_09.bin": {
     "type": "SUBSYSTEM_NVRAM_BLOCK",
     "subcommand": "0xf03d",
     "length": 32768,
     "sha256": "843125004036dac26bfe20ac8fb035e73285565ac02871566d20306be91d7363",
-    "description": "Block 9 Hardware subsystem calibration block."
+    "description": "F03D capture; block9 label and battery-profile interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 32768,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "nvram_block_10.bin": {
     "type": "SUBSYSTEM_NVRAM_BLOCK",
     "subcommand": "0xf03a",
     "length": 32768,
     "sha256": "2d864c0b789a43214eee8524d3182075125e5ca2cd527f3582ec87ffd94076bc",
-    "description": "Block 10 Hardware subsystem calibration block."
+    "description": "F03A capture; all 32768 bytes are FF. Block10 label and thermal-table interpretation are unverified.",
+    "response_code": null,
+    "requested_length": 32768,
+    "request_offset": 0,
+    "extent": "Requested prefix only; full block boundary and resource identity unverified",
+    "response_provenance": "Response code not retained by the original collector"
   },
   "subsystem_versions_f003.json": {
     "type": "SUBSYSTEM_METADATA",
     "subcommand": "0xF003",
     "items_count": 8,
-    "description": "Internal firmware module versions (C: 0160b1, LF: 012000, MA: 010100)."
+    "description": "F003 strings include 0160b1/012000/010100; collector subsystem labels are not independently verified.",
+    "response_code": null,
+    "response_provenance": "Response code not retained by the original collector"
   }
 }

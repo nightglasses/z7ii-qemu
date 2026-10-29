@@ -1,9 +1,9 @@
 # Physical camera PTP and service interface
 
-The physical camera baseline provides ground truth for Nikon Z7II (C1.60/C1.70)
-USB transport, device property behaviors, streaming preview framing, and the
-undocumented `0x94fd` service dispatch path modeled in
-[PTP command boundary](ptp.md).
+The archived Nikon Z 7II baseline reports `V1.60` and records USB capabilities,
+property descriptors, preview bytes and service responses. It is separate from
+the C1.70 source/execution target in [PTP command boundary](ptp.md): compatible
+addresses, internal layouts and numerical algorithms have not been established.
 
 All observations below were gathered from an attached physical Nikon Z 7II
 without intrusive disassembly or firmware modification.
@@ -14,17 +14,18 @@ without intrusive disassembly or firmware modification.
 |---|---|
 | Hardware model | `NIKON DSC Z 7_2` |
 | USB Vendor / Product ID | `0x04B0` / `0x044B` |
-| Firmware version | `V1.60` (compatible generation with target `C1.70`) |
+| Firmware version | `V1.60` (C1.70 compatibility unverified) |
 | Serial number | `00000000000000000000000008027437` |
 | USB interface | Class `0x06` (Still Imaging), SubClass `0x01`, Protocol `0x01` (PTP) |
 | Endpoint configuration | EP `0x02` (Bulk OUT, 512 B), EP `0x81` (Bulk IN, 512 B), EP `0x83` (Interrupt IN, 8 B) |
 
-The complete capability and property capture is archived in
+The capability and property capture is archived in
 [`ptp_profile.json`](/evidence/physical/ptp_profile.json).
 
 ## PTP capability and storage mapping
 
 Standard `GetDeviceInfo` (`0x1001`) reports:
+
 * **Standard version**: PTP 1.00 with vendor extension `0xFFFFFFFF` (version 1.10, `Microsoft.com/DeviceServices: 1.0`);
 * **Operations**: 19 standard PTP operations plus 75 advertised vendor operations (`0x90C0..0x90CF`, `0x9201..0x920F`, `0x9400..0x945A`, `0x9520..0x9535`);
 * **Events**: 27 asynchronous events on interrupt endpoint `0x83`;
@@ -40,42 +41,45 @@ Standard `GetDeviceInfo` (`0x1001`) reports:
 ## Live view preview stream and framing header
 
 Live view operation sequence:
+
 1. `0x9201` (`StartLiveView`): initiates the camera live view stream;
 2. `0x9203` (`GetLiveViewImg`): requests the next frame from the camera buffer;
 3. `0x9202` (`EndLiveView`): stops live view and returns optical/sensor state to idle.
 
-Each frame returned by `0x9203` consists of a 384-byte header followed
-immediately by a complete JPEG stream (`0xFFD8..0xFFD9`). The header fields use
-big-endian (network) byte order:
+The archived `0x9203` sample has a 384-byte prefix and a 16,664-byte JPEG,
+for 17,048 payload bytes. Header offsets below are hexadecimal and values are
+decimal. The saved JPEGs decode to `640 × 424`. These are
+sample observations, not a statement about every live-view mode.
 
-```text
-+0x00: u32 header_payload_bytes (0x00000178 = 376 bytes; padded to 384 bytes)
-+0x04: u32 jpeg_stream_bytes    (e.g. 0x00004118 = 16,664 bytes)
-+0x08: u16 frame_width          (0x0280 = 640)
-+0x0A: u16 frame_height         (0x01A8 = 424)
-+0x0C: u16 sensor_crop_width    (0x1520 = 5,408)
-+0x0E: u16 sensor_crop_height   (0x0E10 = 3,600)
-+0x10: u16 full_sensor_width    (0x1520 = 5,408)
-+0x12: u16 full_sensor_height   (0x0E10 = 3,600)
-+0x14: u16 center_x             (0x0A90 = 2,704 = 5,408 / 2)
-+0x16: u16 center_y             (0x0708 = 1,800 = 3,600 / 2)
-+0x18: u16 focus_box_width      (0x0114 = 276)
-+0x1A: u16 focus_box_height     (0x0132 = 306)
-+0x1C: u16 focus_target_x       (0x0A90 = 2,704)
-+0x1E: u16 focus_target_y       (0x0708 = 1,800)
-+0x20..+0x17F: AF tracking, face/eye boxes, histogram bins, and timestamp
-```
+The first fields decode as follows in big-endian order. Field names beyond
+the lengths and JPEG dimensions are collector interpretations, not recovered
+sensor/scaler semantics.
+
+| Header offset | Width | Observed value | Interpretation limit |
+| --- | --- | --- | --- |
+| `00` | u32 | 376 | Reported header length; JPEG actually starts at 384 |
+| `04` | u32 | 16,664 | Matches this sample's JPEG byte count |
+| `08/0a` | u16/u16 | 640/424 | Matches decoded JPEG width/height |
+| `0c/0e` | u16/u16 | 5408/3600 | Coordinate or extent fields; full sensor identity unproved |
+| `10/12` | u16/u16 | 5408/3600 | Repeated extent fields; crop/full-raster roles unproved |
+| `14/16` | u16/u16 | 2704/1800 | Half the repeated extents; coordinate role unproved |
+| `18/1a` | u16/u16 | 276/306 | Collector labels these a focus-box extent |
+| `1c/1e` | u16/u16 | 2704/1800 | Collector labels these a focus target |
+
+The remaining prefix bytes have not been assigned validated field meanings.
+The archived property value `5408x3600` is another reported image-size string;
+it does not independently establish the sensor's native photosite dimensions.
 
 ![Physical Live View Sample](/evidence/physical/liveview_sample.jpg)
 
 ### Relevance to QEMU display pipeline
 
-The header establishes the exact coordinate transformation used by MAS
-display routines:
-* The native sensor coordinate space is `5408 × 3600` with optical center `(2704, 1800)`;
-* The preview scaler downsamples this raster to `640 × 424` for USB delivery, while
-  the camera's internal display queue formats `1024 × 682` surfaces for panel scanout;
-* Focus indicator dimensions and coordinates map linearly onto the sensor space.
+The preview supplies a physical image and framing example for transport tests.
+It does not establish a full native sensor raster, the internal panel-buffer
+size or an exact linear focus-coordinate transform. Those bindings require a
+version-matched producer/consumer and controlled changes of image area, preview
+size and focus position. The emulator's internal display formats remain scoped
+to their own source and native contracts.
 
 ## Undocumented service mode operations (0x94fd..0x94ff)
 
@@ -83,58 +87,57 @@ Opcodes `0x94fd`, `0x94fe`, and `0x94ff` are not advertised in `GetDeviceInfo`,
 but are dispatched by the MAS table at VA `0x119E1E74` as described in
 [PTP command boundary](ptp.md).
 
-Physical testing verified both the service gate predicate and individual service keys:
+The historical response report below records admission before/after `F001`.
+The source function/address labels belong to software analysis; the capture
+does not establish their V1.60 identity or directly observe execution at them.
 
-```mermaid
-flowchart TD
-  Host["PTP Host"] --> Outer["Opcode 0x94fd / 0x94fe / 0x94ff"]
-  Outer --> Check{"Service Mode Gate\n(0xb188bc80)"}
-  Check -- "0 (Locked)" --> F001_Check{"Subcommand == 0xF001?"}
-  F001_Check -- "Yes" --> Unlock["Unlock Service Mode\n0xb188bc80 = 1\nReply: 0x2001"]
-  F001_Check -- "No (e.g. F091)" --> Reject["Reject: 0xa004\n(Mode Predicate False)"]
-  Check -- "1 (Active)" --> SubRouter["Table 0x119E405C Dispatch"]
-  SubRouter --> F091["0xF091: Provider Admission (0x10502D0A) -> OK"]
-  SubRouter --> F092["0xF092: Manager Setter (0x10502DB8) -> OK"]
-  SubRouter --> F093["0xF093: Display Handler (0x10502F10) -> OK"]
-  SubRouter --> F094["0xF094: Display Handler -> OK"]
-  SubRouter --> F165["0xF165: Bootstrap Handler (0x10773ED4) -> OK"]
-  SubRouter --> F002["0xF002: Service Lock / Exit -> 0xb188bc80 = 0"]
-```
+The observed response sequence is consistent with a service-admission gate.
+The runtime-memory capture does not confirm the previously proposed flag cell
+or predicate pointer; see the [byte-level correction](physical_ram_nvram.md#runtime-range-bytes).
+No direct RAM write or particular internal handler execution follows solely
+from a successful PTP response.
 
-### Observed response matrix
+### Reported historical response matrix
 
-| Opcode | Subcommand | Mode gate state | Physical response | Params | Meaning |
+The state labels in this report describe session ordering, not observed
+values at a validated RAM flag. Only F001/F091 are recorded in the archived
+capability profile; other rows remain historical reported observations.
+
+| Opcode | Subcommand | Reported admission state | Response | Params | Interpretation limit |
 |---|---|---|---|---|---|
-| `0x94FD` | `0xF001` | Locked (`0`) | `0x2001` (OK) | `0x2001` | Unlock service mode; sets gate active (`0xb188bc80 = 1`) |
+| `0x94FD` | `0xF001` | Locked (`0`) | `0x2001` (OK) | `0x2001` | Reported admission after F001; internal flag binding unverified |
 | `0x94FD` | `0xF001` | Active (`1`) | `0x2001` (OK) | `0x201E` | Already unlocked / session active |
-| `0x94FD` | `0xF091` | Locked (`0`) | `0xA004` (Error) | `0x0000` | Rejected by mode predicate (matches QEMU trace) |
-| `0x94FD` | `0xF091` | Active (`1`) | `0x2001` (OK) | `0x2001` | Provider admission dispatched (514 ms latency) |
-| `0x94FD` | `0xF092` | Active (`1`) | `0x2001` (OK) | `0x2001` | Manager setter executed |
-| `0x94FD` | `0xF093` | Active (`1`) | `0x2001` (OK) | `0x2001` | Display service executed |
-| `0x94FD` | `0xF094` | Active (`1`) | `0x2001` (OK) | `0x2001` | Display service executed |
-| `0x94FD` | `0xF165` | Active (`1`) | `0x2001` (OK) | `0x2001` | Bootstrap service executed |
-| `0x94FD` | `0xF002` | Active (`1`) | `0x2001` (OK) | `0x2001` | Lock service mode; resets gate to `0` |
+| `0x94FD` | `0xF091` | Locked (`0`) | `0xA004` (Error) | `0x0000` | Reported rejection; internal predicate path not directly observed |
+| `0x94FD` | `0xF091` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; archived profile latency 516.74 ms; historical report 514 ms |
+| `0x94FD` | `0xF092` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; handler effects not observed |
+| `0x94FD` | `0xF093` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; display effects not observed |
+| `0x94FD` | `0xF094` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; display effects not observed |
+| `0x94FD` | `0xF165` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; bootstrap effects not observed |
+| `0x94FD` | `0xF002` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported lock response; internal flag binding unverified |
 
-This directly confirms the MAS firmware analysis in [`docs/runtime/ptp.md`](ptp.md):
-* The outer envelope operations `0x94FD..0x94FF` route 28-byte service rows;
-* Subcommand `0xF001` is the single bypass past the mode predicate;
-* Subcommand `0xF091` requires service state and enters the display-service broadcast.
+The report can be compared with the source hypotheses in [PTP command boundary](ptp.md):
+
+* The software analysis describes outer envelopes and service rows; response
+  captures alone do not verify every dispatch path.
+* The reported F001/F091 ordering supports an admission dependency.
+* The archived capability profile records successful F001 and F091 responses,
+  not their internal side effects or all rows of the historical matrix.
 
 ## Full vendor device property enumeration (0xD016..0xD314)
 
 While standard `GetDeviceInfo` reports only 21 general properties, vendor opcode
-`0x90CA` publishes the complete inventory of **259 Nikon vendor device properties**:
+`0x90CA` returns an inventory of **259 unique vendor property codes** in this capture:
 
 * Raw inventory binary: [`payload_90ca.bin`](/evidence/physical/payload_90ca.bin) (522 bytes, 259 `u16` codes);
 * Range: `0xD016` to `0xD314`;
-* Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), mapping data types, `GetSet` access flags, default values, and active values;
-* Detailed technical registry: [Nikon Vendor Device Properties Inventory](ptp_vendor_properties.md), mapping every property to its hardware/firmware subsystem, data type, access rights, and menu function.
+* Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), recording data types, advertised access flags, default values and current values;
+* Annotated lookup registry: [Nikon Vendor Device Properties Inventory](ptp_vendor_properties.md), separating captured descriptor fields from editorial lookup names and unverified menu interpretations.
 
 ## Exhaustive F0 service table mapping (0xF000..0xF200)
 
 A systematic scan of the `0xF000..0xF200` range through `0x94FD` in unlocked state
-discovered **490 active service table entries** (matching the MAS firmware table
-at VA `0x119E405C`):
+classified **490 responding subcommands** (previously associated with the MAS firmware table
+at MAS VA `0x119E405C`, a version/address binding not independently verified by this scan):
 
 * **Success responses**: 111 subcommands return `0x2001` (OK) directly with zero or default arguments;
 * **Data-returning subcommands**: 11 subcommands stream structured binary responses:
@@ -150,18 +153,18 @@ All 11 payload captures are archived under [`service_payloads/`](/evidence/physi
 
 ## Physical RAM, NVRAM, and calibration extraction
 
-Using physical memory read primitive `0xF032`, NVRAM resource selector `0xF029`,
-and subsystem block commands, a complete hardware ground-truth dataset was
-dumped and validated:
+Using service-address request `0xF032`, NVRAM resource selector `0xF029`,
+and subsystem block commands, the collector saved requested ranges and prefixes.
+The archived manifest lacks response codes and complete block extents:
 
-* **Early DRAM (`0x04000000`)**: 1 MB boot vector and CPU mode stack image;
-* **MAS Runtime Globals (`0xB188B000`)**: 8 KB live OS state machine snapshot;
-* **Factory Calibration (Resource 80 & 67)**: 64 KB sensor geometry and AF adjustment tables;
-* **Subsystem NVRAM**: Audio DSP gains (Block 17), Body Serial Number OTP (Block 53), battery and thermal profiles (Blocks 09 & 10);
-* **Direct SDRAM Capture (`0x90C0`)**: Sensor pipeline execution to SDRAM with thumbnail recovery.
+* **Request address `0x04000000`**: 1 MiB containing instruction patterns and stack literals; effective execution mapping remains unresolved;
+* **Request address `0xB188B000`**: 8 KiB of runtime bytes; earlier state-cell bindings contradict several captured values;
+* **F029 selectors 0..6**: requested NVRAM prefixes with collector-assigned resource names, including an `AFadjustkohatsu` signature; no complete resource80 input is established;
+* **Other service payloads**: `AUDIO` and serial text signatures; battery/thermal/OTP interpretations remain unverified, and the F03A capture is entirely erased bytes;
+* **Reported SDRAM capture (`0x90C0`)**: object metadata and a recovered thumbnail, without archived full RAW/JPEG objects or proof of every pipeline stage.
 
-See [Physical Camera RAM, NVRAM, and Calibration Ground Truth](physical_ram_nvram.md)
-for complete disassemblies, memory layouts, and architectural impact.
+See [Physical memory and NVRAM capture bounds](physical_ram_nvram.md)
+for exact byte observations, corrected interpretations and input limitations.
 
 ## Receipts and verification tools
 

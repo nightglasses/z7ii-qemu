@@ -70,9 +70,10 @@ it is not evidence of a button-driven UI and not a frame.
 
 ## Physical dial transition receipts
 
-Physical testing on an attached Nikon Z 7II (`V1.60`) directly captures the live
-hardware dial rotation and asynchronous event dispatch across both the interrupt
-endpoint `0x83` (`EP_INT`) and the vendor polling queue `0x90C7` (`GetEvent`):
+The reported Nikon Z 7II (`V1.60`) dial session records PTP property-change
+notifications through interrupt endpoint `0x83` (`EP_INT`) and vendor polling
+operation `0x90C7` (`GetEvent`). These are host-level notifications, not an
+electrical contact trace:
 
 ```text
 [02:34:48] >>> [0x90C7 Vendor] ExposureTime (Shutter Dial) CHANGED: 2500 -> 3333
@@ -83,7 +84,16 @@ endpoint `0x83` (`EP_INT`) and the vendor polling queue `0x90C7` (`GetEvent`):
 [02:34:51] >>> [0x90C7 Vendor] ExposureTime (Shutter Dial) CHANGED: 2500 -> 2000
 ```
 
-This confirms the 1/3 EV stepping sequence (`1/40s (2500)` -> `1/30s (3333)` ->
-`1/50s (2000)`) driven by the four-phase quadrature contacts on EX pads 7 & 8
-in `hw/nikon/devices/input.c`.
+The reported shutter values correspond nominally to `1/40s`, `1/30s` and
+`1/50s`. They are consistent with ordinary shutter adjustment but do not count
+physical detents, prove one-third-EV motion per contact cycle or identify EX
+GPIO wiring. Polling and interrupt delivery can observe the same change at
+different times; these timestamps do not measure contact phase duration.
+
+`hw/nikon/devices/input.c` separately declares four-phase sequences and a
+50 ms virtual interval per phase. Its dial0 uses pad-array indices 7/8, mapped
+to EX GPIO hexadecimal IDs `5b/5e`; dial1 uses indices 5/6, IDs `47/4d`. These are model
+input choices, not physical measurements derived from PTP. A synchronized
+contact trace and property observation would be needed to establish the
+physical sequence, direction, debounce and timing.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate comprehensive, human-readable markdown documentation for all 259 Nikon vendor PTP device properties.
+Generate a captured-property inventory with explicitly unverified lookup labels.
 Output is placed at docs/runtime/ptp_vendor_properties.md with strict adherence to docs/writing.md.
 """
 
@@ -8,7 +8,8 @@ import json
 import os
 import re
 
-WORKTREE = "/Users/auturora/.codex/worktrees/physical-ptp/nightglass-qemu"
+WORKTREE = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 PROPS_JSON = os.path.join(WORKTREE, "docs/public/evidence/physical/vendor_properties_259.json")
 OUT_MD = os.path.join(WORKTREE, "docs/runtime/ptp_vendor_properties.md")
 
@@ -30,12 +31,12 @@ def load_ptp_definitions():
     code_to_sym = {int(code, 16): name for name, code in dpc_matches}
     return code_to_sym
 
-# English descriptions for handbook compliance
+# Editorial lookup descriptions, not recovered field or enumeration semantics
 SYMBOL_DESCRIPTIONS_EN = {
     # RAW & Image Quality
     "RawCompression": "RAW compression algorithm (0=Lossless, 1=Compressed, 2=Uncompressed)",
     "RawBitMode": "RAW quantization bit depth (0=12-bit high-speed, 1=14-bit high dynamic range)",
-    "RawImageSize": "RAW image size tier (0=RAW-Large 45.4MP, 1=RAW-Medium 25.6MP, 2=RAW-Small 11.4MP)",
+    "RawImageSize": "Image-size lookup name; captured STRING 5408x3600 does not establish native sensor dimensions",
     "ColorSpace": "Color space standard (1=sRGB standard display, 2=AdobeRGB wide gamut)",
     "FlickerReduction": "Still photo anti-flicker control (detects 100/120Hz flicker and synchronizes shutter release, 0=Off, 1=On)",
     "FlickerReductionSetting": "Anti-flicker detection sensitivity and clock timing parameters",
@@ -132,7 +133,7 @@ SYMBOL_DESCRIPTIONS_EN = {
 
     # Exposure, Shutter & Metering
     "CaptureAreaCrop": "Image sensor crop mode (0=FX 3:2 full frame, 1=DX 1.5x crop, 2=5:4, 3=1:1 square, 4=16:9)",
-    "EVStep": "Exposure and compensation EV adjustment increment step (0=1/3 EV, 1=1/2 EV, 2=1 EV)",
+    "EVStep": "Exposure-step lookup name; enumeration is not established by this capture",
     "ExposureBaseMatrix": "Matrix metering dedicated exposure baseline fine-tuning offset",
     "ExposureBaseCompCenter": "Center-weighted metering dedicated exposure baseline fine-tuning offset",
     "ExposureBaseCompMatrix": "Matrix metering global baseline fine-tuning offset",
@@ -311,7 +312,7 @@ SYMBOL_DESCRIPTIONS_EN = {
     "LiveViewStatus": "Live view stream subsystem controller state",
     "LiveViewProhibitCondition": "Live view prohibited condition mask (battery depleted, sensor thermal protection, hardware busy)",
     "LiveViewSelector": "Physical rear-panel live view mode selector lever (0=Photo LV, 1=Movie LV)",
-    "LiveViewImageSize": "PTP live view preview frame resolution format (0=QVGA, 1=VGA 640x424, 2=SVGA 800x600)",
+    "LiveViewImageSize": "Preview-size lookup name; value enumeration and relation to the 640x424 sample are unverified",
     "LiveViewPhotography": "Silent still photography live view actuation mode",
     "MonitorOffDelay": "Monitor and viewfinder energy-saving auto-off timer delay (4s, 10s, 30s, 1m, 10m, Unlimited)",
     "ViewfinderBrightness": "3.69M-dot OLED Electronic Viewfinder (EVF) brightness (Auto / Manual -5 to +5)",
@@ -400,13 +401,18 @@ def main():
     lines = []
     lines.append("# Nikon vendor device properties inventory (0xD016..0xD314)")
     lines.append("")
-    lines.append("This document provides the complete technical register of all **259 Nikon vendor device properties**")
-    lines.append("queried from the physical Nikon Z 7II (`V1.60`) via PTP opcode `0x90ca` (`GetVendorPropCodes`)")
-    lines.append("and decoded through standard `0x1014` (`GetDevicePropDesc`) and `0x1015` (`GetDevicePropValue`).")
+    lines.append(f"This inventory records the {len(props)} unique vendor property codes in the archived V1.60 dataset.")
+    lines.append("The JSON records descriptor fields from 1014 and value bytes from 1015; C1.70 and other camera modes are unverified.")
+    lines.append("")
+    writable = sum(info.get("access") == "GetSet" for info in props.values())
+    readonly = sum(info.get("access") == "GetOnly" for info in props.values())
+    lines.append(f"Descriptors advertise {writable} GetSet and {readonly} GetOnly entries. The dumper issues no 1016 setters; advertised access is not a successful write test.")
+    lines.append("")
+    lines.append("Types, flags and current values come from the JSON. Symbols use an external unversioned header and manual aliases. Groups and descriptions are editorial lookup interpretations, without a pinned header, menu experiment or source consumer. They do not establish physical roles, enumeration meanings, units or algorithms.")
     lines.append("")
     lines.append("Source dataset: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json)")
     lines.append("")
-    lines.append("## Subsystem summary")
+    lines.append("## Editorial subsystem grouping")
     lines.append("")
     lines.append("| ID | Subsystem | Domain | Properties |")
     lines.append("|---|---|---|---|")
@@ -419,9 +425,9 @@ def main():
         clean_id = sub_id.split('_', 1)[1]
         lines.append(f"## {sub_en}")
         lines.append("")
-        lines.append(f"Domain: **{sub_zh}** ({len(items)} properties).")
+        lines.append(f"Editorial group: **{sub_zh}** ({len(items)} properties).")
         lines.append("")
-        lines.append("| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |")
+        lines.append("| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |")
         lines.append("|---|---|---|---|---|---|")
         for k, sym, info in items:
             code_hex = k.upper()
@@ -436,11 +442,16 @@ def main():
             # Look up description by symbol
             desc = SYMBOL_DESCRIPTIONS_EN.get(clean_sym)
             if not desc:
-                desc = f"Controls {clean_sym} state and parameters (raw: `{raw_hex}`)"
+                desc = f"Unverified lookup name {clean_sym} (raw: `{raw_hex}`)"
 
             lines.append(f"| `{code_hex}` | `{clean_sym}` | `{dtype}` | `{access}` | `{cur}` | {desc} |")
         lines.append("")
 
+    lines.extend([
+        "## Usable validation", "",
+        "Use the inventory to match codes, types and captured values. Menu meanings and write behavior require a version-bound consumer and controlled observations. PTP notifications do not establish GPIO timing or internal C-matrix controls.",
+        "See [physical baseline](physical.md) and [dial receipt](../inputs/camera/keys.md#physical-dial-transition-receipts).", "",
+    ])
     with open(OUT_MD, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 

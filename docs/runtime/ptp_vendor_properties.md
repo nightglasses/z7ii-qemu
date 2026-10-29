@@ -1,12 +1,24 @@
 # Nikon vendor device properties inventory (0xD016..0xD314)
 
-This document provides the complete technical register of all **259 Nikon vendor device properties**
-queried from the physical Nikon Z 7II (`V1.60`) via PTP opcode `0x90ca` (`GetVendorPropCodes`)
-and decoded through standard `0x1014` (`GetDevicePropDesc`) and `0x1015` (`GetDevicePropValue`).
+This inventory records the 259 unique vendor property codes returned by the
+archived Nikon Z 7II (`V1.60`) `90ca` response. The JSON records descriptor
+fields from `1014` and value bytes from `1015`; it is a capture of that device
+state, not an exhaustive registry for C1.70 or every camera mode.
+
+The descriptors advertise 169 `GetSet` and 90 `GetOnly` entries. `GetSet` is an
+advertised flag, not a successful setter test: the property dumper issues no
+`1016` writes. Device state and other policy may constrain a later write.
+
+Types, flags and current values below come from the archived JSON. Symbol
+names come from an external, unversioned header lookup plus manual aliases;
+subsystem groups and descriptions are editorial interpretations. No pinned
+header identity, per-property menu experiment or source consumer is supplied.
+The lookup column therefore does not establish physical hardware roles,
+enumeration meanings, units, image algorithms or a register-level interface.
 
 Source dataset: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json)
 
-## Subsystem summary
+## Editorial subsystem grouping
 
 | ID | Subsystem | Domain | Properties |
 |---|---|---|---|
@@ -23,9 +35,9 @@ Source dataset: [`vendor_properties_259.json`](/evidence/physical/vendor_propert
 
 ## System configuration, orientation, and power telemetry
 
-Domain: **System Configuration & Telemetry** (9 properties).
+Editorial group: **System Configuration & Telemetry** (9 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD053` | `EnableCopyright` | `UINT8` | `GetSet` | `0` | Exif copyright and artist metadata embedding switch (0=Off, 1=On) |
 | `0XD072` | `ArtistName` | `STRING` | `GetSet` | `` | Photographer artist name string |
@@ -39,9 +51,9 @@ Domain: **System Configuration & Telemetry** (9 properties).
 
 ## White balance and color calibration
 
-Domain: **White Balance & Color Calibration** (80 properties).
+Editorial group: **White Balance & Color Calibration** (80 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD017` | `WhiteBalanceAutoBias` | `UINT16` | `GetSet` | `612` | Auto White Balance (AWB) fine-tuning bias coordinates (A-B amber/blue, G-M green/magenta, 612=zero bias) |
 | `0XD018` | `WhiteBalanceTungstenBias` | `UINT16` | `GetSet` | `612` | Tungsten incandescent white balance fine-tuning bias |
@@ -126,9 +138,9 @@ Domain: **White Balance & Color Calibration** (80 properties).
 
 ## Movie recording, audio, and timecode engine
 
-Domain: **Movie Recording, Audio & Timecode Engine** (42 properties).
+Editorial group: **Movie Recording, Audio & Timecode Engine** (42 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD0A0` | `MovScreenSize` | `0x0008` | `GetSet` | `1080873187699851264` | Movie frame resolution and frame rate profile (4K UHD 60p/50p/30p/25p/24p, FHD 120p/100p/60p/50p/30p) |
 | `0XD0A2` | `MovMicrophone` | `UINT8` | `GetSet` | `0` | Movie built-in stereo microphone channel routing |
@@ -175,9 +187,9 @@ Domain: **Movie Recording, Audio & Timecode Engine** (42 properties).
 
 ## Autofocus and focus peaking assistance
 
-Domain: **Autofocus & Focus Peaking Assistance** (10 properties).
+Editorial group: **Autofocus & Focus Peaking Assistance** (10 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD046` | `AFStillLockOnAcross` | `UINT8` | `GetSet` | `2` | Still AF tracking lock-on responsiveness to crossing obstacles (1=Quick to 5=Delayed) |
 | `0XD048` | `A1AFCModePriority` | `UINT8` | `GetSet` | `0` | AF-C continuous servo release priority (0=Release, 1=Release+Focus, 2=Focus) |
@@ -192,9 +204,9 @@ Domain: **Autofocus & Focus Peaking Assistance** (10 properties).
 
 ## Lens optics, manual non-CPU profile, and IBIS
 
-Domain: **Lens Optics, Non-CPU Profile & IBIS** (13 properties).
+Editorial group: **Lens Optics, Non-CPU Profile & IBIS** (13 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD02E` | `FmmManualSetting` | `UINT16` | `GetSet` | `0` | Non-CPU lens manual focal length registration (0 to 1000mm, used for IBIS and metering baseline) |
 | `0XD02F` | `F0ManualSetting` | `UINT16` | `GetSet` | `0` | Non-CPU lens manual maximum aperture registration (f/1.2 to f/22) |
@@ -212,16 +224,16 @@ Domain: **Lens Optics, Non-CPU Profile & IBIS** (13 properties).
 
 ## Image processing pipeline, RAW compression, and Picture Controls
 
-Domain: **Image Pipeline, RAW & Picture Controls** (16 properties).
+Editorial group: **Image Pipeline, RAW & Picture Controls** (16 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD016` | `RawCompression` | `UINT8` | `GetSet` | `0` | RAW compression algorithm (0=Lossless, 1=Compressed, 2=Uncompressed) |
 | `0XD032` | `ColorSpace` | `UINT8` | `GetSet` | `1` | Color space standard (1=sRGB standard display, 2=AdobeRGB wide gamut) |
 | `0XD034` | `FlickerReduction` | `UINT8` | `GetSet` | `255` | Still photo anti-flicker control (detects 100/120Hz flicker and synchronizes shutter release, 0=Off, 1=On) |
 | `0XD06B` | `LongExposureNoiseReduction` | `UINT8` | `GetSet` | `0` | Long exposure noise reduction via hardware dark frame subtraction for exposures >1s (0=Off, 1=On) |
 | `0XD070` | `NrHighISO` | `UINT16` | `GetSet` | `0` | Controls NrHighISO state and parameters (raw: `0000`) |
-| `0XD0B6` | `RawImageSize` | `STRING` | `GetSet` | `5408x3600` | RAW image size tier (0=RAW-Large 45.4MP, 1=RAW-Medium 25.6MP, 2=RAW-Small 11.4MP) |
+| `0XD0B6` | `RawImageSize` | `STRING` | `GetSet` | `5408x3600` | Image-size lookup name; captured STRING 5408x3600 does not establish native sensor dimensions |
 | `0XD0B7` | `FlickerReductionSetting` | `UINT8` | `GetSet` | `0` | Anti-flicker detection sensitivity and clock timing parameters |
 | `0XD0BA` | `DiffractionCompensatipn` | `UINT8` | `GetSet` | `1` | Diffraction compensation against small aperture softness (0=Off, 1=On) |
 | `0XD0F7` | `VignetteCtrl` | `UINT16` | `GetSet` | `4` | Vignette correction profile strength |
@@ -235,9 +247,9 @@ Domain: **Image Pipeline, RAW & Picture Controls** (16 properties).
 
 ## Creative Lighting System (CLS) and flash control
 
-Domain: **Creative Lighting System & Flash Control** (26 properties).
+Editorial group: **Creative Lighting System & Flash Control** (26 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD074` | `FlashSyncSpeed` | `UINT32` | `GetSet` | `2147549384` | Flash sync shutter speed ceiling (1/200s, 1/250s, 1/250s Auto FP high-speed sync) |
 | `0XD075` | `FlashShutterSpeed` | `UINT32` | `GetSet` | `65538` | Flash synchronization shutter speed threshold |
@@ -268,15 +280,15 @@ Domain: **Creative Lighting System & Flash Control** (26 properties).
 
 ## Live view streaming, EVF, and monitor control
 
-Domain: **Live View Streaming, EVF & Monitor** (15 properties).
+Editorial group: **Live View Streaming, EVF & Monitor** (15 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD17B` | `ApplyLiveViewSetting` | `UINT8` | `GetSet` | `1` | Live view preview exposure simulation (0=Off/constant brightness, 1=On/WYSIWYG exposure) |
 | `0XD1A2` | `LiveViewStatus` | `UINT8` | `GetOnly` | `0` | Live view stream subsystem controller state |
 | `0XD1A4` | `LiveViewProhibitCondition` | `UINT32` | `GetOnly` | `0` | Live view prohibited condition mask (battery depleted, sensor thermal protection, hardware busy) |
 | `0XD1A6` | `LiveViewSelector` | `UINT8` | `GetOnly` | `0` | Physical rear-panel live view mode selector lever (0=Photo LV, 1=Movie LV) |
-| `0XD1AC` | `LiveViewImageSize` | `UINT8` | `GetSet` | `2` | PTP live view preview frame resolution format (0=QVGA, 1=VGA 640x424, 2=SVGA 800x600) |
+| `0XD1AC` | `LiveViewImageSize` | `UINT8` | `GetSet` | `2` | Preview-size lookup name; value enumeration and relation to the 640x424 sample are unverified |
 | `0XD1AD` | `LiveViewPhotography` | `UINT8` | `GetSet` | `0` | Silent still photography live view actuation mode |
 | `0XD1B0` | `ExposureDisplayStatus` | `UINT8` | `GetOnly` | `0` | Viewfinder / monitor live exposure simulation scale display state |
 | `0XD1B1` | `ExposureIndicateStatus` | `INT8` | `GetOnly` | `-6` | Exposure deviation bar graph indicator telemetry |
@@ -290,13 +302,13 @@ Domain: **Live View Streaming, EVF & Monitor** (15 properties).
 
 ## Exposure mechanics, metering base, and shutter drive
 
-Domain: **Exposure Mechanics, Metering & Shutter** (41 properties).
+Editorial group: **Exposure Mechanics, Metering & Shutter** (41 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD030` | `CaptureAreaCrop` | `UINT8` | `GetOnly` | `2` | Image sensor crop mode (0=FX 3:2 full frame, 1=DX 1.5x crop, 2=5:4, 3=1:1 square, 4=16:9) |
 | `0XD054` | `ISOAuto` | `UINT8` | `GetSet` | `0` | Auto ISO control master switch (0=Off, 1=On) |
-| `0XD056` | `EVStep` | `UINT8` | `GetSet` | `2` | Exposure and compensation EV adjustment increment step (0=1/3 EV, 1=1/2 EV, 2=1 EV) |
+| `0XD056` | `EVStep` | `UINT8` | `GetSet` | `2` | Exposure-step lookup name; enumeration is not established by this capture |
 | `0XD059` | `CenterWeightArea` | `UINT8` | `GetSet` | `12` | Center-weighted metering circle diameter (8mm, 12mm, or frame average) |
 | `0XD05A` | `ExposureBaseMatrix` | `INT8` | `GetSet` | `0` | Matrix metering dedicated exposure baseline fine-tuning offset |
 | `0XD05B` | `ExposureBaseCenter` | `INT8` | `GetSet` | `0` | Center-weighted baseline tuning |
@@ -338,9 +350,9 @@ Domain: **Exposure Mechanics, Metering & Shutter** (41 properties).
 
 ## Dual card slots and storage naming
 
-Domain: **Dual Card Slots & Storage Architecture** (7 properties).
+Editorial group: **Dual Card Slots & Storage Architecture** (7 properties).
 
-| Code | Symbol | Type | Access | Current | Physical description / Camera menu mapping |
+| Code | Lookup symbol | Type | Advertised access | Captured current | Unverified lookup description |
 |---|---|---|---|---|---|
 | `0XD06C` | `FileNumberSequence` | `UINT8` | `GetSet` | `1` | File numbering continuity sequence behavior (0=Off/reset, 1=On/continuous, 2=Reset) |
 | `0XD08A` | `NoCFCard` | `UINT8` | `GetSet` | `1` | Shutter release interlock when memory card is missing (0=Release allowed for testing, 1=Release locked) |
@@ -350,3 +362,11 @@ Domain: **Dual Card Slots & Storage Architecture** (7 properties).
 | `0XD15B` | `ActiveFolder` | `UINT16` | `GetOnly` | `102` | Active DCIM directory folder sequence number (e.g. 100NCZ_7) |
 | `0XD1F2` | `ActiveSlot` | `UINT8` | `GetOnly` | `1` | Physical active hardware memory slot (Slot 1 vs Slot 2) |
 
+
+## Usable validation
+
+The inventory is useful for matching advertised codes, types and captured
+values. Establish a menu meaning or write behavior with a version-bound source
+consumer and a controlled before/after observation. PTP notifications alone do
+not identify GPIO contacts or internal C-matrix controls; see the
+[physical baseline](physical.md) and [dial receipt](../inputs/camera/keys.md#physical-dial-transition-receipts).
