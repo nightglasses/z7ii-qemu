@@ -376,6 +376,31 @@ read-only diagnostics, exact numerical comparison and this separate acceptance.
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that
 native OnVd processing exceeds a frame period.
+
+The later [OnVd supply audit](../devices/pairs/requests.md#successful-waits-and-independent-result-producers)
+follows251 complete callbacks: all FE and stage waits succeed, with real group,
+statistics and packing producers. Host profiles identify group arithmetic and
+BQL display conversion costs. Exact shared-chroma evaluation preserves the
+complete scalar law and reduces the measured primary-conversion subset median
+from4.45 to3.68ms in separate bounded profiles. The image subtree passes21
+native cases, including80 signed-matrix/layout/apply/alpha oracle updates.
+
+Longer acceptance remains failing. The first extended baseline stops after
+39.35 host seconds following normal M-to-A input on a legitimate interpolated
+post parameter, D34=`401` with active D28=`0500`; its
+[complete numerical contract](../devices/pairs/post.md#unresolved-interpolated-parameter-family)
+is unresolved. The first optimized long-M attempt completes2591 paired jobs
+and stops at95.21 seconds on a selected gate stop pulse, with FIFO13/60.
+The source-backed [two-channel quiescent stop](../devices/gate/processing.md#selected-quiescent-stop)
+contract passes native red-to-green and preserves all data/configuration/pending
+ownership. Its first long-M attempt crosses the pulse, then stops at94.89 seconds
+on resource34 monitor PA `20100200`, with2583 paired jobs and FIFO10/60.
+Neither attempt reaches its planned300-second dwell or new mode requests.
+Flags and diagnostic length remain zero; an unsupported device read still
+stops execution. Separate observer FIFO-full and SPI8 failures are retained.
+The [receipt](/evidence/runtime/grid.json) distinguishes these from the earlier
+143.15-second mode acceptance and from fixtures; no indefinite stability is claimed.
+
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M

@@ -1944,5 +1944,316 @@
       "source_full_behavior": "Push returns0 when count>=60; builder does not propagate failure",
       "qualification": "Plugin observation changes scheduling; faster count growth cannot be used as the uninstrumented rate. Diagnose actual OnVd cost/cadence rather than discard, coalesce, enlarge or force completion."
     }
+  },
+  "onvd_callback_supply": {
+    "scope": "OnVd source/wait diagnosis, exact primary arithmetic and selected quiescent stop contract; long-window/mode acceptance remains open",
+    "revision_binding": "Accepted base c6745dbf4479c9b103fd3ccdc91c80034d5df8a6 plus the accompanying primary shared-chroma and quiescent-stop changes, qualified separately below",
+    "firmware": "Original C1.70, unchanged",
+    "input_profile": "Five-CPU MTTCG; cold-neutral resource80; explicit virtual timing rows; RNG0 battery over UART; virtual lens; fresh MBR/FAT32 card; normal scene/calibration inputs and held F4; initial M",
+    "source_established": [
+      "FIFO MAS VA B23EDE14 has60 entries of92bytes; synchronous callback dispatch103191C2 returns at103191C6.1032627C is only an early OnVd return.",
+      "TG\u219204200001\u2192041A0001\u219210327976\u219210327BE8 produces callbacks without waiting for CaptureService consumption; normal source conditions and callback timestamps are retained.",
+      "FE mask5 joins an old-root worker bit1 and separate auxiliary acquisition bit4; untagged event bits are not frame identities.",
+      "Stage mask05B00000 joins actual capturework packing/correction/geometry bits00100000/00200000/04000000, statistics00800000 and group01000000. It is distinct from paired numerical completion.",
+      "Continuous worker103B4E1E receives an explicit stop request, ACKs its terminals, disables selected input and2608/2648, checks resources idle and pulses2620/2660 through103BD2B2; ordinary status1 satisfies the original (status&3)!=3 idle predicate.",
+      "103D059E can post drain bit8000 from a normal OnVd transition;103D0320 is a separate synchronous drain. A stop pulse does not imply a prior timeout.",
+      "The later observed LR10388AB3 identifies1038897E resource cleanup case18 calling103BD5CA, which reads the complete resource34 monitor snapshot. Its numerical producer is not established by metadata admission."
+    ],
+    "diagnostics": {
+      "read_only_onvd_profile": {
+        "callbacks": 251,
+        "read_errors": 0,
+        "callback_host_us": {
+          "n": 251,
+          "min": 12920,
+          "median": 32937,
+          "mean": 32609.123505976095,
+          "max": 49412
+        },
+        "fe_waits_returning_one": 251,
+        "stage_waits_returning_one": 251,
+        "fe_wait_median_host_us": 17155,
+        "stage_wait_median_host_us": 7323,
+        "core_median_host_us": 30702,
+        "instrumentation": "Read-only bounded QEMU TCG plugin; no guest calls/writes, only RAM/register reads"
+      },
+      "independent_setter_profile": {
+        "stage_waits": 251,
+        "last_observed_producer": {
+          "group": 190,
+          "capturework": 38,
+          "statistics": 17,
+          "no_setter_inside_span": 6
+        },
+        "read_errors": 0,
+        "limit": "Separate schedule; medians and stages must not be combined into one frame chronology. A short host sampling window perturbs scheduling."
+      },
+      "host_result_cost": {
+        "group_math_median_us": 7108,
+        "group_pool_queue_median_us": 10,
+        "group_total_median_us": 9857.5,
+        "primary_conversion_subset_median_us_before": 4445,
+        "primary_conversion_subset_median_us_after": 3675.5,
+        "supplied_frames_per_profile_after_warmup": 120,
+        "primary_subset_frames_before_and_after": 68,
+        "qualification": "Same declared input configuration in independent bounded host-only profiles; subset threshold1000us. Not a controlled private-frame pair, native cadence or physical FPS."
+      },
+      "discarded_candidates": "Both group algebraic/layout prototypes measured slower and were removed, including their temporary tests and diagnostics.",
+      "failed_observers": [
+        {
+          "role": "Heavy read-only stop observer",
+          "host_seconds": 78.890671,
+          "paired_completed": 2096,
+          "fifo_count": 60,
+          "result": "Observer stopped on its FIFO-full guard; no requested-stop beacon captured",
+          "read_errors": 0
+        },
+        {
+          "role": "Minimal stop-request observer",
+          "host_seconds": 33.302962,
+          "paired_completed": 672,
+          "fifo_count": 16,
+          "result": "SPI8 empty/phase read rejects at MAS VA10243244, PA2C0A0804; no later stop request observed",
+          "read_errors": 0
+        }
+      ],
+      "observed_synchronous_stop": {
+        "role": "Separate read-only transition diagnostic, not acceptance",
+        "host_seconds": 95.428805,
+        "paired_completed": 2595,
+        "fifo_count": 10,
+        "beacon_rows": 10,
+        "ram_read_errors": 0,
+        "actual_chain": [
+          "At94.508053 host seconds103D1320(R0=1,LR10322EC1)",
+          "103D0320(R0=2,LR103D134D)",
+          "10265184(R0=2,LR103D0521)",
+          "102BDD30(R0=4,R1=102637C3,LR102651B9)",
+          "103B527C(workerB1D52648,R1=2)",
+          "103B4F2E context9 stop branch"
+        ],
+        "source_join": "Observed10322EC1\u2192103D1320 identifies CaptureService teardown. R0=1 atD1320 is the preceding103C5342 return, not the entry argument to10322E3E. A later direct RAM snapshot readsB1868AF1=10. The upstream state10 request is unresolved. PreservedR9=041A0008 does not prove ordinary data delivery caused teardown.",
+        "first_stop": "Strict resource34 monitor read atPA20100200 remains; same firmware/source profile as stoppedwindow",
+        "limit": "Dynamic synchronous route proven, exact upstream transition request/condition still unresolved; not substituted for the first uninstrumented window"
+      },
+      "service_state_probe": {
+        "role": "Separate read-only diagnostic; no acceptance retry",
+        "host_seconds": 95.384158,
+        "paired_completed": 2609,
+        "fifo_count": 10,
+        "beacon_rows": 10,
+        "ram_read_errors": 0,
+        "service_state_mas_va": "B1868AF1",
+        "observed_state": 10,
+        "adjacent_bytes": {
+          "B1868AF2": 5,
+          "B1868AF3": 2
+        },
+        "entry_filter": "No10323198(R0=6) observed; this does not exclude other events",
+        "first_stop": "Same strict resource34 monitor boundaryPA20100200",
+        "correction": "D1320 R0=1 is a call return. Neither it nor LR10322EC1 proves10322E3E(arg1)/state11."
+      },
+      "observed_capture_stop_request": {
+        "role": "Narrow read-only request diagnostic; separate from uninstrumented acceptance",
+        "host_seconds": 95.214025,
+        "paired_completed": 2547,
+        "fifo_count": 45,
+        "ram_read_errors": 0,
+        "actual_entry": {
+          "host_seconds": 93.827343,
+          "mas_va": "10323198",
+          "R0_event": 4,
+          "R1": 0,
+          "LR": "1032366B",
+          "old_state_at_B1868AF1": 9,
+          "deferred_B1868BC0_B1868BC8": [
+            0,
+            0
+          ]
+        },
+        "actual_teardown": {
+          "host_seconds": 93.827448,
+          "mas_va": "10322E3E",
+          "R0": 0,
+          "LR": "10323341",
+          "new_state_at_B1868AF1": 10
+        },
+        "source_join": "Queued callback10323624, submitted through10328B92, requests event4. This is not the heavy OnVd deferred-stop branch. The more-upstream caller/condition is still being traced.",
+        "first_stop": "Strict resource34 monitor boundaryPA20100200",
+        "limit": "Host schedule differs; higher FIFO45 remains an observed diagnostic backlog, not an unchanged-firmware rate or bounded-queue acceptance"
+      },
+      "observed_application_stop": {
+        "role": "Separate narrow read-only high-level origin diagnostic; not acceptance",
+        "host_seconds": 97.914133,
+        "paired_completed": 2690,
+        "fifo_count": 28,
+        "beacon_rows": 15,
+        "ram_read_errors": 0,
+        "actual_chain": [
+          "1024692E(R0=B18192B8,R1=2,R5=2,LR102467B5), saved caller at entrySP+0C=1024733D; next saved caller102473F5",
+          "103F258E(R0callback=10204D47,LR10246945)",
+          "103E7312(R0=12,R1=2,R2=0), application stateB23F6A80=2",
+          "Previously observed queued10323624\u2192event4\u2192CaptureService9\u219210\u219210322E3E(0) joins the downstream stop"
+        ],
+        "source_established": [
+          "102473B8 runs when the named AppC_Rec objectB1819604+0x108 equals1; it clears that state and synthesizes logical message bytes2,2",
+          "102472D4 accepts reason2 after its parent callback permits it and requests parent state9 at10247338, matching savedLR1024733D",
+          "10246784\u21921024692E\u2192103F258E queues103EF322, which requests upper state machine12/reason2; the source state11 entry queues10328B92 and then10323624",
+          "Upper application state11 and CaptureService state10 belong to different objects; neither D1320R0=1 nor the preserved041A0008 identifies these transitions",
+          "The identified phase1 writer is inherited method102A6A84 at102A6B0A, object+0x108 (264decimal): parent+0x90(2) must return0 and1036095A\u2192103F2268 must return0 after accepting APIindex1 and queuing103EEF8A. Nonzero API return requests parent state5 instead."
+        ],
+        "unknown": "Actual indirect caller/mode of102A6A84; no physical idle/power/calibration meaning or95-second timer is established",
+        "first_stop": "Same strict resource34 monitor boundaryPA20100200"
+      }
+    },
+    "implementation": {
+      "primary": "Reuse exact first-matrix UV terms across2x1 NV16/2x2 NV12 samples; per-pixel luma/round/clip/second matrix/alpha remain. Full current-RAM validation, exact cache comparison and publication are unchanged.",
+      "quiescent_stops": "Both selected holds accept only values0/1 with selected input/control disabled and actual computation inactive. Held enable writes reject; deassert releases. No RAM, configuration, route, command, pixels, phase or pending clear, cancellation, completion, timer or IRQ action.",
+      "virtual_laws": [
+        "33,333,334ns source period remains the existing declared virtual profile, not recovered physical timing",
+        "Quiescent pulse hold/reopen meaning; broader physical reset/flush effects remain unrecovered"
+      ],
+      "unchanged_constraints": [
+        "No callback discard/coalesce, source downclock, larger FIFO, forced software-slot/event-bit release, guest-state edit, fake ACK/completion/event or framebuffer replacement"
+      ]
+    },
+    "native": [
+      {
+        "selector": "nikon --test-args=\"-p /arm/nikon/image\"",
+        "result": "PASS",
+        "subtests": 21,
+        "duration_seconds": 5.51,
+        "scalar_oracle_updates": 80,
+        "scope": "2layouts x4signed matrix pairs x2apply states x5alpha values, plus existing complete image subtree boundaries/cache/lifecycle",
+        "normal_tap_and_exit": true
+      },
+      {
+        "selector": "nikon_sla --test-args=\"-p /arm/nikon/sla/gate\"",
+        "result": "Red to green",
+        "subtests": 1,
+        "duration_seconds": 1.68,
+        "scope": "Both stopped holds, malformed/enabled writes, reopen/reset, retained parameters/routes/raw IRQ and absent results; old online-upload fixture expectations corrected to the already accepted retained-snapshot contract; retained selected command status1/pointer and independent other-channel reopening",
+        "red": "With current upload expectations fixed, held enable write remained1 instead of0 before the stop implementation",
+        "normal_tap_and_exit": true
+      }
+    ],
+    "independent_review": "Primary arithmetic/test delta and selected-stop/test delta each CLEAR; documentation uses row-constant/row-varying fields instead of unproven physical control/coefficient names",
+    "first_original_windows": [
+      {
+        "role": "First uninstrumented attempt for the stated source delta; failure retained",
+        "source_delta": "Unmodified c6745dbf baseline",
+        "host_seconds": 39.350644,
+        "planned": "Long continuous M window followed by two normal A/S/P/M cycles",
+        "result": "FAIL before completing the planned acceptance",
+        "first_stop": "paired active post D34=401 rejected after normal M-to-A input",
+        "paired_completed": 929,
+        "capture_service_fifo_count": 5,
+        "fifo_capacity": 60,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "qmp_status": {
+          "status": "debug",
+          "running": false
+        },
+        "mode_transitions_started": 1,
+        "physical_fps_claim": false
+      },
+      {
+        "role": "First uninstrumented attempt for the stated source delta; failure retained",
+        "source_delta": "Exact primary shared-chroma terms and identity reductions",
+        "host_seconds": 95.2053,
+        "planned": "Long continuous M window followed by two normal A/S/P/M cycles",
+        "result": "FAIL before completing the planned acceptance",
+        "first_stop": "WRITE PA20102620=1 at MAS VA103BD2BE",
+        "paired_completed": 2591,
+        "capture_service_fifo_count": 13,
+        "fifo_capacity": 60,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "qmp_status": {
+          "status": "debug",
+          "running": false
+        },
+        "mode_transitions_started": 0,
+        "physical_fps_claim": false
+      },
+      {
+        "role": "First uninstrumented attempt for the stated source delta; failure retained",
+        "source_delta": "Primary optimization plus selected quiescent stop holds",
+        "host_seconds": 94.885025,
+        "planned": "Long continuous M window followed by two normal A/S/P/M cycles",
+        "result": "FAIL before completing the planned acceptance",
+        "first_stop": "READ PA20100200 at MAS VA103BD5D4, LR10388AB3",
+        "paired_completed": 2583,
+        "capture_service_fifo_count": 10,
+        "fifo_capacity": 60,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "qmp_status": {
+          "status": "debug",
+          "running": false
+        },
+        "mode_transitions_started": 0,
+        "physical_fps_claim": false,
+        "fifo_samples": [
+          {
+            "host_seconds": 29.56,
+            "count": 3
+          },
+          {
+            "host_seconds": 59.37,
+            "count": 5
+          },
+          {
+            "host_seconds": 90.55,
+            "count": 8
+          },
+          {
+            "host_seconds": 94.89,
+            "count": 10
+          }
+        ]
+      }
+    ],
+    "remaining_boundaries": [
+      "Resource34 monitor producer/equations and whole snapshot publication for200/220..25C/280..2AC",
+      "Actual caller/mode of inherited102A6A84 accepted APIindex1 path; its identified phase1 store is source-established, and the later source-generated reason2 teardown chain is observed",
+      "Active D20..D9C post numerical contract, including legitimateD34=401 with D28=0500",
+      "Independent SPI8 reentry/empty-read condition",
+      "Long FIFO bound and new normal A/S/P/M acceptance; prior143.15-second acceptance is separately preserved"
+    ],
+    "omitted": "Factory bytes, disassembly, raw debugger/trace dumps, machine-specific paths, failed test-selector attempts and removed diagnostic instrumentation; none is a complete boot or physical-camera claim",
+    "resource34_source_boundary": {
+      "source_established": [
+        "Logical4 low3 bits select the source; value0 routes actual type10/resource49, not a demonstrated disable",
+        "CPU provisioning writes4096workspace bytes only after checking148.bit8 and requesting2C0=1; it does not write monitor registers",
+        "Getter always reads200,220..25C and280..2AC even when cleanup clears optional workspace-copy pointers",
+        "Independent active measurement client configures a different profile, runs a real graph and consumes four wide results"
+      ],
+      "not_established": [
+        "Logical0 bit polarity or zero meaning",
+        "Monitor reset/disabled/stop retention values",
+        "Pixel equations, bin association and publication conditions",
+        "Meaning of four32+17-bit logical60..7C pairs; no proven ROI/window interpretation"
+      ],
+      "decision": "Keep the complete unknown monitor boundary explicit; no constant-zero result extension or invented completion"
+    },
+    "documentation_validation": {
+      "command": "pnpm docs:build",
+      "result": "PASS",
+      "physical_fps_or_complete_boot": false
+    }
   }
 }

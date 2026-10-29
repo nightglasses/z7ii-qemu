@@ -375,7 +375,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     unsigned x = p[0x600 / 4] & 0xffff, y = p[0x600 / 4] >> 16;
     unsigned alpha = p[0x500 / 4];
     unsigned a = 1, b = 1, e = 1, f = 1, scaled_w, scaled_h;
-    unsigned uv_height, row, col, i, j;
+    unsigned uv_height, shared_rows, row, col, i, j;
     hwaddr base_y = p[0x210 / 4], base_uv = p[0x220 / 4];
     int32_t matrix[2][3][3];
     g_autofree uint8_t *luma = NULL;
@@ -384,6 +384,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     pixman_transform_t transform;
     uint32_t *pixels;
     unsigned stride;
+    bool apply = p[0x4f0 / 4] != 0;
 
     if (command != 1 && command != 3) {
         nikon_banks_primary_clear(primary);
@@ -494,38 +495,52 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     }
     pixels = pixman_image_get_data(image);
     stride = pixman_image_get_stride(image) / 4;
-    for (row = 0; row < height; row++) {
+    shared_rows = mode == 4 ? 2 : 1;
+    for (row = 0; row < height; row += shared_rows) {
         unsigned uv_row = mode == 4 ? row / 2 : row;
 
-        for (col = 0; col < width; col++) {
-            const uint8_t *uv = chroma + (size_t)uv_row * width + (col & ~1U);
-            int32_t input[3] = { luma[(size_t)row * width + col],
-                                 uv[0] - 128, uv[1] - 128 };
-            int32_t rgb[3], final[3];
+        for (col = 0; col < width; col += 2) {
+            const uint8_t *uv = chroma + (size_t)uv_row * width + col;
+            int32_t color[3];
 
+            /*
+             * Both columns (and both NV12 rows) share these exact terms.
+             * Keep luma, clipping and the second matrix per output sample.
+             */
             for (i = 0; i < 3; i++) {
-                /* Signed16 dot bound: 32768 * (255 + 128 + 128). */
-                int32_t value = 0;
-
-                for (j = 0; j < 3; j++) {
-                    value += matrix[0][i][j] * input[j];
-                }
-                rgb[i] = CLAMP((value + 8192) >> 14, 0, 255);
+                color[i] = matrix[0][i][1] * (uv[0] - 128) +
+                           matrix[0][i][2] * (uv[1] - 128);
             }
-            for (i = 0; i < 3; i++) {
-                int32_t value = rgb[i] * 1024;
+            for (unsigned dy = 0; dy < shared_rows; dy++) {
+                for (unsigned dx = 0; dx < 2; dx++) {
+                    unsigned y = row + dy, x = col + dx;
+                    int32_t rgb[3], final[3];
 
-                /* Profile byte22: finite bypass/apply interpretation. */
-                if (p[0x4f0 / 4]) {
-                    value = 0;
                     for (j = 0; j < 3; j++) {
-                        value += matrix[1][i][j] * rgb[j];
+                        /* Same signed16 dot bound, before the only clamp. */
+                        int32_t value = color[j] + matrix[0][j][0] *
+                            luma[(size_t)y * width + x];
+
+                        rgb[j] = CLAMP((value + 8192) >> 14, 0, 255);
                     }
+                    for (i = 0; i < 3; i++) {
+                        int32_t value = rgb[i];
+
+                        /* Profile byte22 selects finite bypass/apply. */
+                        if (apply) {
+                            int32_t sum = 0;
+
+                            for (j = 0; j < 3; j++) {
+                                sum += matrix[1][i][j] * rgb[j];
+                            }
+                            value = CLAMP((sum + 512) >> 10, 0, 255);
+                        }
+                        final[i] = alpha == 255 ? value : value * alpha / 255;
+                    }
+                    pixels[y * stride + x] = (alpha << 24) |
+                        (final[0] << 16) | (final[1] << 8) | final[2];
                 }
-                final[i] = CLAMP((value + 512) >> 10, 0, 255) * alpha / 255;
             }
-            pixels[row * stride + col] = (alpha << 24) |
-                (final[0] << 16) | (final[1] << 8) | final[2];
         }
     }
     pixman_transform_init_scale(&transform, ((int64_t)b << 16) / a,

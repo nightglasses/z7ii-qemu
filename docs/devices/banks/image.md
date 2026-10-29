@@ -139,12 +139,23 @@ Both dot products now use signed32 intermediates: the qualified signed16 Q14
 matrix with byte Y/signed-byte UV stays below16.8 million including rounding;
 the signed12 Q10 matrix after RGB clipping stays below1.57 million. Every
 partial product/sum fits as well. An independent signed64 floor-division oracle
-checks coefficient extremes, cancellation and rounding in48 actual frame
-updates, both UV layouts, bypass/application and three nonzero alpha values.
-This preserves the formula and does not establish a vectorization or rate gain.
+checks coefficient extremes, cancellation and rounding in80 actual frame
+updates, both UV layouts, bypass/application and alpha0/1/127/128/255.
 Likewise the interpretation of0500 as premultiplied global alpha is a finite
 inference: `102692ca` publishes message byte44 and `10445bec -> 1046c160`
 forwards that byte, but its complete physical semantics are not recovered.
+
+The conversion shares only exact first-matrix chroma terms. For each channel,
+`C = M1*(U-128) + M2*(V-128)` is common to two horizontal pixels; format4 also
+shares it with the next row. Each individual Y sample still computes
+`clip((M0*Y + C +8192) >>14)`, then its own optional second matrix and alpha.
+There is no intermediate chroma rounding or clipping. The shared sum stays
+within8,388,608 in magnitude and the complete signed16 dot within16,744,448.
+The existing even-dimension qualification bounds every2×1 or2×2 tile. A
+bypassed Q10 operator on already clipped RGB and full alpha255 are exact
+identities, so neither needs a multiply/round/divide cycle. These reductions
+preserve the formula, complete plane reads, packet/byte cache checks and the
+existing unpublished-to-published frame boundary.
 
 `10448382` computes scaled width as `a * source_width / b` and height as
 `e * source_height / f`. The model uses nearest inverse sampling, no additional
