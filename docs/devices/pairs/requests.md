@@ -270,6 +270,106 @@ The uninstrumented mode window separately reaches41 queued entries. The next
 boundary is OnVd's producer cadence versus actual per-callback waits and work;
 there is no basis to discard callbacks, enlarge the FIFO or fabricate completion.
 
+### Successful waits and independent result producers
+
+The normal callback `10325ff6` calls `103250f2`, whose `10325714` call enters
+`10233570`. The universal callback return is dispatcher VA `103191c6`:
+`1032627c` is only an early-return epilogue, while normal completion tail-calls
+the tracing helper. All addresses here are original C1.70 MAS VA and masks are
+hexadecimal. Original API timeout arguments are decimal, not physical times.
+
+| Wait | Original object and contract | Actual production |
+| --- | --- | --- |
+| FE, `102339d8` | `b1887d9c`, AND-and-clear mask1 or5, timeout100 | Bit1 follows FE worker service of a queued older root, including a no-root branch. Bit4 follows the independent auxiliary acquisition raw0.bit0 route through `041a000f`. |
+| Capture stages, `102389c2` | `b188814c`, AND of selected stage mask, timeout200; caller clears the mask afterward | Bits `00100000/00200000/04000000` follow actual MAIN correction/geometry/packing DMA. `00800000` follows statistics outputs/results. `01000000` follows group records/results. |
+
+These untagged synchronization bits do not identify a shared frame. The old
+root moves `b25eeba4 ->b25eebc4`, then a later VD route transfers a qualified
+root into `b25eebe4` for the FE worker. Capturework's `04000000` is independent
+of the gate paired numerical operator; a wait on it cannot establish a serial
+paired-then-MAIN computation path.
+
+A bounded read-only profile records251 selected callbacks. Both FE mask5 and
+capture mask`05b00000` waits return1 every time. Callback duration has median
+32.94ms, FE-core29.13ms, FE wait17.16ms and capture wait7.32ms. A separate
+setter trace observes group`01000000` last in190 of251 capture waits,
+capturework last in38 and statistics last in17; six have no matching setter
+inside the observed span. Recovery usually follows the last setter within
+hundreds of microseconds. This identifies successful synchronization on real
+results, not a demonstrated timeout or missing event. Instrumentation changes
+scheduling, and separate spans must not be added as one frame's chronology.
+
+Host-only measurements place group arithmetic at7.11ms median against9–10us
+pool queueing; the published result takes about9.8ms including its nominal
+timer and delivery. Display conversion also occupies the BQL: its measured
+primary conversion subset has median4.45ms. The
+[exact chroma-term reuse](../banks/image.md#primary-yuv-view) reduces that
+subset to3.68ms under the same declared inputs, with all pixel/alpha operations
+retained. This is a bounded diagnostic cost comparison, not physical FPS or
+proof that the callback FIFO is now bounded.
+
+The first longer uninstrumented baseline instead stops on a distinct legal
+post-color parameter at39.35 host seconds after normal M-to-A input: D34=`401`
+is rejected by the frozen calibration comparison. A separate diagnostic
+captures active D28=`0500`, so a zero-strength exception cannot admit it. The
+[whole post packet](post.md#unresolved-interpolated-parameter-family) needs its
+own numerical contract before complete long-window mode acceptance can pass.
+Neither performance measurements nor previous bounded mode success erase
+this first new failure.
+
+The primary optimization's first uninstrumented long-M attempt completes2591
+paired jobs and stops at95.21 host seconds with FIFO13/60. Its first unsupported
+write, PA `20102620=1` at MAS VA `103bd2be`, belongs to an explicitly requested
+continuous-worker stop. The [selected quiescent stop model](../gate/processing.md#selected-quiescent-stop)
+now covers both channel families while preserving configuration and results.
+Its first uninstrumented long-M attempt crosses that pulse and completes2583
+jobs before stopping at94.89 host seconds on PA `20100200`, MAS VA `103bd5d4`.
+FIFO is10/60; neither window has begun its planned mode changes. Both retain
+zero exception/watchdog flags and diagnostic length, but neither passes the
+planned300-second dwell.
+
+The latter stop's LR `10388ab3` identifies resource cleanup case18 in
+`1038897e`, which calls the full resource34 monitor snapshot. The result
+producer is not established by merely admitting its configuration. Two
+separate observer attempts instead reach a full software FIFO and an SPI8
+phase/empty read. Those failures remain distinct; their perturbed timing cannot
+establish native queue rates. A later minimal observer records ten beacons with
+zero RAM errors and directly identifies the synchronous route:
+`10322e3e ->103d1320 ->103d0320 ->10265184 ->102bdd30(4,102637c3)` posts the
+context9 worker's stop bit2. A later direct RAM snapshot reads CaptureService
+state10. The teardown entry argument and upstream request condition remain
+unresolved; R0=1 at `103d1320` is a prior call return. Preserved
+`041a0008` is an ordinary data-delivery event and does not alone prove the
+teardown trigger. This separate diagnostic ends at95.43 host seconds with2595
+paired jobs and FIFO10; it does not replace the first uninstrumented failure. The
+[curated receipt](/evidence/runtime/grid.json) preserves all first-window results
+and the remaining data/transition boundaries.
+
+A subsequent narrow request probe directly records queued `10323624` sending
+`10323198(4,0)`, with CaptureService state9, then `10322e3e(0)` in state10.
+Both deferred-stop words are zero. The queue wrapper is `10328b92`; the more
+upstream condition remains unresolved. This observer reaches FIFO45 and2547
+paired jobs before the same strict monitor boundary, so the new traces do not
+establish indefinite queue stability. Resource34's selector0 routes real
+type10/resource49 input; neither its zero controls nor CPU-cleared workspace
+establish zero monitor results. Its equations and publication conditions remain
+an explicit whole-snapshot model boundary.
+
+The final high-level probe records `103e7312(12,2,0)` while application state
+`b23f6a80` is2. At `1024692e`, the saved caller at entry SP+`c` is `1024733d`,
+with next saved caller `102473f5`. These join the named `AppC_Rec` object at
+`b1819604`: `102473b8` runs when its state at hexadecimal offset`108` equals1, clears
+that phase and synthesizes logical message bytes `{2,2}`. `102472d4` then
+requests parent state9, reaching `10246784 ->1024692e ->103f258e` and queued
+`103ef322`. Upper state11 subsequently queues `10328b92`; this application
+state is distinct from CaptureService state10. The reason2 is software-generated,
+not identified as a physical idle or power input. Inherited `102a6a84` writes
+phase1 at `102a6b0a` only after parent callback+`90` returns0 and APIindex1 is
+accepted through `1036095a ->103f2268`, queuing `103eef8a`; these object offsets
+are hexadecimal. The actual indirect caller and mode remain unresolved.
+This observer's FIFO28 and2690 paired jobs
+are diagnostic observations, not a replacement for long-window acceptance.
+
 Device admission still requires real fresh RAW/grid input, a supported complete
 profile, ACK ownership and downstream capacity. Idle workers alone cannot
 identify a missing completion: the read-only paired `runtime` now exposes these

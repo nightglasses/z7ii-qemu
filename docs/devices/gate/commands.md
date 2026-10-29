@@ -95,11 +95,13 @@ PA `20100000`.
 ## Finite import lifecycle
 
 Implementation lives in `hw/nikon/devices/gate.c`, with packet decoding in
-`hw/nikon/devices/gatepacket.c`. Reset assertion clears only the selected
-unit's imported packet, pointer and configured flag. Deassertion arms one
-import. Type10 setter `103bdc92` writes auxiliary words at backend+`8/+c`
-before pulsing reset, so those two words survive this local pulse. Whole-device
-reset clears every packet, auxiliary word and import counter.
+`hw/nikon/devices/gatepacket.c`. The local upload pulse opens a replacement
+transaction and deassertion arms one import. It retains the committed packet,
+pointer, configured flag and already owned numerical work until a successful
+replacement, as required by the [online upload contract](processing.md#device-ownership-and-scheduling).
+Type10 setter `103bdc92` stages auxiliary words at backend+`8/+c` before the
+pulse; a successful import commits those words together. Whole-device reset
+clears every packet, auxiliary word and import counter.
 
 Pointer submission requires an armed, deasserted unit, an aligned nonzero
 address and a complete readable RAM source. QEMU MemoryRegion checks reject
@@ -107,7 +109,7 @@ MMIO, holes, overflow and incomplete spans before DMA. The decoder validates
 the entire fixed layout, lengths and final marker before atomically retaining
 a snapshot. A failed import does not consume the arm or install a partial
 packet. Repeated submission requires another reset pair. Pointer/configuration
-readback, cold empty state, pulse cancellation and this one-import arm are
+readback, cold empty state, atomic replacement and this one-import arm are
 explicit functional conventions; source establishes the successful ordering,
 not all physical error/reset behavior.
 

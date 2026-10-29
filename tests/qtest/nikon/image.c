@@ -1079,7 +1079,7 @@ static void test_primary_matrix_bounds(void)
         },
     };
     static const uint8_t values[] = { 0, 1, 2, 127, 128, 129, 254, 255 };
-    static const unsigned alphas[] = { 1, 128, 255 };
+    static const unsigned alphas[] = { 0, 1, 127, 128, 255 };
     QTestState *q = start();
     uint8_t luma[8 * 12], uv[8 * 14], observed[sizeof(uv)];
 

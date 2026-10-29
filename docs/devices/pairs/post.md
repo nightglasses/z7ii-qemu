@@ -101,6 +101,35 @@ all twelve DC0..DEC words, zero; it supplies no replacement guest writes.
 
 ## Numerical hypothesis
 
+### Unresolved interpolated parameter family
+
+The complete D20..D9C publisher also carries variable data in D34..D54.
+`1036c260` packs compact940..942 into D34; `103612ec` produces them as fields7–9
+of a43-field interpolation. Table selection `102d3874 ->103626fe ->103622d4`
+chooses64 tables of19 unsigned16 rows, and `10380388` interpolates adjacent
+rows with divisor6. For example table MAS VA `11b5f6f2`, rows5→6, can normally
+produce D34=`0401`. A complete online upload can therefore differ from the
+declared frozen calibration; it is not necessarily a partial packet.
+
+The30 bytes at D34..D54 contain19 row-constant fields and11 row-varying fields.
+The constant fields form six families across all64 tables. Varying fields
+have family-specific ranges; fields21≤22,25≤26,31≤32
+and35≤36 hold in all1216 rows and remain ordered under common interpolation.
+D58..D70 and D74..D8C are identical fixed28-byte carriers; D90=0, D94=`080808`,
+D98=`0401` and D9C=1. These packing and domain facts do not identify the ASIC's
+pixel equation. No CPU fallback or named numerical roles have been recovered.
+
+The current functional operator interprets only D28 from this family and
+keeps other fields under the explicit calibration qualification. An original
+M-to-A baseline stops at D34=`0401`; a later diagnostic captures D28=`0500`,
+so the already declared smoothing law is active. Zero-strength algebraic
+neutrality cannot justify this tuple. Nor does fixed D20=0 establish a physical
+bypass. Assigning all mixed controls to arbitrary gain-curve knots would add
+unsupported semantics. The next evidence boundary is a justified whole-family
+numerical model; unknown active tuples remain explicit errors.
+
+### Implemented residual passes
+
 All divisions round to nearest with signed ties away from zero. Each spatial
 pass reads an immutable plane, replicates edge samples and clamps its final
 sample to0..4095. The following equations are selected functional laws, not
