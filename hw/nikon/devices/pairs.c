@@ -102,6 +102,8 @@ typedef struct NikonPairedEventBanksBank {
     uint16_t main_gain_written[2], main_gain;
     bool main_gain_valid;
     uint8_t saturation_words[2];
+    uint8_t chroma_words[2];
+    bool chroma_published;
     uint8_t radial_table_words[2];
     uint64_t online_written[PAIRED_ONLINE_GROUPS][3];
     bool online_dirty[PAIRED_ONLINE_GROUPS];
@@ -457,6 +459,7 @@ static bool paired_live_word(unsigned offset)
         (offset >= 0x724 && offset <= 0x738) ||
         (offset >= 0x900 && offset <= 0x9c4) || offset == 0x9d8 ||
         (offset >= 0x1a08 && offset <= 0x1a8c) ||
+        (offset >= 0x4f20 && offset <= 0x5024) ||
         (offset >= 0x1200 && offset <= 0x1244) ||
         paired_filter_word(offset) >= 0) {
         return true;
@@ -486,7 +489,7 @@ static bool paired_live_word(unsigned offset)
     case 0x13c: case 0x140: case 0x144:
     case 0x204: case 0x300: case 0x3d8: case 0x420: case 0x424:
     case 0x9cc: case 0x9d0: case 0x9d4:
-    case 0xb58: case 0xbac: case 0xd28: case 0xdd4: case 0xdd8:
+    case 0xb58: case 0xba8: case 0xbac: case 0xd28: case 0xdd4: case 0xdd8:
         return true;
     default:
         return false;
@@ -1040,6 +1043,32 @@ static bool paired_saturation(NikonPairedEventBanksBank *b, PairedJob *job)
            paired_profile_reject(b, 0x1a08);
 }
 
+static bool paired_chroma(NikonPairedEventBanksBank *b, PairedJob *job)
+{
+    unsigned slot = b->config[0xba8 / 4];
+    unsigned base;
+
+    /*
+     * MAS102f9b40/102fa6b6 toggle cached byte647 and publish that slot;
+     * 102bf33c -> 102e49fe -> 1036c0a0 uploads33 ascending words.
+     * Mode11c=0 instead publishes a split129-knot curve: not this profile.
+     */
+    if (slot > 1) {
+        return paired_profile_reject(b, 0xba8);
+    }
+    base = 0x4f20 + 132 * slot;
+    if (b->chroma_words[slot] != 33 ||
+        (b->config[(base + 128) / 4] >> 16)) {
+        return paired_profile_reject(b, base);
+    }
+    for (unsigned i = 0; i < 65; i++) {
+        job->pixels.chroma[i] = b->config[base / 4 + i / 2] >>
+                               (16 * (i & 1));
+    }
+    b->chroma_published = true;
+    return true;
+}
+
 /* Completion rechecks topology and memory using the owned numerical snapshot.
  * Numerical packet staging, calibration and opaque qualifiers belong solely to
  * admission; changed strict controls cancel the token at the write boundary.
@@ -1204,7 +1233,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         !paired_denoise(b, g) || !paired_detail(b, g) ||
         !paired_adaptive(b, g) || !paired_radial(b, g) ||
         !paired_colorfilter(b, g) || !paired_post(b, g) ||
-        !paired_saturation(b, job)) {
+        !paired_saturation(b, job) || !paired_chroma(b, job)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -1723,6 +1752,7 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
     NikonPairedRawFrame *frame = NULL;
     NikonPairedGridFrame *grid = NULL;
     uint32_t address = paired_source(b, b->phase);
+    unsigned chroma_slot = b->config[0xba8 / 4];
     const char *stage = "profile";
 
     if (s->stopping || b->active || b->compute || b->stop ||
@@ -1748,6 +1778,12 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
         }
     }
     if (!frame) {
+        return;
+    }
+    if (b->chroma_published && chroma_slot <= 1 &&
+        b->chroma_words[chroma_slot] < 33) {
+        /* Only the selected upload can delay the next real RAW admission. */
+        s->blocked++;
         return;
     }
     if ((b->radial_tables_published || b->published) &&
@@ -2361,6 +2397,9 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         int saturation = offset >= 0x1a08 && offset <= 0x1a8c ?
                          (int)((offset - 0x1a08) / 68) : -1;
         bool saturation_complete = false;
+        int chroma = offset >= 0x4f20 && offset <= 0x5024 ?
+                     (int)((offset - 0x4f20) / 132) : -1;
+        bool chroma_complete = false;
         int radial_table = offset >= 0x1200 && offset <= 0x1244 ?
                            (int)((offset - 0x1200) / 36) : -1;
         bool radial_complete = false;
@@ -2421,6 +2460,21 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             }
             /* Staging never cancels an immutable active image job. */
             changed = false;
+        }
+
+        if (chroma >= 0) {
+            unsigned word = ((offset - 0x4f20) % 132) / 4;
+            uint8_t *words = &b->chroma_words[chroma];
+
+            if (!word) {
+                *words = 1;
+            } else if (*words == word) {
+                (*words)++;
+                chroma_complete = *words == 33;
+            } else {
+                *words = UINT8_MAX;
+            }
+            changed = false; /* No active snapshot or RAW history mutation. */
         }
 
         if (post >= 0) {
@@ -2570,6 +2624,9 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
                 }
             }
         }
+        if (chroma_complete && b->request == PAIRED_AWAIT_INPUT) {
+            paired_try(b, b->regs.addr + offset, value);
+        }
         paired_finish(b);
         if (online_complete) {
             if (b->online_dirty[online] && paired_online_precolor(online)) {
@@ -2620,6 +2677,9 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         memset(s->bank[i].curve_written, 0, sizeof(s->bank[i].curve_written));
         memset(s->bank[i].saturation_words, 0,
                sizeof(s->bank[i].saturation_words));
+        memset(s->bank[i].chroma_words, 0,
+               sizeof(s->bank[i].chroma_words));
+        s->bank[i].chroma_published = false;
         s->bank[i].saturation_published = false;
         s->bank[i].saturation_updating = false;
         s->bank[i].filter_written = 0;

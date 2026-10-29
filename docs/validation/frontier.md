@@ -465,7 +465,28 @@ offset `ba8=0` in phase2. Paired totals750 and MAIN749, with zero sampled
 exception/watchdog flags and diagnostic length. These windows do not prove
 that `20a4` executed, complete shutdown or stable mode changes. The
 [receipt](/evidence/runtime/grid.json) retains each window separately; the
-paired numerical gap and earlier affine/AF/FIFO boundaries remain unresolved.
+earlier affine/AF/FIFO boundaries remain unresolved.
+
+The [independent C curve](../devices/pairs/saturation.md#independent-c-curve-and-ba8-selection)
+now connects BA8 to its two65-knot LUT banks, with complete ordered uploads,
+explicit selection and immutable pixel snapshots in the existing `11c=1`
+profile. Source selection/packing is established; its Q10 gain equation's Y
+axis, stage order and rounding are functional hypotheses. BB's separate six
+parameters retain strict calibration qualification, and `11c=0` split129-knot
+processing remains unsupported. The controlled old-device regression fails
+in0.62 seconds;68 paired and50 pixel native cases pass, alongside28 focused
+CMOS paired cases and the extended calibration rejection fixture.
+
+The first unchanged-firmware, no-debugger cold-neutral candidate window reaches
+60.85 host seconds and772 MAIN results without new unsupported accesses,
+sampled exceptions or diagnostic bytes. Extending the observation to129.89
+seconds reaches1759 paired/1760 MAIN in sequential, non-atomic reads, with
+zero rejections/cancellations/graph errors and QMP running. Both normal M-to-A
+attempts remain in mode3/context32; the latter's sampled queue reaches60/60.
+They establish bounded image continuation, not successful mode delivery,
+BA8=0 original execution or indefinite stability. The input/queue boundary and
+unrecovered BB arithmetic remain open. Earlier SLA FILL rejections and separate
+read-only diagnostic failures are retained rather than screened out.
 
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
