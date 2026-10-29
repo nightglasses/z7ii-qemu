@@ -101,6 +101,61 @@ in [acceleration](../../devices/acceleration/protocol.md) and
 [guiupdate](../../runtime/guiupdate.md). No original record bytes are embedded
 in the emulator or committed in fixtures.
 
+### Captured ACCELE import and explicit units
+
+The archived F025 capture contains a192-byte calibration record at file offset
+`100`. Its padded16-byte `ACCELE` marker, record boundary and consumed field
+offsets match C1.70 manifest MAS VA`118d0be0`. Setter`103d5366` compares the
+marker and installs the pointer without testing the type word at+16; the
+captured type3 is retained. This is a specific cross-version record binding,
+not an assertion that every V1.60 resource or address is interchangeable.
+
+The native tool imports only this record into an existing640KiB descriptor18:
+
+```sh
+work/build/qemu/tools/nikon/nikon-module acceleration-descriptor18 \
+  preserve INPUT_DESCRIPTOR18 F025_CAPTURE OUTPUT_DESCRIPTOR18
+
+work/build/qemu/tools/nikon/nikon-module acceleration-descriptor18 \
+  full16-to-raw12 INPUT_DESCRIPTOR18 F025_CAPTURE OUTPUT_DESCRIPTOR18
+```
+
+F025 must be exactly4096 bytes and have the padded marker at`100`. Both modes
+preserve every descriptor byte outside`[100,1c0)`, including its opaque footer,
+and write only the requested output file. Choose a distinct output path to retain
+the source files. The tool does not repair the footer, copy
+neighboring records, supply resource21 configuration or modify guest memory.
+Unknown unit modes, invalid lengths/markers and file errors fail explicitly.
+
+`preserve` copies all192 original bytes. `full16-to-raw12` declares the virtual
+coordinate mapping `raw_full16 = 16 * raw12`. It divides signed32 bias fields
+at decimal32/36/40 and gain fields56/60/64 by16, requiring exact divisibility
+and positive gains. Type, cross-axis terms and angle corrections stay unchanged.
+This preserves the rational Q16 expression
+`(rawQ16 - bias) * 65536 / gain` under that mapping. The six captured values
+divide exactly; the converted gains are66908416/66935040/65501440, retaining
+their unequal captured axis corrections rather than substituting unity.
+
+Original `103d4752` divides the variant1 signed BE16 wire sample by16; its
+other branch uses full halfwords. Both calibration helpers use Q16 ratios,
+but variant1's`103d42f0` normalizes a32-bit numerator and shifts its denominator,
+whereas`103d57d6` uses a64-bit divide. An exhaustive comparison for this captured
+record and all4096 raw12 values per axis bounds their difference after explicit
+retargeting at1/5/5 Q16 least-significant units. That is a finite arithmetic
+comparison, not proof of the physical sensor's range or board strap. Current
+variant1 comes from GPIO P0.5 reading its configured pull-up, not record type3.
+
+Native11-case module validation covers exact preservation, signed conversion,
+the independent rational identity, malformed inputs and CLI errors. Tool outputs
+match the separately prepared inputs byte-for-byte. Unchanged firmware copies
+and installs both the preserved and retargeted192-byte records at calibration
+VA`b7f6a0fc`, owner VA`b1cf7a0c`, while retaining configuration VA`b7f54400`.
+The preserved-record diagnostic completes117 paired jobs in16.16 host seconds;
+the retargeted-input window takes an AF data abort after59 jobs at13.91 seconds
+with FIFO60/60. These validate loader reuse, not stable GUI operation. The
+[capture bounds](../../runtime/physical_ram_nvram.md#usable-comparisons-and-unresolved-bindings)
+and [runtime receipt](/evidence/runtime/grid.json) retain the separate limits.
+
 ## TEMP admission record
 
 Resource19 is a96-byte`TEMP` record at descriptor17 offset`a100`.

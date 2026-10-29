@@ -371,6 +371,159 @@ static void test_group(void)
     rmdir(directory);
 }
 
+static void acceleration_capture(uint8_t data[4097])
+{
+    static const int32_t values[] = { -32, 0, INT32_MIN, 16, 65536,
+                                      INT32_MAX & ~15 };
+    static const unsigned fields[] = { 32, 36, 40, 56, 60, 64 };
+
+    for (unsigned i = 0; i < 4097; i++) {
+        data[i] = i * 37 + i / 11;
+    }
+    memset(data + 0x100, 0, 16);
+    memcpy(data + 0x100, "ACCELE", 6);
+    stl_le_p(data + 0x110, 3);
+    for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+        stl_le_p(data + 0x100 + fields[i], values[i]);
+    }
+}
+
+static void test_acceleration(void)
+{
+    static const unsigned fields[] = { 32, 36, 40, 56, 60, 64 };
+    static const int32_t expected[] = { -2, 0, -134217728, 1, 4096, 134217727 };
+    g_autofree uint8_t *before = g_malloc(0xa0000);
+    uint8_t input[4097], changed[192] = { 0 };
+
+    acceleration_capture(input);
+    for (unsigned i = 0; i < 0xa0000; i++) {
+        before[i] = i * 13 + i / 23;
+    }
+    for (unsigned mode = 0; mode < 2; mode++) {
+        g_autoptr(GBytes) source = g_bytes_new(before, 0xa0000);
+        g_autoptr(GBytes) capture = g_bytes_new(input, 4096);
+        g_autoptr(GError) error = NULL;
+        g_autoptr(GBytes) result = nikon_module_acceleration(source, capture,
+                                                           mode, &error);
+        gsize size;
+        const uint8_t *data = g_bytes_get_data(result, &size);
+
+        g_assert_no_error(error);
+        g_assert_cmpuint(size, ==, 0xa0000);
+        g_assert_cmpmem(data, 0x100, before, 0x100);
+        g_assert_cmpmem(data + 0x1c0, size - 0x1c0,
+                        before + 0x1c0, size - 0x1c0);
+        if (!mode) {
+            g_assert_cmpmem(data + 0x100, 192, input + 0x100, 192);
+        } else {
+            for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+                g_assert_cmpint((int32_t)ldl_le_p(data + 0x100 + fields[i]),
+                                ==, expected[i]);
+                memset(changed + fields[i], 1, 4);
+            }
+            for (unsigned i = 0; i < 192; i++) {
+                if (!changed[i]) {
+                    g_assert_cmphex(data[0x100 + i], ==, input[0x100 + i]);
+                }
+            }
+            for (unsigned axis = 0; axis < 3; axis++) {
+                int64_t bias = (int32_t)ldl_le_p(input + 0x100 + fields[axis]);
+                int64_t gain = (int32_t)ldl_le_p(input + 0x100 +
+                                                fields[3 + axis]);
+
+                /*
+                 * Independent rational identity for the declared coordinate
+                 * mapping, not an assertion about firmware divide rounding.
+                 */
+                for (int raw = -2048; raw <= 2047; raw++) {
+                    int64_t full = (int64_t)raw * 16 * 65536 - bias;
+                    int64_t narrow = (int64_t)raw * 65536 - expected[axis];
+
+                    g_assert_cmpint(full * expected[3 + axis], ==,
+                                    narrow * gain);
+                }
+            }
+        }
+        g_assert_cmpmem(g_bytes_get_data(source, NULL), 0xa0000,
+                        before, 0xa0000);
+        g_assert_cmpmem(g_bytes_get_data(capture, NULL), 4096, input, 4096);
+    }
+}
+
+static void test_acceleration_invalid(void)
+{
+    static const unsigned fields[] = { 32, 36, 40, 56, 60, 64 };
+    g_autofree uint8_t *before = g_malloc0(0xa0001);
+    uint8_t input[4097];
+
+    for (unsigned variant = 0; variant < 20; variant++) {
+        gsize source_size = 0xa0000, capture_size = 4096;
+        g_autoptr(GError) error = NULL;
+        g_autoptr(GBytes) source = NULL, capture = NULL, result = NULL;
+
+        acceleration_capture(input);
+        if (variant < 3) {
+            source_size = variant ? 0xa0000 + (variant == 1 ? -1 : 1) : 0;
+        } else if (variant < 6) {
+            capture_size = variant == 3 ? 0 : variant == 4 ? 4095 : 4097;
+        } else if (variant < 8) {
+            input[0x100 + (variant == 6 ? 0 : 15)] ^= 1;
+        } else if (variant < 14) {
+            unsigned at = 0x100 + fields[variant - 8];
+
+            stl_le_p(input + at, ldl_le_p(input + at) + 1);
+        } else {
+            stl_le_p(input + 0x100 + fields[3 + (variant - 14) / 2],
+                      variant & 1 ? -16 : 0);
+        }
+        source = g_bytes_new(before, source_size);
+        capture = g_bytes_new(input, capture_size);
+        result = nikon_module_acceleration(source, capture, true, &error);
+        g_assert_null(result);
+        g_assert_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+    }
+}
+
+static void test_acceleration_cli(void)
+{
+    g_autofree char *directory = g_dir_make_tmp("nikon-accele-XXXXXX", NULL);
+    g_autofree char *input = g_build_filename(directory, "input", NULL);
+    g_autofree char *capture = g_build_filename(directory, "capture", NULL);
+    g_autofree char *output = g_build_filename(directory, "output", NULL);
+    g_autofree uint8_t *before = g_malloc0(0xa0000);
+    uint8_t data[4097];
+    char profile[] = NIKON_MODULE_ACCEL_PROFILE;
+    char *args[] = { tool, profile, "preserve", input, capture, output, NULL };
+
+    acceleration_capture(data);
+    run_cli(args, 3, "cannot read descriptor18");
+    g_assert_true(g_file_set_contents(input, (char *)before, 0xa0000, NULL));
+    run_cli(args, 3, "cannot read F025");
+    g_assert_true(g_file_set_contents(capture, (char *)data, 4096, NULL));
+    for (unsigned mode = 0; mode < 2; mode++) {
+        g_autofree char *actual = NULL;
+        g_autoptr(GBytes) source = g_bytes_new(before, 0xa0000);
+        g_autoptr(GBytes) captured = g_bytes_new(data, 4096);
+        g_autoptr(GBytes) expected = nikon_module_acceleration(source, captured,
+                                                             mode, NULL);
+        gsize size;
+
+        args[2] = mode ? "full16-to-raw12" : "preserve";
+        run_cli(args, 0, NULL);
+        g_assert_true(g_file_get_contents(output, &actual, &size, NULL));
+        g_assert_cmpmem(actual, size,
+                        g_bytes_get_data(expected, NULL), 0xa0000);
+    }
+    args[5] = directory;
+    run_cli(args, 3, "cannot write");
+    args[2] = "automatic";
+    run_cli(args, 2, "usage:");
+    unlink(input);
+    unlink(capture);
+    unlink(output);
+    rmdir(directory);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -384,5 +537,9 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/module/cli", test_cli);
     g_test_add_func("/nikon/module/regions", test_regions);
     g_test_add_func("/nikon/module/group", test_group);
+    g_test_add_func("/nikon/module/acceleration", test_acceleration);
+    g_test_add_func("/nikon/module/acceleration-invalid",
+                     test_acceleration_invalid);
+    g_test_add_func("/nikon/module/acceleration-cli", test_acceleration_cli);
     return g_test_run();
 }

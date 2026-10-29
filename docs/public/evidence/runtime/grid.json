@@ -2984,5 +2984,112 @@
       "Two baseline diagnostic windows stop at AF MAS VA1021d7ce / DFAR0 after18.06 and20.19 host seconds",
       "Two candidate diagnostic attempts stop before paired computation on SLA WRITE32 PA20070010=1, fill-request-profile-not-supported; no register relaxation or acceptance rerun filtering"
     ]
+  },
+  "physical_acceleration_input": {
+    "scope": "Explicit virtual unit retarget; physical sample range/strap is not established",
+    "mapping": "raw_full16 = 16 * raw12",
+    "physical_record_offset": "0x100",
+    "record_bytes": 192,
+    "fields": [
+      {
+        "offset": 32,
+        "physical": -3168256,
+        "virtual": -198016
+      },
+      {
+        "offset": 36,
+        "physical": -2996224,
+        "virtual": -187264
+      },
+      {
+        "offset": 40,
+        "physical": 85987328,
+        "virtual": 5374208
+      },
+      {
+        "offset": 56,
+        "physical": 1070534656,
+        "virtual": 66908416
+      },
+      {
+        "offset": 60,
+        "physical": 1070960640,
+        "virtual": 66935040
+      },
+      {
+        "offset": 64,
+        "physical": 1048023040,
+        "virtual": 65501440
+      }
+    ],
+    "all_other_record_bytes_preserved": true,
+    "variant1_fast_division_vs_full16_division": [
+      {
+        "axis": 0,
+        "max_q16_lsb_error": 1,
+        "different_samples": 1012
+      },
+      {
+        "axis": 1,
+        "max_q16_lsb_error": 5,
+        "different_samples": 1016
+      },
+      {
+        "axis": 2,
+        "max_q16_lsb_error": 5,
+        "different_samples": 1098
+      }
+    ],
+    "samples_per_axis": 4096,
+    "firmware_writes": false,
+    "source_baseline": "0d708952",
+    "native": {
+      "cases": 11,
+      "result": "PASS",
+      "old_cli_exit": 2,
+      "new_cli_exits": [
+        0,
+        0
+      ],
+      "both_actual_outputs_match_independent_input_bytes": true,
+      "independent_review": "No findings"
+    },
+    "original_loader": {
+      "preserve": {
+        "scope": "Diagnostic cost sampling window, original loader and firmware unchanged",
+        "seconds": 16.160489333,
+        "paired": 117,
+        "flags": [
+          0,
+          0,
+          0
+        ],
+        "fifo": 60,
+        "record_bytes_equal": true
+      },
+      "full16_to_raw12": {
+        "scope": "No timing or snapshot source patch, QMP read-only observations",
+        "seconds": 13.907620625,
+        "paired": 59,
+        "fifo": 60,
+        "record_bytes_equal": true,
+        "installed_calibration_mas_va": "0xb7f6a0fc",
+        "owner_mas_va": "0xb1cf7a0c",
+        "retained_configuration_mas_va": "0xb7f54400",
+        "first_exception": {
+          "pc_mas_va": "0x1021d7ce",
+          "lr_mas_va": "0x1021e30b",
+          "dfar": "0",
+          "task": "0x01000018"
+        }
+      },
+      "separate_first_attempt": "Retargeted input first stopped at2.41 host seconds before paired computation on the strict SLA FILL profile boundary; the later window adds explicit loader comparison, not a successful whole-GUI rerun"
+    },
+    "not_proven": [
+      "Physical board strap or sensor range",
+      "Cross-version compatibility for the rest of F025 or other assets",
+      "Normal direction output on arbitrary captures",
+      "Stable GUI refresh or mode acceptance"
+    ]
   }
 }

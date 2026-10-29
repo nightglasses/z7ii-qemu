@@ -64,6 +64,15 @@ variant byte `b1807efc=1` selects target address `0x1d`; the other original
 variant uses address `0x68` and a different sample/register contract, outside
 this proposed scope.
 
+The initializer's variant selector is a GPIO read through service5,
+`10368ad2(5) ->103a047c ->10385d76`. Its observed object at MAS VA`b18025b4`
+describes P0.5; input mode, enabled pull-up and PDR PA`04282000` produce1.
+Neither the ACCELE type word nor configuration resource21 is that selector.
+The [captured calibration importer](../../inputs/nor/descriptor.md#captured-accele-import-and-explicit-units)
+therefore makes unit retargeting explicit rather than changing the type or pin
+to force a preferred branch. Its converted values are a declared virtual input;
+the original raw12 peer and its status/activation protocol remain unchanged.
+
 Configuration requires both original resource pointers at owner+424 and+428,
 where owner is word `b1807f00`. Resource21 supplies device configuration and
 resource57 supplies calibration. The original callback waits for both ordinary
