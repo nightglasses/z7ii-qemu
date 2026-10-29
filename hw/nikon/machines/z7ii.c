@@ -32,6 +32,7 @@
 #include "hw/nikon/readoutpipeline.h"
 #include "hw/nikon/statistics.h"
 #include "hw/nikon/frame.h"
+#include "hw/nikon/save.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
@@ -1739,6 +1740,12 @@ static void z7ii_init(MachineState *machine)
         }
         qdev_connect_gpio_out_named(storage, "present", 0,
                                    qdev_get_gpio_in_named(signal, "signal", 3));
+    }
+    {
+        DeviceState *save = qdev_new(TYPE_NIKON_SAVE);
+
+        object_property_add_child(OBJECT(machine), "save", OBJECT(save));
+        qdev_realize_and_unref(save, NULL, &error_fatal);
     }
     /* The guest registers/enables IRQ250; this is its external SPI input. */
     sysbus_create_simple(TYPE_NIKON_COMPLETION, COMPLETION_BASE,

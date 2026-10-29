@@ -38,7 +38,7 @@
     "request": "initial effective unit2 run after selected mask2 commit snapshots the committed descriptor; subsequent 0x2006b400=1 snapshots staging; busy preserves the active generation",
     "primary_destination": "u32 at 0x2006b3e8",
     "primary_stride": "u32 at 0x2006b3ec; nonzero, 256-byte aligned, and even",
-    "primary_span": "u32 at 0x2006b3f0; nonzero, at most 64 MiB, and exactly divisible by primary_stride",
+    "primary_span": "u32 at 0x2006b3f0; nonzero, at most 144 MiB, and exactly divisible by primary_stride",
     "secondary_destination": "u32 at 0x2006b3f4; range-validated but not written by the functional mapping",
     "secondary_stride": "u32 at 0x2006b3f8; nonzero and 256-byte aligned",
     "accepted_formats": ["0x00400040", "0x00010001"],

@@ -1543,7 +1543,7 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
         return false;
     }
     if (!destination || !secondary || stride < 256 || (stride & 0xff) ||
-        (stride & 1) || !span || span > 64U * 1024 * 1024 || span % stride ||
+        (stride & 1) || !span || span > 144U * 1024 * 1024 || span % stride ||
         secondary_stride < 256 || (secondary_stride & 0xff) ||
         destination > UINT32_MAX - (span - 1) ||
         (uint64_t)secondary_stride * (span / stride) > UINT32_MAX ||
