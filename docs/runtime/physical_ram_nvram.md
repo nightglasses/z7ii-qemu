@@ -132,11 +132,19 @@ media were untouched.
 ## Usable comparisons and unresolved bindings
 
 These files can support byte comparisons, signature checks and investigation
-of a version-matched source record. The property and preview observations are
-qualified in the [physical PTP baseline](physical.md). Before using a capture
-as emulator input, establish its firmware identity, request address domain,
-resource selector and full extent, then validate its producer and consumer
-through the existing input contract and original loader.
+of a matching source record. F025 now has a concrete exception to the unresolved
+resource labels: its`ACCELE` record at offset`100`, length`c0`, matches the C1.70
+resource57 manifest and consumed fields. The
+[native import and explicit unit retarget](../inputs/nor/descriptor.md#captured-accele-import-and-explicit-units)
+preserve the original type3 and corrections; both resulting records are verified
+through the original loader. The remaining4096-byte capture is not thereby a
+complete descriptor18 input or verified OTP resource53. Physical sensor range
+and strap remain distinct from the declared virtual unit mapping.
+
+The property and preview observations are qualified in the
+[physical PTP baseline](physical.md). Other records still need their resource
+selector, complete extent and consumer binding checked through the existing
+input contract; the version difference alone is not a reason to discard them.
 
 No supplied capture identifies the target C1.70 C-matrix configuration record,
 its adjacent controls or their numerical effect. The boot-range file and PTP

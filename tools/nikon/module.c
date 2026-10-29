@@ -1,4 +1,5 @@
-/* Explicit finite resource80 cold-path input, not recovered Nikon data.
+/*
+ * Explicit descriptor inputs; captured bytes remain caller-owned files.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -114,5 +115,48 @@ GBytes *nikon_module_functional_group(GBytes *descriptor, GError **error)
     for (unsigned i = 0; i < 65; i++) {
         stw_le_p(record + 0x1a1c + i * 2, MIN(i * 1024, 65535));
     }
+    return g_bytes_new_take(data, size);
+}
+
+GBytes *nikon_module_acceleration(GBytes *descriptor, GBytes *capture,
+                                 gboolean raw12, GError **error)
+{
+    static const char marker[16] = "ACCELE";
+    static const unsigned fields[] = { 32, 36, 40, 56, 60, 64 };
+    gsize size, capture_size;
+    const uint8_t *original = g_bytes_get_data(descriptor, &size);
+    const uint8_t *input = g_bytes_get_data(capture, &capture_size);
+    uint8_t record[192], *data;
+
+    if (size != NIKON_DESCRIPTOR18_SLOT_SIZE || capture_size != 4096) {
+        g_set_error_literal(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                            "descriptor18 must be 640 KiB and F025 4096 bytes");
+        return NULL;
+    }
+    if (memcmp(input + 0x100, marker, sizeof(marker))) {
+        g_set_error_literal(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                            "F025 offset 0x100 lacks the padded ACCELE marker");
+        return NULL;
+    }
+    /*
+     * C1.70 manifest 118d0be0 copies exactly C0 bytes from offset100.
+     * Setter103d5366 checks only the marker; preserve type and other fields.
+     */
+    memcpy(record, input + 0x100, sizeof(record));
+    if (raw12) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            int32_t value = (int32_t)ldl_le_p(record + fields[i]);
+
+            if (value % 16 || (i >= 3 && value <= 0)) {
+                g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                            "ACCELE field %u must divide exactly by 16; "
+                            "gains must be positive", fields[i]);
+                return NULL;
+            }
+            stl_le_p(record + fields[i], value / 16);
+        }
+    }
+    data = g_memdup2(original, size);
+    memcpy(data + 0x100, record, sizeof(record));
     return g_bytes_new_take(data, size);
 }
