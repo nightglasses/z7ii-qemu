@@ -1296,11 +1296,36 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         }
         return MEMTX_OK;
     }
+    if (offset == 0x2620 || offset == 0x2660) {
+        bool plane = offset == 0x2660;
+        unsigned input = plane ? 0x2000 : 0x2100;
+        unsigned control = plane ? 0x2648 : 0x2608;
+
+        /*
+         * MAS103b4e1e disables the selected input/control and drains its
+         * resources before103bd2b2 pulses this local stop. Model only that
+         * quiescent boundary; retain configuration, pixels and pending causes.
+         * Holding the pulse prevents reopening, not completion or cancellation.
+         */
+        if (value > 1 || (value && ((s->config[input / 4] & 0xf) ||
+            s->config[control / 4] ||
+            (plane ? s->plane_active : s->frame_active)))) {
+            return nikon_event_gate_error(s, offset, size, true, value);
+        }
+        s->config[offset / 4] = value;
+        return MEMTX_OK;
+    }
     if (nikon_event_gate_config(offset, &mask)) {
         uint32_t changed = s->config[offset / 4] ^ value;
 
         if ((value & ~mask) ||
-            ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1)) {
+            ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1) ||
+            (s->config[0x2620 / 4] &&
+             ((offset == 0x2608 && value) ||
+              (offset == 0x2100 && (value & 0xf)))) ||
+            (s->config[0x2660 / 4] &&
+             ((offset == 0x2648 && value) ||
+              (offset == 0x2000 && (value & 0xf))))) {
             /* Independent input enable configuration has no event effect. */
             return nikon_event_gate_error(s, offset, size, true, value);
         }
@@ -1366,8 +1391,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
             timer_mod(s->stop_timer,
                       qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000);
         }
-    } else if (offset == 0 || offset == 8 ||
-               offset == 0x20a4 || offset == 0x2620 || offset == 0x2660) {
+    } else if (offset == 0 || offset == 8 || offset == 0x20a4) {
         /*
          * Only observed inactive/deasserted control. Unknown activation
          * or reset pulses cannot clear fields, pending or invent completion.

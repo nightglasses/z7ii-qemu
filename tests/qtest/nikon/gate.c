@@ -140,12 +140,12 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
             g_assert_cmphex(qtest_readl(q, base + 0x18 + 4 * j), ==, 0);
         }
     }
-    /* Isolate the last port's reset above the old32-bit mask boundary. */
+    /* Online uploads retain the last committed packet above bit31 too. */
     qtest_writel(q, base + engines[i - 1].offset + 0x14, 1);
     g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
-                    ((UINT64_C(1) << i) - 1) &
-                    ~(UINT64_C(1) << (i - 1)));
-    g_assert_cmphex(qtest_readl(q, base + engines[i - 1].offset + 0x10), ==, 0);
+                    (UINT64_C(1) << i) - 1);
+    g_assert_cmphex(qtest_readl(q, base + engines[i - 1].offset + 0x10), ==,
+                    source);
     for (j = 0; j + 1 < i; j++) {
         g_assert_cmphex(qtest_readl(q, base + engines[j].offset + 0x10), ==,
                         source);
@@ -155,8 +155,7 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
     g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i);
     qtest_writel(q, base + 0x814, 1);
     g_assert_cmphex(gate_property(q, path, "configured-mask"), ==,
-                    ((UINT64_C(1) << i) - 1) & ~UINT64_C(1) &
-                    ~(UINT64_C(1) << (i - 1)));
+                    (UINT64_C(1) << i) - 1);
     qtest_writel(q, base + 0x814, 0);
     {
         uint8_t data[72];
@@ -167,7 +166,7 @@ static void gate_commands(QTestState *q, const char *path, uint64_t base)
     qtest_writel(q, source + 8, 0x11100010); /* Missing terminator. */
     qtest_writel(q, base + 0x810, source);
     g_assert_cmpuint(gate_property(q, path, "loaded-packets"), ==, i);
-    g_assert_cmphex(qtest_readl(q, base + 0x810), ==, 0);
+    g_assert_cmphex(qtest_readl(q, base + 0x810), ==, source);
     for (i = 0; i < 8; i++) {
         uint64_t pair = base + 0x4000 + i * 0x10;
 
@@ -299,6 +298,76 @@ static void gate_routes(QTestState *q, const char *path, uint64_t base)
     qtest_writel(q, base + 0x2680, 1);
     g_assert_cmpuint(gate_property(q, path, "route-commits"), ==, 1);
     g_assert_false(qtest_get_irq(q, 0));
+}
+
+static void gate_stopped_pulses(QTestState *q, const char *path, uint64_t base)
+{
+    for (unsigned group = 0; group < 2; group++) {
+        uint64_t parameter = base + 0x2600 + group * 0x40;
+        uint64_t pulse = parameter + 0x20;
+        uint64_t input = base + (group ? 0x2000 : 0x2100);
+        uint64_t port = base + (group ? 0x800 : 0x940);
+        uint8_t data[NIKON_GATE_PACKET_MAX];
+        size_t length = gate_program(group ? 4 : 10, data);
+
+        qtest_system_reset(q);
+        qtest_memwrite(q, 0xc1004000, data, length);
+        qtest_writel(q, port + 0x14, 1);
+        qtest_writel(q, port + 0x14, 0);
+        qtest_writel(q, port + 0x10, 0xc1004000);
+        qtest_writel(q, port, 1);
+        qtest_writel(q, parameter, 0x305);
+        qtest_writel(q, parameter + 4, 918);
+        qtest_writel(q, base + 0x2684, 0x12345678);
+        qtest_writel(q, pulse, 1);
+        /* A held stop cannot reopen its selected control or input. */
+        qtest_writel(q, parameter + 8, 1);
+        qtest_writel(q, input, 1);
+        qtest_writel(q, base + (group ? 0x2608 : 0x2648), 1);
+        g_assert_cmphex(qtest_readl(q, parameter + 8), ==, 0);
+        g_assert_cmphex(qtest_readl(q, input), ==, 0);
+        g_assert_cmphex(qtest_readl(q, base + (group ? 0x2608 : 0x2648)),
+                        ==, 1);
+        g_assert_cmphex(qtest_readl(q, port), ==, 1);
+        g_assert_cmphex(qtest_readl(q, port + 0x10), ==, 0xc1004000);
+        qtest_writel(q, pulse, 0);
+        qtest_writel(q, parameter + 8, 1);
+        qtest_writel(q, input, 1);
+        g_assert_cmphex(qtest_readl(q, parameter + 8), ==, 1);
+        g_assert_cmphex(qtest_readl(q, input), ==, 1);
+        /* Assertion while enabled rejects, rather than disabling it. */
+        qtest_writel(q, pulse, 1);
+        g_assert_cmphex(qtest_readl(q, parameter + 8), ==, 1);
+        g_assert_cmphex(qtest_readl(q, input), ==, 1);
+        qtest_writel(q, parameter + 8, 0);
+        qtest_writel(q, input, 0);
+        qtest_writel(q, pulse, 2);
+        qtest_writew(q, pulse, 1);
+        qtest_writel(q, parameter + 8, 1);
+        g_assert_cmphex(qtest_readl(q, parameter + 8), ==, 1);
+        qtest_writel(q, parameter + 8, 0);
+
+        qtest_writel(q, base + 4, 1);
+        qtest_writel(q, base + 0x14, 0x80000000);
+        qtest_set_irq_in(q, path, "pending-bit", 95, 0);
+        qtest_set_irq_in(q, path, "pending-bit", 95, 1);
+        qtest_writel(q, pulse, 1);
+        qtest_writel(q, pulse, 0);
+        qtest_clock_step(q, 1000000);
+        g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0x80000000);
+        g_assert_true(qtest_get_irq(q, 0));
+        g_assert_cmphex(qtest_readl(q, parameter), ==, 0x305);
+        g_assert_cmphex(qtest_readl(q, parameter + 4), ==, 918);
+        g_assert_cmphex(qtest_readl(q, base + 0x2684), ==, 0x12345678);
+        g_assert_cmphex(qtest_readl(q, port), ==, 1);
+        g_assert_cmphex(qtest_readl(q, port + 0x10), ==, 0xc1004000);
+        g_assert_cmpuint(gate_property(q, path, "processed"), ==, 0);
+        g_assert_cmpuint(gate_property(q, path, "grid-completed"), ==, 0);
+        qtest_writel(q, pulse, 1);
+        qtest_system_reset(q);
+        qtest_writel(q, parameter + 8, 1);
+        g_assert_cmphex(qtest_readl(q, parameter + 8), ==, 1);
+    }
 }
 
 void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
@@ -455,6 +524,8 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
         g_assert_cmphex(qtest_readl(q, base + 0x424), ==, 0);
         g_assert_cmpuint(gate_property(q, path, "parameter-commits"), ==, 32);
         qtest_writel(q, base + 0x814, 1);
+        qtest_writel(q, base + 0x814, 0);
+        qtest_writel(q, base + 0x810, 0xc1004000);
         qtest_writel(q, base + 0x2c, 0);
         g_assert_cmphex(qtest_readl(q, base + 0x424), ==, packet_values[9]);
         g_assert_cmpuint(gate_property(q, path, "parameter-commits"), ==, 33);
@@ -651,4 +722,5 @@ void nikon_gate_test(QTestState *q, const char *path, uint64_t base)
     g_assert_cmphex(qtest_readl(q, base + 0x20), ==, 0);
     g_assert_false(qtest_get_irq(q, 0));
     gate_routes(q, path, base);
+    gate_stopped_pulses(q, path, base);
 }

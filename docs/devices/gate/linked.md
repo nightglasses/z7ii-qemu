@@ -106,8 +106,8 @@ input, mesh, affine and output profile and its remaining hypotheses.
 
 `hw/nikon/devices/gate.c` and `gatepacket.c` reuse the shared
 [reset and atomic-import lifecycle](commands.md#finite-import-lifecycle).
-Reset clears only the selected command snapshot and pointer; deassertion arms
-one import. The exact complete prefix must come from readable RAM through
+The local pulse retains the committed snapshot and pointer while deassertion
+arms one replacement import. The exact complete prefix must come from readable RAM through
 QEMU DMA. Invalid extent, alignment, header/count/final marker, held reset,
 unarmed and repeated submissions reject without a partial installation.
 Import retains borrowed references without following them or claiming they

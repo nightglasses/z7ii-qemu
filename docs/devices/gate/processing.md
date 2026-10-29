@@ -149,6 +149,52 @@ aggregate, including cancelled work until its callback returns. `input-epoch`
 distinguishes normal input consumption from revoked bindings. A failure
 reason is logged when it changes, without repeating a per-frame diagnostic.
 
+### Selected quiescent stop
+
+Original MAS worker `103b4e1e` consumes an explicit stop request, ACKs its
+selected terminal causes, disables the selected input and writes
+`2608/2648=0`. After a two-unit native delay it checks the graph resources
+through `103b4d94`. The status predicate `103bdbbe` accepts `(status &3)!=3`,
+including ordinary pending-start value1. Only then does `103bd2b2` pulse
+`2620` for MAIN or `2660` for RGB-grid and report `421930e6` through guest code.
+These are MMIO offsets in the gate; code and software-object addresses are MAS VA.
+
+The finite model accepts aligned little-endian32 values0/1. Assertion requires
+the selected input disabled, selected control zero and no selected actual
+computation active. A held assertion rejects reopening that input or control;
+deassertion releases the hold. Configuration, routes, maps, committed commands,
+queued pixels, phases, raw pending and RAM remain intact. The pulse creates no
+result, cancellation, timer, ACK or IRQ. Whole-device reset clears both holds.
+Holding semantics are a virtual law; physical reset or internal flush effects
+have not been recovered. Input `20a4` and the compound global recovery request
+remain separate unsupported activation boundaries.
+
+The stop requester can be a normal transition: `103d059e` records a drain state
+and posts worker bit`8000`; `103cc9ca ->103cbc4c ->10264f5c` then sends the
+continuous-worker stop through `102bdd30 ->102e1d12 ->10389960 ->103b527c`.
+OnVd can enter that transition through `10325784 ->103d1294`. Synchronous
+`103d0320` is a separate teardown route. The rejected pulse alone does not
+identify which upstream branch requested it or prove a preceding wait timeout.
+A separate read-only observer now identifies the synchronous route in the
+long-M stop: `103d1320` has LR `10322ec1` in CaptureService teardown. It then
+reaches `103d0320`, `10265184` and `102bdd30(4,102637c3)`, which posts the
+context9 worker's bit2. R0=1 at `103d1320` is the preceding call return, not
+proof of the teardown entry argument. A later narrow probe directly records
+`10323198(4,0)`, LR `1032366b`, changing CaptureService state9 to10, followed by
+`10322e3e(0)`, LR `10323341`. That caller is queued callback `10323624`,
+submitted by `10328b92`; the more-upstream request condition remains under
+investigation. The later [callback audit](../pairs/requests.md#captureservice-callback-backlog)
+joins it to a source-generated `AppC_Rec` phase1/reason2 request. Its identified
+phase writer follows accepted APIindex1, while the indirect caller and mode
+remain unresolved. No physical timeout is established.
+This is distinct from the heavy OnVd deferred-stop branch,
+the asynchronous route and a missing completion event.
+
+The native gate fixture covers both holds, enabled-state and malformed-write
+rejection, retained parameters/routes/pending IRQ, absence of result production,
+reopen and reset. It also follows the existing online-upload lifecycle rather
+than expecting a local upload pulse to erase the previous packet.
+
 ## Complete output storage
 
 The original kind27/28 override tables at MAS VA `11982ab4/11982c30` agree on
