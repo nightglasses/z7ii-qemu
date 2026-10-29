@@ -318,6 +318,16 @@
   "runtime/ptp.md": {
     "records": []
   },
+  "runtime/physical.md": {
+    "records": [
+      {
+        "run": "physicalbaseline",
+        "title": "Nikon Z7II physical USB PTP interface and service mode baseline",
+        "href": "/evidence/physical/ptp_profile.json",
+        "kind": "Physical observation"
+      }
+    ]
+  },
   "runtime/compatibility.md": {
     "records": []
   },
