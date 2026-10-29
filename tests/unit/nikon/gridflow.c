@@ -354,6 +354,62 @@ static void test_backpressure(void)
     flow_free(f);
 }
 
+static void test_input_stop(void)
+{
+    Flow *f = flow_new();
+    NikonGatePlaneInput next = metadata(1, 2);
+    NikonPairedGridFrame previous, held;
+    uint8_t word[4];
+    unsigned fresh, withdrawn;
+
+    produce(f, 0, 1);
+    stl_le_p(word, 1);
+    g_assert_cmpint(address_space_write(&address_space_memory, GATE + 0x20a4,
+        MEMTXATTRS_UNSPECIFIED, word, 4), ==, MEMTX_ERROR);
+    advance(1000000);
+    result(f, 0, 0);
+    produce(f, 1, 2);
+    g_assert_true(nikon_gate_plane_output(f->dev, &previous));
+    fresh = f->fresh;
+    withdrawn = f->withdrawn;
+    write_word(GATE + 0x2000, 0);
+    write_word(GATE + 0x2648, 0);
+    write_word(GATE + 0x20a4, 1);
+    g_assert_false(nikon_gate_plane_input(f->dev, &next));
+    advance(2000000);
+    g_assert_true(nikon_gate_plane_output(f->dev, &held));
+    g_assert_cmpuint(held.generation, ==, previous.generation);
+    g_assert_cmphex(held.address, ==, previous.address);
+    g_assert_cmpuint(f->fresh, ==, fresh);
+    g_assert_cmpuint(f->withdrawn, ==, withdrawn);
+    g_assert_cmpuint(count(f, "grid-completed"), ==, 1);
+    g_assert_cmpuint(count(f, "grid-cancelled"), ==, 0);
+    g_assert_cmphex(read_word(GATE + 0x1c), ==, 0x10);
+    g_assert_cmphex(read_word(GATE + 0x20), ==, 4);
+    g_assert_true(f->level);
+    for (unsigned offset = 0x2200; offset < 0x2400; offset += 4) {
+        g_assert_cmphex(read_word(GATE + offset), ==,
+                        f->pixels->config[offset / 4]);
+    }
+    for (unsigned bank = 0; bank < 6; bank++) {
+        for (unsigned i = 0; i < 1024; i++) {
+            g_assert_cmphex(read_word(TABLE + bank * 0x1000 + i * 4), ==,
+                            f->pixels->table[bank][i]);
+        }
+    }
+    write_word(GATE + 0x20a4, 0);
+    write_word(GATE + 0x2004, 0xd2);
+    write_word(GATE + 0x2000, f->pixels->config[0x2000 / 4]);
+    write_word(GATE + 0x2648, f->pixels->config[0x2648 / 4]);
+    advance(2000000);
+    g_assert_cmpuint(count(f, "grid-completed"), ==, 1);
+    ack();
+    advance(1000000);
+    result(f, 0, 1);
+    g_assert_cmpuint(count(f, "grid-completed"), ==, 2);
+    flow_free(f);
+}
+
 static void test_maps(void)
 {
     Flow *f = flow_new();
@@ -478,6 +534,7 @@ int main(int argc, char **argv)
     qemu_init(G_N_ELEMENTS(arguments) - 1, mutable_argv);
     g_test_add_func("/nikon/gridflow/dma-latency", test_dma_latency);
     g_test_add_func("/nikon/gridflow/w1c-backpressure", test_backpressure);
+    g_test_add_func("/nikon/gridflow/input-stop", test_input_stop);
     g_test_add_func("/nikon/gridflow/four-phases-map-bank", test_maps);
     g_test_add_data_func("/nikon/gridflow/reset-before-dma", GINT_TO_POINTER(1),
                          test_cancel);

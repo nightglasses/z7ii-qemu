@@ -172,8 +172,8 @@ deassertion releases the hold. Configuration, routes, maps, committed commands,
 queued pixels, phases, raw pending and RAM remain intact. The pulse creates no
 result, cancellation, timer, ACK or IRQ. Whole-device reset clears both holds.
 Holding semantics are a virtual law; physical reset or internal flush effects
-have not been recovered. Input `20a4` and the compound global recovery request
-remain separate unsupported activation boundaries.
+have not been recovered. The shared `20a4` hold below is a separate boundary;
+the compound global recovery procedure is not accepted as a complete operation.
 
 The stop requester can be a normal transition: `103d059e` records a drain state
 and posts worker bit`8000`; `103cc9ca ->103cbc4c ->10264f5c` then sends the
@@ -200,6 +200,51 @@ The native gate fixture covers both holds, enabled-state and malformed-write
 rejection, retained parameters/routes/pending IRQ, absence of result production,
 reopen and reset. It also follows the existing online-upload lifecycle rather
 than expecting a local upload pulse to erase the previous packet.
+
+### Shared-input quiescent stop
+
+C1.70 MAS VA `10389bfa` allocates software contexts `8/9` from the shared
+bitmap at MAS VA `b1d52228`, under the original lock. The resource releaser
+`1038897e` retires the selected resource masks, clears that context's bitmap
+bit and, for the corresponding source families, stages/commits route removal. On source message
+`421930e6`, callback `10388b3c` calls this releaser first. Only when both
+bitmap bits `0x300` are clear does it call `103bd1c4`. Actual instructions
+write aligned little-endian 32-bit `1`, then `0`, to PA `201020a4`;
+the decompiler drops the overwritten first store. This is a shared layer
+after the selected `2620/2660` stops, not a new image or terminal producer.
+
+The later `1038891a` tests the entire bitmap. Only if all contexts are free
+does it issue the separate global `04=0` stop, wait for its software event
+and run `103bcff8`. The shared pulse therefore does not imply that the
+external-event gate is closed, and cannot substitute for that acknowledgement.
+Exceptional `103897b2` recovery instead asserts all three controls, snapshots
+and restores state, and toggles another global control. Its full reset domain
+and recovery semantics remain unresolved.
+
+The finite shared hold accepts only values `0/1`. Assertion requires both
+input low nibbles `2000/2100` to be zero, both controls `2608/2648` zero,
+and no actual MAIN or RGB-grid computation. A revoked MAIN host task must
+also have returned through its normal Aio callback; disabled guest controls
+alone do not retire that owner. Invalid assertions leave all state intact.
+While held, reopening either input/control and admitting fresh MAIN or RGB
+data reject. Existing producer withdrawal remains a distinct request.
+
+The pulse neither cancels work nor changes input versions, queued pixels,
+committed or partially staged parameters, command packets, routing, maps,
+LUTs, output DMA, monitor results, phases, pending, masks or IRQ. It does not
+retry work, signal capacity, start a timer or acknowledge a result. Deassertion
+only releases the hold; original enable writes and actual W1C fences still
+govern future work. Cold reset clears the hold through normal device reset.
+Unknown values, widths, alignment, neighbouring addresses and reads reject.
+These retention and hold rules are explicit virtual hypotheses, consistent
+with the observed caller order, not recovered physical flush/reset semantics.
+
+Native tests use actual MMIO and host-pool ownership. They cover a queued
+MAIN input behind real result fences, a revoked but outstanding host task,
+RGB-grid input and retained complete map/LUT data, pending IRQ and numerical
+results, both enables, malformed accesses, reset and normal re-entry after
+real ACK. Native success is separate from original-firmware cleanup and
+does not establish the exceptional recovery procedure or physical hardware.
 
 ## Complete output storage
 
