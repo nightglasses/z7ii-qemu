@@ -1,0 +1,145 @@
+{
+  "0xf006": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 4,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f006.bin",
+    "preview_hex": "09190000"
+  },
+  "0xf04c": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 60,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f04c.bin",
+    "preview_hex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "0xf050": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 28,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f050.bin",
+    "preview_hex": "020000003031303030313630a6000000001802000d007f0000000000"
+  },
+  "0xf051": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 28,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f051.bin",
+    "preview_hex": "02000000303130303031363006000000000000000005010000000000"
+  },
+  "0xf052": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 80,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f052.bin",
+    "preview_hex": "0200000030313030303136301e000000030002000200020002000200020002000200020002000500050005000500050005070500030005000200020002000200"
+  },
+  "0xf06e": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 296,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f06e.bin",
+    "preview_hex": "387f0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "0xf113": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 8,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f113.bin",
+    "preview_hex": "cec1d809a4110000"
+  },
+  "0xf114": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 12,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f114.bin",
+    "preview_hex": "9d995e01b77b0700090b8900"
+  },
+  "0xf162": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 12,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f162.bin",
+    "preview_hex": "000000000000000000000000"
+  },
+  "0xf163": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 1402,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f163.bin",
+    "preview_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "0xf1f9": {
+    "resp_code": "0x2001",
+    "params": [
+      "0x2001",
+      "0x0",
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "data_length": 8,
+    "file": "docs/public/evidence/physical/service_payloads/payload_f1f9.bin",
+    "preview_hex": "0100000004000000"
+  }
+}

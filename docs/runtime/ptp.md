@@ -116,6 +116,12 @@ its preparation and `1047990c(0)` handshake succeed does the store at
 the router's `0xa004` rejection path. These are source-derived later
 conditions, not observed rejection events in the current idle run.
 
+Physical camera verification on an attached Nikon Z 7II confirms both sides
+of this gate: with service mode locked, `0x94fd` subcommand `0xF091` returns
+`0xa004` exactly as predicted; after subcommand `0xF001` unlocks the service
+state, `0xF091` returns `0x2001` (OK) and executes provider admission. See
+[Physical camera PTP interface](physical.md) for complete receipts.
+
 ## The separate firmware path to display readiness
 
 F091 is not the only caller chain that can set display readiness.
