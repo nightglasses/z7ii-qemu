@@ -278,15 +278,39 @@ barrier fails with1 of12 workers before the fix and succeeds afterward. The
 current scoped batch passes137 CMOS/paired qtests,49 paired lifecycle cases and6
 CMOS unit cases with normal TAP and exits; these192 cases overlap earlier batches.
 In a separate diagnostic window all111 started records retire and all480 bits return, but
-CaptureService later stops dequeuing; its actual wait remains unclassified.
+CaptureService later stops dequeuing. A later pre-error snapshot establishes
+that it is READY with a queued notification, starved by the higher-priority
+CAPTG worker's non-yielding SPI poll; its saved wait fields are stale.
 A separate uninstrumented run reaches221 paired/220 MAIN results and215
 descriptor starts, with one active record and477 event bits free at the stop.
 It still rejects the SPI8 empty read at17.17 host seconds, before any planned
 mode switch. [Atomic SPI ownership evidence](../devices/spi/protocol.md#shared-sensor-client-ownership-boundary)
 now shows another activation drained and stopped the shared transaction before
-the old caller resumed; that caller's source path and operation conditions are
-identified, while the other upper client remains unknown. This is no longer an
-event-pool-exhaustion failure, and it is not stable mode-change acceptance.
+the old caller resumed. Both source paths are now identified: CAPSEQ's event800
+branch and CAPTG's independent event10/state8 sensor-control branch share one
+owner and staging buffers without a bus mutex. A bounded diagnostic records
+161232 status observations past an actual sampled serial deadline, up to5.06ms
+late, while FIFO progress remains unfinished. The finite model now reconciles
+elapsed synchronous PIO work on validated observation and before input-clock
+changes, retaining explicit empty-read errors, existing DMA arbitration and
+actual peer boundaries. This is no longer an event-pool-exhaustion failure;
+native model correctness and normal mode-change acceptance remain separate.
+
+The corrected SPI model passes21 system-linked unit cases and122 general qtests
+with normal TAP and process exits. Both exact-deadline observation and overdue
+clock changes fail under their preceding implementations. Independent static
+review finds no remaining issue in the bounded PIO, cancellation, clock and
+real-HDmac arbitration paths.
+
+The first uninstrumented cold-neutral M window after this correction reaches
+391 paired and576 readout MAIN completions in22.07 host seconds. CaptureService
+advances its FIFO consumer, with14 active work records and441 free event bits
+at the stopped census; no SPI empty-read error is reported. It nevertheless
+fails before the first planned mode switch: CPU1 task `010000fd` takes a data
+abort at MAS VA `102bd93c`, DFAR0. This is an indirect object-pointer
+dereference, not the previous SPI access or allocator exhaustion. Its upstream
+producer remains under investigation. That first failure is retained; stable
+M/A/S/P transitions are still unaccepted.
 
 Timed-mutex, FE and capture waits succeed in separate traces; host
 GDB durations include substantial stopped time and cannot establish that

@@ -82,7 +82,7 @@ The original objects supply `2c0a0000 + channel*100`, IRQ pairs `193/192` throug
 
 The protocol candidate is the Socionext-authored [fixed SPI register header](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/MILB_Header/include/Peri/_spi.h). It agrees on TX/RX `00/04`, CTRL/AUX `0c/10`, FIFO status `14`, interrupt enable/status/clear `20/24/28`, EN `3c`, nine-bit depth `48` and watermarks `4c`. Its three channels and base `1e800000` differ, and its `54..ff` are reserved; Nikon's eleven channels and `60/64` extensions remain a version hypothesis. It does not establish Nikon reset values, physical FIFO capacity or a connected endpoint. The [fixed manufacturer driver](https://github.com/killsmm/m10v_mono/blob/cebff0686425b739bf63e87c911591ab30b03c1a/ca7_rtos/target/cpu_tkernel/basefw/MILB_API/Project/DeviceDriver/Peripheral/src/dd_spi.c#L1936-L1964) supplies the divider relation `input / (2*(DIV+1))`; the original Nikon DIVENABLE field is preserved independently.
 
-`hw/nikon/devices/spi.c` implements one SysBus device per channel using upstream [SSI](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/ssi/ssi.c#L156-L168), [Fifo32](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/qemu/fifo32.h), Clock and QEMUTimer. Word accesses move FIFO entries; status reflects occupancy and a pending frame; completed master frames produce received words, watermark/done events, and genuine GIC input state. Interrupt W1C clears latched events. Reads alone do not shift data or create completion. A master frame on an empty upstream SSI bus receives zero, the explicit disconnected MISO-low endpoint, not a device ID or a command acknowledgement.
+`hw/nikon/devices/spi.c` implements one SysBus device per channel using upstream [SSI](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/hw/ssi/ssi.c#L156-L168), [Fifo32](https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/include/qemu/fifo32.h), Clock and QEMUTimer. Word accesses move FIFO entries; status reflects occupancy and a pending frame; completed master frames produce received words, watermark/done events, and genuine GIC input state. Interrupt W1C clears latched events. Access counts never advance virtual time or complete a future word. A master frame on an empty upstream SSI bus receives zero, the explicit disconnected MISO-low endpoint, not a device ID or a command acknowledgement.
 
 Synchronous master frames retain the intended serial-clock cadence. The first
 word is scheduled from the current virtual time; each immediately following
@@ -108,7 +108,7 @@ history contains five actual pops, then EN=0 at `102436d2`, followed by the
 resumed old helper's pop. There is no intervening reset. All retained operations
 report CPU0. This establishes overlapping software activations using stale
 local transaction state; it does not identify the draining activation's upper
-caller or establish a physical empty-read return value.
+caller by itself or establish a physical empty-read return value.
 
 The faulting route is source-established:
 
@@ -124,17 +124,78 @@ normal frame profile. These are ordinary operation checks, not a lock. The
 complete writer, wrapper and low-level start paths contain no mutex, dispatch
 disable, IRQ mask or busy admission check. Mode0 polls completion/overflow/
 cancellation without a finite timeout; the common ISR drains RX only for mode3.
-SPI8 has no DMA consumer in this binding. A separate sensor-control route also
-uses the same owner and staging buffers, but its participation in this captured
-interleaving remains unproved.
+SPI8 has no DMA consumer in this binding.
+
+A later bounded stack diagnostic identifies the independent CAPTG worker's
+handler at MAS VA `1026c66e`. Its event10/state8 branch calls
+`102d9ace ->102d9a2c(0) ->102fe1ea(3)`, while another branch calls
+`102d9780 ->102d93a2 ->102fe1ea(3)`. Both reach the same writer through
+`1030621e` and use owner `b1802350`, TX staging `b2b375ca` and RX staging
+`b2b3774a`. CAPSEQ and CAPTG have separate task IDs, identical nominal public
+priority8 and CPU0 affinity. No forgotten mutex was found along either complete
+writer/start path. The VD callback accepts sensor operations6/8 before prepare
+has finished and can post CAPSEQ event800. The sensor eligibility byte is a
+hardware-bypass selector, not an acquired bus lock. These observations establish
+the second caller; they do not justify adding an invented TG readiness gate.
+
+The pre-error stopped snapshot also resolves CaptureService's apparent wait.
+Its task `0100001b` is READY at internal priority9, with dispatcher event39 bit1
+still queued. CPU0 runs CAPTG `010000ba` at priority7, polling received progress1
+of7 at MAS VA `10243226`; CAPSEQ `01000096` really waits on its dispatcher.
+The kernel chooses the lower priority number. CaptureService therefore cannot
+dequeue while the higher-priority CAPTG spins without yielding. Its saved event
+wait fields belong to an earlier suspension and are not a current wait. Its
+saved PC `10111300` is inside flag-post rescheduling, after posting the CAPTG
+request, rather than inside a blocking wait.
+
+The same diagnostic records161232 SPI8 status observations after a sampled
+word deadline, with a maximum lateness of5058600 virtual nanoseconds. The first
+three are26600/73600/83600ns late, still TX5/RX0/EN1. This directly establishes
+that the timer-only model can expose stale hardware progress to the poller.
+It does not establish that this gap explains every historical interleaving or
+recover a physical sensor reply. The diagnostic only recorded bounded host
+state and original RAM; it did not modify guest memory or invoke guest code.
 
 Returning a retained or zero word would hide stale ownership and could regress
 the shared progress counter. A device-side transaction queue would not repair
 the overwritten guest descriptor and staging buffer. Both remain unsupported
-repairs. The next evidence is the other activation's saved caller and the normal
-serialization/timing condition, not an invented receive completion. See the
-[curated pressure and ownership receipt](/evidence/runtime/grid.json). The
-temporary instrumentation was removed; SPI register behavior is unchanged.
+repairs. The functional correction reconciles elapsed serial work at its real
+device boundary; original-firmware acceptance remains separate from that native
+contract. See the [curated pressure and ownership receipt](/evidence/runtime/grid.json).
+
+## Observing elapsed synchronous work
+
+A validated PIO MMIO operation first reconciles synchronous master words whose
+sampled deadlines have already elapsed. It uses the existing SSI transfer,
+FIFO, interrupt and timer paths, not a synthesized received value. Repeated
+accesses before the deadline do no work. A genuinely empty data-register read
+still fails. Unsupported widths, registers and configuration values fail before
+reconciling work. W1C and disable take effect after already elapsed words;
+reset and cancellation invalidate the active token.
+
+Each observation processes at most the TX count present on entry, bounded by
+the32-word FIFO. A guard covers ordinary timer delivery as well as MMIO delivery,
+so nested IRQ/DMA callbacks cannot recursively shift or consume newly supplied
+words without bound. Asynchronous peers retain their actual request/response
+boundary, and slave mode still requires external clock input.
+
+DMA-enabled MMIO retains timer-driven arbitration. QEMU's device reentrancy
+guard prevents a synchronous HDMAC beat from revisiting the SPI FIFO inside an
+outer SPI access; HDMAC already defers that demand through its existing BH.
+Shifting an entire overdue batch inside that guarded access could overflow RX
+before the real DMA consumer can run. The model therefore skips MMIO catchup
+while CTRL400 and the SPI guard are active. It keeps the guard enabled and
+retains ordinary timer/HDMAC interleaving. The near-full fixture starts with31
+actual RX words, queues32 TX words plus5 DMA-fed words, and checks all68 ordered
+MOSI/MISO words through real HDMAC arbitration. Reset with deferred demand must
+cancel it without another transfer. This scope is independent of the observed
+PIO-only SPI8 caller.
+
+ClockPreUpdate reconciles elapsed words while the old input period is still
+available; ClockUpdate only starts eligible pending work. An active word retains
+its sampled deadline even if the input then stops. A successor cannot start
+without a clock. This ordering is the explicit atomic-word timing hypothesis,
+not a recovered sub-word physical clock model.
 
 ## Source-selected input clocks
 
