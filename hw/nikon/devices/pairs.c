@@ -445,6 +445,13 @@ static int paired_post_word(unsigned offset, unsigned *bit)
     return -1;
 }
 
+static bool paired_variable_word(unsigned offset)
+{
+    return (offset >= 0xd34 && offset <= 0xd54) ||
+           (offset >= 0xb78 && offset <= 0xb8c) ||
+           (offset >= 0xf00 && offset <= 0xf2c);
+}
+
 static bool paired_live_word(unsigned offset)
 {
     if (offset >= 0x1900 && offset <= 0x197c) {
@@ -642,9 +649,24 @@ static bool paired_post(NikonPairedEventBanksBank *b,
             return paired_profile_reject(b, bases[i]);
         }
     }
+    if (c[0xd20 / 4] || c[0xd24 / 4] || c[0xd2c / 4] || c[0xd30 / 4]) {
+        return paired_profile_reject(b, 0xd20);
+    }
     if ((c[0xd28 / 4] & ~0x1f1fU) || c[0xdd4 / 4] < 3 ||
         c[0xdd4 / 4] > 18 || c[0xdd8 / 4] != 5) {
         return paired_profile_reject(b, 0xd28);
+    }
+    if ((c[0xd34 / 4] & ~0xffffffU) || (c[0xd3c / 4] & ~0xffffU) ||
+        (c[0xd40 / 4] & ~0xffffffU) || (c[0xd4c / 4] & ~0xffffU)) {
+        return paired_profile_reject(b, 0xd34);
+    }
+    if ((c[0xb78 / 4] & ~0xffU) || (c[0xb7c / 4] & ~0xffffU) ||
+        (c[0xb84 / 4] & ~0xfffU) || (c[0xb88 / 4] & ~1U) ||
+        (c[0xb8c / 4] & ~0xffU)) {
+        return paired_profile_reject(b, 0xb78);
+    }
+    if ((c[0xf04 / 4] & 0xffU) || (c[0xf2c / 4] & 0xffffU)) {
+        return paired_profile_reject(b, 0xf00);
     }
     if ((c[0xdc0 / 4] & ~0xffffU) || (c[0xdc4 / 4] & ~0xffffU) ||
         (c[0xdc0 / 4] & 0xff) != (c[0xdc4 / 4] & 0xff) ||
@@ -1217,6 +1239,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     for (unsigned offset = 0; offset < BANK_SIZE; offset += 4) {
         if (nikon_paired_event_banks_config(offset, b->index) &&
             !paired_live_word(offset) &&
+            !paired_variable_word(offset) &&
             c[offset / 4] != b->parent->calibration[offset / 4]) {
             return paired_profile_reject(b, offset);
         }

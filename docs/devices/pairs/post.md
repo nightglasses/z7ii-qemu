@@ -101,32 +101,32 @@ all twelve DC0..DEC words, zero; it supplies no replacement guest writes.
 
 ## Numerical hypothesis
 
-### Unresolved interpolated parameter family
+### Qualified dynamic parameter families
 
 The complete D20..D9C publisher also carries variable data in D34..D54.
 `1036c260` packs compact940..942 into D34; `103612ec` produces them as fields7–9
-of a43-field interpolation. Table selection `102d3874 ->103626fe ->103622d4`
+of a43-field interpolation. Table selection `102d3874 -> 103626fe -> 103622d4`
 chooses64 tables of19 unsigned16 rows, and `10380388` interpolates adjacent
-rows with divisor6. For example table MAS VA `11b5f6f2`, rows5→6, can normally
-produce D34=`0401`. A complete online upload can therefore differ from the
-declared frozen calibration; it is not necessarily a partial packet.
+rows with divisor6. For example table MAS VA `11b5f6f2`, rows5→6, produces
+D34=`0401` under real ACCELE calibration. D34..D54 is qualified as a variable
+word family with explicit structural bitmasks on D34, D3C, D40 and D4C,
+preserving strict zero checks on D20, D24, D2C and D30.
 
-The30 bytes at D34..D54 contain19 row-constant fields and11 row-varying fields.
-The constant fields form six families across all64 tables. Varying fields
-have family-specific ranges; fields21≤22,25≤26,31≤32
-and35≤36 hold in all1216 rows and remain ordered under common interpolation.
-D58..D70 and D74..D8C are identical fixed28-byte carriers; D90=0, D94=`080808`,
-D98=`0401` and D9C=1. These packing and domain facts do not identify the ASIC's
-pixel equation. No CPU fallback or named numerical roles have been recovered.
+Between matrix B (`b64..b74`) and matrix C (`b94..ba4`), `102e57f4` calls
+`1036bf10` to publish auxiliary dynamic controls at `b78..b88`, and `102e57cc`
+calls `1036bfd6` to publish `b8c` and the stage enable at `b90` (`0x80000000`).
+The mode-dependent flag table at `r8` in `102bfeae..102bfed2` populates `b78`
+(`[r8, #4]`), `b88` (`[r8, #5]`), `b8c` (`[r8, #6]`) and `ba8` (`[r8, #7]`).
+Specifically, `b88` is a boolean flag equal to 1 in M and A modes, and 0 in S mode.
+These six words (`b78..b8c`) are admitted with byte, halfword, and nibble masks
+(`b78 <= 0xff`, `b7c <= 0xffff`, `b84 <= 0xfff`, `b88 <= 1`, `b8c <= 0xff`).
 
-The current functional operator interprets only D28 from this family and
-keeps other fields under the explicit calibration qualification. An original
-M-to-A baseline stops at D34=`0401`; a later diagnostic captures D28=`0500`,
-so the already declared smoothing law is active. Zero-strength algebraic
-neutrality cannot justify this tuple. Nor does fixed D20=0 establish a physical
-bypass. Assigning all mixed controls to arbitrary gain-curve knots would add
-unsupported semantics. The next evidence boundary is a justified whole-family
-numerical model; unknown active tuples remain explicit errors.
+At `102e4f38`, when `[r5, #196]` is non-NULL, `1036c90e` publishes the twelve-word
+family `f00..f2c`. Its backing 45-byte buffer at `r8 + 0x470` is linearly interpolated
+by `10365780` from 19-row tables using normalized byte24 divided by 6. In particular,
+interpolating row 0 byte 0 between 0 and 1 produces `f00 = 0x00011820` or
+`f00 = 0x01011820` (bit 24 set). This family is qualified with structural alignment
+checks on `f04` (low byte zero) and `f2c` (low 16 bits zero).
 
 ### Implemented residual passes
 
