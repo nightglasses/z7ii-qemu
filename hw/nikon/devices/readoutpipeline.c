@@ -158,9 +158,9 @@ static void main_input_begin(NikonReadoutPipeline *s)
     }
     if (s->correction || g->enable != 0x11 ||
         ((g->rows | g->columns | g->output_rows | g->output_columns) & 0xffff) ||
-        !width || !height || width > 4096 || height > 4096 ||
+        !width || !height || width > 8448 || height > 5632 ||
         g->output_rows > g->rows || g->output_columns > g->columns ||
-        (uint64_t)width * height > 4 * 1024 * 1024) {
+        (uint64_t)width * height > 48ULL * 1024 * 1024) {
         s->main_rejected++;
         qemu_log_mask(LOG_GUEST_ERROR, "nikon main input profile unsupported\n");
         return;

@@ -24,7 +24,7 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCmosState, NIKON_CMOS)
 
 #define CMOS_CHUNK 4096
-#define CMOS_MAX_BUFFER_BYTES (64ULL * 1024 * 1024)
+#define CMOS_MAX_BUFFER_BYTES (144ULL * 1024 * 1024)
 #define CMOS_UNKNOWN_WORDS 8
 
 enum {
@@ -641,7 +641,8 @@ uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
     NikonCmosState *s = NIKON_CMOS(dev);
     NikonCmosConfig previous = s->configuration;
 
-    if (!width || !height || (uint64_t)width * height > 4 * 1024 * 1024) {
+    if (!width || !height || width > 8448 || height > 5632 ||
+        (uint64_t)width * height > 48ULL * 1024 * 1024) {
         error_setg(errp, "CMOS internal stream geometry is unsupported");
         return 0;
     }

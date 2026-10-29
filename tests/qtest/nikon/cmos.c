@@ -967,11 +967,48 @@ static void test_pipeline_rejections(void)
     qtest_writel(q, READOUT_PARAMETERS + 0x394, 2U << 16);
     pipeline_request(q);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 6);
+    qtest_writel(q, READOUT_PARAMETERS + 0x394, 0);
+
+    /* Span exceeding 144 MiB is rejected by the C1.70 mapping contract. */
+    pipeline_configure(q, RAM, 0x100, 145U * 1024 * 1024,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 7);
     pipeline_step(q, 10000);
     g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210), ==, 0);
     g_assert_cmpuint(property_at(q, PIPELINE_PATH, "active-generation"), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
                      ==, 0);
+    qtest_quit(q);
+    g_assert_cmpint(unlink(bundle), ==, 0);
+}
+
+static void test_pipeline_static_fullsize(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, NULL);
+    /*
+     * FX full sensor readout: 8320 samples/row LE16 (stride 16640 = 0x4100).
+     * 5504 lines: span = 16640 * 5504 = 91586560 = 0x5758000 (87.34 MiB).
+     * Destination is inside capture pool kind 16 at 0x54900000 (136.2 MiB).
+     */
+    uint32_t dest = 0x54900000;
+    uint32_t stride = 8320 * 2;
+    uint32_t span = stride * 5504;
+
+    pipeline_configure(q, dest, stride, span,
+                       NIKON_READOUT_C170_FORMAT_PRIMARY);
+    pipeline_request(q);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "accepted"), ==, 1);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "rejected"), ==, 0);
+
+    pipeline_step(q, 100000);
+    g_assert_cmpuint(property_at(q, PIPELINE_PATH, "completed"), ==, 1);
+    g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"),
+                     ==, 1);
+    /* Mode 0 asserts raw0 bit 3 (0x08). */
+    g_assert_cmphex(qtest_readl(q, CAPTURE + 0x210) & 8, ==, 8);
+
     qtest_quit(q);
     g_assert_cmpint(unlink(bundle), ==, 0);
 }
@@ -9000,6 +9037,8 @@ int main(int argc, char **argv)
                    test_pipeline_unit_cancellation);
     qtest_add_func("/nikon/cmos/pipeline/rejections",
                    test_pipeline_rejections);
+    qtest_add_func("/nikon/cmos/pipeline/static-fullsize",
+                   test_pipeline_static_fullsize);
     qtest_add_func("/nikon/cmos/pipeline/backpressure-stale",
                    test_pipeline_backpressure_and_stale);
     qtest_add_func("/nikon/cmos/pipeline/cancel-reset",

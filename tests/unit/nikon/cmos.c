@@ -411,6 +411,41 @@ static void test_cfa_coordinate_identity(void)
     unlink(replacement);
 }
 
+static void test_static_fullsize_acquire(void)
+{
+    CmosFixture *f = fixture();
+    Error *err = NULL;
+    uint64_t token;
+
+    /*
+     * 8320 x 5504 full-frame FX static dimensions are within the
+     * relaxed bounds.
+     */
+    token = nikon_cmos_acquire(f->dev, 8320, 5504, &err);
+    g_assert_null(err);
+    g_assert_cmpuint(token, >, 0);
+
+    /* Dimensions exceeding 8448 or 5632 or 48 MP are rejected. */
+    token = nikon_cmos_acquire(f->dev, 8450, 5504, &err);
+    g_assert_nonnull(err);
+    g_assert_cmpuint(token, ==, 0);
+    error_free(err);
+    err = NULL;
+
+    token = nikon_cmos_acquire(f->dev, 8320, 5634, &err);
+    g_assert_nonnull(err);
+    g_assert_cmpuint(token, ==, 0);
+    error_free(err);
+    err = NULL;
+
+    device_cold_reset(f->dev);
+    token = nikon_cmos_acquire(f->dev, 8448, 5632, &err);
+    g_assert_null(err);
+    g_assert_cmpuint(token, >, 0);
+
+    cleanup(f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikon-cmos-XXXXXX", NULL);
@@ -437,6 +472,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/cmos/period-anchor", test_period_anchor);
     g_test_add_func("/nikon/cmos/cfa-coordinate-identity",
                     test_cfa_coordinate_identity);
+    g_test_add_func("/nikon/cmos/static-fullsize-acquire",
+                    test_static_fullsize_acquire);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
