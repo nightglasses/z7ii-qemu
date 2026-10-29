@@ -14,34 +14,50 @@ Source projections and raw runs remain in
 ## One processing generation
 
 The solid arrows describe the implemented finite transaction. The dashed
-input association, grayscale arithmetic and 1ms latency are functional
+input association, numerical arithmetic and 1ms latency are functional
 hypotheses. Hardware completion and software root retirement remain distinct;
 the device does not invoke the guest consumer itself.
 
 ```mermaid
 flowchart TD
-  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, eligible TG,<br/>fresh input, no enabled pending raw6?"}
+  Commit["Selected commit8<br/>Snapshot endpoint/global configuration"] --> Eligible{"Unit16 running, completed input,<br/>fresh generation, no enabled pending raw6?"}
   CMOS["Successfully completed CMOS bytes"] -. "immutable functional input association" .-> Input["Retained input generation"]
   Input --> Eligible
   Eligible -->|"yes"| Job["Own config revision, input, cursors<br/>and running-bank mask"]
   Job --> Validate{"All output layouts, RAM extents<br/>and overlap checks valid?"}
   Validate -->|"no"| Reject["Reject job; publish no completion"]
-  Validate -->|"yes"| DMA["1ms virtual latency<br/>All active output DMAs"]
+  Validate -->|"yes"| Compute["After 1ms virtual minimum<br/>Owned host numerical worker"]
+  Compute --> DMA["Virtual-clock completion<br/>Revalidate RAM; all active output DMAs"]
   DMA -->|"Every required DMA succeeds"| Results["Replace running-bank 12-word results<br/>and four global scalars; advance owned rings"]
   DMA -->|"Transfer failure"| Reject
   Results --> Raw["Set capture raw0.bit6<br/>Existing IRQ94 / W1C path"]
   Raw --> Ack["Original software acknowledges raw6"]
-  Ack -->|"Next fresh input / TG may run"| Eligible
-  Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel ownership and timer<br/>No completion for the cancelled job"]
+  Ack -->|"Next fresh completed input may run"| Eligible
+  Job -->|"Stop, disable, reset or selected-bank stop"| Cancel["Cancel token and timer<br/>Drain submitted work without publication"]
 ```
 
 While raw6 is pending and enabled in the capture mask, the next job is
-backpressured. ACK permits a later job
+backpressured. A W1C that clears this predicate retries admission against the
+latest completed input without another TG; no fresh generation means no job.
+ACK permits replacement
 even if software did not read the preceding results; empty queues can discard
 a completed frame.
+This predicate owns only the statistics packet. It does not stop MAIN
+acquisition or capture-work RAW packing: fresh acquisition may replace the
+latest snapshot while the pending statistics bytes remain unchanged. The
+matching statistics ACK admits the latest still-unconsumed generation, with
+the same run/configuration/active-job checks and complete DMA requirement.
+The independent ownership is a functional inference from separate source unit
+lifecycles; no audited protocol establishes the earlier shared stall gate.
 The diagram follows the data-consumer IRQ94 route. The separate stage-fence
 IRQ96 below belongs to the same successful transaction; it does not submit a
 second processing job.
+
+Input-ready is emitted only after the pipeline owns a successful immutable
+MAIN snapshot or auxiliary DMA publication. It replaces the earlier requirement
+to wait for a further TG before admitting these already completed bytes. This
+is a functional scheduling association; it does not bypass pending raw6, create
+input credits, or turn acquisition completion into statistics completion.
 
 ## Established protocol and geometry
 
@@ -230,14 +246,31 @@ borrowed guest pointer. The coordinator claims the latest such immutable
 input once per eligible automatic TG rise, copies it for its job, and never
 reuses that input generation, including after rejection/cancellation. This
 associates auxiliary transport with processing input as a finite functional
-hypothesis, not a recovered physical sensor topology. Inputs are LE16
-grayscale with the existing transport geometry, bounded to4M samples.
+hypothesis, not a recovered physical sensor topology. Inputs are immutable
+LE16 MAIN or auxiliary snapshots with explicit MONO or Bayer encoding and the
+existing transport geometry, bounded to 4M samples. This association does not
+claim that statistics always selects MAIN when both producers publish.
 
 Each destination cell covers its proportional input box. Upsampling uses
 at least one input sample in each dimension. Wide integer integral sums
-produce rounded box means. Endpoint1..4 store LE16 means;5..9 store their
-high byte. RGB-related endpoints use the same grayscale projection, with
-no inferred Bayer order, color calibration or proprietary filtering.
+produce rounded box means. Endpoint1 stores the full-range LE16 mean;
+endpoints5..9 store its high byte. Endpoints2/3/4 instead store R/G/B means
+from the corresponding actual CFA lanes. The declared virtual scale is
+`min(16383, floor((sum + 2 * count) / (4 * count)))`: full-range input16 to
+RGB14, rounded and clipped. Both green lanes contribute. A cell without a
+requested CFA color replicates its nearest available phase; MONO input uses
+the same quarter-scale mean for all three planes. CFA identity comes from the
+input descriptor, not an inferred physical sensor order. These choices do not
+recover factory color calibration or proprietary filtering.
+
+When all three RGB outputs have the same dimensions, the board-linked gate
+receives address/stride/shape metadata. Generation zero withdraws the previous
+source before overwrite. A positive immutable input generation is published
+only after every required statistics DMA and result update succeeds and the
+owned task has been released. The independent [RGB-grid graph](../gate/grid.md)
+then reads these actual RAM bytes; metadata alone performs no processing and
+sets no gate completion. Reset invalidates the RGB-source epoch. Statistics
+raw causes retain their own ACK and generation ownership.
 
 Endpoint0's16-byte cells contain four LE32 words: horizontal signed
 neighbor-difference sum, intensity sum, sample count and rounded mean.
@@ -269,25 +302,40 @@ Later staging/commits cannot alter it. A newer committed snapshot retains
 its own initial cursors when the older job finishes. A commit revision,
 incremented only on changed configuration, distinguishes A-to-B-to-A commits
 from the still-running old A job. Effective unit16 stop,
-disable or reset cancels its timer. A selected statistics bank stopping
-before completion also cancels the job. Machine reset clears job ownership,
-result validity and pending causes through the existing device resets.
+disable or reset cancels its token and timer. A selected statistics bank stopping
+before completion also cancels the job. A submitted worker keeps its owned
+buffers until it returns; its stale token prohibits DMA, results and causes.
+Only one job may own storage, including cancelled work awaiting its callback.
+After stale work drains, normal admission may claim a retained fresh input;
+the cancelled generation cannot run again. Unrealize drains submitted work
+before releasing the device. Machine reset clears job ownership, result
+validity and pending causes through the existing device resets.
 
-The1ms virtual computation latency is a timing assumption, not a guarantee
-that guest software has queued a root. Before any write, all enabled output
-geometries, slot extents, address arithmetic, writable direct RAM and pairwise
-output overlap are checked. Empty dimensions, unsupported control/layout,
+The1ms virtual minimum latency is a timing assumption, not a guarantee
+that guest software has queued a root. Its first timer validates the owned
+output configuration and submits one job to QEMU's existing thread pool.
+Only exact integral sums, proportional cells and output packing run there,
+using private input/configuration and private output arrays. The worker neither
+reads guest RAM nor accesses device state. Its AIO callback schedules normal
+virtual-clock completion; host readiness alone cannot publish while the virtual
+clock is stopped. RAM validation, DMA, result sinks and IRQs remain under BQL.
+Before submission and again before any write, all enabled output geometries,
+slot extents, address arithmetic, writable direct RAM and pairwise output
+overlap are checked. Empty dimensions, unsupported control/layout,
 overflow, ROM, holes and undersized slots reject the whole job. Each output
 is transferred by QEMU DMA; a transfer failure produces no result packet or
-completion, even if earlier RAM writes occurred.
+completion, even if earlier RAM writes occurred. The job pointer and inflight
+count are cleared before synchronous event publication, and a reset or stop
+from the stage callback prevents a stale second cause.
 
 Only after every required DMA succeeds are the bank/scalar packages replaced
 and raw3.bit5/raw0.bit6 ORed into the existing IRQ96/94 pending/W1C paths.
 The endpoint1 ring tail additionally publishes raw3.bit7.
 Published packages
 survive staging, commit and stop until a new successful replacement or reset.
-While enabled raw6 is pending, a new TG is backpressured. Once software ACKs it,
-a new input/TG may replace unread values: an empty software queue may discard
+While enabled raw6 is pending, input readiness is backpressured. Once software
+ACKs it, an already completed fresh input may replace unread values without a
+new input/TG: an empty software queue may discard
 a completed frame. No historical event is replayed to a later root. Read
 masks are read-only QOM diagnostics and never qualification for another job.
 An asynchronous consumer can see newer values; multiple MMIO reads are not
@@ -323,6 +371,19 @@ Its observed image tasks fail a software period/phase check before submission;
 that result does not justify setting AF6 or forcing service state9.
 
 ## Validation scope
+
+The added job-ownership fixture independently calculates actual endpoint0
+packets across a distinct newer input, changed geometry/route/cursor and commit
+during the old job. It also covers stop/reset before the virtual minimum,
+fresh work after cancellation without reviving the old generation, retained
+fresh-input admission after ACK, untouched destination guards and unchanged
+old bytes. The shared fixture drain observes submitted statistics work at the
+same virtual time; it does not advance the minimum latency. This numerical
+oracle is applicable to both the synchronous and worker implementations;
+it is not a performance red or evidence of original-firmware progress. The
+initial old-model run reached only a reset cancellation-counter mismatch;
+that diagnostic-only assertion was removed, preserving RAM/event checks and
+the existing reset counter behavior. It does not establish a numerical red.
 
 The scoped old-model fixture fails because `/machine/capture-statistics`
 does not exist. The final native CMOS fixtures cover all ten outputs,

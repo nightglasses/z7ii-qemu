@@ -10,6 +10,7 @@
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-clock.h"
+#include "hw/ssi/ssi.h"
 #include "qemu/bswap.h"
 #include "system/address-spaces.h"
 #include "hw/nikon/devices.h"
@@ -22,10 +23,58 @@ int (*qemu_main)(void);
 
 typedef struct SPIFixture {
     DeviceState *dev;
+    DeviceState *peripheral;
     MemoryRegion *regs;
+    Clock *clock;
     qemu_irq observed[4];
     bool level[4];
 } SPIFixture;
+
+#define TYPE_SPI_ORACLE "nikon-spi-test-oracle"
+typedef struct SPIOracle {
+    SSIPeripheral parent_obj;
+    uint32_t mosi[128];
+    unsigned count;
+} SPIOracle;
+
+static uint32_t oracle_transfer(SSIPeripheral *dev, uint32_t value)
+{
+    SPIOracle *s = (SPIOracle *)dev;
+
+    g_assert_cmpuint(s->count, <, ARRAY_SIZE(s->mosi));
+    s->mosi[s->count++] = value;
+    return value ^ 0xa55a;
+}
+
+static void oracle_realize(SSIPeripheral *dev, Error **errp)
+{
+}
+
+static void oracle_class_init(ObjectClass *klass, const void *data)
+{
+    SSIPeripheralClass *ssc = SSI_PERIPHERAL_CLASS(klass);
+
+    ssc->realize = oracle_realize;
+    ssc->transfer = oracle_transfer;
+    ssc->cs_polarity = SSI_CS_NONE;
+}
+
+static const TypeInfo oracle_type = {
+    .name = TYPE_SPI_ORACLE,
+    .parent = TYPE_SSI_PERIPHERAL,
+    .instance_size = sizeof(SPIOracle),
+    .class_init = oracle_class_init,
+};
+
+static SPIOracle *attach_oracle(SPIFixture *f)
+{
+    f->peripheral = qdev_new(TYPE_SPI_ORACLE);
+    object_property_add_child(OBJECT(f->dev), "oracle",
+                              OBJECT(f->peripheral));
+    g_assert_true(qdev_realize(f->peripheral,
+                              qdev_get_child_bus(f->dev, "spi"), &error_abort));
+    return (SPIOracle *)f->peripheral;
+}
 
 static void observe(void *opaque, int n, int level)
 {
@@ -43,6 +92,10 @@ static SPIFixture *fixture(bool dma)
                               OBJECT(f->dev));
     qdev_prop_set_bit(f->dev, "dma", dma);
     qdev_prop_set_uint32(f->dev, "channel", dma ? 2 : 0);
+    /* Drive a source: updating the input directly does not call its callback. */
+    f->clock = clock_new(OBJECT(f->dev), "test-clock");
+    clock_set_hz(f->clock, 48000000);
+    qdev_connect_clock_in(f->dev, "spi-clock", f->clock);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
     for (unsigned i = 0; i < ARRAY_SIZE(f->observed); i++) {
         f->observed[i] = qemu_allocate_irq(observe, f, i);
@@ -59,6 +112,11 @@ static SPIFixture *fixture(bool dma)
 
 static void cleanup(SPIFixture *f)
 {
+    if (f->peripheral) {
+        qdev_unrealize(f->peripheral);
+        object_unparent(OBJECT(f->peripheral));
+        object_unref(OBJECT(f->peripheral));
+    }
     qdev_unrealize(f->dev);
     object_unparent(OBJECT(f->dev));
     object_unref(OBJECT(f->dev));
@@ -101,6 +159,367 @@ static void enqueue(SPIFixture *f)
     for (unsigned i = 0; i < 4; i++) {
         write_word(f, 0, 0x1200 + i);
     }
+}
+
+/* Explicit 100 MHz, 16 bits and DIV6: the sampled word period is 2240 ns. */
+static void elapsed_prepare(SPIFixture *f)
+{
+    prepare(f);
+    clock_update_hz(f->clock, 100000000);
+    write_word(f, 8, 6);
+}
+
+static void test_elapsed_observations(void)
+{
+    SPIFixture *f = fixture(false);
+    SPIOracle *s = attach_oracle(f);
+    int64_t start;
+
+    elapsed_prepare(f);
+    enqueue(f);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x3c, 1);
+    /* No main-loop/timer dispatch between advancing time and observing MMIO. */
+    cpus_set_virtual_clock(start + 2239);
+    g_assert_cmphex(read_word(f, 0x14) & 0x21, ==, 0x21);
+    g_assert_cmpuint(s->count, ==, 0);
+    cpus_set_virtual_clock(start + 2240);
+    g_assert_cmphex(read_word(f, 0x14) & 0x20, ==, 0);
+    g_assert_cmpuint(s->count, ==, 1);
+    g_assert_cmphex(read_word(f, 4), ==, 0x1200 ^ 0xa55a);
+    cpus_set_virtual_clock(start + 4 * 2240);
+    /* DR itself must catch up before checking for a genuinely empty RX FIFO. */
+    for (unsigned i = 1; i < 4; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, (0x1200 + i) ^ 0xa55a);
+    }
+    g_assert_cmpuint(s->count, ==, 4);
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmphex(s->mosi[i], ==, 0x1200 + i);
+    }
+    g_assert_cmpuint(read_word(f, 0x2c), ==, 0);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmpuint(s->count, ==, 4); /* Removed elapsed timer cannot replay. */
+    write_word(f, 0, 0x5678);
+    g_assert_cmpuint(read_word(f, 0x2c), ==, 1);
+    g_assert_cmpuint(s->count, ==, 4); /* New idle word gets a future deadline. */
+    cpus_set_virtual_clock(start + 5 * 2240);
+    g_assert_cmphex(read_word(f, 4), ==, 0x5678 ^ 0xa55a);
+    g_assert_cmpuint(s->count, ==, 5);
+    cleanup(f);
+}
+
+static void test_elapsed_invalid(void)
+{
+    static const struct { hwaddr offset; uint32_t value; } invalid[] = {
+        { 0x40, 0 }, { 0x28, 0x200 }, { 0x3c, 2 }, { 8, 0 },
+        { 0x10, 0x2000 }, { 0x4c, 0x10000 }, { 0x64, 1 },
+    };
+    SPIFixture *f = fixture(false);
+    SPIOracle *s = attach_oracle(f);
+    uint64_t value;
+
+    elapsed_prepare(f);
+    g_assert_cmpint(memory_region_dispatch_read(f->regs, 4, &value, MO_32,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR); /* True empty DR remains unsupported. */
+    enqueue(f);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 100000);
+    g_assert_cmpint(memory_region_dispatch_read(f->regs, 0x14, &value, MO_16,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_read(f->regs, 0x40, &value, MO_32,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR);
+    g_assert_cmpint(memory_region_dispatch_write(f->regs, 0, 0x9999, MO_16,
+                                                MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR);
+    for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+        g_assert_cmpint(memory_region_dispatch_write(f->regs, invalid[i].offset,
+                                                    invalid[i].value, MO_32,
+                                                    MEMTXATTRS_UNSPECIFIED),
+                        ==, MEMTX_ERROR);
+        g_assert_cmpuint(s->count, ==, 0);
+    }
+    /* A valid W1C first completes elapsed frames, then clears their pending. */
+    write_word(f, 0x28, 0x1ff);
+    g_assert_cmpuint(s->count, ==, 4);
+    g_assert_cmphex(read_word(f, 0x24), ==, 0);
+    for (unsigned i = 0; i < 4; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, (0x1200 + i) ^ 0xa55a);
+    }
+    g_assert_cmpint(memory_region_dispatch_read(f->regs, 4, &value, MO_32,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR);
+    g_assert_cmpuint(s->count, ==, 4);
+    cleanup(f);
+}
+
+static void test_elapsed_cancel_clock(void)
+{
+    SPIFixture *f = fixture(false);
+    SPIOracle *s = attach_oracle(f);
+    int64_t start;
+
+    elapsed_prepare(f);
+    enqueue(f);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(start + 2239);
+    write_word(f, 0x3c, 0);
+    cpus_set_virtual_clock(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x2c), ==, 4);
+    g_assert_cmpuint(s->count, ==, 0);
+    write_word(f, 0x3c, 1);
+    device_cold_reset(f->dev);
+    cpus_set_virtual_clock(start + 200000);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    g_assert_cmpuint(s->count, ==, 0);
+
+    elapsed_prepare(f);
+    clock_update_hz(f->clock, 0);
+    write_word(f, 0, 0x3456);
+    write_word(f, 0, 0x789a);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(start + 300000);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    g_assert_cmpuint(s->count, ==, 0);
+    clock_update_hz(f->clock, 100000000);
+    cpus_set_virtual_clock(start + 301000);
+    clock_update_hz(f->clock, 0);
+    cpus_set_virtual_clock(start + 400000);
+    g_assert_cmphex(read_word(f, 4), ==, 0x3456 ^ 0xa55a);
+    g_assert_cmpuint(s->count, ==, 1); /* Active sampled word only. */
+    g_assert_cmpuint(read_word(f, 0x2c), ==, 1);
+    clock_update_hz(f->clock, 100000000);
+    cpus_set_virtual_clock(start + 402239);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    cpus_set_virtual_clock(start + 402240);
+    g_assert_cmphex(read_word(f, 4), ==, 0x789a ^ 0xa55a);
+    g_assert_cmpuint(s->count, ==, 2);
+    cleanup(f);
+}
+
+static void elapsed_clock_change(bool stop)
+{
+    SPIFixture *f = fixture(false);
+    SPIOracle *s = attach_oracle(f);
+    int64_t start;
+
+    elapsed_prepare(f);
+    for (unsigned i = 0; i < 6; i++) {
+        write_word(f, 0, 0x1200 + i);
+    }
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(start + 3 * 2240 + 100);
+    /* No MMIO/timer observation has yet retired the three old-rate words. */
+    clock_update_hz(f->clock, stop ? 0 : 50000000);
+    g_assert_cmpuint(s->count, ==, 3);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 3);
+    for (unsigned i = 0; i < 3; i++) {
+        g_assert_cmphex(read_word(f, 4), ==, (0x1200 + i) ^ 0xa55a);
+    }
+    /* The fourth word was already active when the input rate changed. */
+    cpus_set_virtual_clock(start + 4 * 2240 - 1);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    cpus_set_virtual_clock(start + 4 * 2240);
+    g_assert_cmphex(read_word(f, 4), ==, 0x1203 ^ 0xa55a);
+    if (stop) {
+        cpus_set_virtual_clock(start + 20000);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        g_assert_cmpuint(read_word(f, 0x2c), ==, 2);
+        g_assert_cmpuint(s->count, ==, 4);
+        clock_update_hz(f->clock, 100000000);
+        cpus_set_virtual_clock(start + 22239);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        cpus_set_virtual_clock(start + 22240);
+        g_assert_cmphex(read_word(f, 4), ==, 0x1204 ^ 0xa55a);
+        cpus_set_virtual_clock(start + 24480);
+    } else {
+        cpus_set_virtual_clock(start + 13439);
+        g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+        cpus_set_virtual_clock(start + 13440);
+        g_assert_cmphex(read_word(f, 4), ==, 0x1204 ^ 0xa55a);
+        cpus_set_virtual_clock(start + 17920);
+    }
+    g_assert_cmphex(read_word(f, 4), ==, 0x1205 ^ 0xa55a);
+    g_assert_cmpuint(s->count, ==, 6);
+    for (unsigned i = 0; i < 6; i++) {
+        g_assert_cmphex(s->mosi[i], ==, 0x1200 + i);
+    }
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmpuint(s->count, ==, 6);
+    cleanup(f);
+}
+
+static void test_elapsed_rate_change(void)
+{
+    elapsed_clock_change(false);
+}
+
+static void test_elapsed_clock_stop(void)
+{
+    elapsed_clock_change(true);
+}
+
+typedef struct AsyncOracle {
+    unsigned requests, cancellations;
+    uint64_t token;
+} AsyncOracle;
+
+static bool async_request(void *opaque, uint64_t token, uint32_t word,
+                          unsigned bits)
+{
+    AsyncOracle *s = opaque;
+
+    g_assert_cmphex(word, ==, 0x1234);
+    g_assert_cmpuint(bits, ==, 16);
+    s->requests++;
+    s->token = token;
+    return true;
+}
+
+static void async_cancel(void *opaque, uint64_t token)
+{
+    AsyncOracle *s = opaque;
+
+    g_assert_cmpuint(token, ==, s->token);
+    s->cancellations++;
+}
+
+static void test_elapsed_async(void)
+{
+    static const NikonSPIAsyncOps ops = {
+        .request = async_request, .cancel = async_cancel,
+    };
+    SPIFixture *f = fixture(false);
+    AsyncOracle peer = { 0 };
+    uint64_t value;
+
+    elapsed_prepare(f);
+    nikon_spi_attach_async(f->dev, &ops, &peer);
+    write_word(f, 0, 0x1234);
+    write_word(f, 0x3c, 1);
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 100000);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    g_assert_cmpuint(peer.requests, ==, 0); /* MMIO cannot submit a peer clock. */
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmpuint(peer.requests, ==, 1);
+    g_assert_cmpint(memory_region_dispatch_read(f->regs, 4, &value, MO_32,
+                                               MEMTXATTRS_UNSPECIFIED),
+                    ==, MEMTX_ERROR); /* Time cannot manufacture a response. */
+    nikon_spi_async_complete(f->dev, peer.token + 1, 0xffff);
+    g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+    nikon_spi_async_complete(f->dev, peer.token, 0xabcd);
+    g_assert_cmphex(read_word(f, 4), ==, 0xabcd);
+    g_assert_cmpuint(peer.requests, ==, 1);
+    nikon_spi_detach_async(f->dev, &peer);
+    cleanup(f);
+}
+
+typedef struct RefillOracle {
+    SPIFixture *f;
+    unsigned count, depth, max_depth;
+    bool cancel, guarded;
+} RefillOracle;
+
+static void refill(void *opaque, int line, int level)
+{
+    RefillOracle *s = opaque;
+
+    if (level) {
+        uint64_t value;
+
+        s->depth++;
+        s->max_depth = MAX(s->max_depth, s->depth);
+        if (s->count < 32) {
+            g_assert_cmpint(memory_region_dispatch_write(s->f->regs, 0,
+                                                        0x2000 + s->count++,
+                                                        MO_32,
+                                                        MEMTXATTRS_UNSPECIFIED),
+                            ==, s->guarded ? MEMTX_ACCESS_ERROR : MEMTX_OK);
+        }
+        if (s->cancel) {
+            g_assert_cmpint(memory_region_dispatch_write(s->f->regs, 0x3c, 0,
+                                                        MO_32,
+                                                        MEMTXATTRS_UNSPECIFIED),
+                            ==, MEMTX_OK);
+        }
+        g_assert_cmpint(memory_region_dispatch_read(s->f->regs, 0x14, &value,
+                                                   MO_32,
+                                                   MEMTXATTRS_UNSPECIFIED),
+                        ==, s->guarded ? MEMTX_ACCESS_ERROR : MEMTX_OK);
+        s->depth--;
+    }
+}
+
+static void elapsed_reentrant(bool timer, bool cancel)
+{
+    SPIFixture *f = fixture(timer);
+    SPIOracle *s = attach_oracle(f);
+    RefillOracle feed = { .f = f, .cancel = cancel, .guarded = !timer };
+    qemu_irq demand = qemu_allocate_irq(refill, &feed, 0);
+
+    elapsed_prepare(f);
+    if (timer) {
+        write_word(f, 0xc, 0x422);
+    } else {
+        write_word(f, 0x20, 0x10);
+    }
+    for (unsigned i = 0; i < 32; i++) {
+        write_word(f, 0, 0x1200 + i);
+    }
+    write_word(f, 0x3c, 1);
+    if (timer) {
+        qdev_connect_gpio_out_named(f->dev, "dma", 0, demand);
+    } else {
+        sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 0, demand);
+    }
+    cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    if (timer) {
+        /* IRQ sink reads must not recursively dispatch the next due word. */
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        g_assert_cmpuint(s->count, ==, cancel ? 1 : 64);
+        for (unsigned i = 0; i < (cancel ? 0 : 32); i++) {
+            g_assert_cmphex(s->mosi[32 + i], ==, 0x2000 + i);
+        }
+    } else {
+        /* Native MMIO protection rejects the IRQ sink's nested bus accesses. */
+        g_assert_cmpuint(read_word(f, 0x2c), ==, 0);
+        g_assert_cmpuint(s->count, ==, 32);
+    }
+    g_assert_cmpuint(feed.count, ==, (!timer || cancel) ? 1 : 32);
+    g_assert_cmpuint(feed.max_depth, ==, 1);
+    for (unsigned i = 0; i < (cancel ? 1 : 32); i++) {
+        g_assert_cmphex(s->mosi[i], ==, 0x1200 + i);
+    }
+    device_cold_reset(f->dev);
+    if (timer) {
+        qdev_connect_gpio_out_named(f->dev, "dma", 0, f->observed[2]);
+    } else {
+        sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 0, f->observed[0]);
+    }
+    qemu_free_irq(demand);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    g_assert_cmpuint(s->count, ==, cancel ? 1 : timer ? 64 : 32);
+    cleanup(f);
+}
+
+static void test_elapsed_reentrant_mmio(void)
+{
+    elapsed_reentrant(false, false);
+}
+
+static void test_elapsed_reentrant_timer(void)
+{
+    elapsed_reentrant(true, false);
+}
+
+static void test_elapsed_reentrant_cancel(void)
+{
+    elapsed_reentrant(true, true);
 }
 
 static void test_late_callback(void)
@@ -195,6 +614,9 @@ static void test_slave_word(void)
     g_assert_false(f->level[3]);
     /* Time alone never consumes an externally clocked FIFO. */
     cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    /* Elapsed virtual time plus MMIO still cannot supply an external clock. */
+    g_assert_cmphex(read_word(f, 0x2c), ==, 1);
+    g_assert_cmphex(read_word(f, 0x30), ==, 0);
     qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
     g_assert_cmphex(read_word(f, 0x2c), ==, 1);
     g_assert_cmphex(read_word(f, 0x30), ==, 0);
@@ -346,7 +768,7 @@ static uint32_t dma_read(MemoryRegion *regs, hwaddr offset)
     return value;
 }
 
-static void dma_cadence(unsigned words, bool late)
+static void dma_cadence(unsigned words, bool late, bool nearfull, bool cancel)
 {
     const hwaddr spi_address = 0x2c0a0300, ram_address = 0x80000000;
     SPIFixture *f = fixture(true);
@@ -356,6 +778,8 @@ static void dma_cadence(unsigned words, bool late)
     int64_t start, deadline;
     const int64_t period = 2240; /* 16 bits, DIV6, explicit 100 MHz input. */
     const unsigned rx_offset = 0x2000;
+    unsigned prefix = nearfull ? 31 : 0, received = prefix + words;
+    SPIOracle *oracle = nearfull ? attach_oracle(f) : NULL;
 
     object_property_add_child(object_get_objects_root(), "hdmac[*]",
                               OBJECT(dma));
@@ -371,11 +795,24 @@ static void dma_cadence(unsigned words, bool late)
                                 qdev_get_gpio_in(dma, 9));
     qdev_connect_gpio_out_named(f->dev, "dma", 1,
                                 qdev_get_gpio_in(dma, 10));
-    clock_update_hz(qdev_get_clock_in(f->dev, "spi-clock"), 100000000);
+    clock_update_hz(f->clock, 100000000);
     bytes = memory_region_get_ram_ptr(&ram);
     memset(bytes, 0xff, 0x4000);
     for (unsigned i = 0; i < words; i++) {
         stw_le_p(bytes + 2 * i, 0x1200 + i);
+    }
+    if (nearfull) {
+        /* Real received words waiting before DMA channels are armed. */
+        elapsed_prepare(f);
+        for (unsigned i = 0; i < prefix; i++) {
+            write_word(f, 0, 0x1000 + i);
+        }
+        write_word(f, 0x3c, 1);
+        cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                               period * prefix);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        write_word(f, 0x3c, 0);
+        g_assert_cmpuint(read_word(f, 0x30), ==, prefix);
     }
     prepare(f);
     write_word(f, 8, 6);
@@ -394,13 +831,44 @@ static void dma_cadence(unsigned words, bool late)
     dma_write(regs, 0x28, spi_address + 4);
     dma_write(regs, 0x2c, ram_address + rx_offset);
     dma_write(regs, 0x24, 0x06180000); /* Halfwords, fixed peripheral source. */
-    dma_write(regs, 0x20, 0x8a000000 | (words - 1));
+    dma_write(regs, 0x20, 0x8a000000 | (received - 1));
     start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     deadline = start + period * (words + 2);
-    write_word(f, 0x3c, 1);
+    if (nearfull) {
+        /* Keep the real HDMAC demand BH pending until the outer SPI MMIO ends. */
+        g_assert_cmpint(memory_region_dispatch_write(f->regs, 0x3c, 1, MO_32,
+                                                    MEMTXATTRS_UNSPECIFIED),
+                        ==, MEMTX_OK);
+    } else {
+        write_word(f, 0x3c, 1);
+    }
     if (late) {
         /* Dispatch was delayed, not the independent SPI/DMA hardware clocks. */
         cpus_set_virtual_clock(deadline);
+        if (nearfull) {
+            /* MMIO must not deny per-word DMA arbitration and overflow RX. */
+            g_assert_cmpuint(read_word(f, 0x30), ==, prefix);
+            g_assert_cmpuint(read_word(f, 0x2c), ==, 32);
+            g_assert_cmphex(read_word(f, 0x14) & 0x100, ==, 0);
+            g_assert_cmpuint(oracle->count, ==, prefix);
+            g_assert_cmphex(dma_read(regs, 0x18), ==, ram_address + 64);
+            g_assert_cmphex(dma_read(regs, 0x2c), ==, ram_address + rx_offset);
+            if (cancel) {
+                device_cold_reset(f->dev);
+                qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+                aio_poll(qemu_get_aio_context(), false);
+                g_assert_cmpuint(oracle->count, ==, prefix);
+                g_assert_cmpuint(read_word(f, 0x2c), ==, 0);
+                g_assert_cmpuint(read_word(f, 0x30), ==, 0);
+                g_assert_cmphex(dma_read(regs, 0x18), ==, ram_address + 64);
+                g_assert_cmphex(dma_read(regs, 0x2c), ==,
+                                ram_address + rx_offset);
+                for (unsigned i = 0; i <= 2 * received; i++) {
+                    g_assert_cmphex(bytes[rx_offset + i], ==, 0xff);
+                }
+                goto done;
+            }
+        }
         qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
     } else {
         for (int64_t now = start + 10; now <= deadline; now += 10) {
@@ -413,15 +881,25 @@ static void dma_cadence(unsigned words, bool late)
     g_assert_cmphex(dma_read(regs, 0x24) & 0x70000, ==, 0x50000);
     g_assert_cmphex(dma_read(regs, 0x18), ==, ram_address + 2 * words);
     g_assert_cmphex(dma_read(regs, 0x2c), ==,
-                    ram_address + rx_offset + 2 * words);
+                    ram_address + rx_offset + 2 * received);
     g_assert_cmpuint(read_word(f, 0x2c), ==, 0);
     g_assert_cmpuint(read_word(f, 0x30), ==, 0);
     g_assert_cmphex(read_word(f, 0x14) & 0x100, ==, 0);
-    for (unsigned i = 0; i < 2 * words; i++) {
-        /* Disconnected SSI MISO. */
-        g_assert_cmphex(bytes[rx_offset + i], ==, 0);
+    for (unsigned i = 0; i < received; i++) {
+        unsigned word = i < prefix ? 0x1000 + i : 0x1200 + i - prefix;
+
+        /* Actual oracle replies or the existing disconnected SSI MISO. */
+        g_assert_cmphex(lduw_le_p(bytes + rx_offset + 2 * i), ==,
+                        oracle ? word ^ 0xa55a : 0);
+        if (oracle) {
+            g_assert_cmphex(oracle->mosi[i], ==, word);
+        }
     }
-    g_assert_cmphex(bytes[rx_offset + 2 * words], ==, 0xff);
+    if (oracle) {
+        g_assert_cmpuint(oracle->count, ==, received);
+    }
+    g_assert_cmphex(bytes[rx_offset + 2 * received], ==, 0xff);
+done:
     qdev_connect_gpio_out_named(f->dev, "dma", 0, NULL);
     qdev_connect_gpio_out_named(f->dev, "dma", 1, NULL);
     qdev_unrealize(dma);
@@ -436,17 +914,27 @@ static void dma_cadence(unsigned words, bool late)
 
 static void test_dma_fine(void)
 {
-    dma_cadence(37, false);
+    dma_cadence(37, false, false, false);
 }
 
 static void test_dma_late_tail(void)
 {
-    dma_cadence(37, true);
+    dma_cadence(37, true, false, false);
 }
 
 static void test_dma_late_long(void)
 {
-    dma_cadence(3713, true);
+    dma_cadence(3713, true, false, false);
+}
+
+static void test_dma_elapsed_nearfull(void)
+{
+    dma_cadence(37, true, true, false);
+}
+
+static void test_dma_elapsed_reset(void)
+{
+    dma_cadence(37, true, true, true);
 }
 
 static void dma_reentrant_control(bool cancel)
@@ -543,7 +1031,20 @@ int main(int argc, char **argv)
         qemu_argv[i] = g_strdup(arguments[i]);
     }
     qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
+    type_register_static(&oracle_type);
     vm_start();
+    g_test_add_func("/nikon/spi/elapsed/observations", test_elapsed_observations);
+    g_test_add_func("/nikon/spi/elapsed/invalid", test_elapsed_invalid);
+    g_test_add_func("/nikon/spi/elapsed/cancel-clock", test_elapsed_cancel_clock);
+    g_test_add_func("/nikon/spi/elapsed/rate-change", test_elapsed_rate_change);
+    g_test_add_func("/nikon/spi/elapsed/clock-stop", test_elapsed_clock_stop);
+    g_test_add_func("/nikon/spi/elapsed/async", test_elapsed_async);
+    g_test_add_func("/nikon/spi/elapsed/reentrant-mmio",
+                    test_elapsed_reentrant_mmio);
+    g_test_add_func("/nikon/spi/elapsed/reentrant-timer",
+                    test_elapsed_reentrant_timer);
+    g_test_add_func("/nikon/spi/elapsed/reentrant-cancel",
+                    test_elapsed_reentrant_cancel);
     g_test_add_func("/nikon/spi/late-callback-cadence", test_late_callback);
     g_test_add_func("/nikon/spi/slave/word", test_slave_word);
     g_test_add_func("/nikon/spi/slave/rx-only", test_slave_rx_only);
@@ -552,6 +1053,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/spi/dma/fine", test_dma_fine);
     g_test_add_func("/nikon/spi/dma/late-tail", test_dma_late_tail);
     g_test_add_func("/nikon/spi/dma/late-long", test_dma_late_long);
+    g_test_add_func("/nikon/spi/dma/elapsed-nearfull", test_dma_elapsed_nearfull);
+    g_test_add_func("/nikon/spi/dma/elapsed-reset", test_dma_elapsed_reset);
     g_test_add_func("/nikon/spi/dma/reentrant-pause", test_dma_reentrant_pause);
     g_test_add_func("/nikon/spi/dma/reentrant-cancel",
                     test_dma_reentrant_cancel);

@@ -1,10 +1,16 @@
 # Continuous image processing
 
-`gatework.c` implements one finite continuous graph. It receives an immutable
+`gatework.c` implements the finite context9 MAIN continuous graph. It receives an immutable
 configuration, committed parameter slots, imported commands, one owned tight
 NV12 image and a phase in `[0,4)`. It owns neither scheduling nor the input
-queue, phase advancement, reset, cancellation or IRQ publication. A synchronous
-successful return means that all three output images were actually written.
+queue, phase advancement, reset, cancellation or IRQ publication. Its prepare,
+compute and publish boundaries separate main-thread address-space access from
+pure private numerical work. The synchronous composition remains available to
+native arithmetic fixtures.
+The separate [context8 grid graph](grid.md) executes through `gategrid.c`,
+`gateplane.c` and the gate runtime. It consumes statistics-produced RGB planes,
+writes a packed12 confidence map and publishes its own completion. Paired
+processing reads that completed map when its grid dependency is enabled.
 
 ## Admission and source facts
 
@@ -71,6 +77,17 @@ edge replication. Chroma is co-sited with even destination luma coordinates.
 These filters, phase association and chroma ordering are explicit functional
 choices. They do not claim physical DSP or Bayer fidelity.
 
+The warp evaluates the same four-corner integer numerator by tile and row.
+It decodes each40-byte record once, advances the unrounded numerator with an
+exact integer recurrence, and applies the existing signed half-away rounding
+at each sample. The validated width is a power of two, so an unsigned-magnitude
+shift replaces division without changing negative half ties. All record and
+alias checks still finish before any output write. The affine branches reuse
+their separable X indices, calculate Y once per row, and share the actual U/V
+address; every output sample remains present. Source and output dimensions are
+bounded by4096, so the temporary uint16 X map uses at most8KiB on a host worker
+stack. No guest stack or persistent cache is added.
+
 Only a complete successful graph is eligible for the caller's existing three
 terminal causes and separate whole-frame cause. The source maps resources49,
 54 and55 to raw1 bits0,5 and6, respectively. The selected whole-frame raw2 bit3
@@ -84,9 +101,27 @@ releases parameter slots or treats a configuration write as pixel work.
 input and the enabled continuous input/type1 controls. At that boundary it
 validates the whole current configuration and snapshots the numerical records.
 The latency is a functional timing choice. Time alone cannot establish success.
-Graph setup changes cancel a scheduled attempt, preserve the owned input and
-allow a new attempt with the new setup. A processing error retains the input
-and exposes a named reason rather than acknowledging unknown work.
+The main thread validates RAM/aliases and snapshots all ten selected packets,
+committed slots, configuration, tight NV12 input, warp records and three affine
+records. QEMU's existing worker pool computes only those private images; workers
+never read guest memory, touch device state or publish DMA/IRQ. Its Aio callback
+marks the result ready and schedules the existing virtual publication timer.
+Pausing the virtual clock cannot publish a ready host result.
+
+Layout, binding and committed route changes cancel the owned attempt. The
+normal source upload at MAS VA `103bded0` instead uses local `14=1`, `14=0`,
+`10=pointer` without graph stop/drain. That upload retains the old committed
+packet and owned numerical snapshot. `14=0` only arms the import; successful
+decode at `10` closes its atomic publication. Future admissions wait for every
+selected open upload. Same or unrelated setup, auxiliary staging and future
+numerical records preserve existing work; unknown controls still reject.
+The committed numerical pointer at logical `54` and valid-row high half at
+`4054` can change for future work. Current source spans remain part of live
+RAM/alias preflight, so a future coefficient address cannot be overwritten by
+an old result. Shape, stride, route, mode and packet-presence changes remain
+strict. A node generation prevents old completion from clearing a newer start.
+This immutable numerical latch is a finite ownership hypothesis; the source
+establishes upload order, not physical hardware latch timing.
 
 Only actual successful three-output DMA retires the input, clears ordinary
 start flags of the ten owned nodes, advances the phase and latches the terminal
@@ -97,7 +132,9 @@ association is a bounded model assumption. Output-map bank0 is part of this
 qualified profile, separately from the continuous input selector.
 
 The next graph waits while either prior terminal or whole-frame cause remains
-latched. W1C acknowledges results and can admit a previously queued real input;
+latched. A result already computed when either cause becomes pending remains
+owned and waits for both actual W1C acknowledgements. It is not recomputed.
+W1C acknowledges results and can admit a previously queued real input;
 it does not manufacture a frame. This one-result backpressure is a functional
 storage law. Stop, input reconfiguration, reset and unrealize cancel scheduled
 work without delayed output or completion. Continuous disable preserves queued
@@ -105,7 +142,11 @@ input; a gate stop explicitly cancels it. Status3 represents a scheduled owned
 job and0 rest; the physical status-bit encoding remains unknown.
 
 Read-only QOM `processed`, `processing-errors`, `processing-cancelled`,
-`processing-result` and `processing-phase` expose the work boundary. A failure
+`processing-result` and `processing-phase` expose the work boundary.
+`processing-compute` is zero without numerical work, one while queued/running,
+and two with a private ready result; `processing-inflight` counts the single
+aggregate, including cancelled work until its callback returns. `input-epoch`
+distinguishes normal input consumption from revoked bindings. A failure
 reason is logged when it changes, without repeating a per-frame diagnostic.
 
 ## Complete output storage
@@ -140,11 +181,13 @@ the input, grid or affine records. Unwritten row padding is excluded from
 the overlap calculation.
 
 The operation snapshots the numerical records, computes host-owned images,
-then writes the validated DMA rows. Its BQL caller must keep the address-space
-topology and snapshot stable for the synchronous call. Failure leaves RAM
-unchanged and returns a specific configuration, topology, format, grid, affine,
-memory, alias or pixel-validation reason. There is no fallback output and no
-partial-graph success.
+then rechecks the token, input epoch/generation, phase, current output layout
+and all RAM/alias constraints before actual DMA. A rejected preflight leaves
+RAM unchanged and reports configuration, topology, format, grid, affine,
+memory, alias or pixel validation failure. Stop/reset/unrealize invalidate the
+owner before later callbacks; unrealize drains every callback before resources
+are freed, and a later realize explicitly reopens admission. There is no
+fallback output or partial-graph success.
 
 ## Native fixture scope
 

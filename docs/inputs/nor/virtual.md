@@ -3,8 +3,9 @@
 `nikon-module` generates the single named `cold-neutral-resource80` functional
 profile. This is an explicit synthetic external NOR file for the original
 loader, not a recovered factory module bank, calibration image, guest RAM
-patch or guarantee of a complete boot. It targets only the currently inspected
-cold mode11/subtype3 path. Other modes and consumers remain unvalidated.
+patch or guarantee of a complete boot. It supplies the inspected timing
+groups7/10, selected by mode11/mode14, for all four source-bounded subtypes.
+Other groups and consumers remain unvalidated.
 
 ```sh
 work/build/qemu/tools/nikon/nikon-module cold-neutral-resource80 descriptor32-cold-neutral-resource80.bin
@@ -28,16 +29,31 @@ are hexadecimal:
 | File offset | Declaration | Interpretation and evidence boundary |
 | --- | --- | --- |
 | `be014`, `be015` | Bytes `15`, `00` | Selected version bytes; no factory-version identity claim |
-| `be2b0 + 2` | Little-endian u16 `4096` | Mode11/subtype3 row's nonzero divisor parameter |
-| `be2b0 + 6` | Little-endian u16 `35190` | Fallback base count, used when the original helper returns zero |
-| `be2b0 + b` | u8 `1` | Source timing metadata; physical units are not recovered |
-| `be2b0 + c` | Little-endian u16 `72` | Input to the observed overhead quantization formula |
+| Each row +`2` | Little-endian u16 `4096` | Nonzero divisor parameter |
+| Each row +`6` | Little-endian u16 `35190` | Fallback base count, used when the original helper returns zero |
+| Each row +`b` | u8 `1` | Source timing metadata; physical units are not recovered |
+| Each row +`c` | Little-endian u16 `72` | Input to the observed overhead quantization formula |
 | `17fffc` | ASCII `ENDM` | Outer input footer; does not validate the zero-valued records |
 
 The source field layouts and readsets below are established by the original
 consumers. Choosing these numeric parameters and zero values for the remaining
 body is a **finite functional hypothesis**. Zero is not an implicit claim of
 identity calibration, a disabled physical block or valid factory metadata.
+
+The eight16-byte rows are `be280/be290/be2a0/be2b0` for group7 and
+`be340/be350/be360/be370` for group10. The existing cold `be2b0` row is
+unchanged. `10305dd8` produces subtype0..3 through explicit/header paths and
+the109-entry ROM table; `10304e3c/103066be/102ffb14/102ffc5a` use the same row
+format for each subtype. Sharing these chosen values is a functional input
+hypothesis, not a recovered factory table. Other groups, including the
+initially unconfigured mode0 group, remain zero.
+
+The earlier file declared only subtype3. A later unchanged fixed-M run actually
+selects mode11/subtype0 with period0/count2, after mode14/subtype0. The normal
+duration helper `10304a5e` consequently returns0; this reaches OnVd and AF's
+`10313a24`, which cancels its old schedule and does not rearm. The new file
+corrects that declared input gap through the original loader. It does not
+write RAM, invoke an AF callback or substitute an MMIO result.
 
 ## Selected zero-valued readsets
 
@@ -96,6 +112,17 @@ and correction belong to guest state. This arithmetic example does not claim
 that q is always130 or that the selectors have a fixed temporal order.
 The original call sites must establish their actual order and values.
 
+The active helper branch preserves its original integer order:
+`q=((0x89544000/helper)*1000)/period`, followed by
+`count=((q>>5)&~1)+signed_bias`. Actual mode11 helper/bias pairs59940/2 and
+29970/2 give counts294/588 and durations16725/33450 microseconds via
+`(period*count)/72`; selector3 loads are4095 and293/587. Mode14's helper1000000
+with bias0 gives count16, duration910 and loads4095/15. These are source
+arithmetic expectations under the explicit row values, not measured sensor
+cadence. The zero-helper fallback still gives35190 and2001920 microseconds.
+No duration is enlarged to force AF's greater-than42000 scheduling branch.
+Late profiles can expose its separate unsigned residual-delay boundary.
+
 ## Native tool validation
 
 The tool and `nikon_module_unit` use the existing native Meson graph and
@@ -104,7 +131,8 @@ select the fixture with `make check MTESTARGS=nikon_module_unit`.
 
 The fixture checks full output size and footer, version bytes, the selected
 zero readsets and capture control fields, the four observed no-op script lists,
-group3 bits, fixed timing declarations and independent source arithmetic.
+group3 bits, all eight timing declarations, unchanged remaining bytes and
+independent source arithmetic, including the active helper cases above.
 CLI checks exercise generation with a spaced path, unknown profile,
 missing/extra arguments, empty output and output I/O failure. There is no
 generic decoder, arbitrary profile validator, hash gate or parser introduced

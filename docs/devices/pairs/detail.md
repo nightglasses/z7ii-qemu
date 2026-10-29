@@ -107,13 +107,16 @@ invent image content, own a timer or produce events.
 
 All eight words must have been published since reset before a job qualifies.
 Writes of zero words count as publication but do not exempt missing words or
-invalid values. Qualification rejects incomplete packets, changed fixed fields,
-nonzero reserved bytes, unequal lanes, limits outside4..31, strengths above32
+invalid values. Initial admission rejects incomplete packets, changed fixed
+fields, nonzero reserved bytes, unequal lanes, limits outside4..31, strengths above32
 and lanes outside8..16. Parameters are decoded into the existing job snapshot.
 
-Unchanged writes retain the running job. Any changed detail word follows the
-existing configuration cancellation and pre-color history invalidation path;
-reset cancels pending work and clears both words and their publication mask.
+Online detail uploads follow
+[online numerical uploads](pixels.md#online-numerical-uploads). A complete
+changed packet advances the bank's history revision and clears future history
+addresses; the owned snapshot may finish its DMA/IRQ but cannot register
+history under the old revision. Stop cancels pending work and clears open
+online rounds; reset also clears the words and publication coverage.
 The stage relies on the existing input DMA, complete numerical output and
 result publication path. Register writes never manufacture completion, IRQs
 or input readiness.
@@ -133,9 +136,9 @@ The ordinary-MMIO qtest fixtures submit positive/negative source-image impulses
 and check changed MAIN and WORK results, output guards and IRQ acknowledgement.
 Boundary fixtures check every word, duplicate lanes, reserved bits, malformed
 scalars, absent/partial publication after reset, same-value retention,
-changed-write cancellation and reset readback. These are specified tests;
-native results and unchanged-firmware continuation belong to separate
-integration receipts.
+future-snapshot publication, history revision changes and reset readback.
+These are specified tests; native results and unchanged-firmware continuation
+belong to separate integration receipts.
 
 The fixtures can falsify this implementation or its declared finite properties.
 They cannot establish physical Nikon semantics. A bound register manual,

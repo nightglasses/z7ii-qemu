@@ -1,11 +1,12 @@
 /*
  * Finite paired controls, RAW processing and result publication.
  * Cold zero, retained readback, mask1 inhibition and W1C are virtual laws.
- * Only completed RAW DMA can produce numerical work and output events.
+ * Completed RAW and enabled confidence-map DMA precede numerical output work.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/atomic.h"
 #include "qemu/host-utils.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
@@ -20,10 +21,14 @@
 #include "hw/nikon/paired.h"
 #include "hw/nikon/pairedpixels.h"
 #include "hw/nikon/gateinput.h"
+#include "hw/nikon/gridinput.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
+#include "system/iothread.h"
 
 #define BANK_SIZE 0x5e00
+#define PAIRED_ONLINE_GROUPS 17
+#define PAIRED_MAX_CHILDREN 12
 OBJECT_DECLARE_SIMPLE_TYPE(NikonPairedEventBanksState, NIKON_PAIRED_EVENT_BANKS)
 
 typedef enum NikonPairedRequestState {
@@ -40,24 +45,41 @@ typedef struct PairedPlane {
 typedef struct PairedJob {
     NikonPairedPixelConfig pixels;
     NikonPairedRawFrame source;
-    /* Main Y/UV, half-resolution history/residual, grid. */
-    PairedPlane plane[5];
-    uint16_t *raw, *history, *residual;
+    /* Main Y/UV and half-resolution history/residual are writes. Grid is read. */
+    PairedPlane plane[4], grid_plane;
+    NikonPairedGridFrame grid_source;
+    uint16_t *raw, *history, *residual, *grid;
+    uint64_t grid_epoch;
     uint64_t generation;
     uint64_t epoch;
-    uint64_t gate_generation;
-    unsigned phase, slot;
+    uint64_t history_revision;
+    uint64_t gate_epoch;
+    unsigned phase, slot, grid_slot;
     bool work, stream;
 } PairedJob;
 
-typedef struct PairedTask {
+typedef struct PairedTask PairedTask;
+
+typedef struct PairedChild {
+    PairedTask *task;
+    unsigned index;
+} PairedChild;
+
+struct PairedTask {
     NikonPairedEventBanksState *owner;
     PairedJob job;
-    uint8_t *y, *uv, *work, *packed;
+    NikonPairedPixels *pixels;
+    const uint8_t *y, *uv, *work;
+    PairedChild child[PAIRED_MAX_CHILDREN];
     uint64_t token;
-    unsigned bank;
-    bool ready, success;
-} PairedTask;
+    unsigned bank, remaining;
+    /* IOContext owns pixels/children until the main-Aio terminal handoff.
+     * Only cancellation and this packed diagnostic snapshot cross contexts.
+     */
+    bool cancelled;
+    unsigned progress;
+    bool ready, success, waiting_capacity;
+};
 
 typedef struct NikonPairedEventBanksBank {
     NikonPairedEventBanksState *parent;
@@ -71,6 +93,8 @@ typedef struct NikonPairedEventBanksBank {
     PairedTask *compute;
     uint64_t token;
     uint64_t consumed[4], table_written[10];
+    uint64_t grid_consumed[8], grid_epoch;
+    uint32_t grid_consumed_address[8];
     uint64_t curve_written[2][3];
     uint64_t colorfilter_written;
     uint32_t filter_written;
@@ -79,6 +103,9 @@ typedef struct NikonPairedEventBanksBank {
     bool main_gain_valid;
     uint8_t saturation_words[2];
     uint8_t radial_table_words[2];
+    uint64_t online_written[PAIRED_ONLINE_GROUPS][3];
+    bool online_dirty[PAIRED_ONLINE_GROUPS];
+    uint64_t history_revision;
     uint8_t denoise_written, detail_written, adaptive_written, radial_written;
     uint32_t history_address[4][2], result;
     uint64_t history_epoch[4];
@@ -97,9 +124,13 @@ struct NikonPairedEventBanksState {
     SysBusDevice parent_obj;
     NikonPairedEventBanksBank bank[2];
     NikonPairedRawFrame raw[4];
+    NikonPairedGridFrame grid[8];
+    uint64_t grid_epoch;
     uint64_t source_epoch;
     char *calibration_path;
     DeviceState *gate;
+    IOThread *arithmetic;
+    QEMUTimer *capacity_timer;
     uint32_t calibration[BANK_SIZE / 4];
     bool calibration_loaded;
     uint64_t completed, rejected, cancelled, blocked, bytes;
@@ -135,6 +166,54 @@ void nikon_paired_frame(DeviceState *dev, const NikonPairedRawFrame *frame)
         for (unsigned i = 0; i < 2; i++) {
             paired_try(&s->bank[i], 0, 0);
         }
+    }
+}
+
+void nikon_paired_grid_frame(DeviceState *dev,
+                            const NikonPairedGridFrame *frame)
+{
+    NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(dev);
+    unsigned slot = ARRAY_SIZE(s->grid);
+
+    if (!frame) {
+        memset(s->grid, 0, sizeof(s->grid));
+        s->grid_epoch++;
+        return;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->grid); i++) {
+        if (s->grid[i].address == frame->address) {
+            slot = i;
+            goto found;
+        }
+        if (!s->grid[i].address && slot == ARRAY_SIZE(s->grid)) {
+            slot = i;
+        }
+    }
+    if (!frame->generation) {
+        return;
+    }
+    if (!frame->address || slot == ARRAY_SIZE(s->grid)) {
+        s->rejected++;
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon-paired: grid descriptor pool requires a new epoch\n");
+        return;
+    }
+found:
+    s->grid[slot] = *frame;
+    if (frame->generation) {
+        for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
+            paired_try(&s->bank[i], 0, 0);
+        }
+    }
+}
+
+static void paired_grid_ready(void *opaque, int index, int level)
+{
+    NikonPairedEventBanksState *s = opaque;
+    NikonPairedGridFrame frame;
+
+    if (level && s->gate && nikon_gate_plane_output(s->gate, &frame)) {
+        nikon_paired_grid_frame(DEVICE(s), frame.address ? &frame : NULL);
     }
 }
 
@@ -241,12 +320,16 @@ static void paired_release(NikonPairedEventBanksBank *b)
     g_clear_pointer(&b->job.raw, g_free);
     g_clear_pointer(&b->job.history, g_free);
     g_clear_pointer(&b->job.residual, g_free);
+    g_clear_pointer(&b->job.grid, g_free);
     b->active = false;
 }
 
 static void paired_cancel(NikonPairedEventBanksBank *b)
 {
     b->token++;
+    if (b->compute) {
+        qatomic_set(&b->compute->cancelled, true);
+    }
     if (b->active) {
         timer_del(b->timer);
         paired_release(b);
@@ -363,8 +446,9 @@ static bool paired_live_word(unsigned offset)
     if (offset >= 0x1900 && offset <= 0x197c) {
         return true;
     }
-    if ((offset >= 0x708 && offset <= 0x720) ||
+    if ((offset >= 0x700 && offset <= 0x720) ||
         (offset >= 0xdc0 && offset <= 0xdec) ||
+        (offset >= 0xb3c && offset <= 0xb4c) ||
         (offset >= 0x660 && offset <= 0x678) ||
         (offset >= 0x73c && offset <= 0x758) ||
         (offset >= 0x75c && offset <= 0x778) ||
@@ -404,6 +488,91 @@ static bool paired_live_word(unsigned offset)
     default:
         return false;
     }
+}
+
+/* Running 102c04c6 -> 102e55fa/560e -> 102e49fe skips initialization and
+ * publishes these complete numerical packets without stop/drain/wait. This is
+ * deliberately narrower than paired_live_word: modes/topology remain strict.
+ * Coverage order need not be linear, but the first source store starts a fresh
+ * round and every member must be written before another job can be admitted.
+ */
+static int paired_online_word(unsigned offset, unsigned *word,
+                               unsigned *count)
+{
+    static const unsigned offsets[][8] = {
+        { 0xdf4, 0xdf8, 0xdfc, 0xe00, 0xe0c, 0xe04, 0xe08, 0xe10 },
+        { 0x9d0, 0x9d4, 0x9cc },
+        { 0x724, 0x728, 0x72c, 0x730, 0x734, 0x738 },
+    };
+    static const unsigned counts[] = { 8, 3, 6 };
+    static const unsigned ranges[][3] = {
+        { 0x660, 0x678, 7 }, { 0x594, 0x608, 20 },
+        { 0x708, 0x720, 7 }, { 0x73c, 0x758, 8 },
+        { 0x75c, 0x778, 8 }, { 0x900, 0x9d8, 51 },
+        { 0xb00, 0xb10, 5 }, { 0xb64, 0xb74, 5 },
+        { 0xb94, 0xbbc, 11 }, { 0xd20, 0xd9c, 32 },
+        { 0xdc0, 0xdec, 12 }, { 0xb58, 0xb58, 1 },
+        { 0x2890, 0x2a90, 129 }, { 0x2a94, 0x2c94, 129 },
+    };
+
+    for (unsigned group = 0; group < ARRAY_SIZE(offsets); group++) {
+        for (unsigned i = 0; i < counts[group]; i++) {
+            if (offset == offsets[group][i]) {
+                *word = i;
+                *count = counts[group];
+                return group;
+            }
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(ranges); i++) {
+        if (offset < ranges[i][0] || offset > ranges[i][1]) {
+            continue;
+        }
+        if (i == 1) {
+            int filter = paired_filter_word(offset);
+
+            if (filter < 0) {
+                continue;
+            }
+            *word = filter;
+        } else if (i == 5) {
+            if (offset > 0x9c4 && offset != 0x9d8) {
+                continue;
+            }
+            *word = offset == 0x9d8 ? 50 : (offset - 0x900) / 4;
+        } else {
+            *word = (offset - ranges[i][0]) / 4;
+        }
+        *count = ranges[i][2];
+        return ARRAY_SIZE(offsets) + i;
+    }
+    return -1;
+}
+
+static bool paired_online_precolor(unsigned group)
+{
+    return group == 3 || group == 4 || group == 6 || group == 7 || group == 8;
+}
+
+static bool paired_online_open(const uint64_t written[3])
+{
+    return written[0] || written[1] || written[2];
+}
+
+static bool paired_online_pending(NikonPairedEventBanksBank *b)
+{
+    for (unsigned i = 0; i < PAIRED_ONLINE_GROUPS; i++) {
+        if (paired_online_open(b->online_written[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void paired_history_invalidate(NikonPairedEventBanksBank *b)
+{
+    b->history_revision++;
+    memset(b->history_address, 0, sizeof(b->history_address));
 }
 
 static void paired_matrix(NikonPairedEventBanksBank *b, unsigned offset,
@@ -449,12 +618,7 @@ static void paired_main_gain_write(NikonPairedEventBanksBank *b,
             return;
         }
     }
-    /* Staging never mutates the active snapshot; a different completed gain
-     * supersedes it. Same-gain publication does not cancel real owned work.
-     */
-    if (b->active && b->job.pixels.main_gain != gain) {
-        paired_cancel(b);
-    }
+    /* Publication affects future admission, never the owned active snapshot. */
     b->main_gain = gain;
     b->main_gain_valid = true;
 }
@@ -640,7 +804,7 @@ static bool paired_radial_tables(NikonPairedEventBanksBank *b)
 }
 
 static bool paired_radial(NikonPairedEventBanksBank *b,
-                           NikonPairedPixelConfig *pixels, bool admission)
+                           NikonPairedPixelConfig *pixels)
 {
     const uint32_t *c = b->config;
     uint32_t coefficient = c[0x730 / 4], scale = c[0x734 / 4];
@@ -648,11 +812,6 @@ static bool paired_radial(NikonPairedEventBanksBank *b,
     int red = sextract32(coefficient, 16, 10);
     int blue = sextract32(coefficient, 0, 10);
 
-    if (!admission) {
-        /* A staged optional-table upload cannot mutate the owned computation. */
-        pixels->radial = b->job.pixels.radial;
-        return true;
-    }
     if (b->radial_written != 0x3f || c[0x724 / 4] != 270) {
         return paired_profile_reject(b, 0x724);
     }
@@ -872,21 +1031,99 @@ static bool paired_saturation_decode(NikonPairedEventBanksBank *b,
     return true;
 }
 
-static bool paired_saturation(NikonPairedEventBanksBank *b, PairedJob *job,
-                              bool admission)
+static bool paired_saturation(NikonPairedEventBanksBank *b, PairedJob *job)
 {
-    if (!admission) {
-        /* A new upload cannot mutate or disqualify the active snapshot. */
-        memcpy(job->pixels.saturation, b->job.pixels.saturation,
-               sizeof(job->pixels.saturation));
-        return true;
-    }
     return paired_saturation_decode(b, job->pixels.saturation) ||
            paired_profile_reject(b, 0x1a08);
 }
 
+/* Completion rechecks topology and memory using the owned numerical snapshot.
+ * Numerical packet staging, calibration and opaque qualifiers belong solely to
+ * admission; changed strict controls cancel the token at the write boundary.
+ */
+static bool paired_layout(NikonPairedEventBanksBank *b, PairedJob *job,
+                           unsigned p)
+{
+    uint32_t *c = b->config;
+    NikonPairedPixelConfig *g = &job->pixels;
+    unsigned hw, hh, selected = b->selected;
+
+    if (!paired_mode(b, job)) {
+        return false;
+    }
+    /* The selected front/back RAW views and shared work ports must agree. */
+    if (!paired_aliases(b, 0x310 + 16 * selected, 0x218 + 16 * selected, 4) ||
+        (job->work && !paired_aliases(b, 0x430, 0x450, 8))) {
+        return false;
+    }
+    g->width = c[0x48 / 4] >> 16;
+    g->height = c[0x48 / 4] & 0xffff;
+    g->x = c[0x40c / 4] & 0xffff;
+    g->y = c[0x400 / 4] >> 16;
+    g->output_width = c[0x40c / 4] >> 16;
+    g->output_height = c[0x400 / 4] & 0xffff;
+    if (c[0x12c / 4] > 1) {
+        return paired_profile_reject(b, 0x12c);
+    }
+    g->grid_enabled = c[0x12c / 4];
+    g->grid_width = (c[0xb48 / 4] >> 16) + 1;
+    g->grid_height = (c[0xb48 / 4] & 0xffff) + 1;
+    if (g->grid_enabled && ((g->grid_width & 1) ||
+        g->grid_width > 4096 || g->grid_height > 4096)) {
+        return paired_profile_reject(b, 0xb48);
+    }
+    if (!g->width || g->width > 4096 || !g->height ||
+        g->height > 4096 ||
+        !g->output_width || !g->output_height ||
+        ((g->output_width | g->output_height) & 1) ||
+        g->x + g->output_width > g->width ||
+        g->y + g->output_height > g->height ||
+        (c[0x88 / 4] == 0 && c[0x9c / 4] != g->height - 1) ||
+        c[0xc4 / 4] != g->width ||
+        c[0x204 / 4] != ((g->height << 16) | g->width)) {
+        return paired_profile_reject(b, 0x48);
+    }
+    hw = DIV_ROUND_UP(g->width, 2);
+    hh = DIV_ROUND_UP(g->height, 2);
+    job->plane[0] = (PairedPlane) {
+        c[0x488 / 4 + 8 * selected + p], c[0x4c8 / 4],
+        g->output_width, g->output_height
+    };
+    job->plane[1] = (PairedPlane) {
+        c[0x498 / 4 + 8 * selected + p], c[0x4c8 / 4],
+        g->output_width, g->output_height / 2
+    };
+    if (job->work) {
+        job->plane[2] = (PairedPlane) {
+            c[0x430 / 4 + 8 * selected + p], c[0x470 / 4], hw * 2, hh
+        };
+        job->plane[3] = (PairedPlane) {
+            c[0x440 / 4 + 8 * selected + p], c[0x470 / 4], hw * 2, hh
+        };
+    }
+    if (g->grid_enabled) {
+        job->grid_plane = (PairedPlane) {
+            c[0x398 / 4 + 4 * selected + p], c[0x394 / 4],
+            g->grid_width * 3 / 2, g->grid_height
+        };
+    }
+    if ((job->stream ?
+         (job->plane[0].address != 0x40000000 ||
+          job->plane[1].address != 0x40008000 ||
+          job->plane[0].stride < g->output_width ||
+          (job->plane[0].stride & 63)) :
+         (uint64_t)job->plane[0].address + paired_span(&job->plane[0]) !=
+             job->plane[1].address) ||
+        (job->work &&
+         (uint64_t)job->plane[2].address + paired_span(&job->plane[2]) !=
+             job->plane[3].address)) {
+        return paired_profile_reject(b, 0x400);
+    }
+    return true;
+}
+
 static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
-                            unsigned p, bool admission)
+                            unsigned p)
 {
     static const struct { unsigned offset; uint32_t value; } controls[] = {
         { 0x40, 5 }, { 0x4c, 1 }, { 0x50, 0 }, { 0x84, 1 },
@@ -897,7 +1134,7 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         { 0xf8, 1 },
         { 0x100, 1 }, { 0x104, 0 }, { 0x108, 3 },
         { 0x110, 0 }, { 0x11c, 1 }, { 0x120, 1 },
-        { 0x128, 0 }, { 0x12c, 1 }, { 0x130, 0 }, { 0x134, 0 },
+        { 0x128, 0 }, { 0x130, 0 }, { 0x134, 0 },
         { 0x144, 0 },
         { 0x300, 0 }, { 0x404, 1 }, { 0x42c, 3 },
         { 0xb14, 0x80000000 }, { 0xb60, 0x80000000 },
@@ -905,17 +1142,16 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     };
     uint32_t *c = b->config;
     NikonPairedPixelConfig *g = &job->pixels;
-    unsigned hw, hh, selected = b->selected;
 
     if (!b->parent->calibration_loaded) {
         return paired_profile_reject(b, 0);
     }
-    if (admission && (!b->main_gain_valid ||
+    if (!b->main_gain_valid ||
         (b->main_gain_written[0] && b->main_gain_written[0] != UINT16_MAX) ||
-        (b->main_gain_written[1] && b->main_gain_written[1] != UINT16_MAX))) {
+        (b->main_gain_written[1] && b->main_gain_written[1] != UINT16_MAX)) {
         return paired_profile_reject(b, 0x1900);
     }
-    g->main_gain = admission ? b->main_gain : b->job.pixels.main_gain;
+    g->main_gain = b->main_gain;
     /*
      * 102e4ce4/4d06 skip NULL table pointers. A wholly omitted table is
      * accepted only as an explicitly zero profile; a touched table must be
@@ -960,11 +1196,11 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
     if (c[0xfc / 4] > 1) {
         return paired_profile_reject(b, 0xfc);
     }
-    if (!paired_mode(b, job) || !paired_filter(b, g) || !paired_denoise(b, g) ||
-        !paired_detail(b, g) || !paired_adaptive(b, g) ||
-        !paired_radial(b, g, admission) ||
+    if (!paired_layout(b, job, p) || !paired_filter(b, g) ||
+        !paired_denoise(b, g) || !paired_detail(b, g) ||
+        !paired_adaptive(b, g) || !paired_radial(b, g) ||
         !paired_colorfilter(b, g) || !paired_post(b, g) ||
-        !paired_saturation(b, job, admission)) {
+        !paired_saturation(b, job)) {
         return false;
     }
     for (unsigned i = 0x330; i <= 0x34c; i += 4) {
@@ -972,24 +1208,23 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
             return paired_profile_reject(b, i);
         }
     }
-    /* The selected front/back RAW views and shared work ports must agree. */
-    if (!paired_aliases(b, 0x310 + 16 * selected, 0x218 + 16 * selected, 4) ||
-        (job->work && !paired_aliases(b, 0x430, 0x450, 8))) {
-        return false;
-    }
-    g->width = c[0x48 / 4] >> 16;
-    g->height = c[0x48 / 4] & 0xffff;
-    g->x = c[0x40c / 4] & 0xffff;
-    g->y = c[0x400 / 4] >> 16;
-    g->output_width = c[0x40c / 4] >> 16;
-    g->output_height = c[0x400 / 4] & 0xffff;
-    g->grid_width = 60;
-    g->grid_height = 34;
-    /* 103646fe/10363bc0 construct four gain/offset/pedestal lanes and a cap. */
-    if (c[0x704 / 4] || (c[0x700 / 4] && c[0x700 / 4] != 0x101)) {
+    g->grid_start_x = c[0xb3c / 4];
+    g->grid_start_y = c[0xb40 / 4];
+    g->grid_step_x = c[0xb44 / 4] >> 16;
+    g->grid_step_y = c[0xb44 / 4];
+    g->grid_origin_x = c[0xb4c / 4] >> 16;
+    g->grid_origin_y = c[0xb4c / 4] & 0xffff;
+    /* 102f88c8 publishes independent affine and mutually exclusive mode bits.
+     * 103646fe/10363bc0 construct the affine lanes independently of the modes.
+     * Optional radial tables still require the separately qualified profile.
+     */
+    if ((c[0x700 / 4] & ~0x101U) || (c[0x704 / 4] & ~1U) ||
+        ((c[0x700 / 4] & 1) && c[0x704 / 4]) ||
+        (!(c[0x700 / 4] & 0x100) &&
+         (c[0x700 / 4] || c[0x704 / 4]))) {
         return paired_profile_reject(b, 0x700);
     }
-    g->quad_enabled = c[0x700 / 4] == 0x101;
+    g->quad_enabled = c[0x700 / 4] & 0x100;
     for (unsigned i = 0; i < 4; i++) {
         unsigned shift = (i % 2) ? 0 : 16;
         uint32_t offset = c[0x710 / 4 + i / 2] >> shift;
@@ -1007,57 +1242,15 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
         return paired_profile_reject(b, 0x720);
     }
     g->quad_limit = c[0x720 / 4];
-    if (!g->width || g->width > 4096 || g->height < 34 ||
-        g->height > 4096 || g->width < 60 ||
-        !g->output_width || !g->output_height ||
-        ((g->output_width | g->output_height) & 1) ||
-        g->x + g->output_width > g->width ||
-        g->y + g->output_height > g->height ||
-        (c[0x88 / 4] == 0 && c[0x9c / 4] != g->height - 1) ||
-        c[0xc4 / 4] != g->width ||
-        c[0x204 / 4] != ((g->height << 16) | g->width)) {
-        return paired_profile_reject(b, 0x48);
-    }
-    hw = DIV_ROUND_UP(g->width, 2);
-    hh = DIV_ROUND_UP(g->height, 2);
-    job->plane[0] = (PairedPlane) {
-        c[0x488 / 4 + 8 * selected + p], c[0x4c8 / 4],
-        g->output_width, g->output_height
-    };
-    job->plane[1] = (PairedPlane) {
-        c[0x498 / 4 + 8 * selected + p], c[0x4c8 / 4],
-        g->output_width, g->output_height / 2
-    };
-    if (job->work) {
-        job->plane[2] = (PairedPlane) {
-            c[0x430 / 4 + 8 * selected + p], c[0x470 / 4], hw * 2, hh
-        };
-        job->plane[3] = (PairedPlane) {
-            c[0x440 / 4 + 8 * selected + p], c[0x470 / 4], hw * 2, hh
-        };
-    }
-    job->plane[4] = (PairedPlane) { c[0x398 / 4 + 4 * selected + p],
-                                   c[0x394 / 4], 90, 34 };
-    if ((job->stream ?
-         (job->plane[0].address != 0x40000000 ||
-          job->plane[1].address != 0x40008000 ||
-          job->plane[0].stride < g->output_width ||
-          (job->plane[0].stride & 63)) :
-         (uint64_t)job->plane[0].address + paired_span(&job->plane[0]) !=
-             job->plane[1].address) ||
-        (job->work &&
-         (uint64_t)job->plane[2].address + paired_span(&job->plane[2]) !=
-             job->plane[3].address)) {
-        return paired_profile_reject(b, 0x400);
-    }
     paired_matrix(b, 0xb00, 13, false, g->a);
     paired_matrix(b, 0xb64, 12, false, g->b);
     paired_matrix(b, 0xb94, 13, true, g->c);
     if (g->c[0] != 1024 || g->c[1] || g->c[2] || g->c[3] || g->c[6]) {
         return paired_profile_reject(b, 0xb94);
     }
-    /* 1036bb04 packs three u16 gains and four independent control bytes. */
-    if ((c[0x9cc / 4] & ~0x01010101U) || (c[0x9d4 / 4] & 0xffff0000U)) {
+    /* 1036bb04 packs three u16 gains and four boolean control bytes. */
+    if ((c[0x9cc / 4] & ~0x01010101U) ||
+        (c[0x9d4 / 4] & 0xffff0000U)) {
         return paired_profile_reject(b, 0x9cc);
     }
     g->gain[0] = c[0x9d0 / 4] >> 16;
@@ -1128,17 +1321,41 @@ static bool paired_profile(NikonPairedEventBanksBank *b, PairedJob *job,
 
 static bool paired_targets(PairedJob *job, const NikonPairedRawFrame *input)
 {
-    for (unsigned i = 0; i < 5; i++) {
+    if (job->pixels.grid_enabled &&
+        ((job->grid_plane.address & 3) ||
+         job->grid_plane.stride < job->grid_plane.row_bytes ||
+         !paired_ram(job->grid_plane.address, paired_span(&job->grid_plane),
+                     false))) {
+        return false;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(job->plane); i++) {
         PairedPlane *p = &job->plane[i];
         uint64_t span = paired_span(p);
+        const char *reason = NULL;
 
         if ((job->stream && i < 2) || (!job->work && (i == 2 || i == 3))) {
             continue;
         }
-        if ((p->address & 3) || p->stride < p->row_bytes ||
-            !paired_ram(p->address, span, true) ||
-            paired_overlap(p->address, span, input->address,
-                           (uint64_t)input->stride * input->height)) {
+        if (p->address & 3) {
+            reason = "alignment";
+        } else if (p->stride < p->row_bytes) {
+            reason = "stride";
+        } else if (!paired_ram(p->address, span, true)) {
+            reason = "writable-ram";
+        } else if (paired_overlap(p->address, span, input->address,
+                                  (uint64_t)input->stride * input->height)) {
+            reason = "input-overlap";
+        } else if (job->pixels.grid_enabled && paired_overlap(p->address, span,
+                   job->grid_plane.address, paired_span(&job->grid_plane))) {
+            reason = "grid-overlap";
+        }
+        if (reason) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: target plane=%u reason=%s address=%x "
+                "span=%" PRIu64 " stride=%u row-bytes=%u height=%u "
+                "input=%x/%u/%u\n", i, reason, p->address, span,
+                p->stride, p->row_bytes, p->height, input->address,
+                input->stride, input->height);
             return false;
         }
         for (unsigned j = 0; j < i; j++) {
@@ -1147,6 +1364,11 @@ static bool paired_targets(PairedJob *job, const NikonPairedRawFrame *input)
             }
             if (paired_overlap(p->address, span, job->plane[j].address,
                                paired_span(&job->plane[j]))) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-paired: target-overlap planes=%u/%u "
+                    "address=%x/%x span=%" PRIu64 "/%" PRIu64 "\n",
+                    i, j, p->address, job->plane[j].address,
+                    span, paired_span(&job->plane[j]));
                 return false;
             }
         }
@@ -1168,29 +1390,6 @@ static bool paired_transfer_valid(const NikonRawTransfer *t)
     return true;
 }
 
-static bool paired_transfer_sample(const NikonRawTransfer *t, uint16_t *sample)
-{
-    unsigned low = 0, high = 256;
-
-    if (t->codec == NIKON_RAW_LINEAR) {
-        return true;
-    }
-    while (low < high) {
-        unsigned middle = low + (high - low) / 2;
-
-        if (t->lookup[middle] < *sample) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-    if (low == 256 || t->lookup[low] != *sample) {
-        return false;
-    }
-    *sample = (low * 257) >> 4;
-    return true;
-}
-
 static bool paired_snapshot(NikonPairedEventBanksBank *b,
                              const NikonPairedRawFrame *frame)
 {
@@ -1200,42 +1399,86 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     unsigned y0 = b->config[0x44 / 4] & 0xffff;
     size_t pixels = (size_t)g->width * g->height;
     unsigned row_bytes;
+    uint16_t inverse[4096];
     g_autofree uint8_t *row = NULL;
+    bool transfer_valid = frame->bits == 12 &&
+                          paired_transfer_valid(&frame->transfer);
 
-    if (frame->bits != 12 || !paired_transfer_valid(&frame->transfer) ||
+    if (!transfer_valid ||
         (frame->width & 1) ||
         (unsigned)frame->encoding > NIKON_RAW_BGGR ||
         (frame->encoding != NIKON_RAW_MONO && ((g->width | g->height) & 1)) ||
         frame->width > 4096 || frame->height > 4096 ||
         x0 + g->width > frame->width || y0 + g->height > frame->height ||
         frame->stride != b->config[0x30c / 4] ||
-        frame->stride < (uint64_t)frame->width * 12 / 8 ||
-        !paired_ram(frame->address, (uint64_t)frame->stride * frame->height,
-                    false) || !paired_targets(j, frame)) {
+        frame->stride < (uint64_t)frame->width * 12 / 8) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "nikon-paired: snapshot-metadata bank=%u phase=%u "
+            "input=%x generation=%" PRIu64 " slot=%u bits=%u codec=%u "
+            "transfer-valid=%u "
+            "extent=%ux%u stride=%u encoding=%u roi=%u,%u/%ux%u "
+            "expected-stride=%u\n", b->index, b->phase,
+            frame->address, frame->generation, frame->slot, frame->bits,
+            frame->transfer.codec, transfer_valid, frame->width, frame->height,
+            frame->stride, frame->encoding, x0, y0, g->width, g->height,
+            b->config[0x30c / 4]);
         return false;
+    }
+    if (!paired_ram(frame->address, (uint64_t)frame->stride * frame->height,
+                    false)) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "nikon-paired: snapshot-input-ram bank=%u address=%x "
+            "stride=%u height=%u\n", b->index, frame->address,
+            frame->stride, frame->height);
+        return false;
+    }
+    if (!paired_targets(j, frame)) {
+        return false;
+    }
+    if (frame->transfer.codec == NIKON_RAW_LOOKUP8) {
+        /* The validated knots are unique RAW12 codes; all other codes reject. */
+        memset(inverse, 0xff, sizeof(inverse));
+        for (unsigned i = 0; i < ARRAY_SIZE(frame->transfer.lookup); i++) {
+            inverse[frame->transfer.lookup[i]] = (i * 257) >> 4;
+        }
     }
     row_bytes = frame->width * 12 / 8;
     g->encoding = frame->encoding == NIKON_RAW_MONO ? NIKON_RAW_MONO :
         1 + ((frame->encoding - 1) ^ (x0 & 1) ^ ((y0 & 1) << 1));
     g->radial.center_x -= (int32_t)x0;
     g->radial.center_y -= (int32_t)y0;
+    g->grid_origin_x -= (int32_t)x0;
+    g->grid_origin_y -= (int32_t)y0;
     row = g_malloc(MAX(row_bytes, j->plane[2].row_bytes));
     j->raw = g_new(uint16_t, pixels);
     for (unsigned y = 0; y < g->height; y++) {
         if (dma_memory_read(&address_space_memory,
             (uint64_t)frame->address + (y + y0) * frame->stride,
             row, row_bytes, MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: snapshot-input-dma bank=%u row=%u "
+                "address=%" PRIx64 " bytes=%u\n", b->index, y,
+                (uint64_t)frame->address + (y + y0) * frame->stride,
+                row_bytes);
             return false;
         }
         for (unsigned x = 0; x < g->width; x++) {
             unsigned bit = (x + x0) * 12, byte = bit / 8;
             uint32_t value = row[byte] | row[byte + 1] << 8;
 
-            j->raw[y * g->width + x] = (value >> (bit % 8)) & 4095;
-            if (!paired_transfer_sample(&frame->transfer,
-                                         &j->raw[y * g->width + x])) {
-                return false;
+            uint16_t sample = (value >> (bit % 8)) & 4095;
+
+            if (frame->transfer.codec == NIKON_RAW_LOOKUP8) {
+                if (inverse[sample] == UINT16_MAX) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: snapshot-code bank=%u x=%u y=%u "
+                        "sample=%u codec=%u\n", b->index, x, y,
+                        sample, frame->transfer.codec);
+                    return false;
+                }
+                sample = inverse[sample];
             }
+            j->raw[y * g->width + x] = sample;
         }
     }
     /* Only successful publication qualifies RAM as numerical history. */
@@ -1262,6 +1505,11 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
                 if (dma_memory_read(&address_space_memory,
                     (uint64_t)p->address + y * p->stride, row, width * 2,
                     MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: snapshot-history-dma bank=%u "
+                        "plane=%u row=%u address=%" PRIx64 " bytes=%u\n",
+                        b->index, plane, y,
+                        (uint64_t)p->address + y * p->stride, width * 2);
                     return false;
                 }
                 for (unsigned x = 0; x < width; x++) {
@@ -1274,8 +1522,41 @@ static bool paired_snapshot(NikonPairedEventBanksBank *b,
     j->generation = frame->generation;
     j->source = *frame;
     j->epoch = b->parent->source_epoch;
+    j->history_revision = b->history_revision;
     j->slot = frame->slot;
     j->phase = b->phase;
+    return true;
+}
+
+static bool paired_grid_snapshot(NikonPairedEventBanksBank *b,
+                                 const NikonPairedGridFrame *frame)
+{
+    PairedJob *j = &b->job;
+    const PairedPlane *p = &j->grid_plane;
+    g_autofree uint8_t *row = NULL;
+
+    if (frame->width != j->pixels.grid_width ||
+        frame->height != j->pixels.grid_height || frame->stride != p->stride) {
+        return false;
+    }
+    row = g_malloc(p->row_bytes);
+    j->grid = g_new(uint16_t, (size_t)frame->width * frame->height);
+    for (unsigned y = 0; y < frame->height; y++) {
+        if (dma_memory_read(&address_space_memory,
+            (uint64_t)p->address + y * p->stride, row, p->row_bytes,
+            MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
+            return false;
+        }
+        for (unsigned x = 0; x < frame->width; x += 2) {
+            unsigned at = 3 * (x / 2);
+
+            j->grid[y * frame->width + x] = row[at] | (row[at + 1] & 15) << 8;
+            j->grid[y * frame->width + x + 1] =
+                row[at + 1] >> 4 | row[at + 2] << 4;
+        }
+    }
+    j->grid_source = *frame;
+    j->grid_epoch = b->parent->grid_epoch;
     return true;
 }
 
@@ -1289,31 +1570,69 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
     for (unsigned p = 0; p < 4; p++) {
         uint32_t address = paired_source(b, p);
 
-        if (!paired_profile(b, &batch[p], p, admission) ||
-            !paired_targets(&batch[p], frame) ||
-            !paired_ram(address, input_span, false)) {
+        if (!admission) {
+            batch[p].pixels = b->job.pixels;
+            batch[p].stream = b->job.stream;
+            batch[p].work = b->job.work;
+        }
+        if (!(admission ? paired_profile(b, &batch[p], p) :
+                          paired_layout(b, &batch[p], p)) ||
+            !paired_targets(&batch[p], frame)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: batch bank=%u phase=%u check=profile-or-target\n",
+                b->index, p);
+            return false;
+        }
+        if (!paired_ram(address, input_span, false)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-paired: batch-input-ram bank=%u phase=%u "
+                "address=%x span=%" PRIu64 "\n",
+                b->index, p, address, input_span);
             return false;
         }
         for (unsigned q = 0; q < p; q++) {
-            if (paired_overlap(address, input_span,
+            /* Finite temporal-reuse hypothesis: all phases have input_span,
+             * but a job snapshots only its current phase and consumes that
+             * physical slot's RAW generation. Only exact PA/span reads may
+             * repeat; partial overlaps and different PA backing aliases fail.
+             */
+            if (address != paired_source(b, q) &&
+                paired_overlap(address, input_span,
                                paired_source(b, q), input_span)) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                    "nikon-paired: batch-input-overlap bank=%u phases=%u/%u "
+                    "address=%x/%x span=%" PRIu64 "\n", b->index, p, q,
+                    address, paired_source(b, q), input_span);
                 return false;
             }
         }
-        for (unsigned i = 0; i < 5; i++) {
+    }
+    for (unsigned p = 0; p < ARRAY_SIZE(batch); p++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(batch[p].plane); i++) {
             PairedPlane *a = &batch[p].plane[i];
 
             if ((batch[p].stream && i < 2) || !paired_span(a)) {
                 continue;
             }
             for (unsigned q = 0; q < 4; q++) {
+                if (batch[q].pixels.grid_enabled && paired_overlap(a->address,
+                    paired_span(a), batch[q].grid_plane.address,
+                    paired_span(&batch[q].grid_plane))) {
+                    return false;
+                }
                 if (paired_overlap(a->address, paired_span(a),
                     paired_source(b, q), input_span)) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                        "nikon-paired: batch-output-input-overlap bank=%u "
+                        "phase=%u plane=%u input-phase=%u address=%x/%x "
+                        "span=%" PRIu64 "/%" PRIu64 "\n", b->index,
+                        p, i, q, a->address, paired_source(b, q),
+                        paired_span(a), input_span);
                     return false;
                 }
             }
             for (unsigned q = 0; q < p; q++) {
-                for (unsigned j = 0; j < 5; j++) {
+                for (unsigned j = 0; j < ARRAY_SIZE(batch[q].plane); j++) {
                     PairedPlane *other = &batch[q].plane[j];
 
                     if ((batch[q].stream && j < 2) || !paired_span(other)) {
@@ -1321,8 +1640,16 @@ static bool paired_batch(NikonPairedEventBanksBank *b,
                     }
                     if (paired_overlap(a->address, paired_span(a),
                                        other->address, paired_span(other)) &&
-                        (i != j || i == 4 ||
+                        (i != j ||
                          memcmp(a, other, sizeof(*a)))) {
+                        qemu_log_mask(LOG_GUEST_ERROR,
+                            "nikon-paired: batch-output-overlap bank=%u "
+                            "phases=%u/%u planes=%u/%u address=%x/%x "
+                            "stride=%u/%u rows=%u/%u height=%u/%u\n",
+                            b->index, p, q, i, j, a->address, other->address,
+                            a->stride, other->stride,
+                            a->row_bytes, other->row_bytes,
+                            a->height, other->height);
                         return false;
                     }
                 }
@@ -1342,8 +1669,22 @@ static bool paired_peer_busy(NikonPairedEventBanksBank *b)
     if (b->job.stream && other->job.stream) {
         return true;
     }
-    for (unsigned i = 0; i < 5; i++) {
-        for (unsigned j = 0; j < 5; j++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(b->job.plane); i++) {
+        if (!(b->job.stream && i < 2) && paired_span(&b->job.plane[i]) &&
+            other->job.pixels.grid_enabled && paired_overlap(
+                b->job.plane[i].address, paired_span(&b->job.plane[i]),
+                other->job.grid_plane.address,
+                paired_span(&other->job.grid_plane))) {
+            return true;
+        }
+        if (!(other->job.stream && i < 2) &&
+            paired_span(&other->job.plane[i]) && b->job.pixels.grid_enabled &&
+            paired_overlap(other->job.plane[i].address,
+                paired_span(&other->job.plane[i]), b->job.grid_plane.address,
+                paired_span(&b->job.grid_plane))) {
+            return true;
+        }
+        for (unsigned j = 0; j < ARRAY_SIZE(other->job.plane); j++) {
             if ((b->job.stream && i < 2) || (other->job.stream && j < 2) ||
                 !paired_span(&b->job.plane[i]) ||
                 !paired_span(&other->job.plane[j])) {
@@ -1376,9 +1717,12 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
 {
     NikonPairedEventBanksState *s = b->parent;
     NikonPairedRawFrame *frame = NULL;
+    NikonPairedGridFrame *grid = NULL;
     uint32_t address = paired_source(b, b->phase);
+    const char *stage = "profile";
 
     if (s->stopping || b->active || b->compute || b->stop ||
+        paired_online_pending(b) ||
         b->config[0xfc / 4] != b->selected ||
         (b->refill & paired_refill_mask(b->selected)) || b->pending ||
         b->request != PAIRED_AWAIT_INPUT) {
@@ -1423,8 +1767,30 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
         return;
     }
     memset(&b->job, 0, sizeof(b->job));
-    if (!paired_profile(b, &b->job, b->phase, true) ||
-        !paired_batch(b, frame, true)) {
+    if (!paired_profile(b, &b->job, b->phase)) {
+        goto reject;
+    }
+    if (b->job.pixels.grid_enabled) {
+        if (b->grid_epoch != s->grid_epoch) {
+            memset(b->grid_consumed, 0, sizeof(b->grid_consumed));
+            b->grid_epoch = s->grid_epoch;
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(s->grid); i++) {
+            if (s->grid[i].address == b->job.grid_plane.address &&
+                s->grid[i].generation &&
+                (b->grid_consumed_address[i] != s->grid[i].address ||
+                 s->grid[i].generation > b->grid_consumed[i])) {
+                grid = &s->grid[i];
+                b->job.grid_slot = i;
+                break;
+            }
+        }
+        if (!grid) {
+            return;
+        }
+    }
+    stage = "batch";
+    if (!paired_batch(b, frame, true)) {
         goto reject;
     }
     if (b->job.stream) {
@@ -1432,23 +1798,27 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
             b->job.pixels.output_width, b->job.pixels.output_height,
             b->job.plane[0].stride
         };
+        NikonGateInputVersion version = { 0 };
         NikonGateInputStatus status = s->gate ?
-            nikon_gate_input_status(s->gate, &shape, &b->job.gate_generation) :
+            nikon_gate_input_status(s->gate, &shape, &version) :
             NIKON_GATE_INPUT_UNSUPPORTED;
 
         if (status == NIKON_GATE_INPUT_UNSUPPORTED) {
+            stage = "gate";
             goto reject;
         }
-        if (status == NIKON_GATE_INPUT_BUSY) {
-            s->blocked++;
-            return;
-        }
+        /* One private owned result may compute while the single public MAIN
+         * input is occupied. This finite overlap does not reserve a future
+         * generation or add a gate input slot; publication still waits below.
+         */
+        b->job.gate_epoch = version.epoch;
     }
     if (paired_peer_busy(b)) {
         s->blocked++;
         return;
     }
-    if (!paired_snapshot(b, frame)) {
+    stage = "snapshot";
+    if ((grid && !paired_grid_snapshot(b, grid)) || !paired_snapshot(b, frame)) {
         goto reject;
     }
     b->active = true;
@@ -1458,8 +1828,10 @@ static void paired_try(NikonPairedEventBanksBank *b, hwaddr origin,
 reject:
     paired_release(b);
     s->rejected++;
-    qemu_log_mask(LOG_GUEST_ERROR, "nikon-paired: bank=%u rejected RAW job\n",
-                  b->index);
+    qemu_log_mask(LOG_GUEST_ERROR,
+        "nikon-paired: bank=%u rejected RAW job stage=%s phase=%u selected=%u "
+        "refill=%x input=%x generation=%" PRIu64 "\n", b->index, stage,
+        b->phase, b->selected, b->refill, frame->address, frame->generation);
     if (origin) {
         nikon_access_error(&s->reported_error, origin, 4, true, value,
                            "paired-frame-profile-or-memory-not-supported");
@@ -1483,62 +1855,40 @@ static void paired_task_free(PairedTask *task)
     NikonPairedEventBanksState *s = task->owner;
     NikonPairedEventBanksBank *b = &s->bank[task->bank];
 
-    assert(b->compute == task && s->inflight);
+    assert(b->compute == task && s->inflight && !task->remaining);
     b->compute = NULL;
     s->inflight--;
     g_free(task->job.raw);
     g_free(task->job.history);
     g_free(task->job.residual);
-    g_free(task->y);
-    g_free(task->uv);
-    g_free(task->work);
-    g_free(task->packed);
+    g_free(task->job.grid);
+    nikon_paired_pixels_free(task->pixels);
     g_free(task);
     aio_wait_kick();
     object_unref(OBJECT(s));
 }
 
-static int paired_compute(void *opaque)
+static void paired_submit(PairedTask *task);
+
+static void paired_progress(PairedTask *task)
 {
-    PairedTask *task = opaque;
-    PairedJob *j = &task->job;
-    NikonPairedPixelConfig *g = &j->pixels;
-    size_t half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
-    size_t main = (size_t)g->output_width * g->output_height;
-    g_autofree uint16_t *luma = g_new(uint16_t, half);
-    g_autofree uint16_t *residual = g_new(uint16_t, half);
-    g_autofree uint16_t *grid = g_new(uint16_t, 60 * 34);
+    /* One atomic snapshot: stage3, remaining4, post3 and prefix4 bits. */
+    unsigned progress = nikon_paired_pixels_stage(task->pixels) |
+        (task->remaining << 3) |
+        (nikon_paired_pixels_post_pass(task->pixels) << 7) |
+        (nikon_paired_pixels_prefix_pass(task->pixels) << 10);
 
-    task->y = g_malloc(main);
-    task->uv = g_malloc(main / 2);
-    task->work = g_malloc(half * 4);
-    task->packed = g_malloc(90 * 34);
-    if (!nikon_paired_pixels(g, j->raw, j->history, j->residual,
-                             luma, residual, grid, task->y, task->uv)) {
-        return -EINVAL;
-    }
-    for (unsigned i = 0; i < half; i++) {
-        stw_le_p(task->work + 2 * i, luma[i]);
-        stw_le_p(task->work + 2 * half + 2 * i, residual[i]);
-    }
-    for (unsigned i = 0; i < 60 * 34; i += 2) {
-        unsigned byte = 3 * (i / 2);
-
-        task->packed[byte] = grid[i];
-        task->packed[byte + 1] = (grid[i] >> 8) | (grid[i + 1] << 4);
-        task->packed[byte + 2] = grid[i + 1] >> 4;
-    }
-    return 0;
+    qatomic_store_release(&task->progress, progress);
 }
 
-static void paired_computed(void *opaque, int ret)
+/* Main AioContext, with BQL: the IOContext no longer accesses this task. */
+static void paired_computation_done(void *opaque)
 {
     PairedTask *task = opaque;
     NikonPairedEventBanksState *s = task->owner;
     NikonPairedEventBanksBank *b = &s->bank[task->bank];
 
-    task->success = ret == 0;
-    task->ready = true;
+    assert(!task->remaining && b->compute == task);
     if (s->stopping || !b->active || task->token != b->token) {
         object_ref(OBJECT(s));
         paired_task_free(task);
@@ -1550,8 +1900,93 @@ static void paired_computed(void *opaque, int ret)
         object_unref(OBJECT(s));
         return;
     }
+    task->ready = true;
     /* Host completion cannot publish while the virtual clock is stopped. */
     timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+/* Exactly one terminal handoff; no task access after scheduling the BH. */
+static void paired_return(PairedTask *task)
+{
+    const NikonPairedPixelResult *result;
+
+    assert(!task->remaining);
+    if (task->success && !qatomic_read(&task->cancelled)) {
+        result = nikon_paired_pixels_result(task->pixels);
+        assert(result);
+        task->y = result->y;
+        task->uv = result->uv;
+        task->work = result->work;
+    }
+    aio_bh_schedule_oneshot(qemu_get_aio_context(), paired_computation_done, task);
+}
+
+static int paired_compute(void *opaque)
+{
+    PairedChild *child = opaque;
+
+    return nikon_paired_pixels_run(child->task->pixels, child->index) ?
+           0 : -EINVAL;
+}
+
+static void paired_computed(void *opaque, int ret)
+{
+    PairedChild *child = opaque;
+    PairedTask *task = child->task;
+
+    assert(task->remaining);
+    task->success &= ret == 0;
+    task->remaining--;
+    paired_progress(task);
+    if (task->remaining) {
+        return;
+    }
+    if (task->success && !qatomic_read(&task->cancelled)) {
+        task->success = nikon_paired_pixels_advance(task->pixels);
+        if (task->success) {
+            paired_submit(task);
+            return;
+        }
+    }
+    paired_return(task);
+}
+
+/* Only the arithmetic IOContext submits the next fixed stage. Pool workers
+ * neither submit nor wait on pool work; no stage barrier needs the BQL.
+ */
+static void paired_submit(PairedTask *task)
+{
+    assert(!task->remaining);
+    while (nikon_paired_pixels_stage(task->pixels) != NIKON_PAIRED_PIXEL_DONE) {
+        if (qatomic_read(&task->cancelled)) {
+            paired_return(task);
+            return;
+        }
+        task->remaining = nikon_paired_pixels_tasks(task->pixels);
+        if (task->remaining) {
+            assert(task->remaining <= ARRAY_SIZE(task->child));
+            for (unsigned i = 0; i < task->remaining; i++) {
+                task->child[i] = (PairedChild) { task, i };
+                thread_pool_submit_aio(paired_compute, &task->child[i],
+                                        paired_computed, &task->child[i]);
+            }
+            paired_progress(task);
+            return;
+        }
+        /* MONO needs no intermediate CFA radial mosaic. */
+        if (!nikon_paired_pixels_advance(task->pixels)) {
+            task->success = false;
+            paired_return(task);
+            return;
+        }
+    }
+    paired_progress(task);
+    paired_return(task);
+}
+
+static void paired_start_computation(void *opaque)
+{
+    paired_submit(opaque);
 }
 
 static void paired_complete(void *opaque)
@@ -1563,6 +1998,8 @@ static void paired_complete(void *opaque)
     NikonPairedPixelConfig *g;
     size_t half, main;
     bool success;
+    NikonGateInputStatus gate_status = NIKON_GATE_INPUT_UNSUPPORTED;
+    NikonGateInputVersion gate_version = { 0 };
 
     if (!b->active) {
         return;
@@ -1575,13 +2012,27 @@ static void paired_complete(void *opaque)
         task->bank = b->index;
         /* Guest cancellation cannot free buffers still owned by the worker. */
         b->job.raw = b->job.history = b->job.residual = NULL;
+        b->job.grid = NULL;
         b->compute = task;
         s->inflight++;
         object_ref(OBJECT(s));
-        thread_pool_submit_aio(paired_compute, task, paired_computed, task);
+        task->success = true;
+        task->pixels = nikon_paired_pixels_new(&task->job.pixels, task->job.raw,
+            task->job.history, task->job.residual, task->job.grid);
+        if (task->pixels) {
+            /* Remaining becomes nonzero only after IOContext submission. */
+            task->progress = NIKON_PAIRED_PIXEL_PREPARE;
+            aio_bh_schedule_oneshot(iothread_get_aio_context(s->arithmetic),
+                                    paired_start_computation, task);
+        } else {
+            task->success = false;
+            task->ready = true;
+            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        }
         return;
     }
     assert(task->ready && task->token == b->token);
+    task->waiting_capacity = false;
     j = &task->job;
     g = &j->pixels;
     half = DIV_ROUND_UP(g->width, 2) * DIV_ROUND_UP(g->height, 2);
@@ -1597,19 +2048,27 @@ static void paired_complete(void *opaque)
         NikonGateInputShape shape = {
             g->output_width, g->output_height, j->plane[0].stride
         };
-        uint64_t generation;
-
-        success = nikon_gate_input_status(s->gate, &shape, &generation) ==
-                      NIKON_GATE_INPUT_READY &&
-                  generation == j->gate_generation;
+        gate_status = nikon_gate_input_status(s->gate, &shape, &gate_version);
+        success = gate_status != NIKON_GATE_INPUT_UNSUPPORTED &&
+                  gate_version.epoch == j->gate_epoch;
     }
 
-    for (unsigned i = 0; i < 5 && success; i++) {
+    for (unsigned i = 0; i < ARRAY_SIZE(j->plane) && success; i++) {
         if ((j->stream && i < 2) || !paired_span(&j->plane[i])) {
             continue;
         }
         success = paired_ram(j->plane[i].address, paired_span(&j->plane[i]),
                               true);
+    }
+    if (success && j->stream && gate_status == NIKON_GATE_INPUT_BUSY) {
+        /* All current layout/backing/alias/token checks passed. Keep only this
+         * ready aggregate until an actual capacity/epoch notification. Neither
+         * RAW/grid freshness nor WORK/history nor a guest completion advances.
+         * Failures above always terminate, even while capacity remains busy.
+         */
+        task->waiting_capacity = true;
+        s->blocked++;
+        return;
     }
     if (success) {
         success = (j->stream ||
@@ -1617,21 +2076,26 @@ static void paired_complete(void *opaque)
                     paired_write_rows(&j->plane[1], task->uv))) &&
                   (!j->work ||
                    (paired_write_rows(&j->plane[2], task->work) &&
-                    paired_write_rows(&j->plane[3], task->work + 2 * half))) &&
-                  paired_write_rows(&j->plane[4], task->packed);
+                    paired_write_rows(&j->plane[3], task->work + 2 * half)));
         if (success && j->stream) {
             NikonGateInputShape shape = {
                 g->output_width, g->output_height, j->plane[0].stride
             };
 
-            success = nikon_gate_input_publish(s->gate, j->gate_generation,
+            success = nikon_gate_input_publish(s->gate, gate_version.generation,
                                                 &shape, task->y, main,
                                                 task->uv, main / 2);
         }
     }
     if (success) {
         b->consumed[j->slot] = j->generation;
-        if (j->work && j->epoch == s->source_epoch) {
+        if (g->grid_enabled && j->grid_epoch == s->grid_epoch) {
+            b->grid_epoch = j->grid_epoch;
+            b->grid_consumed[j->grid_slot] = j->grid_source.generation;
+            b->grid_consumed_address[j->grid_slot] = j->grid_source.address;
+        }
+        if (j->work && j->epoch == s->source_epoch &&
+            j->history_revision == b->history_revision) {
             b->history_address[j->phase][0] = j->plane[2].address;
             b->history_address[j->phase][1] = j->plane[3].address;
             b->history_epoch[j->phase] = j->epoch;
@@ -1643,7 +2107,7 @@ static void paired_complete(void *opaque)
         b->phase = (j->phase + 1) % 4;
         b->published = true;
         s->completed++;
-        s->bytes += main + main / 2 + (j->work ? half * 4 : 0) + 90 * 34;
+        s->bytes += main + main / 2 + (j->work ? half * 4 : 0);
         b->pending |= 0x1002;
         if (b->seen == 15) {
             /* Four actual reads mark a ring traversal, not a stop request. */
@@ -1655,6 +2119,12 @@ static void paired_complete(void *opaque)
     }
     paired_release(b);
     paired_latch(b);
+    /* A synchronous IRQ sink may reset, stop or ACK and admit another job.
+     * Detach the completed aggregate before calling it, while retaining the
+     * device through any reentrant unrealize or ownership change.
+     */
+    object_ref(OBJECT(s));
+    paired_task_free(task);
     if (!success) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "nikon-paired: bank=%u asynchronous pixel job failed\n",
@@ -1662,7 +2132,39 @@ static void paired_complete(void *opaque)
         paired_try(&s->bank[1 - b->index], 0, 0);
     }
     nikon_paired_event_banks_irq(b);
-    paired_task_free(task);
+    object_unref(OBJECT(s));
+}
+
+static void paired_capacity_recheck(void *opaque)
+{
+    NikonPairedEventBanksState *s = opaque;
+
+    if (s->stopping) {
+        return;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
+        NikonPairedEventBanksBank *b = &s->bank[i];
+
+        if (b->active && b->compute && b->compute->ready) {
+            b->compute->waiting_capacity = false;
+            timer_mod(b->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        } else if (!b->active) {
+            paired_try(b, 0, 0);
+        }
+    }
+}
+
+static void paired_input_capacity(void *opaque, int index, int level)
+{
+    NikonPairedEventBanksState *s = opaque;
+
+    if (level && !s->stopping) {
+        /* Gate pulses can occur inside MMIO configuration cancellation. Read
+         * its complete state later on the virtual clock, never reenter MMIO
+         * midway through a packet, and never publish while that clock stops.
+         */
+        timer_mod(s->capacity_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    }
 }
 
 static void nikon_paired_event_banks_input(void *opaque, int index, int level)
@@ -1831,6 +2333,31 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
         int radial_table = offset >= 0x1200 && offset <= 0x1244 ?
                            (int)((offset - 0x1200) / 36) : -1;
         bool radial_complete = false;
+        unsigned online_word, online_count;
+        int online = paired_online_word(offset, &online_word, &online_count);
+        bool online_complete = false;
+
+        if (online >= 0 && (b->request == PAIRED_AWAIT_INPUT ||
+                            b->request == PAIRED_DRAIN_PENDING ||
+                            paired_online_open(b->online_written[online]))) {
+            uint64_t *written = b->online_written[online];
+            unsigned words;
+
+            if (!online_word) {
+                memset(written, 0, sizeof(b->online_written[online]));
+            }
+            b->online_dirty[online] |= changed;
+            written[online_word / 64] |= UINT64_C(1) << (online_word % 64);
+            words = ctpop64(written[0]) + ctpop64(written[1]) +
+                    ctpop64(written[2]);
+            if (words == online_count) {
+                memset(written, 0, sizeof(b->online_written[online]));
+                online_complete = true;
+            }
+        } else if (online >= 0 && changed && paired_online_precolor(online)) {
+            /* Cold builders keep their existing finite coverage rules. */
+            paired_history_invalidate(b);
+        }
 
         if (radial_table >= 0) {
             unsigned word = ((offset - 0x1200) % 36) / 4;
@@ -1950,12 +2477,12 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             changed |= !(b->colorfilter_written & bit);
             b->colorfilter_written |= bit;
         }
-        if (changed && !main_gain &&
+        if (changed && !main_gain && online < 0 &&
             offset != 0xc && offset != 0xf0 && offset != 0x84 &&
             !paired_inactive(b, offset)) {
             paired_cancel(b);
             /* RAW addresses and main-only color controls preserve history. */
-            if (post < 0 && !(offset >= 0x708 && offset <= 0x720) &&
+            if (post < 0 && !(offset >= 0x700 && offset <= 0x720) &&
                 !(offset >= 0x724 && offset <= 0x738) &&
                 !(offset >= 0x1200 && offset <= 0x1244) &&
                 !(offset >= 0xdf4 && offset <= 0xe10) &&
@@ -1963,7 +2490,7 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
                 !(offset >= 0x310 && offset <= 0x32c) &&
                 !(offset >= 0x398 && offset <= 0x3b4) &&
                 !(offset >= 0x488 && offset <= 0x4c4)) {
-                memset(b->history_address, 0, sizeof(b->history_address));
+                paired_history_invalidate(b);
             }
         }
         if (offset == 0x84 && !value &&
@@ -1972,6 +2499,14 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             b->config[0xfc / 4] = b->selected;
             paired_cancel(b);
             b->stop = 1;
+            for (unsigned i = 0; i < PAIRED_ONLINE_GROUPS; i++) {
+                if (b->online_dirty[i] && paired_online_precolor(i)) {
+                    paired_history_invalidate(b);
+                    break;
+                }
+            }
+            memset(b->online_written, 0, sizeof(b->online_written));
+            memset(b->online_dirty, 0, sizeof(b->online_dirty));
         }
         if (offset == 0xf0 && value == 0xfc400 && b->stop == 1) {
             b->stop = 2;
@@ -1999,17 +2534,19 @@ static MemTxResult nikon_paired_event_banks_write(void *opaque, hwaddr offset,
             if (paired_saturation_decode(b, curve)) {
                 b->saturation_published = true;
                 b->saturation_updating = false;
-                if (b->active && memcmp(curve, b->job.pixels.saturation,
-                                       sizeof(curve))) {
-                    /* MAIN color changes preserve the pre-color history. */
-                    paired_cancel(b);
-                }
                 if (b->request == PAIRED_AWAIT_INPUT) {
                     paired_try(b, b->regs.addr + offset, value);
                 }
             }
         }
         paired_finish(b);
+        if (online_complete) {
+            if (b->online_dirty[online] && paired_online_precolor(online)) {
+                paired_history_invalidate(b);
+            }
+            b->online_dirty[online] = false;
+            paired_try(b, b->regs.addr + offset, value);
+        }
         if (main_gain && b->main_gain_valid &&
             b->main_gain_written[(offset - 0x1900) / 64] == UINT16_MAX &&
             b->request == PAIRED_AWAIT_INPUT) {
@@ -2038,11 +2575,16 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(dev);
     unsigned i;
 
+    timer_del(s->capacity_timer);
     for (i = 0; i < 2; i++) {
         s->bank[i].commit_pending = false;
         paired_cancel(&s->bank[i]);
         memset(s->bank[i].config, 0, sizeof(s->bank[i].config));
         memset(s->bank[i].consumed, 0, sizeof(s->bank[i].consumed));
+        memset(s->bank[i].grid_consumed, 0, sizeof(s->bank[i].grid_consumed));
+        memset(s->bank[i].grid_consumed_address, 0,
+               sizeof(s->bank[i].grid_consumed_address));
+        s->bank[i].grid_epoch = 0;
         memset(s->bank[i].table_written, 0, sizeof(s->bank[i].table_written));
         memset(s->bank[i].curve_written, 0, sizeof(s->bank[i].curve_written));
         memset(s->bank[i].saturation_words, 0,
@@ -2054,6 +2596,11 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
         s->bank[i].detail_written = 0;
         s->bank[i].adaptive_written = 0;
         s->bank[i].radial_written = 0;
+        memset(s->bank[i].online_written, 0,
+               sizeof(s->bank[i].online_written));
+        memset(s->bank[i].online_dirty, 0,
+               sizeof(s->bank[i].online_dirty));
+        s->bank[i].history_revision++;
         memset(s->bank[i].radial_table_words, 0,
                sizeof(s->bank[i].radial_table_words));
         s->bank[i].radial_tables_published = false;
@@ -2082,6 +2629,8 @@ static void nikon_paired_event_banks_reset(DeviceState *dev)
     }
     s->reported_error = false;
     memset(s->raw, 0, sizeof(s->raw));
+    memset(s->grid, 0, sizeof(s->grid));
+    s->grid_epoch++;
     s->source_epoch++;
 }
 
@@ -2091,10 +2640,11 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
     g_autofree char *data = NULL;
     g_autoptr(GError) error = NULL;
     gsize bytes;
+    Object *arithmetic;
 
     s->stopping = false;
     if (!s->calibration_path) {
-        return;
+        goto create_arithmetic;
     }
     if (!g_file_get_contents(s->calibration_path, &data, &bytes, &error)) {
         error_setg(errp, "paired calibration: %s", error->message);
@@ -2120,6 +2670,14 @@ static void nikon_paired_event_banks_realize(DeviceState *dev, Error **errp)
         }
     }
     s->calibration_loaded = true;
+create_arithmetic:
+    /* A warm idle worker can absorb a whole lazy batch without growing it. */
+    arithmetic = object_new_with_props(TYPE_IOTHREAD, OBJECT(s), "arithmetic",
+        errp, "thread-pool-min", stringify(PAIRED_MAX_CHILDREN),
+        "thread-pool-max", stringify(PAIRED_MAX_CHILDREN), NULL);
+    if (arithmetic) {
+        s->arithmetic = IOTHREAD(arithmetic);
+    }
 }
 
 static void nikon_paired_event_banks_unrealize(DeviceState *dev)
@@ -2129,6 +2687,10 @@ static void nikon_paired_event_banks_unrealize(DeviceState *dev)
     s->stopping = true;
     nikon_paired_event_banks_reset(dev);
     AIO_WAIT_WHILE(NULL, s->inflight);
+    /* Keep its event loop alive until every child and terminal main BH drains. */
+    iothread_stop(s->arithmetic);
+    iothread_destroy(s->arithmetic);
+    s->arithmetic = NULL;
 }
 
 static char *paired_runtime(Object *obj, Error **errp)
@@ -2136,10 +2698,14 @@ static char *paired_runtime(Object *obj, Error **errp)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
     GString *state = g_string_new(NULL);
 
-    g_string_append_printf(state, "source-epoch=%" PRIu64 " inflight=%u\n",
-                           s->source_epoch, s->inflight);
+    g_string_append_printf(state, "source-epoch=%" PRIu64
+        " inflight=%u capacity-pending=%u grid-epoch=%" PRIu64 "\n",
+        s->source_epoch, s->inflight, timer_pending(s->capacity_timer),
+        s->grid_epoch);
     for (unsigned i = 0; i < ARRAY_SIZE(s->bank); i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
+        unsigned progress = b->compute ?
+            qatomic_load_acquire(&b->compute->progress) : NIKON_PAIRED_PIXEL_DONE;
 
         g_string_append_printf(state,
             "bank%u request=%u active=%u phase=%u seen=%x refill=%x "
@@ -2154,12 +2720,50 @@ static char *paired_runtime(Object *obj, Error **errp)
             g_string_append_printf(state, "%s%" PRIu64,
                                    slot ? "," : "", b->consumed[slot]);
         }
+        g_string_append_printf(state, " history-revision=%" PRIu64
+            " stage=%u remaining=%u capacity-wait=%u postpass=%u prefixpass=%u"
+            " pending=%x mask=%x inputs=%x input=%x input-size=%ux%u"
+            " input-stride=%u grid=%x grid-enabled=%u grid-size=%ux%u"
+            " grid-stride=%u grid-epoch=%" PRIu64 " grid-consumed=",
+            b->history_revision,
+            progress & 7, (progress >> 3) & 15,
+            b->compute ? b->compute->waiting_capacity : false,
+            (progress >> 7) & 7, (progress >> 10) & 15,
+            b->pending, b->mask, b->inputs, paired_source(b, b->phase),
+            b->config[0x48 / 4] >> 16, b->config[0x48 / 4] & 0xffff,
+            b->config[0x30c / 4],
+            b->config[0x398 / 4 + 4 * b->selected + b->phase],
+            b->config[0x12c / 4], (b->config[0xb48 / 4] >> 16) + 1,
+            (b->config[0xb48 / 4] & 0xffff) + 1, b->config[0x394 / 4],
+            b->grid_epoch);
+        for (unsigned slot = 0; slot < ARRAY_SIZE(b->grid_consumed); slot++) {
+            g_string_append_printf(state, "%s%x:%" PRIu64, slot ? "," : "",
+                b->grid_consumed_address[slot], b->grid_consumed[slot]);
+        }
         g_string_append_c(state, '\n');
+        for (unsigned group = 0; group < PAIRED_ONLINE_GROUPS; group++) {
+            if (paired_online_open(b->online_written[group])) {
+                g_string_append_printf(state,
+                    "bank%u upload%u words=%" PRIx64 ":%" PRIx64 ":%"
+                    PRIx64 " dirty=%u\n", i, group,
+                    b->online_written[group][0],
+                    b->online_written[group][1],
+                    b->online_written[group][2], b->online_dirty[group]);
+            }
+        }
     }
     for (unsigned i = 0; i < ARRAY_SIZE(s->raw); i++) {
         g_string_append_printf(state,
                                "raw%u address=%x generation=%" PRIu64 "\n",
                                i, s->raw[i].address, s->raw[i].generation);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->grid); i++) {
+        const NikonPairedGridFrame *grid = &s->grid[i];
+
+        g_string_append_printf(state,
+            "grid%u address=%x generation=%" PRIu64
+            " size=%ux%u stride=%u\n", i, grid->address, grid->generation,
+            grid->width, grid->height, grid->stride);
     }
     return g_string_free(state, false);
 }
@@ -2169,6 +2773,7 @@ static void nikon_paired_event_banks_init(Object *obj)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
     unsigned i;
 
+    s->capacity_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, paired_capacity_recheck, s);
     for (i = 0; i < 2; i++) {
         NikonPairedEventBanksBank *b = &s->bank[i];
 
@@ -2182,6 +2787,8 @@ static void nikon_paired_event_banks_init(Object *obj)
         sysbus_init_irq(SYS_BUS_DEVICE(obj), &b->irq);
     }
     qdev_init_gpio_in_named(DEVICE(obj), nikon_paired_event_banks_input, "pending-bit", 64);
+    qdev_init_gpio_in_named(DEVICE(obj), paired_grid_ready, "grid-ready", 1);
+    qdev_init_gpio_in_named(DEVICE(obj), paired_input_capacity, "input-capacity", 1);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,
@@ -2199,6 +2806,7 @@ static void nikon_paired_event_banks_finalize(Object *obj)
     NikonPairedEventBanksState *s = NIKON_PAIRED_EVENT_BANKS(obj);
 
     assert(!s->inflight);
+    timer_free(s->capacity_timer);
     for (unsigned i = 0; i < 2; i++) {
         timer_free(s->bank[i].timer);
         paired_release(&s->bank[i]);

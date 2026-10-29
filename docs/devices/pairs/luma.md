@@ -59,9 +59,10 @@ retries that input. A never-valid missing table or a complete nonuniform table
 remains an explicit admission error. Staging does not alter an already owned job's
 immutable gain: completion still performs the existing memory, alias, gate and
 peer preflight, but does not reapply the new table's admission qualification.
-A completed uniform publication with a different gain cancels the active job
-before output DMA. Same-gain publication, including a complete rewrite of both
-tables, preserves it. These MAIN-only changes preserve pre-color history.
+A completed uniform publication, including a different gain, affects future
+snapshots and preserves the owned job under
+[online numerical uploads](pixels.md#online-numerical-uploads). These MAIN-only
+changes preserve pre-color history.
 A complete eligible publication may retry an existing AwaitInput request using
 real unconsumed RAW; it never creates a request, RAW input or completion event.
 
@@ -79,6 +80,6 @@ The native fixtures use actual CMOS-to-RAW DMA and paired output DMA, checking
 complete MAIN planes and padding, nonsymmetric chroma, an independent step-image
 oracle, both publication buffers, missing/reset coverage, partial and reordered
 rounds, nonuniform nodes, immutable active snapshots, same-gain rewrites and
-changed-gain cancellation. These are synthetic numerical and lifecycle tests;
+changed-gain future admission. These are synthetic numerical and lifecycle tests;
 they do not establish original-firmware startup, physical image fidelity or
 correctness of the unrecovered special nonuniform family.

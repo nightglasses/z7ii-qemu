@@ -22,6 +22,12 @@
 #define FRAME_PENDING ((1U << 1) | (1U << 16))
 OBJECT_DECLARE_SIMPLE_TYPE(NikonDualEventBanksState, NIKON_DUAL_EVENT_BANKS)
 
+typedef struct NikonBanksPrimary {
+    uint32_t packet[BANK_SIZE / 4];
+    uint8_t *luma, *chroma;
+    pixman_image_t *image;
+} NikonBanksPrimary;
+
 typedef struct NikonDualEventBanksRegion {
     NikonDualEventBanksState *parent;
     MemoryRegion regs;
@@ -42,9 +48,21 @@ struct NikonDualEventBanksState {
     uint32_t global[5];
     uint32_t c0[0xcc / 4];
     uint32_t tables[8][0x400 / 4];
+    NikonBanksPrimary primary[2];
+    uint64_t primary_conversions, primary_reuses;
     uint64_t irq_levels;
     bool reported_error;
 };
+
+static void nikon_banks_primary_clear(NikonBanksPrimary *primary)
+{
+    if (primary->image) {
+        pixman_image_unref(primary->image);
+    }
+    g_free(primary->luma);
+    g_free(primary->chroma);
+    memset(primary, 0, sizeof(*primary));
+}
 
 /* Only settled generated configuration words, not physical legal masks. */
 static bool nikon_dual_event_banks_config(hwaddr offset, uint32_t *mask)
@@ -348,6 +366,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
                                 unsigned out_height, bool *supplied)
 {
     const uint32_t *p = r->packet;
+    NikonBanksPrimary *primary = &r->parent->primary[r->index];
     unsigned command = p[0x100 / 4] & 3;
     unsigned mode = p[0x200 / 4] & 31;
     unsigned width = p[0x204 / 4] & 0xffff;
@@ -358,7 +377,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     unsigned a = 1, b = 1, e = 1, f = 1, scaled_w, scaled_h;
     unsigned uv_height, row, col, i, j;
     hwaddr base_y = p[0x210 / 4], base_uv = p[0x220 / 4];
-    int matrix[2][3][3];
+    int32_t matrix[2][3][3];
     g_autofree uint8_t *luma = NULL;
     g_autofree uint8_t *chroma = NULL;
     pixman_image_t *image;
@@ -367,6 +386,7 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
     unsigned stride;
 
     if (command != 1 && command != 3) {
+        nikon_banks_primary_clear(primary);
         return true;
     }
     if ((mode != 0 && mode != 4) ||
@@ -459,6 +479,15 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
             return false;
         }
     }
+    /* Validate and read current RAM even when its exact conversion is cached. */
+    if (primary->image && !memcmp(primary->packet, p, sizeof(primary->packet)) &&
+        !memcmp(primary->luma, luma, (size_t)width * height) &&
+        !memcmp(primary->chroma, chroma, (size_t)width * uv_height)) {
+        image = primary->image;
+        r->parent->primary_reuses++;
+        goto composite;
+    }
+    nikon_banks_primary_clear(primary);
     image = pixman_image_create_bits(PIXMAN_a8r8g8b8, width, height, NULL, 0);
     if (!image) {
         return false;
@@ -470,26 +499,27 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
 
         for (col = 0; col < width; col++) {
             const uint8_t *uv = chroma + (size_t)uv_row * width + (col & ~1U);
-            int input[3] = { luma[(size_t)row * width + col],
-                             uv[0] - 128, uv[1] - 128 };
-            int rgb[3], final[3];
+            int32_t input[3] = { luma[(size_t)row * width + col],
+                                 uv[0] - 128, uv[1] - 128 };
+            int32_t rgb[3], final[3];
 
             for (i = 0; i < 3; i++) {
-                int64_t value = 0;
+                /* Signed16 dot bound: 32768 * (255 + 128 + 128). */
+                int32_t value = 0;
 
                 for (j = 0; j < 3; j++) {
-                    value += (int64_t)matrix[0][i][j] * input[j];
+                    value += matrix[0][i][j] * input[j];
                 }
                 rgb[i] = CLAMP((value + 8192) >> 14, 0, 255);
             }
             for (i = 0; i < 3; i++) {
-                int64_t value = (int64_t)rgb[i] * 1024;
+                int32_t value = rgb[i] * 1024;
 
                 /* Profile byte22: finite bypass/apply interpretation. */
                 if (p[0x4f0 / 4]) {
                     value = 0;
                     for (j = 0; j < 3; j++) {
-                        value += (int64_t)matrix[1][i][j] * rgb[j];
+                        value += matrix[1][i][j] * rgb[j];
                     }
                 }
                 final[i] = CLAMP((value + 512) >> 10, 0, 255) * alpha / 255;
@@ -505,6 +535,12 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
         pixman_image_unref(image);
         return false;
     }
+    primary->image = image;
+    primary->luma = g_steal_pointer(&luma);
+    primary->chroma = g_steal_pointer(&chroma);
+    memcpy(primary->packet, p, sizeof(primary->packet));
+    r->parent->primary_conversions++;
+composite:
     if (x < out_width && y < out_height) {
         pixman_image_composite32(PIXMAN_OP_OVER, image, NULL, output,
                                  0, 0, 0, 0, x, y,
@@ -512,7 +548,6 @@ static bool nikon_banks_primary(NikonDualEventBanksRegion *r,
                                  MIN(scaled_h, out_height - y));
     }
     *supplied = true;
-    pixman_image_unref(image);
     return true;
 }
 
@@ -577,13 +612,22 @@ static bool nikon_banks_layer(NikonDualEventBanksRegion *r,
             goto out;
         }
         for (column = 0; column < width; column++) {
-            uint32_t pixel = yuva ?
-                nikon_banks_yuva(row + (column & ~1U) * 2, column) :
-                nikon_banks_pixel(row + column * bytes, mode, control, lanes);
+            unsigned opacity = 255;
+            uint32_t pixel;
+
             if (mode >= 5) {
-                unsigned opacity = mode == 5 ?
+                opacity = mode == 5 ?
                     ((alpha[column / 2] >> ((column & 1) * 4)) & 15) * 17 :
                     alpha[column];
+                if (!opacity) {
+                    pixels[row_index * pitch + column] = 0;
+                    continue;
+                }
+            }
+            pixel = yuva ?
+                nikon_banks_yuva(row + (column & ~1U) * 2, column) :
+                nikon_banks_pixel(row + column * bytes, mode, control, lanes);
+            if (opacity != 255) {
                 pixel = (opacity << 24) |
                     ((((pixel >> 16) & 255) * opacity / 255) << 16) |
                     ((((pixel >> 8) & 255) * opacity / 255) << 8) |
@@ -817,6 +861,7 @@ static void nikon_banks_frame(void *opaque)
     nikon_banks_schedule(r);
     return;
 error:
+    nikon_banks_primary_clear(&s->primary[r->index]);
     nikon_access_error(&s->reported_error, r->regs.addr + 0x1200, 4,
                        true, packet[0x1200 / 4], "image-packet-or-dma-failed");
     nikon_banks_schedule(r);
@@ -1003,12 +1048,16 @@ static MemTxResult nikon_dual_event_banks_write(void *opaque, hwaddr offset,
                 } else {
                     timer_del(r->timer);
                     r->active = false;
+                    nikon_banks_primary_clear(&s->primary[r->index]);
                 }
             } else if (offset == 0x100 || offset == 0x2100 ||
                        offset == 0x3100) {
                 if (value == 3) {
                     return nikon_dual_event_banks_error(r, offset,
                                                         size, true, value);
+                }
+                if (offset == 0x100 && value != 1) {
+                    nikon_banks_primary_clear(&s->primary[r->index]);
                 }
             }
             if (offset == 0x4c0 || offset == 0x1510) {
@@ -1055,7 +1104,10 @@ static void nikon_dual_event_banks_reset(DeviceState *dev)
     memset(s->global, 0, sizeof(s->global));
     memset(s->c0, 0, sizeof(s->c0));
     memset(s->tables, 0, sizeof(s->tables));
+    s->primary_conversions = 0;
+    s->primary_reuses = 0;
     for (i = 0; i < 2; i++) {
+        nikon_banks_primary_clear(&s->primary[i]);
         timer_del(s->region[i].timer);
         s->region[i].active = false;
         s->region[i].period = 0;
@@ -1094,6 +1146,21 @@ static void nikon_dual_event_banks_init(Object *obj)
                             "pending-bit", 64);
     object_property_add_uint64_ptr(obj, "irq-levels", &s->irq_levels,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "primary-conversions",
+                                   &s->primary_conversions, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "primary-reuses",
+                                   &s->primary_reuses, OBJ_PROP_FLAG_READ);
+}
+
+static void nikon_dual_event_banks_unrealize(DeviceState *dev)
+{
+    NikonDualEventBanksState *s = NIKON_DUAL_EVENT_BANKS(dev);
+
+    for (unsigned i = 0; i < 2; i++) {
+        timer_del(s->region[i].timer);
+        s->region[i].active = false;
+        nikon_banks_primary_clear(&s->primary[i]);
+    }
 }
 
 static void nikon_dual_event_banks_finalize(Object *obj)
@@ -1102,6 +1169,7 @@ static void nikon_dual_event_banks_finalize(Object *obj)
     unsigned i;
 
     for (i = 0; i < 2; i++) {
+        nikon_banks_primary_clear(&s->primary[i]);
         timer_free(s->region[i].timer);
         if (s->region[i].console) {
             qemu_graphic_console_close(s->region[i].console);
@@ -1120,6 +1188,7 @@ static void nikon_dual_event_banks_class_init(ObjectClass *oc, const void *data)
 
     dc->vmsd = &nikon_dual_event_banks_vmstate;
     dc->user_creatable = false;
+    dc->unrealize = nikon_dual_event_banks_unrealize;
     device_class_set_legacy_reset(dc, nikon_dual_event_banks_reset);
 }
 

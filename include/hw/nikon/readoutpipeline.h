@@ -8,6 +8,11 @@
 
 #define TYPE_NIKON_READOUT_PIPELINE "nikon-readout-pipeline"
 
+/* Completed immutable input publication pulses input-ready; successful MAIN
+ * publication also pulses main-input-ready. Neither is an acquisition request
+ * or a downstream processing completion. One fresh automatic-rise admits at
+ * most one eligible MAIN view and the already-owned auxiliary generation. */
+
 struct NikonCaptureInput;
 
 /* Borrowed completed MAIN bytes; auxiliary completions never replace them. */

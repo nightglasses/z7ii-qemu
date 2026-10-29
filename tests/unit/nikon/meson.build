@@ -41,6 +41,12 @@ fixture = executable('nikon_gatepixels_unit',
 test('nikon_gatepixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
   protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
 
+fixture = executable('nikon_gategrid_unit',
+  files('gategrid.c', '../../../hw/nikon/devices/gategrid.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gategrid_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',
@@ -54,8 +60,9 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
                    config_all_devices.has_key('CONFIG_NIKON_Z7II'))
   foreach name : ['memory', 'copy', 'transfer', 'bridge', 'dispatcher',
                   'command', 'input', 'readout', 'panel',
-                  'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi',
-                  'acceleration', 'lens', 'gatework', 'paired', 'fill']
+                  'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi', 'cmos',
+                  'acceleration', 'lens', 'gatework', 'gateplane', 'gridflow',
+                  'paired', 'fill']
   fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],

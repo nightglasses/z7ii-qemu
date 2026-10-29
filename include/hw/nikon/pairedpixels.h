@@ -73,6 +73,10 @@ typedef struct NikonPairedPixelConfig {
     NikonRawEncoding encoding;
     unsigned width, height, x, y, output_width, output_height;
     unsigned grid_width, grid_height;
+    bool grid_enabled;
+    uint32_t grid_start_x, grid_start_y; /* Q22. */
+    uint16_t grid_step_x, grid_step_y; /* Effective Q18, multiplied by16. */
+    int32_t grid_origin_x, grid_origin_y; /* Relative to the RAW ROI. */
     uint16_t quad_gain[4], quad_pedestal[4], quad_limit;
     int16_t quad_offset[4];
     bool quad_enabled;
@@ -204,16 +208,23 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * history and mandatory half outputs contain ceil(width/2)*ceil(height/2)
  * host-endian RAW12 samples; absent history contributes no temporal weight.
  * Half residual is the pre-temporal spatial mean's deviation from prior luma,
- * or zero when prior luma is absent. Half luma/grid use the filtered result.
- * The grid contains grid_width*grid_height RAW12 samples. Main outputs are
+ * or zero when prior luma is absent. Half luma uses the filtered result.
+ * When grid_enabled, confidence_grid_nullable is a mandatory immutable input
+ * containing grid_width*grid_height host-endian twelve-bit samples. The grid
+ * may be larger than RAW. Coordinates are Q22 start +16*(RAW-origin)*u16 step,
+ * relative to the RAW ROI, with replicated edges and one bilinear rounding.
+ * Its confidence meaning and effective Q18 step scale are virtual hypotheses.
+ * Main outputs are
  * cropped at x/y: tightly packed Y and interleaved UV (NV12), respectively
  * output_width*output_height and output_width*output_height/2 bytes.
  *
  * Dimensions are at most 4096; main output dimensions must be positive and
- * even, and its rectangle must fit the input. Grid dimensions must fit the
- * input. A/C coefficients are signed 13-bit and B coefficients signed 12-bit.
+ * even, and its rectangle must fit the input. Enabled grid dimensions are
+ * positive and at most4096. A/C coefficients are signed13-bit and B signed12-bit.
  * MAIN uses three actual Q12 intermediate planes. B58 adds a Q8 axial unsharp
- * residual (Y strength0, shared chroma strength1). D28 then blends toward the
+ * residual (Y strength0, shared chroma strength1), multiplied by confidence/4095
+ * before its single final rounding. A disabled grid uses4095; a full map exactly
+ * preserves the unmodulated law, and zero map/strength is neutral. D28 blends toward the
  * axial and diagonal means with its two Q5 strengths. A complete DC0..DEC
  * kernel then bounds negative/positive neighbor differences by16*base plus
  * slope*center/16, mixes axial/diagonal means at the qualified radius, and
@@ -226,7 +237,7 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * signed rational correction with ties away from zero, and clamps to12-bit.
  * Spatial processing precedes the actual2x2 UV average and8-bit conversion.
  * These post-color roles, scales and ordering are finite hypotheses. They do
- * not change pre-color WORK/grid/history. All groups are mandatory; the edge
+ * not change pre-color WORK/history. All groups are mandatory; the edge
  * strength3..18 and limit5 family has no invented wire bypass.
  * After these passes, MAIN Y alone is multiplied by main_gain/256, rounded
  * to nearest and clamped to12-bit before byte quantization. The unsigned16
@@ -253,13 +264,65 @@ bool nikon_paired_post_valid(const NikonPairedPost *post);
  * rounded by10 bits. Add offset, round by shift (<=15), then add/clamp RGB12.
  * These seed, order, slice and scalar meanings are functional hypotheses.
  */
+/* Fixed stages for one owned frame. Inputs remain immutable and live until
+ * free. Distinct tasks of the current stage may run concurrently, each exactly
+ * once; the caller joins every task before advance/free. No worker schedules
+ * other work. Results are private and available only after DONE.
+ * PREFIX repeats twelve pass barriers (prefix_pass0..11): CFA gather, DPC,
+ * spatial, filter, optional vertical refinement, denoise, detail, adaptive,
+ * two color blocks, color tail and CFA scatter. MONO omits gather/scatter.
+ * CFA has up to three row bands per active lattice (12 tasks); MONO up to four.
+ * Every band reads the complete immutable previous plane, including neighbors
+ * across band boundaries. Neutral passes/lanes do not exchange buffers.
+ * COLOR has up to12 bands of complete two-row blocks. PREPARE records each
+ * band's three exact sequential LFSR start states; tasks keep the original
+ * 2x2-block/dy/dx traversal and never share mutable noise state. TEMPORAL,
+ * RADIAL and PACK retain at most four bands; POST retains its own bound below.
+ * POST repeats five pass barriers (post_pass0..4). Each pass has up to12 tasks:
+ * up to four disjoint row bands per nonneutral channel, reading the immutable
+ * previous pass. A zero-task neutral pass still requires advance. Only advance
+ * swaps plane pointers; PACK reads each channel's final plane without a copy.
+ */
+typedef enum NikonPairedPixelStage {
+    NIKON_PAIRED_PIXEL_PREPARE,
+    NIKON_PAIRED_PIXEL_PREFIX,
+    NIKON_PAIRED_PIXEL_TEMPORAL,
+    NIKON_PAIRED_PIXEL_RADIAL,
+    NIKON_PAIRED_PIXEL_COLOR,
+    NIKON_PAIRED_PIXEL_POST,
+    NIKON_PAIRED_PIXEL_PACK,
+    NIKON_PAIRED_PIXEL_DONE,
+} NikonPairedPixelStage;
+
+typedef struct NikonPairedPixels NikonPairedPixels;
+typedef struct NikonPairedPixelResult {
+    const uint16_t *half_luma, *half_residual;
+    const uint8_t *y, *uv, *work;
+} NikonPairedPixelResult;
+
+NikonPairedPixels *nikon_paired_pixels_new(const NikonPairedPixelConfig *config,
+    const uint16_t *raw, const uint16_t *prior_luma,
+    const uint16_t *prior_residual, const uint16_t *grid);
+NikonPairedPixelStage nikon_paired_pixels_stage(const NikonPairedPixels *pixels);
+/* Zero before PREFIX; 0..11 during PREFIX; 12 after its last barrier. */
+unsigned nikon_paired_pixels_prefix_pass(const NikonPairedPixels *pixels);
+/* Zero before POST; 0..4 during POST; 5 after its last barrier. */
+unsigned nikon_paired_pixels_post_pass(const NikonPairedPixels *pixels);
+unsigned nikon_paired_pixels_tasks(const NikonPairedPixels *pixels);
+bool nikon_paired_pixels_run(NikonPairedPixels *pixels, unsigned task);
+bool nikon_paired_pixels_advance(NikonPairedPixels *pixels);
+const NikonPairedPixelResult *nikon_paired_pixels_result(
+    const NikonPairedPixels *pixels);
+void nikon_paired_pixels_free(NikonPairedPixels *pixels);
+
+/* Explicit synchronous execution of the same fixed stages. */
 bool nikon_paired_pixels(const NikonPairedPixelConfig *config,
                          const uint16_t *raw_contiguous_ROI,
                          const uint16_t *prior_half_luma_nullable,
                          const uint16_t *prior_half_residual_nullable,
                          uint16_t *out_half_luma,
                          uint16_t *out_half_residual,
-                         uint16_t *out_grid,
+                         const uint16_t *confidence_grid_nullable,
                          uint8_t *out_y, uint8_t *out_uv);
 
 #endif

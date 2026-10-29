@@ -130,18 +130,21 @@ configuration fallback.
 All seven words must have been written since device reset before a job can
 qualify. Writing a zero word records its publication; it does not exempt that
 word's value or any missing word from validation. Each admitted group satisfies
-all listed bounds, equalities, fixed values and zero bits. Incomplete initial
-publication, unknown fixed-field changes and inconsistent duplicate scalars reject before
-output publication. The decoder admits a bounded self-consistent scalar domain;
+all listed bounds, equalities, fixed values and zero bits. Admission rejects
+incomplete initial publication, unknown fixed-field changes and inconsistent
+duplicate scalars. The decoder admits a bounded self-consistent scalar domain;
 it does not claim that every admitted combination occurs in a factory table.
-After complete initial publication, valid word updates retain the other
-published words; the mask does not impose an atomic seven-word re-publication.
+After initial publication, online writes use a fresh complete seven-word
+round under [online numerical uploads](pixels.md#online-numerical-uploads).
+An incomplete round retains eligible unconsumed input and blocks only future
+admission; it cannot borrow coverage from an older completed packet.
 
 A job snapshots the decoded parameters with its existing pixel configuration.
-Unchanged parameter writes retain the running job. A changed NR word uses the
-existing configuration cancellation and history invalidation path. Reset
-cancels pending work and clears both the seven words and their publication
-mask. Only completed input DMA and numerical processing publish existing
+A complete changed packet advances the bank's history revision and clears
+future history addresses. The owned job may finish its private computation and
+DMA/IRQ, but its old revision cannot register new history. Stop cancels pending
+work and clears open online rounds; reset also clears the seven words and
+publication coverage. Only completed input DMA and numerical processing publish existing
 outputs/results/IRQ causes; parameter writes do not create completion events.
 
 ## Falsifiable validation
@@ -158,9 +161,9 @@ scalar's effect and invalid configurations leaving all outputs unchanged.
 The qtest fixtures publish synthetic groups through ordinary MMIO and source
 input. They check changed MAIN/WORK pixels, result/IRQ acknowledgement, incomplete
 and zero groups, unknown fixed fields, duplicate mismatches, unchanged writes,
-changed-write cancellation and reset. These are specified validation targets;
-native execution and unchanged-firmware continuation are recorded separately
-by the integration owner.
+future-snapshot uploads, history revision changes and reset. These are specified
+validation targets; native execution and unchanged-firmware continuation are
+recorded separately by the integration owner.
 
 These observations can falsify the implementation or its declared functional
 properties. They cannot prove physical Nikon fidelity. A numerical CPU consumer,

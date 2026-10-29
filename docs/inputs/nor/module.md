@@ -204,7 +204,13 @@ similarly marks its selector inputs as experimental and unrecovered record
 coefficients; it does not establish a compatible resource80 input.
 
 The cold-neutral profile closes the selected lengths, control fields and
-timing arithmetic for the inspected cold path. Its zero-length scripts are
+timing arithmetic for the inspected cold path. Its later
+[timing-group extension](virtual.md) supplies all four subtypes in groups7/10
+after original GUI execution selects the formerly zero subtype0 rows. The
+normal AF duration comes from these Sensor parameter fields, not a missing
+transport reply or an MMIO counter. Shared row values remain explicit virtual
+input assumptions; original helper selection and arithmetic are retained.
+Its zero-length scripts are
 explicit source-supported no-ops; its other zero parameters remain named
 functional assumptions. Consumers outside that path, physical metadata and
 later modes remain unqualified. New paths require their own source and

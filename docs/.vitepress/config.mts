@@ -143,6 +143,7 @@ export default defineConfig({
               { text: 'Paired MAIN Transport', link: '/devices/gate/input' },
               { text: 'Gate Grid Pixels', link: '/devices/gate/pixels' },
               { text: 'Gate Continuous Processing', link: '/devices/gate/processing' },
+              { text: 'Independent RGB Grid', link: '/devices/gate/grid' },
               { text: 'Event Router', link: '/devices/router/protocol' },
               { text: 'Router Runtime Requests', link: '/devices/router/runtime' },
               { text: 'Router Timing Producers', link: '/devices/router/timing' },

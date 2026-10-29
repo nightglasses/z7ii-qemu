@@ -140,12 +140,14 @@ fixed qualifier. There is no omitted-packet or all-zero-packet identity path.
 
 Each bank records all50 words `900..9c4` and the independent `9d8` write since
 reset, including zero and same-value writes. All51 publication bits are required
-before snapshot/processing. Other source groups, especially `9c8`, retain their
+for initial admission. Other source groups, especially `9c8`, retain their
 own contracts. Every snapshot carries the decoded scalar family with the input
-and output geometry. A changed relevant write cancels an in-flight transaction
-and invalidates temporal history through the existing paired lifecycle. An
-equal write on an already-published word preserves both. Reset cancels pending
-work and clears the registers, publication coverage and history. No status,
+and output geometry. Under
+[online numerical uploads](pixels.md#online-numerical-uploads), a complete
+changed packet invalidates future history and advances its revision without
+cancelling the owned job. That job may finish DMA/IRQ, but its old revision
+cannot register new history. Stop cancels pending work and clears open online
+rounds; reset also clears registers, publication coverage and history. No status,
 completion event, IRQ or frame is fabricated for missing or invalid parameters.
 
 Scoped fixtures are in `tests/unit/nikon/pairedpixels.c` and
@@ -153,6 +155,6 @@ Scoped fixtures are in `tests/unit/nikon/pairedpixels.c` and
 positive/negative fixed tail results, source-variable field effects, all CFA
 encodings with colored detail, constant/edge/noise properties, invalid pure
 configurations, normal RAW→MAIN/WORK/grid transport, register boundaries,
-every missing publication word, changed/equal-write cancellation, reset and
+every missing publication word, frozen changed/equal uploads, reset and
 history invalidation. These fixtures are implementation tests; their execution
 verdict and any unchanged-firmware result are owned by the integration receipt.

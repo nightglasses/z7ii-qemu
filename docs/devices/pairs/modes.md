@@ -60,9 +60,13 @@ half-resolution planes must have valid positive strides and complete RAM
 backing, and only successfully published same-epoch outputs qualify as history.
 With WORK disabled, there is no WORK/history DMA, alias check or byte count.
 Unused WORK pointer/stride changes do not cancel a MAIN transaction; changing
-the WORK enable itself does. MAIN and grid DMA must still complete before
-result increment and the original paired notification. Reset and changes to
-consumed configuration cancel the outstanding numerical job.
+the WORK enable itself does. MAIN output DMA and the enabled grid read
+dependency must complete before result increment and the original paired
+notification. Modes `700/704`, layout, addresses and unknown opaque controls
+retain strict cancellation. Numerical groups follow
+[online numerical uploads](pixels.md#online-numerical-uploads): uploads qualify
+future snapshots while owned work retains its parameters. This does not widen
+any mode or field's supported value domain.
 
 Output selector `424` comes from context bytes876/888: disabled selection
 produces0; enabled ordinary output produces2; enabled shared output produces3.

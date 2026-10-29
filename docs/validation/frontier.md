@@ -53,9 +53,329 @@ and the post-window exception/watchdog flags and diagnostic length are0.
 ![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
 
 All menu categories, setting acceptance and return to live view remain
-unverified. One separate session fails to settle M→A and accumulates
-exception/watchdog diagnostic text; its cause remains unresolved despite the
-successful repeated transitions. The final window does not erase that failure.
+unverified. Separate mode-change sessions have two distinct failure sites.
+The AF data abort at MAS VA `0x1021D7CE` has a directly observed upstream
+write: the AS history copier at VA `0x10394314` overwrites an AF-ring pointer.
+Its extraction can copy an entire start-slot count even for a narrow recent
+timestamp window; a long D0-report interval therefore needs investigation
+independently of CaptureService backlog.
+
+Other sessions abort at MAS VA `0x1034FE78`, DFAR `0x3c`. This is an aligned
+allocation wrapper continuing after its underlying allocator returns failure,
+not the AF dereference. After the OnVd core, `0x103D0DB0` allocates a `0x2cc`
+descriptor and `0x3e44` work record from the 16 MiB General pool. Source joins
+retirement to completion of all eleven software graph lanes. A separate
+read-only, debugger-free observation verifies growing active-record counts
+58, 326 and 575 while both submission lists stay empty. Sampled old records
+remain in lane2/cell0; a later snapshot locates the oldest lane2 worker at its
+second microstep, VA `0x102682AE`. Other records wait on its dependency chain.
+The worker waits at VA `0x1026830e` for event `0xb1864850`, pattern
+`0x81000000`, with timeout 1000 in the native wait API. A separate eight-PC
+diagnostic trace records GDB threads1/2: all sixteen completed sampled waits
+time out, with zero recorded entries to callback VA `0x10262dfc`, which normally
+sets bit `0x01000000`. Actual context9 MAIN DMA continues:
+192 sampled gate interrupts carry raw2 bit3, while the required context8
+raw2 bit2 is absent. The two bits belong to separate processing graphs.
+That historical model imported context8's eleven-node RGB-grid graph without
+executing it. The [independent grid path](../devices/gate/grid.md) now executes
+statistics RGB inputs, signed matrix/LUT/filter work and packed12 result DMA,
+then publishes its own context8 completion. Paired consumes that completed
+kind25 grid as a fresh read dependency; its former grid-output interpretation
+is removed. Numerical confidence, packing, interpolation and four-phase
+map-refresh cadence remain explicit virtual-camera hypotheses. Type11 and
+type10 retain their different source-profile control values. Native coverage
+does not substitute for unchanged-firmware graph-retirement acceptance.
+The missing historical producer explains the sampled wait; it does not establish
+a common cause with the AF overwrite. Guest virtual addresses in the snapshots
+are translated with QEMU's debugger translation before physical reads.
+No frame suppression, queue clearing or event injection is used.
+
+The missing [capture-group numerical work](../devices/capturegroup/protocol.md)
+and [completed-input dispatch](../devices/readoutpipeline/input.md) now execute
+through actual result DMA and normal interrupt acknowledgement. CMOS chunks
+retain absolute acquisition deadlines; real W1C ACK retries retained fresh
+input when the complete capacity predicate clears. MAIN/RAW and statistics
+keep independent pending-result ownership. Fresh group input after commit no
+longer needs an extra TG edge, and its private work cursor is independent of
+the public completion latch. Pure group, RAW-packing and statistics arithmetic
+now uses QEMU's existing worker pool with owned snapshots. RAM validation,
+DMA and result publication remain on the virtual device path; cancellation
+invalidates old work before any later publication.
+
+The applicable native validation passes 127 CMOS/paired integration cases and
+92 unit cases across grid arithmetic, grid transactions/runtime, paired pixels
+and lifecycle, CMOS timing and SPI, with normal TAP plans and process exits.
+The RGB test distinguishes actual CFA channel means from the former shared
+grayscale projection. Corrected type10 controls reject under the old shared
+window qualification and pass with type11/type10 qualified independently.
+Fixtures separately step RAW completion and the subsequent paired minimum
+deadline; they do not advance future timers while draining host work.
+Independent review found no remaining product findings.
+These device results do not establish mode-change acceptance. With the grid
+path enabled, a separate unchanged five-CPU MTTCG cold-neutral window completes
+1,351 grid jobs, 51 paired jobs and 1,121 MAIN acquisitions with zero grid or
+MAIN-graph errors, but still reaches the allocation failure after 40.57 host
+seconds. Later translated snapshots locate completed lane2 and remaining
+lane0 cell2/lane3 cell1 work; three sampled lane0 waits for `0x00400000`
+return successfully. After algebraically neutral post passes are omitted,
+another debugger-free window completes 1,362 grid jobs, 62 paired jobs and
+1,144 MAIN acquisitions, but still reaches the same allocation failure after
+41.69 host seconds. The optimization matches the complete five-pass scalar
+oracle; 38 pixel and 19 paired lifecycle cases pass. Its unchanged output does
+not establish a controlled processing-rate comparison.
+
+The subsequent [completion audit](../devices/pairs/requests.md#completion-credits-and-work-record-retirement)
+separates paired `00400000` from MAIN/lane3 `00800000`: twelve sampled records
+receive both normal credits, finish all eleven lanes and reach the actual job
+free call. Their successful retirement does not bound the entire queue.
+Running numerical setters also exposed a model error: changed parameters
+cancelled old computations despite no source stop/drain. The
+[online upload contract](../devices/pairs/pixels.md#online-numerical-uploads)
+now retains owned numerical snapshots across all 17 confirmed groups and the
+existing specialized tables. Partial packets block future admission; pre-color
+history revisions prevent stale re-registration. The latch boundary remains a
+functional hypothesis, while memory, freshness, stop/reset and ownership checks
+remain strict. Exact neutral-pass, lattice and signed-division reductions do
+not change output equations. The final scoped batch passes 133 CMOS/paired,
+41 pixel and 19 lifecycle cases, with normal TAP plans and exits.
+
+A separate debugger-free fixed-M cold-neutral run completes 209 paired jobs with
+zero paired cancellations or rejections, 1551 grid jobs and 1360 MAIN acquisitions.
+It still fails at allocator `1034fe78/DFAR3c` after 48.40 host seconds. Active
+records grow 57→568→876 while the oldest admission advances 12→137→194; final
+runtime has an actual computation, not a stuck partial numerical upload.
+A bounded host-only diagnostic measures 145184 microseconds median thread CPU
+per numerical job; sequential admission and active-list snapshots also grow
+faster than completion. This identifies a remaining numerical-supply deficit,
+not a missing completion event or a proven leak. Host time is not a native
+frame-period measurement, and no sustained GUI or mode acceptance is claimed.
+The [curated receipt](/evidence/runtime/grid.json) keeps these runs separate
+from the twelve-record breakpoint sample and the independent AF failure.
+
+The subsequent fixed-stage operator keeps one owned aggregate while executing
+independent CFA lattices, temporal blocks, radial rows, exact-seeded MAIN bands,
+and post channels through the existing QEMU pool. Workers never wait for other
+workers; DMA/IRQ remain in the final virtual-clock callback. The complete batch
+passes 133 CMOS/paired, 44 pixel and 35 lifecycle cases (212 total). Reset at each
+stage, single-worker execution and four-worker completion are covered. A separate
+synchronous IRQ-reset fixture reproduced a SIGSEGV; retiring the completed task
+before calling the IRQ sink fixes that lifetime error. Later exact division
+reductions pass a scoped 46 pixel/35 lifecycle rerun with independent scalar
+noise and legal-weight oracles.
+
+Original fixed-M execution still fails independently: the stage version reaches
+98 paired completions and 109 active records before AF `1021d7ce/DFAR0` at
+19.07 host seconds; the later arithmetic version reaches 190 completions and
+200 active records before the same AF site at 26.65 seconds. Both have zero
+paired cancellations/rejections. They do not reach the earlier allocator limit,
+and cannot establish that memory growth is fixed. Those windows predate the
+owned MAIN pipeline. Its former synchronous BQL warp/three-output work and
+exclusion of paired computation while input is occupied were source-confirmed
+serialization boundaries; their exact share of the gap was not measured.
+
+The [owned MAIN pipeline](../devices/gate/processing.md) now separates private
+pool math from current-state DMA publication, retains numerical snapshots across
+normal uploads, and exposes actual input epochs/capacity. Paired can compute one
+private next result while MAIN owns the input; real consumption wakes its
+strict recheck. POST joins row bands after every pass. This model passes269
+native cases, including135 CMOS/paired integration cases with normal TAP and
+exit. Paused/reset/unrealize and pending-result fences remain separate guards;
+no guest slots, software events or completion causes are forced.
+The subsequent complete pass-banded PREFIX and twelve-band COLOR model passes
+272 cases:135 CMOS/paired,48 pixel,41 paired lifecycle and48 MAIN/grid unit
+cases. The CMOS fixture exits normally after356.92 host seconds. Independent
+scalar noise, uneven twelve-band division and mid-PREFIX reset/unrealize are
+covered; this remains separate from original execution below.
+
+Original fixed-M execution still fails. One debugger-free window completes776
+paired and776 MAIN jobs without cancellations or rejections before allocator
+`1034fe78/DFAR3c` at51.88 host seconds. Active records grow431→875 while the
+sampled head stays at admission388, although normal result supply continues.
+A separate run rejects1680 RAW attempts at a repeated whole-batch input-address
+overlap and stops at237 paired results; this is a distinct online ring-publication
+boundary in the preceding model. It cannot be treated as a controlled rate
+comparison. After PREFIX pass/row separation, another window completes1044
+paired/MAIN jobs with zero cancellation/rejection but reaches the same allocator
+at62.12 seconds; it still has only four COLOR tasks.
+
+The [software event-bit audit](../devices/pairs/requests.md#software-event-bit-admission)
+identifies the concrete admission resource: pool0 has480 bits, and translated
+snapshots show all fifteen available-bit words zero. The outer guard allocates
+three joins before a notification bit, without returning the joins if the
+second allocation fails. Its retry can overwrite the saved identities. This
+source failure path explains a possible permanent dispatch stall. A separate
+failure-only breakpoint diagnostic now proves seven such retries orphan21
+distinct bits;39 batch-level failures still roll back normally. Its final43
+observed live bits also include21 valid joins and one notification, so not all
+live bits are leaks. The diagnostic ends at debugger-stop, with no guest
+exception; its pauses cannot establish native rates or the initial pressure's
+cause. The remaining backlog is therefore not established as only slow
+arithmetic or one missing hardware completion.
+
+The subsequent [RAW temporal-reuse model](../devices/pairs/pixels.md)
+permits identical complete PA spans in different sequential input phases while
+retaining actual physical-slot generation consumption and all partial,
+backing-alias and output conflicts. A fresh gray130 DMA produces new MAIN130
+and WORK2080/residual32 in the synthetic fixture, distinguishing it from the
+old gray128 snapshot; ACK alone still cannot replay a generation. This is a
+finite ownership hypothesis, not recovered physical alias behavior.
+The final applicable rerun passes137 CMOS/paired and42 lifecycle cases, with
+normal TAP and exits; CMOS takes358.39 host seconds. That179-case batch is
+separate from the preceding272-case pipeline receipt, not451 distinct tests.
+
+A historical unchanged, debugger-free fixed-M window crosses the earlier RAW rejection
+and reaches545 paired results with zero cancellation/rejection and544 MAIN graph
+outputs. At35.71 host seconds it fails at the independent AF
+`1021d7ce/DFAR0`, task `01000018`. At the stopped snapshot active records are128
+and software event pool0 still has99 available bits. This window precedes pool
+exhaustion and does not prove that growing backlog is fixed. The same AF PC also
+does not prove the historical AS writer executed in this run.
+
+The [initial-pressure census](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates normal outstanding joins from the later allocation-retry defect.
+One stopped64-record census owns193 of195 used event bits; two unaccounted bits
+also have other source-established pool users. The oldest records can have
+paired and MAIN credits still outstanding. Separately, source and stopped
+records establish that the ten-entry resource74 FIFO can evict or reuse a record
+before a delayed MAIN consumer reads it. These observations do not authorize
+returning event bits, releasing input slots or extending the guest's caches.
+
+An independent AF scheduling gap was a missing declared input: active mode14
+and11 selected subtype0 timing rows that were zero in the previous virtual
+resource80. The [expanded cold-neutral input](../inputs/nor/virtual.md) supplies
+the same four declared timing fields in all four subtypes of groups7/10. Eight
+native tests and original-loader readback verify the extension; its numerical
+values remain an explicit virtual profile. It removes zero active period/count,
+without increasing the duration to force an AF timer branch. It does not prove
+that every historical AF abort had this cause.
+
+Exact inverse-lookup and display arithmetic reductions preserve pixel values.
+The [paired arithmetic IOThread](../devices/pairs/pixels.md) removes intermediate
+stage callback delivery from BQL scheduling, retaining one terminal main-thread
+handoff and all original DMA/capacity/ACK checks. A fresh unchanged, debugger-free
+fixed-M window reaches782 paired and782 MAIN results with zero paired
+cancellation/rejection, then stops at42.99 host seconds on an explicit SPI8
+empty-data read at MAS VA `10243244`, PA `2c0a0804`. AF pointers remain intact;
+flags/length are zero at the last QMP poll, but the subsequent stopped diagnostic
+records that SPI access abort. The final census also has774 active records,
+all480 event bits used, no valid capture-owned identities left in those headers,
+and566/565 paired/MAIN credits accumulating behind an unstarted allocation guard.
+A separate error-only-instrumented window reaches General allocator failure
+with876 active records and the same pool blockage; it does not fail in AF.
+Thus the IOThread change has not resolved pressure or established bounded queues.
+During the initial9–19-second window, paired completes76 results while RAW/group
+advance291, MAIN follows paired, and sampled paired jobs have no
+pending ACK or downstream-capacity wait. Outstanding computation and its
+completion delivery require further measurement. SPI remains an error pending
+atomic ownership evidence. Run-to-run timing is not a controlled speed comparison.
+
+The following bounded profile identifies a concrete host configuration defect:
+all960 stages in64 jobs execute children serially in the cold arithmetic pool.
+Provisioning its standard minimum/maximum to the existing12-child bound restores
+actual overlap; median worker wall time becomes25.07ms versus124.02ms and total
+job time27.08ms versus126.24ms under the same declared inputs. The new native
+barrier fails with1 of12 workers before the fix and succeeds afterward. The
+current scoped batch passes137 CMOS/paired qtests,49 paired lifecycle cases and6
+CMOS unit cases with normal TAP and exits; these192 cases overlap earlier batches.
+In a separate diagnostic window all111 started records retire and all480 bits return, but
+CaptureService later stops dequeuing. A later pre-error snapshot establishes
+that it is READY with a queued notification, starved by the higher-priority
+CAPTG worker's non-yielding SPI poll; its saved wait fields are stale.
+A separate uninstrumented run reaches221 paired/220 MAIN results and215
+descriptor starts, with one active record and477 event bits free at the stop.
+It still rejects the SPI8 empty read at17.17 host seconds, before any planned
+mode switch. [Atomic SPI ownership evidence](../devices/spi/protocol.md#shared-sensor-client-ownership-boundary)
+now shows another activation drained and stopped the shared transaction before
+the old caller resumed. Both source paths are now identified: CAPSEQ's event800
+branch and CAPTG's independent event10/state8 sensor-control branch share one
+owner and staging buffers without a bus mutex. A bounded diagnostic records
+161232 status observations past an actual sampled serial deadline, up to5.06ms
+late, while FIFO progress remains unfinished. The finite model now reconciles
+elapsed synchronous PIO work on validated observation and before input-clock
+changes, retaining explicit empty-read errors, existing DMA arbitration and
+actual peer boundaries. This is no longer an event-pool-exhaustion failure;
+native model correctness and normal mode-change acceptance remain separate.
+
+The corrected SPI model passes21 system-linked unit cases and122 general qtests
+with normal TAP and process exits. Both exact-deadline observation and overdue
+clock changes fail under their preceding implementations. Independent static
+review finds no remaining issue in the bounded PIO, cancellation, clock and
+real-HDmac arbitration paths.
+
+The first uninstrumented cold-neutral M window after this correction reaches
+391 paired and576 readout MAIN completions in22.07 host seconds. CaptureService
+advances its FIFO consumer, with14 active work records and441 free event bits
+at the stopped census; no SPI empty-read error is reported. It nevertheless
+fails before the first planned mode switch: CPU1 task `010000fd` takes a data
+abort at MAS VA `102bd93c`, DFAR0. This is an indirect object-pointer
+dereference, not the previous SPI access or allocator exhaustion. Resource74's
+producer retains ten records in FIFO `b23630e0`, freeing the oldest on overflow;
+the consumer borrows the record without a retain. The stopped graph shows
+jobs393/403 sharing the same record, now tagged403, and394/404 likewise tagged404.
+Job395's captured record prefix is zero. This establishes stale/reused
+ownership in that snapshot. A later targeted read-only trace identifies the
+overflow release caller, follows old job84's record into reuse by94, and records
+the old consumer reading94. It ends with the same null dereference. The
+[resource74 lifetime analysis](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates this diagnostic from the first uninstrumented failure.
+
+The oldest job393 is also waiting for three software dependency masks through
+`102664a0 ->102b4962`; it is not polling a newly discovered hardware register.
+Its lane2 and lane3 have already finished. The later lane3 consumer waits for
+normal MAIN credit `00800000`, consumes that credit, and only then reads the
+resource. Available data does not separate delayed real MAIN production from
+ready-worker scheduling delay. No missing peripheral completion has yet been
+established, so neither a replacement pointer nor an extra event is justified.
+A post-exception task dump places CaptureService on configuration mutex37,
+owned by task18. A separate intentional pre-error stop at FIFO count10 instead
+finds CaptureService current on CPU0, while CAPTG/CAPSEQ wait on their normal
+dispatchers and the MAIN worker waits on its mailbox. That snapshot has only
+three active graph records. Consequently mutex contention is a candidate to
+measure before the fault, not an established permanent wait or a justification
+to bypass the lock.
+A separate bounded diagnostic reaches the historical AF abort at `1021d7ce`
+after48.57 host seconds; it does not reproduce or explain this resource74 fault.
+That revision's first acceptance failure is retained. The later arithmetic
+candidate has its own bounded mode acceptance below.
+
+The later credit ledger matches every MAIN callback to its normal consumer,
+fast skip or startup discard. Conditional one-shot requests14/15 are not
+submitted in the lifecycle trace, so their completion is not a demonstrated
+missing producer. A host-only profile instead measures17.94ms median continuous
+MAIN arithmetic against10us worker queueing. Exact warp recurrence and separable
+affine index reuse preserve every sample and rounding boundary. A controlled
+operator comparison matches all1,584,660 output bytes and reduces median warp
+time from8830 to4336 microseconds. A separate bounded host profile measures
+MAIN computation at7.07ms after the change; this is not a physical FPS claim.
+The applicable native batch passes12 pixel,26 processing and137 CMOS cases
+(175 total), with normal TAP and process exits. Independent review finds no
+remaining arithmetic, bounds, validation or publication defect.
+
+The candidate's first uninstrumented cold-neutral acceptance lasts143.15 host
+seconds and completes two A/S/P/M cycles from initial M. All eight normal
+mode-position requests settle to their original typed setting and context;
+paired and readout MAIN counts advance during every dwell. At the last poll,
+paired and MAIN processing both reach3992, readout MAIN reaches4153, and graph
+errors, paired rejection/cancellation, exception/watchdog flags and diagnostic
+length remain zero. Nine sequential censuses have only1–2 active work records
+while admissions advance729→3971. Available event bitmap bits vary471–477;
+the earlier constant451 interpretation was incorrect. These snapshots show
+retirement without sustained graph/event-pool growth in this window, not an
+atomic count of every user of that pool. No original firmware, cache depth,
+clock, input ownership or completion event is changed.
+
+A separate CaptureService input FIFO remains a longer-run boundary: its
+capacity is60 and the observed count reaches41 by143 seconds. This is a callback
+queue, distinct from resource74's ten records and from the retired work graph.
+No full queue or dropped request is observed in the acceptance. Its entry
+production and synchronous callback consumption need independent rate/wait
+analysis before indefinite stability can be claimed. The
+[receipt](/evidence/runtime/grid.json) preserves the first historical failures,
+read-only diagnostics, exact numerical comparison and this separate acceptance.
+
+Timed-mutex, FE and capture waits succeed in separate traces; host
+GDB durations include substantial stopped time and cannot establish that
+native OnVd processing exceeds a frame period.
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
@@ -488,7 +808,8 @@ storage is primary; a host folder is an offline import/export boundary.
 ## Previous: real RAW processing and the correction-record boundary
 
 The [paired pixel operator](../devices/pairs/pixels.md) connects completed RAW
-DMA to selected-phase main, work and grid outputs, then publishes results
+DMA to selected-phase main and work outputs, reads a separately completed grid
+when enabled, then publishes results
 through the existing IRQ/W1C/firmware callback route. Its explicit monochrome
 profile executes defect/spatial/temporal filtering, guest A/C/B matrices,
 three-channel gains and two published gain curves. Numerical formats, filters,

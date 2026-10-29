@@ -9,13 +9,18 @@
 #include "migration/vmstate.h"
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
+#include "qemu/bswap.h"
 #include "qemu/timer.h"
+#include "qemu/aio-wait.h"
+#include "block/thread-pool.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/gateinput.h"
 #include "hw/nikon/gatepacket.h"
 #include "hw/nikon/gatework.h"
+#include "hw/nikon/gateplane.h"
+#include "hw/nikon/gridinput.h"
 #include "qemu/log.h"
 
 #define CONTROL_SIZE 0x4080
@@ -50,11 +55,28 @@ G_STATIC_ASSERT(ARRAY_SIZE(command_ports) <= 64);
 
 typedef struct GateCommand {
     NikonGatePacket packet;
-    uint32_t address, auxiliary[2];
-    bool reset, armed, active;
+    uint32_t address, auxiliary[2], staged_auxiliary[2];
+    uint64_t generation;
+    bool reset, armed, active, upload_open;
 } GateCommand;
 
+typedef struct GatePlaneSource {
+    NikonGatePlaneInput frame;
+    uint64_t consumed;
+    uint16_t *rgb;
+} GatePlaneSource;
+
 OBJECT_DECLARE_SIMPLE_TYPE(NikonEventGateState, NIKON_EVENT_GATE)
+
+typedef struct GateFrameTask {
+    NikonEventGateState *owner;
+    NikonGateWorkPlan *plan;
+    uint64_t token, generation;
+    uint64_t command_generation[ARRAY_SIZE(command_ports)];
+    unsigned phase;
+    NikonGateWorkResult result;
+    bool ready;
+} GateFrameTask;
 
 struct NikonEventGateState {
     SysBusDevice parent_obj;
@@ -76,18 +98,65 @@ struct NikonEventGateState {
     uint64_t loaded, loaded_words;
     uint8_t *input_data;
     uint32_t input_width, input_height, input_stride, input_size;
-    uint64_t input_generation, input_frames, input_bytes;
+    uint64_t input_epoch, input_generation, input_frames, input_bytes;
+    qemu_irq input_capacity;
     bool input_stopped;
     QEMUTimer *stop_timer;
     QEMUTimer *frame_timer;
     bool frame_active, phase_valid;
     uint32_t frame_phase, frame_result;
     uint64_t processed, processing_errors, processing_cancelled;
+    GateFrameTask *frame_task;
+    uint64_t frame_token;
+    uint32_t frame_compute, frame_inflight;
+    bool worker_stopping;
     bool stopping, stop_ack, submit_pending;
     bool reported_error;
+    qemu_irq plane_ready;
+    QEMUTimer *plane_timer;
+    GatePlaneSource plane_source[6];
+    NikonGatePlaneInput plane_job;
+    NikonPairedGridFrame plane_output;
+    uint16_t *plane_rgb;
+    uint64_t plane_token, plane_job_token, plane_generation;
+    uint64_t plane_completed, plane_errors, plane_cancelled;
+    uint32_t plane_phase, plane_result, plane_traversal;
+    bool plane_active, plane_phase_valid;
+    bool table_written[TABLE_SIZE / 4];
+    unsigned table_words;
 };
 
 static void nikon_event_gate_try_frame(NikonEventGateState *s);
+static void nikon_event_gate_try_plane(NikonEventGateState *s);
+static void nikon_event_gate_cancel_plane(NikonEventGateState *s);
+static bool nikon_event_gate_stream_port(unsigned offset);
+
+static bool nikon_event_gate_main_uploaded(NikonEventGateState *s)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
+        unsigned offset = command_ports[i].offset;
+
+        if (nikon_event_gate_stream_port(offset) &&
+            (!(s->configured & (UINT64_C(1) << i)) ||
+             s->command[i].upload_open)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void nikon_event_gate_frame_free(GateFrameTask *task)
+{
+    NikonEventGateState *s = task->owner;
+
+    assert(s->frame_task == task && task->ready);
+    s->frame_task = NULL;
+    s->frame_compute = s->frame_inflight = 0;
+    nikon_gate_work_free(task->plan);
+    g_free(task);
+    aio_wait_kick();
+    object_unref(OBJECT(s));
+}
 
 static void nikon_event_gate_cancel_frame(NikonEventGateState *s)
 {
@@ -96,6 +165,10 @@ static void nikon_event_gate_cancel_frame(NikonEventGateState *s)
         s->processing_cancelled++;
     }
     s->frame_active = false;
+    ++s->frame_token;
+    if (s->frame_task && s->frame_task->ready) {
+        nikon_event_gate_frame_free(s->frame_task);
+    }
 }
 
 static bool nikon_event_gate_slot(hwaddr offset, unsigned *slot, unsigned *word)
@@ -267,14 +340,23 @@ static bool nikon_event_gate_stream_port(unsigned offset)
     }
 }
 
-static void nikon_event_gate_cancel_input(NikonEventGateState *s)
+static void nikon_event_gate_release_input(NikonEventGateState *s)
 {
-    nikon_event_gate_cancel_frame(s);
     g_clear_pointer(&s->input_data, g_free);
     s->input_width = s->input_height = s->input_stride = s->input_size = 0;
     if (!++s->input_generation) {
         ++s->input_generation;
     }
+    qemu_irq_pulse(s->input_capacity);
+}
+
+static void nikon_event_gate_cancel_input(NikonEventGateState *s)
+{
+    nikon_event_gate_cancel_frame(s);
+    if (!++s->input_epoch) {
+        ++s->input_epoch;
+    }
+    nikon_event_gate_release_input(s);
 }
 
 static bool nikon_event_gate_input_shape(NikonEventGateState *s,
@@ -287,14 +369,14 @@ static bool nikon_event_gate_input_shape(NikonEventGateState *s,
     g_assert(index >= 0);
     command = &s->command[index];
 
-    if (!shape || !shape->width || !shape->height ||
+    if (s->worker_stopping || !shape || !shape->width || !shape->height ||
         shape->width > STREAM_INPUT_MAX_DIMENSION ||
         shape->height > STREAM_INPUT_MAX_DIMENSION ||
         ((shape->width | shape->height) & 1) ||
         shape->stride < shape->width || shape->stride > 0x1ffff ||
         (shape->stride & 63) || s->input_stopped ||
         !(s->parameter_valid & (1U << STREAM_INPUT_SLOT)) ||
-        !(s->configured & (UINT64_C(1) << index)) || command->reset ||
+        !(s->configured & (UINT64_C(1) << index)) ||
         !command->packet.present[0] || command->packet.value[0] != 8) {
         return false;
     }
@@ -311,18 +393,17 @@ static bool nikon_event_gate_input_shape(NikonEventGateState *s,
 }
 
 NikonGateInputStatus nikon_gate_input_status(DeviceState *dev,
-    const NikonGateInputShape *shape, uint64_t *generation)
+    const NikonGateInputShape *shape, NikonGateInputVersion *version)
 {
     NikonEventGateState *s = NIKON_EVENT_GATE(dev);
 
-    if (generation) {
-        *generation = 0;
+    if (version) {
+        *version = (NikonGateInputVersion) {
+            .epoch = s->input_epoch, .generation = s->input_generation,
+        };
     }
     if (!nikon_event_gate_input_shape(s, shape)) {
         return NIKON_GATE_INPUT_UNSUPPORTED;
-    }
-    if (generation) {
-        *generation = s->input_generation;
     }
     return s->input_data ? NIKON_GATE_INPUT_BUSY : NIKON_GATE_INPUT_READY;
 }
@@ -355,12 +436,56 @@ bool nikon_gate_input_publish(DeviceState *dev, uint64_t generation,
     return true;
 }
 
+static int nikon_event_gate_compute_frame(void *opaque)
+{
+    GateFrameTask *task = opaque;
+
+    return nikon_gate_work_compute(task->plan);
+}
+
+static void nikon_event_gate_computed_frame(void *opaque, int ret)
+{
+    GateFrameTask *task = opaque;
+    NikonEventGateState *s = task->owner;
+
+    task->result = ret;
+    task->ready = true;
+    s->frame_compute = 2;
+    if (s->worker_stopping || !s->frame_active ||
+        task->token != s->frame_token) {
+        object_ref(OBJECT(s));
+        nikon_event_gate_frame_free(task);
+        if (!s->worker_stopping) {
+            nikon_event_gate_try_frame(s);
+        }
+        object_unref(OBJECT(s));
+        return;
+    }
+    /* Only the virtual timer can publish, including after a paused VM resumes. */
+    timer_mod(s->frame_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
+static void nikon_event_gate_frame_error(NikonEventGateState *s,
+                                         NikonGateWorkResult result)
+{
+    if (s->frame_result != result) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "nikon-gate: continuous processing blocked: %s phase=%u\n",
+            nikon_gate_work_result_name(result), s->frame_phase);
+    }
+    s->frame_result = result;
+    s->processing_errors++;
+    s->frame_active = false;
+    /* Retain the real input. A configuration change may qualify it. */
+}
+
 static void nikon_event_gate_process_frame(void *opaque)
 {
     NikonEventGateState *s = opaque;
     NikonGateWorkCommand commands[ARRAY_SIZE(command_ports)];
     size_t count = 0;
     NikonGateWorkResult result;
+    GateFrameTask *task = s->frame_task;
     NikonGateWork work = {
         .as = &address_space_memory, .config = s->config,
         .slots = (const uint32_t (*)[INPUT_WORDS])s->committed,
@@ -370,7 +495,16 @@ static void nikon_event_gate_process_frame(void *opaque)
         .height = s->input_height, .phase = s->frame_phase,
     };
 
-    s->frame_active = false;
+    if (!s->frame_active || s->worker_stopping) {
+        return;
+    }
+    if (!task && !nikon_event_gate_main_uploaded(s)) {
+        /* An upload opened after the nominal timer was armed. It cannot admit
+         * the retained previous profile in the gap between 14=0 and 10.
+         */
+        s->frame_active = false;
+        return;
+    }
     for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
         if (s->configured & (UINT64_C(1) << i)) {
             commands[count++] = (NikonGateWorkCommand) {
@@ -382,36 +516,98 @@ static void nikon_event_gate_process_frame(void *opaque)
         }
     }
     work.command_count = count;
-    result = nikon_gate_work_execute(&work);
-    if (result != NIKON_GATE_WORK_OK) {
-        if (s->frame_result != result) {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                "nikon-gate: continuous processing blocked: %s phase=%u\n",
-                nikon_gate_work_result_name(result), s->frame_phase);
+    if (!task) {
+        NikonGateWorkPlan *plan;
+
+        result = nikon_gate_work_prepare(&work, &plan);
+        if (result != NIKON_GATE_WORK_OK) {
+            nikon_event_gate_frame_error(s, result);
+            return;
         }
-        s->frame_result = result;
-        s->processing_errors++;
-        /* Retain the real input. A configuration change may qualify it. */
+        task = g_try_new0(GateFrameTask, 1);
+        if (!task) {
+            nikon_gate_work_free(plan);
+            nikon_event_gate_frame_error(s, NIKON_GATE_WORK_PIXELS);
+            return;
+        }
+        *task = (GateFrameTask) {
+            .owner = s, .plan = plan, .token = s->frame_token,
+            .generation = s->input_generation, .phase = s->frame_phase,
+        };
+        for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
+            task->command_generation[i] = s->command[i].generation;
+        }
+        s->frame_task = task;
+        s->frame_compute = s->frame_inflight = 1;
+        object_ref(OBJECT(s));
+        thread_pool_submit_aio(nikon_event_gate_compute_frame, task,
+                                nikon_event_gate_computed_frame, task);
+        return;
+    }
+    if (!task->ready) {
+        return;
+    }
+    if (task->token != s->frame_token ||
+        task->generation != s->input_generation ||
+        task->phase != s->frame_phase || !s->input_data ||
+        s->input_stopped || (s->config[1] & 3) != 1) {
+        nikon_event_gate_cancel_frame(s);
+        return;
+    }
+    if ((s->pending[1] & 0x61) || (s->pending[2] & 8)) {
+        /* A real cause can arrive after admission. Keep this one owned ready
+         * result until W1C releases both fences; never re-snapshot its math.
+         */
+        return;
+    }
+    result = task->result;
+    if (result == NIKON_GATE_WORK_OK) {
+        result = nikon_gate_work_publish(task->plan, &work);
+    }
+    /* A later atomic upload/start owns its own request, even while old pixels
+     * are still computing. Retire only requests this job actually observed.
+     */
+    if (result == NIKON_GATE_WORK_OK) {
+        for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
+            if (nikon_event_gate_stream_port(command_ports[i].offset) &&
+                s->command[i].generation == task->command_generation[i]) {
+                s->command[i].active = false;
+            }
+        }
+    }
+    /* Detach before capacity/IRQ callbacks can synchronously reset/unrealize. */
+    object_ref(OBJECT(s));
+    nikon_event_gate_frame_free(task);
+    s->frame_active = false;
+    if (result != NIKON_GATE_WORK_OK) {
+        nikon_event_gate_frame_error(s, result);
+        object_unref(OBJECT(s));
         return;
     }
     s->frame_result = NIKON_GATE_WORK_OK;
     s->processed++;
-    for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
-        if (nikon_event_gate_stream_port(command_ports[i].offset)) {
-            s->command[i].active = false;
-        }
-    }
-    nikon_event_gate_cancel_input(s);
     s->frame_phase = (s->frame_phase + 1) % 4;
-    /* Original terminal49/54/55 routes, then the whole-frame fence. */
+    /* Actual DMA precedes both input release and terminal causes. */
     s->pending[1] |= 0x61;
     s->pending[2] |= 8;
+    nikon_event_gate_release_input(s);
     nikon_event_gate_irq(s);
+    object_unref(OBJECT(s));
 }
 
 static void nikon_event_gate_try_frame(NikonEventGateState *s)
 {
-    if (s->frame_active || !s->input_data || s->input_stopped ||
+    if (s->frame_active && s->frame_task && s->frame_task->ready) {
+        if (!s->worker_stopping && !s->input_stopped &&
+            (s->config[1] & 3) == 1 &&
+            !(s->pending[1] & 0x61) && !(s->pending[2] & 8)) {
+            timer_mod(s->frame_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        }
+        return;
+    }
+    if (s->frame_active || s->frame_task || s->worker_stopping ||
+        !s->input_data || s->input_stopped ||
+        !nikon_event_gate_main_uploaded(s) ||
         (s->config[1] & 3) != 1 ||
         (s->config[0x2100 / 4] & 0xf) != 1 ||
         !(s->config[0x2608 / 4] & 1) ||
@@ -481,14 +677,354 @@ static bool nikon_event_gate_ram(hwaddr address, size_t length)
     return true;
 }
 
+static bool nikon_event_gate_plane_port(unsigned offset)
+{
+    switch (offset) {
+    case 0x800: case 0xd00: case 0xa40: case 0xa00:
+    case 0xa20: case 0xdc0: case 0x880: case 0x9c0:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void nikon_event_gate_cancel_plane(NikonEventGateState *s)
+{
+    s->plane_token++;
+    timer_del(s->plane_timer);
+    if (s->plane_active) {
+        s->plane_cancelled++;
+    }
+    s->plane_active = false;
+    g_clear_pointer(&s->plane_rgb, g_free);
+}
+
+static void nikon_event_gate_plane_clear(NikonEventGateState *s)
+{
+    nikon_event_gate_cancel_plane(s);
+    for (unsigned i = 0; i < ARRAY_SIZE(s->plane_source); i++) {
+        g_free(s->plane_source[i].rgb);
+    }
+    memset(s->plane_source, 0, sizeof(s->plane_source));
+    memset(&s->plane_output, 0, sizeof(s->plane_output));
+    s->plane_phase_valid = false;
+    s->plane_traversal = 0;
+    qemu_irq_pulse(s->plane_ready);
+}
+
+bool nikon_gate_plane_output(DeviceState *dev, NikonPairedGridFrame *frame)
+{
+    NikonEventGateState *s = NIKON_EVENT_GATE(dev);
+
+    if (!frame) {
+        return false;
+    }
+    *frame = s->plane_output;
+    return true;
+}
+
+bool nikon_gate_plane_input(DeviceState *dev, const NikonGatePlaneInput *frame)
+{
+    NikonEventGateState *s = NIKON_EVENT_GATE(dev);
+    GatePlaneSource *source = NULL, *free_slot = NULL;
+    g_autofree uint16_t *rgb = NULL;
+
+    if (!frame) {
+        nikon_event_gate_plane_clear(s);
+        return true;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->plane_source); i++) {
+        GatePlaneSource *candidate = &s->plane_source[i];
+
+        if (candidate->frame.address[0] == frame->address[0]) {
+            source = candidate;
+            break;
+        }
+        if (!candidate->rgb || candidate->consumed >= candidate->frame.generation) {
+            free_slot = candidate;
+        }
+    }
+    if (!frame->generation) {
+        if (source) {
+            source->frame.generation = 0;
+            g_clear_pointer(&source->rgb, g_free);
+        }
+        return true;
+    }
+    if (!frame->width || !frame->height ||
+        frame->width > 256 || frame->height > 256) {
+        return false;
+    }
+    if (!source) {
+        source = free_slot;
+    }
+    if (!source) {
+        return false;
+    }
+    if (source->rgb && source->frame.generation == frame->generation &&
+        source->frame.width == frame->width &&
+        source->frame.height == frame->height &&
+        !memcmp(source->frame.address, frame->address, sizeof(frame->address)) &&
+        !memcmp(source->frame.stride, frame->stride, sizeof(frame->stride))) {
+        return true;
+    }
+    size_t samples = (size_t)frame->width * frame->height;
+    g_autofree uint8_t *row = g_malloc(frame->width * 2);
+
+    rgb = g_new(uint16_t, samples * 3);
+    for (unsigned c = 0; c < 3; c++) {
+        if (frame->stride[c] < frame->width * 2) {
+            return false;
+        }
+        for (unsigned y = 0; y < frame->height; y++) {
+            uint64_t address = (uint64_t)frame->address[c] +
+                               (uint64_t)y * frame->stride[c];
+
+            if (!nikon_event_gate_ram(address, frame->width * 2) ||
+                dma_memory_read(&address_space_memory, address, row,
+                                frame->width * 2, MEMTXATTRS_UNSPECIFIED) !=
+                MEMTX_OK) {
+                return false;
+            }
+            for (unsigned x = 0; x < frame->width; x++) {
+                rgb[c * samples + y * frame->width + x] =
+                    lduw_le_p(row + x * 2);
+            }
+        }
+    }
+    if (source->frame.address[0] != frame->address[0]) {
+        source->consumed = 0;
+    }
+    g_free(source->rgb);
+    source->rgb = g_steal_pointer(&rgb);
+    source->frame = *frame;
+    nikon_event_gate_try_plane(s);
+    return true;
+}
+
+static bool nikon_event_gate_plane_begin(void *opaque,
+                                       const NikonGatePlaneOutput *output)
+{
+    NikonEventGateState *s = opaque;
+
+    if (!s->plane_active || s->plane_job_token != s->plane_token) {
+        return false;
+    }
+    s->plane_output = (NikonPairedGridFrame) {
+        .address = output->address, .width = output->width,
+        .height = output->height, .stride = output->stride,
+    };
+    qemu_irq_pulse(s->plane_ready);
+    return s->plane_active && s->plane_job_token == s->plane_token;
+}
+
+static void nikon_event_gate_process_plane(void *opaque)
+{
+    NikonEventGateState *s = opaque;
+    NikonGateWorkCommand commands[ARRAY_SIZE(command_ports)];
+    NikonGatePlaneOutput output;
+    uint64_t token = s->plane_token;
+    size_t count = 0;
+    NikonGatePlaneWork work = {
+        .as = &address_space_memory, .config = s->config,
+        .slots = (const uint32_t (*)[INPUT_WORDS])s->committed,
+        .parameter_valid = s->parameter_valid,
+        .commands = commands,
+        .table = (const uint16_t (*)[1024])s->table,
+        .phase = s->plane_phase, .width = s->plane_job.width,
+        .height = s->plane_job.height, .rgb = s->plane_rgb,
+        .begin = nikon_event_gate_plane_begin, .opaque = s,
+    };
+
+    if (!s->plane_active) {
+        return;
+    }
+    if ((s->pending[1] & 0x10) || (s->pending[2] & 0x44)) {
+        nikon_event_gate_cancel_plane(s);
+        return;
+    }
+    memcpy(work.input_address, s->plane_job.address, sizeof(work.input_address));
+    memcpy(work.input_stride, s->plane_job.stride, sizeof(work.input_stride));
+    for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
+        if (s->configured & (UINT64_C(1) << i)) {
+            commands[count++] = (NikonGateWorkCommand) {
+                .offset = command_ports[i].offset,
+                .packet = &s->command[i].packet,
+                .auxiliary = { s->command[i].auxiliary[0],
+                               s->command[i].auxiliary[1] },
+            };
+        }
+    }
+    work.command_count = count;
+    NikonGateWorkResult result = nikon_gate_plane_execute(&work, &output);
+
+    if (token != s->plane_token || !s->plane_active) {
+        return;
+    }
+    s->plane_active = false;
+    g_clear_pointer(&s->plane_rgb, g_free);
+    if (result != NIKON_GATE_WORK_OK) {
+        if (s->plane_result != result) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-gate: RGB grid blocked: %s phase=%u\n",
+                nikon_gate_work_result_name(result), s->plane_phase);
+        }
+        s->plane_result = result;
+        s->plane_errors++;
+        return;
+    }
+    s->plane_result = NIKON_GATE_WORK_OK;
+    for (unsigned i = 0; i < ARRAY_SIZE(s->plane_source); i++) {
+        GatePlaneSource *source = &s->plane_source[i];
+
+        if (source->frame.address[0] == s->plane_job.address[0] &&
+            source->frame.generation == s->plane_job.generation) {
+            source->consumed = s->plane_job.generation;
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(command_ports); i++) {
+        if (nikon_event_gate_plane_port(command_ports[i].offset)) {
+            s->command[i].active = false;
+        }
+    }
+    s->plane_completed++;
+    if (!++s->plane_generation) {
+        ++s->plane_generation;
+    }
+    s->plane_output = (NikonPairedGridFrame) {
+        .generation = s->plane_generation, .address = output.address,
+        .width = output.width, .height = output.height, .stride = output.stride,
+    };
+    s->plane_traversal |= 1U << s->plane_phase;
+    s->plane_phase = (s->plane_phase + 1) % 4;
+    /* Resource53's terminal, context8 whole-frame and four-phase map fence. */
+    s->pending[1] |= 0x10;
+    s->pending[2] |= 4;
+    if (s->plane_traversal == 0xf) {
+        s->plane_traversal = 0;
+        s->pending[2] |= 0x40;
+    }
+    /* Reentrant consumers see the previous result's backpressure immediately.
+     * Recompute the current IRQ state even if that consumer stops or resets. */
+    qemu_irq_pulse(s->plane_ready);
+    nikon_event_gate_irq(s);
+}
+
+static void nikon_event_gate_try_plane(NikonEventGateState *s)
+{
+    unsigned bank, phase;
+    uint32_t base;
+
+    if (s->plane_active || s->input_stopped || (s->config[1] & 3) != 1 ||
+        (s->config[0x2000 / 4] & 0xf) != 1 ||
+        !(s->config[0x2648 / 4] & 1) ||
+        (s->pending[1] & 0x10) || (s->pending[2] & 0x44) ||
+        s->table_words != ARRAY_SIZE(s->table)) {
+        return;
+    }
+    if (!s->plane_phase_valid) {
+        s->plane_phase = (s->config[0x2004 / 4] >> 4) & 3;
+        s->plane_phase_valid = true;
+    }
+    bank = s->config[0x2004 / 4] & 1;
+    phase = s->plane_phase;
+    base = s->config[((bank ? 0x2300 : 0x2200) + phase * 64 + 4) / 4];
+    for (unsigned i = 0; i < ARRAY_SIZE(s->plane_source); i++) {
+        GatePlaneSource *source = &s->plane_source[i];
+
+        if (source->rgb && source->frame.address[0] == base &&
+            source->frame.generation > source->consumed) {
+            s->plane_job = source->frame;
+            s->plane_rgb = g_memdup2(source->rgb, (size_t)source->frame.width *
+                                                   source->frame.height * 6);
+            s->plane_job_token = s->plane_token;
+            s->plane_active = true;
+            timer_mod(s->plane_timer,
+                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+            return;
+        }
+    }
+}
+
+static bool nikon_event_gate_main_slot(NikonEventGateState *s, unsigned slot)
+{
+    static const unsigned outputs[] = { 0x9e0, 0x940, 0xba0 };
+
+    if (slot == STREAM_INPUT_SLOT) {
+        return true;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(outputs); i++) {
+        int index = nikon_event_gate_command(outputs[i]);
+        NikonGatePacket *p = &s->command[index].packet;
+
+        if ((s->configured & (UINT64_C(1) << index)) && p->present[8 / 4] &&
+            (p->value[8 / 4] & 15) == slot) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool nikon_event_gate_main_config(NikonEventGateState *s,
+                                         unsigned offset)
+{
+    if ((offset >= 0x2100 && offset <= 0x2118) ||
+        (offset >= 0x2600 && offset <= 0x2618) || offset == 0x4050) {
+        return true;
+    }
+    if (offset >= 0x2200 && offset < 0x2300) {
+        unsigned slot = (offset & 63) / 4;
+        unsigned phase = (offset - 0x2200) / 64;
+
+        return slot == STREAM_INPUT_SLOT ||
+               (phase == s->frame_phase &&
+                nikon_event_gate_main_slot(s, slot));
+    }
+    return false;
+}
+
+/* Completed numerical profiles apply to future snapshots. Only a changed,
+ * selected transport/layout control revokes an owned MAIN job. The source
+ * upload pulse is local; atomic latching here is an explicit virtual law.
+ */
+static void nikon_event_gate_setup(NikonEventGateState *s, unsigned offset,
+                                   bool changed)
+{
+    int index = nikon_event_gate_command(offset);
+    bool plane, main;
+
+    if (index >= 0) {
+        plane = nikon_event_gate_plane_port(command_ports[index].offset);
+        main = nikon_event_gate_stream_port(command_ports[index].offset);
+    } else {
+        plane = (offset >= 0x2000 && offset <= 0x2018) ||
+                (offset >= 0x2640 && offset <= 0x2658) ||
+                (offset >= 0x4040 && offset <= 0x4044) ||
+                ((offset >= 0x2200 && offset < 0x2400) &&
+                 (((offset & 0x3f) / 4) == 1 ||
+                  ((offset & 0x3f) / 4) == 2));
+        main = nikon_event_gate_main_config(s, offset);
+    }
+    if (changed && plane) {
+        nikon_event_gate_cancel_plane(s);
+    }
+    if (changed && main) {
+        nikon_event_gate_cancel_frame(s);
+    }
+    nikon_event_gate_try_plane(s);
+    nikon_event_gate_try_frame(s);
+}
+
 static bool nikon_event_gate_load(NikonEventGateState *s, unsigned index,
                                 uint32_t address)
 {
     GateCommand *command = &s->command[index];
+    unsigned port = command_ports[index].offset;
     unsigned kind = command_ports[index].kind;
     size_t length = nikon_gate_packet_size(kind);
     uint8_t data[NIKON_GATE_PACKET_MAX];
     NikonGatePacket decoded;
+    bool layout_changed;
     MemTxAttrs attrs = { .memory = true };
 
     if (!command->armed || command->reset || (address & 3) ||
@@ -497,15 +1033,25 @@ static bool nikon_event_gate_load(NikonEventGateState *s, unsigned index,
         MEMTX_OK || !nikon_gate_packet_decode(kind, data, length, &decoded)) {
         return false;
     }
+    layout_changed = !(s->configured & (UINT64_C(1) << index)) ||
+        !nikon_gate_work_same_layout(port, &command->packet, &decoded) ||
+        memcmp(command->auxiliary, command->staged_auxiliary,
+               sizeof(command->auxiliary));
     command->packet = decoded;
+    memcpy(command->auxiliary, command->staged_auxiliary,
+           sizeof(command->auxiliary));
     command->address = address;
     command->armed = false;
+    command->upload_open = false;
+    command->active = false;
+    ++command->generation;
     s->configured |= UINT64_C(1) << index;
     s->loaded++;
     s->loaded_words += length / 4;
-    if (command_ports[index].offset == STREAM_INPUT_PORT) {
+    if (port == STREAM_INPUT_PORT && layout_changed) {
         nikon_event_gate_cancel_input(s);
     }
+    nikon_event_gate_setup(s, port, layout_changed);
     return true;
 }
 
@@ -546,8 +1092,10 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
              * reports3 while in flight and0 at rest; ordinary starts retain
              * their separate request state. Physical bit encoding is unknown.
              */
-            *value = s->frame_active &&
-                     nikon_event_gate_stream_port(command_ports[index].offset) ?
+            *value = ((s->frame_active &&
+                       nikon_event_gate_stream_port(command_ports[index].offset)) ||
+                      (s->plane_active &&
+                       nikon_event_gate_plane_port(command_ports[index].offset))) ?
                      3 : command->active;
             return MEMTX_OK;
         case 0x10:
@@ -558,7 +1106,7 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
             return MEMTX_OK;
         case 8: case 0xc:
             if (command_ports[index].kind == 10) {
-                *value = command->auxiliary[(local - 8) / 4];
+                *value = command->staged_auxiliary[(local - 8) / 4];
                 return MEMTX_OK;
             }
         }
@@ -569,6 +1117,10 @@ static MemTxResult nikon_event_gate_read(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     if (offset >= 0x2040 && offset < 0x2080) {
+        if (s->plane_active && (offset == 0x2044 || offset == 0x2048)) {
+            *value = 1;
+            return MEMTX_OK;
+        }
         if (offset == 0x2040 + 4 * STREAM_INPUT_SLOT && s->input_data) {
             /* The actual queued input owns this finite slot until cancel. */
             *value = 1;
@@ -633,17 +1185,13 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
 
         if (local == 0x14 && value <= 1 && (value || command->reset)) {
             if (value) {
-                nikon_event_gate_cancel_frame(s);
-                if (command_ports[index].offset == STREAM_INPUT_PORT) {
-                    nikon_event_gate_cancel_input(s);
-                }
-                /*103bdc92 programs auxiliary words before this pulse. */
-                memset(&command->packet, 0, sizeof(command->packet));
-                command->address = 0;
+                /* 103bded0 uploads through 14=1,14=0,10=pointer without a
+                 * graph stop/drain. Keep the committed packet until 10.
+                 * 103bdc92 can stage auxiliary words before this pulse.
+                 */
                 command->armed = false;
-                command->active = false;
                 command->reset = true;
-                s->configured &= ~(UINT64_C(1) << index);
+                command->upload_open = true;
             } else {
                 command->reset = false;
                 command->armed = true;
@@ -651,21 +1199,18 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
             return MEMTX_OK;
         }
         if (local == 0x10 && nikon_event_gate_load(s, index, value)) {
-            nikon_event_gate_cancel_frame(s);
-            nikon_event_gate_try_frame(s);
             return MEMTX_OK;
         }
         if ((local == 8 || local == 0xc) &&
             command_ports[index].kind == 10) {
-            command->auxiliary[(local - 8) / 4] = value;
-            nikon_event_gate_cancel_frame(s);
-            nikon_event_gate_try_frame(s);
+            command->staged_auxiliary[(local - 8) / 4] = value;
             return MEMTX_OK;
         }
         if (local == 0 && value == 1 && command->address &&
-            !command->reset && !command->active) {
+            !command->reset && !command->armed && !command->active) {
             /* 103bd07c starts configured nodes before their producers. */
             command->active = true;
+            ++command->generation;
             return MEMTX_OK;
         }
         /*
@@ -683,23 +1228,31 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     if (offset == 0x2c) {
+        bool changed;
+
         if (value >= INPUT_SLOTS || nikon_event_gate_requested(s) ||
             s->written[value] != (1U << INPUT_WORDS) - 1 ||
             !(s->slot[value][0] & 1)) {
             return nikon_event_gate_error(s, offset, size, true, value);
         }
         /* 103bda1e publishes parameters without starting a data processor. */
-        if (value == STREAM_INPUT_SLOT &&
-            (!(s->parameter_valid & (1U << STREAM_INPUT_SLOT)) ||
-             memcmp(s->committed[value], s->slot[value],
-                    sizeof(s->slot[value])))) {
+        changed = !(s->parameter_valid & (1U << value)) ||
+                  memcmp(s->committed[value], s->slot[value],
+                         sizeof(s->slot[value]));
+        if (changed && value == STREAM_INPUT_SLOT) {
             nikon_event_gate_cancel_input(s);
         }
         memcpy(s->committed[value], s->slot[value], sizeof(s->slot[value]));
         s->parameter_valid |= 1U << value;
         s->parameter_commits++;
         s->written[value] = 0;
-        nikon_event_gate_cancel_frame(s);
+        if (changed && (value == 1 || value == 2)) {
+            nikon_event_gate_cancel_plane(s);
+        }
+        if (changed && nikon_event_gate_main_slot(s, value)) {
+            nikon_event_gate_cancel_frame(s);
+        }
+        nikon_event_gate_try_plane(s);
         nikon_event_gate_try_frame(s);
         return MEMTX_OK;
     }
@@ -719,35 +1272,68 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         return MEMTX_OK;
     }
     if (offset == 0x2680) {
+        bool changed;
+
         /*
          * Finite snapshot model for the MAS103bd2cc application request.
-         * Teardown1038897e clears one family before the same commit. Record
-         * configuration, not data processing, pending, IRQ or slot release.
+         * Teardown1038897e clears one family before the same commit. A changed
+         * topology revokes private ownership, without completing guest work.
          */
         if (value != 1) {
             return nikon_event_gate_error(s, offset, size, true, value);
         }
+        changed = s->applied_route[0] != s->config[0x2684 / 4] ||
+                  s->applied_route[1] != s->config[0x2690 / 4];
         s->applied_route[0] = s->config[0x2684 / 4];
         s->applied_route[1] = s->config[0x2690 / 4];
         s->route_commits++;
+        if (changed) {
+            /* A committed topology change revokes the input binding. Staging
+             * either route word alone has no ownership effect.
+             */
+            nikon_event_gate_cancel_input(s);
+            nikon_event_gate_cancel_plane(s);
+        }
         return MEMTX_OK;
     }
     if (nikon_event_gate_config(offset, &mask)) {
+        uint32_t changed = s->config[offset / 4] ^ value;
+
         if ((value & ~mask) ||
             ((offset == 0x2000 || offset == 0x2100) && (value & 0xf) > 1)) {
             /* Independent input enable configuration has no event effect. */
             return nikon_event_gate_error(s, offset, size, true, value);
         }
-        if (offset == 0x2104 &&
-            ((s->config[offset / 4] ^ value) & 0x30)) {
+        if (offset == 0x2104 && (changed & 0x30)) {
             s->phase_valid = false;
         }
+        if (offset == 0x2004 && (changed & 0x30)) {
+            s->plane_phase_valid = false;
+            s->plane_traversal = 0;
+        }
         s->config[offset / 4] = value;
-        nikon_event_gate_cancel_frame(s);
+        if (changed && offset >= 0x2200 && offset < 0x2300 &&
+            ((offset & 63) / 4) == STREAM_INPUT_SLOT) {
+            nikon_event_gate_cancel_input(s);
+        }
         if (offset == 0x2100 && !(value & 0xf)) {
             s->phase_valid = false;
         }
-        nikon_event_gate_try_frame(s);
+        if (offset == 0x2000 && !(value & 0xf)) {
+            s->plane_phase_valid = false;
+            s->plane_traversal = 0;
+        }
+        if (offset == 0x4054) {
+            /* Width is layout; the existing bounded valid-row profile is
+             * numerical metadata latched only by future admissions.
+             */
+            if (changed & 0xffff) {
+                nikon_event_gate_cancel_frame(s);
+            }
+            nikon_event_gate_try_frame(s);
+        } else {
+            nikon_event_gate_setup(s, offset, changed != 0);
+        }
         return MEMTX_OK;
     }
     if (offset >= 0xc && offset <= 0x14) {
@@ -766,6 +1352,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
         s->config[1] = value;
         if (!(value & 3) && !s->input_stopped) {
             nikon_event_gate_cancel_input(s);
+            nikon_event_gate_plane_clear(s);
             s->input_stopped = true;
         }
         if ((value & 3) == 1) {
@@ -795,6 +1382,7 @@ static MemTxResult nikon_event_gate_write(void *opaque, hwaddr offset,
     }
     nikon_event_gate_irq(s);
     nikon_event_gate_try_frame(s);
+    nikon_event_gate_try_plane(s);
     return MEMTX_OK;
 }
 
@@ -834,6 +1422,12 @@ static MemTxResult nikon_event_gate_table_write(void *opaque, hwaddr offset,
         return MEMTX_ERROR;
     }
     s->table[offset / 4] = value;
+    if (!s->table_written[offset / 4]) {
+        s->table_written[offset / 4] = true;
+        s->table_words++;
+    }
+    nikon_event_gate_cancel_plane(s);
+    nikon_event_gate_try_plane(s);
     return MEMTX_OK;
 }
 
@@ -896,6 +1490,10 @@ static void nikon_event_gate_reset(DeviceState *dev)
 
     timer_del(s->stop_timer);
     nikon_event_gate_cancel_input(s);
+    nikon_event_gate_plane_clear(s);
+    s->plane_generation = 0;
+    s->plane_completed = s->plane_errors = s->plane_cancelled = 0;
+    s->plane_result = NIKON_GATE_WORK_OK;
     s->input_frames = s->input_bytes = 0;
     s->processed = s->processing_errors = s->processing_cancelled = 0;
     s->frame_result = NIKON_GATE_WORK_OK;
@@ -914,6 +1512,8 @@ static void nikon_event_gate_reset(DeviceState *dev)
     memset(s->written, 0, sizeof(s->written));
     memset(s->command, 0, sizeof(s->command));
     memset(s->table, 0, sizeof(s->table));
+    memset(s->table_written, 0, sizeof(s->table_written));
+    s->table_words = 0;
     memset(s->work, 0, sizeof(s->work));
     memset(s->work_written, 0, sizeof(s->work_written));
     s->workspace_written = 0;
@@ -936,7 +1536,9 @@ static void nikon_event_gate_init(Object *obj)
                                  nikon_event_gate_stop_done, s);
     s->frame_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                  nikon_event_gate_process_frame, s);
-    s->input_generation = 1;
+    s->plane_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                 nikon_event_gate_process_plane, s);
+    s->input_epoch = s->input_generation = 1;
     memory_region_init_io(&s->regs, obj, &nikon_event_gate_ops, s,
                           "nikon.event-gate", CONTROL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
@@ -948,6 +1550,11 @@ static void nikon_event_gate_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->workspace);
     sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->irq);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_event_gate_input, "pending-bit", 96);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->plane_ready, "grid-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->input_capacity,
+                              "input-capacity", 1);
+    object_property_add_uint64_ptr(obj, "input-epoch", &s->input_epoch,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "configured-mask", &s->configured,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "parameter-valid", &s->parameter_valid,
@@ -988,9 +1595,23 @@ static void nikon_event_gate_init(Object *obj)
     object_property_add_uint64_ptr(obj, "processing-cancelled",
                                    &s->processing_cancelled,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "processing-compute", &s->frame_compute,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "processing-inflight",
+                                   &s->frame_inflight, OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "processing-result", &s->frame_result,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "processing-phase", &s->frame_phase,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "grid-completed", &s->plane_completed,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "grid-errors", &s->plane_errors,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "grid-cancelled", &s->plane_cancelled,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "grid-result", &s->plane_result,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "grid-phase", &s->plane_phase,
                                    OBJ_PROP_FLAG_READ);
 }
 
@@ -998,19 +1619,35 @@ static void nikon_event_gate_unrealize(DeviceState *dev)
 {
     NikonEventGateState *s = NIKON_EVENT_GATE(dev);
 
+    s->worker_stopping = true;
     timer_del(s->stop_timer);
     nikon_event_gate_cancel_input(s);
+    nikon_event_gate_plane_clear(s);
     s->pending[0] = s->pending[1] = s->pending[2] = 0;
     nikon_event_gate_irq(s);
+    AIO_WAIT_WHILE(NULL, s->frame_task);
+}
+
+static void nikon_event_gate_realize(DeviceState *dev, Error **errp)
+{
+    NikonEventGateState *s = NIKON_EVENT_GATE(dev);
+
+    assert(!s->frame_task);
+    /* Reuse is allowed only after unrealize has drained every host owner.
+     * Reset itself must not reopen admission during that drain.
+     */
+    s->worker_stopping = false;
 }
 
 static void nikon_event_gate_finalize(Object *obj)
 {
     NikonEventGateState *s = NIKON_EVENT_GATE(obj);
 
+    assert(!s->frame_task);
     g_free(s->input_data);
     timer_free(s->stop_timer);
     timer_free(s->frame_timer);
+    timer_free(s->plane_timer);
 }
 
 static const VMStateDescription nikon_event_gate_vmstate = {
@@ -1023,6 +1660,7 @@ static void nikon_event_gate_class_init(ObjectClass *oc, const void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_event_gate_vmstate;
+    dc->realize = nikon_event_gate_realize;
     dc->unrealize = nikon_event_gate_unrealize;
     dc->user_creatable = false;
     device_class_set_legacy_reset(dc, nikon_event_gate_reset);

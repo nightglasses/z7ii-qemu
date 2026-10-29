@@ -813,7 +813,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *readout;
     DeviceState *capture;
     DeviceState *work = NULL;
-    DeviceState *paired;
+    DeviceState *paired, *gate;
     DeviceState *pipeline = NULL;
     DeviceState *parameters;
     DeviceState *group;
@@ -1213,11 +1213,22 @@ static void z7ii_init(MachineState *machine)
     }
     object_property_add_child(OBJECT(machine), "paired-processing",
                               OBJECT(paired));
+    gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
+                                qdev_get_gpio_in(gic, 102 - 32));
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
+    object_property_set_link(OBJECT(paired), "gate", OBJECT(gate), &error_fatal);
+    qdev_connect_gpio_out_named(gate, "grid-ready", 0,
+        qdev_get_gpio_in_named(paired, "grid-ready", 0));
+    qdev_connect_gpio_out_named(gate, "input-capacity", 0,
+        qdev_get_gpio_in_named(paired, "input-capacity", 0));
     {
         capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
         group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
         if (s->bundle) {
             statistics = qdev_new(TYPE_NIKON_STATISTICS);
+            object_property_set_link(OBJECT(statistics), "gate", OBJECT(gate),
+                                     &error_fatal);
             work = qdev_new(TYPE_NIKON_CAPTURE_WORK);
             pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
             object_property_add_child(OBJECT(machine), "readout-pipeline",
@@ -1239,6 +1250,12 @@ static void z7ii_init(MachineState *machine)
         }
         /* Original status/command interface; external publication is unbound. */
         object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
+        if (pipeline) {
+            object_property_set_link(OBJECT(group), "pipeline", OBJECT(pipeline),
+                                      &error_fatal);
+            object_property_set_link(OBJECT(group), "capture", OBJECT(capture),
+                                      &error_fatal);
+        }
         sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
         for (i = 0; i < 2; i++) {
@@ -1251,14 +1268,10 @@ static void z7ii_init(MachineState *machine)
             DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
 
             input_split = split;
-            qdev_prop_set_uint16(split, "num-lines", 4);
+            qdev_prop_set_uint16(split, "num-lines", 2);
             qdev_realize_and_unref(split, NULL, &error_fatal);
             qdev_connect_gpio_out(split, 0,
                 qdev_get_gpio_in_named(group, "automatic-rise", 0));
-            qdev_connect_gpio_out(split, 1,
-                qdev_get_gpio_in_named(statistics, "automatic-rise", 0));
-            qdev_connect_gpio_out(split, 3,
-                qdev_get_gpio_in_named(work, "automatic-rise", 0));
             qdev_connect_gpio_out_named(router, "automatic-rise", 0,
                                        qdev_get_gpio_in(split, 0));
             qdev_connect_gpio_out_named(capture, "run-state", 4,
@@ -1380,8 +1393,28 @@ static void z7ii_init(MachineState *machine)
                                  &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
         /* One input boundary clocks transport admission and processing. */
-        qdev_connect_gpio_out(input_split, 2,
+        qdev_connect_gpio_out(input_split, 1,
             qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
+        {
+            DeviceState *ready = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(ready, "num-lines", 2);
+            qdev_realize_and_unref(ready, NULL, &error_fatal);
+            qdev_connect_gpio_out(ready, 0,
+                qdev_get_gpio_in_named(group, "input-ready", 0));
+            qdev_connect_gpio_out(ready, 1,
+                qdev_get_gpio_in_named(work, "input-ready", 0));
+            qdev_connect_gpio_out_named(pipeline, "main-input-ready", 0,
+                                       qdev_get_gpio_in(ready, 0));
+            qdev_connect_gpio_out_named(pipeline, "input-ready", 0,
+                qdev_get_gpio_in_named(statistics, "input-ready", 0));
+            qdev_connect_gpio_out_named(capture, "front-capacity-ready", 0,
+                qdev_get_gpio_in_named(work, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "data-capacity-ready", 0,
+                qdev_get_gpio_in_named(statistics, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "group-capacity-ready", 0,
+                qdev_get_gpio_in_named(group, "capacity-ready", 0));
+        }
         for (unsigned i = 0; i < 4; i++) {
             static const unsigned bits[] = { 0, 2, 3, 9 };
             qemu_irq target = qdev_get_gpio_in_named(work, "run", i);
@@ -1467,15 +1500,6 @@ static void z7ii_init(MachineState *machine)
     }
     sysbus_create_simple(TYPE_NIKON_STAGED_CONFIGURATION, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
-    {
-        DeviceState *gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE,
-                             0x20100000, qdev_get_gpio_in(gic, 102 - 32));
-
-        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
-        sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
-        object_property_set_link(OBJECT(paired), "gate", OBJECT(gate),
-                                 &error_fatal);
-    }
     sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
                          qdev_get_gpio_in(gic, 158 - 32));
     /* IRQ229 belongs to a software callback registration, not a proven wire. */

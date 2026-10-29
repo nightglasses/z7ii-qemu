@@ -58,6 +58,224 @@ That event must not be replaced with a hardware completion. IRQ99/100 handlers
 `103699a4/10369968` consume raw pending at+`24` through existing W1C and callback
 routing. Raw progress classes and numerical result production remain separate.
 
+### Completion credits and work-record retirement
+
+C1.70 has separate paired, MAIN and RGB-grid completion credits. An unchanged
+fixed-M diagnostic distinguishes their producers and follows the same twelve
+admitted records through their real release calls. It establishes that these
+sampled records retire; it does not establish a bounded long-running queue.
+The [runtime receipt](/evidence/runtime/grid.json) separates this instrumented
+trace from debugger-free execution.
+
+| Dependency | Source route in MAS VA | Credit and software event |
+| --- | --- | --- |
+| Paired numerical result | IRQ99 `103699a4` reads/W1C-ACKs raw pending, callback `102e468a` forwards it as `42190805` to `102637c2`; branch `102639e6` tests raw `1000` | After initial discard, increment `b18648d8`; `10263a14` sets `00400000` on event object `b1864850` |
+| MAIN/context9 result | Callback `10262e40` accepts `42193081` with flag bit0; the context9 dispatcher normalizes its raw2 bit3 to this flag | After separate initial discard, increment `b18648dc`; `10262ed6` sets `00800000` on the same event object |
+| RGB-grid/context8 result | Independent unit8 terminal work and callback | Its `01000000` dependency is distinct from either credit above; see the [grid contract](../gate/grid.md) |
+
+Lane0 cell2, VA `10268ba4`, waits at `10268c2a` for pattern `80400000`
+with native timeout1000. Lane3 cell1, VA `1026903a`, waits at `102690c2`
+for pattern `80800000` with the same timeout. Later admissions may consume
+already accumulated credit without waiting. The per-frame cadence tuple comes
+from `103f6a70/103f6a82`, indexed by frame byte14. The earlier byte14=4
+observation selects `[2,0]`; the later byte14=3 observations select `[1,0]`
+for both dependencies. The `b18648d8/dc` words are remaining credits, not cumulative
+completion totals. Both selected and unselected output phases consume credit;
+this divisor does not halve the software graph's completion demand.
+
+Record word0 and record+`64` are different counters. Descriptor-start callback
+`103cc1a6`, at `103cc1c8..103cc1d6`, assigns the latter from `b1864da4`; it is
+neither raw record creation nor a paired hardware job index. The actual creator
+`1032583e ->103d0db0` separately checks frame byte13 against owner byte2 and
+owner state byte1 in{1,2}. The generic worker marks each finished lane state3 and
+lane0 checks all eleven states before removing the active descriptor and
+calling `103d0c3a`. That callback separately waits for side-processing bits
+at record+`3e30`, removes the membership selected by ownership bits at+`6c`,
+and may retain a successful record for another consumer. Entering this callback
+alone therefore does not prove a free. Non-retained records actually call
+`1034febc` from `103d0da2`; the descriptor is released separately via `103d0dac`.
+
+In the bounded hardware-breakpoint diagnostic, admissions12..23 each return
+from both waits with the corresponding completion bit, reach all eleven lane
+states3, and call the actual work-record free. Observed admit-to-free host
+durations grow from5.60 to12.02 seconds. Debugger stops contribute to those
+durations; they are neither guest deadlines nor a processing-rate benchmark.
+Separately translated, sequential debugger-free snapshots show active records
+growing60→326→591→798→877 and the oldest admission advancing5→61 before
+allocator failure. This is growing backlog with continuing retirement, not
+evidence of one permanently stuck lane or a missing unconditional free.
+
+### Software event-bit admission
+
+Later C1.70 source analysis identifies a separate resource boundary before
+these completion waits. All addresses in this subsection are MAS VA. Pool0
+at `b1f59acc` contains fifteen event objects and fifteen available-bit words
+at offsets `40..78`, initially all ones: 480 software event bits, not hardware
+pending bits. Guard `1026654c` first calls `102664cc` to allocate three join
+bits into job offsets `24/30/3c` (count at `60`) for the observed frame mode2.
+It then calls `10266460` to allocate one notification bit into job offset `10`.
+These offsets are hexadecimal; frame mode and counts are decimal.
+
+The normal notification producer `10268b08` sets that bit through `1026648e`
+and `102b49c4`. Lane2's first `10268b04` consumes it through `10266476`, then
+`102b49a8/102e6582` returns it. Other lanes signal their join bits through
+`102664ba/102b48f0`; lane0's terminal `102664a0/102b4962` waits for all joins,
+then `102e666a/102e6582` returns them. Actual work-record free remains a later,
+separate operation.
+
+The batch allocator `102e668e` rolls back its own partial failure. The outer
+guard has a different failure boundary: after a successful three-bit batch,
+a failed notification allocation returns without releasing that batch. A
+subsequent batch attempt clears its saved count before allocating again.
+Thus source permits unreturned join identities to be overwritten on retry.
+This is a potential permanent admission failure, not permission for the board
+to release software bits or manufacture the missing completion.
+
+Direct translated snapshots in a debugger-free fixed-M/cold-neutral run show
+all fifteen available-bit words zero at 35.98 and 46.18 host seconds. Another
+run retains admission388 at the head while paired/MAIN work continues and
+sampled workers wait for mailbox input. These observations establish exhaustion
+and a stalled dispatch boundary, but do not distinguish every normal live
+holder from an orphaned bit. Some records in the first run still legitimately
+hold joins. Other source paths also allocate from pool0, so total ownership
+cannot be inferred solely from active-record count.
+
+A separate failure-only hardware-breakpoint diagnostic directly confirms the
+outer rollback defect. Its initial probe stops only at allocator failure
+`102e656e`; it then records a bounded allocation/free/retry window. Seven
+same-job retries preserve three old join identities until batch reentry and
+overwrite all three output records without an intervening successful free.
+These are 21 distinct orphaned bits, all still unreturned at the window end.
+Three identities come from the first failure snapshot; the other eighteen
+allocations are observed directly. In contrast, all39 observed batch failures
+finish with count zero after their own rollback.
+
+The final43 observed live bits comprise those21 orphans,21 still-recorded joins
+and one notification bit. Of80 observed successful frees,41 return identities
+allocated before the detailed window; an unmatched observation is not a failed
+free. The final probe stops before one real free store executes, so its bitmap
+snapshot also precedes that store. Hardware-breakpoint pauses change execution
+timing; this diagnostic proves the ownership-loss sequence, not native rates or
+why initial pressure appears. Ending the probe leaves QEMU in debugger-stop
+state and terminates the observer window; that is not a guest exception.
+The firmware and software pool remain unchanged.
+
+### Initial pressure and the smaller resource74 window
+
+Later unchanged fixed-M/cold-neutral observations distinguish initial pressure
+from the rollback failure above. A debugger-free snapshot has128 active records
+and381 occupied bits, consistent with127 sets of three joins. The oldest
+sampled record has completed lane1/2 and still waits for MAIN in lane3; only
+its last join is unset. Later records still need paired and MAIN. The join
+allocator selects a bit through a remaining-count index, so bit positions
+cannot be assigned permanently to lane numbers.
+
+A separate debugger-free, stopped final census walks all64 active records.
+Of195 occupied bits,193 have unique active owners:192 joins and one notification.
+No recorded owner names an available bit and no two recorded owners share an
+identity. Two occupied bits remain unaccounted for by this capture list; other
+pool0 users prevent classifying them as orphans. All64 records have error0,
+ownership4 and consecutive admissions278..341. This establishes accumulating
+unfinished owners before exhaustion, rather than completed owners failing to
+return their bits. It does not identify every upstream admission constraint.
+
+The active list's100 preallocated nodes are not a maximum: `1034fb4a` can
+allocate more nodes from General. No low-water admission test was found in the
+inspected guard/dispatch/list path. A different, smaller resource constrains
+MAIN consumers. In this mode, `10267c2c..10267c3e` retains ten resource74
+records in the FIFO at `b23630e0`, popping and releasing the oldest before
+creating the next through `102b64b0/1030d96e`. `10263d88` publishes the record
+through job+`3ce0`. MAIN's `1026916a ->102bdc20 ->102bd8ce` later follows this
+owner to record+4; PC `102bd93c` dereferences that final pointer.
+
+An independently qualified AF-probe-assisted run stops at that MAIN read with
+DFAR0, while419 event bits remain available. Its20 active records expose the
+ten-record reuse window: old serials161..165 point to the same records now
+labelled171..175. Failing serial166 retains record `b2c9b4e0`, whose captured
+prefix is zero, while176..180 have not published their resource74 pointer.
+The FIFO count is9. The actual class flag is1 and clear size is`118`, selecting
+the source free-and-clear path. The source release path, record identities and
+failure stack support eviction/reuse ahead of a late MAIN consumer. The exact
+write-zero instruction was not watched. This is distinct from AS/AF corruption
+and event-pool exhaustion; debugger time is not a throughput measurement.
+
+A later read-only QEMU TCG-plugin diagnostic closes the overflow route in one
+execution. At MAS VA `1030d9a4`, resource74 release has LR `10267c43`, identifying
+the pressure path rather than stop cleanup. Job84 still has lane3 unfinished;
+lane1 and lane2 are done. The same record enters its clear path, is allocated
+to94, and is then read by the old job84 consumer as sequence94. Across the
+bounded trace,30 releases retain an unfinished lane3 owner,27 consumers read a
+record ten sequences newer, and the last job268 reads a zero prefix before
+taking the same `102bd93c` exception. The clear-entry probe precedes the actual
+clear; it is not an after-clear memory snapshot. Later reuse and the final
+zero read are directly observed. All these lifecycle events execute on CPU1.
+
+The software joins do not permanently name lanes. Job+`1c` is the total join
+count and+`20` the remaining count; completion selects triple remaining−1 and
+then decrements it. The separately sampled old job393 still needs lane1's
+last join, but its queued conditional microstep `1026a0fc` alone does not prove
+a hardware wait. A request14/15 would submit a separate seven-node one-shot
+graph and return tag `42193009`, setting software bit`200`. Neither submission
+nor this callback occurs in the272-frame lifecycle trace. It therefore provides
+no justification to add that completion.
+
+The following bounded credit trace also closes without missing notification:
+193 normalized MAIN flag1 callbacks equal one initial discard,182 actual
+resource consumers, eight strict excess-credit skips and two startup cadence
+skips. The192 accepted credits are consumed by179 normal waited decrements,
+eight fast decrements and five startup resets. All184 waits succeed. The fast
+path requires credit greater than the quota, and deliberately bypasses the
+resource consumer. These are unlabelled ordered credits, not frame IDs. This
+window excludes an unexplained credit deficit; it does not prove that every
+historical failure shares its timing.
+
+Host-only latency measurements place the continuous MAIN cost in actual
+arithmetic: median17.94ms, compared with10us worker queueing,235us preparation,
+105us callback delivery and408us from ready callback through publication.
+Paired arithmetic separately measures24.93ms and total26.77ms. These diagnostic
+measurements motivate exact pixel-work reductions, not a clock change, pool
+tuning, invented completion or a larger firmware retention queue. Plugin
+callbacks and host timing instrumentation qualify this as diagnostic execution,
+separate from uninstrumented startup and mode-change acceptance.
+
+Exact warp numerator recurrence and separable output sampling reduce the MAIN
+cost without changing its equations or completion route. The candidate's first
+uninstrumented cold-neutral window completes two A/S/P/M cycles,3992 paired and
+3992 MAIN processing results over143.15 host seconds. Its nine sequential work
+censuses remain at1–2 active records; available event bits vary471–477. This
+supports bounded mode-change and record-retirement acceptance, not indefinite
+stability or a change to the firmware's ten-record lifetime assumption.
+
+### CaptureService callback backlog
+
+CaptureService's separate FIFO at MAS VA `b23ede14` contains callback work,
+not resource74 records. Original initializer `10328650 ->10225864` declares60
+entries of92 bytes at `b23ede2c`. Header+`0c` is the current count and+`10` the
+circular read index. Each entry contains a callback pointer, a callback-specific
+word, up to80 payload bytes, and zero padding. There is no shared kind or
+timestamp schema. Builder `10319d56` submits it; consumer `103191c2` synchronously
+calls its callback and then continues popping until empty. A full push returns
+zero; the builder does not propagate that failure. This is a source-established
+loss possibility, not an observed dropped request.
+
+Normal `041a0001` notifications conditionally queue callback `10325ff7` (OnVd)
+with16 payload bytes; alternate phase/state branches and independent completion
+and API requests have their own callbacks. A separate two-PC read-only plugin
+trace observes2244 successful OnVd enqueues and2188 dequeues. Every other
+callback class balances, and all56 entries in the stopped FIFO are OnVd. There
+are zero RAM read failures; paired/MAIN processing reaches2187 with zero
+exception flags. The trace stops at82.26 host seconds before the60-entry limit.
+Its instrumentation affects scheduling and it is not another acceptance run.
+The uninstrumented mode window separately reaches41 queued entries. The next
+boundary is OnVd's producer cadence versus actual per-callback waits and work;
+there is no basis to discard callbacks, enlarge the FIFO or fabricate completion.
+
+Device admission still requires real fresh RAW/grid input, a supported complete
+profile, ACK ownership and downstream capacity. Idle workers alone cannot
+identify a missing completion: the read-only paired `runtime` now exposes these
+pending/mask, selected-address, grid epoch and generation boundaries. No cache
+record, event identity, software slot or completion is supplied by the host.
+
 ## All graph-node requests and parameter reload
 
 `103b4cea ->103bd07c` writes backend+`0=1` for configured processing nodes,
@@ -65,8 +283,12 @@ in reverse graph order. Every one of the42 known ports now admits that request
 only after successful import, with reset deasserted and no outstanding start.
 The finite readback is0 before request and1 afterward. The original status
 predicate `103bdbbe` checks `(word &3) !=3`; no successful result is invented.
-Local reset cancels only that node's request and imported configuration;
-whole-device reset clears all requests. Neither produces pixels or events.
+The local `14=1/0` pulse opens and arms a replacement upload; the committed
+packet stays valid until a successful `10` import. Source `103bded0` performs
+this pulse without stopping the graph. The [MAIN ownership contract](../gate/processing.md)
+therefore preserves an already owned numerical snapshot and blocks future
+admissions during an incomplete upload. Whole-device reset clears all requests.
+Neither upload nor reset produces pixels or completion events.
 
 The separate [type0 capture contract](../gate/slots.md) atomically installs
 thirteen staged words at selector2c. Configuration-only worker
@@ -115,7 +337,15 @@ capture ring in order1/2/3/0, pitch `0x820`. Its source ROI is1380×778 within
 the existing1380×918 capture. A four-pixel border and main output1372×770
 correspond to kind26 pitch `0x560` and plane offset `0x102ac0`, also retained in
 the downstream gate slot8 packet. Kind25's four addresses match slot2's map,
-with decimal pitch96 and downstream60×34 dimensions.
+with decimal pitch96. The later recovered B48 maximum indices59/39 establish
+the consumer's full60×40 extent; the former60×34 output interpretation is removed.
+
+Unit8 producer VA `102643e2` publishes those kind25 descriptors through
+`102cd202`/`102cd176` into registry queue+144. Paired VA `1026405a` pops the
+same queue through `102cd2ba`: kind25 is a read dependency. VA `102be6b0`
+constructs RAW-relative map geometry; VA `1036bcde` packs it at B38..B58, while
+VA `1037f624` computes the dynamic B58 strengths. Their confidence-map numerical
+meaning remains an explicit [functional hypothesis](pixels.md).
 
 These joins establish bounded input and target storage.
 The kind31 work/reference pair is also enabled, with pitch `0x570`, two-plane

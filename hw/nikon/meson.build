@@ -24,6 +24,8 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/fill.c',
   'devices/flags.c',
   'devices/gate.c',
+  'devices/gategrid.c',
+  'devices/gateplane.c',
   'devices/gatepacket.c',
   'devices/gatepixels.c',
   'devices/gatework.c',

@@ -2,8 +2,9 @@
 
 The paired operator consumes four complete source-shaped parameter groups for
 MAIN color processing. These controls operate on actual computed twelve-bit
-YUV planes, before NV12 chroma averaging and byte conversion. WORK, grid and
-pre-color temporal history retain their existing data contracts. No parameter
+YUV planes, before NV12 chroma averaging and byte conversion. WORK and
+pre-color temporal history retain their existing data contracts. The separately
+produced kind25 confidence grid is a read dependency. No parameter
 write creates a frame, result, completion, IRQ or buffer release.
 
 ## Source boundaries
@@ -13,7 +14,7 @@ are hexadecimal within either paired bank; compact byte offsets are decimal.
 
 | Complete register group | Producer and packing | Dynamic numerical fields |
 | --- | --- | --- |
-| `b38..b58`, nine words | `102e57a6` passes configuration21+84, compact780, to `1036bcde` | `b58` high/low unsigned16 |
+| `b38..b58`, nine words | `102e57a6` passes configuration21+84, compact780, to `1036bcde` | `b3c/b40` starts, `b44` steps, `b48` extents, `b4c` origins and `b58` strengths |
 | `b94..bbc`, eleven words | `1036c02c`, `1036c0c0`, `1036c12a`, `1036c094` publish C, weights and adjacent controls | C and complementary `bac` low/high unsigned16 |
 | `d20..d9c`, thirty-two words | Configuration40+28, compact924, is the110-byte input of `1036c260` | `d28` high/low byte |
 | `dc0..dec`, twelve words | Configuration40+166 and scalar setters `1036c744/7a6/7e2/818/828` | Complete qualified family below |
@@ -92,7 +93,7 @@ and DE4's high byte to128. DE4's low byte is64 when row byte2 is1, otherwise128.
 The source proves packing, arithmetic, ranges and these dependencies. It does
 not identify a physical threshold, radius, mixing unit or hardware kernel.
 
-C, B58, BAC, D28 and the complete DC0..DEC family leave the explicit calibration
+Grid coordinates/dimensions, C, B58, BAC, D28 and the complete DC0..DEC family leave the explicit calibration
 image and are decoded. Every other word in the four groups must still match
 the complete declared virtual calibration profile. Unknown nonmatching controls
 remain blocking. The calibration file must leave interpreted slots, including
@@ -105,6 +106,13 @@ pass reads an immutable plane, replicates edge samples and clamps its final
 sample to0..4095. The following equations are selected functional laws, not
 recovered silicon algorithms.
 
+The implementation omits only algebraically identical passes on already
+clamped samples: zero unsharp or smoothing strength, or a kernel numerator
+made zero by amount, modifier or full retention. Remaining passes keep their
+order and immutable input/output buffers. The full five-pass scalar oracle
+still evaluates those zero corrections, including edge and 0/4095 cases.
+This optimization changes no parameter validity, result or completion rule.
+
 1. Apply A to actual RGB samples with the existing Q10 operation. Apply B in
    Q9, preserving signed chroma. Clamp Y to0..4095 and U/V to-2048..2047.
    C must preserve Y and have no luma/chroma cross terms. Calculate its signed
@@ -114,8 +122,13 @@ recovered silicon algorithms.
    for any legal complementary weights. The association of low with original
    and high with transformed is explicit hypothesis.
 2. B58 supplies a Y strength and a shared U/V strength. With center `c`, axial
-   neighbor sum `s` and the selected Q8 strength `k`, use
-   `c + round((4*c-s)*k/1024)`. Strength zero is algebraically neutral.
+   neighbor sum `s`, the selected Q8 strength `k`, and the bilinearly sampled
+   confidence `m`, use `c + round((4*c-s)*k*m/(1024*4095))`. The enabled kind25
+   map is an immutable packed12 input described in the [pixel contract](pixels.md).
+   A zero map or zero strength is neutral; a full4095 map reproduces the prior
+   unmodulated equation exactly. With grid control `12c=0`, that unmodulated
+   equation applies. This is a declared confidence-residual law, not a recovered
+   interpretation of R73 or the physical local-correction algorithm.
 3. D28 supplies an axial mean-blend strength followed by a diagonal mean-blend
    strength. Each pass uses `c + round((s-4*c)*strength/128)`. The second pass
    reads the completed first pass. Each strength is0..31; both apply to all
@@ -167,17 +180,18 @@ edge remains colorless, or that clipping preserves the image's global mean.
 
 ## Publication and validation
 
-All64 words across the four groups must have been explicitly written since
-reset, including zero-valued words. A first write changes publication coverage
-even if its retained value was already zero. It cancels an active immutable job;
-a changed covered value also cancels. Equal, already-covered writes preserve
-the job. MAIN-only post-color changes preserve pre-color history qualification.
-Whole-model reset clears all four coverage masks. Normal RAW ownership,
-preflight, output DMA, pending backpressure and completion publication remain
-the existing paired transaction's responsibility.
+Initial admission requires explicit publication of all64 words across the four
+groups, including zero-valued words. Online B58, C/BAC, D20..D9C and DC0..DEC
+uploads follow [online numerical uploads](pixels.md#online-numerical-uploads):
+the owned job finishes with its frozen parameters, while complete new groups
+qualify only future admission. These MAIN-only changes preserve pre-color
+history. Grid coordinates/layout and unknown opaque controls retain strict
+cancellation and profile checks; this does not expand their value domains.
+Reset clears coverage and cancels owned work. Live layout, RAM, alias, input
+ownership and pending-result fences still apply at completion.
 
 Synthetic pure fixtures independently compose centered C/BAC and exact rational
-spatial passes from the pre-color grid, covering asymmetric chroma, borders,
+spatial passes from independent pre-color reference scratch, covering asymmetric chroma, borders,
 hard steps, weak texture, all dynamic fields and all three complete tail
 families. They use independent coordinate enumeration and division/remainder
 rounding for the full five-pass oracle. Existing matrix fixtures
@@ -186,6 +200,7 @@ must leave every output unchanged. Integration fixtures use real P5 acquisition,
 packed RAW DMA and complete guest-side parameter publication, compare MAIN Y/UV
 including pitch guards, gray and colored edges, and cover every cold DC0..DEC
 prefix, malformed/reserved fields, tuple relations, opaque mismatches, reset,
-changed-configuration cancellation and equal-write preservation. Native results
-and unchanged-firmware progress are reported separately by the integration owner;
-the fixture definitions do not establish physical camera color or complete boot.
+future-snapshot uploads, immutable completion and reset cancellation. Native
+results and unchanged-firmware progress are reported separately by the
+integration owner; the fixture definitions do not establish physical camera
+color or complete boot.

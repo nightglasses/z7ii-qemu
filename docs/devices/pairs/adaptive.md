@@ -35,14 +35,16 @@ row index; precision and base decrease. Interpolation permits graded dose
 values, so the implementation does not reduce it to an enable bit or whitelist
 the previously observed zero and one. Every field is validated, including the
 fixed scalars, zero bytes and packed constants. All eight words must have been
-written in the current device reset epoch. An omitted or partially published
-packet rejects even when its available words happen to match the profile.
+written in the current device reset epoch. Initial admission rejects an omitted
+or partially published packet even when available words match the profile.
 
 These eight interpreted calibration-file words must be zero; original guest
-writes supply them. A changed word or first write of a previously unwritten
-word cancels owned work and invalidates numerical history through the existing
-configuration lifecycle. Equal writes to a completely published packet preserve
-active work and history. Whole-device reset clears coverage and words. None of
+writes supply them. Under
+[online numerical uploads](pixels.md#online-numerical-uploads), complete changed
+packets invalidate future pre-color history and advance its revision. An owned
+job retains its private history and may finish DMA/IRQ, but cannot register
+new history under the old revision. Stop cancels owned work and clears open
+online rounds; reset also clears the words and publication coverage. None of
 these configuration writes produces a numerical completion or an IRQ.
 
 ## Finite numerical operator

@@ -94,6 +94,71 @@ static void test_timing(void)
     g_assert_cmpuint(row[11] + q, ==, 131);
 }
 
+static void test_timing_groups(void)
+{
+    static const unsigned rows[] = {
+        0xbe280, 0xbe290, 0xbe2a0, 0xbe2b0,
+        0xbe340, 0xbe350, 0xbe360, 0xbe370,
+    };
+    static const uint8_t declaration[16] = {
+        0, 0, 0, 0x10, 0, 0, 0x76, 0x89, 0, 0, 0, 1, 0x48, 0, 0, 0,
+    };
+    g_autoptr(GBytes) bytes = nikon_module_cold_neutral();
+    g_autofree uint8_t *expected = g_malloc0(NIKON_MODULE_SLOT_SIZE);
+    const uint8_t *data = g_bytes_get_data(bytes, NULL);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(rows); i++) {
+        const uint8_t *row = data + rows[i];
+
+        /* This assertion is red with the former subtype3-only declaration. */
+        g_assert_cmpuint(lduw_le_p(row + 2), ==, 4096);
+        g_assert_cmpmem(row, sizeof(declaration), declaration,
+                        sizeof(declaration));
+        memcpy(expected + rows[i], declaration, sizeof(declaration));
+    }
+    expected[0xbe014] = 0x15;
+    memcpy(expected + 0x17fffc, "ENDM", 4);
+    /* Other groups, capture/script records and every footer byte stay fixed. */
+    g_assert_cmpmem(data, NIKON_MODULE_SLOT_SIZE, expected,
+                    NIKON_MODULE_SLOT_SIZE);
+}
+
+static void test_active_timing(void)
+{
+    static const struct {
+        unsigned offset, helper, quotient, q, count, duration;
+        int bias;
+    } cases[] = {
+        { 0xbe280, 59940, 38438, 9384, 294, 16725, 2 },
+        { 0xbe290, 29970, 76876, 18768, 588, 33450, 2 },
+        { 0xbe340, 1000000, 2304, 562, 16, 910, 0 },
+    };
+    g_autoptr(GBytes) bytes = nikon_module_cold_neutral();
+    const uint8_t *data = g_bytes_get_data(bytes, NULL);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cases); i++) {
+        const uint8_t *row = data + cases[i].offset;
+        unsigned period = lduw_le_p(row + 2);
+        unsigned divisor, quotient, q, count, duration;
+
+        /* 103066be rounds the positive row parameter up. */
+        divisor = ((uint64_t)72000 * period + 71999) / 72000;
+        g_assert_cmpuint(divisor, ==, 4096);
+        /* Preserve the source's divide-before-multiply truncation. The
+         * signed bias is caller state, not a field supplied by this input. */
+        quotient = UINT32_C(0x89544000) / cases[i].helper;
+        g_assert_cmpuint(quotient, ==, cases[i].quotient);
+        g_assert_cmpuint((uint64_t)quotient * 1000, <=, UINT32_MAX);
+        q = quotient * 1000u / divisor;
+        count = (q / 32 / 2) * 2 + cases[i].bias;
+        g_assert_cmpuint(q, ==, cases[i].q);
+        g_assert_cmpuint(count, ==, cases[i].count);
+        g_assert_cmpuint((uint64_t)period * count, <=, UINT32_MAX);
+        duration = period * count / 72;
+        g_assert_cmpuint(duration, ==, cases[i].duration);
+    }
+}
+
 static void run_cli(char **argv, int expected_status, const char *message)
 {
     g_autofree char *output = NULL;
@@ -234,6 +299,78 @@ static void test_regions(void)
     g_assert_cmpint(rmdir(directory), ==, 0);
 }
 
+static void test_group(void)
+{
+    g_autofree char *directory = g_dir_make_tmp("nikon-group-XXXXXX", NULL);
+    g_autofree char *input = g_build_filename(directory, "input.bin", NULL);
+    g_autofree char *output = g_build_filename(directory, "output.bin", NULL);
+    g_autofree uint8_t *before = g_malloc0(0x20001);
+    g_autofree char *after = NULL;
+    g_autoptr(GBytes) source_bytes = NULL;
+    g_autoptr(GBytes) encoded = NULL;
+    g_autoptr(GError) error = NULL;
+    uint8_t changed[0x20000] = { 0 };
+    char profile[] = NIKON_MODULE_GROUP_PROFILE;
+    char *valid[] = { tool, profile, input, output, NULL };
+    char *missing[] = { tool, profile, input, NULL };
+    gsize size;
+
+    for (unsigned i = 0; i < 0x20001; i++) {
+        before[i] = i * 31 + (i >> 8) * 13;
+    }
+    source_bytes = g_bytes_new(before, 0x20000);
+    encoded = nikon_module_functional_group(source_bytes, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(encoded);
+    g_assert_cmpmem(g_bytes_get_data(source_bytes, NULL), 0x20000,
+                    before, 0x20000);
+    memset(changed + 0x11500 + 0x1800, 1, 27 * 4);
+    memset(changed + 0x11500 + 0x186c, 1, 4 * 96);
+    memset(changed + 0x11500 + 0x19ec, 1, 16);
+    memset(changed + 0x11500 + 0x1a1c, 1, 130);
+    memset(changed + 0x11500 + 0x26b0, 1, 100);
+    const uint8_t *data = g_bytes_get_data(encoded, &size);
+
+    g_assert_cmpuint(size, ==, 0x20000);
+    for (unsigned i = 0; i < size; i++) {
+        if (!changed[i]) {
+            g_assert_cmphex(data[i], ==, before[i]);
+        }
+    }
+    for (unsigned variant = 0; variant < 5; variant++) {
+        unsigned base = 0x11500 + (variant == 4 ? 0x26b0 : 0x186c + variant * 96);
+
+        for (unsigned filter = 0; filter < 3; filter++) {
+            for (unsigned tap = 0; tap < 8; tap++) {
+                g_assert_cmpuint(ldl_le_p(data + base + (filter * 8 + tap) * 4),
+                                 ==, tap == 3 ? 1 : tap == 4 + filter ? 127 : 0);
+            }
+        }
+    }
+    for (unsigned i = 0; i < 65; i++) {
+        g_assert_cmpuint(lduw_le_p(data + 0x12f1c + i * 2), ==,
+                         MIN(i * 1024, 65535));
+    }
+    g_assert_true(g_file_set_contents(input, (const char *)before, 0x20000, NULL));
+    run_cli(valid, 0, NULL);
+    g_assert_true(g_file_get_contents(output, &after, &size, NULL));
+    g_assert_cmpmem(after, size, data, 0x20000);
+    run_cli(missing, 2, "usage:");
+    for (unsigned length = 0x1ffff; length <= 0x20001; length += 2) {
+        g_autoptr(GBytes) invalid = g_bytes_new(before, length);
+        g_autoptr(GBytes) result = nikon_module_functional_group(invalid, &error);
+
+        g_assert_null(result);
+        g_assert_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+        g_clear_error(&error);
+        g_assert_true(g_file_set_contents(input, (const char *)before, length, NULL));
+        run_cli(valid, 3, "exactly");
+    }
+    unlink(input);
+    unlink(output);
+    rmdir(directory);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -242,7 +379,10 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/module/layout", test_layout);
     g_test_add_func("/nikon/module/readsets", test_readsets);
     g_test_add_func("/nikon/module/timing", test_timing);
+    g_test_add_func("/nikon/module/timing-groups", test_timing_groups);
+    g_test_add_func("/nikon/module/active-timing", test_active_timing);
     g_test_add_func("/nikon/module/cli", test_cli);
     g_test_add_func("/nikon/module/regions", test_regions);
+    g_test_add_func("/nikon/module/group", test_group);
     return g_test_run();
 }

@@ -37,7 +37,7 @@ struct NikonSPIState {
     uint64_t token;
     int64_t next_deadline_ns;
     bool dma_bound, async_bound, waiting, submitted;
-    bool asserted, shifting, overflow, reported_error;
+    bool asserted, shifting, overflow, reported_error, catching_up;
 };
 
 static void nikon_spi_irq(NikonSPIState *s)
@@ -108,14 +108,6 @@ static void nikon_spi_schedule(NikonSPIState *s)
     timer_mod(s->timer, s->next_deadline_ns);
 }
 
-static void nikon_spi_clock_update(void *opaque, ClockEvent event)
-{
-    NikonSPIState *s = opaque;
-
-    /* An active word keeps its sampled rate; changes apply to its successor. */
-    nikon_spi_schedule(s);
-}
-
 static void nikon_spi_complete(NikonSPIState *s, uint32_t received,
                                 bool transmit)
 {
@@ -166,6 +158,7 @@ static void nikon_spi_shift(void *opaque)
     uint8_t bytes[4];
     unsigned bits = ((s->aux >> 8) & 31) + 1;
     uint32_t mask = bits == 32 ? UINT32_MAX : (1U << bits) - 1;
+    bool catching_up;
 
     if (s->asserted || !(s->enable & 1) || !(s->ctrl & 0x20) ||
         fifo32_is_empty(&s->tx)) {
@@ -181,7 +174,59 @@ static void nikon_spi_shift(void *opaque)
     }
     /* In-process upstream SSI retains its disconnected MISO-low behavior. */
     fifo8_peek_buf(&s->tx.fifo, bytes, sizeof(bytes));
+    /* Ordinary timer delivery can also reenter MMIO through IRQ/DMA sinks. */
+    catching_up = s->catching_up;
+    s->catching_up = true;
     nikon_spi_complete(s, ssi_transfer(s->bus, ldl_le_p(bytes) & mask), true);
+    s->catching_up = catching_up;
+}
+
+static void nikon_spi_catchup(NikonSPIState *s)
+{
+    unsigned queued = fifo32_num_used(&s->tx);
+    uint64_t token = s->token;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    /*
+     * A delayed main-loop callback does not stop the synchronous serial clock.
+     * Complete only words already queued at this observation, using their
+     * sampled deadlines. IRQ/DMA callbacks can reenter MMIO and refill TX;
+     * neither recursion nor that new supply may make this observation unbound.
+     * A stopped input clock still permits the active sampled word to finish;
+     * schedule() prevents its successor from starting without a clock.
+     */
+    /*
+     * HDMAC defers a beat while this device is inside MMIO. Retiring several
+     * words here would deny its normal per-word RX drain and could overflow a
+     * FIFO that timer-driven arbitration would empty. DMA therefore keeps its
+     * timer path; clock pre-update outside SPI MMIO can still arbitrate beats.
+     */
+    if (s->catching_up || s->async_bound ||
+        (s->dma_bound && (s->ctrl & 0x400) &&
+         DEVICE(s)->mem_reentrancy_guard.engaged_in_io)) {
+        return;
+    }
+    s->catching_up = true;
+    while (queued-- && s->token == token && !s->asserted &&
+           (s->enable & 1) && (s->ctrl & 0x20) && s->shifting &&
+           s->next_deadline_ns && s->next_deadline_ns <= now) {
+        timer_del(s->timer);
+        nikon_spi_shift(s);
+    }
+    s->catching_up = false;
+}
+
+static void nikon_spi_clock_update(void *opaque, ClockEvent event)
+{
+    NikonSPIState *s = opaque;
+
+    if (event == ClockPreUpdate) {
+        /* Retire elapsed queued words while their old input rate is visible. */
+        nikon_spi_catchup(s);
+    } else {
+        /* An active word keeps its sampled rate; changes affect its successor. */
+        nikon_spi_schedule(s);
+    }
 }
 
 bool nikon_spi_slave_clock(DeviceState *dev, uint32_t received, unsigned bits,
@@ -298,6 +343,16 @@ static MemTxResult nikon_spi_read(void *opaque, hwaddr offset, uint64_t *value,
                        (s->ctrl & 0x400))) || (offset & 3)) {
         goto error;
     }
+    /* Reject unsupported observations before advancing any real bus work. */
+    switch (offset) {
+    case 4: case 8: case 0xc: case 0x10: case 0x14: case 0x18: case 0x1c:
+    case 0x20: case 0x24: case 0x2c: case 0x30: case 0x34: case 0x38:
+    case 0x3c: case 0x48: case 0x4c: case 0x60: case 0x64:
+        break;
+    default:
+        goto error;
+    }
+    nikon_spi_catchup(s);
     switch (offset) {
     case 4:
         if (s->asserted || fifo32_is_empty(&s->rx)) {
@@ -381,6 +436,56 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
                        (s->ctrl & 0x400))) || (offset & 3)) {
         goto error;
     }
+    /* Value/configuration errors must not dispatch overdue transfers either. */
+    switch (offset) {
+    case 0: case 0x34:
+        break;
+    case 8: case 0x18: case 0x1c: case 0x38:
+        if (value > 0xff || (s->enable & 1)) {
+            goto error;
+        }
+        break;
+    case 0xc:
+        if ((value & ~0xc3f) || ((value & 0x400) && !s->dma_bound) ||
+            (s->enable & 1)) {
+            goto error;
+        }
+        break;
+    case 0x10:
+        if ((value & ~0x1fbf) || (s->enable & 1)) {
+            goto error;
+        }
+        break;
+    case 0x20: case 0x28:
+        if (value & ~0x1ff) {
+            goto error;
+        }
+        break;
+    case 0x3c:
+        if ((value & ~(s->channel == 8 ? 0xf : 1)) ||
+            ((value & 1) && s->asserted)) {
+            goto error;
+        }
+        break;
+    case 0x4c:
+        if (value & ~0xffff) {
+            goto error;
+        }
+        break;
+    case 0x60:
+        if (value > 1) {
+            goto error;
+        }
+        break;
+    case 0x64:
+        if (value > 1 || ((s->ctrl & 0x20) && value)) {
+            goto error;
+        }
+        break;
+    default:
+        goto error;
+    }
+    nikon_spi_catchup(s);
     switch (offset) {
     case 0:
         if (s->asserted || fifo32_is_full(&s->tx)) {
@@ -390,30 +495,17 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         nikon_spi_events(s);
         break;
     case 8:
-        if (value > 0xff || (s->enable & 1)) {
-            goto error;
-        }
         s->div = value;
         break;
     case 0xc:
-        if ((value & ~0xc3f) || ((value & 0x400) && !s->dma_bound) ||
-            (s->enable & 1)) {
-            goto error;
-        }
         s->ctrl = value;
         break;
     case 0x10:
-        if ((value & ~0x1fbf) || (s->enable & 1)) {
-            goto error;
-        }
         s->aux = value;
         break;
     case 0x18:
     case 0x1c:
     case 0x38:
-        if (value > 0xff || (s->enable & 1)) {
-            goto error;
-        }
         if (offset == 0x18) {
             s->select = value;
         }
@@ -425,16 +517,10 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         }
         break;
     case 0x20:
-        if (value & ~0x1ff) {
-            goto error;
-        }
         s->ien = value;
         nikon_spi_irq(s);
         break;
     case 0x28:
-        if (value & ~0x1ff) {
-            goto error;
-        }
         s->pending &= ~value;
         if (value & 0x80) {
             s->overflow = false;
@@ -445,9 +531,6 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         s->dma_timeout = value;
         break;
     case 0x3c:
-        if (value & ~(s->channel == 8 ? 0xf : 1)) {
-            goto error;
-        }
         if ((value & 1) && s->asserted) {
             goto error;
         }
@@ -458,16 +541,10 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         nikon_spi_events(s);
         break;
     case 0x4c:
-        if (value & ~0xffff) {
-            goto error;
-        }
         s->watermark = value;
         nikon_spi_events(s);
         break;
     case 0x60:
-        if (value > 1) {
-            goto error;
-        }
         s->asserted = value;
         if (value) {
             nikon_spi_flush(s);
@@ -475,9 +552,6 @@ static MemTxResult nikon_spi_write(void *opaque, hwaddr offset, uint64_t value,
         nikon_spi_irq(s);
         break;
     case 0x64:
-        if (value > 1 || ((s->ctrl & 0x20) && value)) {
-            goto error;
-        }
         s->slave_request = value;
         break;
     default:
@@ -519,7 +593,8 @@ static void nikon_spi_init(Object *obj)
     fifo32_create(&s->rx, SPI_DEPTH);
     s->bus = ssi_create_bus(DEVICE(obj), "spi");
     s->clock = qdev_init_clock_in(DEVICE(obj), "spi-clock",
-                                 nikon_spi_clock_update, s, ClockUpdate);
+                                 nikon_spi_clock_update, s,
+                                 ClockPreUpdate | ClockUpdate);
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_spi_shift, s);
     memory_region_init_io(&s->regs, obj, &nikon_spi_ops, s, "nikon.spi", 0x100);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);

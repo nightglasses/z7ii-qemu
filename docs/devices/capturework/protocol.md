@@ -86,11 +86,59 @@ parameters, buffers and completed input. It adds no physical MMIO:
 Both command ports latch independently. Staging/unselected commits preserve
 the job; equal commits preserve ring phase. Changed modeled snapshots cancel
 active work and prevent replay of already delivered input. All four run gates must
-hold. Stop/disable/unit reset/system reset cancels the1ms virtual processing
-timer without a data cause; restart cannot replay old input. Pending frontend,
-paired and statistics data provide backpressure. The immutable job survives
+hold. Stop/disable/unit reset/system reset cancels the owned processing job
+without a data cause; restart cannot replay old input. Its own pending
+RAW packet provides backpressure; statistics raw0.bit6 does not own this path.
+The immutable job survives
 source RAM reuse. Time/TG/commit alone cannot create a frame. Unsupported
 geometry/LUT/format/ring/RAM/overlap/wrap rejects without completion.
+
+Successful MAIN publication signals input-ready directly. The job can therefore
+snapshot its fresh bytes without waiting for an additional TG boundary. The
+earlier extra-TG association was a functional scheduling choice, not a source
+requirement. This input signal does not acknowledge the preceding output or
+publish a new processing cause: pending ownership still blocks admission, and
+only the completed packing/DMA job supplies its normal causes.
+
+Capture-control also retries this same admission path when an accepted W1C
+clears the complete frontend predicate: raw0 bits `0x18` and raw4 bit `0x80`
+must all be clear. Partial/unrelated ACKs do not retry. A fresh qualified MAIN
+snapshot can therefore begin its actual packing/DMA job immediately after
+capacity returns, while generation, run, configuration and active-job checks
+still prevent replay or completion from ACK alone. The shared
+[capacity contract](../readoutpipeline/input.md#fresh-edge-arbitration-and-lifetime)
+defines the independent statistics/group predicates and native checks.
+
+Admission preflights the complete selected ring and freezes the committed
+correction, geometry, packing, LUT, cursor and copied MAIN bytes in one private
+job. After the existing minimum 1 ms virtual delay, QEMU's thread pool computes
+only the exact nearest/CFA sample selection, LUT lookup and bit packing into
+private contiguous row payloads. The worker accesses no guest RAM, device state
+or IRQ. Its AIO completion only marks readiness and arms a virtual timer; it
+cannot publish while the virtual clock is stopped. That timer rechecks output
+RAM and the producer's own pending packet before withdrawing the destination's
+old descriptor and DMAing the actual row payloads. Row padding remains untouched
+as it exists at DMA time. Descriptor publication, causes and ring advancement
+still require every row to succeed.
+
+There is at most one owned task per device, bounded by the existing four-million
+sample input limit. Cancellation invalidates its token immediately but retains
+executing worker buffers until host completion; stale work cannot DMA, release a
+slot or publish causes. Once it is released, the existing admission checks may
+retry a newer still-unconsumed MAIN snapshot. Commit/run epoch barriers continue
+to reject already delivered input, and no busy edge or host completion queues
+frame credits. Unrealize drains the bounded task through QEMU AIO. Read-only
+`inflight` distinguishes submitted host work from a published frame.
+
+The native snapshot fixture replaces the pipeline's MAIN buffer with a second
+actual white acquisition while the first job owns its source, changes only
+uncommitted parameters and destination padding, then checks both exact RAW12
+outputs and the 999999 ns plus 1 ns minimum boundary. Submitted-cancel cases
+issue stop, changed commit or reset after the minimum and immediately configure
+a fresh RAW16 job. They accept either legal publication/cancellation interleaving,
+then require exact new bytes and no stale overwrite or duplicate generation.
+These are numerical/lifecycle identity checks; they do not assert host worker
+speed or deterministically intercept a running worker.
 
 There is no group completion, guest callback, cache write, display enable or
 guessed953c-family result. Configuration retention alone remains silent.

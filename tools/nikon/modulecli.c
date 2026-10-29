@@ -15,7 +15,9 @@ int main(int argc, char **argv)
     if (argc == 3 && !strcmp(argv[1], NIKON_MODULE_PROFILE) && *argv[2]) {
         bytes = nikon_module_cold_neutral();
         output = argv[2];
-    } else if (argc == 4 && !strcmp(argv[1], NIKON_MODULE_REGIONS_PROFILE) &&
+    } else if (argc == 4 &&
+               (!strcmp(argv[1], NIKON_MODULE_REGIONS_PROFILE) ||
+                !strcmp(argv[1], NIKON_MODULE_GROUP_PROFILE)) &&
                *argv[2] && *argv[3]) {
         if (!g_file_get_contents(argv[2], &input, &size, &error)) {
             fprintf(stderr, "cannot read descriptor17 input '%s': %s\n",
@@ -23,7 +25,9 @@ int main(int argc, char **argv)
             return 3;
         }
         source = g_bytes_new_take(g_steal_pointer(&input), size);
-        bytes = nikon_module_neutral_regions(source, &error);
+        bytes = !strcmp(argv[1], NIKON_MODULE_GROUP_PROFILE) ?
+            nikon_module_functional_group(source, &error) :
+            nikon_module_neutral_regions(source, &error);
         if (!bytes) {
             fprintf(stderr, "invalid descriptor17 input '%s': %s\n",
                     argv[2], error->message);
@@ -32,9 +36,11 @@ int main(int argc, char **argv)
         output = argv[3];
     } else {
         fprintf(stderr, "usage: %s %s OUTPUT\n"
+                "       %s %s INPUT_DESCRIPTOR17 OUTPUT\n"
                 "       %s %s INPUT_DESCRIPTOR17 OUTPUT\n",
                 argv[0], NIKON_MODULE_PROFILE,
-                argv[0], NIKON_MODULE_REGIONS_PROFILE);
+                argv[0], NIKON_MODULE_REGIONS_PROFILE,
+                argv[0], NIKON_MODULE_GROUP_PROFILE);
         return 2;
     }
     data = g_bytes_get_data(bytes, &size);

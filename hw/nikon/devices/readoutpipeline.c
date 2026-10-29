@@ -47,7 +47,8 @@ struct NikonReadoutPipeline {
     NikonCaptureInput main_input;
     uint8_t *main_data;
     uint64_t main_generation;
-    bool prefer_main;
+    uint64_t batch_aux;
+    qemu_irq main_input_ready, input_ready;
     bool main_selected[4], main_valid[2], main_running[3], input_main;
     uint32_t correction, main_width, main_height;
     MainGeometry geometry;
@@ -142,8 +143,7 @@ static void main_input_run(void *opaque, int n, int level)
 static bool main_input_ready(const NikonReadoutPipeline *s)
 {
     return s->main_running[0] && s->main_running[1] && s->main_running[2] &&
-           s->main_valid[0] && s->main_valid[1] &&
-           !nikon_capture_data_pending(s->capture);
+           s->main_valid[0] && s->main_valid[1];
 }
 
 static void main_input_begin(NikonReadoutPipeline *s)
@@ -218,40 +218,17 @@ static void nikon_readout_pipeline_request(void *opaque, int n, int level)
     s->accepted++;
 }
 
-static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
+static void auxiliary_input_begin(NikonReadoutPipeline *s)
 {
-    NikonReadoutPipeline *s = opaque;
     NikonReadoutC170Mapping *m = &s->mapping;
-    bool rising = level && !s->input_high;
     NikonCmosSubmission submission;
     Error *err = NULL;
+    uint64_t generation = s->batch_aux;
 
-    s->input_high = !!level;
-    if (!rising || s->submitted || s->main_token) {
+    s->batch_aux = 0;
+    if (!generation || generation != s->active_generation) {
         return;
     }
-    if (!s->active_generation) {
-        main_input_begin(s);
-        if (s->main_token) {
-            s->prefer_main = false;
-        }
-        return;
-    }
-    /* One real provider serializes both domains. A fresh TG alternates eligible
-     * main/auxiliary work; busy edges never become acquisition credits.
-     */
-    if (s->prefer_main && main_input_ready(s)) {
-        main_input_begin(s);
-        if (s->main_token) {
-            s->prefer_main = false;
-            return;
-        }
-    }
-    /*
-     * Functional input association: an owned request consumes a fresh TG
-     * boundary. Busy/earlier edges are not queued. The existing CMOS engine
-     * still owns timed chunks, actual DMA and completion/error/cancellation.
-     */
     submission = (NikonCmosSubmission) {
         .width = m->width,
         .height = m->height,
@@ -278,7 +255,25 @@ static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
     }
     s->input_sync = s->input_run;
     s->submitted = true;
-    s->prefer_main = true;
+}
+
+static void nikon_readout_pipeline_input_rise(void *opaque, int n, int level)
+{
+    NikonReadoutPipeline *s = opaque;
+    bool rising = level && !s->input_high;
+
+    s->input_high = !!level;
+    if (!rising || s->submitted || s->main_token) {
+        return;
+    }
+    /* One fresh edge admits at most two independent views. CMOS serializes
+     * MAIN first and this already-owned auxiliary generation second; busy
+     * edges and requests arriving during MAIN create no deferred credits. */
+    s->batch_aux = s->active_generation;
+    main_input_begin(s);
+    if (!s->main_token) {
+        auxiliary_input_begin(s);
+    }
 }
 
 static void main_input_event(NikonReadoutPipeline *s, unsigned event)
@@ -319,6 +314,8 @@ static void main_input_event(NikonReadoutPipeline *s, unsigned event)
                           causes, ARRAY_SIZE(causes), &error_abort);
     s->main_completed++;
     s->input_notifications++;
+    qemu_irq_pulse(s->main_input_ready);
+    qemu_irq_pulse(s->input_ready);
 }
 
 static void nikon_readout_pipeline_event(void *opaque, int n, int level)
@@ -332,6 +329,9 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
     }
     if (s->main_token) {
         main_input_event(s, n);
+        if (!s->main_token) {
+            auxiliary_input_begin(s);
+        }
         return;
     }
     if (!s->active_generation || !s->submitted) {
@@ -390,6 +390,7 @@ static void nikon_readout_pipeline_event(void *opaque, int n, int level)
                                   causes, ARRAY_SIZE(causes), &err)) {
             s->completed++;
             s->input_notifications += input_sync;
+            qemu_irq_pulse(s->input_ready);
         } else {
             error_free(err);
             s->stale++;
@@ -407,6 +408,9 @@ static void nikon_readout_pipeline_cancel(void *opaque, int n, int level)
 {
     NikonReadoutPipeline *s = opaque;
 
+    if (level) {
+        s->batch_aux = 0;
+    }
     if (level && s->submitted) {
         nikon_cmos_cancel(s->cmos);
     } else if (level && s->active_generation) {
@@ -434,7 +438,7 @@ static void nikon_readout_pipeline_reset(DeviceState *dev)
     s->input_sync = false;
     s->main_token = s->input_generation = s->main_generation = 0;
     s->input_main = s->input_run = false;
-    s->prefer_main = false;
+    s->batch_aux = 0;
     memset(s->main_selected, 0, sizeof(s->main_selected));
     memset(s->main_valid, 0, sizeof(s->main_valid));
     memset(s->main_running, 0, sizeof(s->main_running));
@@ -468,6 +472,9 @@ static void nikon_readout_pipeline_init(Object *obj)
 {
     NikonReadoutPipeline *s = NIKON_READOUT_PIPELINE(obj);
 
+    qdev_init_gpio_out_named(DEVICE(obj), &s->main_input_ready,
+                             "main-input-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->input_ready, "input-ready", 1);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_request,
                             "request", 1);
     qdev_init_gpio_in_named(DEVICE(obj), nikon_readout_pipeline_cancel,

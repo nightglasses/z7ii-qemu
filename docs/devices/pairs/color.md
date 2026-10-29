@@ -57,6 +57,17 @@ or interpolation. The matched index reconstructs linear RAW12 as
 `(index*257)>>4`, before any filter, history, grid, white balance or MAIN color
 operation. The packed DMA bytes remain encoded and unchanged.
 
+The snapshot constructs one4096-entry inverse from those validated unique
+knots. Every other entry is an invalid sentinel. Direct lookup therefore
+preserves the same exact-code rejection and reconstruction as the former
+per-pixel binary search while reducing work under QEMU's global lock. The
+table belongs to this snapshot; LINEAR input does not read it. Native fixtures
+compare all256 decoded codes from two different tables with independently
+packed LINEAR input across resets, including both RAW12 endpoints, late holes,
+complete MAIN output, guards, input immutability and IRQ/deadline ownership.
+These are arithmetic-equivalence tests, not a claimed old-model semantic failure
+or proof of real-time original-firmware progress.
+
 This is an explicit virtual producer/consumer codec contract, not a recovered
 Nikon decompander. Forward encoding discards the source low byte by indexing
 with `sample>>8`. Reconstruction chooses endpoint-aligned values `index*257`

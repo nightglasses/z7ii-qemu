@@ -310,15 +310,40 @@ and publishes raw0.bit0. A premature DONE leaves the active job intact.
 Statistics and paired processing retain their own configured DMA/result and
 completion requirements; acquisition emits none of their completion causes.
 
-The single engine is not preempted. An accepted auxiliary request may wait
-behind an in-flight main frame; the next fresh TG serves that request before
-another main frame. Earlier/busy/repeated-high edges create no credits.
+The single engine is not preempted. One fresh automatic TG rise admits a
+finite batch of at most two views: the eligible MAIN snapshot and the
+auxiliary generation already owned at that edge. MAIN runs first; its actual
+DONE, ERROR or CANCEL releases the engine to that admitted auxiliary without
+another TG edge. An invalid MAIN profile does not discard valid auxiliary
+ownership, and invalid auxiliary transport does not discard eligible MAIN.
+This serial two-view batch is a functional acquisition assumption motivated
+by the independent source unit lifecycles; it is not physical sensor timing
+or proof that these views represent one measured exposure.
+
+Earlier/busy/repeated-high edges create no credits. An auxiliary request
+arriving after batch admission waits for a later fresh TG even if the current
+MAIN view subsequently completes. A cancelled queued auxiliary generation
+cannot be replaced inside that batch by a newer request. No generic request
+queue or accumulated TG scheduler is introduced.
 Main and auxiliary deliveries use one monotonic input-generation namespace,
 and each processing job copies its selected input. Masked main notifications
 coalesce in retained status without stopping acquisition. A pending **enabled**
-raw6 data notification still backpressures acquisition/statistics; a masked
-raw6 does not block mode1's ring completion. Mask changes do not themselves
+raw6 data notification backpressures statistics alone; a masked raw6 does not
+block mode1's ring completion. The earlier acquisition/statistics cross-gate
+was a finite scheduling assumption, superseded by independent packet ownership:
+MAIN continues fresh eligible acquisitions and capture-work blocks only on
+its raw0 mask18 or raw4 mask80. Each processing job already owns a private input
+copy. This separation is a functional inference from the independent unit
+controls and consumers, not a physical cross-unit timing measurement.
+Mask changes do not themselves
 produce a frame, numerical result or completion.
+
+Only a successful immutable snapshot and normal capture publication pulse
+`input-ready`. MAIN additionally pulses `main-input-ready`, after its dedicated
+MAIN snapshot is visible. These outputs carry actual input availability,
+never a TG promise, readiness fabrication or downstream completion. The pulse
+handlers can snapshot the published bytes before the admitted auxiliary
+begins. Failed, cancelled, stale or merely submitted views produce no pulse.
 
 Changed selected configuration or a falling main/geometry run gate cancels
 only active main ownership. Equal commits and staging preserve the active
@@ -340,7 +365,17 @@ cancellation, equal/changed commits, staging, each run gate, reset and fresh
 edges, missing provider and unsupported geometry/correction. These are finite
 device tests, separately from original-firmware startup.
 
-The applicable batch passes32 CMOS,33 sensor and32 memory cases. In a final
+The later `/nikon/cmos/pipeline/two-views` fixture checks one fresh TG against
+the former alternating-view behavior: both actual auxiliary DMA and one MAIN
+snapshot must complete, with two CMOS frame completions and no second TG.
+Its companion fixtures cover busy-edge discard, a late/replaced auxiliary
+request, independent MAIN/auxiliary cancellation, changed MAIN configuration,
+whole-model reset and invalid profiles in either domain. The existing MAIN
+domain fixture still checks that auxiliary pixels cannot replace the dedicated
+MAIN input consumed by capture processing. Native results for this batch
+change are reported separately from the historical execution below.
+
+The earlier applicable batch passed32 CMOS,33 sensor and32 memory cases. In a final
 45-host-second unchanged-firmware cold-neutral window,985 independent main
 frames complete with no main rejection/cancellation, after290 auxiliary DMAs.
 Acquisition therefore survives the auxiliary stop. Statistics completes290
