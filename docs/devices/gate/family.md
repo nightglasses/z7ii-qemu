@@ -103,14 +103,76 @@ In the observed graph, type18 consumes type10/resource49's output, which also
 routes to type0/slot4. Starting type18 before that producer cannot supply its
 statistics.
 
-Result reader `103bd5ca` consumes PA `20100200`, two groups of four8-byte
-records at `20100220..25c` and four12-byte records at `20100280..2ac`. It decodes
-14-bit fields, signed15-bit fields and wide accumulators. Optional caller
-pointers receive CPU copies of four1024-byte workspace banks after SYS clears.
-Release helper `1038897e` clears those pointers before reading the metadata,
-so absent copies do not eliminate the result-register dependency. Numerical
-equations, histogram/bin association and result publication conditions remain
-unrecovered; the model does not return fabricated completed-zero statistics.
+Result reader `103bd5ca` consumes the following sparse PA groups. All accesses
+are aligned little-endian 32-bit words; gaps and writes remain unsupported.
+
+| PA | Source-decoded result |
+| --- | --- |
+| `20100200` | Four opaque bytes at result offsets `80..83` |
+| `20100220/224 + 8*i` | Four `{u14 field0, u14 field1, s15 field2}` records |
+| `20100240/244 + 8*i` | Another four records of the same shape |
+| `20100280/284/288 + 12*i` | Four `{u14 field0, u14 field1, signed49 scalar}` records; high word supplies 17 bits |
+| `24010000 + 400*i` | Four optional 1024-byte CPU copies after SYS clears |
+
+Here `i` is decimal 0..3. Code and software-result offsets are MAS VA; table
+addresses are PA. The positive signed49 limit is `2^48-1`. Release helper
+`1038897e` clears the optional result pointers before the getter, so absent
+copies do not eliminate any result-register read.
+
+The CPU reference `1038f20a`, used alongside accelerated `1038f01a`, accumulates
+`max(u16_pixel-black,0)` into four spatial parity groups `2*(y%2)+(x%2)`.
+Large regions combine CPU edges with the monitor's four wide sums; subsequent
+`1038f6d4..1038f790` reorders sums and counts for the selected CFA descriptor.
+This establishes additive RAW parity statistics for that recipe. Histogram
+consumers `10410f54`, `10412130` and `10416a16` use 256-bin populations and
+quarter-image counts for tone statistics. Neither source establishes NV12
+projection, extrema meanings for the first two groups, coordinate ties, bin-bank
+association or the meaning of the four opaque bytes. Logical `60..7c` pairs
+and logical0 control-bit polarity also remain unknown.
+
+**Finite numerical hypothesis:** only the already qualified complete 84-byte
+tuple is admitted: logical0/4 zero, `10..1c={20200,20201,20202,203}`, and
+`20/24/40/60..7c` zero. It measures the actual resource49 branch1/slot4 output
+after affine processing. Active NV12 Y becomes lossless virtual14-bit `Y<<6`;
+no new RAW precision is inferred. Four output-coordinate parity groups produce
+minimum and maximum values, the first row-major coordinate on ties, additive
+sums, the last accumulated coordinate, and 256 bins indexed by Y. UV, pitch
+padding and window-only rows are excluded. The four header bytes report
+signed49 overflow under this virtual arithmetic; all admitted geometries fit,
+so their computed overflow is zero. This is not a ready bit or a cold default.
+Different profiles remain explicit errors. A recovered NV12 reference or
+field setter showing another domain, bin mapping or header meaning would
+falsify these choices; physical extrema and histogram fidelity are unproved.
+
+`gatework.c` computes the entire monitor privately with the three real output
+images. `gate.c` publishes all fields and four histogram banks only after
+successful output DMA, before input retirement and the existing terminal IRQ.
+No monitor-specific timer, completion cause or software-slot release is added.
+Publication is one BQL-protected transaction; a series of reads may span two
+complete frames, since no source read-latch protocol is established. The
+cleanup reader follows the normal source stop/drain sequence. Cold reads
+reject until an actual result exists. Local uploads, stops and W1C preserve the
+last complete result; cancelled, rejected or paused jobs cannot replace it.
+Whole-device reset invalidates it and clears workspace. Numerical writes do
+not count as CPU provisioning coverage for `148.bit8`; `2c0` retains the last
+result and bytes while restarting only that coverage.
+
+The [monitor receipt](/evidence/runtime/grid.json) records 31 gatework and
+137 CMOS integration cases passing with normal exits; the exact histogram-sum
+reduction separately retains all 31 gatework passes. A normal main-switch OFF
+run crosses the former monitor boundary and stops on paired-bank PA
+`203800ec=ffffff71` at MAS VA `10369f02`. A separate read-only instruction/RAM
+observer records one complete original getter: all 30 reads, four nonzero wide
+values `733673216/733707264/733473024/733524416`, then return0 to cleanup.
+Optional copy pointers are zero in that cleanup; original workspace copying is
+not claimed. The observer is separate from uninstrumented execution.
+
+The first long-M attempt fails earlier at AF MAS VA `10372abe`, DFAR `818`,
+after 83.27 host seconds. The exact-reduction normal-switch window completes
+one A/S/P/M cycle, then fails at AF `1021d7ce`, DFAR0, after 100.20 seconds;
+FIFO occupancy reaches60. These failures remain in the receipt. Finite monitor
+acceptance does not establish long queue bounds, all-mode acceptance, complete
+power-off or physical statistics fidelity.
 
 ## Whole-graph execution and model boundaries
 
@@ -143,10 +205,11 @@ type9 mesh sampling, type8 transforms, type10/11 stream-to-slot output DMA,
 type18 numerical results, then actual terminal publication and slot retirement.
 The current [continuous contract](processing.md) supplies one bounded input,
 neutral type5 carrier, type9 mesh, type8 transform and three-output DMA path.
-Its treatment of the admitted type18 tuple is metadata-only; type18 statistics
-equations remain unrecovered. Each operation needs observable data and a result
-condition. Configuration import, elapsed time and a software release consumer
-cannot provide them.
+The type18 side consumer now measures actual branch1 output under the bounded
+numerical hypothesis above. Its physical statistics equations remain
+unrecovered. Each operation needs observable data and a result condition;
+configuration import, elapsed time and a software release consumer cannot
+provide them.
 
 The older borrowed-record snapshot also supplied narrower numerical hypotheses,
 rather than recovered hardware laws. Its type8 resources42/43 fit Q16.16

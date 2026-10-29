@@ -2255,5 +2255,177 @@
       "result": "PASS",
       "physical_fps_or_complete_boot": false
     }
+  },
+  "resource34_monitor": {
+    "source_binding": "Accompanying resource34 implementation; accepted GUI base5fbfa98f plus gate.c/gatework.c/gatework.h delta. Complete overlays retained with each local run.",
+    "firmware": "Original C1.70 unchanged; five-CPU MTTCG",
+    "profile": "cold-neutral resource80; eight finite timing rows; RNG0 normal UART battery; virtual lens; fresh ordinary8GiB MBR/FAT32 card; explicit PGM scene and paired calibration; held main switch; initial M",
+    "source_established": [
+      "Resource34 logical4 low3bits route0 to resource49, branch1/slot4 in the selected continuous graph",
+      "103BD5CA reads200 twice, two four-record groups at220..25C and four signed49 records at280..2AC; optional4x1024B CPU copies are suppressed by cleanup, not by skipping MMIO",
+      "1038F20A CPU reference accumulates max(u16pixel-black,0) by2x2 spatial parity; large-region acceleration supplies four additive wide values;1038F6D4..F790 reorders CFA sums/counts",
+      "Histogram consumers10410F54/10412130/10416A16 use256bins and quarter-image populations; header-byte meanings and individual logical0/60..7C fields remain unproved"
+    ],
+    "functional_hypotheses": [
+      "Only the previously admitted complete84B tuple; actual resource49 active NV12 Y projected losslessly asY<<6 into four output-coordinate parity populations",
+      "First record group=min, second=max, first row-major tie; wide-field coordinates=last accumulated sample; bin=originalY",
+      "Header bytes=virtual signed49 overflow, not ready/status; all admitted geometries mathematically fit",
+      "Full result and histogram publication after actual three-output DMA and before existing IRQ; last result retained on stop/upload/W1C, cold/reset reads reject"
+    ],
+    "implementation": {
+      "compute": "Private host worker; every active luma sample counted. Exact weighted histogram sum replaces per-pixel sum/endpoint stores; no sampling or frequency change.",
+      "publication": "Existing BQL transaction only after successful output DMA; no extra timer, event, ACK, software-slot release, cold-zero fallback or framebuffer replacement",
+      "workspace": "All four1024B banks; numerical writes do not increment CPU provisioning coverage;2C0 retains bytes/results while resetting only CPU-write coverage",
+      "unsupported": "Different profiles, sparse gaps, non32-bit device transactions, writes and missing results remain errors; QEMU may split wider address-space operations into legal transactions"
+    },
+    "native": {
+      "red": "Old model: real nonzero graph publishes DMA, then READ200 returns MEMTX_ERROR; focused case fails0.75s",
+      "first_green": "Four-phase independent DMA oracle PASS0.61s",
+      "final_batch": [
+        {
+          "selector": "nikon_gatework_unit",
+          "subtests": 31,
+          "seconds": 0.66,
+          "result": "PASS"
+        },
+        {
+          "selector": "nikon_cmos",
+          "subtests": 137,
+          "seconds": 369.0,
+          "result": "PASS"
+        }
+      ],
+      "exact_reduction_recheck": {
+        "selector": "nikon_gatework_unit",
+        "subtests": 31,
+        "seconds": 0.61,
+        "result": "PASS"
+      },
+      "normal_tap_and_exit": true,
+      "scope": "All fields and1024bins from real DMA rows, four phases, changedY/UV, constant ties, immutable input, cold/reset/width/gaps/writes, coverage, pending ACKs, paused/private jobs, partial uploads, canceled/unknown-profile/alias failures, stopped retention, synchronous IRQ ACK/reset",
+      "fixture_corrections": "An8-byte address-space rejection assumption was removed because QEMU decomposes it into32-bit transactions. The synchronous IRQ observation is one-shot to respect QEMU reentrant-MMIO guarding; these were fixture assumptions, not accepted device behavior."
+    },
+    "original_windows": [
+      {
+        "role": "First uninstrumented long-M window for the initial monitor delta",
+        "source_delta": "Direct per-pixel monitor sum",
+        "host_seconds": 83.27007433300605,
+        "paired": 2232,
+        "main_graph": 2232,
+        "processing_errors": 0,
+        "fifo_count": 53,
+        "diagnostic_flags": [
+          1,
+          0,
+          0
+        ],
+        "diagnostic_length": 306279,
+        "qmp_status": {
+          "status": "running",
+          "running": true
+        },
+        "failure": "AF Data Abort MAS VA10372ABE, DFAR818, LR1021E485; before target cleanup",
+        "whole_scenario_pass": false,
+        "settled_mode_transitions": 0,
+        "completed_mode_dwells": 0,
+        "debugger_or_plugin": false,
+        "guest_state_writes": false
+      },
+      {
+        "role": "First bounded normal-switch window after exact histogram-sum reduction",
+        "source_delta": "Exact weighted-distribution sum and derived endpoints",
+        "host_seconds": 100.19726629200159,
+        "paired": 2652,
+        "main_graph": 2652,
+        "processing_errors": 0,
+        "fifo_count": 60,
+        "diagnostic_flags": [
+          1,
+          0,
+          0
+        ],
+        "diagnostic_length": 294382,
+        "qmp_status": {
+          "status": "running",
+          "running": true
+        },
+        "failure": "AF Data Abort MAS VA1021D7CE, DFAR0, LR1021E30B during second-cycle A",
+        "whole_scenario_pass": false,
+        "settled_mode_transitions": 4,
+        "completed_mode_dwells": 4,
+        "debugger_or_plugin": false,
+        "guest_state_writes": false
+      },
+      {
+        "role": "First uninstrumented normal main-switch OFF window",
+        "source_delta": "Exact weighted-distribution sum and derived endpoints",
+        "host_seconds": 34.93684595898958,
+        "paired": 789,
+        "main_graph": 789,
+        "processing_errors": 0,
+        "fifo_count": 20,
+        "diagnostic_flags": [
+          0,
+          0,
+          0
+        ],
+        "diagnostic_length": 0,
+        "qmp_status": {
+          "status": "debug",
+          "running": false
+        },
+        "failure": "WRITE32 PA203800EC=FFFFFF71 at MAS VA10369F02 rejected by paired-event-banks",
+        "whole_scenario_pass": false,
+        "settled_mode_transitions": 0,
+        "completed_mode_dwells": 0,
+        "debugger_or_plugin": false,
+        "guest_state_writes": false
+      }
+    ],
+    "independent_review": "Numerics and publication/native reviewed separately CLEAR; source/contract review corrected coordinate/extrema names from source facts to functional hypotheses. Exact histogram-sum reduction independently reviewed CLEAR.",
+    "remaining": [
+      "Long FIFO boundedness, AF record lifetime and accepted APIindex1 stop requester remain separate runtime work",
+      "Active paired D20..D9C numerical packet",
+      "Normal power-OFF paired event-bank mask/stop transaction atPA203800EC",
+      "Physical RAW statistics fidelity, header meaning, other monitor profiles and optional workspace copies in original execution remain unverified"
+    ],
+    "omitted": "Firmware bytes/disassembly, raw traces/register dumps, private paths and input images; no complete shutdown,300-second stability, all-mode or physical-camera acceptance",
+    "readonly_getter_observation": {
+      "kind": "Separate QEMU TCG instruction/register/RAM observer; diagnostic only, not a retry counted as uninstrumented acceptance",
+      "external_action": "Normal main-switch OFF after initial M live view",
+      "entries": 1,
+      "complete_results": 1,
+      "read_pc_hits": {
+        "0x103bd5d4": 1,
+        "0x103bd5dc": 1,
+        "0x103bd5f4": 4,
+        "0x103bd5f8": 4,
+        "0x103bd62a": 4,
+        "0x103bd62e": 4,
+        "0x103bd662": 4,
+        "0x103bd666": 4,
+        "0x103bd698": 4
+      },
+      "getter_read_transactions": 30,
+      "wide_values": [
+        733673216,
+        733707264,
+        733473024,
+        733524416
+      ],
+      "header": 0,
+      "optional_copy_pointers": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "result_host_seconds": 36.205253,
+      "reader_return": "Actual cleanup continuation10388AB2 observed immediately after complete getter; R0=0",
+      "ram_read_errors": 0,
+      "noise_limit": "Other hits at shared103BD740 without an active getter entry are not counted as getter completions",
+      "next_stop": "Same strict WRITE32 PA203800EC=FFFFFF71 at MAS VA10369F02",
+      "scope": "Original source getter and cleanup consume a complete nonzero virtual monitor after normal stop; optional workspace copying is covered natively, not observed here"
+    }
   }
 }

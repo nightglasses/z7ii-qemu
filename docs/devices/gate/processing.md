@@ -17,9 +17,13 @@ processing reads that completed map when its grid dependency is enabled.
 The admitted path is type0 slot8 → type5 resource35 → type9 resource45 →
 type11 resource62 → type1 resource21, branching through type8 resources41–43
 and type10 resources54/49/55 to three committed type0 destinations. Types2/3
-are connecting edges. The current type18 resource34 parameter tuple is
-qualified, with no numerical effect assigned to it. Its metadata-only role is
-a finite interpretation, not a recovered hardware specification.
+are connecting edges. The current type18 resource34 parameter tuple measures
+actual resource49 output under the [finite monitor contract](family.md#type18-provisioning-and-result-ownership).
+Its luma projection, extrema, coordinates and histogram association are explicit
+functional hypotheses, separate from the source-established RAW parity sum.
+The monitor derives its exact additive sum from the already computed full
+histogram and derives parity endpoints from the validated even geometry. This
+removes per-pixel stores while preserving every sample, bin and extrema tie.
 
 Every imported register's presence and value is checked. The type5 80-word
 table must be zero; its carrier and tail controls remain exact. Type9's
@@ -125,7 +129,9 @@ establishes upload order, not physical hardware latch timing.
 
 Only actual successful three-output DMA retires the input, clears ordinary
 start flags of the ten owned nodes, advances the phase and latches the terminal
-and whole-frame causes. Unbound nodes retain their request flags. The initial
+and whole-frame causes. That same transaction publishes the complete resource34
+monitor and histogram banks before IRQ callbacks; no extra cause is introduced.
+Unbound nodes retain their request flags. The initial
 phase comes from input control bits4..5; a changed explicit phase selection
 reselects it, and successful work advances modulo four. This automatic phase
 association is a bounded model assumption. Output-map bank0 is part of this
@@ -244,3 +250,12 @@ variants include a late malformed record, wrong controls, a missing terminal,
 read-only or unmapped RAM, address overflow and backing aliases. They require
 the whole RAM image to remain unchanged on failure. These are designed native
 checks; their execution receipt is maintained by the integrating parent.
+
+The monitor oracle independently scans actual branch1 DMA rows by parity and
+checks all fields, sums and every histogram bin over all four phases. Changed
+Y changes statistics, changed UV does not, and accepted input is immutable.
+Additional cases cover cold/reset rejection, sparse address/width/write
+boundaries, provisioning coverage, partial future uploads, pending ACKs,
+pause, cancellation, failed alias/profile validation, stopped retention and
+synchronous IRQ ACK/reset. A device transaction is 32-bit; QEMU can decompose
+a wider address-space request into multiple legal transactions.

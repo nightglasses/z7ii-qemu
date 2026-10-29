@@ -43,6 +43,19 @@ typedef enum NikonGateWorkResult {
 
 typedef struct NikonGateWorkPlan NikonGateWorkPlan;
 
+/* Finite resource34 law: four spatial-parity populations of expanded luma. */
+typedef struct NikonGateMeasurement {
+    uint16_t minimum_x, minimum_y, maximum_x, maximum_y, end_x, end_y;
+    int16_t minimum, maximum;
+    int64_t sum;
+    uint32_t histogram[256];
+    uint8_t overflow;
+} NikonGateMeasurement;
+
+typedef struct NikonGateMonitor {
+    NikonGateMeasurement channel[4];
+} NikonGateMonitor;
+
 /* Only the numerical source pointer may change without changing this packet's
  * routing/shape. This does not admit new packet fields or numerical ranges.
  */
@@ -61,6 +74,8 @@ NikonGateWorkResult nikon_gate_work_prepare(const NikonGateWork *work,
 NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan);
 NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
                                            const NikonGateWork *current);
+/* Private computed data; the device may publish only after successful DMA. */
+const NikonGateMonitor *nikon_gate_work_monitor(const NikonGateWorkPlan *plan);
 void nikon_gate_work_free(NikonGateWorkPlan *plan);
 /* Synchronous composition of the same three operations. */
 NikonGateWorkResult nikon_gate_work_execute(const NikonGateWork *work);

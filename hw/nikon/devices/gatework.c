@@ -1,6 +1,7 @@
 /*
  * One bounded continuous graph. Coordinate rounding, chroma sampling and
- * metadata-only stages are functional hypotheses, not physical DSP recovery.
+ * luma-parity measurements are functional hypotheses, not physical DSP
+ * recovery.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -81,7 +82,7 @@ static bool neutral_carrier(const NikonGatePacket *p)
     return equal(p, &e);
 }
 
-static bool metadata(const NikonGatePacket *p)
+static bool monitor_profile(const NikonGatePacket *p)
 {
     NikonGatePacket e = { 0 };
 
@@ -442,6 +443,7 @@ struct NikonGateWorkPlan {
     uint32_t config[0x4080 / 4], slots[16][13];
     NikonGatePacket packets[ARRAY_SIZE(work_ports)];
     uint32_t auxiliary[ARRAY_SIZE(work_ports)][2];
+    NikonGateMonitor monitor;
     unsigned phase;
     bool computed;
 };
@@ -487,7 +489,7 @@ static NikonGateWorkResult layout(const NikonGateWork *w,
         }
     }
     if (!input_shape(w) || !neutral_carrier(c[0]->packet) ||
-        !metadata(c[9]->packet) ||
+        !monitor_profile(c[9]->packet) ||
         !intermediate(c[2]->packet, &width, &height) ||
         w->config[0x4050 / 4] != 2 ||
         (w->config[0x4054 / 4] & 0xffff) != width ||
@@ -646,6 +648,57 @@ fail:
     return result;
 }
 
+static void measure(const GateWorkOutput *input, NikonGateMonitor *monitor)
+{
+    const int64_t maximum_sum = (INT64_C(1) << 48) - 1;
+
+    memset(monitor, 0, sizeof(*monitor));
+    for (unsigned i = 0; i < 4; i++) {
+        monitor->channel[i].minimum = INT16_MAX;
+        monitor->channel[i].maximum = INT16_MIN;
+    }
+    /*
+     * RAW1038f20a sums spatial parities. This profile projects NV12 Y into
+     * positive14-bit samples; UV, DMA padding and cropped rows are not samples.
+     * Extrema, first-tie ordering, endpoints and bins are virtual laws.
+     */
+    for (unsigned y = 0; y < input->height; y++) {
+        for (unsigned x = 0; x < input->width; x++) {
+            NikonGateMeasurement *m = &monitor->channel[2 * (y & 1) + (x & 1)];
+            unsigned bin = input->pixels[(size_t)y * input->width + x];
+            int16_t value = bin << 6;
+
+            if (value < m->minimum) {
+                m->minimum = value;
+                m->minimum_x = x;
+                m->minimum_y = y;
+            }
+            if (value > m->maximum) {
+                m->maximum = value;
+                m->maximum_x = x;
+                m->maximum_y = y;
+            }
+            m->histogram[bin]++;
+        }
+    }
+    for (unsigned i = 0; i < 4; i++) {
+        NikonGateMeasurement *m = &monitor->channel[i];
+
+        /* Exact weighted distribution sum; avoid three stores per pixel. */
+        for (unsigned bin = 0; bin < 256; bin++) {
+            m->sum += ((int64_t)bin << 6) * m->histogram[bin];
+        }
+        m->end_x = input->width - 2 + (i & 1);
+        m->end_y = input->height - 2 + (i >> 1);
+        /*
+         * Virtual per-bank overflow byte, not recovered hardware ready/status.
+         * Validated dimensions make every admitted luma sum fit signed49.
+         */
+        m->overflow = m->sum > maximum_sum;
+        m->sum = MIN(m->sum, maximum_sum);
+    }
+}
+
 /* Pure numerical worker: no guest memory or device state is reachable here. */
 NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan)
 {
@@ -658,8 +711,14 @@ NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan)
     for (unsigned i = 0; i < 3; i++) {
         render(plan->warped, width, height, &plan->out[i]);
     }
+    measure(&plan->out[1], &plan->monitor);
     plan->computed = true;
     return NIKON_GATE_WORK_OK;
+}
+
+const NikonGateMonitor *nikon_gate_work_monitor(const NikonGateWorkPlan *plan)
+{
+    return plan && plan->computed ? &plan->monitor : NULL;
 }
 
 NikonGateWorkResult nikon_gate_work_publish(NikonGateWorkPlan *plan,
