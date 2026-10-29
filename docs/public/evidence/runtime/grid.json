@@ -2889,5 +2889,100 @@
     "profile": "Unchanged C1.70; cold-neutral resource80/eight timing rows, virtual lens, normal RNG0 UART battery, ordinary FAT32 card, PGM image and explicit calibration with newly interpreted slots zero. No guest firmware/PC/task changes, event injection, software slot release or framebuffer replacement.",
     "retained_diagnostics": "Earlier source-probe runs stop at SLA FILL before C, or at separate AF/diagnostic boundaries. One probe fails signed-address conversion; corrected read-only watches identify the final BA8 copy and allocator reuse. Those diagnostics are not mode acceptance and do not establish an ASIC equation. Full ignored runs remain local; raw debugger logs are not published here.",
     "acceptance": "Finite banked C-curve contract passes native checks and bounded original image continuation. Normal M-to-A delivery, original BA8=0 admission, BB numerical behavior and overall long-term coordination remain OPEN."
+  },
+  "paired_job_cost": {
+    "scope": "Host arithmetic cost replay, separate from original firmware execution and stability acceptance",
+    "source_baseline": "82c95aee",
+    "candidate": "Accompanying immutable per-job RAW12 transfer/threshold reuse, hoisted edge indices and corrected post reciprocal",
+    "input": "First actual unchanged-C1.70 paired job snapshot from the explicit cold-neutral scene and physical ACCELE input diagnostic",
+    "raw_dimensions": [
+      1380,
+      918
+    ],
+    "main_dimensions": [
+      1376,
+      914
+    ],
+    "repetitions": 8,
+    "baseline_us": 1133206,
+    "candidate_us": 898425,
+    "reduction_percent": 20.718298349991088,
+    "outputs_bytes": 3153336,
+    "all_half_residual_y_uv_bytes_identical": true,
+    "timing_instrumentation": "Sequential private native testcase through existing Meson unit graph; snapshot and testcase removed from accepted source",
+    "not_proven": [
+      "Physical sensor equations",
+      "Bounded OnVd FIFO",
+      "Normal mode delivery",
+      "Indefinite startup stability"
+    ],
+    "native": {
+      "pixel_unit_cases": 51,
+      "paired_device_unit_cases": 68,
+      "independent_review": "No findings; reset/cancel/publication remain covered by device integration fixtures",
+      "paired_cmos_qtest": {
+        "cases": 28,
+        "seconds": 49.87,
+        "result": "PASS"
+      }
+    },
+    "original_execution": {
+      "firmware": "Unchanged C1.70 MAS/SLA/EX",
+      "input": "Same cold-neutral resource80 and explicit scene; physical F025 ACCELE 192-byte record overlaid only at descriptor18 [100,1c0), prior configuration retained",
+      "debugger": false,
+      "timing_or_snapshot_patch": false,
+      "first_window_host_seconds": 1.889721833,
+      "paired_completed": 0,
+      "task_id": "0x0100002e",
+      "exception": "Prefetch abort",
+      "pc_mas_va": "0xfffffffc",
+      "lr_mas_va": "0x103c05e7",
+      "stack_source_nor_pa": "0x13e80000",
+      "interpretation": "Loader exception before pixel computation; no attribution to arithmetic optimization and no mode or long-refresh acceptance"
+    },
+    "diagnostic_windows": [
+      {
+        "operator": "baseline",
+        "seconds": 16.160489333,
+        "paired": 117,
+        "fifo": 60,
+        "exception_flags": [
+          0,
+          0,
+          0
+        ],
+        "physical_calibration_exact_original_loader_copy": true,
+        "owner_mas_va": "0xb1cf7a0c",
+        "calibration_mas_va": "0xb7f6a0fc"
+      },
+      {
+        "operator": "transfer/threshold tables only",
+        "seconds": 16.643133625,
+        "paired": 124,
+        "fifo": 58,
+        "exception_flags": [
+          0,
+          0,
+          0
+        ],
+        "physical_calibration_exact_original_loader_copy": true
+      },
+      {
+        "operator": "all accompanying reductions, temporary input snapshot",
+        "seconds": 16.015764208,
+        "paired": 144,
+        "fifo": 60,
+        "exception_flags": [
+          0,
+          0,
+          0
+        ],
+        "physical_calibration_exact_original_loader_copy": true
+      }
+    ],
+    "other_first_failures": [
+      "Two baseline diagnostic windows stop at AF MAS VA1021d7ce / DFAR0 after18.06 and20.19 host seconds",
+      "Two candidate diagnostic attempts stop before paired computation on SLA WRITE32 PA20070010=1, fill-request-profile-not-supported; no register relaxation or acceptance rerun filtering"
+    ]
   }
 }
