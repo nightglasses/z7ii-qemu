@@ -67,3 +67,23 @@ the scanned panel frame stays black.
 
 So this profile is a working input channel whose firmware consumer is inactive;
 it is not evidence of a button-driven UI and not a frame.
+
+## Physical dial transition receipts
+
+Physical testing on an attached Nikon Z 7II (`V1.60`) directly captures the live
+hardware dial rotation and asynchronous event dispatch across both the interrupt
+endpoint `0x83` (`EP_INT`) and the vendor polling queue `0x90C7` (`GetEvent`):
+
+```text
+[02:34:48] >>> [0x90C7 Vendor] ExposureTime (Shutter Dial) CHANGED: 2500 -> 3333
+[02:34:48] >>> [EVENT 0x4006] ExposureTime (Shutter Dial) CHANGED: 3333 -> 2500
+[02:34:50] >>> [EVENT 0x4006] ExposureTime (Shutter Dial) CHANGED: 2500 -> 2000
+[02:34:50] >>> [EVENT 0x4006] Prop 0x501C CHANGED: FocusMode updated
+[02:34:51] >>> [EVENT 0x4006] ExposureTime (Shutter Dial) CHANGED: 2000 -> 2500
+[02:34:51] >>> [0x90C7 Vendor] ExposureTime (Shutter Dial) CHANGED: 2500 -> 2000
+```
+
+This confirms the 1/3 EV stepping sequence (`1/40s (2500)` -> `1/30s (3333)` ->
+`1/50s (2000)`) driven by the four-phase quadrature contacts on EX pads 7 & 8
+in `hw/nikon/devices/input.c`.
+

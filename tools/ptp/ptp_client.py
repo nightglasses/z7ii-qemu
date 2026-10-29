@@ -101,6 +101,12 @@ class PTPClient:
         ]
         self.lib.libusb_bulk_transfer.restype = ctypes.c_int
 
+        self.lib.libusb_interrupt_transfer.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_uint
+        ]
+        self.lib.libusb_interrupt_transfer.restype = ctypes.c_int
+
     def open(self):
         res = self.lib.libusb_init(None)
         if res != 0:
@@ -227,6 +233,30 @@ class PTPClient:
             "tx_id": tx_id,
             "payload": payload,
             "params": params,
+        }
+
+    def read_event(self, timeout=1000):
+        raw_buf = (ctypes.c_uint8 * 512)()
+        transferred = ctypes.c_int()
+        ret = self.lib.libusb_interrupt_transfer(
+            self.handle, self.EP_INT, raw_buf, 512, ctypes.byref(transferred), timeout
+        )
+        if ret != 0 or transferred.value < 12:
+            return None
+
+        data = bytes(raw_buf[:transferred.value])
+        length, ptype, code, tx_id = struct.unpack("<IHHI", data[:12])
+        payload = data[12:]
+        params = [
+            struct.unpack("<I", payload[i:i+4])[0]
+            for i in range(0, len(payload), 4)
+        ]
+        return {
+            "length": length,
+            "type": ptype,
+            "code": code,
+            "tx_id": tx_id,
+            "params": params
         }
 
     def execute_transaction(self, opcode, params=[], timeout=3000):
