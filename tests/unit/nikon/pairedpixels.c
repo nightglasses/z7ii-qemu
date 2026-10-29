@@ -4888,11 +4888,63 @@ static void color_weights(void)
     }
 }
 
+static void color_domain(void)
+{
+    NikonPairedPixelConfig p = config();
+    uint16_t raw[4];
+
+    p.width = p.height = p.output_width = p.output_height = 2;
+    p.curve_enabled[0] = p.curve_enabled[1] = true;
+    for (unsigned i = 0; i < 257; i++) {
+        p.curve[0][i] = (i * 37 + 19) % 2049;
+        p.curve[1][i] = (i * 97 + 511) % 4097;
+    }
+    p.curve[0][255] = 65535;
+    p.curve[1][256] = 65535;
+    for (unsigned channel = 0; channel < 3; channel++) {
+        p.gain_enabled[channel] = true;
+        p.gain[channel] = channel ? channel == 1 ? 137 : 65535 : 0;
+    }
+    /*
+     * A constant RAW image preserves every sample through the spatial stages.
+     * Exercise the complete RAW12 transfer domain against scalar operations,
+     * including both curves' endpoint knots and each intermediate clamp.
+     */
+    for (unsigned sample = 0; sample <= 4095; sample++) {
+        fill(raw, ARRAY_SIZE(raw), sample);
+        arithmetic_color_check(p, raw);
+    }
+    for (unsigned encoding = NIKON_RAW_MONO;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        NikonPairedPixelConfig q = config();
+        uint16_t image[64 * 64];
+
+        q.encoding = encoding;
+        q.width = q.height = q.output_width = q.output_height = 64;
+        q.colorfilter = color_active();
+        /*
+         * Asymmetric nonzero slopes and near-zero, midrange and endpoint
+         * samples exercise both signs and replicated borders of both blocks.
+         */
+        q.colorfilter.block[0].branch[0].negative_slope = 499;
+        q.colorfilter.block[0].branch[1].positive_slope = 299;
+        q.colorfilter.block[1].branch[0].positive_slope = 499;
+        q.colorfilter.block[1].branch[1].negative_slope = 649;
+        for (unsigned pattern = 0; pattern < 2; pattern++) {
+            for (unsigned i = 0; i < ARRAY_SIZE(image); i++) {
+                image[i] = pattern ? (i * 137 + i * i * 17) % 4096 : i;
+            }
+            arithmetic_color_check(q, image);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/nikon/pairedpixels/rounding-noise", rounding_noise);
     g_test_add_func("/nikon/pairedpixels/color-weights", color_weights);
+    g_test_add_func("/nikon/pairedpixels/color-domain", color_domain);
     g_test_add_func("/nikon/pairedpixels/dpc-bounds", dpc_bounds);
     g_test_add_func("/nikon/pairedpixels/stages", stages);
     g_test_add_func("/nikon/pairedpixels/stages-invalid", stages_invalid);

@@ -375,6 +375,24 @@ subset to3.68ms under the same declared inputs, with all pixel/alpha operations
 retained. This is a bounded diagnostic cost comparison, not physical FPS or
 proof that the callback FIFO is now bounded.
 
+The subsequent RAW12 cost reduction prepares two immutable per-job tables:
+the separately rounded center-dependent thresholds for each color block, and
+the two scalar gain curves followed by channel gain. All4096 input values retain
+the original intermediate clamps and rounds. Noise still advances in its original
+2x2 order; A/B/C, neighborhood arithmetic, stage barriers and result publication
+remain unchanged. Row-edge indices are shared within each neighborhood row. The
+post edge numerator is bounded by460800, so the same corrected32-bit reciprocal
+used by color taps preserves its signed nearest division exactly. These are host
+evaluation changes, not new hardware equations or guest-visible LUT uploads.
+
+A sequential native replay of one captured1380x918 RAW /1376x914 MAIN job takes
+1.133206s for eight baseline frames and0.898425s with these changes,20.72% less
+elapsed replay time. All3153336 half/residual/Y/UV output bytes compare equal.
+The added lookup storage is88KiB per job, prepared before worker dispatch and
+never reused across jobs. The private snapshot/replay code is removed from the
+accepted implementation. Separate original execution and FIFO boundedness remain
+necessary; this arithmetic replay is neither physical FPS nor mode acceptance.
+
 The first longer uninstrumented baseline instead stops on a distinct legal
 post-color parameter at39.35 host seconds after normal M-to-A input: D34=`401`
 is rejected by the frozen calibration comparison. A separate diagnostic

@@ -504,10 +504,10 @@ static int64_t paired_divide(int64_t value, unsigned divisor)
 
 /* For 0 <= n < 2^32, ceil(2^32/d) overestimates floor(n/d) by at most one.
  * Correct that one possible excess before restoring the signed rounded result.
- * A contributing color tap has |value| <= threshold^2/4, threshold <= 2360;
- * the rounding numerator fits 21 bits. Keep d=1's multiplier (2^32) in u64.
+ * Callers bound |value| below INT32_MAX and the rounding numerator below 2^32.
+ * Keep d=1's multiplier (2^32) in u64.
  */
-static int paired_color_divide(int value, unsigned divisor, uint64_t multiplier)
+static int paired_divide32(int value, unsigned divisor, uint64_t multiplier)
 {
     uint64_t magnitude = (uint64_t)abs(value) + divisor / 2;
     uint64_t quotient = (magnitude * multiplier) >> 32;
@@ -520,6 +520,7 @@ typedef struct PairedColorBlockActive {
     unsigned weights[2];
     uint64_t weight_multiplier[2];
     uint64_t *multipliers;
+    uint16_t threshold[PAIRED_MAX_SAMPLE + 1][2][2];
 } PairedColorBlockActive;
 
 static bool paired_color_prepare(const NikonPairedColorBlock *b,
@@ -551,46 +552,72 @@ static bool paired_color_prepare(const NikonPairedColorBlock *b,
     for (unsigned d = 1; d <= limit; d++) {
         active->multipliers[d] = ((UINT64_C(1) << 32) + d - 1) / d;
     }
+    /*
+     * The immutable RAW12 center has only 4096 values. Preserve each rounded
+     * term before adding it; combining the slopes changes half ties.
+     */
+    for (unsigned sample = 0; sample <= PAIRED_MAX_SAMPLE; sample++) {
+        int center = 4 * sample;
+        int common = b->base + paired_divide((int64_t)b->slope * center, 16383);
+
+        for (unsigned branch = 0; branch < 2; branch++) {
+            const NikonPairedColorBranch *n = &b->branch[branch];
+
+            active->threshold[sample][branch][0] = common + n->negative_base +
+                paired_divide((int64_t)n->negative_slope * center, 16383);
+            active->threshold[sample][branch][1] = common + n->positive_base +
+                paired_divide((int64_t)n->positive_slope * center, 16383);
+        }
+    }
     return true;
 }
 
-static void paired_color_block(const uint16_t *input, uint16_t *output,
+static void paired_color_block(const uint16_t *restrict input,
+    uint16_t *restrict output,
     unsigned width, unsigned height, const NikonPairedColorBlock *b,
     const PairedColorBlockActive *active, unsigned strength,
     unsigned first, unsigned last)
 {
-    static const int dx[2][4] = { { -1, 1, 0, 0 }, { -1, 1, -1, 1 } };
-    static const int dy[2][4] = { { 0, 0, -1, 1 }, { -1, -1, 1, 1 } };
+    unsigned radius[2] = { 1 + b->branch[0].radius, 1 + b->branch[1].radius };
 
     for (unsigned y = first; y < last; y++) {
+        unsigned up[2], down[2];
+
+        for (unsigned branch = 0; branch < 2; branch++) {
+            up[branch] = (y >= radius[branch] ? y - radius[branch] : 0) * width;
+            down[branch] = MIN(y + radius[branch], height - 1) * width;
+        }
         for (unsigned x = 0; x < width; x++) {
             unsigned at = y * width + x;
             int center = 4 * input[at];
-            int common = b->base + paired_divide((int64_t)b->slope * center,
-                                                16383);
+            unsigned left[2], right[2];
             int mean[2];
 
             for (unsigned branch = 0; branch < 2; branch++) {
+                left[branch] = x >= radius[branch] ? x - radius[branch] : 0;
+                right[branch] = MIN(x + radius[branch], width - 1);
+            }
+            uint16_t samples[2][4] = {
+                { input[y * width + left[0]], input[y * width + right[0]],
+                  input[up[0] + x], input[down[0] + x] },
+                { input[up[1] + left[1]], input[up[1] + right[1]],
+                  input[down[1] + left[1]], input[down[1] + right[1]] },
+            };
+
+            for (unsigned branch = 0; branch < 2; branch++) {
                 const NikonPairedColorBranch *n = &b->branch[branch];
-                unsigned radius = 1 + n->radius;
                 int64_t sum = 0;
-                int negative = common + n->negative_base +
-                    paired_divide((int64_t)n->negative_slope * center, 16383);
-                int positive = common + n->positive_base +
-                    paired_divide((int64_t)n->positive_slope * center, 16383);
+                const uint16_t *thresholds =
+                    active->threshold[input[at]][branch];
 
                 for (unsigned d = 0; d < 4; d++) {
-                    unsigned nx = CLAMP((int)x + dx[branch][d] * (int)radius,
-                                        0, (int)width - 1);
-                    unsigned ny = CLAMP((int)y + dy[branch][d] * (int)radius,
-                                        0, (int)height - 1);
-                    int difference = 4 * input[ny * width + nx] - center;
-                    int threshold = difference < 0 ? negative : positive;
+                    int difference = 4 * samples[branch][d] - center;
+                    int threshold = thresholds[difference >= 0];
                     int gate = MAX(0, threshold - abs(difference));
                     unsigned weight = 1U << n->shift[d];
 
                     if (difference && gate) {
-                        sum += (int64_t)weight * paired_color_divide(
+                        sum += (int64_t)weight * paired_divide32(
                             difference * gate, threshold,
                             active->multipliers[threshold]);
                     }
@@ -600,7 +627,7 @@ static void paired_color_block(const uint16_t *input, uint16_t *output,
                  * This signed32 reciprocal is exact after the same one-step
                  * correction. Its divisor is independent of the T table.
                  */
-                mean[branch] = paired_color_divide((int)sum,
+                mean[branch] = paired_divide32((int)sum,
                     active->weights[branch], active->weight_multiplier[branch]);
             }
             int correction = paired_divide(
@@ -748,7 +775,8 @@ static uint16_t paired_quad(const NikonPairedPixelConfig *p, uint16_t sample,
 }
 
 typedef struct PairedColorActive {
-    bool curve[2], gain[3], a, c;
+    bool a, c;
+    uint16_t transfer[3][PAIRED_MAX_SAMPLE + 1];
 } PairedColorActive;
 
 static bool paired_matrix_identity(const int16_t matrix[9])
@@ -761,26 +789,51 @@ static bool paired_matrix_identity(const int16_t matrix[9])
     return true;
 }
 
-static PairedColorActive paired_color_active(const NikonPairedPixelConfig *p)
+static void paired_color_active(const NikonPairedPixelConfig *p,
+                                 PairedColorActive *active)
 {
-    PairedColorActive active = { 0 };
+    bool curve[2] = { false, false };
 
     for (unsigned table = 0; table < 2; table++) {
         if (p->curve_enabled[table]) {
             for (unsigned i = 0; i < ARRAY_SIZE(p->curve[table]); i++) {
                 if (p->curve[table][i] != 1024) {
-                    active.curve[table] = true;
+                    curve[table] = true;
                     break;
                 }
             }
         }
     }
     for (unsigned channel = 0; channel < 3; channel++) {
-        active.gain[channel] = p->gain_enabled[channel] && p->gain[channel] != 256;
+        bool gain_enabled = p->gain_enabled[channel] && p->gain[channel] != 256;
+
+        /*
+         * Compose the two scalar curves and channel gain before noise. Each
+         * original round and clamp remains between its operations. Noise and
+         * matrices still consume the resulting sample in their original order.
+         */
+        for (unsigned input = 0; input <= PAIRED_MAX_SAMPLE; input++) {
+            unsigned sample = input;
+
+            for (unsigned table = 0; table < 2; table++) {
+                if (curve[table]) {
+                    unsigned index = sample >> 4, fraction = sample & 15;
+                    unsigned gain =
+                        (p->curve[table][index] * (16 - fraction) +
+                         p->curve[table][index + 1] * fraction + 8) / 16;
+
+                    sample = paired_clamp(paired_round(sample * gain, 10));
+                }
+            }
+            if (gain_enabled) {
+                sample = paired_clamp(paired_round(sample * p->gain[channel],
+                                                    8));
+            }
+            active->transfer[channel][input] = sample;
+        }
     }
-    active.a = !paired_matrix_identity(p->a);
-    active.c = !paired_matrix_identity(p->c);
-    return active;
+    active->a = !paired_matrix_identity(p->a);
+    active->c = !paired_matrix_identity(p->c);
 }
 
 static void paired_rgb_yuv(const NikonPairedPixelConfig *p,
@@ -795,22 +848,7 @@ static void paired_rgb_yuv(const NikonPairedPixelConfig *p,
     for (column = 0; column < 3; column++) {
         const NikonPairedNoise *n = &p->noise[column];
 
-        /* Two source-published curves: Q10 gain knots at sample steps of16. */
-        for (unsigned table = 0; table < 2; table++) {
-            if (active->curve[table]) {
-                unsigned sample = rgb[column];
-                unsigned index = sample >> 4, fraction = sample & 15;
-                unsigned gain =
-                    (p->curve[table][index] * (16 - fraction) +
-                     p->curve[table][index + 1] * fraction + 8) / 16;
-
-                rgb[column] = paired_clamp(paired_round(sample * gain, 10));
-            }
-        }
-        if (active->gain[column]) {
-            rgb[column] = paired_clamp(paired_round(rgb[column] *
-                                                   p->gain[column], 8));
-        }
+        rgb[column] = active->transfer[column][rgb[column]];
         if (n->enabled) {
             uint32_t *state = &noise_state[column];
             int32_t noise;
@@ -1066,6 +1104,9 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
                               unsigned pass, unsigned first, unsigned last)
 {
     const NikonPairedPost *p = &config->post;
+    unsigned threshold = 16 * p->edge_limit;
+    unsigned divisor = 16 * threshold * 32;
+    uint64_t multiplier = ((UINT64_C(1) << 32) + divisor - 1) / divisor;
 
     for (unsigned y = first; y < last; y++) {
         unsigned up = y ? y - 1 : y;
@@ -1102,12 +1143,14 @@ static void paired_post_pass(const uint16_t *input, uint16_t *output,
                 correction = paired_ratio((int64_t)n * p->smooth[pass - 1],
                                            4 * 32);
             } else {
-                int threshold = 16 * p->edge_limit;
-                int gate = MAX(4 * threshold - abs(n), 0);
+                int gate = MAX(4 * (int)threshold - abs(n), 0);
 
-                correction = paired_ratio((int64_t)n * gate *
-                                           p->edge_strength,
-                                           16 * threshold * 32);
+                /*
+                 * A nonzero gate has |n| < 320. Its signed numerator is bounded
+                 * by 18*320^2/4 = 460800; the corrected reciprocal is exact.
+                 */
+                correction = paired_divide32(n * gate * p->edge_strength,
+                                              divisor, multiplier);
             }
             output[y * width + x] = paired_clamp(center + correction);
         }
@@ -1452,7 +1495,7 @@ static bool paired_prepare(NikonPairedPixels *c)
                                     phase * (pixels / 4);
         }
     }
-    c->active = paired_color_active(p);
+    paired_color_active(p, &c->active);
     bands = paired_color_bands(p);
     noise = p->noise[0].enabled || p->noise[1].enabled || p->noise[2].enabled;
     for (unsigned band = 0; band < bands; band++) {

@@ -488,6 +488,17 @@ BA8=0 original execution or indefinite stability. The input/queue boundary and
 unrecovered BB arithmetic remain open. Earlier SLA FILL rejections and separate
 read-only diagnostic failures are retained rather than screened out.
 
+Exact per-job RAW12 transfer and neighborhood-threshold reuse then reduces an
+eight-frame native arithmetic replay by20.72%, with all3153336 output bytes
+unchanged. It preserves noise order, processing stages and completion ownership;
+the [cost analysis](../devices/pairs/requests.md#successful-waits-and-independent-result-producers)
+separates this host computation result from original FIFO and mode acceptance.
+Its first uninstrumented cold-neutral window, with an explicitly overlaid physical
+ACCELE record, instead takes a loader prefetch abort at MAS VA`fffffffc`,
+LR`103c05e7`, after1.89 host seconds and before any paired job. Separate
+diagnostic windows reach117/124/144 jobs but58–60 queued callbacks. Neither those
+instrumented spans nor native arithmetic equivalence establish stable refresh.
+
 See [exposure controls](../devices/gpio/exposure.md) and the
 [curated input receipt](/evidence/input/turnover.json) for source conditions,
 normal input profiles and distinct native/execution limits. The old M
