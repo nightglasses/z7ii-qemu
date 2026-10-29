@@ -292,14 +292,18 @@ static int statistics_compute(void *opaque)
     unsigned pitch = width + 1;
     g_autofree uint64_t *integral = NULL;
 
-    integral = g_new0(uint64_t, (size_t)pitch * (height + 1));
+    integral = g_new(uint64_t, (size_t)pitch * (height + 1));
+    memset(integral, 0, pitch * sizeof(uint64_t));
     for (unsigned y = 0; y < height; y++) {
         uint64_t sum = 0;
+        uint64_t *prev = integral + y * pitch;
+        uint64_t *curr = integral + (y + 1) * pitch;
+        const uint8_t *row_src = j->input_data + y * j->input.stride;
 
+        curr[0] = 0;
         for (unsigned x = 0; x < width; x++) {
-            sum += lduw_le_p(j->input_data + y * j->input.stride + x * 2);
-            integral[(y + 1) * pitch + x + 1] =
-                integral[y * pitch + x + 1] + sum;
+            sum += lduw_le_p(row_src + x * 2);
+            curr[x + 1] = prev[x + 1] + sum;
         }
     }
     for (unsigned n = 0; n < 10; n++) {
