@@ -195,7 +195,15 @@ static void nikon_spi_catchup(NikonSPIState *s)
      * A stopped input clock still permits the active sampled word to finish;
      * schedule() prevents its successor from starting without a clock.
      */
-    if (s->catching_up || s->async_bound) {
+    /*
+     * HDMAC defers a beat while this device is inside MMIO. Retiring several
+     * words here would deny its normal per-word RX drain and could overflow a
+     * FIFO that timer-driven arbitration would empty. DMA therefore keeps its
+     * timer path; clock pre-update outside SPI MMIO can still arbitrate beats.
+     */
+    if (s->catching_up || s->async_bound ||
+        (s->dma_bound && (s->ctrl & 0x400) &&
+         DEVICE(s)->mem_reentrancy_guard.engaged_in_io)) {
         return;
     }
     s->catching_up = true;
