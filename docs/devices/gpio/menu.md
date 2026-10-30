@@ -91,12 +91,17 @@ Four distinct hardware inputs allow returning from the menu to normal Live View
    item, `menu` acts as Cancel/Back to the parent list.
 2. **Shutter Half-Press (`shutter-half-press`, S1, PG1)**:
    Instantly aborts any active menu level, sub-dialog, or item setting, returning
-   directly to Live View and engaging exposure/autofocus metering.
+   directly to Live View and engaging exposure/autofocus metering. Dispatched by
+   EX MCU via hardware line `PE4` (Descriptor 3) directly to MAS `GPIO 5.11`
+   (EXIU Channel 4 / IRQ 69).
 3. **AF-ON Button (`af-on`, PG2)**:
    Instantly aborts the menu from any level, returning directly to Live View and
-   triggering AF drive.
+   triggering AF drive. Dispatched by EX MCU via hardware line `PA12`
+   (Descriptor 0) directly to MAS `GPIO 5.13` (EXIU Channel 6 / IRQ 71).
 4. **Shutter Full-Press (`shutter-full-press`, S2, PG13)**:
-   Instantly aborts the menu and initiates full optical exposure capture.
+   Instantly aborts the menu and initiates full optical exposure capture. Dispatched
+   by EX MCU via hardware line `PD4` (Descriptor 2) directly to MAS `GPIO 5.12`
+   (EXIU Channel 5 / IRQ 70).
 
 ## Firmware State Evidence
 
