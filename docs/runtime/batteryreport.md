@@ -104,3 +104,39 @@ closed by the actual input, output and disabled override; tracing E to a
 particular transport generation is separate work if that attribution is
 needed. Changing provider gate `2001fba6` merely to make BatCk pass is
 neither needed nor supported by this observation.
+
+## EX Transport Class 2 Slot Allocation and Recovery Stability (Issue #534)
+
+The EX-to-MAS transport layer manages an SRAM queue control block at `0x20011754`:
+- Read index at `0x20011768`, write index at `0x2001176c`.
+- 16 Class 2 descriptor slots at `0x200117e4..0x20011823`.
+
+### Contention and Slot Reclamation Flow
+Class 2 slots are a shared resource between asynchronous host inputs (mechanical
+dials and button matrices in `nikon-input`) and battery status updates (`BatCmAl1`
+at `0x0802b6f0` producing kind `0x0a` descriptors).
+
+1. **Producer Enqueue (`0x08032000`)**:
+   - The producer inspects `slot[w]`. If non-zero (`!= 0`), the slot is currently
+     occupied.
+   - **Backpressure Gate (`0x08032092`)**: Rather than overwriting an in-flight
+     descriptor, the enqueue function rejects the submission with `0xffff`.
+2. **Consumer Transmission (`McuTx` at `0x08034a18`)**:
+   - Fragments and transmits the message over SPI4 (base `0x40013400`) via EX DMA2
+     Stream 1 (`0x40026428`).
+   - Asserts handshake line to MAS and waits on event flag `0x0c` (DMA TCIF and
+     handshake ACK).
+3. **Slot Reclamation (`0x08034b0e`)**:
+   - Upon successful ACK, the transmit worker clears the descriptor pointer
+     (`slot[r] = 0`) and advances the read index modulo 16 (`r = (r + 1) & 0x0f`).
+   - If PC0 status change notifications are unmetered or held low continuously,
+     polling generates excessive kind `0x0a` battery records, causing all 16 slots
+     to saturate. Subsequent dial/key submissions return `0xffff`, causing input
+     starvation because mechanical counters are cleared prior to enqueue.
+4. **Verified Invariants**:
+   - Continuous interleaving of battery class transitions, P/S/A/M mode changes,
+     dual dial quadrature steps, and key events operates stably with complete slot
+     reclamation (`tests/unit/nikon/exlevels.c`, `status-interleaved-lifecycle`).
+   - Full 16-slot saturation backpressure and sequential DMA reclamation are
+     verified natively in `tests/qtest/nikon/ex.c` (`spi-dma-slots`).
+

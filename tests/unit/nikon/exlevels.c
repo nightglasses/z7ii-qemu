@@ -373,6 +373,76 @@ static void status_notification(void)
     address_space_destroy(&as);
 }
 
+static void status_interleaved_lifecycle(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    Object *status = object_resolve_path("/machine/ex/status", NULL);
+    Object *input = object_resolve_path("/machine/input", NULL);
+    I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
+    AddressSpace as;
+    uint8_t value[4];
+
+    g_assert_nonnull(input);
+    g_assert_nonnull(status);
+    address_space_init(&as, nikon_ex_memory(ex), "status-interleaved");
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+
+    /* 1. Baseline: Ensure starting class is 1, drained and PC0 idle high. */
+    object_property_set_uint(status, "class", 1, &error_abort);
+    status_read(bus, value);
+    status_release(bus, value[0]);
+    g_assert_cmpuint(status_pin(&as), ==, 1);
+
+    /* 2. Interleave: Battery class transition to Class 2 asserts PC0. */
+    object_property_set_uint(status, "class", 2, &error_abort);
+    g_assert_cmpuint(status_pin(&as), ==, 0);
+
+    /* 3. Interleave: Mode change during pending battery notification. */
+    object_property_set_int(input, "mode-position", 0, &error_abort);
+    g_assert_cmpint(object_property_get_int(input, "mode-position",
+                                            &error_abort), ==, 0);
+
+    /* 4. Interleave: Shutter half-press and AF-ON assertions. */
+    object_property_set_bool(input, "half-press", true, &error_abort);
+    object_property_set_bool(input, "af-on", true, &error_abort);
+    g_assert_true(object_property_get_bool(input, "half-press", &error_abort));
+    g_assert_true(object_property_get_bool(input, "af-on", &error_abort));
+
+    /* 5. Complete I2C battery acquisition while inputs are active. */
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xc9);
+
+    /* Freeze response test: input changes during read retain old generation. */
+    object_property_set_uint(status, "class", 3, &error_abort);
+    status_release(bus, value[0]);
+    /* PC0 remains asserted because Class 3 is pending. */
+    g_assert_cmpuint(status_pin(&as), ==, 0);
+
+    /* Second acquisition consumes Class 3 and returns PC0 high. */
+    status_read(bus, value);
+    g_assert_cmphex(value[3], ==, 0xe9);
+    status_release(bus, value[0]);
+    g_assert_cmpuint(status_pin(&as), ==, 1);
+
+    /* 6. System Reset retains held keys and preserves battery class. */
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    g_assert_true(object_property_get_bool(input, "half-press", &error_abort));
+    g_assert_true(object_property_get_bool(input, "af-on", &error_abort));
+    g_assert_cmpuint(object_property_get_uint(status, "class", &error_abort),
+                     ==, 3);
+    g_assert_cmpuint(status_pin(&as), ==, 1);
+
+    /* Clean release. */
+    object_property_set_bool(input, "half-press", false, &error_abort);
+    object_property_set_bool(input, "af-on", false, &error_abort);
+    object_property_set_uint(status, "class", 1, &error_abort);
+    status_read(bus, value);
+    status_release(bus, value[0]);
+    g_assert_cmpuint(status_pin(&as), ==, 1);
+
+    address_space_destroy(&as);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -400,6 +470,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/ex/configured-io-levels", configured_levels);
     g_test_add_func("/nikon/ex/power-devices", power_devices);
     g_test_add_func("/nikon/ex/status-notification", status_notification);
+    g_test_add_func("/nikon/ex/status-interleaved-lifecycle",
+                    status_interleaved_lifecycle);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(bundle);
