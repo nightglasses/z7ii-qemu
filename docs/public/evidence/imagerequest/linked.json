@@ -1,0 +1,65 @@
+{
+  "scope": "Type8/type9 fixed register-stream import and linked references; no actual pixel processing, completion event or automatic slot retirement",
+  "dependency_baseline": "34c3278c",
+  "source_facts": {
+    "component": "C1.70 MAS; code/ROM/software VA and board registers/RAM PA as labelled; hexadecimal addresses/offsets/masks, decimal counts/types/resources",
+    "ports": [
+      {"type":8,"resource":41,"backend_PA":"201008a0","raw_domain_index":1,"mask":"20"},
+      {"type":8,"resource":42,"backend_PA":"201008c0","raw_domain_index":1,"mask":"40"},
+      {"type":8,"resource":43,"backend_PA":"201008e0","raw_domain_index":1,"mask":"80"},
+      {"type":8,"resource":44,"backend_PA":"20100c80","raw_domain_index":2,"mask":"10"},
+      {"type":9,"resource":45,"backend_PA":"20100900","raw_domain_index":1,"mask":"100"},
+      {"type":9,"resource":46,"backend_PA":"20100ac0","raw_domain_index":1,"mask":"400000"},
+      {"type":9,"resource":47,"backend_PA":"20100cc0","raw_domain_index":2,"mask":"40"},
+      {"type":9,"resource":48,"backend_PA":"20100ce0","raw_domain_index":2,"mask":"80"}
+    ],
+    "callbacks": "Type8 103bdc82/type9 103bdc8a take node resource byte and payload into103bded0: backend14=1,0 then10=pointer",
+    "constructors": "103b35d6/type8 and103b39e8/type9; type8 headers111c0000,01040078 with128-byte extent, logical6c/70/74 absent; type9 header01220000 with136-byte extent, logical0..80",
+    "type5_link": "Type5 logical404=8 routes to resource45. Type9 logical18=4080 selects ancestor resource8 in bits4..7 after graph traversal through type5/6; separate logical64 low5bits=4 maps via103b2a3a to resource35/type5 input stream",
+    "output_routes": "103b2e86 and1038944a resolve ROM10789cc0+4*(resource-13)+slot. Resource62 row10789d84 is6a/6b/ff/ff; type9 logical0=6a selects type11/resource62 slot0.103b2592 packs logical68=00040302 for type8 resources41/42/43",
+    "borrowed_input": "Type9 logical50=0088001e, logical54=c326b400 inside kind74 PA[c24cb400,c33cb400).10404354 writes eight23-bit interpolated fields plus tag at byte20, stride40, leaving last word untouched. Hardware fixed point/complete reference extent not established",
+    "terminal": "103b4adc configures graph;103b4cea reverse-starts processing nodes via103bd07c and selects terminal wait resources49..56. IRQ102 103bce38->103bde3e dispatches callbacks;10388b3c->1038897e releases software ownership without a hardware query-bank write",
+    "next_callback": "ROM type18/resource34 backend20100920 callback103bdd8c clears SYS41..44; if20100148.bit8 absent, writes201002c0=1 then10361034(24010000,4096), before common reset/import"
+  },
+  "model": {
+    "implemented": "All8 new ports use existing isolated reset/one-import-arm/complete-RAM-preflight/QEMU-DMA/atomic-layout decoder;37 maintained ports, uint64 configured-mask and64-bit set/clear shifts",
+    "inference": "Shared layouts for unobserved resource44 and46..48 follow common constructors and field extents; original headers here observed only for41/42/43/45. Different templates remain unsupported",
+    "conventions": "Cold empty state/readback/local reset cancellation/one-import admission are functional choices, not recovered physical status timing",
+    "boundary": "Borrowed references retained without nested dereference. Unsupported activation/offsets/widths/invalid RAM spans/headers/held reset/unarmed/repeated submissions reject; no partial packet",
+    "unresolved": "Complete slot8 base/plane association, type5 table/control equations, type9 numerical transfer/output format and type8 data operation. No identity/black output, result DMA, guest callback, raw event/IRQ or automatic slot retirement supplied"
+  },
+  "native": {
+    "red": "Old device HMP READ32 PA20100914 returns Cannot access memory and focused regression aborts",
+    "green": {"decoder_subtests":4,"SLA_subtests":23,"failures":0},
+    "coverage": "All37 ports; type8/9 exact layouts, every shorter prefix and all header-bit corruptions, type8 presence gap, atomic failure, high-bit configured-mask/reset isolation, RAM-DMA/activation boundaries, borrowed MMIO reference not dereferenced at import, no elapsed-time completion/pending/IRQ or command-reset busy-slot retirement"
+  },
+  "original_execution": {
+    "profile": "Unchanged firmware, bounded NOR resource35 descriptor17/cold-neutral resource80, quadrant PGM, healthy paced9600-baud UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG; guest_errors trace, no CPU trace",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "loaded_packets":17,
+    "loaded_words":628,
+    "configured_mask_hex":"2e9829f19",
+    "configured_mask_decimal":12507586329,
+    "new_port_pointers": {"201008a0":"b2bda148","201008c0":"b2bda1e8","201008e0":"b2bda288","20100c80":"0","20100900":"b2bd9e68","20100ac0":"0","20100cc0":"0","20100ce0":"0"},
+    "type9_record_sample": "First16 records at PA c326b400,640bytes: tag306 at byte20 in every record; last word zero. Nonzero fields are not interpreted as recovered hardware coordinates",
+    "type8_references":["b2bda128","b2bda1c8","b2bda268"],
+    "slot_busy":[0,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0],
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":2,
+    "statistics_completed":529,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "processing_activation":"Not reached; still unsupported",
+    "uncovered":"CPU1 PC103bddd2 WRITE32 PA201002c0=1, event-gate-access-or-command-not-supported; type18/resource34 initialization helper",
+    "QMP_status":"debug/stopped",
+    "error_property6433":"All280 bytes zero",
+    "GUI_readiness":0,
+    "information_records":"Both464-hex-byte records zero",
+    "display":"Neither head bound to QemuConsole",
+    "battery_peer_rejections":[]
+  },
+  "observer_limits": "Pre-change source/payload capture and final changed-model continuation are separate windows. QMP then read-only GDB observations are sequential, not atomic. Different windows' acquisition/statistics counts are not physical rates or speed comparisons. Trace fault PC identifies the uncovered instruction, not the later sampled CPU PC",
+  "omissions": "Raw factory code/disassembly, firmware, full traces/debugger data stay ignored. No physical hardware arithmetic, unobserved sibling execution, completed processing frame, reusable slot cycle or normal GUI claim"
+}

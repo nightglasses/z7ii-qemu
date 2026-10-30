@@ -7,3 +7,6 @@ __pycache__/
 .gdbinit*
 *.log
 *.sock
+
+# Node and VitePress build artifacts
+node_modules

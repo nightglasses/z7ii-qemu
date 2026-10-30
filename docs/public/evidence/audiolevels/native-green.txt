@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: audiolevels-20261023
+Original log: native-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/3 nikon+qtest+qtest-arm - qemu:nikon_audio OK              2.04s   7 subtests passed
+2/3 nikon+qtest+qtest-arm - qemu:nikon_dma   OK              2.16s   10 subtests passed
+3/3 nikon+qtest+qtest-arm - qemu:nikon_hdmac OK              1.22s   5 subtests passed
+Ok:                3
+Fail:              0

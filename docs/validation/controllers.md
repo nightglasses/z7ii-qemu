@@ -68,7 +68,7 @@ witnesses.
 
 The separate five-context whole-bundle observation used fixed `7f529505` and
 explicit independent counterfactual erased-FF prefixes. Its ignored receipt
-is `local-gdb-observers/work/gui/gates/receipt.json`. Original Gate
+is `local-gdb-observers/run gui/gates/receipt.json`. Original Gate
 initialization crossed naturally, without requiring the modeled stop ACK.
 At 129,998,000 virtual ns, CPU3 reached PC `10096542`, PA `2038000c`, W32 one.
 After one continuation the observer captured all contexts at 157,411,000 ns,

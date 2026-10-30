@@ -1,0 +1,94 @@
+{
+  "scope": "Complete source-declared kind57 GUI arena replacing allocation fragments; no guest allocator or pixels supplied",
+  "dependency_baseline": "530fa10",
+  "source": {
+    "component": "Original C1.70 MAS; code/ROM/cells VA,arena PA; hexadecimal addresses/sizes and decimal indices/counts",
+    "pool_row_VA": "11983530",
+    "default_selector_VA": "11982938[57]",
+    "row_hex": "{8,386c200,386c200,0,bec5f200,700}",
+    "mode_overrides": "All five entries for kind57 are NULL",
+    "PA_range_exclusive": "[bec5f200,c24cb400)",
+    "unit_count": 1,
+    "partition_table_VA": "123b73ec",
+    "enabled_records": [
+      0,
+      1,
+      5,
+      6,
+      7,
+      8
+    ],
+    "partition_total_hex": "386c100",
+    "owned_tail_PA": "[c24cb300,c24cb400)",
+    "runtime_cells_observed_before_backing": {
+      "b181d384": "bec5f200",
+      "b181d390": "bf10f200",
+      "b181d388": "bf309600",
+      "b181d394": "bf7b9600",
+      "b181d38c": "c175d600",
+      "b181d398": "c1c0d600"
+    },
+    "allocation_rule": "Disabled rows consume no space; record6 owns bff43ac2 and [bff44340,bff44b20). Kind74 starts at exact upper end and remains independent"
+  },
+  "model": {
+    "storage": "One exact offset-aware z7ii_ram MemoryRegion replaces old record0/1/5/7 fragments; no enclosing DDR aperture or logical VA mirror",
+    "contents": "Cold zero and reset retention are explicit board assumptions; all pointer cells, allocation, byte writes, clears and rendering remain original guest work",
+    "interfaces": "CPU and DMA share the same bytes; scanout keeps its existing bf309600 base and configuration"
+  },
+  "native": {
+    "red": "Old fragment backing fails the new gui-pool byte-write/readback fixture",
+    "green": {
+      "memory_subtests": 36,
+      "fill_subtests": 4,
+      "GUI_record7_subtests": 1,
+      "failures": 0
+    },
+    "coverage": "Record6/8/tail first-last words,actual W8,7e0 DMA and old-partition seams,CPU/bus sharing/reset retention,kind74 independent neighbor,real exterior holes/no logical mirror; fill/GUI regression",
+    "diagnostic_correction": "Initial build removed a still-used scanout base constant; restored it. Initial new repeated-COPY fixture omitted required prior status ACK and failed second byte comparison; added explicit ACK/read0 before each request,without changing COPY device. Only subsequent complete36+4 batch is the final native receipt"
+  },
+  "limits": "Functional storage ownership,not recovered physical DDR capacity,normal live view or numerical image-processing acceptance. Raw firmware/disassembly/complete captures stay ignored. Main/reference arithmetic and actual paired result production remain unimplemented; no long-duration stability or physical-rate claim. Sequential observations are not atomic.",
+  "original_execution": {
+    "profile": "Unchanged original firmware,region/cold-neutral profile as requests.json;60 host seconds,no in-window GDB pause;sequential QMP/GDB",
+    "uncovered_accesses": 0,
+    "QMP_status": {
+      "status": "running",
+      "running": true
+    },
+    "loaded_packets": 18,
+    "loaded_words": 649,
+    "parameter_valid_decimal": 318,
+    "parameter_commits": 9,
+    "paired_states": {
+      "0x20380000": {
+        "active": 1,
+        "pending": "0x0",
+        "mask": "0xffffff71"
+      },
+      "0x203c0000": {
+        "active": 0,
+        "pending": "0x0",
+        "mask": "0x0"
+      }
+    },
+    "main_completed": 128,
+    "main_rejected": 0,
+    "main_cancelled": 1,
+    "statistics_completed": 1714,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "fill": "engine0 destination bff44340 bytes7e0 bus-result0 status1,subsequent CPU write no uncovered fault",
+    "display": "head1 successful1024x682 screenshot,status widgets/thin border/memory-card error overlay;head0 unbound",
+    "GUI_readiness": 0,
+    "information_records": {
+      "bytes_each": 1124,
+      "nonzero_bytes_each": [
+        173,
+        173
+      ],
+      "equal": true,
+      "qualification": "Populated RAM,not independent record92 notification proof"
+    },
+    "battery_peer_rejections": [],
+    "graph_nodes_active_at_snapshot": 0
+  }
+}

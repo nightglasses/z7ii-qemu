@@ -216,7 +216,7 @@ static void source_transaction(I2CWireTest *t, uint8_t command,
     wire_reply(t, 0, frame, 0);
     wait_reg(t->q, 0, 4, 0x40, 0);
     g_assert_cmphex(read_reg(t->q, 0, 4) & 0x100, ==, 0x100);
-    g_assert_cmphex(read_reg(t->q, 0, 0x10) & 1, ==, 0);
+    g_assert_cmphex(read_reg(t->q, 0, 0x10) & 1, ==, 1);
     write_reg(t->q, 0, 0x10, IRQ_MASK);
     write_reg(t->q, 0, 0, 0x17);
     write_reg(t->q, 0, 0x14, length);
@@ -367,6 +367,46 @@ static void test_fifo(void)
         g_assert_cmphex(read_reg(t.q, 0, 0xc), ==, i);
     }
     g_assert_cmphex(read_reg(t.q, 0, 0x10) & 1, ==, 1);
+    wire_quit(&t);
+}
+
+static void test_held_batches(void)
+{
+    I2CWireTest t = wire_start(1);
+    uint8_t frame[NIKON_WIRE_SIZE];
+
+    qtest_irq_intercept_out_named(t.q, "/machine/i2c0", "sysbus-irq");
+    write_reg(t.q, 0, 0, 0x16);
+    write_reg(t.q, 0, 0x24, 1);
+    for (unsigned i = 0; i < 16; i++) {
+        write_reg(t.q, 0, 0xc, i);
+    }
+    write_reg(t.q, 0, 8, 0x55);
+    wire_request(&t, 0, NIKON_I2C_START, 0x55, frame);
+    wire_reply(&t, 0, frame, 0);
+    for (unsigned i = 0; i < 16; i++) {
+        wire_request(&t, 0, NIKON_I2C_WRITE, i, frame);
+        g_assert_cmphex(read_reg(t.q, 0, 0x10) & 1, ==, 0);
+        wire_reply(&t, 0, frame, 0);
+    }
+    wait_reg(t.q, 0, 0x10, 1, 1);
+    g_assert_true(qtest_get_irq(t.q, 0));
+    g_assert_cmphex(read_reg(t.q, 0, 4) & 0x100, ==, 0x100);
+    write_reg(t.q, 0, 0x10, IRQ_MASK);
+    write_reg(t.q, 0, 0xc, 0x91);
+    write_reg(t.q, 0, 0xc, 0x92);
+    for (unsigned i = 0x91; i <= 0x92; i++) {
+        wire_request(&t, 0, NIKON_I2C_WRITE, i, frame);
+        g_assert_cmphex(read_reg(t.q, 0, 0x10) & 1, ==, 0);
+        wire_reply(&t, 0, frame, 0);
+    }
+    wait_reg(t.q, 0, 0x10, 1, 1);
+    write_reg(t.q, 0, 0x10, IRQ_MASK);
+    write_reg(t.q, 0, 0, 6);
+    stop_reply(&t, 0);
+    g_assert_cmphex(read_reg(t.q, 0, 0x10) & 1, ==, 0);
+    g_assert_false(qtest_get_irq(t.q, 0));
+    wire_quiet(&t, 0);
     wire_quit(&t);
 }
 
@@ -871,6 +911,7 @@ void nikon_i2c_add_tests(const char *image)
     qtest_add_func("/nikon/i2c/cancel", test_cancel);
     qtest_add_func("/nikon/i2c/fifo", test_fifo);
     qtest_add_func("/nikon/i2c/timeout", test_timeout);
+    qtest_add_func("/nikon/i2c/held-batches", test_held_batches);
     qtest_add_func("/nikon/i2c/offline", test_offline);
     qtest_add_func("/nikon/i2c/ports", test_ports);
     qtest_add_func("/nikon/i2c/gpio", test_gpio);

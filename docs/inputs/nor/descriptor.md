@@ -1,4 +1,18 @@
-# Descriptor17 external input
+# External descriptor inputs
+
+Resource11/12 primary inputs use the same NOR lifecycle described below:
+
+| Property | Exact primary range | File size | Alternative bank retained separately |
+| --- | --- | ---: | --- |
+| `descriptor11-input` | `[12a80000,12ce0000)` | 2432 KiB | `12e60000` |
+| `descriptor12-input` | `[12ce0000,12dc0000)` | 896 KiB | `130c0000` |
+
+Omitted primary and alternative banks remain erased; missing files or wrong
+sizes fail creation. Inputs do not replay on reset or initialize destination
+RAM. Original code selects/validates the bank, performs phased copies/fills
+and publishes completion. Marker `ENDM` is at slot end-4 and its sequence
+counter at end-8 for these two records. The resource12 empty-list hypothesis and
+its original continuation are qualified in [rows.md](../../runtime/rows.md).
 
 The Z7II C1.70 resource registry defines descriptor ID17 as the finite external
 NOR span `[0x132c0000,0x132e0000)`.  Its original loader checks the final four
@@ -21,6 +35,225 @@ its contents to be factory data.  In particular, repository fixtures contain
 only synthetic bytes.  Original Nikon records, extracted firmware bytes and
 generated images remain outside Git under `work/`.
 
+Descriptor18 is the separate finite NOR span `[0x132e0000,0x13380000)`.
+`descriptor18-input=FILE` accepts exactly640 KiB; its original footer is at
+`0x1337fffc`. It uses the same backing and lifecycle as descriptor17, and the
+two properties can be supplied together. Neither property replays its input
+on reset. Missing, short and oversized files are rejected; omitted spans remain
+erased. The guest still validates the footer and publishes records itself.
+
+## Descriptor32 module-bank input
+
+`descriptor32-input=FILE` accepts exactly `0x180000` bytes (1536 KiB) and
+installs them at MAS PA `[0x13e80000,0x14000000)`. This is the existing external
+NOR slot shared by descriptor31 and descriptor32: both descriptors name the
+same physical bytes, so this option does not create an independent bank or
+shadow copy. The preceding covered NOR slot ends at PA `0x13e40000`; the gap
+before this slot and PA `0x14000000` remain uncovered.
+
+Omission leaves the shared slot erased FF. Empty, short, oversized and
+unreadable files fail machine creation. The option can be combined with the
+descriptor11/12/17/18 inputs and uses their existing one-time input installer.
+Normal NOR command programming and sector erasure modify that same backing;
+reset preserves those changes and does not replay any input file. No module,
+code or download RAM, resource callback, loader result, status, event or IRQ
+is initialized by this property. The original firmware must select and parse
+the input and copy any module data itself.
+
+The file is opaque external data, not a claim of valid factory contents or a
+recovered module-bank format. Repository fixtures use synthetic bytes only;
+original input files remain outside Git. The native `nikon_memory` cases
+`descriptor32-input` and `descriptor32-rejection` cover the full slot,
+co-configuration, bounds, cold RAM, shared NOR programming/erasure and reset
+persistence, and invalid input files. These are input-contract fixtures,
+not unchanged-firmware loader or complete-boot evidence.
+
+Parent old-model red records the missing property; the complete native
+`nikon_memory` batch then passes28 subtests in8.65s. Receipts are
+`run moduleinput/native-module-red.log` and
+`native-memory-green.log`. The separate [original loader investigation](module.md)
+records raw COPY/fill semantics, successful structural-input loading and
+the still-unrecovered semantic resource80 body.
+
+## Acceleration configuration and calibration
+
+The original manifest copies resource21 from descriptor17 offset`a400`,256 bytes,
+and resource57 from descriptor18 offset`100`,192 bytes. Directory entries have
+28-byte strides at MAS VA`b185eb70`; their+4 field is an offset, not a length.
+Their directory spans512/256 bytes must not replace the manifest copy lengths.
+The resource callback waits for both completion bits before installing either
+pointer; supplying descriptor17 alone therefore does not initialize this device.
+
+Z7 C3.80 has same-schema ROM defaults at payload offsets`1501304/1501404`.
+Its installer`10232616` copies256/192 bytes and calls the two acceleration
+setters. The second resource ID there is44; Z7II uses57. Compatibility is based
+on the padded`ACCELE` marker, type words1/2, copy lengths and consumer field
+offsets, rather than matching numeric IDs. Unit gains at+56/+60/+64 are65536;
+offsets and the inspected correction terms are zero. These remain cross-model
+functional candidates, not authentic Z7II factory calibration.
+
+The explicit experiment under`run guinormal/` adds only the256-byte
+configuration to the existing functional descriptor17 and the192-byte calibration
+plus`ENDM` to an otherwise erased descriptor18. Unchanged execution observes both
+`04400043` callbacks, successful mask3 wait, and pointer installation at
+owner+424/+428. The subsequent device and ordinary-request continuation is recorded
+in [acceleration](../../devices/acceleration/protocol.md) and
+[guiupdate](../../runtime/guiupdate.md). No original record bytes are embedded
+in the emulator or committed in fixtures.
+
+### Captured ACCELE import and explicit units
+
+The archived F025 capture contains a192-byte calibration record at file offset
+`100`. Its padded16-byte `ACCELE` marker, record boundary and consumed field
+offsets match C1.70 manifest MAS VA`118d0be0`. Setter`103d5366` compares the
+marker and installs the pointer without testing the type word at+16; the
+captured type3 is retained. This is a specific cross-version record binding,
+not an assertion that every V1.60 resource or address is interchangeable.
+
+The native tool imports only this record into an existing640KiB descriptor18:
+
+```sh
+work/build/qemu/tools/nikon/nikon-module acceleration-descriptor18 \
+  preserve INPUT_DESCRIPTOR18 F025_CAPTURE OUTPUT_DESCRIPTOR18
+
+work/build/qemu/tools/nikon/nikon-module acceleration-descriptor18 \
+  full16-to-raw12 INPUT_DESCRIPTOR18 F025_CAPTURE OUTPUT_DESCRIPTOR18
+```
+
+F025 must be exactly4096 bytes and have the padded marker at`100`. Both modes
+preserve every descriptor byte outside`[100,1c0)`, including its opaque footer,
+and write only the requested output file. Choose a distinct output path to retain
+the source files. The tool does not repair the footer, copy
+neighboring records, supply resource21 configuration or modify guest memory.
+Unknown unit modes, invalid lengths/markers and file errors fail explicitly.
+
+`preserve` copies all192 original bytes. `full16-to-raw12` declares the virtual
+coordinate mapping `raw_full16 = 16 * raw12`. It divides signed32 bias fields
+at decimal32/36/40 and gain fields56/60/64 by16, requiring exact divisibility
+and positive gains. Type, cross-axis terms and angle corrections stay unchanged.
+This preserves the rational Q16 expression
+`(rawQ16 - bias) * 65536 / gain` under that mapping. The six captured values
+divide exactly; the converted gains are66908416/66935040/65501440, retaining
+their unequal captured axis corrections rather than substituting unity.
+
+Original `103d4752` divides the variant1 signed BE16 wire sample by16; its
+other branch uses full halfwords. Both calibration helpers use Q16 ratios,
+but variant1's`103d42f0` normalizes a32-bit numerator and shifts its denominator,
+whereas`103d57d6` uses a64-bit divide. An exhaustive comparison for this captured
+record and all4096 raw12 values per axis bounds their difference after explicit
+retargeting at1/5/5 Q16 least-significant units. That is a finite arithmetic
+comparison, not proof of the physical sensor's range or board strap. Current
+variant1 comes from GPIO P0.5 reading its configured pull-up, not record type3.
+
+Native11-case module validation covers exact preservation, signed conversion,
+the independent rational identity, malformed inputs and CLI errors. Tool outputs
+match the separately prepared inputs byte-for-byte. Unchanged firmware copies
+and installs both the preserved and retargeted192-byte records at calibration
+VA`b7f6a0fc`, owner VA`b1cf7a0c`, while retaining configuration VA`b7f54400`.
+The preserved-record diagnostic completes117 paired jobs in16.16 host seconds;
+the retargeted-input window takes an AF data abort after59 jobs at13.91 seconds
+with FIFO60/60. These validate loader reuse, not stable GUI operation. The
+[capture bounds](../../runtime/physical_ram_nvram.md#usable-comparisons-and-unresolved-bindings)
+and [runtime receipt](/evidence/runtime/grid.json) retain the separate limits.
+
+## TEMP admission record
+
+Resource19 is a96-byte`TEMP` record at descriptor17 offset`a100`.
+The original threshold comparator reads its+44 field as signed16. ErasedFF
+there becomes -1, causing measured0 to reject the normal display start with
+return4. The record pointer is MAS VA`b1807f68`; `b1807f70` is a gate word,
+not a second pointer. This rejection is invalid persistent input, not evidence
+of a physically unhealthy measurement.
+
+Z7 ROM defaults at payload offsets`15014c4/1501524` are complete96-byte type4/
+type3 records. Its original resource19 installer selects between them using
+board item338. Z7II's setter/marker check and inspected comparison consumers
+match the96-byte layout; no physical type or unit equivalence is claimed.
+Explicit unchanged-record experiments with each candidate independently make
+the normal display request return0, then stop at the same MXIC configuration
+boundary. Neither candidate is silently selected or embedded in QEMU. See
+[guiupdate](../../runtime/guiupdate.md) for accepted-request observations and
+the remaining board-selection/factory-calibration limits.
+
+## Resource35 first-read region input
+
+**Source facts:** resource35 is a child of resource17, at descriptor17 file
+offset `e400`. Manifest row MAS VA `118d0b30` copies `c00` bytes in phase3
+through COPY selector1. Its directory capacity is `d00`, not the copy length.
+The original loader zeroes the uncopied tail; the input tool leaves those file
+bytes untouched. Getter `10248880` caches resource35, observed at VA `b7f58400`.
+
+`10218bca` selects two families of64 inclusive coordinate bounds. The first
+family's four tables start at offsets `24/124/224/324`, the second at
+`434/534/634/734`; each table has64 LE32 entries. Whole-image rectangles at
+`424/834` use wire order `{x0,y0,x1,y1}`, reordered by `10218e7c` for the
+consumer. Header words at decimal offsets28/32 bound the region columns/rows;
+the result arrays support at most8 in each direction.
+
+The prior TEMP/acceleration input leaves the copied body FF. Its counts and
+signed bounds become `ffffffff`; `10218d24` therefore reads coordinate(-1,-1)
+at `base +2*(-32-1)`, PA `5df453be`, before the kind32 allocation. This is not
+missing storage. Separately, `1022fca6 ->10210ae2` reads frame limit at offset
+`848` and passes its low byte into first-read submission. Erased FF consequently
+requests255 frames; that was not evidence of a normal factory sample count.
+
+**Explicit virtual profile:** the existing native input tool can enrich an
+opaque descriptor17 file while preserving every byte outside `[e400,f000)`:
+
+```sh
+work/build/qemu/tools/nikon/nikon-module neutral-regions-descriptor17 \
+  INPUT_DESCRIPTOR17 OUTPUT_DESCRIPTOR17
+```
+
+Both paths are explicit; the input must be exactly128 KiB. The tool neither
+validates nor repairs its footer or other records. Unreadable/wrong-sized
+inputs and output failures return errors. Supply the output through the
+normal `descriptor17-input` property, alongside the unchanged cold-neutral
+resource80 and other inputs. No guest RAM or event is populated by the tool.
+
+The profile declares two8x8 partitions covering a30x12 image exactly once,
+plus each whole-image rectangle. Frame limits at `848/860/864` are64/64/16:
+`10218f84/102194c4` have64 frame pointers; `10219826` has16. The first two
+also need more than10 frames for `1021894a`'s five-frame margins and denominator.
+Offset `850=24` is an explicit virtual unit-gain choice for `10218866`'s
+multiply/divide-by24 expression. Every other byte within the copied body is
+explicitly zero, including unqualified thresholds/header fields. These are
+bounded functional parameters, not recovered factory calibration, physical
+thresholds or universal values for other image modes.
+
+The [region receipt](/evidence/imagerequest/regions.json) records5 passing
+module-tool cases and33 memory cases, exact opaque-byte preservation, both
+coordinate families' coverage and all consumer addresses within a32-sample
+pitch. Tool output compares directly with the experimental input. Original
+loader output matches all `c00` bytes; unchanged firmware now requests64 frames,
+completes128 main acquisitions over two phases and reaches a running head1
+console. The actual1024x682 guest frame contains status widgets and an error
+overlay with ID63; it is not normal live view. The following source audit
+connects that error to Sensor status100 from `102d986e(0)`, rather than the
+erased-region read. Physical calibration and normal GUI completion remain
+unverified.
+
+## Resource31 timing parameters
+
+C1.70 manifest row at MAS VA `118d0af0` copies descriptor17 file offsets
+`[b900,c778)`, length `e78`, during phase2. Directory row VA `123f8e68`
+declares span `1c00`; that span is not the manifest copy length. The declared
+`descriptor17-temp3.bin` input leaves the entire3704-byte copied body erased.
+
+`102cb648` installs the resource31 payload pointer at MAS VA `b1868ae4`.
+Selector42 of `102cb65e` reads payload+288(decimal,120hex) and multiplies by500
+modulo32 bits. This field is at descriptor offset `ba20`; its erased `ffffffff`
+therefore produces `fffffe0c`. Neither installation nor this getter validates
+the body or selects substitute defaults. A valid ENDM footer permits copying
+the erased body; it does not establish normal parameter values.
+
+Z6II C1.70 has the same manifest/directory geometry, without a recovered
+record body. Z7 C3.80 has a different resource31 span and a different
+selector42 operation; no compatible normal value or ROM-default body has
+been identified. The input remains unchanged. The finite timing model allows
+this request to expire and its original waiter returns; this unknown parameter
+does not prevent the later observed error-GUI frame.
+
 ## Cross-model functional display seed
 
 Static comparison with an operator-supplied Z7 C3.80 MAS payload identifies
@@ -39,9 +272,12 @@ a byte-accurate Z7II factory image or physical-camera evidence.  The emulator
 does not embed, synthesize or silently select these records.  They must be
 provided through the explicit file property, after which unchanged Z7II code
 performs its normal validation, fixed copy and resource callbacks for those
-records.  This does not by itself reach display-configuration publication.
-Other records left erased remain explicit unknown inputs and may expose later
-firmware error paths.
+records. The current multi-thread [publication probe](../../runtime/resource.md)
+observes ID24/25/27 callbacks, the display resource-wait result changing from
+0 to 1, and rear-panel table installation at `b1808508=b7f54a00`. The same
+partial seed then enters the erased ID34 translator before worker startup.
+This is resource-publication evidence, not a complete display configuration
+or first frame. Other erased records remain explicit unknown inputs.
 
 ## Phase-3 ID34 boundary
 
@@ -60,14 +296,46 @@ them respectively to at most 30, 20, 8 and 8.  An erased record supplies
 `0xffffffff`; the nested `+0x24/+0x28` loop then overruns its fixed derived
 workspace.  This is invalid persistent input, not a missing device-ready bit
 or IRQ.  The bounds alone do not define the remaining numeric tables and are
-not authority to synthesize them.
+insufficient to certify a complete record. A constructed functional input can
+select values from explicitly stated hypotheses and validate them through the
+original consumers; see [functional.md](functional.md).
 
-The Z6II C1.70 updater independently confirms the schema: its descriptor17
-geometry, ID17--41 registry, 25-row manifest and ID34 callback are byte-
-identical, and its translator uses the same field offsets and loop shapes.
-It nevertheless obtains ID34 from the same external resource path and contains
-no whole-record ROM default.  The public WonderLantern Z7 and Z9 sources also
-contain no compatible object or factory-data image.  Consequently the current
-source-backed boundary remains an authentic descriptor17 input containing
+The fresh official Z6II C1.70 comparison confirms the schema: its descriptor17
+geometry, ID17--41 registry and 25-row manifest match, and native translator
+instructions use the same field offsets and loop shapes. Its identified path
+still obtains ID34 externally. Fresh Z7 C3.80 bytes confirm the three display
+defaults above, but its ID34 registry span is `0x1900`, unlike Z7II's `0xd00`;
+the resource number alone is not schema compatibility. No usable whole ID34
+record was recovered from these paths or the inspected public Z7/Z9 inputs.
+This is not an exhaustive proof of ROM-default absence; see the qualified
+[inventory](id34.md). Reproducing factory calibration requires an authentic
+descriptor17 input containing
 `[0x132cd700,0x132ce300)`, or a separately identified same-schema capture that
 retains an explicit cross-model qualification.
+
+That factory-data requirement is distinct from functional emulation. The first
+explicit [constructed profile](functional.md) now makes the original ID34
+mapper return with a nonempty 30-by-20 to 6-by-5 grid, and advances the manager
+to current worker 4/state 2. A finite graphics-model correction subsequently
+allows the1024x688 and720x480 clears, a gray panel and131 original glyph fills
+through IRQ129. The glyphs render the battery communication warning;
+five subsequent gray rectangles and an inline A8 warning icon also complete.
+The224/1736-byte RGBA-input/YUV105-output pair also completes, followed by the
+same-length720x480 scaling to YUVA107 and the176/1552-byte warning-source
+SRC_OVER continuation using retained107 state. The following run returns
+to worker0 with GUI readiness still unarmed. The selected
+numeric values remain hypotheses;
+neither original factory fidelity nor a GUI first frame is claimed.
+
+The [field analysis](../../runtime/id34.md) establishes four rectangle-coordinate
+tables, two coefficient tables, 83 mapper scalar assignments and the separate
+`+0x774` parameter value. It separates the immediate dimension overrun from later
+grid-processing requirements; dimension bounds do not define a bootable record.
+
+The current multi-thread reproduction and the separate partial-seed experiment
+are recorded in [resource.md](../../runtime/resource.md). In the erased-input
+baseline, the actual `ENDM` comparison returns -1 and validation returns 0
+before record copying. With the partial seed, the ID34 inner loop executes
+well beyond its fixed eight-word row and is followed by an exception-context
+save fault. The exact corruption chain to that later fault remains untraced;
+the invalid record dimensions themselves are directly established.

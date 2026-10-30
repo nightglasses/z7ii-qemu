@@ -22,7 +22,10 @@
  */
 bool nikon_sdes_channels_configuration(DeviceState *dev, unsigned channel,
                                        unsigned offset, uint32_t *value);
-/* Global configuration offset is relative to the MMIO base, not a channel. */
+/* Global offset is relative to MMIO. 2d0/2e0 are consumed start/stop masks;
+ * their commits manage the eleven-channel functional sequence state. Deferred
+ * stopped[0/1] publish router causes for channels8/0; no pixel work is implied.
+ */
 bool nikon_sdes_channels_global_configuration(DeviceState *dev, unsigned offset,
                                               uint32_t *value);
 
@@ -32,8 +35,9 @@ enum NikonReadoutRegion {
     NIKON_READOUT_REGIONS,
 };
 
-/* One accepted guest completion-marker write.  The generation is a
- * monotonically increasing producer token; it is never a hardware address or
+/*
+ * One guest request (initial committed run or subsequent marker). Generation is
+ * a monotonically increasing producer token; it is never a hardware address or
  * a completion result.  Providers use it to reject stale observations.
  */
 typedef struct NikonReadoutRequest {
@@ -57,6 +61,7 @@ typedef struct NikonReadoutC170Mapping {
     uint32_t format;
     uint32_t width;
     uint32_t height;
+    uint32_t completion_cause;
 } NikonReadoutC170Mapping;
 
 bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
@@ -65,14 +70,18 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
 
 /* Actual query102092fa selects0..3 and reads4/2/4/2 words.  No default
  * provider, completion, IRQ, DMA or pixel data is produced by configuration.
- * An explicit command2006b400=1 creates a request generation and pulses
- * readout-request.  External providers may inspect that request and publish
+ * An explicit command2006b400=1, or the first effective unit2 run after a
+ * selected commit, creates a snapshotted request generation and pulses
+ * readout-request. Unit2 stop/reset/disable invalidates and cancels it.
+ * External providers may inspect that request and publish
  * ready/completion observations through the APIs below. The machine only
  * supplies a provider in the complete bundle composition.
  */
 bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request);
 bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation);
 bool nikon_readout_publish_completion(DeviceState *dev, uint64_t generation);
+/* Release provider ownership after cancellation; no completion is published. */
+void nikon_readout_release(DeviceState *dev, uint64_t generation);
 bool nikon_readout_publish(DeviceState *dev, unsigned selector,
                            const uint32_t *words, size_t count, Error **errp);
 bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion region,
@@ -80,7 +89,9 @@ bool nikon_readout_configuration(DeviceState *dev, enum NikonReadoutRegion regio
 
 /* Original configuration/commit family at VA20068000, IRQ94..98.
  * One region of size0x1180. Status publication word counts are2/1/2/2/1.
- * No pixel encoding, destination or completion meaning is assigned here.
+ * External publication owns data causes. The08/0c functional run/stop profile
+ * also produces source-mapped quiescence causes through deferred timers;
+ * it implies no pixel encoding, DMA destination or completed frame.
  */
 enum NikonCaptureEvent {
     NIKON_CAPTURE_FIRST_EVENT,
@@ -95,6 +106,13 @@ bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
                            const uint32_t *words, size_t count, Error **errp);
 bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
                                  uint32_t *value);
+bool nikon_capture_parameters_configuration(DeviceState *dev, unsigned offset,
+                                             uint32_t *value);
+bool nikon_capture_front_pending(DeviceState *dev);
+bool nikon_capture_group_pending(DeviceState *dev);
+/* Named run-state[0..11] mirrors effective08 intent after reset/enable gates.
+ * It is synchronous lifecycle information, never a completion publication.
+ */
 
 /* SDES Driver's three independently mapped regions, in this order. */
 enum NikonSdesRegion {

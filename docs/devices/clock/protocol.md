@@ -1,6 +1,30 @@
-# Clock-stop bank diagnostic contract
+# Clock sources and stop banks
 
-This layer serves [QEMU: recover first flash-bus controller and temporary stack contract](https://github.com/mashiro01/nightglass/issues/330). It implements six shared stop-state banks and their SET/CLEAR mask aliases. It supplies no PLL reset value, counter frequency, clock output, completion bit or interrupt. The original first read at PA `0x0428102c` remains unsupported.
+## SPI source selection
+
+The current clock device publishes two QEMU Clock outputs for the SPI family.
+C1.70 MAS VA `10370c32 → 103b0540` reads selector5 at PA `04281014`, ORs
+`00880008`, and interprets bits20..23 as8→80 MHz or9→100 MHz for ordinary
+channels. Channel8 instead uses bits16..19, with8→80 MHz,9→100 MHz and
+A→61.53 MHz. The MAS board connects all eleven SPI inputs to the corresponding
+output. Selector writes and reset update these outputs; an unknown selection
+has frequency zero and cannot silently shift queued words.
+
+This reproduces the driver's declared frequency relationship. It does not
+recover physical PLL multipliers or establish measured silicon frequencies.
+The SPI device samples the input per word, so a running word retains its
+deadline and later words observe a changed or stopped source. Other nominal
+bus clocks are unchanged. The focused native selected-clock fixture validates
+divider deadlines, mid-word changes and stop/restart; it is synthetic device
+evidence, separate from original lens initialization.
+
+## Historical stop-bank diagnostic
+
+The following observations describe the earlier stop-bank-only implementation
+and its original execution boundary. They do not describe the current SPI
+outputs or establish the current startup frontier.
+
+This layer serves [MEMC and early peripheral startup](/startup/memc). It implements six shared stop-state banks and their SET/CLEAR mask aliases. It supplies no PLL reset value, counter frequency, clock output, completion bit or interrupt. The original first read at PA `0x0428102c` remains unsupported.
 
 The original MAS copy data at `O0x2380e0c..0x2380e3c` produces six address pairs at guest VA `0xb1806e78`: SET `0x04281138..0x0428114c` and CLEAR `0x04281238..0x0428124c`, in four-byte steps. Helper `O0x39097e` selects a bank from packed argument bits 16..19 and an alias from its selector; `O0x3905ac` writes a one-bit CLEAR mask and `O0x3905e4` writes a SET mask. Original direct consumption is confirmed at offset `0x48`. The full bounded extraction and field limitations are in [the system-control analysis](https://github.com/mashiro01/nightglass/blob/2556cce6f5452674e0d8ddae53f5e102858fa75a/research/z7ii/qemu-system-control-contract.md).
 
@@ -12,9 +36,9 @@ Each bank has a value and a known-bit mask. Reset clears the known mask, so zero
 
 Ten added synthetic fixtures exercise all six banks with guest-produced complete known states and shared alias updates, and reject unknown reset reads, partial/zero-mask reads, alias reads, direct writes, byte writes, the bank boundary and the still-unknown PLL read. One fixture establishes gate state, invokes official QMP `system_reset`, then uses a preserved guest RAM marker to read before reinitialization; the read fails, proving reset cleared the known-bit state. They join the existing fifteen contracts in `scripts/devices.py` through upstream `qemu.machine.QEMUMachine`. These small ARM images are synthetic device tests, not camera firmware or evidence of boot advancement.
 
-Native incremental Ninja build of C revision `2290d63` exited 0. The first suite exposed an incorrect unaligned-fixture expectation: upstream ARM rejected the nonaligned store before device dispatch, with DFAR `0x04281139`. Its logs remain in `work/issue330/clock-gates-2290-first`; the corrected fixture uses an aligned bank-boundary access. The final 25-fixture suite passed, exit 0, in approximately 0.81 host seconds; its per-fixture results and ROM readbacks are in `work/issue330/clock-gates-2290-reset`.
+Native incremental Ninja build of C revision `2290d63` exited 0. The first suite exposed an incorrect unaligned-fixture expectation: upstream ARM rejected the nonaligned store before device dispatch, with DFAR `0x04281139`. Its logs remain in `run memc/clock-gates-2290-first`; the corrected fixture uses an aligned bank-boundary access. The final 25-fixture suite passed, exit 0, in approximately 0.81 host seconds; its per-fixture results and ROM readbacks are in `run memc/clock-gates-2290-reset`.
 
-An unchanged-original MTTCG run against the same C revision exited 0 and stopped in debug after approximately 0.0684 host seconds. Receipt `work/issue330/original-clock-gates-2290/receipt.json` records CPU0's first read32 at PA `0x0428102c`, PC `0x1002d70c`, now rejected by the clock device with `clock-access-not-supported`. Upstream Data Abort leaves CPU0 at PC `0x10100010`, CPSR `0x600001d7`, SP `0xb2ba8000`; CPU1 remains at the original WFE continuation PC `0x1002bfa8`, SP `0xb2b84000`. Direct before/after payload content comparison is true. The gate device neither consumes the PLL read nor advances original startup; no clock response or full boot is claimed.
+An unchanged-original MTTCG run against the same C revision exited 0 and stopped in debug after approximately 0.0684 host seconds. Receipt `run memc/original-clock-gates-2290/receipt.json` records CPU0's first read32 at PA `0x0428102c`, PC `0x1002d70c`, now rejected by the clock device with `clock-access-not-supported`. Upstream Data Abort leaves CPU0 at PC `0x10100010`, CPSR `0x600001d7`, SP `0xb2ba8000`; CPU1 remains at the original WFE continuation PC `0x1002bfa8`, SP `0xb2b84000`. Direct before/after payload content comparison is true. The gate device neither consumes the PLL read nor advances original startup; no clock response or full boot is claimed.
 
 The next original-run input remains the actual component-entry state of PLL/control words `0x04281028/0x0428102c/0x04281030`, from a compatible reset specification, loader transactions or board observation. Neither the complete selected MAS prefix nor the examined SLA prefix supplies those complete words. Preserved old M8M and newer M10V sources have incompatible PLL layouts; their initialization cannot populate this model. Gate reset bits and physical output identities also remain unknown. These are hardware-contract gaps, not values inferred from a successful synthetic run.
 

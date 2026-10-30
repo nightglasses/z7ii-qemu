@@ -11,8 +11,10 @@
 #include "qemu/osdep.h"
 #include "qemu/cutils.h"
 #include "qapi/error.h"
+#include "qapi/visitor.h"
 #include "qemu/timer.h"
 #include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
 #include "system/address-spaces.h"
@@ -23,7 +25,7 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCmosState, NIKON_CMOS)
 
 #define CMOS_CHUNK 4096
-#define CMOS_MAX_BUFFER_BYTES (64ULL * 1024 * 1024)
+#define CMOS_MAX_BUFFER_BYTES (144ULL * 1024 * 1024)
 #define CMOS_UNKNOWN_WORDS 8
 
 enum {
@@ -88,16 +90,39 @@ struct NikonCmosState {
     uint32_t row, column, output_width, output_height;
     uint32_t active_buffer, unknown_writes, mode;
     uint32_t bayer, bit_depth, packing, dma_source, dma_destination;
-    int64_t next_frame_time;
+    int64_t next_frame_time, deadline;
     uint32_t unknown[CMOS_UNKNOWN_WORDS];
     uint64_t frame_count, generation;
     char *image_path;
     uint8_t *image_data;
     gsize image_size;
     uint32_t image_width, image_height, image_channels;
+    uint32_t *source_x, *source_y;
+    uint32_t red_response, blue_response;
+    int32_t scene_focus_position;
+    int32_t focus_position;
+    bool focus_position_set;
+    uint32_t defocus_radius;
+    uint32_t exposure_scale; /* Q16 brightness: 65536 = 1.0×. */
+    uint32_t iso_gain; /* Q8 sensor gain: 256 = 1.0× (ISO 100). */
+    uint32_t aperture_position; /* Cached from lens at frame begin. */
+    uint32_t aperture_q16; /* Q16 aperture light factor for frame. */
+    DeviceState *lens;
+    uint8_t *blurred_image_data;
+    gsize blurred_image_size;
+    const uint8_t *active_image_data;
+    NikonRawEncoding encoding;
     bool reported_error;
     bool fixture_provider;
+    uint8_t *stream_data;
+    size_t stream_size;
 };
+
+static void nikon_cmos_clear_maps(NikonCmosState *s)
+{
+    g_clear_pointer(&s->source_x, g_free);
+    g_clear_pointer(&s->source_y, g_free);
+}
 
 static bool nikon_cmos_token(const uint8_t *data, gsize size, gsize *offset,
                              char *token, size_t token_size)
@@ -141,7 +166,7 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
     uint64_t parsed_width, parsed_height, parsed_maxval;
     unsigned channels;
 
-    if (!s->image_path || !s->image_path[0]) {
+    if (!s->image_path || !s->image_path[0] || s->image_data) {
         return true;
     }
     if (!g_file_get_contents(s->image_path, &contents, &size, &local_err)) {
@@ -167,7 +192,13 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
                    "with valid dimensions");
         return false;
     }
-    while (offset < size && g_ascii_isspace(((uint8_t *)contents)[offset])) {
+    /* The raster may itself start with whitespace or '#'. */
+    if (offset == size || !g_ascii_isspace(((uint8_t *)contents)[offset])) {
+        error_setg(errp, "CMOS image header needs a raster separator");
+        return false;
+    }
+    if (contents[offset++] == '\r' && offset < size &&
+        contents[offset] == '\n') {
         offset++;
     }
     channels = !strcmp(magic, "P6") ? 3 : 1;
@@ -192,7 +223,7 @@ static bool nikon_cmos_load_image(NikonCmosState *s, Error **errp)
 
 static bool nikon_cmos_get_provider_bound(Object *obj, Error **errp)
 {
-    return NIKON_CMOS(obj)->fixture_provider;
+    return nikon_cmos_provider_bound(DEVICE(obj));
 }
 
 static bool nikon_cmos_get_fixture_provider(Object *obj, Error **errp)
@@ -229,13 +260,116 @@ static void nikon_cmos_set_image(Object *obj, const char *value, Error **errp)
     g_free(s->image_path);
     s->image_path = g_strdup(value && *value ? value : NULL);
     g_clear_pointer(&s->image_data, g_free);
+    g_clear_pointer(&s->blurred_image_data, g_free);
+    s->blurred_image_size = 0;
+    s->active_image_data = NULL;
     s->image_size = 0;
     s->image_width = s->image_height = s->image_channels = 0;
+    nikon_cmos_clear_maps(s);
 }
 
 bool nikon_cmos_provider_bound(DeviceState *dev)
 {
-    return NIKON_CMOS(dev)->fixture_provider;
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    return s->fixture_provider || (s->image_path && s->image_path[0]);
+}
+
+static void nikon_cmos_get_scene_focus_position(Object *obj, Visitor *v,
+                                                const char *name,
+                                                void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    int32_t value = s->scene_focus_position;
+
+    visit_type_int32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_scene_focus_position(Object *obj, Visitor *v,
+                                                const char *name,
+                                                void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    int32_t value;
+
+    if (!visit_type_int32(v, name, &value, errp)) {
+        return;
+    }
+    s->scene_focus_position = value;
+}
+
+static void nikon_cmos_get_focus_position(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    int32_t value = s->focus_position;
+
+    visit_type_int32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_focus_position(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    int32_t value;
+
+    if (!visit_type_int32(v, name, &value, errp)) {
+        return;
+    }
+    s->focus_position = value;
+    s->focus_position_set = true;
+}
+
+static void nikon_cmos_get_exposure_scale(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value = s->exposure_scale;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_exposure_scale(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    s->exposure_scale = value;
+}
+
+static void nikon_cmos_get_iso_gain(Object *obj, Visitor *v,
+                                    const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value = s->iso_gain;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_iso_gain(Object *obj, Visitor *v,
+                                    const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    if (!value) {
+        error_setg(errp, "CMOS ISO gain must be nonzero");
+        return;
+    }
+    s->iso_gain = value;
 }
 
 static bool nikon_cmos_writable(hwaddr address, uint64_t length)
@@ -299,6 +433,8 @@ static void nikon_cmos_event(NikonCmosState *s, uint32_t event)
 static void nikon_cmos_fail(NikonCmosState *s)
 {
     timer_del(s->timer);
+    s->deadline = 0;
+    nikon_cmos_clear_maps(s);
     s->generation++;
     nikon_cmos_phase(s, NIKON_CMOS_ERROR);
     nikon_cmos_event(s, NIKON_CMOS_EVENT_ERROR);
@@ -309,9 +445,78 @@ void nikon_cmos_cancel(DeviceState *dev)
     NikonCmosState *s = NIKON_CMOS(dev);
 
     timer_del(s->timer);
+    s->deadline = 0;
+    nikon_cmos_clear_maps(s);
     s->generation++;
     nikon_cmos_phase(s, NIKON_CMOS_IDLE);
     nikon_cmos_event(s, NIKON_CMOS_EVENT_CANCEL);
+}
+
+static void nikon_cmos_blur(const uint8_t *src, uint8_t *dst,
+                            uint32_t width, uint32_t height,
+                            uint32_t channels, uint32_t r)
+{
+    if (!r || !width || !height || !channels) {
+        memcpy(dst, src, (size_t)width * height * channels);
+        return;
+    }
+    r = MIN(r, MAX(width, height));
+    g_autofree uint8_t *temp = g_malloc((size_t)width * height * channels);
+
+    for (uint32_t c = 0; c < channels; c++) {
+        for (uint32_t y = 0; y < height; y++) {
+            const uint8_t *row_src = src + (y * width) * channels + c;
+            uint8_t *row_dst = temp + (y * width) * channels + c;
+            uint32_t sum = 0;
+            uint32_t count = 0;
+            uint32_t right_init = MIN(r, width - 1);
+
+            for (uint32_t i = 0; i <= right_init; i++) {
+                sum += row_src[i * channels];
+                count++;
+            }
+            row_dst[0] = (uint8_t)((sum + count / 2) / count);
+
+            for (uint32_t x = 1; x < width; x++) {
+                if (x + r < width) {
+                    sum += row_src[(x + r) * channels];
+                    count++;
+                }
+                if (x > r) {
+                    sum -= row_src[(x - r - 1) * channels];
+                    count--;
+                }
+                row_dst[x * channels] = (uint8_t)((sum + count / 2) / count);
+            }
+        }
+    }
+
+    for (uint32_t c = 0; c < channels; c++) {
+        for (uint32_t x = 0; x < width; x++) {
+            uint32_t sum = 0;
+            uint32_t count = 0;
+            uint32_t bottom_init = MIN(r, height - 1);
+
+            for (uint32_t i = 0; i <= bottom_init; i++) {
+                sum += temp[(i * width + x) * channels + c];
+                count++;
+            }
+            dst[x * channels + c] = (uint8_t)((sum + count / 2) / count);
+
+            for (uint32_t y = 1; y < height; y++) {
+                if (y + r < height) {
+                    sum += temp[((y + r) * width + x) * channels + c];
+                    count++;
+                }
+                if (y > r) {
+                    sum -= temp[((y - r - 1) * width + x) * channels + c];
+                    count--;
+                }
+                dst[(y * width + x) * channels + c] =
+                    (uint8_t)((sum + count / 2) / count);
+            }
+        }
+    }
 }
 
 static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
@@ -321,13 +526,26 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
         (uint64_t)x * s->active.crop_width / s->output_width;
     uint32_t sy = s->active.crop_y +
         (uint64_t)y * s->active.crop_height / s->output_height;
-    if (s->image_data) {
-        uint32_t ix = MIN(sx, s->image_width - 1);
-        uint32_t iy = MIN(sy, s->image_height - 1);
+    if (s->active_image_data) {
+        uint32_t ix = (uint64_t)sx * s->image_width / s->active.width;
+        uint32_t iy = (uint64_t)sy * s->image_height / s->active.height;
         size_t index = ((size_t)iy * s->image_width + ix) *
                        s->image_channels;
+        uint32_t val = s->active_image_data[index +
+                                    MIN(channel, s->image_channels - 1)];
 
-        return s->image_data[index + MIN(channel, s->image_channels - 1)];
+        if (s->exposure_scale != 65536 || s->iso_gain != 256 ||
+            s->aperture_q16 != 65536) {
+            uint64_t scaled = (uint64_t)val * s->exposure_scale;
+
+            scaled = (scaled + 32768) >> 16;
+            scaled = scaled * s->iso_gain;
+            scaled = (scaled + 128) >> 8;
+            scaled = scaled * s->aperture_q16;
+            scaled = (scaled + 32768) >> 16;
+            val = MIN(scaled, 255);
+        }
+        return (uint8_t)val;
     }
 
     uint32_t value = s->active.transport_seed ^ (uint32_t)s->frame_count;
@@ -336,18 +554,74 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
     value ^= sy * 0x27d4eb2dU;
     value += channel * 0x9e3779b9U;
     value ^= (x + y) * 0x7f4a7c15U;
-    return (uint8_t)(value >> ((channel & 3) * 8));
+    uint8_t raw = (uint8_t)(value >> ((channel & 3) * 8));
+    if (s->defocus_radius) {
+        uint32_t denom = 1 + s->defocus_radius;
+
+        raw = (uint8_t)(128 + ((int)raw - 128) / (int)denom);
+    }
+    return raw;
+}
+
+static uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
+{
+    unsigned ix = s->source_x[x], iy = s->source_y[y];
+    unsigned lane = 2 * (y & 1) + (x & 1);
+    unsigned channel = lane == 0 ? 0 : lane == 3 ? 2 : 1;
+    unsigned response = lane == 0 ? s->red_response :
+                        lane == 3 ? s->blue_response : 4096;
+    const uint8_t *img = s->active_image_data ? s->active_image_data :
+                         s->image_data;
+    unsigned sample = img[3 * ((size_t)iy * s->image_width + ix) +
+                          channel] * 257U;
+    uint64_t scaled;
+
+    /* Fixed virtual spectral response, never the inverse of live guest WB. */
+    sample = (sample * response + 2048) / 4096;
+
+    /*
+     * Optical exposure response.
+     *
+     * exposure_scale (Q16, 65536=1.0x): relative shutter integration
+     * vs reference.  iso_gain (Q8, 256=1.0x): sensor analog+digital
+     * gain vs ISO 100 reference.  aperture_position (1/192 APEX, from
+     * lens QOM): attenuation vs wide-open F2.8.
+     *
+     * Aperture attenuation: each 192 units doubles the Av (halves
+     * the light), so the factor is 2^(-position/192).  We use the
+     * precomputed Q16 factor from nikon_cmos_begin.
+     *
+     * Combined: sample * (exposure_scale / 65536) * (iso_gain / 256)
+     *                   * (aperture_q16 / 65536).
+     * Simplified: sample * exposure_scale * iso_gain * aperture_q16
+     *             / (65536 * 256 * 65536).
+     * To avoid overflow with bounded inputs: compute in two stages.
+     */
+    if (s->exposure_scale != 65536 || s->iso_gain != 256 ||
+        s->aperture_q16 != 65536) {
+        /* Stage 1: sample * exposure_scale / 65536 (max 65535 * 65536). */
+        scaled = (uint64_t)sample * s->exposure_scale;
+        scaled = (scaled + 32768) >> 16;
+        /* Stage 2: * iso_gain / 256. */
+        scaled = scaled * s->iso_gain;
+        scaled = (scaled + 128) >> 8;
+        /* Stage 3: * aperture_q16 / 65536. */
+        scaled = scaled * s->aperture_q16;
+        scaled = (scaled + 32768) >> 16;
+        sample = MIN(scaled, 65535);
+    }
+
+    return sample;
 }
 
 static void nikon_cmos_schedule(NikonCmosState *s, uint64_t delay)
 {
-    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-
-    if (now < 0 || delay > INT64_MAX - now) {
+    if (s->deadline < 0 || delay > INT64_MAX - s->deadline) {
         nikon_cmos_fail(s);
         return;
     }
-    timer_mod(s->timer, now + delay);
+    s->deadline += delay;
+    timer_mod(s->timer, s->deadline);
 }
 
 static void nikon_cmos_step(void *opaque)
@@ -370,15 +644,28 @@ static void nikon_cmos_step(void *opaque)
     count = MIN((uint64_t)row_bytes - s->column, sizeof(bytes));
     destination = (hwaddr)s->active.destination[s->active_buffer] +
                   (uint64_t)s->row * s->active.stride + s->column;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t pixel = s->column + i;
-        uint32_t x = pixel / s->active.bytes_per_pixel;
-        uint32_t channel = pixel % s->active.bytes_per_pixel;
+    if (s->encoding == NIKON_RAW_MONO) {
+        for (uint32_t i = 0; i < count; i++) {
+            uint32_t pixel = s->column + i;
+            uint32_t x = pixel / s->active.bytes_per_pixel;
+            uint32_t channel = pixel % s->active.bytes_per_pixel;
 
-        bytes[i] = nikon_cmos_sample(s, x, s->row, channel);
+            bytes[i] = nikon_cmos_sample(s, x, s->row, channel);
+        }
+    } else {
+        /* Validated CFA rows and their bounded chunks are LE16 aligned. */
+        for (uint32_t i = 0; i < count; i += 2) {
+            uint16_t sample = nikon_cmos_cfa(s, (s->column + i) / 2, s->row);
+
+            bytes[i] = sample;
+            bytes[i + 1] = sample >> 8;
+        }
     }
     attrs.memory = true;
-    if (!nikon_cmos_writable(destination, count) ||
+    if (s->stream_data) {
+        memcpy(s->stream_data + (size_t)s->row * s->active.stride + s->column,
+               bytes, count);
+    } else if (!nikon_cmos_writable(destination, count) ||
         dma_memory_write(&address_space_memory, destination, bytes, count,
                          attrs) != MEMTX_OK) {
         nikon_cmos_fail(s);
@@ -393,18 +680,20 @@ static void nikon_cmos_step(void *opaque)
         nikon_cmos_phase(s, NIKON_CMOS_DONE);
         s->frame_count++;
         s->active_buffer = (s->active_buffer + 1) % s->active.buffer_count;
-        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        int64_t completed = s->deadline;
 
+        s->deadline = 0;
         s->next_frame_time = s->active.period_ns &&
-            s->active.period_ns <= INT64_MAX - now ?
-            now + s->active.period_ns : 0;
+            s->active.period_ns <= INT64_MAX - completed ?
+            completed + s->active.period_ns : 0;
+        nikon_cmos_clear_maps(s);
         nikon_cmos_event(s, NIKON_CMOS_EVENT_DONE);
     } else {
         nikon_cmos_schedule(s, s->active.readout_ns);
     }
 }
 
-static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
+static bool nikon_cmos_prepare(NikonCmosState *s, bool stream, Error **errp)
 {
     NikonCmosConfig *c = &s->configuration;
     uint64_t output_width, output_height, row_bytes, span, total;
@@ -420,17 +709,15 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     if (!nikon_cmos_load_image(s, errp)) {
         return false;
     }
-    if (s->image_data && (s->image_width != c->width ||
-                          s->image_height != c->height)) {
-        error_setg(errp, "CMOS image dimensions (%ux%u) must match configured "
-                   "sensor dimensions (%ux%u)", s->image_width,
-                   s->image_height, c->width, c->height);
-        return false;
-    }
     if (!c->scale_x || !c->scale_y || !c->bytes_per_pixel ||
         c->bytes_per_pixel > 16 || !c->buffer_count || c->buffer_count > 4 ||
         !c->stride || !c->exposure_ns || !c->readout_ns) {
         error_setg(errp, "CMOS transport geometry and timing are incomplete");
+        return false;
+    }
+    if (c->format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+        c->bytes_per_pixel != 2) {
+        error_setg(errp, "CMOS C1.70 transport requires LE16 samples");
         return false;
     }
     output_width = ((uint64_t)c->crop_width * c->scale_x) >> 16;
@@ -438,6 +725,13 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     if (!output_width || !output_height || output_width > UINT32_MAX ||
         output_height > UINT32_MAX) {
         error_setg(errp, "CMOS scale produces an empty or oversized frame");
+        return false;
+    }
+    if (!s->red_response || s->red_response > 4096 || !s->blue_response ||
+        s->blue_response > 4096 ||
+        (c->format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+         s->image_channels == 3 && ((output_width | output_height) & 1))) {
+        error_setg(errp, "CMOS CFA requires even dimensions and Q12 response1..4096");
         return false;
     }
     row_bytes = output_width * c->bytes_per_pixel;
@@ -452,7 +746,7 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
         error_setg(errp, "CMOS stride span exceeds the address space");
         return false;
     }
-    for (i = 0; i < c->buffer_count; i++) {
+    for (i = 0; !stream && i < c->buffer_count; i++) {
         if (c->destination[i] > UINT32_MAX - span ||
             !nikon_cmos_writable(c->destination[i], span)) {
             error_setg(errp, "CMOS destination buffer is not writable RAM");
@@ -469,11 +763,48 @@ static bool nikon_cmos_prepare(NikonCmosState *s, Error **errp)
     return true;
 }
 
-static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
+static uint32_t nikon_cmos_aperture_factor(uint32_t pos)
+{
+    /*
+     * 192 units per EV stop.
+     * 2^(-pos / 192) in Q16 (65536 = 1.0x).
+     * pos clamped to 1152 (F22: 6 stops = factor 1/64 = 1024).
+     */
+    static const uint32_t frac_lut[7] = {
+        65536U, 58386, 52016, 46341, 41285, 36780, 32768
+    };
+    uint32_t clamped = MIN(pos, 1152U);
+    unsigned stops = clamped / 192U;
+    unsigned rem = clamped % 192U;
+    unsigned idx = rem / 32U;
+    unsigned sub = rem % 32U;
+    uint32_t f0 = frac_lut[idx];
+    uint32_t f1 = frac_lut[idx + 1];
+    uint32_t frac = f0 - ((f0 - f1) * sub + 16U) / 32U;
+
+    return frac >> stops;
+}
+
+static uint32_t nikon_cmos_blur_scale(uint32_t pos)
+{
+    /*
+     * Entrance pupil diameter scales as 2^(-pos / 384) in Q16.
+     * Stopping down from F2.8 (pos 0) to F22 (pos 1152 = 3 stops of pupil
+     * diameter reduction) reduces blur radius by factor 8.
+     */
+    uint32_t clamped = MIN(pos, 1152U);
+    unsigned stops = clamped / 384U;
+    unsigned rem = clamped % 384U;
+    uint32_t base = 65536U - (rem * 32768U + 192U) / 384U;
+
+    return base >> stops;
+}
+
+static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
 {
     int64_t now;
 
-    if (!s->fixture_provider) {
+    if (!nikon_cmos_provider_bound(DEVICE(s))) {
         error_setg(errp, "CMOS frame provider is not bound");
         return false;
     }
@@ -481,7 +812,7 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
         error_setg(errp, "CMOS frame transport is busy");
         return false;
     }
-    if (!nikon_cmos_prepare(s, errp)) {
+    if (!nikon_cmos_prepare(s, stream, errp)) {
         return false;
     }
     now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
@@ -495,16 +826,96 @@ static bool nikon_cmos_begin(NikonCmosState *s, Error **errp)
     }
     timer_del(s->timer);
     s->active = s->configuration;
+    s->encoding = s->active.format == NIKON_CMOS_FORMAT_FUNCTIONAL_C170 &&
+                  s->image_channels == 3 ? NIKON_RAW_RGGB : NIKON_RAW_MONO;
+    nikon_cmos_clear_maps(s);
+    {
+        DeviceState *lens = s->lens;
+        int32_t current_focus;
+        int32_t delta;
+
+        if (!lens) {
+            Object *obj = object_resolve_path_component(qdev_get_machine(),
+                                                        "lens");
+            if (obj && object_dynamic_cast(obj, TYPE_NIKON_LENS)) {
+                lens = DEVICE(obj);
+            }
+        }
+        current_focus = s->focus_position;
+        if (s->focus_position_set) {
+            current_focus = s->focus_position;
+        } else if (lens) {
+            current_focus = (int32_t)object_property_get_int(OBJECT(lens),
+                "focus-position", NULL);
+        }
+        if (lens) {
+            s->aperture_position = (uint32_t)object_property_get_uint(
+                OBJECT(lens), "aperture-position", NULL);
+        } else {
+            s->aperture_position = 0;
+        }
+        s->aperture_q16 = nikon_cmos_aperture_factor(s->aperture_position);
+        delta = abs(current_focus - s->scene_focus_position);
+        {
+            uint32_t raw_radius = MIN((uint32_t)delta / 64, 31);
+            uint32_t blur_scale = nikon_cmos_blur_scale(s->aperture_position);
+
+            s->defocus_radius = (raw_radius * blur_scale + 32768U) >> 16;
+        }
+    }
+    if (s->image_data) {
+        if (s->defocus_radius) {
+            if (!s->blurred_image_data ||
+                s->blurred_image_size != s->image_size) {
+                g_free(s->blurred_image_data);
+                s->blurred_image_data = g_malloc(s->image_size);
+                s->blurred_image_size = s->image_size;
+            }
+            nikon_cmos_blur(s->image_data, s->blurred_image_data,
+                            s->image_width, s->image_height,
+                            s->image_channels, s->defocus_radius);
+            s->active_image_data = s->blurred_image_data;
+        } else {
+            s->active_image_data = s->image_data;
+        }
+    } else {
+        s->active_image_data = NULL;
+    }
+    if (s->encoding != NIKON_RAW_MONO) {
+        s->source_x = g_new(uint32_t, s->output_width);
+        s->source_y = g_new(uint32_t, s->output_height);
+        /* Preserve crop-to-sensor and sensor-to-image floors separately. */
+        for (unsigned x = 0; x < s->output_width; x++) {
+            uint32_t sensor_x = s->active.crop_x +
+                (uint64_t)x * s->active.crop_width / s->output_width;
+
+            s->source_x[x] = (uint64_t)sensor_x * s->image_width / s->active.width;
+        }
+        for (unsigned y = 0; y < s->output_height; y++) {
+            uint32_t sensor_y = s->active.crop_y +
+                (uint64_t)y * s->active.crop_height / s->output_height;
+
+            s->source_y[y] = (uint64_t)sensor_y * s->image_height / s->active.height;
+        }
+    }
+    g_clear_pointer(&s->stream_data, g_free);
+    s->stream_size = stream ? (size_t)s->active.stride * s->output_height : 0;
+    if (stream) {
+        s->stream_data = g_malloc0(s->stream_size);
+    }
     s->row = s->column = 0;
-    s->generation++;
+    if (!++s->generation) {
+        s->generation++;
+    }
     s->status = 0;
+    s->deadline = now;
     nikon_cmos_phase(s, NIKON_CMOS_EXPOSING);
     nikon_cmos_schedule(s, s->active.exposure_ns);
     return true;
 }
 
-bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
-                       Error **errp)
+uint64_t nikon_cmos_submit(DeviceState *dev,
+                           const NikonCmosSubmission *submission, Error **errp)
 {
     NikonCmosState *s = NIKON_CMOS(dev);
     NikonCmosConfig previous = s->configuration;
@@ -512,7 +923,7 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
 
     if (!submission || submission->format != NIKON_CMOS_FORMAT_FUNCTIONAL_C170) {
         error_setg(errp, "CMOS submission format is unsupported");
-        return false;
+        return 0;
     }
     config.width = submission->width;
     config.height = submission->height;
@@ -529,10 +940,62 @@ bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
     config.exposure_ns = submission->exposure_ns;
     config.readout_ns = submission->readout_ns;
     s->configuration = config;
-    if (!nikon_cmos_begin(s, errp)) {
+    if (!nikon_cmos_begin(s, false, errp)) {
         s->configuration = previous;
+        return 0;
+    }
+    return s->generation;
+}
+
+bool nikon_cmos_completed(DeviceState *dev, uint64_t generation)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    return generation && generation == s->generation &&
+           s->phase == NIKON_CMOS_DONE;
+}
+
+NikonRawEncoding nikon_cmos_encoding(DeviceState *dev)
+{
+    return NIKON_CMOS(dev)->encoding;
+}
+
+uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
+                            Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+    NikonCmosConfig previous = s->configuration;
+
+    if (!width || !height || width > 8448 || height > 5632 ||
+        (uint64_t)width * height > 48ULL * 1024 * 1024) {
+        error_setg(errp, "CMOS internal stream geometry is unsupported");
+        return 0;
+    }
+    s->configuration = (NikonCmosConfig) {
+        .width = width, .height = height,
+        .crop_width = width, .crop_height = height,
+        .scale_x = 1U << 16, .scale_y = 1U << 16,
+        .format = NIKON_CMOS_FORMAT_FUNCTIONAL_C170,
+        .bytes_per_pixel = 2, .stride = width * 2, .buffer_count = 1,
+        .exposure_ns = 1, .readout_ns = 1,
+    };
+    if (!nikon_cmos_begin(s, true, errp)) {
+        s->configuration = previous;
+        return 0;
+    }
+    return s->generation;
+}
+
+bool nikon_cmos_copy_frame(DeviceState *dev, uint64_t generation,
+                           uint8_t *data, size_t size)
+{
+    NikonCmosState *s = NIKON_CMOS(dev);
+
+    if (!nikon_cmos_completed(dev, generation) || !s->stream_data ||
+        !data || size != s->stream_size) {
         return false;
     }
+    memcpy(data, s->stream_data, size);
     return true;
 }
 
@@ -540,7 +1003,7 @@ static void nikon_cmos_start(NikonCmosState *s)
 {
     Error *err = NULL;
 
-    if (!nikon_cmos_begin(s, &err)) {
+    if (!nikon_cmos_begin(s, false, &err)) {
         error_free(err);
         nikon_cmos_fail(s);
     }
@@ -724,6 +1187,8 @@ static void nikon_cmos_reset(DeviceState *dev)
     NikonCmosState *s = NIKON_CMOS(dev);
 
     timer_del(s->timer);
+    s->deadline = 0;
+    nikon_cmos_clear_maps(s);
     s->generation++;
     memset(&s->configuration, 0, sizeof(s->configuration));
     memset(&s->active, 0, sizeof(s->active));
@@ -738,7 +1203,19 @@ static void nikon_cmos_reset(DeviceState *dev)
     s->next_frame_time = 0;
     memset(s->unknown, 0, sizeof(s->unknown));
     s->frame_count = 0;
+    s->encoding = NIKON_RAW_MONO;
+    g_clear_pointer(&s->stream_data, g_free);
+    s->stream_size = 0;
     s->reported_error = false;
+    s->scene_focus_position = 0;
+    s->focus_position = 0;
+    s->focus_position_set = false;
+    s->defocus_radius = 0;
+    s->exposure_scale = 65536;
+    s->iso_gain = 256;
+    s->aperture_position = 0;
+    s->aperture_q16 = 65536;
+    s->active_image_data = s->image_data;
     nikon_cmos_irq(s);
 }
 
@@ -767,6 +1244,33 @@ static void nikon_cmos_init(Object *obj)
                              nikon_cmos_set_fixture_provider);
     object_property_add_str(obj, "image", nikon_cmos_get_image,
                             nikon_cmos_set_image);
+    object_property_add(obj, "scene-focus-position", "int32",
+                        nikon_cmos_get_scene_focus_position,
+                        nikon_cmos_set_scene_focus_position,
+                        NULL, NULL);
+    object_property_add(obj, "focus-position", "int32",
+                        nikon_cmos_get_focus_position,
+                        nikon_cmos_set_focus_position,
+                        NULL, NULL);
+    object_property_add(obj, "exposure-scale", "uint32",
+                        nikon_cmos_get_exposure_scale,
+                        nikon_cmos_set_exposure_scale,
+                        NULL, NULL);
+    object_property_add(obj, "iso-gain", "uint32",
+                        nikon_cmos_get_iso_gain,
+                        nikon_cmos_set_iso_gain,
+                        NULL, NULL);
+    object_property_add_uint32_ptr(obj, "aperture-position",
+                                   &s->aperture_position,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "aperture-factor",
+                                   &s->aperture_q16,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "defocus-radius", &s->defocus_radius,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_link(obj, "lens", TYPE_NIKON_LENS,
+                             (Object **)&s->lens,
+                             object_property_allow_set_link, 0);
 }
 
 static void nikon_cmos_finalize(Object *obj)
@@ -774,8 +1278,11 @@ static void nikon_cmos_finalize(Object *obj)
     NikonCmosState *s = NIKON_CMOS(obj);
 
     timer_free(s->timer);
+    nikon_cmos_clear_maps(s);
     g_free(s->image_path);
     g_free(s->image_data);
+    g_free(s->blurred_image_data);
+    g_free(s->stream_data);
 }
 
 static const VMStateDescription nikon_cmos_vmstate = {
@@ -786,8 +1293,13 @@ static const VMStateDescription nikon_cmos_vmstate = {
 static void nikon_cmos_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
+    static const Property props[] = {
+        DEFINE_PROP_UINT32("red-response", NikonCmosState, red_response, 4096),
+        DEFINE_PROP_UINT32("blue-response", NikonCmosState, blue_response, 4096),
+    };
 
     dc->vmsd = &nikon_cmos_vmstate;
+    device_class_set_props(dc, props);
     device_class_set_legacy_reset(dc, nikon_cmos_reset);
 }
 

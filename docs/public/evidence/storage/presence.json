@@ -1,0 +1,104 @@
+{
+  "scope": "Explicit NVMe slot input, SD absence, five-route level/capture separation and finite root transaction-error consumer; original firmware unchanged",
+  "dependency_baseline": "81ebe330",
+  "source": {
+    "insertion": "MAS VA1049d68e/105162a2 consume route3 filtered bit10 at PA2b000010 before power/training;1051635a(1) cannot depend on an already trained link",
+    "gpio": "All232 descriptors and31 direct read-helper callsites in29 functions audited; runtime187 registered GPIO objects. Service91 maps through VA120659c0 to objectB1803884, P5.14, PDR PA04282014; low means SD inserted",
+    "dynamic": "EX86/87/108, CComp84 and SLA96 retain causal peers. No additional accessory/static provider was established;159/P10.2 low participates in power feedback",
+    "signal": "1051811e clears route3 gate;105187f4 still requires filtered insertion for all operational PCI methods. Cancellation105181ec/10518240 sets gate again. Therefore both gate states must preserve actual external level",
+    "error": "All12 config/BAR wrappers at105183d6..10518596 call105187e4, which reads PA2a900104 bit14 and records software error6. No root full4KiB config space or W1C write was established",
+    "root_boundary": "Pinned GPEX root is conventional PCI256B; nativeAER helper requires realPCIe capability/storage/lifecycle. Endpoint extended-capability scanning does not widen rootDBI"
+  },
+  "model": {
+    "selection": "Machine slot0-drive selects an existing BlockBackend ID; omission is absent, unused id=storage does not attach, missing explicit ID fails. Slot1 SD transport remains unimplemented/absent",
+    "presence": "Board presence follows actual inserted static backend before training and survives cancellation/reset independently of link state; no hot removal claim",
+    "sd": "Explicit external high at P5.14 for absent SD; generic GPIO input/pull/output-priority/reset laws retained",
+    "signal": "Actual raw/debounced levels independent of event-control gates. Controls rebase without edge; capture-enabled convention applies only to pending/IRQ. Reset clears causes/deadlines/config while preserving providers",
+    "error": "Read-only alignedDWORD104; failed host config/window or actual nativeBAR MemTxResult sets sticky bit14, original error returned; success/read/unsupported write do not clear; reset clears",
+    "assumptions": "MEMTX failure→bit14, capture-control polarity, nominal1MHz debounce and electrical reset are bounded functional laws, not recovered physical AER/CompletionTimeout",
+    "filesystem": "Native block image is primary writable medium. Guest owns partitions/format/directories/files/flush. Host folder is offline import/export; existing vvfat only experimental constrained input, no host filesystem request shortcut"
+  },
+  "native": {
+    "accepted_storage": {
+      "subtests": 10,
+      "seconds": 2.12,
+      "failures": 0
+    },
+    "accepted_SLA": {
+      "subtests": 23,
+      "seconds": 11.56,
+      "failures": 0
+    },
+    "accepted_GPIO": {
+      "subtests": 6,
+      "seconds": 1.36,
+      "failures": 0
+    },
+    "commands": [
+      "make check MTESTARGS='nikon_sla nikon_storage'",
+      "make check MTESTARGS='nikon --test-args=\"-p /arm/nikon/gpio\"'"
+    ],
+    "red": [
+      "Pre-training insertion raw0 vs required4 with an attached backend",
+      "SD P5.14 absent expected4000 but read0",
+      "Unused backend namedstorage still inserted before explicit selection API",
+      "Old signal filtered1f instead of1f1f with real driven inputs before controls",
+      "Actual nativeBAR hole did not latch4000 before root-error forwarding"
+    ],
+    "coverage": "Read/write/flush backend bytes, PRPlists, errors/read-only, INTx/MSIX, cancellation/restart, presence/reset, selected/unused/missing backend, wholefive-route status and closed-capture debounce, SD direction/pull/reset, genuine nativeBAR unmapped failure/sticky/reset/unsupported status write",
+    "development_trials": [
+      "Initial presence setter was placed in the wrong helper; failed trial corrected before acceptance",
+      "Existing IRQ fixture expected only ACK bit; whole-port expected value updated to include independent SD absence bit",
+      "Signal reset fixture initially retained an artificial route3 high; board absent-media provider correctly republishes low at reset; fixture corrected",
+      "Two inserted-card observer scripts failed after the observation window on a null calibration pointer and mixed-CPU fpscr request; later guarded explicit-register snapshots succeeded. These observer failures are not original guest errors"
+    ],
+    "review": "Independent read-only reviews of source joins, backend API, sampling/capture, native forwarding/endian/lifetime and test boundaries; parent owns builds/runs"
+  },
+  "original": {
+    "pre_correction": "Attached8GiB raw medium but0I/O and rawpresence0 before presence correction; later raw4/filtered0 before level correction",
+    "intermediate_fault": {
+      "profile": "Inserted card after level correction, before root-error model",
+      "observation": "PHYstate11, link1, DBI98=2, signal404; original DataAbortPC105187e6, LR105184e9, DFAR2a900104, DFSR8; noRAW/display/blockIO",
+      "secondary_wait": "Relocated dumpB2BB0110 matches ROM12448e90 and pollsUART0TDRE bit1. It is the exception dumper, not the originating storage condition"
+    },
+    "final": {
+      "profile": "Unchanged complete bundle, cold-neutral/region descriptors, explicitPGM+paired tuple, slot0-drive=card0,8GiB blank sparse raw; healthy pacedUART RNG0,heldF4,five-CPU MTTCG",
+      "window_host_seconds": 60,
+      "status": "QMP running; no in-window GDB or forced guest event",
+      "backend": {
+        "read_operations": 1,
+        "read_bytes": 512,
+        "write_operations": 0,
+        "flush_operations": 0,
+        "failed_reads": 0,
+        "failed_writes": 0,
+        "failed_flushes": 0
+      },
+      "sampled": {
+        "signal": "404",
+        "signal_gate": "38",
+        "PHYstate": "11",
+        "link": 1,
+        "negotiated_guard": 2,
+        "root_errors": 0,
+        "panic_length": 0,
+        "registry1710": "b1801738",
+        "controller12ec": "b2d02a28"
+      },
+      "paired_completed_at_15_30_45_60": [
+        0,
+        52,
+        100,
+        108
+      ],
+      "paired_completed": 108,
+      "paired_payload_bytes": 287426880,
+      "result118_main_pixels": 114095520,
+      "paired_rejected": 0,
+      "paired_cancelled": 0,
+      "display": "Head1 statusGUI1024x682 with absent/nonCPU-lens warning; SD error absent; head0 unbound; GUIready0",
+      "limits": "One original sector read is not formatting, mounting, file-save, complete startup, long-duration liveness or physical fidelity. Existing upstream EX external-line warnings remain in raw logs; zero strict uncovered/unsupported transactions is not a claim of warning-free logs"
+    }
+  },
+  "omissions": "No firmware/factory arrays, full disassembly, host environment, raw argv/logs, media or binaries shipped. Sequential QMP/GDB reads are not atomic snapshots or physical performance measurements"
+}

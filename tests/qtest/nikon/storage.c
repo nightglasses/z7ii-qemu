@@ -149,7 +149,7 @@ static void storage_quit(StorageTest *t)
 #define HOST_DATA UINT64_C(0xb1810000)
 #define MSI_DEST UINT64_C(0xb1800740)
 
-static StorageTest storage_host_init(bool connected)
+static StorageTest storage_host_init(bool connected, bool selected)
 {
     StorageTest t = {
         .bar = 0x2a810000,
@@ -167,11 +167,13 @@ static StorageTest storage_host_init(bool connected)
     g_assert_cmpint(fd, >=, 0);
     g_assert_cmpint(write(fd, &loop, sizeof(loop)), ==, sizeof(loop));
     close(fd);
-    drive = connected ? g_strdup_printf("-drive if=none,id=storage,file=%s,"
-                                       "format=raw,cache=writeback", t.path) :
+    drive = connected ? g_strdup_printf("-drive if=none,id=%s,file=%s,"
+                                       "format=raw,cache=writeback",
+                                       selected ? "card0" : "storage", t.path) :
                         g_strdup("");
-    t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
-                        "-display none -serial none %s", t.image, drive);
+    t.qts = qtest_initf("-machine z7ii-mas-diagnostic%s -smp 1 -bios %s "
+                        "-display none -serial none %s",
+                        selected ? ",slot0-drive=card0" : "", t.image, drive);
     /* Board-owned storage has a stable named child, not an unattached device. */
     qtest_irq_intercept_out_named(t.qts, "/machine/storage", "sysbus-irq");
     qtest_qmp_assert_success(t.qts, "{'execute':'cont'}");
@@ -180,6 +182,11 @@ static StorageTest storage_host_init(bool connected)
 
 static void storage_host_start(StorageTest *t)
 {
+    uint32_t presence = qtest_readl(t->qts, 0x2b000010);
+
+    /* Original training clears route 3's event gate, not card insertion. */
+    qtest_writel(t->qts, 0x2b000004, qtest_readl(t->qts, 0x2b000004) & ~4U);
+    g_assert_cmphex(qtest_readl(t->qts, 0x2b000010), ==, presence);
     /* Complete source platform fields, not a guessed physical clock model. */
     qtest_writel(t->qts, PLATFORM, 0x101);
     qtest_writel(t->qts, PLATFORM + 4, 0);
@@ -212,13 +219,58 @@ static void storage_host_start(StorageTest *t)
 
 static void test_host_offline(void)
 {
-    StorageTest t = storage_host_init(false);
+    StorageTest t = storage_host_init(false, false);
     storage_host_start(&t);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x210), ==, 0);
     g_assert_cmpuint(qtest_readl(t.qts, DBI + 0x98) & 15, ==, 0);
     g_assert_false(qtest_get_irq(t.qts, 1));
     g_assert_false(qtest_get_irq(t.qts, 3));
+    storage_quit(&t);
+}
+
+static void test_host_presence(void)
+{
+    const uint32_t raw = 1U << 2, filtered = 1U << 10;
+
+    for (unsigned connected = 0; connected < 2; connected++) {
+        StorageTest t = storage_host_init(connected, connected);
+
+        for (unsigned reset = 0; reset < 2; reset++) {
+            if (reset) {
+                qtest_qmp_assert_success(t.qts, "{'execute':'system_reset'}");
+            }
+            /* Original power-on checks presence before attempting training. */
+            g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & (raw | filtered),
+                            ==, connected ? raw | filtered : 0);
+            g_assert_cmphex(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0);
+            g_assert_false(qtest_get_irq(t.qts, 1));
+            qtest_writel(t.qts, 0x2b000004, raw);
+            qtest_writel(t.qts, 0x2b000000, raw);
+            g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & (raw | filtered),
+                            ==, connected ? raw | filtered : 0);
+        }
+        storage_quit(&t);
+    }
+}
+
+static void test_host_selection(void)
+{
+    /* A backend named storage no longer implicitly inserts a card. */
+    StorageTest t = storage_host_init(true, false);
+    g_autofree char *args = NULL;
+
+    g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & 4, ==, 0);
+    storage_host_start(&t);
+    g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0);
+    qtest_quit(t.qts);
+    args = g_strdup_printf("-machine z7ii-mas-diagnostic,"
+                           "slot0-drive=missing-card "
+                           "-smp 1 -bios %s -display none -serial none",
+                           t.image);
+    t.qts = qtest_init_ext(NULL, args, NULL, false);
+    qtest_set_expected_status(t.qts, 1);
+    qtest_wait_qemu(t.qts);
     storage_quit(&t);
 }
 
@@ -304,11 +356,14 @@ static void test_host_domains(void)
 
 static void test_host_roundtrip_cancel(void)
 {
-    StorageTest t = storage_host_init(true);
+    StorageTest t = storage_host_init(true, true);
     uint8_t written[512], actual[sizeof(written)];
     unsigned i;
     int fd;
 
+    qtest_writel(t.qts, 0x2b000004, 4);
+    qtest_writel(t.qts, 0x2b000000, 4);
+    g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & 0x404, ==, 0x404);
     storage_host_start(&t);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0x11);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x210), ==, 1);
@@ -340,6 +395,7 @@ static void test_host_roundtrip_cancel(void)
     g_assert_false(qtest_get_irq(t.qts, 1));
     qtest_clock_step(t.qts, 1000000);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0x15);
+    g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & 0x404, ==, 0x404);
     g_assert_cmphex(qtest_readl(t.qts, PHY + 0x2c) & (1u << 26), ==, 1u << 26);
     g_assert_true(qtest_get_irq(t.qts, 1));
     qtest_writel(t.qts, PHY + 0x2c, qtest_readl(t.qts, PHY + 0x2c));
@@ -360,6 +416,7 @@ static void test_host_roundtrip_cancel(void)
     g_assert_cmphex(qtest_readl(t.qts, PHY + 0x2c) & (1u << 26), ==, 1u << 26);
     qtest_writel(t.qts, PHY + 0x300, 1);
     g_assert_cmpuint(qtest_readl(t.qts, PHY + 0x58) >> 16, ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0x2b000010) & 0x404, ==, 0x404);
     g_assert_false(qtest_get_irq(t.qts, 1));
     g_assert_false(qtest_get_irq(t.qts, 3));
     storage_quit(&t);
@@ -367,7 +424,7 @@ static void test_host_roundtrip_cancel(void)
 
 static void test_host_msi(void)
 {
-    StorageTest t = storage_host_init(true);
+    StorageTest t = storage_host_init(true, true);
     uint8_t cap;
     uint32_t table;
     unsigned limit;
@@ -413,6 +470,30 @@ static void test_host_msi(void)
     g_assert_true(qtest_get_irq(t.qts, 3));
     qtest_writel(t.qts, DBI + 0x830, 1);
     g_assert_false(qtest_get_irq(t.qts, 3));
+    storage_quit(&t);
+}
+
+static void test_host_bus_error(void)
+{
+    StorageTest t = storage_host_init(true, true);
+
+    storage_host_start(&t);
+    qtest_writel(t.qts, CFG + 0x10, t.bar | 4);
+    qtest_writel(t.qts, CFG + 0x14, 0);
+    qtest_writew(t.qts, CFG + 4, 6);
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, t.bar + 8), !=, 0);
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 0);
+    /* Inside the host window, beyond the native endpoint's actual BAR. */
+    qtest_readl(t.qts, t.bar + 0xe0000);
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 1U << 14);
+    qtest_readl(t.qts, t.bar + 8);
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 1U << 14);
+    /* No guest W1C producer is established for this root status word. */
+    qtest_writel(t.qts, DBI + 0x104, 1U << 14);
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 1U << 14);
+    qtest_qmp_assert_success(t.qts, "{'execute':'system_reset'}");
+    g_assert_cmphex(qtest_readl(t.qts, DBI + 0x104), ==, 0);
     storage_quit(&t);
 }
 
@@ -485,8 +566,11 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/storage/errors/reset", test_errors_reset);
     qtest_add_func("/nikon/storage/readonly", test_readonly);
     qtest_add_func("/nikon/storage/host/offline", test_host_offline);
+    qtest_add_func("/nikon/storage/host/presence", test_host_presence);
+    qtest_add_func("/nikon/storage/host/selection", test_host_selection);
     qtest_add_func("/nikon/storage/host/domains", test_host_domains);
     qtest_add_func("/nikon/storage/host/roundtrip/cancel", test_host_roundtrip_cancel);
     qtest_add_func("/nikon/storage/host/msi", test_host_msi);
+    qtest_add_func("/nikon/storage/host/bus-error", test_host_bus_error);
     return g_test_run();
 }

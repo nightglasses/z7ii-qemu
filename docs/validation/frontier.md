@@ -1,0 +1,1799 @@
+# Original-firmware startup frontier
+
+## Current: detailed photo, natural exposure controls and a rendered menu
+
+Unchanged C1.70 AUTO photo firmware now displays a detailed 1200 × 800 P6
+photograph through normal CMOS acquisition, packed RAW, paired MAIN, the
+continuous processing graph and its original display queue. Actual scanout is
+1024 × 682; no framebuffer or guest-owned slot is replaced from the host.
+
+![Original GUI with normally acquired photo input](/evidence/color/photo.png)
+
+The accepted window lasts 83.13 host seconds. Paired jobs increase from 24 at
+the 30-second sample to 148 after 20 paced input replacements and the restored
+photo. The graph increases from 24 to 149 in later sequential reads, with zero
+processing errors, QMP running throughout and post-window panic length zero.
+All 20 expected moving-square positions appear in increasing order through
+actual scanout. The gray bar measures RGB (211, 211, 211) in every capture.
+
+The [full-resolution validation](color.md) explains the two corrected upstream
+domains: an auxiliary 8320 × 34 acquisition had been enlarged as MAIN, losing
+detail and separating CFA phases; lookup-coded RAW had entered a linear WB
+operation. Separate full-MAIN ownership and the frozen virtual RAW codec now
+preserve the actual data chain. The page includes the dynamic output, detail,
+primary-color and grayscale measurements, native coverage and declared
+numerical hypotheses. Saturated channels still clip under the programmed
+profile; this is not physical color calibration or a camera FPS claim.
+
+The later [EX turnover receipt](/evidence/input/turnover.json) identifies the
+repeated battery-report producer and corrects its missing status-change input
+lifecycle. Original I2C acquisition and release now retire that notification;
+all16 type2 queue slots are empty in a later snapshot. No host queue release or
+completion event is added. A separate93.94-host-second original M session
+advances from52 to156 MAIN completions between46.75 and92.81 seconds, with
+zero processing errors and post-window panic length zero.
+
+Normal MENU, arrows and OK contacts reach the MAS switch snapshot. Queued
+dials and mode-position inputs now select P/S/A/M. A separate source/read-only
+diagnosis finds a storage-policy bit rejecting exposure adjustment. With a
+fresh normal MBR/FAT32 card and source-backed two-dimensional DMA copies,
+an unpaused original run changes M Tv/Av, A Av, S Tv and P program shift514
+through the original application setters. MAIN completions increase26→139
+between32.03 and82.85 host seconds, with post-window panic length0. Actual
+iris commands and optical exposure are separate, still unaccepted levels.
+
+MENU also naturally completes its old-GUI worker handoff, starts Menu and
+clears the retained request. The normal-image, temporary path-state and
+scaled105 output-layout combinations now execute through the original drawing
+and display path. A121.40-host-second unchanged-firmware window renders the
+Playback Menu and visible input-driven highlight changes. Paired MAIN jobs
+increase19→242; periodic graph-error samples are0, QMP is running at the end,
+and the post-window exception/watchdog flags and diagnostic length are0.
+
+![Original Playback Menu after normal right-key input](/evidence/input/menu.png)
+
+All menu categories, setting acceptance and return to live view remain
+unverified. Separate mode-change sessions have two distinct failure sites.
+The AF data abort at MAS VA `0x1021D7CE` has a directly observed upstream
+write: the AS history copier at VA `0x10394314` overwrites an AF-ring pointer.
+Its extraction can copy an entire start-slot count even for a narrow recent
+timestamp window; a long D0-report interval therefore needs investigation
+independently of CaptureService backlog.
+
+Other sessions abort at MAS VA `0x1034FE78`, DFAR `0x3c`. This is an aligned
+allocation wrapper continuing after its underlying allocator returns failure,
+not the AF dereference. After the OnVd core, `0x103D0DB0` allocates a `0x2cc`
+descriptor and `0x3e44` work record from the 16 MiB General pool. Source joins
+retirement to completion of all eleven software graph lanes. A separate
+read-only, debugger-free observation verifies growing active-record counts
+58, 326 and 575 while both submission lists stay empty. Sampled old records
+remain in lane2/cell0; a later snapshot locates the oldest lane2 worker at its
+second microstep, VA `0x102682AE`. Other records wait on its dependency chain.
+The worker waits at VA `0x1026830e` for event `0xb1864850`, pattern
+`0x81000000`, with timeout 1000 in the native wait API. A separate eight-PC
+diagnostic trace records GDB threads1/2: all sixteen completed sampled waits
+time out, with zero recorded entries to callback VA `0x10262dfc`, which normally
+sets bit `0x01000000`. Actual context9 MAIN DMA continues:
+192 sampled gate interrupts carry raw2 bit3, while the required context8
+raw2 bit2 is absent. The two bits belong to separate processing graphs.
+That historical model imported context8's eleven-node RGB-grid graph without
+executing it. The [independent grid path](../devices/gate/grid.md) now executes
+statistics RGB inputs, signed matrix/LUT/filter work and packed12 result DMA,
+then publishes its own context8 completion. Paired consumes that completed
+kind25 grid as a fresh read dependency; its former grid-output interpretation
+is removed. Numerical confidence, packing, interpolation and four-phase
+map-refresh cadence remain explicit virtual-camera hypotheses. Type11 and
+type10 retain their different source-profile control values. Native coverage
+does not substitute for unchanged-firmware graph-retirement acceptance.
+The missing historical producer explains the sampled wait; it does not establish
+a common cause with the AF overwrite. Guest virtual addresses in the snapshots
+are translated with QEMU's debugger translation before physical reads.
+No frame suppression, queue clearing or event injection is used.
+
+The missing [capture-group numerical work](../devices/capturegroup/protocol.md)
+and [completed-input dispatch](../devices/readoutpipeline/input.md) now execute
+through actual result DMA and normal interrupt acknowledgement. CMOS chunks
+retain absolute acquisition deadlines; real W1C ACK retries retained fresh
+input when the complete capacity predicate clears. MAIN/RAW and statistics
+keep independent pending-result ownership. Fresh group input after commit no
+longer needs an extra TG edge, and its private work cursor is independent of
+the public completion latch. Pure group, RAW-packing and statistics arithmetic
+now uses QEMU's existing worker pool with owned snapshots. RAM validation,
+DMA and result publication remain on the virtual device path; cancellation
+invalidates old work before any later publication.
+
+The applicable native validation passes 127 CMOS/paired integration cases and
+92 unit cases across grid arithmetic, grid transactions/runtime, paired pixels
+and lifecycle, CMOS timing and SPI, with normal TAP plans and process exits.
+The RGB test distinguishes actual CFA channel means from the former shared
+grayscale projection. Corrected type10 controls reject under the old shared
+window qualification and pass with type11/type10 qualified independently.
+Fixtures separately step RAW completion and the subsequent paired minimum
+deadline; they do not advance future timers while draining host work.
+Independent review found no remaining product findings.
+These device results do not establish mode-change acceptance. With the grid
+path enabled, a separate unchanged five-CPU MTTCG cold-neutral window completes
+1,351 grid jobs, 51 paired jobs and 1,121 MAIN acquisitions with zero grid or
+MAIN-graph errors, but still reaches the allocation failure after 40.57 host
+seconds. Later translated snapshots locate completed lane2 and remaining
+lane0 cell2/lane3 cell1 work; three sampled lane0 waits for `0x00400000`
+return successfully. After algebraically neutral post passes are omitted,
+another debugger-free window completes 1,362 grid jobs, 62 paired jobs and
+1,144 MAIN acquisitions, but still reaches the same allocation failure after
+41.69 host seconds. The optimization matches the complete five-pass scalar
+oracle; 38 pixel and 19 paired lifecycle cases pass. Its unchanged output does
+not establish a controlled processing-rate comparison.
+
+The subsequent [completion audit](../devices/pairs/requests.md#completion-credits-and-work-record-retirement)
+separates paired `00400000` from MAIN/lane3 `00800000`: twelve sampled records
+receive both normal credits, finish all eleven lanes and reach the actual job
+free call. Their successful retirement does not bound the entire queue.
+Running numerical setters also exposed a model error: changed parameters
+cancelled old computations despite no source stop/drain. The
+[online upload contract](../devices/pairs/pixels.md#online-numerical-uploads)
+now retains owned numerical snapshots across all 17 confirmed groups and the
+existing specialized tables. Partial packets block future admission; pre-color
+history revisions prevent stale re-registration. The latch boundary remains a
+functional hypothesis, while memory, freshness, stop/reset and ownership checks
+remain strict. Exact neutral-pass, lattice and signed-division reductions do
+not change output equations. The final scoped batch passes 133 CMOS/paired,
+41 pixel and 19 lifecycle cases, with normal TAP plans and exits.
+
+A separate debugger-free fixed-M cold-neutral run completes 209 paired jobs with
+zero paired cancellations or rejections, 1551 grid jobs and 1360 MAIN acquisitions.
+It still fails at allocator `1034fe78/DFAR3c` after 48.40 host seconds. Active
+records grow 57→568→876 while the oldest admission advances 12→137→194; final
+runtime has an actual computation, not a stuck partial numerical upload.
+A bounded host-only diagnostic measures 145184 microseconds median thread CPU
+per numerical job; sequential admission and active-list snapshots also grow
+faster than completion. This identifies a remaining numerical-supply deficit,
+not a missing completion event or a proven leak. Host time is not a native
+frame-period measurement, and no sustained GUI or mode acceptance is claimed.
+The [curated receipt](/evidence/runtime/grid.json) keeps these runs separate
+from the twelve-record breakpoint sample and the independent AF failure.
+
+The subsequent fixed-stage operator keeps one owned aggregate while executing
+independent CFA lattices, temporal blocks, radial rows, exact-seeded MAIN bands,
+and post channels through the existing QEMU pool. Workers never wait for other
+workers; DMA/IRQ remain in the final virtual-clock callback. The complete batch
+passes 133 CMOS/paired, 44 pixel and 35 lifecycle cases (212 total). Reset at each
+stage, single-worker execution and four-worker completion are covered. A separate
+synchronous IRQ-reset fixture reproduced a SIGSEGV; retiring the completed task
+before calling the IRQ sink fixes that lifetime error. Later exact division
+reductions pass a scoped 46 pixel/35 lifecycle rerun with independent scalar
+noise and legal-weight oracles.
+
+Original fixed-M execution still fails independently: the stage version reaches
+98 paired completions and 109 active records before AF `1021d7ce/DFAR0` at
+19.07 host seconds; the later arithmetic version reaches 190 completions and
+200 active records before the same AF site at 26.65 seconds. Both have zero
+paired cancellations/rejections. They do not reach the earlier allocator limit,
+and cannot establish that memory growth is fixed. Those windows predate the
+owned MAIN pipeline. Its former synchronous BQL warp/three-output work and
+exclusion of paired computation while input is occupied were source-confirmed
+serialization boundaries; their exact share of the gap was not measured.
+
+The [owned MAIN pipeline](../devices/gate/processing.md) now separates private
+pool math from current-state DMA publication, retains numerical snapshots across
+normal uploads, and exposes actual input epochs/capacity. Paired can compute one
+private next result while MAIN owns the input; real consumption wakes its
+strict recheck. POST joins row bands after every pass. This model passes269
+native cases, including135 CMOS/paired integration cases with normal TAP and
+exit. Paused/reset/unrealize and pending-result fences remain separate guards;
+no guest slots, software events or completion causes are forced.
+The subsequent complete pass-banded PREFIX and twelve-band COLOR model passes
+272 cases:135 CMOS/paired,48 pixel,41 paired lifecycle and48 MAIN/grid unit
+cases. The CMOS fixture exits normally after356.92 host seconds. Independent
+scalar noise, uneven twelve-band division and mid-PREFIX reset/unrealize are
+covered; this remains separate from original execution below.
+
+Original fixed-M execution still fails. One debugger-free window completes776
+paired and776 MAIN jobs without cancellations or rejections before allocator
+`1034fe78/DFAR3c` at51.88 host seconds. Active records grow431→875 while the
+sampled head stays at admission388, although normal result supply continues.
+A separate run rejects1680 RAW attempts at a repeated whole-batch input-address
+overlap and stops at237 paired results; this is a distinct online ring-publication
+boundary in the preceding model. It cannot be treated as a controlled rate
+comparison. After PREFIX pass/row separation, another window completes1044
+paired/MAIN jobs with zero cancellation/rejection but reaches the same allocator
+at62.12 seconds; it still has only four COLOR tasks.
+
+The [software event-bit audit](../devices/pairs/requests.md#software-event-bit-admission)
+identifies the concrete admission resource: pool0 has480 bits, and translated
+snapshots show all fifteen available-bit words zero. The outer guard allocates
+three joins before a notification bit, without returning the joins if the
+second allocation fails. Its retry can overwrite the saved identities. This
+source failure path explains a possible permanent dispatch stall. A separate
+failure-only breakpoint diagnostic now proves seven such retries orphan21
+distinct bits;39 batch-level failures still roll back normally. Its final43
+observed live bits also include21 valid joins and one notification, so not all
+live bits are leaks. The diagnostic ends at debugger-stop, with no guest
+exception; its pauses cannot establish native rates or the initial pressure's
+cause. The remaining backlog is therefore not established as only slow
+arithmetic or one missing hardware completion.
+
+The subsequent [RAW temporal-reuse model](../devices/pairs/pixels.md)
+permits identical complete PA spans in different sequential input phases while
+retaining actual physical-slot generation consumption and all partial,
+backing-alias and output conflicts. A fresh gray130 DMA produces new MAIN130
+and WORK2080/residual32 in the synthetic fixture, distinguishing it from the
+old gray128 snapshot; ACK alone still cannot replay a generation. This is a
+finite ownership hypothesis, not recovered physical alias behavior.
+The final applicable rerun passes137 CMOS/paired and42 lifecycle cases, with
+normal TAP and exits; CMOS takes358.39 host seconds. That179-case batch is
+separate from the preceding272-case pipeline receipt, not451 distinct tests.
+
+A historical unchanged, debugger-free fixed-M window crosses the earlier RAW rejection
+and reaches545 paired results with zero cancellation/rejection and544 MAIN graph
+outputs. At35.71 host seconds it fails at the independent AF
+`1021d7ce/DFAR0`, task `01000018`. At the stopped snapshot active records are128
+and software event pool0 still has99 available bits. This window precedes pool
+exhaustion and does not prove that growing backlog is fixed. The same AF PC also
+does not prove the historical AS writer executed in this run.
+
+The [initial-pressure census](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates normal outstanding joins from the later allocation-retry defect.
+One stopped64-record census owns193 of195 used event bits; two unaccounted bits
+also have other source-established pool users. The oldest records can have
+paired and MAIN credits still outstanding. Separately, source and stopped
+records establish that the ten-entry resource74 FIFO can evict or reuse a record
+before a delayed MAIN consumer reads it. These observations do not authorize
+returning event bits, releasing input slots or extending the guest's caches.
+
+An independent AF scheduling gap was a missing declared input: active mode14
+and11 selected subtype0 timing rows that were zero in the previous virtual
+resource80. The [expanded cold-neutral input](../inputs/nor/virtual.md) supplies
+the same four declared timing fields in all four subtypes of groups7/10. Eight
+native tests and original-loader readback verify the extension; its numerical
+values remain an explicit virtual profile. It removes zero active period/count,
+without increasing the duration to force an AF timer branch. It does not prove
+that every historical AF abort had this cause.
+
+Exact inverse-lookup and display arithmetic reductions preserve pixel values.
+The [paired arithmetic IOThread](../devices/pairs/pixels.md) removes intermediate
+stage callback delivery from BQL scheduling, retaining one terminal main-thread
+handoff and all original DMA/capacity/ACK checks. A fresh unchanged, debugger-free
+fixed-M window reaches782 paired and782 MAIN results with zero paired
+cancellation/rejection, then stops at42.99 host seconds on an explicit SPI8
+empty-data read at MAS VA `10243244`, PA `2c0a0804`. AF pointers remain intact;
+flags/length are zero at the last QMP poll, but the subsequent stopped diagnostic
+records that SPI access abort. The final census also has774 active records,
+all480 event bits used, no valid capture-owned identities left in those headers,
+and566/565 paired/MAIN credits accumulating behind an unstarted allocation guard.
+A separate error-only-instrumented window reaches General allocator failure
+with876 active records and the same pool blockage; it does not fail in AF.
+Thus the IOThread change has not resolved pressure or established bounded queues.
+During the initial9–19-second window, paired completes76 results while RAW/group
+advance291, MAIN follows paired, and sampled paired jobs have no
+pending ACK or downstream-capacity wait. Outstanding computation and its
+completion delivery require further measurement. SPI remains an error pending
+atomic ownership evidence. Run-to-run timing is not a controlled speed comparison.
+
+The following bounded profile identifies a concrete host configuration defect:
+all960 stages in64 jobs execute children serially in the cold arithmetic pool.
+Provisioning its standard minimum/maximum to the existing12-child bound restores
+actual overlap; median worker wall time becomes25.07ms versus124.02ms and total
+job time27.08ms versus126.24ms under the same declared inputs. The new native
+barrier fails with1 of12 workers before the fix and succeeds afterward. The
+current scoped batch passes137 CMOS/paired qtests,49 paired lifecycle cases and6
+CMOS unit cases with normal TAP and exits; these192 cases overlap earlier batches.
+In a separate diagnostic window all111 started records retire and all480 bits return, but
+CaptureService later stops dequeuing. A later pre-error snapshot establishes
+that it is READY with a queued notification, starved by the higher-priority
+CAPTG worker's non-yielding SPI poll; its saved wait fields are stale.
+A separate uninstrumented run reaches221 paired/220 MAIN results and215
+descriptor starts, with one active record and477 event bits free at the stop.
+It still rejects the SPI8 empty read at17.17 host seconds, before any planned
+mode switch. [Atomic SPI ownership evidence](../devices/spi/protocol.md#shared-sensor-client-ownership-boundary)
+now shows another activation drained and stopped the shared transaction before
+the old caller resumed. Both source paths are now identified: CAPSEQ's event800
+branch and CAPTG's independent event10/state8 sensor-control branch share one
+owner and staging buffers without a bus mutex. A bounded diagnostic records
+161232 status observations past an actual sampled serial deadline, up to5.06ms
+late, while FIFO progress remains unfinished. The finite model now reconciles
+elapsed synchronous PIO work on validated observation and before input-clock
+changes, retaining explicit empty-read errors, existing DMA arbitration and
+actual peer boundaries. This is no longer an event-pool-exhaustion failure;
+native model correctness and normal mode-change acceptance remain separate.
+
+The corrected SPI model passes21 system-linked unit cases and122 general qtests
+with normal TAP and process exits. Both exact-deadline observation and overdue
+clock changes fail under their preceding implementations. Independent static
+review finds no remaining issue in the bounded PIO, cancellation, clock and
+real-HDmac arbitration paths.
+
+The first uninstrumented cold-neutral M window after this correction reaches
+391 paired and576 readout MAIN completions in22.07 host seconds. CaptureService
+advances its FIFO consumer, with14 active work records and441 free event bits
+at the stopped census; no SPI empty-read error is reported. It nevertheless
+fails before the first planned mode switch: CPU1 task `010000fd` takes a data
+abort at MAS VA `102bd93c`, DFAR0. This is an indirect object-pointer
+dereference, not the previous SPI access or allocator exhaustion. Resource74's
+producer retains ten records in FIFO `b23630e0`, freeing the oldest on overflow;
+the consumer borrows the record without a retain. The stopped graph shows
+jobs393/403 sharing the same record, now tagged403, and394/404 likewise tagged404.
+Job395's captured record prefix is zero. This establishes stale/reused
+ownership in that snapshot. A later targeted read-only trace identifies the
+overflow release caller, follows old job84's record into reuse by94, and records
+the old consumer reading94. It ends with the same null dereference. The
+[resource74 lifetime analysis](../devices/pairs/requests.md#initial-pressure-and-the-smaller-resource74-window)
+separates this diagnostic from the first uninstrumented failure.
+
+The oldest job393 is also waiting for three software dependency masks through
+`102664a0 ->102b4962`; it is not polling a newly discovered hardware register.
+Its lane2 and lane3 have already finished. The later lane3 consumer waits for
+normal MAIN credit `00800000`, consumes that credit, and only then reads the
+resource. Available data does not separate delayed real MAIN production from
+ready-worker scheduling delay. No missing peripheral completion has yet been
+established, so neither a replacement pointer nor an extra event is justified.
+A post-exception task dump places CaptureService on configuration mutex37,
+owned by task18. A separate intentional pre-error stop at FIFO count10 instead
+finds CaptureService current on CPU0, while CAPTG/CAPSEQ wait on their normal
+dispatchers and the MAIN worker waits on its mailbox. That snapshot has only
+three active graph records. Consequently mutex contention is a candidate to
+measure before the fault, not an established permanent wait or a justification
+to bypass the lock.
+A separate bounded diagnostic reaches the historical AF abort at `1021d7ce`
+after48.57 host seconds; it does not reproduce or explain this resource74 fault.
+That revision's first acceptance failure is retained. The later arithmetic
+candidate has its own bounded mode acceptance below.
+
+The later credit ledger matches every MAIN callback to its normal consumer,
+fast skip or startup discard. Conditional one-shot requests14/15 are not
+submitted in the lifecycle trace, so their completion is not a demonstrated
+missing producer. A host-only profile instead measures17.94ms median continuous
+MAIN arithmetic against10us worker queueing. Exact warp recurrence and separable
+affine index reuse preserve every sample and rounding boundary. A controlled
+operator comparison matches all1,584,660 output bytes and reduces median warp
+time from8830 to4336 microseconds. A separate bounded host profile measures
+MAIN computation at7.07ms after the change; this is not a physical FPS claim.
+The applicable native batch passes12 pixel,26 processing and137 CMOS cases
+(175 total), with normal TAP and process exits. Independent review finds no
+remaining arithmetic, bounds, validation or publication defect.
+
+The candidate's first uninstrumented cold-neutral acceptance lasts143.15 host
+seconds and completes two A/S/P/M cycles from initial M. All eight normal
+mode-position requests settle to their original typed setting and context;
+paired and readout MAIN counts advance during every dwell. At the last poll,
+paired and MAIN processing both reach3992, readout MAIN reaches4153, and graph
+errors, paired rejection/cancellation, exception/watchdog flags and diagnostic
+length remain zero. Nine sequential censuses have only1–2 active work records
+while admissions advance729→3971. Available event bitmap bits vary471–477;
+the earlier constant451 interpretation was incorrect. These snapshots show
+retirement without sustained graph/event-pool growth in this window, not an
+atomic count of every user of that pool. No original firmware, cache depth,
+clock, input ownership or completion event is changed.
+
+A separate CaptureService input FIFO remains a longer-run boundary: its
+capacity is60 and the observed count reaches41 by143 seconds. This is a callback
+queue, distinct from resource74's ten records and from the retired work graph.
+No full queue or dropped request is observed in the acceptance. Its entry
+production and synchronous callback consumption need independent rate/wait
+analysis before indefinite stability can be claimed. The
+[receipt](/evidence/runtime/grid.json) preserves the first historical failures,
+read-only diagnostics, exact numerical comparison and this separate acceptance.
+
+Timed-mutex, FE and capture waits succeed in separate traces; host
+GDB durations include substantial stopped time and cannot establish that
+native OnVd processing exceeds a frame period.
+
+The later [OnVd supply audit](../devices/pairs/requests.md#successful-waits-and-independent-result-producers)
+follows251 complete callbacks: all FE and stage waits succeed, with real group,
+statistics and packing producers. Host profiles identify group arithmetic and
+BQL display conversion costs. Exact shared-chroma evaluation preserves the
+complete scalar law and reduces the measured primary-conversion subset median
+from4.45 to3.68ms in separate bounded profiles. The image subtree passes21
+native cases, including80 signed-matrix/layout/apply/alpha oracle updates.
+
+Longer acceptance remains failing. The first extended baseline stops after
+39.35 host seconds following normal M-to-A input on a legitimate interpolated
+post parameter, D34=`401` with active D28=`0500`; its
+[complete numerical contract](../devices/pairs/post.md#unresolved-interpolated-parameter-family)
+is unresolved. The first optimized long-M attempt completes2591 paired jobs
+and stops at95.21 seconds on a selected gate stop pulse, with FIFO13/60.
+The source-backed [two-channel quiescent stop](../devices/gate/processing.md#selected-quiescent-stop)
+contract passes native red-to-green and preserves all data/configuration/pending
+ownership. Its first long-M attempt crosses the pulse, then stops at94.89 seconds
+on resource34 monitor PA `20100200`, with2583 paired jobs and FIFO10/60.
+Neither attempt reaches its planned300-second dwell or new mode requests.
+Flags and diagnostic length remain zero; an unsupported device read still
+stops execution. Separate observer FIFO-full and SPI8 failures are retained.
+The [receipt](/evidence/runtime/grid.json) distinguishes these from the earlier
+143.15-second mode acceptance and from fixtures; no indefinite stability is claimed.
+
+The [resource34 monitor](../devices/gate/family.md#type18-provisioning-and-result-ownership)
+now consumes actual resource49 active luma under a bounded, explicitly virtual
+parity/extrema/histogram law. Publication follows successful three-output DMA,
+with no new completion event; stopped results remain readable. Native gatework31
+and CMOS137 pass. The first long-M attempt fails at AF `10372abe`/DFAR `818`
+after83.27 host seconds; after an exact histogram-sum reduction, a separate
+normal-switch window completes one A/S/P/M cycle, then fails at AF
+`1021d7ce`/DFAR0 at100.20 seconds with FIFO60. Neither passes long stability.
+
+Normal main-switch OFF supplies a distinct cleanup test. Its first
+uninstrumented run stops at34.94 host seconds on WRITE32 PA
+`203800ec=ffffff71`, MAS VA `10369f02`, with789 paired jobs, FIFO20/60 and
+zero exception/watchdog flags and diagnostic length. A separate read-only
+observer verifies that the original resource34 getter executes all30 reads,
+returns four nonzero wide values and reaches cleanup with R0=0 before that
+same next stop. Optional workspace pointers are zero; their copying is native
+coverage only. The [receipt](/evidence/runtime/grid.json) retains all three
+first scenarios and the separate observer. Paired stop controls, active post
+arithmetic, AF lifetime and FIFO boundedness remain independent work.
+
+The [paired local teardown](../devices/pairs/requests.md#bank-local-teardown)
+then separates retained EC storage from cancellation and drain settlement.
+Every same-value `00/04=3` pulse closes its bank before revoking owned work;
+actual host children drain normally, without a frame/stop event. The numerical
+calibration now leaves the interpreted `00/04/ec` slots zero. A native
+failed-DMA/drain counterexample first exposes an accidental EC-generated bit2;
+the isolated command path fixes it. The final 57 paired-unit and23 SLA cases,
+plus the focused CMOS peer-release case, pass; the preceding complete CMOS138
+batch remains separately recorded.
+
+In the first uninstrumented main-switch OFF window, both paired requests
+become quiescent with no active or inflight job. Paired jobs total736,
+MAIN processing735, paired rejected0/cancelled1, pending0 and FIFO5/60.
+The first next stop is WRITE32 PA `201020a4=1`, MAS VA `103bd1ca`, at33.24
+host seconds. Exception/watchdog flags and diagnostic length remain zero.
+A distinct MAIN affine phase3 rejection already occurs at26.24 seconds before
+the OFF input and is retained, not resolved by this cleanup. The
+[receipt](/evidence/runtime/grid.json) separates these limits from finite
+paired-bank acceptance. Complete shutdown and long stability remain unproved.
+
+The next pulse is global: actual `103bd1c4` stores1 then0, though decompilation
+eliminates the overwritten first store. Caller `10388b3c`, handling source
+message `421930e6`, first releases resources through `1038897e`, then calls it
+only when software bitmap MAS VA `b1d52228` has neither bit8 nor bit9 set.
+The [shared-input hold](../devices/gate/processing.md#shared-input-quiescent-stop)
+now requires both inputs/controls and all actual host work to be quiescent.
+It retains input, configuration and results, blocks reopening while held,
+and produces no cancellation, completion or ACK. The native red case fails
+in0.68 seconds on the preceding model. The33 gatework,9 gridflow and23 SLA
+cases then pass, including retained real input and a revoked host owner.
+
+Original cleanup acceptance remains open. The first ordinary main-switch OFF
+attempt continues to49.86 host seconds and1261 MAIN results without entering
+an observed cleanup state. A separate M-to-A attempt remains in M at73.39
+seconds/1945 MAIN results and has one affine phase2 rejection. Another normal
+M-to-A window reaches mode2/context31 and1276 MAIN results by50.47 seconds,
+with zero sampled graph errors; its stopped post-window private-EX memory
+inspection is inconclusive because the HMP queries lack an explicit CPU index.
+The next attempt also reaches mode2/context31, then stops at33.42 seconds:
+WRITE32 PA `20380d9c=1`, MAS VA `1036c5f6`, rejects paired profile
+offset `ba8=0` in phase2. Paired totals750 and MAIN749, with zero sampled
+exception/watchdog flags and diagnostic length. These windows do not prove
+that `20a4` executed, complete shutdown or stable mode changes. The
+[receipt](/evidence/runtime/grid.json) retains each window separately; the
+earlier affine/AF/FIFO boundaries remain unresolved.
+
+The [independent C curve](../devices/pairs/saturation.md#independent-c-curve-and-ba8-selection)
+now connects BA8 to its two65-knot LUT banks, with complete ordered uploads,
+explicit selection and immutable pixel snapshots in the existing `11c=1`
+profile. Source selection/packing is established; its Q10 gain equation's Y
+axis, stage order and rounding are functional hypotheses. BB's separate six
+parameters retain strict calibration qualification, and `11c=0` split129-knot
+processing remains unsupported. The controlled old-device regression fails
+in0.62 seconds;68 paired and50 pixel native cases pass, alongside28 focused
+CMOS paired cases and the extended calibration rejection fixture.
+
+The first unchanged-firmware, no-debugger cold-neutral candidate window reaches
+60.85 host seconds and772 MAIN results without new unsupported accesses,
+sampled exceptions or diagnostic bytes. Extending the observation to129.89
+seconds reaches1759 paired/1760 MAIN in sequential, non-atomic reads, with
+zero rejections/cancellations/graph errors and QMP running. Both normal M-to-A
+attempts remain in mode3/context32; the latter's sampled queue reaches60/60.
+They establish bounded image continuation, not successful mode delivery,
+BA8=0 original execution or indefinite stability. The input/queue boundary and
+unrecovered BB arithmetic remain open. Earlier SLA FILL rejections and separate
+read-only diagnostic failures are retained rather than screened out.
+
+Exact per-job RAW12 transfer and neighborhood-threshold reuse then reduces an
+eight-frame native arithmetic replay by20.72%, with all3153336 output bytes
+unchanged. It preserves noise order, processing stages and completion ownership;
+the [cost analysis](../devices/pairs/requests.md#successful-waits-and-independent-result-producers)
+separates this host computation result from original FIFO and mode acceptance.
+Its first uninstrumented cold-neutral window, with an explicitly overlaid physical
+ACCELE record, instead takes a loader prefetch abort at MAS VA`fffffffc`,
+LR`103c05e7`, after1.89 host seconds and before any paired job. Separate
+diagnostic windows reach117/124/144 jobs but58–60 queued callbacks. Neither those
+instrumented spans nor native arithmetic equivalence establish stable refresh.
+
+See [exposure controls](../devices/gpio/exposure.md) and the
+[curated input receipt](/evidence/input/turnover.json) for source conditions,
+normal input profiles and distinct native/execution limits. The old M
+numerical stop below is historical evidence.
+
+The [photo receipt](/evidence/color/capture.json) preserves the earlier successful
+AUTO scene tests and the separate rare SLA fill rejection whose private failing
+tuple was not captured correctly. [Recovered CPU color conversion](../devices/pairs/conversion.md)
+now supplies exact software arithmetic for selector1; it does not establish
+physical paired-ASIC equivalence. AF actuator/statistics feedback, full-resolution
+still acquisition, optical exposure, recording, saving and indefinite stability
+remain open.
+
+## Previous: cyclic MAIN processing with quadrant inputs
+
+This historical monochrome diagnostic established ring continuation. Its M
+parameter rejection and false-color scene are superseded by the current
+numerical model and full-resolution color validation above.
+
+The unchanged AUTO photo firmware now keeps processing beyond its initial
+four-address traversal. With cold-neutral input, the same explicit camera
+profile and five-CPU MTTCG, the integrated 45 second run advances from
+67 paired jobs at 30 seconds to 158 at 45 seconds. The continuous graph advances
+from 68 to 158, with zero processing errors and QMP running throughout. These
+sequential counters are not an atomic snapshot. Post-window panic length is 0.
+Changing the normal CMOS image input after 30 seconds changes the actual scene
+behind the original GUI at 45 seconds:
+
+![Original GUI after the normal scene input changes](/evidence/livecycle/soak.png)
+
+A separate fresh 120 second observation completes 123, 363 and 603 paired
+jobs at 40, 80 and 120 seconds. The graph completes 123, 363 and 604 in its
+later sequential reads. Processing errors and post-window panic length remain
+zero, and QMP remains running. Normal image replacement after 80 seconds is
+visible in the final GUI. This exercises many complete ring traversals and
+downstream buffer retirements without releasing slots from the host.
+
+The preceding baseline stayed at 8 paired/graph jobs between 30 and 45 seconds.
+Source and raw-register breakpoint observations identify the model's old
+mandatory four-read pause as the closed-loop error: the `400` callback sets
+the retry latch; a temporary four-descriptor dequeue failure retains it and
+skips address publication and `10`. There is no stop command in that path.
+The [paired lifecycle](../devices/pairs/pixels.md#work-completion-and-cancellation)
+now interprets unchanged addresses as a cyclic ring, retaining fresh RAW,
+pending-result ACK, whole-batch preflight and downstream capacity fences.
+Selected address writes instead start a complete front/back publication
+barrier requiring an explicit commit. Neither IRQ causes nor slot ownership
+are fabricated to keep the loop moving.
+
+This cyclic interpretation and its watermark cadence remain finite functional
+hypotheses. So do the new [interpolated denoise](../devices/pairs/noise.md)
+field roles and arithmetic. The complete seven-word packet is validated and
+actually affects pixels; it is not a whitelist of AUTO/M values or a zero
+bypass. Direct M startup now passes this packet and reaches a separate opaque
+parameter boundary at paired offset `744` (`40040600`). The complete
+[57-field producer family](../devices/pairs/filter.md#next-interpolated-packet)
+is identified, but its numerical role still requires a finite model before M
+processing can be accepted. Original
+dial counts reach MAS through the original EX transport (aggregates 14/13 in
+the separate stopped M snapshot), but complete detent delivery and
+shutter/aperture control remain unverified. The snapshot has a ready lens,
+permission word 7 and a disabled aperture policy cache. A changed mode label or
+transport count alone is insufficient. No optical exposure equation is
+implemented.
+
+The [curated receipt](/evidence/livecycle/capture.json) separates the native
+red→green cycle, 59 scoped native subtests, original baseline, cyclic-only run,
+integrated scene-update runs and post-window diagnostic limits. The exact
+same original acquisition, numerical graph, output DMA, display submission and
+scanout consumers carry the changed scene. These 120 seconds establish
+bounded continued refresh; indefinite stability, still capture, recording,
+saving and physical image fidelity remain open.
+
+## Previous: actual MAIN pixels in the original GUI
+
+The original AUTO photo GUI now displays the computed CMOS scene behind its
+own widgets. The complete path is RAW → paired MAIN → owned type0 slot8 →
+type5/resource35 → type9/resource45 → type11/resource62 → three affine
+branches and output DMAs → the original display queue → bank1 unit0 → scanout.
+The [continuous graph](../devices/gate/processing.md) retires input only after
+all three actual output DMAs. Original terminal and whole-frame callbacks
+carry the results through the guest's normal consumers; no additional event,
+forced slot release or guest-memory edit is used.
+
+![Original GUI with actual modeled MAIN scene](/evidence/continuous/scanout.png)
+
+With unchanged C1.70 firmware, cold-neutral regions, explicit quadrant PGM
+scene and paired calibration, healthy UART battery peer, virtual lens, held F4,
+blank8 GiB slot0 card and five-CPU MTTCG, the45-second window is running at all
+three samples. Head1 is not bound at15 seconds; at30 and45 seconds it displays
+the original1024×682 GUI over the actual quadrant scene. Paired and continuous
+processing both complete4 frames, with zero rejections/errors; paired writes
+7,558,224 bytes. The count remains4 between30 and45 seconds. This establishes
+the first real MAIN-to-GUI connection, not sustained live view, shutter capture,
+recording or saving. The final minimal snapshot does not sample GUI readiness
+or panic globals. Head0 remains unbound.
+
+Earlier windows completed4 or8 real continuous frames but showed a black
+central scene. Post-window source-state observations established that channel0
+was enabled, all display submission gates passed, and real phase-selected Y/UV
+PAs reached unit0. The old bank renderer consumed only the two overlay ports
+and objects. The [primary scanout model](../devices/banks/image.md#primary-yuv-view)
+now consumes the separate Y/UV provider before composing those overlays.
+The old [GUI capture](/evidence/continuous/display.png) and the diagnostic
+[LCD DMA decode](/evidence/continuous/scene.png) remain separate evidence.
+Neither image is substituted into the guest's GUI.
+
+Source facts establish packets, grid and affine packing, memory extents,
+terminal routes, display PAs, geometry and programmed coefficients. The zero
+type5 table's identity interpretation, interpolation, chroma convention,
+phase association, nominal work latency, matrix normalization/rounding,
+selector0/1 behavior, neutral constant64 curve and layer priority remain
+explicit finite hypotheses. Both internal curve banks are qualified; changed
+points, table-update requests and other unsupported color controls reject
+without replacing the last surface or publishing completion. False color
+reflects the finite monochrome/color model, not camera color calibration.
+
+A separate instrumented original run confirms raw1 bits0/5/6 reaching the
+terminal callbacks and tag42193082, and raw2 bit3 reaching whole-frame
+tag42193081. The original consumer at MAS VA10269d36 normally subtracts
+consumed counts. A later zero count does not justify another event. Initial
+input retirement, output computation and display publication are now connected;
+the next acquisition question is why the normal request/refill chain does not
+yet sustain processing beyond its initial phase batches.
+
+The [mechanical input](../devices/gpio/input.md) supplies the eight-position
+mode ADC and both quadrature dials; the [lens](../devices/lens/protocol.md)
+models finite iris travel and current/busy reporting. An original AUTO-started
+session switches through P/S/A/M and custom positions using normal inputs.
+Direct M startup selects an unresolved660..678 numerical noise-reduction
+tuple (660=15 versus23 in the admitted AUTO photo profile) and stops at the
+strict paired boundary. A mode label is not exposure-control acceptance.
+Original dial delivery remains inconsistent across observations; host inputs
+do not write shutter/aperture settings. Optical exposure of the scene is also
+a separate unimplemented acquisition boundary.
+
+The scoped native checks pass66 subtests:10 grid arithmetic,8 complete graph
+and lifecycle,6 input,18 lens,1 exact-pool memory,4 typed-stream,1 SLA gate,
+and18 bank-image checks including3 new primary fixtures. The
+[curated receipt](/evidence/continuous/capture.json) distinguishes native
+fixtures, original windows, instrumented diagnostics and remaining boundaries.
+Firmware bytes, guest callbacks, software slots and GUI pixels are unchanged.
+
+## Previous: photo MAIN input delivery and continuous graph boundary
+
+The [capture-mode model](../devices/pairs/modes.md) now decodes chunked photo
+`88=2` scheduling and independent WORK disable without treating `9c` as RAW
+height. The [adaptive filter](../devices/pairs/filter.md) executes the complete
+changing `594/598..5dc/608` packet under bounded monochrome equations. Packing
+and upstream interpolation are source-established; filter precision, arithmetic,
+stage order and color units remain explicit functional hypotheses. All other
+opaque words still match a separately selected complete photo or movie tuple.
+
+Photo MAIN is not an ordinary RAM frame at `40000000`: its two 32 KiB ports
+feed the matched local type 0 slot 8, whose geometry and imported type 5 predecessor
+join are established. The [typed transport](../devices/gate/input.md) stores the
+actual computed NV12 frame with generation validation, cancellation and
+single-frame backpressure. It does not execute the downstream graph or generate
+its completion. This storage capacity is a finite functional boundary, not a
+recovered physical FIFO depth.
+
+With unchanged C1.70 firmware, cold-neutral regions, fixed virtual lens, normal
+quadrant CMOS input, healthy UART battery peer, held F4, blank 8 GiB card and
+five-CPU MTTCG, photo now binds the original 1024×682 status GUI. In the extended
+observation, four 15-second waits plus sampling/export overhead take about 70 host
+seconds; every QMP sample is running. Paired completes one real 1376×914 frame,
+writes 1,889,556 bytes including the grid, and has zero rejection or cancellation.
+The queued tight NV12 input is 1,886,496 bytes. No panic is present, head0 remains
+unbound, readiness stays zero, and the central scene is still black. A later
+30-second-wait run confirms the same pixels and status GUI after the finite
+queued-input busy-query change; its post-window debugger limitation is recorded
+separately in the [capture receipt](/evidence/paired/capture.json).
+
+![Original photo status GUI; central scene remains black](/evidence/paired/photo.png)
+
+[Actual queued MAIN pixels](/evidence/paired/input.png) are a diagnostic RGB
+decode of the device's real NV12 result, not a GUI background or calibrated
+color image. The original continuous worker has already enabled its input:
+a separate sequential read records `20102100=121` and `20102608=1`. It uses the
+continuous start path, so per-command active fields being zero do not mean an
+unstarted graph. Photo deliberately skips its first `1000` notification through
+`b18648f4`; timeout fallthrough can explain the negative software counts.
+Neither observation justifies another event, FIFO expansion or frame overwrite.
+The next photo dependency is actual pixel consumption and result publication by
+the enabled continuous graph, which currently leaves the input owned and applies
+backpressure to subsequent paired work.
+
+The separate movie run crosses the former `598` change, completing 76 jobs and
+202,263,360 bytes, then stops at CPU1 MAS VA `1036a4a2`, WRITE32 PA `20380010=1`.
+The independent `660..678` packet changes `660:20→18`. Its complete producer,
+packing and interpolated scalar family are now identified; its numerical
+operator remains unmodeled. It is not accepted as an enum or folded into the
+new adaptive filter. This run is running at its first two samples and debug-
+stopped at the last two, not a stable 60-second movie session.
+
+The scoped native batches pass 45 subtests: 13 arithmetic, 24 paired envelope and
+RAM-output, 3 dynamic-filter, 4 typed-stream and 1 existing gate fixture. These
+fixtures, unchanged-firmware observations and remaining normal-live-view gap
+are separate claims. No firmware bytes, guest callbacks, cache flags or display
+pixels are patched; photo capture, recording and file saving are not accepted.
+
+## Previous: original photo/movie selection through the maintained input
+
+The [capture selector](../devices/gpio/input.md#maintained-photomovie-selector)
+now drives EX I2C expander `0x22` pad0 through the normal input frontend.
+A new frontend starts in photo; F13 toggles the maintained contact once per
+press. Keyboard repeat, release and board reset do not toggle it. The former
+static low publication is removed. Original EX filtering, transport, MAS
+settings and capture policy remain responsible for the transition.
+
+The source join reaches typed settings3/4 and the conditional5772 policy
+handler. With unchanged firmware, cold-neutral inputs and the fixed lens, the
+default high input produces scalar0, property5772=0 and `100` / `LvStill`.
+The [shared route model](../devices/gate/routing.md#shared-route-application-request)
+now captures the original staged configuration at its application request,
+without a processing completion or event. The former photo stop at PA
+`20102680=1` is crossed: one request applies route1=0 and route2=`141`.
+In the updated60-host-second photo window, QMP is running at15 seconds and
+debug-stopped by30. The new stop is CPU1 MAS VA `10369fc0`, WRITE32 PA
+`20380008=1`, where the paired profile rejects bank offset `88=2`. Lens
+exchanges complete583 times with zero rejection. No panic, paired completion
+or display binding occurs before this photo-specific processing boundary.
+This establishes photo-policy selection and route submission, not accepted
+photo live view or shutter capture.
+
+A separate15-host-second run presses and releases F13 through ordinary QMP
+keyboard input before initial EX sampling. It produces scalar1, property5772=1
+and `800` / `LvMovie`; QMP is running, 313 lens packets complete with zero
+rejection and no panic is present. This bounded window has no bound console
+yet. Both profiles retain application main_mode1, independently confirming
+that it is not the photo/movie enum. Two native input subtests pass, including
+reset, repeat, release and unregister coverage. The
+[selector receipt](/evidence/input/selector.json) separates native tests,
+diagnostic probes and the initial input observations. The
+[route receipt](/evidence/gate/route.json) records the later photo continuation
+and the focused native staging/application/reset/IRQ-preservation checks.
+
+## Previous: fixed-lens status GUI and dynamic paired-parameter boundary
+
+The [ordered vector model](../devices/transfer/vector.md) executes the complete
+mixed SRC clear / SRC_OVER fill-and-stroke family, including relative QUAD and
+full or inherited state. All 28 native transfer subtests pass, including 19
+mixed-batch variants. The whole batch is validated and rendered privately
+before committing; no guest completion, status or display pixels are patched.
+
+With the corrected fixed-lens operating profile, unchanged C1.70 firmware now
+binds the original 1024×682 GUI without the former request to extend the lens.
+The scene background remains black. In the 60-host-second cold-neutral window,
+QMP is running at 15/30 seconds and debug-stopped by 45 seconds; paired work
+advances through 0/36/76/76 jobs, writing 202,263,360 bytes. Lens exchanges
+complete 843 times with zero rejection. Head0 remains unbound, GUI readiness is
+zero and no panic dump is present. This is status-GUI progress, not normal
+live-view acceptance or 60 seconds of continued execution.
+
+![Original GUI without the lens-extension warning](/evidence/transfer/gui.png)
+
+The strict stop is CPU1 MAS VA `1036a4a2`, WRITE32 PA `20380010=1`, where the
+paired field at bank offset `598` changes from selected `1a6a1a6a` to
+`17c717c7`. Its dynamic numerical processing remains the next image boundary;
+the model does not silently ignore it or add another static tuple.
+
+The source-named capture family is `800` / `LvMovie`, not `400` / `LvMovieRec`.
+A separate read-only hardware-breakpoint diagnostic at MAS VA `102324cc`
+captures config bytes0/24/263 as 0/1/0 and argument2 as zero: this secondary
+selection explains the movie-live-view family. Property5772 and its cache both
+hold1. The external selector's producer was unresolved at that checkpoint; the
+maintained-input join above supersedes that limitation. Neither the lens's50
+selector nor application main_mode is the photo/movie enum.
+The [curated receipt](/evidence/transfer/vector.json) separates native, original
+and diagnostic evidence, explicit inputs and remaining limitations.
+
+## Previous: coherent fixed-lens operating and mode-query state
+
+The [whole fixed-lens protocol](../devices/lens/protocol.md) now separates
+stationary optical availability, configuration pending/commit, streaming and
+mode-request processing. The original getter decoded the former zero at status
+byte216 to logical1, making `40000500` unavailable for capture/live-view
+admission. The fixed nonretracting optics now publish logical3. This is a
+declared device input, not a guest eligibility or display-cache write.
+
+The audit also adds the complete50/51 request/query group: three source-produced
+selectors, whole-packet validation, independent2 ms processing and actual
+pending status. It retains required normal capability bits, correct optical
+coordinates and valid stationary history. Five additional biased coordinates
+have unresolved physical semantics and remain explicitly qualified virtual
+inputs; they are not blindly set to the iris value.
+
+In the unchanged15-host-second cold-neutral run with F4 held, the original
+capture policy at MAS VA `b2951140` is `800`, and its source-named label is
+`LvMovie`. It is movie live view, not the `400` movie-recording family. The
+optical state cache reaches3 with no lens rejection. Execution reaches a new
+744/920-byte mixed graphics program: two SRC rectangle clears followed by
+SRC_OVER fill and stroke of one rounded rectangle. CPU0 VA `106ee3c6`, WRITE32
+PA `201810e0=1`, rejects this unsupported ordered batch. Both display heads
+are unbound and paired work is0 at this earlier graphics stop; no panic is
+present. The historical bound status GUI below belongs to the former
+unavailable-optics input, not the corrected profile.
+
+With F4 released, a separate60-host-second run stays running in application
+mode5, completes22 lens packets without rejection, processes one50 request
+and two51 queries, commits selector2 once and stops history through the
+original16 command. Configuration remains committed. Head1 binds a status
+console and capture family is0. This is a different idle application branch,
+not proof of a photo-mode transition. The actual photo/movie selector is
+upstream of capture configuration bytes0/24/263 and remains under investigation.
+
+The [operating receipt](/evidence/lens/operating.json) separates15 native
+subtests, old-model failures, these original runs and the remaining boundaries.
+Neither normal live view nor photo/movie capture is yet accepted.
+
+## Previous: dynamic paired color and a bound status GUI
+
+The [paired pixel operator](../devices/pairs/pixels.md#four-lane-color-correction)
+now executes the complete four-lane gain/offset/pedestal/bound packet at
+`708..720`. Original producers establish Q9 gain arithmetic, negative black
+offsets, interpolated pedestal values and the shared bound. Offset order,
+direct RAW12 units and lane-to-RGB mapping remain explicit monochrome functional
+hypotheses. Mode controls and the rest of `700..778` retain strict validation.
+No guest completion, ready flag or framebuffer is patched.
+
+The unchanged cold-neutral run uses the same fixed virtual lens, healthy UART
+battery peer, held F4, five-CPU MTTCG and selected blank 8 GiB card. The complete
+virtual tuple has zero slots for the newly interpreted packet. At 15/30/45/60
+host seconds, paired completion advances through 0/48/76/76 jobs. These write
+202,263,360 actual bytes, with zero cancellations. QMP runs through the 30-second
+sample, then debug-stops by45 seconds; this is not 60 seconds of stability.
+
+Head1 now binds the original 1024×682 status GUI. Its message says “Before
+taking photos, rotate the zoom ring to extend the lens,” exposing a remaining
+virtual-lens state mismatch. Head0 stays unbound and GUI readiness remains zero.
+Actual paired main outputs are 1372×770 NV12 at PA `dec7fc00/e0702600`, stride
+1376. The diagnostic RGB preview below reads those DMA bytes: four grayscale
+input levels produce tinted quadrants under the finite color model. It is an
+intermediate image, not the background of the bound GUI or calibrated imagery.
+
+![Original status GUI](/evidence/paired/gui.png)
+
+![Intermediate paired DMA pixels](/evidence/paired/pixels.png)
+
+The next strict stop is CPU1 VA PC `1036a4a2`, WRITE32 PA `20380010=1`:
+bank offset `598` changes from selected `1a6a1a6a` to `17c717c7`. That group
+still requires producer and numerical interpretation; the model does not ignore
+it or replace the tuple to hide the change. The lens completes826 packets,
+rejects zero and supplies25,023 complete history records; configuration commits
+once. The card receives one512-byte read with no failed I/O; no panic dump is
+present. Existing EX external-line warnings remain.
+
+The [affine receipt](/evidence/paired/affine.json) separates 33 native subtests,
+red/green history evidence, this bounded original execution and preview decoding.
+The next work is the dynamic `598` family and the normal producer of the lens
+extension state. Normal live view and a 3D application bridge remain unaccepted.
+
+## Previous: virtual lens initialization and dynamic paired parameters
+
+The explicit [virtual lens](../devices/lens/protocol.md) completes ordinary
+identification, optical/configuration/calibration exchange, zero-travel aperture
+control and receiver-bound history through the original SPI/GPIO/DMA path.
+Its fixed 50 mm F2.8 iris, neutral calibration and timing are declared functional
+inputs. The [SPI clocks](../devices/spi/protocol.md#source-selected-input-clocks)
+follow the recovered MAS selectors; [HDMAC demands](../devices/hdmac/protocol.md#peripheral-demand-and-delayed-dispatch)
+service real FIFO opportunities without accumulating host callback delay.
+
+In the unchanged 60-host-second cold-neutral run with selected 8 GiB card,
+healthy UART battery peer, held F4 and five-CPU MTTCG, lens configuration commits
+once. It completes 535 packets, rejects zero, and clocks 14,389 complete history
+records into the actual receiver. Two A0 and one A3 zero-travel aperture
+requests complete. The complete paired calibration input matches the
+guest-produced fixed-lens tuple, preserving the existing exact-comparison
+boundary; this is a different declared input from the earlier absent endpoint.
+
+Eight paired jobs write 21,290,880 bytes before CPU1 VA PC `1036a4a2`, WRITE32
+PA `20380010=1`, rejects the dynamic field at bank offset `70c`: input
+`020002f8`, guest `020002f9`. It belongs to the complete config[13] parameter
+span `700..778`, whose control words are `101/0`. Its arithmetic is not
+implemented, so another static tuple or an ignored-field admission is
+insufficient. The next numerical evidence is the record+24 producer, control
+semantics and an independently checked finite pixel operator.
+
+QMP is running at 15 seconds and debug-stopped by 30; the 60-second observation
+does not establish 60 seconds of continued execution. Both display heads are
+unbound and GUI readiness remains zero at this stop. The card receives one
+512-byte read with no failed I/O; no panic dump is present. Existing EX line
+warnings remain. The [lens receipt](/evidence/lens/session.json) separates 48
+native subtests, failed development trials, intermediate profiles and this
+original execution. A 3D application bridge, variable optics, normal live view
+and physical-camera fidelity remain outside the accepted result.
+
+## Previous: selected media access and continuing paired pixels
+
+The [paired operator](../devices/pairs/pixels.md) now handles the complete
+cycle-selected noise packet with mathematically validated primitive feedback,
+and both source-selected RAW/main/grid address groups. Work histories remain
+shared as the inspected producer requires. Seed, numerical scales, selected
+group interpretation and event cadence remain explicit functional assumptions;
+no firmware, callback or requested completion is patched.
+
+The [GPIO audit](../devices/gpio/input.md#whole-source-family-audit) covers all
+232 descriptors and 31 direct read sites. It preserves dynamic EX/CComp/SLA
+providers and supplies source-backed absence for SD P5.14. The
+[storage contract](../devices/storage/protocol.md) adds explicit `slot0-drive`,
+separates insertion from training, separates actual level status from event
+capture, and joins all twelve PCI wrappers to a finite root transaction-error
+latch. It preserves native NVMe/block operations and actual bus errors.
+
+In the latest unchanged 60-host-second cold-neutral run, an explicitly selected
+8 GiB blank raw card receives one original 512-byte read, zero writes/flushes
+and zero failed I/O. The linked host reaches PHY state `11`, insertion `404`
+and root errors `0`; no fatal exception dump is present. Paired jobs advance
+through 0/52/100/108 at 15/30/45/60 seconds, writing 287,426,880 bytes and adding
+114,095,520 main pixels. Paired rejection/cancellation remain zero. QMP stays
+running with no strict uncovered/unsupported transaction; existing EX external
+line warnings are not relabeled as warning-free execution.
+
+Head1 binds a 1024×682 status GUI with an absent/non-CPU-lens notice; the former
+SD warning is gone. Head0 remains unbound and GUI readiness is zero. All graph
+ports are inactive at the snapshot, so the next image evidence is the original
+graph submission/GUI-admission branch, not an assumed missing completion.
+The empty-slot profile separately holds at a four-read pause after 12 jobs
+despite fresh RAW; continuation-kick liveness is not established for every
+input profile. A prior 120-second window reaches 132 jobs, but predates the
+signal correction and is retained with that qualification.
+
+The [noise receipt](/evidence/imagerequest/noise.json) records 54 CMOS and 10
+numerical tests. The [storage receipt](/evidence/storage/presence.json) records
+10 storage, 23 SLA and six GPIO tests, old-model failures and the original
+execution profiles. These focused results establish neither original format/
+file-save nor stable normal live view or physical-camera accuracy. Sector image
+storage is primary; a host folder is an offline import/export boundary.
+
+## Previous: real RAW processing and the correction-record boundary
+
+The [paired pixel operator](../devices/pairs/pixels.md) connects completed RAW
+DMA to selected-phase main and work outputs, reads a separately completed grid
+when enabled, then publishes results
+through the existing IRQ/W1C/firmware callback route. Its explicit monochrome
+profile executes defect/spatial/temporal filtering, guest A/C/B matrices,
+three-channel gains and two published gain curves. Numerical formats, filters,
+rounding and retained-ring continuation are bounded functional choices.
+Opaque calibration parameters still require an explicit matching input tuple.
+
+The capture producer now accepts independent, nonexpanding integer RAW geometry.
+Original source supplies unit2 output 1380×1556 followed by RAW 1380×778; the old
+model's equality check rejected this normal mode. No descriptor is supplied
+until the actual packed RAW rows have been written. A new source epoch cannot
+reuse old history, and each processed phase requires a fresh completed RAW
+generation. Unchanged retained rings can continue on an original `10` kick;
+partial four-address updates cannot.
+
+With unchanged firmware, cold-neutral inputs and the declared paired profile,
+four actual phases now write 10,645,440 payload bytes. The cumulative main-pixel
+result is 4,225,760. Main Y, half-resolution work and packed grid RAM contain
+computed data; this is distinct from the earlier admission-only milestone.
+The [pixel receipt](/evidence/imagerequest/pixels.json) separates native fixtures,
+intermediate running observations and the final original execution.
+
+The next boundary is the complete 40-byte correction record submitted through
+MAS VA `102e563a` and `1036c862`, at bank-relative offsets `df4..e10`.
+Its three raw32-bit operands change when the original software continues past
+the first four phases. Their arithmetic has not been recovered. The model
+rejects this changed opaque tuple instead of adding another constant whitelist
+or returning completion without executing it. Normal live view and continuous
+startup remain unverified. In the final nominal 60-host-second window, this
+rejection stops QMP in `debug`: CPU1 VA PC `1036a4a2`, WRITE32 PA
+`20380010=1`, with offending retained offset `df8=f8040000`. Both heads are
+unbound and both image-information records remain zero at that earlier stop;
+the historical status-GUI output below is not reproduced by this stricter
+continuation. No firmware byte, guest callback or completion is patched.
+
+## Previous: running with GUI status output; paired pixels still pending
+
+The [complete kind57 arena](../runtime/storage.md#kind57-gui-arena) replaces
+four allocation fragments with the exact source-declared
+PA `[bec5f200,c24cb400)` owner. It includes both missing large partitions and
+the owned `100`-byte tail, ending at the independent kind74 pool. Original ROM
+and all six runtime pointer cells agree. No firmware allocation metadata,
+pixels, callback or completion is supplied by this RAM correction.
+
+The [arena receipt](/evidence/imagerequest/guipool.json) records a focused old-model
+red,36 memory/4 fill subtests passing and the scoped GUI record7 regression.
+In the unchanged60-host-second region/cold-neutral continuation, QMP stays
+running with zero uncovered accesses. The previously failing clear at PA
+`bff44340`, length `7e0`, performs real DMA with result0/status1. Head1 displays
+1024×682 status widgets, the thin border and a memory-card error overlay;
+head0 is unbound. Both1124-byte information records are equal and populated
+(173 nonzero bytes each), while GUI readiness remains zero.
+
+The remaining boundary is actual image processing, rather than another
+observed unsupported transaction: imports/captures remain18 packets/649 words
+and9 parameter captures. At the snapshot all graph nodes are inactive, paired
+bank0 awaits input with no raw pending and bank1 is quiescent. The
+[finite operator design](../devices/pairs/requests.md#numerical-interpretation-and-physical-limits)
+joins completed RAW DMA generation, one shared ring phase, real matrix
+coefficients and main/reference/grid consumers. Their actual arithmetic,
+output layout and result publication must be implemented together.
+
+This window completes128 main acquisitions and1714 statistics jobs, with no
+rejection, one main cancellation and no statistics cancellation. It establishes
+continued modeled execution and GUI status output under declared inputs;
+normal live view, long-duration stability and physical-camera fidelity remain
+unverified. No in-window GDB pause or forced event occurs. Sequential QMP and
+read-only GDB observations are not atomic snapshots or physical rates.
+
+## Previous: GUI storage after source-produced row fill
+
+The [two-engine byte-row contract](../devices/fill/protocol.md#source-produced-byte-rows)
+corrects pitch/active-width register names and replaces target/size whitelists
+with the complete source-produced zero operation. Four selected-domain fill
+subtests and four scoped startup/GUI cases pass; the
+[row receipt](/evidence/imagerequest/fill.json) qualifies unsuccessful broader
+and repeated-filter test invocations separately.
+
+Unchanged60-host-second region/cold-neutral execution now performs the request
+at PA `bff44340`, reporting a real bus error rather than successful completion.
+It later reaches CPU1 VA PC `1051e322`, WRITE8 PA `bff43ac2=80`,
+`uncovered-address`. The next boundary is the complete owner of these GUI
+addresses, not another zero-fill tuple. Imports/captures remain18/649/9; this
+window has128 main acquisitions and517 statistics jobs, no rejection, one main
+cancellation and no statistics cancellation. Head1 screendump succeeds and the
+two information records are populated; GUI readiness stays zero. Normal live
+view and actual paired processing remain unverified.
+
+## Previous: ordinary row fill after initialized path graphics
+
+The [initialized indirect-path family](../devices/transfer/prefix.md#initialized-indirect-path-batches)
+recognizes complete global state before the existing1..256-record path parser.
+It removes a LUT/converter dispatch collision without a new size whitelist.
+The [graphics receipt](/evidence/imagerequest/graphics.json) records an old-model
+red and all26 transfer subtests passing, including independent output pixels,
+context/cancellation and a1736-byte converter-length collision.
+
+Unchanged60-host-second region/cold-neutral execution crosses the664/1032-byte
+rejection and reaches CPU1 VA PC `102dbba2`, WRITE32 PA `20070010=1`,
+`fill-request-profile-not-supported`. The new request is an ordinary zero fill:
+48 bytes per row,42 rows, PA `[bff44340,bff44b20)`. Source must establish the
+whole row operation rather than add another framebuffer address.
+
+This window has18 imports/649 words and nine parameter captures. At the snapshot
+no graph node is active and paired bank0 awaits input. Main acquisitions reach129
+and statistics539, with no rejection/cancellation. Head1 screendump succeeds, head0 is
+unbound; the two image-information records are populated and equal, while GUI
+readiness remains zero. This is graphics continuation under declared virtual
+inputs, not a completed live-view or paired-operator result.
+
+## Previous: graphics initialization after paired admission
+
+The [stream-request contract](../devices/pairs/requests.md) admits both paired
+banks and all42 configured graph ports without generating completion. It backs
+the complete active kind25/26/31 pools and corrects type0 parameter capture:
+publication installs an actual thirteen-word snapshot, while later complete
+quiescent reloads may replace it. The old permanent busy-on-publication
+hypothesis is falsified by normal configuration-only reconfiguration.
+Active-use queries/publication remain errors until real ownership is modeled.
+
+The [request receipt](/evidence/imagerequest/requests.json) records four focused
+old-model regressions and35 memory/23 SLA subtests passing. With unchanged
+firmware and the same60-host-second region/cold-neutral profile, imports remain
+18 packets/649 words, but parameter captures reach9 with valid mask `13e`.
+Paired bank0 is awaiting input, bank1 quiescent; all graph nodes are inactive at
+the snapshot.
+This crosses paired start and the slot3/4/5 reloads without inventing pixels,
+raw events or guest callbacks.
+
+The first uncovered transaction becomes CPU0 VA PC `106ee3c6`, WRITE32 PA
+`201810e0=1`, reporting `transfer-stream-truncated`. Separate diagnostics capture
+complete664/1032-byte streams containing four indirect filled paths with a
+global initialization prefix. The error comes from family dispatch/validation,
+not proof of missing command bytes. Its finite graphics grammar is the next
+boundary; actual paired input processing remains independently unfinished.
+
+The request checkpoint completes128 main acquisitions and507 statistics jobs,
+with no rejections, one main cancellation and no statistics cancellation.
+GUI readiness remains zero; both1124-byte image-information records are equal
+and populated (173 nonzero bytes, leading word1). Head1 binds a1024×682 console with
+status widgets and a memory-card error overlay; head0 is unbound. Later
+diagnostic-only runs do not reproduce that binding, so stable first-enable
+timing remains open. There is no in-window GDB pause. Sequential QMP/read-only GDB observations are not
+atomic snapshots or physical rates. Normal GUI startup and frame retirement
+remain unverified.
+
+## Previous: paired-processing start at PA `20380010`
+
+The [paired-table contract](../devices/pairs/tables.md) now retains the whole
+source-selected family:22 tables of64 bytes and14 of68 bytes,590 words per
+bank in `[1400,1d38)`. Both banks use the existing configuration/reset rules,
+with no added DMA, result, ready flag or event. Unknown widths, neighboring
+holes and unmodeled start/result semantics remain explicit errors.
+
+The [table receipt](/evidence/imagerequest/tables.json) records native red→green
+and23 passing SLA subtests. In the unchanged60-host-second region/cold-neutral
+continuation, bank0 has499 nonzero words in the full table extent and bank1
+stays zero. Graph imports remain18 packets/649 words; slots1/2/3/4/5/8 stay busy.
+
+The first uncovered transaction becomes CPU1 PC `10369fb4`, WRITE32 PA
+`20380010=1`. Original helper `10369faa` starts this paired operation with
+bank+`10=1` then+`08=1`, separately from configuration. The next capability is
+the actual input/operation/output and completion/cancellation contract, not
+another table value. The graph's independently known reverse-start sequence
+and terminal mask `c2` remain later, unexecuted requirements.
+
+The run completes128 main acquisitions and463 statistics jobs, with zero
+rejections/statistics cancellations and one main cancellation. Property6433,
+GUI readiness/information remain zero; neither head has a console. No in-window
+GDB pause occurs; sequential QMP/read-only GDB reads are not atomic or physical
+rates. Normal GUI and a completed processing-slot cycle remain unverified.
+
+## Previous: paired-bank table publication at PA `20381400`
+
+The [complete type-family contract](../devices/gate/family.md) establishes19
+graph types and76 resources:15 processing types across42 command ports. It
+adds the remaining type13/14/16/18 streams and type18 workspace provisioning
+as a group. Type14's24-byte single-block form is a strict functional hypothesis,
+not a recovered original template. No actual pixel operator, completion or
+slot retirement follows from the expanded configuration coverage.
+
+The [family receipt](/evidence/imagerequest/family.json) records28 passing
+native decoder/SLA subtests and the unchanged60-host-second region/cold-neutral
+continuation. Original CPU workspace initialization sets the finite coverage
+flag `148=100`; type18 imports84 bytes. Totals become18 packets/649 words,
+and original code submits output slots3/4/5. Slots1/2/3/4/5/8 remain busy.
+Types13/14/16 remain unconfigured in this original window.
+
+The first uncovered transaction becomes CPU1 PC `1036ca8a`, WRITE32 PA
+`20381400=00f600fa`, a paired-bank table publication before processing start.
+The next boundary is that whole source-selected table family. Independently,
+reverse-start is known to begin with type18/resource34 at `20100920=1`; its
+input comes from type10/resource49. The graph's terminal wait mask is `c2`
+for resources49/54/55. Data, result and ownership conditions remain open.
+
+The run completes128 main acquisitions and453 statistics jobs, with no
+rejections/statistics cancellations and one main cancellation. Property6433,
+GUI readiness/information remain zero; neither head has a console. No GDB
+pause occurs inside the window; later sequential reads are not atomic or
+physical rates. Normal GUI and a completed processing-slot cycle remain unverified.
+
+## Previous: type18/resource34 initialization at PA `201002c0`
+
+The [linked type8/type9 streams](../devices/gate/linked.md) add all eight
+source-selected ports, their128/136-byte layouts and strict reset/RAM-DMA/atomic
+import. Type9's source ancestor8 is distinct from its type5 input stream4;
+its downstream routes and borrowed kind74 interpolation reference are located.
+Pixel/table equations and complete input/output DMA association remain open.
+No identity transform, automatic completion or slot release is inferred.
+
+The [linked receipt](/evidence/imagerequest/linked.json) records27 passing
+native decoder/SLA subtests, including all37 ports and64-bit configured-mask
+reset isolation. In the unchanged60-host-second region/cold-neutral run,
+imports rise to17 packets/628 words. Type9/resource45, type8 resources41..43
+and subsequent supported nodes cross configuration. Slots1/2/8 remain busy;
+no actual processing activation is reached.
+
+The first uncovered transaction becomes CPU1 PC `103bddd2`, WRITE32 PA
+`201002c0=1`, in callback `103bdd8c` for type18/resource34, backend `20100920`.
+It clears SYS41..44, tests `20100148.bit8` and conditionally writes this
+control before CPU initialization of the4096-byte workspace and common
+reset/import. The next boundary is that complete initialization/command
+contract, with graph processing and its terminal result still pending.
+
+The run completes128 main acquisitions and529 statistics jobs, with zero
+rejections/statistics cancellations and two main cancellations. Error
+property6433, GUI readiness and both information records remain zero; neither
+head has a console. No debugger pause occurs inside the window; sequential
+QMP/read-only GDB observations are not atomic or physical rates. Normal GUI
+publication and processing-slot reuse remain unverified.
+
+## Previous: downstream type9 command reset at PA `20100914`
+
+The [type5/type6 stream contract](../devices/gate/fanout.md) separates the
+356-byte register prefix from the396-byte software allocation's CPU-consumed
+trailer. Both source-selected ports use the shared strict reset/RAM-DMA/atomic
+import lifecycle. Their original upstream/resource routing and trailer stores
+are located; physical pixel/table equations and the complete input/output DMA
+association remain unresolved. No identity transform, black frame, successful
+processor activation, completion event or automatic slot release is inferred.
+
+The [stream receipt](/evidence/imagerequest/fanout.json) records native red→green
+with26 passing decoder/SLA subtests. In the same unchanged60-host-second
+region/cold-neutral run, original type5/resource35 imports89 words, increasing
+the total to9 packets/358 words. Its pointer is retained, reset deasserted,
+and slots1/2/8 remain busy. Type6 is covered by the shared source/native contract
+but remains unconfigured in this original window.
+
+The active eighteen-node graph begins `0/8 ->5/35 ->9/45`. The first uncovered
+transaction becomes CPU1 PC `103bdedc`, WRITE32 PA `20100914=1`, the downstream
+type9/resource45 reset at backend `20100900`. Original execution has not yet
+finished configuring this graph or reached processing activation. The next
+boundary is that unit's complete stream/data contract.
+
+The run completes128 main acquisitions and542 statistics jobs, with zero
+rejections/statistics cancellations and one main cancellation. Error
+property6433 and both GUI information records stay zero; neither head has a
+console. No debugger pause occurs inside the window; QMP then read-only GDB
+observations are sequential, not atomic or physical rates. Normal GUI
+publication and processing-slot reuse remain unverified.
+
+## Previous: type5 processing command reset at PA `20100e74`
+
+The [paired-bank packet contract](../devices/pairs/parameters.md) now retains
+the complete eight-field group containing PA `203800a8` in both banks. MAS and
+SLA setters agree on the entire field mapping. The added byte2 member follows
+the existing full-word configuration convention; adjacent holes and unmodeled
+requests/results remain errors. There is no configuration-triggered processing,
+event, busy retirement or inferred pixel arithmetic.
+
+All23 SLA subtests pass after a regression that failed the old `a8` read.
+The [packet receipt](/evidence/imagerequest/parameters.json) records the same
+unchanged60-host-second region/cold-neutral profile: bank0 retains all eight
+values, bank1 stays zero and both raw pending words remain zero. Original code
+now additionally submits slot8; slots1/2/8 remain busy. A separate bounded CPU
+trace identifies the original configuration-only `42190802` worker branch;
+this observation is distinct from the normal run's counts.
+
+The first uncovered transaction is CPU1 PC `103bdedc`, WRITE32 board PA
+`20100e74=1`. Original resource tables identify processing type5/resource35 at
+backend `20100e60`; callback `103bddea ->103bded0` requests its reset before
+payload import. This is a processing resource ID, distinct from NOR resource35
+used by the input profile. The next boundary is that whole unit's command and
+data contract, not a reason to release already submitted type0 slots.
+
+The normal run records128 main acquisitions,434 statistics jobs, no rejections
+and no statistics cancellations; main acquisition has two cancellations. The
+previous graph still has eight imported packets/269 words. Error property6433
+and both GUI information records remain zero. QMP is debug/stopped; neither
+display head has a console. There are no debugger pauses inside the window.
+Normal GUI publication and completed processing-slot reuse remain unverified.
+
+## Previous: paired-bank parameter packet at PA `203800a8`
+
+The [processing command contract](../devices/gate/commands.md) now imports
+the current graph's seven logical-register layouts across27 source-selected
+ports. It includes isolated reset/import, complete RAM-only DMA validation,
+type10 auxiliary words, eight paired endpoints and six CPU-populated LUT banks.
+The separate workspace initialization bit is an explicit functional hypothesis;
+it does not report processing completion. Actual processor activation remains
+an error, with no invented input dependency or automatic terminal event.
+
+The [command receipt](/evidence/imagerequest/commands.json) records25 passing
+native subtests and a fresh unchanged60-host-second region/cold-neutral run.
+Original code imports eight packets totaling269 words, populates its input
+buffer map and submits type0 slots1/2. Both slots remain busy. Original terminal
+callbacks and software release paths are located, but the real pixel operation,
+result DMA and hardware slot-retirement condition are still unmodeled.
+
+The first uncovered transaction is CPU1 PC `1036a2ee`, WRITE32 board PA
+`203800a8=4`, before processing activation. Original setter `1036a2ac` writes
+an eight-field parameter group selected by the object's bank byte; `a8`
+receives payload byte2. The shared paired-event device presently rejects that
+field. The next boundary is this complete parameter group and its consumer,
+not a justification to complete the already imported graph.
+
+The run completes128 main acquisitions and436 statistics jobs, with zero
+rejections and zero statistics cancellations. Error property6433 is empty,
+GUI readiness/information remain zero and neither display head has a console.
+QMP is debug/stopped. No debugger pauses occur in the observation window;
+sequential QMP and read-only GDB observations are not atomic. Separate failed
+observer/CPU-trace diagnostics remain qualified in the receipt. Normal GUI
+startup and a completed processing-slot reuse cycle remain unverified.
+
+## Previous: graph command-buffer reset at PA `20100814`
+
+The [type0 parameter-slot contract](../devices/gate/slots.md) now covers all
+sixteen source-declared slots: complete thirteen-word packets, selector2c,
+independent busy ownership and reset cancellation. A submitted slot remains
+busy; elapsed time, ordinary stop ACK and W1C cannot turn parameter admission
+into processing completion. Physical busy duration/encoding remains a model
+hypothesis. No data DMA, result, event, IRQ or guest callback is supplied for
+the unmodeled downstream processor.
+
+The [slot receipt](/evidence/imagerequest/slots.json) records native query
+red→green and23 passing SLA subtests. In the unchanged60-host-second
+region/cold-neutral continuation, the original allocator crosses PA `20102044`
+and original code submits slot1. Its complete packet is
+`{20121,15500,0,0,80,80,80,0,22003c,0,12000,24000,0}`; slot1 is busy and the
+other fifteen slots are idle. The eleven-node graph has a separate downstream
+result path; type0's resource descriptors have zero completion masks.
+
+The first uncovered transaction is CPU1 PC `103bdedc`, WRITE32 board PA
+`20100814=1`. Graph node1 is type4/resource37, with a decimal72-byte command
+payload at VA `b2bdb3a8`. Callback `103bdc72 ->103bded0` pulses backend+14
+before supplying its payload pointer at+10. Both input-enable nibbles and both
+retained input maps are still zero; parameter submission alone cannot justify
+data completion or slot retirement. The next work is this command-buffer
+consumer and its real processing/result/terminal-event join, rather than a
+timer that clears busy or fabricates a terminal event.
+
+The final observation records128 main acquisitions and448 statistics jobs,
+with zero statistics rejection/cancellation and an empty error property6433.
+QMP is debug/stopped, neither head has a console, GUI readiness/information
+remain zero, and one root is queued with pending `40001`. No debugger pauses
+occur inside the window. A separate failed read-only observer included a
+reserved input-group word; its E14 is retained as an observer failure, not a
+guest regression. The final snapshot uses sparse supported words. Normal GUI
+startup and a completed processing-slot reuse cycle remain unverified.
+
+## Previous: processing input availability at PA `20102044`
+
+The [processing scratch arenas](../runtime/storage.md#processing-scratch-arenas)
+back both source-declared allocator capacities: sixteen `80000`-byte blocks
+at PA `b0100000` and four `4b000`-byte blocks at `af8d4000`. Allocation,
+locking, busy arrays, returned descriptors and record construction remain
+original guest execution. No wider address class, guest object or processing
+completion is supplied by the host.
+
+The [scratch receipt](/evidence/imagerequest/arenas.json) records native
+red→green and72 passing memory/sensor cases. In the unchanged60-host-second
+region/cold-neutral continuation, the original allocator owns type1 descriptor
+`{b0100000,280000,0,5,1}`: five blocks are busy and the other eleven are free.
+Type2's busy array is zero; its scope is source/native validation, not observed
+runtime use. The run records128 main acquisitions and543 statistics jobs,
+with no statistics rejection/cancellation and an empty error list.
+
+The first uncovered transaction is CPU1 PC `103bd1da`, READ32 board PA
+`20102044`. Getter `103bd1d6` reads `20102040 +4*index`, here index1.
+Consumer `1038917c` consults this value for processing input type0 before
+claiming the resource: zero permits that candidate, nonzero tries other
+resources or enters the original wait. At that checkpoint the event-gate had
+no producer/qualification contract for this query bank. Its full input-slot
+mapping and busy lifecycle must be joined to actual submissions and releases;
+returning unconditional idle would bypass that ownership check.
+
+QMP is debug/stopped, neither head has a console, GUI readiness/information
+remain zero, and one root request is queued with pending `40001`. The next
+work was the complete processing input-slot lifecycle, separately from scratch
+backing. Normal GUI startup and physical-camera fidelity remain unverified.
+
+## Previous: processing scratch at PA `b0100000`
+
+The [kind41 workspace](../runtime/storage.md#kind41-processing-workspace)
+joins ROM pool metadata, the runtime allocation object and original PTEs.
+`1026fbb0` owns a complete `400000`-byte unit at board PA `62221800` and
+constructs128 records beginning at offset `300000`. The old write at
+`625219bc` is a decimal24-byte clear inside the first record; its sampled
+scratch register was not the entry length. The board now backs exactly
+`[62221800,62621800)` without changing any declared pool boundary, page table
+or firmware byte. Cold zero remains a functional board assumption.
+
+The [workspace receipt](/evidence/imagerequest/workspace.json) records native
+red→green,34 memory and37 sensor cases, including every page, actual TCG
+CPU/bus sharing, cross-page HDMAC and negative bounds. With the same explicit
+region/cold-neutral profile, unchanged firmware crosses the record clear.
+The60-host-second run records128 main acquisitions and413 statistics jobs,
+with no statistics rejection/cancellation and an empty error list.
+
+Its next first uncovered transaction is CPU1 PC `10361044`, WRITE32 PA
+`b0100000=0`, inside another original clear. Saved return `10271ae9` joins
+consumer `10271abe`, which clears a decimal200-byte processing record.
+The existing arena object at VA `b1808c98` stores this base at field `10`;
+the separate scratch allocator and its complete ranges must be admitted on
+their own source contract. QMP is debug/stopped, neither head has a console,
+and GUI readiness/information remain zero. No normal live-view or physical
+camera claim follows from this storage correction.
+
+## Previous: original clear at PA `625219bc`
+
+The [published-result latch](../devices/capturegroup/protocol.md#published-result-lifecycle)
+separates actual automatic-TG results from later generator configuration and
+run/stop changes. Only a valid automatic boundary can replace the eight-word
+packet; commands preserve a prior publication without restoring cold zeros or
+echoing a requested cursor. Retention across lifecycle changes is an explicit
+functional hypothesis, not a physical reset specification.
+
+The [latch receipt](/evidence/imagerequest/latch.json) records a native red on
+the preceding expiration rule, then37 sensor and33 memory cases passing.
+The unchanged-firmware continuation with the same explicit region/cold-neutral
+inputs crosses the `2006bb70` getter. Its60-host-second run records128 main
+acquisitions,428 statistics jobs and no statistics rejection/cancellation.
+The error list remains empty. Counts are sequential observations, not
+throughput comparisons with the preceding run.
+
+The first uncovered transaction is CPU1 PC `10361058`, WRITE32 board PA
+`625219bc=0`, inside the original zero-fill helper. The later read-only
+snapshot reports DFAR VA `372219bc`, with `r6=37221800`. This identifies an
+address translation and an unbacked write, but not yet the allocation owner,
+declared extent or clear length. The helper has already transformed its
+length register; the sampled `r1=80000000` must not be treated as its original
+requested length. Recover the upstream allocation and complete clear request
+before backing any additional storage. Existing RAM boundaries and original
+firmware bytes remain unchanged.
+
+QMP is debug/stopped, both heads lack a console, GUI readiness/information
+remain zero and one root request is queued with pending `40001`. Passing the
+getter does not establish the physical bank/cursor mapping, completed normal
+GUI startup or stable live view.
+
+## Previous: capture-group result lifecycle after sequence stop
+
+The [global sequence model](../devices/sensor/protocol.md#global-sequence-start-and-stop)
+executes all eleven channel start/stop masks and preserves each pending stop's
+own virtual deadline. Only completed active channel8/0 stops publish router
+IRQ87 causes18/10; the original ISR and callback set Sensor events10/20.
+Mask consumption,1µs latency and the channel/cause association remain explicit
+functional hypotheses. No pixel work, guest flag or callback is supplied.
+
+The [sequence receipt](/evidence/imagerequest/sequence.json) records36 sensor
+and33 memory cases, including a red→green staggered-stop regression. With
+unchanged firmware and the same explicit region/cold-neutral inputs, the
+60-host-second final run reaches129 main acquisitions and420 statistics jobs.
+The Sensor error list is empty, both command masks have been consumed, and
+the sequence model reports running `503`, stopping0. This crosses the earlier
+ID63 branch; it does not establish normal GUI startup.
+
+The first uncovered transaction is original MAS PC `10208e14`, READ32 board
+PA `2006bb70`. Capture-group's result getter rejects an unqualified package;
+its current model invalidates qualification on selected commit and run/stop.
+The next investigation must establish the last actual result producer and
+the getter's lifecycle across sequence restart, distinguishing retained
+published results from unpublished or cold state. Do not return cold zeros
+or a guessed bank/identity. QMP is debug/stopped, both display heads lack a
+console, GUI readiness/information remain zero, and one root request remains
+queued with pending `40001`.
+
+## Previous: Sensor switch completion after first-read consumption
+
+The [explicit resource35 profile](../inputs/nor/descriptor.md#resource35-first-read-region-input)
+supplies complete bounded virtual region tables through descriptor17's normal
+NOR loader. It preserves the rest of that opaque input, including the footer,
+and keeps resource80 cold-neutral. Source field848 supplies64 first-read
+samples; the preceding255 was the low byte of an erased FF parameter.
+Bounds, temporal limits and virtual coefficients are distinguished from
+recovered factory data. No guest flag, callback or frame is injected.
+
+The [region receipt](/evidence/imagerequest/regions.json) records5 native
+module-tool cases and33 memory cases, with all original `c00` loader bytes
+matching the explicit file. A60-host-second unchanged-firmware run completes
+128 main acquisitions and419 statistics jobs, with no statistics rejection
+or cancellation and no uncovered access. QMP remains running, and head1
+binds an actual1024x682 console containing status widgets and an error overlay.
+GUI readiness/information storage remain zero; normal live view is incomplete.
+
+The error list contains only ID63. An independently instrumented read-only
+breakpoint observes `1026c1d4(100)` with LR `1026c839`, from the normal
+`1026c66e ->102d986e(0)` call. The mapper turns status bit100 into Sensor
+state9; `10394d06` maps it through table `118f9338[9]` to ID63. This separates
+the new error from the solved resource35 negative-coordinate read.
+
+`102d986e(0)` clears Sensor event10 at object VA `b18a764c`, submits command
+101 through `102ff522 ->102976c2` to PA `200632e0`, and commits it with
+`200632e4=1`. It then waits for event10 with timeout150 in original API units;
+a missing completion contributes
+status100. A second conditional breakpoint at `102d9906` observes the wait
+returning0 with accumulated status0, isolating this missing completion from
+the earlier readiness wait and command submission. These debugger probes
+are separate from the uninterrupted60-second run. The SDES channel device
+at that revision retained/published these global commands without their
+completion work. The bounded sequence model above now supplies that hardware
+state transition through the normal router route; the waiter flag is never
+set by the host. The alternate107/event20 branch belongs to the same cohort.
+
+## Previous: erased region parameters after first-read processing
+
+The [bounded output-storage profile](../devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+separates the configured completion sequence from each source-declared output
+storage period. Four/six-slot outputs reuse real DMA storage while endpoint1
+retains its large pool and full count. This is an explicit functional hypothesis;
+physical counter encoding, autonomous cycling and phase remain unverified.
+No RAM extent, firmware byte, queue, callback or completion source is extended.
+
+The [storage receipt](/evidence/imagerequest/storage.json) records native
+red→green,99 passing memory/CMOS/sensor cases and an expanded phase-reset
+fixture. In the60-host-second unchanged cold-neutral continuation, sequential
+queries report290 auxiliary completions,510 main acquisitions and799 statistics
+completions, with no statistics rejection/cancellation. The two255-frame
+first-read sequences finish, capture run/enable become0, unit16 resets and
+the queued root is consumed. This reaches the original post-first-read
+consumer, beyond the preceding input and RGB DMA boundaries.
+
+That consumer `10218f84 ->10218d24` reads LE16 samples using region bounds
+selected by `10218bca` from resource35 (decimal). The read-only snapshot
+finds its pointer `b7f58400`; inspected bounds and count fields containFF.
+Bounds at offsets24/124/224/324 hex are signed -1, as are the region counts.
+With input pitch32 samples and base `5df45400`, the first coordinate(-1,-1)
+computes `base +2*(-32-1) =5df453be`. Original PC `10218d7e` faults there;
+QMP is debug/stopped. This is an erased-parameter consumer boundary, not
+evidence for expanding the kind32 pool before its source-declared beginning.
+
+The next work is resource35's parent input, original load path and a bounded
+self-consistent virtual region configuration. GUI readiness and the information
+record remain zero; both heads still lack a display console. Normal GUI
+output and physical-camera fidelity remain unverified.
+
+## Previous: RGB address progression during the first read
+
+The [large-count grid pool](../runtime/capturedata.md#large-count-grid-storage-and-the-remaining-address-contract)
+now backs kind32's complete source-declared PA range `5df45400..5f8d23ff`.
+It uses the existing offset-aware RAM helper, independently of kind18. Original
+pool initialization, all five absent overrides and both kind32 consumers establish
+the allocation; cold-zero RAM remains an explicit functional assumption.
+No new result, event, guest flag or firmware change accompanies this storage.
+
+The [pool receipt](/evidence/imagerequest/pools.json) records native DMA
+red→green and98 passing memory/CMOS/sensor cases. A60-host-second unchanged
+cold-neutral run removes the previous endpoint1 RAM fault: sequential QMP
+queries report380 auxiliary completions,1327 main acquisitions and392 statistics
+completions, with1313 statistics rejections. Main acquisition has no rejection
+or cancellation. The new rejection is endpoint4's calculated PA `5d4be000`,
+span10, outside kind19's six declared slots. A separate30-second read-only
+snapshot confirms the source setters' endpoint pointer tables and records.
+Earlier cursor values can already enter other mapped pools; this is the first
+RAM rejection, not the first ownership violation or evidence of correct RGB DMA.
+
+`1023b86c ->1030af00` explicitly allocates6 RGB slots. Independently,
+`1023a6c6 ->1023a63c` programs the first-read count255 into endpoints1/2/3/4.
+The existing functional statistics hypothesis advances each DMA address once
+per completed frame; it reaches `5d200000 +13*36000` at endpoint4. The
+relationship between this completion count and RGB address progression must
+be recovered before extending that model. Mapping the adjacent kind24 pool,
+wrapping at6 or suppressing RGB output would each assume an unproved behavior.
+The model retains the explicit rejection and publishes no completion for it.
+
+CaptureService remains4, the first read is pending, information storage stays
+zero, GUI readiness is0 and both display heads lack a console. The next work
+is the address-control and completion-count contract, not another arbitrary
+RAM aperture. First-read completion and normal GUI output remain unverified.
+
+## Previous: kind32 output backing after main acquisition
+
+The [independent main-input profile](../devices/sensor/protocol.md#independent-main-acquisition)
+now acquires fresh scene-dependent gray frames after auxiliary readout stops.
+It snapshots main/geometry commits, uses the existing TG and CMOS engine,
+retains separate channel ownership and publishes input status only after real
+sampling completes. Normal mode1 masks per-frame notifications; masked status
+does not block its endpoint ring. Completely zero output extents disable those
+outputs while preserving their retained routes; incomplete dimensions and an
+all-disabled job still reject. Pixel reduction and those finite output/timing
+laws remain explicit functional hypotheses.
+
+Native red→green covers absent main input, masked-frame stalls, cross-channel
+cancellation and partial outputs. The applicable97-case batch and final32-case
+CMOS extension pass. In a60-host-second unchanged-firmware cold-neutral run,
+1325 independent main frames complete with no main rejection/cancellation.
+The final45-second profile completes985 main frames after290 auxiliary DMAs;
+main acquisition therefore continues across the normal run1d transition.
+
+That revision's next rejected work is statistics endpoint1's PA `5df45400`, span300,
+resolving to `z7ii.uncovered`. The original `1030ad70` constructor selects
+kind32 rather than ordinary kind18 when requested count exceeds6; its unit
+stride is12000 and total size is stride times count. The runtime kind32 base
+at MAS VA `b26b4bd0` matches this destination. The complete kind32 allocation,
+backing and address conversion must be established together; a single-address
+mapping or enclosing DDR aperture is not added. All required active output
+DMAs must succeed before the model can publish statistics/ring completion.
+
+The [acquisition receipt](/evidence/imagerequest/acquisition.json) separates
+source facts, finite hypotheses, native verdicts and original execution.
+CaptureService remains4 with the first read pending, information storage is
+zero, GUI readiness is0 and both display heads lack a console. Group40 remains
+excluded from this request. No first-read completion, FECLCTRK admission or
+normal GUI output is claimed.
+
+## Previous output and first-read boundaries
+
+The [finite grayscale stream](../devices/capturework/protocol.md)
+now performs unit1 identity forwarding, unit2 geometry sampling and paired
+LUT/packing into the four source-allocated kind16 RAM slots. Arithmetic and
+shared input association are explicit functional hypotheses; original bytes,
+guest state and memory allocation boundaries are unchanged. Native tests check
+actual nonzero output, padding, ring/bank/lifecycle and rejection boundaries.
+
+In the final40-second cold-neutral explicit-scene run,388 stream jobs write737300880
+payload bytes. Original stage setters100000/200000/4000000 execute and the
+unit1-only fence succeeds. Aggregate05b00000 still fails: of its five requested
+stages, group1000000 alone has no observed setter. All36 observed OnVd mask5
+resumes succeed, but caches1/2, the information notification and both display
+consoles remain absent. The [stream receipt](/evidence/imagerequest/stream.json)
+separates source facts, model assumptions and original observations.
+
+The [payload audit](../devices/capturegroup/protocol.md#payload-consumers-and-wire-records)
+recovers three wire formats (40/24/32 bytes), their conditional consumers and
+packed 12/23/29-bit fields; their generating arithmetic remains unresolved.
+The existing group model only advances addresses. Two new 25-host-second
+breakpoint windows still bypass FECLCTRK before payload consumption: all
+28/27 selected roots retain mode0, metadata byte10132=0 and latchdc8=0.
+The retirement comparison is not reached. A group completion is therefore
+not established as the producer of the currently missing admission condition.
+Another 25-second `firstread` probe observes OnVd's normal state4 submission:
+`10233cf6` sets `dd8=1` and queues a root, but neither its `041a0003` branch
+nor FE worker8 runs. Its requested/active mask is `0xb`, excluding group and
+paired work; final reset is0 and run/enable are `0x1d`. The immediate boundary
+is this first-read processing and completion lifecycle, with unit2
+requesting 8288 by58 input and2072 by58 output rather than the continuous-stream
+profile. A separate 25-second control without in-window GDB attachment reaches
+the same pending request, with367 input DMAs and366 statistics jobs and no
+reported rejection/cancellation. This is an
+instrumented execution boundary, not normal GUI output.
+
+The source now connects mode1's normal first-read completion to raw3.bit7,
+owner80 and `1023c57a`: switch endpoint1's address set, then stop and emit
+`041a0003` after its next completion. The
+[finite ring model](../devices/statistics/protocol.md#endpoint-ring-completion-and-first-read-mode)
+publishes that cause only at the committed endpoint1 ring tail after all
+output DMA succeeds; address selection and ring-end timing are explicit
+functional hypotheses. Native red→green and93 applicable cases pass. Original
+55-second tracing confirms owner80 consumption, but no first-read notification
+or FECLCTRK. A corrected120-second control without live GDB still stops at380
+input DMAs/379 statistics jobs and no console.
+
+That audit identified the missing independent main-image acquisition.
+First-read run1d intentionally clears auxiliary readout bit1 while retaining
+main-input bit0. The preceding provider only acquired CMOS frames for auxiliary
+requests, whose stop also invalidated the shared input generation. It could not
+supply the first read's255 new inputs after that normal mode switch. The
+independent profile above closes that input lifetime. Group40
+is excluded from this request and cannot repair that source lifetime. Group
+generating arithmetic and paired numeric getters remain unresolved; no guest
+flag, frame or completion is fabricated to replace the missing acquisition.
+
+## Earlier frontier observations
+
+The [image request audit](../runtime/imagerequest.md) separates the normal
+GUI/display producer from AF6's state9 request. Original drawing and valid
+layer programming run; operation10 now unpauses successfully with ID68 absent.
+Display active/requested-enable masks and bank port/layer enables remain0.
+Phase18's final enable and the image-information04380001 publication have
+not executed in their focused cold-neutral windows.
+
+Both root parities are created. Earlier step102669aa cancels the eligible
+phase at10266a8c because computed cache1 is unpublished; its cache2 check is
+short-circuited. Opposite-phase jobs survive to1026a312 and fail `{2,0}`
+cadence admission. The missing cache producer is the original FECLCTRK /
+10273268 ->10272d62 calculation, not an established missing external blob.
+FE's bootstrap ends with synchronization flagb1887dc8 still0; normal
+mode0/metadata+10132=0 bypass the subsequent calculation submission.
+
+The [phase/producer evidence](/evidence/imagerequest/phase.json) joins the
+upstream041a0002 request to queued10326676, which transitions service2 to3.
+Its20-second focused window has a full60-record queue and lost enqueues, but
+the later [coordination audit](/evidence/imagerequest/coordination.json) observes
+`10323198(10,2)` and naturally reaches service4 with queue occupancy0 in both
+the baseline and the changed model. Backlog is not a permanent transition block.
+
+In the historical baseline, OnVd `10325ff6 ->103250f2 ->10233570` fails FE event mask5 at
+`102339d8` and processing-unit mask05b00000 at `102389c2`. The latter is an
+**old-cycle fence before new configuration/commit**, not a new-commit ACK.
+The callbacks and seven stage causes are source-established in the
+[runtime audit](../runtime/imagerequest.md#onvd-waits-and-processing-stage-ownership).
+The kernel confirms an AND wait for FE masks1/4 with requested-bit clearing.
+The historical bounded FE scan found no mask4 producer; the event snapshot has pattern3b,
+with1 present and4 absent. OnVd immediately overwrites the wait return, so
+failure alone does not establish a hardware-ready gate. The notification audit
+below now resolves the mask4 software route and models qualified input sync;
+the independently guarded calculation entry remains open. Literal100/200 timeout
+arguments retain unverified extended-ABI units.
+
+The [per-stage audit](../runtime/imagerequest.md#work-and-result-ownership-across-the-fence-family)
+separates front-end packets, group cursor metadata, paired parameter results
+and actual statistics work. The accepted
+[statistics completion](../devices/statistics/protocol.md#processing-stage-completion)
+now publishes its own raw3.bit5/IRQ96 only after the owned ten-output processing
+and numerical results succeed. The added fixture fails on baseline raw3=0
+after actual DMA;18 CMOS plus33 Sensor cases pass. No other stage or FE bit is
+inferred from it.
+
+In the30-host-second cold-neutral `end` run,735 auxiliary DMAs and734 statistics
+jobs complete, with734 original event800000 setters from102394c9. FE mask5
+and the aggregate05b00000 still fail in50 matched waits each. A30-second
+guest-error-only run completes725/724. Both naturally end in service4/queue0,
+with caches1/2 unpublished, display masks0 and no console; reported rejection,
+statistics cancellation and peer rejection remain0. Front-end work, group
+buffer processing and PA2006953c-family result production remain open.
+The [fence receipt](/evidence/imagerequest/fence.json) separates source, native
+and unchanged-firmware observations; accepted configuration does not justify
+all requested completions.
+
+The subsequent [front-end audit](../runtime/imagerequest.md#front-end-input-and-buffer-boundaries)
+locates unit1's optional parameter pointers and unit2's ROM-policy/coefficient
+sources, without identifying their actual pixel input/output contract.
+Kind23 construction does not populate its payload; the pool's bytes are zero
+in both final physical reads, with its handle already cleared in the second.
+The paired result getters do not execute
+in these focused windows. Owner mask1's041a000f input notification is also
+absent within the owner-entry filter. The new30-second runs complete813/812
+and742/741 auxiliary/statistics operations without reported rejection, but
+end in different lane/run states and still have no console. No additional
+completion model is accepted from configuration or these negative observations.
+
+The [explicit image-input continuation](../runtime/imagerequest.md#explicit-scene-input-through-actual-dma-and-statistics)
+repairs source binding, raster parsing, scene sampling and C170 grayscale
+encoding. Under the same cold-neutral descriptor32, a60-second original run
+with fixture-provider false completes814 auxiliary DMAs and813 statistics jobs.
+Four buffer samples and all four scalars match the supplied2x2 scene exactly.
+The54-case native batch separately verifies the finite data path. Cache1/2
+remain unpublished and there is still no console: usable auxiliary image data
+alone does not close the front-end input or calculation-production boundary.
+
+The [notification/submission audit](../runtime/imagerequest.md#notification-routing-and-actual-submission)
+closes `041a000f -> FE wait mask4` through its shared instruction tail. This
+supersedes the earlier bounded search that found no mask4 producer. The separate
+`041a0001 -> FE worker10000` does not dispatch the FE8 completed-queue consumer.
+Unit1 initialization, unit2 policy
+submission and incremental commit `9e` execute. Eight selected roots still take
+the mode0/metadata0/synchronization0 branch before calculation submission.
+The implemented shared virtual acquisition hypothesis now publishes input sync
+only after actual owned CMOS DMA, snapshot and completion, with continuously
+qualified capture run bit0. A55-case native batch covers token validation,
+revocation, cancellation/reset and mask/W1C behavior. In the changed-model
+40-second explicit-scene run,375 auxiliary DMAs and374 statistics jobs complete.
+Owner1 and the original FE mask4 setter execute, and all41 observed OnVd mask5
+resume points return1. The unit1-only fence and39 aggregate processing fences
+still return0. Cache1/2 and GUI output remain absent; input synchronization
+does not substitute for unit1/2, group or paired-result work. The physical
+association remains an explicit hypothesis.
+
+The normal information producer remains registered without an observed
+publication. An additional first-enable candidate is now source-joined:
+`1035a2d8 ->04380001 ->104be876 ->record92 ->1053f42a`.
+A change to packet offset1016decimal (`3f8` hex) and the `105b0a7e` policy
+guard lead to `104a94fe(5)` at `1053f7c0`; nonzero additionally posts record133
+but is not required for operation5. The record has not
+been successfully consumed in the focused windows. This conditional route
+does not require a target switch or property6433 change; it is not established
+as the unique first-enable producer. AF6/state9 is a separate guarded request.
+
+The accepted finite model now reserves an auxiliary request immediately and
+admits actual CMOS DMA only at the next fresh automatic TG input edge. This
+functional association removes independent completion/resubmission feedback;
+earlier/busy edges are discarded, forced levels do not acquire input, and the
+original33333334ns virtual period is unchanged. Same-edge statistics uses the
+previous completed input. No software event/cache/state or display enable is
+injected. Native red→green evidence and the applicable51-case batch cover this
+ownership/input boundary separately from original-firmware progress.
+
+With unchanged firmware, cold-neutral descriptor32, RNG0, healthy paced battery,
+held F4 and5 MTTCG CPUs, a20-host-second focused window completes519 readouts
+and518 statistics jobs; the comparable baseline completes1999/523. The changed
+90-second CPU/nochain run completes739/738 and a30-second guest-error-only run
+completes818/817. Both end in service4 with empty queues, unpublished caches1/2,
+zero display masks and no console; no readout/statistics rejection, statistics
+cancellation or peer rejection is reported. Different trace filters affect
+throughput, so these are coordination observations, not rates or a complete
+stability claim. The next boundary is genuine FE/remaining-processing-stage completion
+and computed-input publication before the GUI information notification.
+The earlier [admission receipt](/evidence/imagerequest/admission.json) and
+six-range COPY comparisons retain their original scope. CPU0 at10100008 alone
+is not a fault receipt: the original extended API uses the normal SVC vector.
+
+## Finite processing-data completion
+
+Published records for this checkpoint:
+[original execution summary](/evidence/capturecompletion/finalreview-proof.json),
+[native CMOS/Sensor results](/evidence/capturecompletion/native-final.txt),
+and [commit-revision regression results](/evidence/capturecompletion/native-revision-green.txt).
+These attachments are shipped with the site; the [archive](evidence.md)
+describes their scope and omissions.
+
+The complete-bundle [statistics profile](../devices/statistics/protocol.md)
+joins unit16's selected commit8 snapshot and automatic TG with immutable
+successful readout input, ten endpoint DMAs, running-bank twelve-word results,
+four scalars, then raw0.bit6 through existing IRQ94/W1C. Geometry, ring
+configuration, consumer packing and software retirement are established.
+Grayscale arithmetic, auxiliary-to-processing association and1ms latency
+are explicit functional hypotheses, not recovered physical ISP fidelity.
+No guest software state, callback, PC or UI pixels are injected.
+
+The scoped old implementation fails the new native fixture because the
+coordinator is absent. The final applicable native evidence is32 memory,
+16 CMOS and33 Sensor cases (81 total). It covers all ten outputs, exact
+arithmetic including signed24/u29/u17 saturation, immutable input/config,
+bank selection, ring advance, unread-frame replacement after ACK, cancellation,
+reset and invalid ROM/overflow/layout/extent/overlap boundaries.
+
+Unchanged `capturecompletion/finalreview` uses the same cold-neutral
+descriptor32, RNG0, healthy paced UART battery, held cold F4 and5 CPUs under
+MTTCG. All six original loader COPY ranges compare, guard returns0 with
+version150, and property6433 is empty. After20 host seconds QMP is running;
+sequential reads report1570/1569 accepted/completed auxiliary requests and
+519 completed processing jobs, with no processing rejection/cancellation,
+uncovered access or peer rejection. The focused trace observes owner bit2,
+the twelve-word consumer and pending40000 retirement. All ten configured
+output slot0 prefixes contain nonzero DMA-produced bytes. Queue lengths are
+0/0/0/0. The preceding `final` checkpoint completed527 processing jobs and
+had0/1/1/1 queues with a new root pending40001. These observations demonstrate
+sustained processing and retirement, not a one-job/one-root correspondence
+or physical frame cadence. Packages may be discarded when queues are empty.
+
+There is still no display console. No new unsupported hardware transaction
+is observed, so a sampled CPU PC is not identified as a startup stop.
+The next boundary is the original software image/display request: sampled
+root[8]/root[16] were0 in `final`, and both runs have service
+`b1868af1=2`, `b1868af6=0` and `b1868b0c=0`.
+`103f27ba -> 10328ca6` requires state9/property1053=1 before enqueuing
+`10323a7e`, which sets AF6=1. Root[8] separately requires B0C=2. Neither
+AF6 request function appears in the focused trace. These conditions explain
+why those conditional routes are unselected. The later image request audit
+above identifies separate normal information and display activation producers;
+the full startup prerequisite relationship remains unresolved. No mode is forced.
+
+
+## Related analysis
+
+| Question | Article |
+| --- | --- |
+| How do cold-neutral input and processing completion interact? | [Capture service](capture.md) |
+| What does a rendered error frame establish? | [Graphics and timing qualification](graphics.md) |
+| How do battery and held-input profiles differ? | [External-input profiles](inputprofiles.md) |
+| Who publishes battery reports and host commands? | [EX reports](exreports.md) |
+| Which display requests and kernel waits were observed? | [Display publication](publication.md) |
+
+The current boundary above takes precedence over earlier observations. Native
+fixtures, unchanged-firmware observations and assisted experiments remain separate.

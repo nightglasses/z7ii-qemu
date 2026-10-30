@@ -74,7 +74,7 @@ if(NOT EXISTS "${QEMU_UPSTREAM}/configure")
   message(FATAL_ERROR "Initialize dependencies: git submodule update --init --recursive")
 endif()
 native_provider("${QEMU_UPSTREAM}")
-foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon tools/nikon)
   if(EXISTS "${QEMU_UPSTREAM}/${directory}")
     message(FATAL_ERROR "Project-owned ${directory} belongs outside the official qemu/ dependency")
   endif()
@@ -91,6 +91,10 @@ foreach(path IN LISTS upstream)
      path STREQUAL "hw/Kconfig" OR path STREQUAL "hw/meson.build" OR
      path STREQUAL "tests/qtest/meson.build" OR
      path STREQUAL "tests/unit/meson.build" OR
+     path STREQUAL "include/hw/core/cpu.h" OR
+     path STREQUAL "accel/dummy-cpus.h" OR
+     path STREQUAL "accel/dummy-cpus.c" OR
+     path STREQUAL "accel/qtest/qtest.c" OR
      path STREQUAL "target/rx/cpu.c" OR path STREQUAL "target/rx/cpu.h" OR
      path STREQUAL "target/rx/helper.c" OR path STREQUAL "target/rx/translate.c")
     continue()
@@ -114,7 +118,7 @@ endforeach()
 # Meson owns downloaded subprojects; refresh their declared native overlays too.
 include(cmake/wrap.cmake)
 
-foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon)
+foreach(directory hw/nikon include/hw/nikon tests/qtest/nikon tests/unit/nikon tools/nikon)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
     RELATIVE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/${directory}/*")
   foreach(path IN LISTS sources)
@@ -134,3 +138,4 @@ file(READ "${QEMU_UPSTREAM}/tests/unit/meson.build" content)
 native_file("tests/unit/meson.build" "${content}\nsubdir('nikon')\n")
 include(cmake/rx.cmake)
 include(cmake/system.cmake)
+include(cmake/qtest.cmake)

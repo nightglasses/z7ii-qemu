@@ -489,7 +489,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         sysbus_realize_and_unref(SYS_BUS_DEVICE(lanes), &error_fatal);
         sla_map(s, lanes, 0, 0x2b001000);
         sla_map(s, lanes, 1, 0x2b001100);
-        /* Lane writes create no IRQ; only the real storage link feeds route3. */
+        /* Lane writes create no IRQ; attached media supplies route3. */
         /* SOURCE11 10088a82/10093476 select root mode through COPY1 words0. */
         object_property_set_link(OBJECT(storage), "memory", OBJECT(&s->system),
                                  &error_fatal);
@@ -501,7 +501,7 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
             sysbus_connect_irq(SYS_BUS_DEVICE(storage), i,
                                qdev_get_gpio_in(gic, storage_irq[i] - 32));
         }
-        qdev_connect_gpio_out_named(storage, "link", 0,
+        qdev_connect_gpio_out_named(storage, "present", 0,
                                    qdev_get_gpio_in_named(signal, "signal", 3));
         /* No drive/endpoint or unsupported MAS platform aperture is supplied. */
     }
@@ -522,6 +522,8 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
         /* SOURCE11 943ce/944ac: original SLA control and physical IRQ102. */
         sysbus_connect_irq(SYS_BUS_DEVICE(gate), 0,
                            qdev_get_gpio_in(gic, 102 - 32));
+        sla_map(s, gate, 1, 0x24000000);
+        sla_map(s, gate, 2, 0x24010000);
         /* No pending-bit provider or data/submission backend is connected. */
     }
     {

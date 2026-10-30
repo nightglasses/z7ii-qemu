@@ -1,0 +1,107 @@
+{
+  "scope": "Source-backed publication plus explicit monochrome four-lane affine hypothesis; unchanged C1.70 firmware original execution is distinct from native fixtures",
+  "baseline": "918c485c",
+  "upstream_qemu": "4fc49f46dc95d4a27de2509e7fceb2931e91faeb",
+  "source": {
+    "domain": "All code addresses are C1.70 MAS VA; bank bases20380000/203c0000 are PA; offsets hexadecimal",
+    "packing": "102e49fe config[13];102bf33c selects compact+382;1036b35a packs four u16 gains at708/70c, four13-bit offsets at710/714, four u16 pedestals at718/71c, one u16 bound at720",
+    "gain": "10364894 constructs three gains with rounded /512 products and3fff saturation;103646fe duplicates middle gain into two lanes and publishes negative black offsets",
+    "pedestal": "10363a6c selects19-row114-byte tables; all304 selectable rows contain four300 values;10363bc0 interpolates them and computes bound=min(32767,round(((16383-black)*shared_scale+64*sum(pedestals))/256))",
+    "join": "102f78b0 calls producer on context[82], then102f734e copies state+40/42/44/46/48 to compact+392/398/404/410/412",
+    "controls": "102f8812 fixes700 bit8;102f8ba6 produces mutually exclusive mode bits at700/704 bit0. Normal selected101/0 is not claimed as a physical WB enable"
+  },
+  "model": {
+    "equation": "lane=clamp(round((mono+signed13offset)*Q9gain/512)+u16pedestal,0,min(u15limit,4095));R=lane0,G=round((lane1+lane2)/2),B=lane3",
+    "hypotheses": "Offset-before-gain, direct RAW12 units, lane RGB order, average green, placement before curves and exclusion from pre-color history are finite monochrome choices; physical CFA/RAW14 processing not recovered",
+    "admission": "708..720 live numeric fields;700/704 still exact profile plus only101/0 supported. Entire zero packet is synthetic neutral convention.724..778 remain opaque exact-match; unknown controls/reserved bits reject",
+    "lifecycle": "Numeric changes cancel active jobs but preserve published pre-color history; retained writes do not cancel; reset clears config/cancels pending work. Completion follows actual RAW reads, numeric output and all DMA writes",
+    "shortcuts": "No guest firmware, callbacks, readiness, framebuffer, event objects or IRQ completion patched"
+  },
+  "native": {
+    "accepted": [
+      {
+        "command": "make check MTESTARGS='nikon_pairedpixels_unit'",
+        "subtests": 11,
+        "seconds": 0.01
+      },
+      {
+        "command": "make check MTESTARGS=\"nikon_cmos --test-args='-p /arm/nikon/cmos/paired'\"",
+        "subtests": 22,
+        "seconds": 30.88
+      }
+    ],
+    "total_unique_subtests": 33,
+    "red": [
+      "Old exact-profile code rejects complete numerical packet; completed0 versus expected1",
+      "New main-only affine writes originally invalidated pre-color history; source-history vector failed until history preservation fixed"
+    ],
+    "coverage": "Asymmetric gains, signed offsets, unequal pedestals, clipping, subsequent curves; actual RAW/main/work/grid DMA and padding; negative widths/reserved encodings; same versus changed writes; cancel/reset and numerical history continuation",
+    "development_trials": [
+      "A main-binary selector skipped CMOS test; corrected to nikon_cmos",
+      "Combining two -p prefixes produced invalid TAP plans despite passing unit subtests; reran each target with its valid selection",
+      "Initial qtest oracle misread packed0808 RAW as0888; corrected independent arithmetic toRAW2056/RGB3076,2104,1164/YUV192,152,65"
+    ],
+    "review": "Independent read-only arithmetic/lifecycle review found history invalidation; fixed and independently re-reviewed with no remaining concrete issue",
+    "style": "Pinned QEMU checkpatch:0errors0warnings; documentation rule tests2passed and VitePress production build passed6.14s, existing chunk-size advisory retained"
+  },
+  "original": {
+    "profile": "Complete unchanged decoded bundle; cold-neutral/region descriptors; fixed virtual50mmF2.8 lens; healthy paced UART battery RNG0; heldF4;5CPU MTTCG; selected blank8GiB raw slot0; explicit2x2 PGM levels32/64/192/224; complete lens tuple with newly interpreted708..720 slots zero",
+    "window_host_seconds": 60,
+    "sampling": "QMP every15host seconds, no in-window GDB; subsequent sequential read-only GDB snapshots and physical DMA-buffer dumps",
+    "qmp_status": [
+      "running",
+      "running",
+      "debug",
+      "debug"
+    ],
+    "paired_completed": [
+      0,
+      48,
+      76,
+      76
+    ],
+    "paired_bytes": 202263360,
+    "paired_rejected": 1,
+    "paired_cancelled": 0,
+    "paired_blocked": 0,
+    "lens": {
+      "packets": 826,
+      "rejected": 0,
+      "configuration_generation": 1,
+      "complete_history_records": 25023,
+      "zero_travel_aperture_noops": 3
+    },
+    "stop": {
+      "cpu": 1,
+      "pc_va": "1036a4a2",
+      "write_pa": "20380010",
+      "value": "1",
+      "reason": "paired-frame-profile-or-memory-not-supported",
+      "offset": "598",
+      "expected": "1a6a1a6a",
+      "actual": "17c717c7",
+      "producer": "Separate root config[12]=compact+98;102e4914/1036af16/1036af3a publish594..5dc;102f7a6c interpolates55-row tables atstep2;102f7960 fixes lastpairs0/0/16/16. Control594=0/6 is not proven bypass; pixel semantics unresolved."
+    },
+    "display": {
+      "head0": "unbound",
+      "head1": "1024x682 original status GUI; Before taking photos, rotate the zoom ring to extend the lens",
+      "gui_readiness": 0,
+      "screenshot": "/evidence/paired/gui.png"
+    },
+    "intermediate_pixels": {
+      "size": "1372x770",
+      "stride": 1376,
+      "pa": [
+        "dec7fc00",
+        "e0702600"
+      ],
+      "source": "actual paired NV12 DMA output, not display-bound",
+      "preview": "/evidence/paired/pixels.png",
+      "decode": "Diagnostic full-range BT.601 NV12-to-RGB view; four grayscale input levels yield tinted quadrants under selected finite color model, not a physical color-calibration claim"
+    },
+    "storage": "one512B original read, no writes/failedI/O",
+    "panic_length": 0,
+    "warnings": "Existing EX external-line warnings remain",
+    "limits": "Debug-stopped by45s; not60s continuous stability, normal live view, GUI readiness or completed3D bridge"
+  }
+}

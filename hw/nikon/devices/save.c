@@ -1,8 +1,10 @@
-/* Source-bounded frame save handoff; no file or image is synthesized.
+/*
+ * Source-bounded frame save handoff; no file or image is synthesized.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "hw/nikon/save.h"
+#include "qapi/visitor.h"
 #include "migration/vmstate.h"
 
 struct NikonSaveState {
@@ -11,6 +13,10 @@ struct NikonSaveState {
     uint64_t requests, commits, failures, token;
     uint32_t source, length, error;
     uint32_t format;
+    uint32_t pending_source;
+    uint32_t pending_length;
+    uint32_t pending_format;
+    uint32_t fail_error;
 };
 
 static NikonSaveState *save_state(DeviceState *dev, Error **errp)
@@ -30,7 +36,8 @@ static bool save_token(NikonSaveState *s, uint64_t token, Error **errp)
         return false;
     }
     if (!token || token != s->token) {
-        error_setg(errp, "save handoff token does not match the pending request");
+        error_setg(errp, "save handoff token does not match "
+                         "the pending request");
         return false;
     }
     return true;
@@ -49,7 +56,8 @@ bool nikon_save_request(DeviceState *dev, const NikonSaveRequest *request,
         return false;
     }
     if (request->format > NIKON_SAVE_FORMAT_JPEG) {
-        error_setg(errp, "save request format is outside the source-bounded enum");
+        error_setg(errp, "save request format is outside "
+                         "the source-bounded enum");
         return false;
     }
     if (s->phase == NIKON_SAVE_REQUESTED) {
@@ -131,6 +139,57 @@ bool nikon_save_status(DeviceState *dev, NikonSaveStatus *status,
     return true;
 }
 
+static void save_set_request_token(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    NikonSaveState *s = NIKON_SAVE(obj);
+    uint64_t val;
+    NikonSaveRequest req;
+
+    if (!visit_type_uint64(v, name, &val, errp)) {
+        return;
+    }
+    req.token = val;
+    req.source = s->pending_source;
+    req.length = s->pending_length;
+    req.format = (NikonSaveFormat)s->pending_format;
+    nikon_save_request(DEVICE(s), &req, errp);
+}
+
+static void save_set_commit_token(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    uint64_t val;
+
+    if (!visit_type_uint64(v, name, &val, errp)) {
+        return;
+    }
+    nikon_save_commit(DEVICE(obj), val, errp);
+}
+
+static void save_set_fail_token(Object *obj, Visitor *v, const char *name,
+                                void *opaque, Error **errp)
+{
+    NikonSaveState *s = NIKON_SAVE(obj);
+    uint64_t val;
+
+    if (!visit_type_uint64(v, name, &val, errp)) {
+        return;
+    }
+    nikon_save_fail(DEVICE(s), val, s->fail_error ? s->fail_error : 1, errp);
+}
+
+static void save_set_cancel_token(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    uint64_t val;
+
+    if (!visit_type_uint64(v, name, &val, errp)) {
+        return;
+    }
+    nikon_save_cancel(DEVICE(obj), val, errp);
+}
+
 static void save_reset(DeviceState *dev)
 {
     NikonSaveState *s = NIKON_SAVE(dev);
@@ -139,6 +198,9 @@ static void save_reset(DeviceState *dev)
     s->requests = s->commits = s->failures = s->token = 0;
     s->source = s->length = s->error = 0;
     s->format = NIKON_SAVE_FORMAT_UNKNOWN;
+    s->pending_source = s->pending_length = 0;
+    s->pending_format = NIKON_SAVE_FORMAT_UNKNOWN;
+    s->fail_error = 0;
 }
 
 static void save_init(Object *obj)
@@ -146,22 +208,38 @@ static void save_init(Object *obj)
     NikonSaveState *s = NIKON_SAVE(obj);
 
     object_property_add_uint64_ptr(obj, "requests", &s->requests,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "commits", &s->commits,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "failures", &s->failures,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "token", &s->token, OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "source", &s->source,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "length", &s->length,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "format", &s->format,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "error", &s->error,
-                                    OBJ_PROP_FLAG_READ);
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "phase", &s->phase,
                                    OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "request-source", &s->pending_source,
+                                   OBJ_PROP_FLAG_READWRITE);
+    object_property_add_uint32_ptr(obj, "request-length", &s->pending_length,
+                                   OBJ_PROP_FLAG_READWRITE);
+    object_property_add_uint32_ptr(obj, "request-format", &s->pending_format,
+                                   OBJ_PROP_FLAG_READWRITE);
+    object_property_add_uint32_ptr(obj, "fail-error", &s->fail_error,
+                                   OBJ_PROP_FLAG_READWRITE);
+    object_property_add(obj, "request-token", "uint64",
+                        NULL, save_set_request_token, NULL, NULL);
+    object_property_add(obj, "commit-token", "uint64",
+                        NULL, save_set_commit_token, NULL, NULL);
+    object_property_add(obj, "fail-token", "uint64",
+                        NULL, save_set_fail_token, NULL, NULL);
+    object_property_add(obj, "cancel-token", "uint64",
+                        NULL, save_set_cancel_token, NULL, NULL);
 }
 
 static const VMStateDescription save_vmstate = {

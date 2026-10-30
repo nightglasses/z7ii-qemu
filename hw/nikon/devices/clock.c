@@ -30,8 +30,38 @@ struct NikonClockGatesState {
     uint32_t bit_control[2];
     uint32_t word_control;
     NikonClockChannel channel[9];
+    Clock *spi_clock, *spi8_clock;
     bool reported_error;
 };
+
+static void nikon_spi_clock_rates(NikonClockGatesState *s)
+{
+    /* MAS103b0540 reads selector5 OR880008;10370c32 decodes these fields. */
+    uint32_t value = s->selector[5] | 0x880008;
+    uint64_t hz = 0, hz8 = 0;
+
+    switch ((value >> 20) & 15) {
+    case 8:
+        hz = 80000000;
+        break;
+    case 9:
+        hz = 100000000;
+        break;
+    }
+    switch ((value >> 16) & 15) {
+    case 8:
+        hz8 = 80000000;
+        break;
+    case 9:
+        hz8 = 100000000;
+        break;
+    case 10:
+        hz8 = 61530000;
+        break;
+    }
+    clock_update_hz(s->spi_clock, hz);
+    clock_update_hz(s->spi8_clock, hz8);
+}
 
 /* Original nine-record group table; sentinel 0x20 means no such field. */
 static const struct {
@@ -165,9 +195,11 @@ static MemTxResult nikon_clock_write(void *opaque, hwaddr offset,
             0x7ffffffe, 0xffff0073, 0x3f07ff07,
         };
         if (offset <= 0x24) {
-            /* The original indexed API replaces the entire configuration word.
-             * Rates remain explicit nominal inputs; selectors are not dividers. */
+            /* Only selector5 has a source-bound SPI frequency decoder. */
             s->selector[offset / 4] = value;
+            if (offset == 0x14) {
+                nikon_spi_clock_rates(s);
+            }
             return MEMTX_OK;
         }
         if (offset >= 0x28 && offset <= 0x30) {
@@ -231,6 +263,7 @@ static void nikon_clock_reset(DeviceState *dev)
     memset(s->stopped, 0, sizeof(s->stopped));
     memset(s->known, 0xff, sizeof(s->known));
     memset(s->selector, 0, sizeof(s->selector));
+    nikon_spi_clock_rates(s);
     memset(s->bit_control, 0, sizeof(s->bit_control));
     s->word_control = 0;
     s->pll[0] = 0xffe;
@@ -249,6 +282,8 @@ static void nikon_clock_init(Object *obj)
     NikonClockGatesState *s = NIKON_CLOCK_GATES(obj);
     unsigned i;
 
+    s->spi_clock = qdev_init_clock_out(DEVICE(obj), "spi-clock");
+    s->spi8_clock = qdev_init_clock_out(DEVICE(obj), "spi8-clock");
     for (i = 0; i < ARRAY_SIZE(s->channel); i++) {
         g_autofree char *name = g_strdup_printf("pll%u", i);
         s->channel[i].owner = s;

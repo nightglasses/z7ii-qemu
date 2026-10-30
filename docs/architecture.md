@@ -77,7 +77,7 @@ flowchart TD
 CPU0 creates and starts the initial task. CPU1 may remain in a scheduler or
 wait boundary before joining a role task; an empty successor is not a missing
 ready producer. CPU choices, reset state and board values remain classified
-in the [CPU evidence matrix](startup/cpu_board.md). This is a functional TCG
+in the [CPU evidence matrix](startup/cpuboard.md). This is a functional TCG
 model, not a model of cache latency, branch prediction or silicon pipelines.
 
 ## Memory and DMA ownership
@@ -139,24 +139,30 @@ hypothesis, not a recovered physical bank/reset/IRQ contract. Historical
 experimental wait returns do not prove complete boot under the latest bundle
 composition.
 
-The former [tracker #480](https://github.com/mashiro01/nightglass/issues/480)
-dependency is closed: `0x42062002` is firmware-local and type-5 traffic is
-service negotiation. [#482](https://github.com/mashiro01/nightglass/issues/482)
-and [#485](https://github.com/mashiro01/nightglass/issues/485) are unblocked.
+`0x42062002` is firmware-local, and type-5 traffic is service
+negotiation. See [the display handshake](/runtime/display) for the request
+producer and its remaining admission conditions.
 
 ### Readout, image, display and storage
 
 ```mermaid
 flowchart TD
-  Guest["Guest readout configuration<br/>and PA 0x2006b400 = 1"] --> Readout["readout-control<br/>owned request generation"]
+  Guest["Guest descriptor / unit2 commit+run<br/>or later PA 0x2006b400 = 1"] --> Readout["readout-control<br/>snapshotted request generation"]
   Readout -->|"complete bundle only"| Pipeline["readoutpipeline.c<br/>validate finite C1.70 mapping"]
   Image["Explicit PGM/PPM or<br/>opt-in deterministic source"] --> CMOS["CMOS timing / DMA engine"]
   Pipeline --> CMOS
   CMOS -->|"timed primary-buffer DMA"| RAM["Submitted writable guest RAM"]
-  Pipeline -->|"accepted generation ready"| Ready["readout ready at PA 0x2006b3c0"]
+  Pipeline -->|"accepted generation"| Ready["provider ownership observation"]
   CMOS -->|"done / error / cancel signals"| Pipeline
-  Pipeline -->|"current generation only"| Completion["Readout completion observation<br/>no inferred GIC line"]
-  Capture["capture-control / SDES<br/>independent finite contracts"] -. "capture-to-readout join unverified" .-> Readout
+  Pipeline -->|"actual DMA DONE, live generation"| Capture["capture IRQ94 raw0.bit3/5<br/>explicit mode0/1 functional profile"]
+  Capture --> ISR["Original ISR / owner event29"]
+  ISR --> Guest
+
+  Pipeline -->|"immutable successful input snapshot"| Statistics["statistics.c<br/>selected unit16 commit/run + automatic TG"]
+  Statistics -->|"ten validated output DMAs"| RAM
+  Statistics --> Results["running-bank twelve-word results<br/>four global scalars"]
+  Results -->|"after every required DMA succeeds"| DataIRQ["capture raw0.bit6 / IRQ94"]
+  DataIRQ --> Consumer["original owner bit2 / 10238c40<br/>statistics read / request retirement"]
 
   RAM -. "original producer join unverified" .-> Process["Processing endpoint PA 0x24070000<br/>accepts supplied complete buffers"]
   Supplied["Explicit complete input buffers"] --> Process
@@ -172,13 +178,30 @@ The implemented profile maps `3e8/3ec/3f0` to primary destination/stride/span,
 validates the secondary destination/stride without writing it, and accepts
 only format pairs `00400040` and `00010001`. Functional samples are two bytes;
 width is stride/2 and height is span/stride. The CMOS engine performs actual
-timed DMA. Busy requests are rejected, stale generations cannot complete,
+timed DMA. In the diagram, the pipeline-to-CMOS arrow requires the next fresh
+automatic TG rising edge after request reservation. This finite functional
+association discards earlier/busy edges; it does not change the virtual input
+period or admit input from forced router levels. Processing at that same edge
+uses the previous completed input. Busy requests are rejected, stale generations cannot complete,
 and cancellation/reset stop pending work. The raw MAS diagnostic path leaves
 this join disconnected. No physical pixel format, sensor timing, secondary-plane
-producer, GIC route or downstream ISP/display join is inferred. See the
-[readout mapping](devices/readout/profile.json),
+producer or downstream ISP/display join is inferred. The mode-selected
+IRQ94 completion is an explicit functional assumption tied to the original
+consumer, and is emitted only after actual DMA. See the
+[readout mapping](devices/readout/mapping.md),
 [controller contract](devices/sensor/protocol.md#buffer-selectors-and-readout-parameters)
-and [pipeline fixtures](../tests/qtest/nikon/cmos.c).
+and `tests/qtest/nikon/cmos.c`.
+The complete-bundle [statistics transaction](devices/statistics/protocol.md)
+adds a finite grayscale processing profile. Output geometry and consumer
+packing are source-backed; auxiliary-input association, numerical arithmetic
+and computation latency are declared functional assumptions. Publication
+follows successful DMA, respects cancellation and raw6 W1C backpressure,
+and never edits software queues. Original request retirement now runs;
+the normal GUI image/display join is still unverified.
+The same successful statistics job also publishes its source-associated
+unit8 stage cause through raw3.bit5/IRQ96. This finite completion hypothesis
+does not satisfy the other stages or FE synchronization; see the
+[processing fence](devices/statistics/protocol.md#processing-stage-completion).
 
 Image-bank composition and console publication already exist independently;
 the missing acceptance is the original guest's natural producer/commit path,
@@ -222,8 +245,8 @@ other status states, fences, IRQ131 and other command families remain
 unsupported. Reset cancels pending work. This is a finite functional law,
 not recovered physical GPU precision or a screen rendering claim. See
 [graphics transfer](devices/transfer/protocol.md) and its
-[qtest](../tests/qtest/nikon/transfer.c) /
-[unit fixtures](../tests/unit/nikon/transfer.c).
+`tests/qtest/nikon/transfer.c` /
+`tests/unit/nikon/transfer.c`.
 
 The 29-fixture/247-subtest receipt and the two full-stream original-bundle
 experiments in [native receipts](validation/native.md) predate this executor.

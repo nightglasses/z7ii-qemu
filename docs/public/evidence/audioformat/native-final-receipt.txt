@@ -1,0 +1,25 @@
+Native test output excerpt
+Run: audioformat-20261023
+Original log: native-final-receipt.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..4
+ok 1 /arm/nikon/audio/format
+ok 2 /arm/nikon/audio/clock
+ok 3 /arm/nikon/audio/blocks
+ok 4 /arm/nikon/audio/lifetime
+1..7
+ok 1 /arm/nikon/dma/pause/geometry
+ok 2 /arm/nikon/dma/halt/all
+ok 3 /arm/nikon/dma/held/cancel
+ok 4 /arm/nikon/dma/held/reset
+ok 5 /arm/nikon/dma/reentrant/pause
+ok 6 /arm/nikon/dma/reentrant/halt
+ok 7 /arm/nikon/dma/audio/pause
+1..4
+ok 1 /arm/nikon/hdmac/private
+ok 2 /arm/nikon/hdmac/readonly
+ok 3 /arm/nikon/hdmac/fifo
+ok 4 /arm/nikon/hdmac/requests
+Ok:                3
+Fail:              0

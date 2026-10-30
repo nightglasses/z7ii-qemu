@@ -4,7 +4,7 @@ The original EX snapshot at source
 `fb176bdc934c38dcd0df3133a5bd00b29280d167` ended at `0804909e`, with
 LR `08042805`, xPSR `0100000f`, R0 `e000ed0c`, R1 `05fa0304` and R2
 `05fa0004`. The saved read-only receipt is
-`work/worktrees/local-gdb-observers/work/gui/providers/receipt.json`; its
+`run gui/providers/receipt.json`; its
 complete register and SCB reads are in the adjacent `gdb.log`. CFSR and HFSR
 were zero. The snapshot followed 58.905961 seconds of virtual execution and
 was terminated normally by QMP; that duration is not a measured reset latency.
@@ -55,11 +55,11 @@ requests, normal board reset, unchanged second-domain state during local reset,
 and retained SRAM/external GPIO level. It does not execute original firmware.
 The official incremental ARM build and unit link passed. The focused
 `/nikon/ex/local-system-reset` case passed in0.57s with exit0; its receipt is
-`work/exresetownernativereceipt.log`. Production reset code is exactly the
+`run exresetownernativereceipt.log`. Production reset code is exactly the
 fixed `f05d96bc` source; subsequent changes only repair the native fixture's
 public IRQ include and independently rooted DeviceState memory ownership.
 The earlier duplicate singleton-RAM and non-device RAM-owner failures remain
-in `work/exresetnativereceipt.log` and `work/exresetdomainsnativereceipt.log`.
+in `run exresetnativereceipt.log` and `run exresetdomainsnativereceipt.log`.
 No successful original reboot or GUI startup is claimed by this source change.
 
 The next already-planned original snapshot needs EX RAM `2003a000`'s diagnostic

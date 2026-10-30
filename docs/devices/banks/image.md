@@ -1,12 +1,13 @@
 # Source-bound image transactions
 
-The existing dual-bank device implements guest RAM input, two ten-layer ports,
+The existing dual-bank device implements guest RAM input, a primary Y/UV view,
+two ten-layer ports,
 42 graphic objects, retained packed tables, Pixman composition and QEMU console
 publication. It adds no overlapping MMIO device. Physical LCD/ISP identity and
-an original firmware frame remain unverified.
+an original GUI menu receipt remain unverified.
 
 Evidence is the saved ec048f native instruction/P-code index and the finite
-`qemu-rtos-startup/work/display/{bank,completion,registers}/` graphs. They contain
+`qemu-rtos-startup/run display/{bank,completion,registers}/` graphs. They contain
 249 complete bank entries and 7,778 unique instructions; the register graph
 retains 121 original literal READ records across 59 owners, each with consuming
 instruction, literal address, payload offset and original word. The complete
@@ -24,10 +25,10 @@ this object receipt does not establish a submitted frame.
 
 | Original consumer | Exact effect |
 |---|---|
-| C3C2/C4C0 | Unit0 config0200, packed geometry0204/0600, scalar0240/0250/0604 |
+| C3C2/C4C0 | Unit0 config0200, source extent0204, destination origin0600, scalar0240/0250/0604 |
 | C62C/C68A | Unit0 numeric config0400 and scalar0404/0408 |
 | C6CA/C8EA | Unit0 packet0430..0478, omitting0454, and inverse getter |
-| CA80/CBE4 | Main single-halfword1204, packed14-bit geometry1308, distinct timing/control1400 |
+| CA80/CBE4 | Main single-halfword1204, packed14-bit timing1308, visible height1328/width132c, distinct timing/control1400 |
 | C1DA/C296 | Coefficients at selector addresses04a0/04d0/1490/14f0 or port2840/3840 |
 | D6E8 family | Port layout2200, dimensions2204, coordinate2208, four two-bit lane selectors2210 |
 | D48A/D568 | Ten dimensions2400..2424; first primary2440, further primary2480..24a0; secondary24c0..24e4; byte strides2500..2524/2540..2564; positions2580..25a4; enable25c0 |
@@ -76,18 +77,156 @@ Access is aligned32-bit. Two entries occupy bits0..11/16..27 or bits0..7/16..23.
 Three-plane8-bit tails contain one low byte. Single-table tails preserve the
 original LDRH value including its upper byte. Holes and bits outside each
 exact packed mask are rejected. Writes retain actual values and generate no
-event or guessed shader transform. E004 requests banks with bits2/10 while
-E0BA observes effective banks with bits16/24. BFFA and each complete table
+event or guessed shader transform. E004 uses request strobes1/9 and requested
+bank values2/10; E0BA observes effective banks16/24. BFFA and each complete table
 setter guard access to the effective bank while the corresponding engine
 reports status3. This supports a double-buffer interpretation. The named
-functional timing law commits enabled requested banks only at successful
+functional timing law commits strobed bank requests only at successful
 frame publication, preserving effective state on writes, cancellation and
 fault. Sub-unit start requests become status3 only after a supplied frame has
 completed; initialization alone cannot report a running frame producer.
 
 ## Functional image laws
 
-Main start requires nonzero1308 geometry and arms status1. Each virtual frame
+### Primary Y/UV view
+
+The normal source route `10269a6e -> 102692ca -> 103e2c08 -> 103e1ba4`
+submits a real processed view to the display queue. Channel0 then goes through
+`104d756e -> 10448584 -> 10448432`. The source selector at MAS VA
+`b180854c` is read as a byte; the enable at the display context's offset240
+is a word. A context state byte of3/4 permits submission, and phase byte3
+applies the packet immediately. Other supported phases cache it for the
+existing `10449d78` update path. A queue ownership pointer alone does not
+prove that any of these later conditions passed.
+
+`104482d8` supplies the primary plane PAs through `1046c354`, and
+`1044abae -> 1046c3c2` supplies its source extent, independent byte pitches
+and destination origin. All register offsets here are hexadecimal relative
+to the selected bank PA `20140000` or `20144000`.
+
+| Registers | Source contract and finite behavior |
+|---|---|
+| 0100 | Unit0 start1, published state3, pause2 or stop0; independent of main1200 |
+| 0200/0204 | Control family00300000, formats0/4, even nonzero source extent |
+| 0210/0220 | First Y/UV PAs; already adjusted for source ROI by the original caller |
+| 0240/0250 | Independent Y/UV byte pitches |
+| 0600/0604 | Destination x/y origin and additional controls; only controls0 supported |
+| 0400/0404/0408 | Scale enable; horizontal a/b and vertical e/f, each five-bit; disabled means unity |
+| 04a0..04b4 | Three rows of three signed16 coefficients, two words per row |
+| 04d0..04e4 | Three rows of three signed12 coefficients, two words per row |
+| 04f0 | Color-profile byte22; finite0 bypass /1 application of the second matrix |
+| 0500 | Source-produced byte, modeled as global alpha |
+
+For format4, `102692ca` maps the original view kind2 to the display format4;
+`104482d8` halves the UV crop-row offset. Format0 retains the full UV row
+offset. The bounded model reads one Y byte per pixel and interleaved U/V per
+horizontal pair, with half-height UV for format4 and full-height UV for
+format0. The interleaved order follows the same virtual NV12/NV16 convention
+as the modeled graph producer. It does not establish every physical format0
+or format4 use. No other format, active plane selector or secondary PA array
+is silently treated as this profile.
+
+The first matrix's source default has unity4000 and coefficients matching a
+full-range YUV-to-RGB transform. The second has unity400. The functional law
+therefore applies signed Q14 to `(Y, U-128, V-128)`, clips to RGB8, then
+applies the programmed signed Q10 matrix when04f0=1 and clips again;04f0=0
+bypasses that second operator. Each stage rounds
+by adding half a unit before the arithmetic shift. These normalization,
+centering, rounding and intermediate-clipping rules are explicit numerical
+assumptions, not a claim of measured panel colorimetry. Coefficients are
+computed, rather than accepted only when equal to the observed matrices.
+Both dot products now use signed32 intermediates: the qualified signed16 Q14
+matrix with byte Y/signed-byte UV stays below16.8 million including rounding;
+the signed12 Q10 matrix after RGB clipping stays below1.57 million. Every
+partial product/sum fits as well. An independent signed64 floor-division oracle
+checks coefficient extremes, cancellation and rounding in80 actual frame
+updates, both UV layouts, bypass/application and alpha0/1/127/128/255.
+Likewise the interpretation of0500 as premultiplied global alpha is a finite
+inference: `102692ca` publishes message byte44 and `10445bec -> 1046c160`
+forwards that byte, but its complete physical semantics are not recovered.
+
+The conversion shares only exact first-matrix chroma terms. For each channel,
+`C = M1*(U-128) + M2*(V-128)` is common to two horizontal pixels; format4 also
+shares it with the next row. Each individual Y sample still computes
+`clip((M0*Y + C +8192) >>14)`, then its own optional second matrix and alpha.
+There is no intermediate chroma rounding or clipping. The shared sum stays
+within8,388,608 in magnitude and the complete signed16 dot within16,744,448.
+The existing even-dimension qualification bounds every2×1 or2×2 tile. A
+bypassed Q10 operator on already clipped RGB and full alpha255 are exact
+identities, so neither needs a multiply/round/divide cycle. These reductions
+preserve the formula, complete plane reads, packet/byte cache checks and the
+existing unpublished-to-published frame boundary.
+
+`10448382` computes scaled width as `a * source_width / b` and height as
+`e * source_height / f`. The model uses nearest inverse sampling, no additional
+ROI shift, and clips at the visible output boundary. Nonzero filter phase
+is rejected. The primary view is composed first, followed by the existing
+two ports and graphic objects; that priority is an explicit functional
+composition law.
+
+All active source rows must be normal RAM, stay inside the32-bit physical
+domain and fit their pitches. Padding is not sampled or modified. The model
+reads both planes completely before rendering to the unpublished transaction;
+a late failed plane cannot replace the last published surface. Table-update
+and bank-switch requests at04c0 bits1/9,04f0 above1, enabled adjustment0410
+bit0, nonzero special window0430..0478, additional format controls and padding are
+rejected. Disabled adjustment payload remains retained. No new interrupt,
+guest-ready flag or completion is generated: primary pixels participate in
+the existing complete bank frame.
+
+The04c0 request bits do not establish a LUT-use enable. The04f0 byte comes
+from the same color-profile record whose nine signed coefficients feed04d0.
+The original special selector2/3 record at MAS VA1079f9cc has no table-update
+flags, an identity Q10 matrix and byte22=0. The normal default record at
+1079f9fc has the same flags and matrix with byte22=1; other normal records
+couple1 with different matrices and table updates. Applying the second matrix
+for1 and bypassing it for0 is therefore a finite functional inference. This
+does not recover all physical control semantics or prove LUT bypass. Active
+table-update requests remain explicit unsupported work.
+
+The matrix-only profile also qualifies the actual tables of the selected
+object. Both internal banks of the three33-point8-bit planes must describe
+`0,8,...,248,255`; the first additional curve must have the same identity
+points and the second must contain64 throughout. The two12-bit table families
+must be unconfigured zero. A changed point rejects the frame rather than
+silently ignoring a possible active lookup. The source composition at
+MAS VA10447c82 and upload1046dc44 establish the per-channel curve family;
+the additional source curves at107a2094 and107a2118 establish these point
+functions. Treating the constant64 curve as neutral gain is a finite
+hypothesis, not a recovered hardware division by64. The8-bit families use
+main1510 bank management, independently of unit0's04c0. Unconfigured12-bit
+tables are not described as an identity operator.
+
+Each bank retains at most one converted primary image, its complete frame
+packet, and the exact owned Y/UV bytes. Every frame still validates the live
+packet, neutral curve contents and RAM extents, and reads both current planes.
+Only an identical packet and identical sampled bytes reuse the converted
+Pixman image. Pitch padding is outside those sampled bytes. Any changed
+sample, coefficient, geometry, scale or control causes a fresh conversion and
+transform. This is an exact host computation cache; it does not infer guest
+memory dirtiness or reduce frame cadence, composition, console publication or
+completion IRQs.
+
+Primary disable, main pause/stop, frame failure, reset, unrealize and finalization
+release the retained image and byte buffers. Each source extent and converted
+image remains bounded by the existing `16 * 1024 * 1024` pixel budget. Read-only QOM
+properties `primary-conversions` and `primary-reuses` count successful primary
+conversions and exact matches across both banks; reset clears both counters.
+The native `/arm/nikon/image/primary-cache` fixture checks reuse with actual
+console pixels, single-byte Y/U changes, ignored pitch padding, scaling, alpha,
+matrix changes, curve failure/recovery, disable and reset. Its results remain
+synthetic host-runtime validation, separate from original-firmware timing.
+
+Synthetic native fixtures cover both UV heights, nonneutral chroma, signed
+coefficients in both matrices, source padding, live updates, global alpha,
+scaled destination placement and composition beneath an RGBA overlay.
+Negative fixtures retain the previous surface for bad geometry, pitch,
+ROM/MMIO/wrapping planes, active unsupported effects and malformed matrices;
+pause and reset cancel publication through the existing lifecycle. These
+fixtures are separate from unchanged-firmware execution evidence.
+
+Main start requires nonzero visible width132c/height1328 within the allocation
+budget and arms status1. Each virtual frame
 boundary snapshots the live supported packet and validates every enabled
 provider. A transaction with no enabled layer completes status and IRQ but
 creates neither a console nor host pixels. This is the bounded command100
@@ -100,7 +239,7 @@ publishes only a complete image. Successful publication reports active3;
 scanout continues until pause/stop. This follows the original live setter
 chains DD988A→DD354→D6E8→95EC→DD2A8→D48A/C354 and D942A→DD20E→D0D2,
 which update layers/bitmaps without another BF0C master start. The boundary
-and timer use a named nominal48MHz pixel service rate. This is not measured
+and timer use a named nominal48MHz service rate over the visible pixels. This is not measured
 EXPEED speed, sensor cadence or vblank. An armed device may await real input;
 absent providers and software ready3 writes cannot produce a frame. Invalid
 live input preserves the previous complete surface while later updates can
@@ -138,7 +277,8 @@ layer cannot publish an earlier partial frame. Failure and cancellation keep
 the last completed surface.
 
 Named virtual component profiles are layout0 lane-routed RGBA; layout1/4
-RGB565; layout2 ARGB1555; layout3 ARGB4444; layout5 RGB565+A4; layout6 RGB565+A8.
+RGB565; layout2 ARGB1555; layout3 ARGB4444; layout5 RGB565+A4; and the older
+layout6 RGB565+A8 convention outside the bounded YUVA profile below.
 Controlbit4 reverses byte order; controlbit28 selects layout0 alpha. Source
 proves footprints and lane selectors, **not packed component identities**.
 Pixman composes premultiplied layers in port/layer order. Actual enabled
@@ -146,6 +286,98 @@ object records then render clipped rectangles from their position and extent.
 Their three bytes use a named virtual RGB order. The two six-bit fields remain
 neutral retained values, not guessed alpha, rotation or format. These named
 conventions support functional output and need later source/hardware refinement.
+
+For external A4/A8 alpha, opacity0 yields the same transparent zero without
+color conversion; opacity255 retains the converted opaque pixel without
+redundant premultiplication. Intermediate opacity retains the existing integer
+formula. Both color and alpha planes still pass complete RAM validation and
+actual DMA reads, including fully transparent images. The endpoint fixture
+checks all-zero, all-opaque and mixed rows for RGB565+A4/A8 and asymmetric
+YYUV+A8 over a white background, preserving input/padding
+and invalid transparent-source rejection. This is exact arithmetic reduction,
+not a different pixel model, frame cadence or completion rule.
+
+## Format17 YUVA provider
+
+The unchanged original run in `run readinessnormal/banks.json`
+submits unit1 port0 with control `00030006`, lanes `02000301`, a 1024x682
+layer, primary PA `cb4a7000`, secondary PA `cb5fc000`, and byte strides
+2048/1024. The same run's `banks-head1.ppm` contains the old decoder's stripes.
+These PAs are the earlier [transfer107 output](../transfer/clearmode.md),
+whose finite producer writes `[Y0,Y1,U,V]` per horizontal pair and separate
+per-pixel A8. Interpreting each two-byte primary word as RGB565 discards that
+pair structure and treats chroma bytes as unrelated RGB pixels.
+
+The saved original MAS source projections in that directory separate facts:
+`104dd354` maps software format17 to layout6; `104d94b6` and `104dda26`
+compute two primary bytes and one secondary byte per pixel, preserve their
+independent strides, and adjust cropped plane pointers. `1046d6e8` serializes
+the layout, control fields and four two-bit lane selectors into the port
+packet. The source and original packet identify a producer/consumer profile;
+they do not establish physical identities for every control flag, a generic
+layout6 format, or another lane permutation.
+
+The finite model consequently decodes only control `00030006` with lanes
+`02000301` as paired YYUV plus A8. Each pair shares U/V but has independent
+Y and alpha. Limited-range integer BT.601 conversion, clipping to RGB8,
+and alpha premultiplication use the same functional color convention as
+the existing transfer107 inverse; they are not measured hardware colorimetry
+or bit-exact GPU precision. Pixman retains the existing OVER composition.
+Two-pixel width, a four-byte primary pointer and a four-byte primary stride
+are conservative complete-pair boundaries. Unknown controls in the layout6
+bit16/17 family, different lanes, odd widths and incomplete pair alignment
+reject the whole frame instead of silently selecting RGB565. The earlier
+layout6 profile without those bits and the other layouts remain unchanged.
+
+This uses the existing unit/port/layer arrays, independent plane addresses,
+normal-RAM row validation and DMA, with no resource-address whitelist or
+invented output DMA. All enabled layers finish before publication; a bad
+later provider preserves the previous surface and supplies no new completion.
+Live updates, cancellation, reset and cadence retain their existing contract.
+At this checkpoint the decoder preserved the old interpretation of1308 as
+780x780 output. The following source analysis separates it from the original
+visible-area fields; a layer extent alone is not the output-size authority.
+
+## Main visible area and timing
+
+`10448f92` calls `10448e20` with a rear/EVF selection derived from the original
+request; the rear branch calls `10448d12(packet,0)` before `1046ca80` at
+`10448efa`. That producer writes packet+22/+24 as780/780, packet+32 as1155,
+and packet+46/+48 as682/1024. The setter serializes these distinct fields to
+main1308,130c,1328 and132c respectively. Its inverse `1046cbe4` reconstructs
+the same offsets. The visible fields are unsigned halfwords loaded without a
+14-bit mask, unlike1308; their accepted write masks are therefore `ffff`.
+The fixed rear producer does not read resource24/25/27 to choose these values.
+Those resources and their qualified input bodies remain unchanged.
+
+An independent consumer, `104dae5a -> 104dd5ae -> 1046ca80`, copies one of
+18 fixed56-byte ROM profiles from MAS VA `1079ed90`. Their1308 pairs include
+525/525 with1328/132c=480/720;625/625 with576/720;750/750 with720/1280;
+1125/1125 with1080/1920; and2250/2250 with2160/3840. Two rows instead have
+562/563 while still declaring1080/1920. This rules out interpreting1308's
+two fields as horizontal and vertical visible dimensions. Its role as a
+pair of vertical timing counts is a strong inference; exact physical field,
+blanking and cadence semantics remain unverified.130c carries a separate
+timing scalar, including1155 in the fixed rear profile.
+
+The normal20-host-second original run's read-only `geometry.json` in
+`run moduleinput/` observes unit1 main1308=`030c030c`,
+130c=`483`,1310/1314=`3`,1318=`707`,131c=`60`,1320/1324=`0`,
+1328=`2aa` and132c=`400`. Together with the setter/producer and the distinct
+port viewport, this supports the finite rule: compose the output at the
+explicit132c width and1328 height, while retaining1308 and the other timing
+words separately. It neither guesses a maximum layer extent nor substitutes
+1024 for a known address or timing value.
+
+All console allocation, start validation and nominal pixel-service budgeting
+use the explicit visible extent. Missing, zero or over-budget visible fields
+cannot publish or complete. Live visible changes retain the existing frame
+boundary, clip the independently sized port canvas through Pixman, and publish
+only after every enabled provider succeeds. Unknown upper bits reject before
+changing the retained visible field. Reset clears both fields; pause cancels
+pending publication. There is no fallback to the former1308 layout. The
+48MHz service law remains a functional convention and does not derive a
+physical refresh rate from the recovered timing counts.
 
 After actual composition the bank lazily creates a QEMU graphic console and
 publishes the exact Pixman image. An empty transaction supplies completion but
@@ -180,7 +412,7 @@ by name.
 
 ## Native validation
 
-`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Ten
+`image.c` exports `nikon_image_add_tests(bios)` to the sole builder. Existing
 no-TCG cases check exact PPM pixels and padded input; all seven layouts;
 cancellation preserving the surface; a bad final layer preserving the whole
 surface without IRQ; two ports/shared IRQ; independent register domains;
@@ -203,15 +435,60 @@ with the exact RGB,8×8 extent, object, cancellation, fault and packed-table
 assertions retained. Tested device source is `ef0ba27`; the named board endpoint
 is `43ea19b`; fixture `4c1db31` selects the device/head and suppresses unused
 defaults. The preserved log is
-`native-qemu-source/work/validation/gui/imagenativefinal.log`.
+`native-qemu-source/run validation/gui/imagenativefinal.log`.
 The earlier default-console failure and upstream text-property abort are
 closed by the supported fixture launch contract. No naturally submitted
 original frame or camera measurement follows from this native receipt.
 The sole builder independently compiled the continuous/affine extension from
 `d31386c` and observed all nine cases passing, including refresh, in
-`qemu-submodule/work/scanoutfinal.log`; that receipt is separate from the prior
+`qemu-submodule/run scanoutfinal.log`; that receipt is separate from the prior
 eight-case baseline. The sole builder compiled the signed-origin change;
 focused crop/ports/refresh checks exited0 in1.11/1.10/1.11s, respectively,
-recorded in `work/displaycropreceipt.log`, `work/displayportsreceipt.log` and
-`work/displayrefreshreceipt.log`. Processing's unchanged exact-byte,
+recorded in `run displaycropreceipt.log`, `run displayportsreceipt.log` and
+`run displayrefreshreceipt.log`. Processing's unchanged exact-byte,
 EOF and cancellation receipts are not rerun for this display change.
+
+The YUVA fixtures add independent tabulated black/white/red/green/blue
+vectors with unequal Ys and alpha0/64/128/255, multiple pairs and rows with
+padding, both units and ports and layers0/1/4/9, actual head pixels, live
+independent plane changes, pause/reset cancellation, and a full 1024x682
+frame in independently chosen RAM. Unknown lanes/control, odd width,
+unaligned pair pointer/stride, short color/alpha stride and MMIO planes
+must preserve the preceding complete surface without completion, followed
+by recovery. These synthetic fixtures do not themselves establish an
+additional original menu or physical scanout receipt.
+
+Parent native red (`native-yuva-red.log`) exercised the new fixture against
+the old decoder and failed its pixel assertion, 32 versus64. The complete
+image batch then passed all14 subtests in4.41s (`native-image-green.log`).
+Both receipts are in `run readinessnormal/`.
+
+The separate unchanged-firmware `color` run in that directory used the same
+declared inputs, healthy UART peer and20 host seconds without an in-transaction
+debugger pause. QMP published `display` head1 at780x780; head0 had no console.
+`color-head1.ppm` shows guest icons and the error dialog with corrected colors.
+This establishes an original error-GUI frame under the finite input/device
+profiles, not a normal menu, complete boot or physical-camera color receipt.
+No firmware bytes, guest readiness fields or guest pixels were injected.
+
+The visible-area fixture programs the source-shaped1308=`030c030c` alongside
+1328=682/132c=1024, and compares every output pixel, including columns780..1023.
+All earlier image fixtures now supply their explicit visible fields. The
+new case also checks a live512x342 output clipping a1024x682 port canvas,
+high-bit write rejection, missing/zero/over-budget extents preserving the
+complete prior surface without IRQ, recovery, pause and reset. The parent's
+old-model `native-visible-red.log` in `run moduleinput/`
+rejects the expected1024x682 PPM length2095120 against the old780x780 length
+1825215. That synthetic red is separate from the original register snapshot
+and from any subsequent corrected original-run frame.
+
+The parent whole-image batch passes all15 subtests in4.61s
+(`moduleinput/native-image-green.log`). The separate `visible`
+unchanged-firmware run retains the same normal inputs and20 host seconds:
+QMP `display` head1 now publishes1024x682, with the complete guest error
+dialog and right-side icons in `visible-head1.ppm`. It adds no descriptor32
+input and retains the resource80 error. This verifies the corrected visible
+extent, not normal-menu startup or a physical refresh-rate measurement.
+The shared sensor-to-display fixture also programs its explicit8x8 visible
+fields; `/arm/nikon/sensor/display-buffer` passes in0.79s in the separate
+`nikon_sensor` executable (`native-display-buffer-green.log`).

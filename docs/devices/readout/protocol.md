@@ -99,5 +99,5 @@ reserved bits, real widths, unknown holes, missing-provider errors, both full
 tokens, stale/cancelled results, partial W1C/IRQ, ISR resubmit retention,
 guest reset, cold reset and unrealize cancellation. The sole builder compiled
 the fixed `04c8164` results API and executed this native case with exit0 in0.65s;
-the receipt is `work/readoutprotocolnativereceipt.log`. It does not establish
+the receipt is `run readoutprotocolnativereceipt.log`. It does not establish
 an original hardware result producer or camera startup.

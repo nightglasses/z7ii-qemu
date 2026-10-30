@@ -1,0 +1,11 @@
+Native test output excerpt
+Run: guinormal-20261022
+Original log: native-acceleration.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+ok 1 /arm/nikon/acceleration/controller
+ok 2 /arm/nikon/acceleration/held-selector
+ok 3 /arm/nikon/acceleration/uncovered-read
+1..3
+Ok:                1
+Fail:              0

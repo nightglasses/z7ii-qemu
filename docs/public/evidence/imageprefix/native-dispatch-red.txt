@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: imageprefix-20261023
+Original log: native-dispatch-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /nikon/transfer/inline-rectangles - ERROR:../../config/source/tests/unit/nikon/transfer.c:2908:test_inline_rectangles: assertion failed (submit_inline_rectangles(&f, 0x400000, 224, 1688, true) == MEMTX_OK): (1 == 0) FAIL
+▶ 1/1                                     ERROR
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.76s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/unit/nikon/transfer.c:2908:test_inline_rectangles: assertion failed (submit_inline_rectangles(&f, 0x400000, 224, 1688, true) == MEMTX_OK): (1 == 0)
+1/1 unit+nikon - qemu:nikon_transfer_unit ERROR           0.76s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

@@ -1,7 +1,7 @@
 # SLA paired banks and sampling families
 
 This audit consumes the existing official SOURCE11 `sla.S` and original
-`sla-rows.jsonl` in `zero-domain-source/work/sla-whole-source-11`. It does not
+`sla-rows.jsonl` in `zero-domain-source/run sla-whole-source-11`. It does not
 decode gaps or treat registry objects as executable method pointers. The models
 are reused by their finite protocol, not by coincident IRQ numbers.
 
@@ -28,6 +28,12 @@ writes both banks' `0C=1`, `00=04=3`, releases the clock and enables the IRQs.
 `100965CC` / `100968C0` also write mask `E8=FFFFFF71`; `F0` receives `8E` or
 `FC400`. The mask inhibits delivery, not raw pending retention.
 
+The [eight-field packet](parameters.md) independently matches SLA `10096d20`
+to MAS `1036a2ac`. It adds the omitted `a8` member in both banks; the other
+seven members already belong to this retained configuration profile. Neither
+the original load widths nor one observed value establish physical legal-bit
+masks or a completion producer.
+
 `10096CBA..100994C2` supplies the scalar, packed packet and word-array setters.
 The old model accepted only exact initial profile values and stopped at `680`.
 The shared model now retains the complete source-proved configuration words,
@@ -49,11 +55,15 @@ The indirect table selection at `10098A00/10098A20` additionally consumes the
 original pointer array `1016AF08`; destinations require its actual snapshot,
 not inference from adjacent table addresses.
 
-Status consumers use `100994E2`. Their result words, including `18`, `118`,
+Status consumers use `100994E2`. Their remaining result words, including
 `350..360`, `388..390`, `3B8..3C0`, `3CC..3D4`, `3E4`, `3F4..3FC`,
 `474..484`, `4CC..4DC`, `680`, `77C/780`, `9DC/9E0`, `BC0/BC4/BC8/BD0`,
 `E1C` and `F30`, have no recovered result producer and remain strict errors.
-Requests `08/10/54/60/6C/78` likewise remain unsupported. `580` is now proved
+The common device now provides finite `18` request status, `118` work count
+and `08/10/54/60/6c/78` processing/cancellation through the
+[pixel contract](pixels.md). The standalone SLA machine has no completed-RAW
+producer connection and does not acquire pixels merely by issuing a request.
+`580` is now proved
 as a full-word setter by `10097934`; the source does not prove an event side effect.
 
 The existing functional provider `pending-bit[0..31]` latches bank-0 causes;
@@ -113,6 +123,6 @@ They cover actual initialization/configuration, finite table endpoints, bank
 independence, default disconnected providers, fresh complete sample publication,
 partial W1C retention and reset. The sole builder executed the private pairs
 case and full provider-topology case with exit0 in1.34s each;
-`work/slapairsnativereceipt.log` and `work/slaprovidertopologynativereceipt.log`
+`run slapairsnativereceipt.log` and `run slaprovidertopologynativereceipt.log`
 record those separate invocations. The four unchanged event protocols were
 not rerun; topology exercises their real private-GIC event/ACK paths.

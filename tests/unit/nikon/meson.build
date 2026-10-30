@@ -1,3 +1,52 @@
+fixture = executable('nikon_battery_unit',
+  files('battery.c', '../../../tools/nikon/battery.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_battery_unit', fixture, env: test_env,
+  args: ['--tap', '-k', nikon_battery_tool.full_path()],
+  depends: nikon_battery_tool, protocol: 'tap', timeout: 30,
+  suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_batterypeer_unit',
+  files('batterypeer.c', '../../../tools/nikon/battery.c',
+        '../../../tools/nikon/batterypeer.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_batterypeer_unit', fixture, env: test_env,
+  args: ['--tap', '-k', nikon_battery_tool.full_path()],
+  depends: nikon_battery_tool, protocol: 'tap', timeout: 30,
+  suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_module_unit',
+  files('module.c', '../../../tools/nikon/module.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_module_unit', fixture, env: test_env,
+  args: ['--tap', '-k', nikon_module_tool.full_path()],
+  depends: nikon_module_tool, protocol: 'tap', timeout: 30,
+  suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_gatepacket_unit',
+  files('gatepacket.c', '../../../hw/nikon/devices/gatepacket.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gatepacket_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_pairedpixels_unit',
+  files('pairedpixels.c', '../../../hw/nikon/devices/pairedpixels.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_pairedpixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_gatepixels_unit',
+  files('gatepixels.c', '../../../hw/nikon/devices/gatepixels.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gatepixels_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
+fixture = executable('nikon_gategrid_unit',
+  files('gategrid.c', '../../../hw/nikon/devices/gategrid.c'), genh,
+  dependencies: [qemuutil])
+test('nikon_gategrid_unit', fixture, env: test_env, args: ['--tap', '-k'],
+  protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
 if have_system and (config_all_devices.has_key('CONFIG_NIKON_Z7II') or
                     config_all_devices.has_key('CONFIG_NIKON_VR'))
   fixture = executable('nikon_bundle',
@@ -10,8 +59,10 @@ endif
 if have_system and (config_target_mak.has_key('arm-softmmu') and
                    config_all_devices.has_key('CONFIG_NIKON_Z7II'))
   foreach name : ['memory', 'copy', 'transfer', 'bridge', 'dispatcher',
-                  'command', 'input', 'readout',
-                  'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi']
+                  'command', 'input', 'readout', 'panel',
+                  'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi', 'cmos',
+                  'acceleration', 'lens', 'gatework', 'gateplane', 'gridflow',
+                  'paired', 'fill']
   fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],
@@ -31,5 +82,11 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
     files('exboot.c', '../../../hw/nikon/components/exboot.c'), genh,
     dependencies: [qemuutil])
   test('nikon_exboot_unit', fixture, env: test_env, args: ['--tap', '-k'],
+    protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
+
+  fixture = executable('nikon_exconfig_unit',
+    files('exconfig.c', '../../../hw/nikon/components/exconfig.c'), genh,
+    dependencies: [qemuutil])
+  test('nikon_exconfig_unit', fixture, env: test_env, args: ['--tap', '-k'],
     protocol: 'tap', timeout: 30, suite: ['unit', 'nikon'])
 endif

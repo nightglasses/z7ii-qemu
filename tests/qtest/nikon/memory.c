@@ -58,6 +58,108 @@ static void memory_quit(MemoryTest *t)
     g_free(t->image);
 }
 
+static void memory_constant(GArray *code, unsigned reg, uint32_t value)
+{
+    uint32_t low = value & 0xffff, high = value >> 16;
+    uint32_t words[] = {
+        0xe3000000 | (low & 0xf000) << 4 | reg << 12 | (low & 0xfff),
+        0xe3400000 | (high & 0xf000) << 4 | reg << 12 | (high & 0xfff),
+    };
+
+    g_array_append_vals(code, words, ARRAY_SIZE(words));
+}
+
+static void test_cpu_ram(void)
+{
+    /*
+     * Partial pages, interior pages and exact last words of every RAM slot.
+     * BED661C8 is the original GUI's failing physical access.
+     */
+    static const uint32_t addresses[] = {
+        0xb1800000, 0xb5effffc, 0xb5f00000, 0xb7cffffc,
+        0xb7d00000, 0xba9ffffc, 0xbaa00000, 0xbb2ffffc,
+        0xbb300000, 0xbc0ffffc, 0xbc100000, 0xbd1ffffc,
+        0xbec5f200, 0xbec5f400, 0xbed661c8, 0xbf10f1fc,
+        0xbf10f200, 0xbf10f400, 0xbf3095fc,
+        0xbf309600, 0xbf309800, 0xbf7b95fc,
+        0xbf7b9600, 0xbff43ac0, 0xbff44340, 0xc175d5fc,
+        0xc175d600, 0xc175d800, 0xc1c0d5fc,
+        0xc1c0d600, 0xc1c0e000, 0xc24cb2fc, 0xc24cb3fc,
+        0xc24cb400, 0xc24cc000, 0xc33ab400, 0xc33cb3fc,
+        0x5d170000, 0x5d171000, 0x5d181ffc, 0x5d1dbffc,
+        0x5df45400, 0x5df46000, 0x5f8d23fc,
+        0xcb4a7000, 0xcc63affc, 0x62059800, 0x62059c00, 0x622217fc,
+        0x62221800, 0x62222000, 0x625219bc, 0x626217fc,
+        0xb0100000, 0xb0800000, 0xb08ffffc, 0xaf8d4000, 0xaf9ffffc,
+        0x50300000, 0x5063fffc, 0xb0d00000, 0xb10ffffc,
+        0xb0900000, 0xb0cffffc, 0x04008ea8, 0x04008efc, 0x04008ffc,
+    };
+    const uint32_t observations = 0xb1801000;
+    const uint32_t done = observations + 8 * ARRAY_SIZE(addresses);
+    g_autoptr(GArray) code = g_array_new(false, false, sizeof(uint32_t));
+    g_autofree uint32_t *little = NULL;
+    MemoryTest t = { 0 };
+    int fd;
+
+    memory_constant(code, 3, observations);
+    for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+        uint32_t words[] = {
+            0xe5902000,                       /* ldr r2, [r0] */
+            0xe5832000 | (i * 8),             /* record bus-produced value */
+            0xe5801000,                       /* str r1, [r0] */
+            0xe5902000,                       /* ldr r2, [r0] */
+            0xe5832000 | (i * 8 + 4),         /* record CPU-produced value */
+        };
+
+        memory_constant(code, 0, addresses[i]);
+        memory_constant(code, 1, 0x5a000000 + i);
+        g_array_append_vals(code, words, ARRAY_SIZE(words));
+    }
+    memory_constant(code, 0, done);
+    {
+        const uint32_t finish[] = { 0xe3a01001, 0xe5801000, 0xeafffffe };
+
+        g_array_append_vals(code, finish, ARRAY_SIZE(finish));
+    }
+    little = g_new(uint32_t, code->len);
+    for (unsigned i = 0; i < code->len; i++) {
+        little[i] = cpu_to_le32(g_array_index(code, uint32_t, i));
+    }
+    fd = g_file_open_tmp("nikon-memory-cpu-XXXXXX", &t.image, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(write(fd, little, code->len * 4), ==, code->len * 4);
+    close(fd);
+    t.qts = qtest_initf("-machine z7ii-mas-diagnostic -smp 1 -bios %s "
+                        "-display none -serial none -accel tcg,thread=single -S",
+                        t.image);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        int64_t deadline;
+
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        qtest_writel(t.qts, done, 0);
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            qtest_writel(t.qts, addresses[i], 0xa5000000 + phase * 0x100 + i);
+        }
+        qtest_qmp_assert_success(t.qts, "{'execute':'cont'}");
+        deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+        while (!qtest_readl(t.qts, done)) {
+            g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+            g_usleep(1000);
+        }
+        qtest_qmp_assert_success(t.qts, "{'execute':'stop'}");
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, observations + i * 8), ==,
+                            0xa5000000 + phase * 0x100 + i);
+            g_assert_cmphex(qtest_readl(t.qts, observations + i * 8 + 4), ==,
+                            0x5a000000 + i);
+            g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==, 0x5a000000 + i);
+        }
+    }
+    memory_quit(&t);
+}
+
 static const uint64_t class_bounds[][2] = {
     { 0xb1800000, 0xb5f00000 },
     { 0xb5f00000, 0xb7d00000 },
@@ -122,6 +224,36 @@ static void test_no_bus_mirror(void)
     memory_quit(&t);
 }
 
+static void test_kind40_buffer(void)
+{
+    const uint64_t base = 0x62059800, end = 0x62221800;
+    const uint64_t addresses[] = { base, base + 0xe4000, end - 4 };
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==, 0);
+        qtest_writel(t.qts, addresses[i], 0x40280000 + i);
+    }
+    /*
+     * The logical view requires the guest MMU. The adjacent pools belong
+     * independently to kind39 below and kind41 above.
+     */
+    qtest_writel(t.qts, 0x36d59800, 0x12345678);
+    qtest_writel(t.qts, end, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, 0x36d59800), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x12345678);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(addresses); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, addresses[i]), ==,
+                            0x40280000 + i);
+        }
+    }
+    memory_quit(&t);
+}
+
 static void set_decode(MemoryTest *t, uint32_t high_length)
 {
     qtest_writel(t->qts, 0x20016d50, 0x60000000);
@@ -129,6 +261,34 @@ static void set_decode(MemoryTest *t, uint32_t high_length)
     qtest_writel(t->qts, 0x20016d58, high_length);
     qtest_writel(t->qts, 0x20016d5c, 0xb0000000);
     qtest_writel(t->qts, 0x20016d40, 1);
+}
+
+static void test_row_storage(void)
+{
+    const uint32_t cells[] = {
+        0x50300000, 0x5055fffc, 0x50560000, 0x5063fffc,
+    };
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x120b0000 + i);
+    }
+    qtest_writel(t.qts, 0x502ffffc, 0x12345678);
+    qtest_writel(t.qts, 0x50640000, 0x12345678);
+    qtest_writel(t.qts, 0x30260000, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, 0x502ffffc), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0x50640000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0x30260000), ==, 0);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x120b0000 + i);
+        }
+    }
+    memory_quit(&t);
 }
 
 static void test_decode_retention(void)
@@ -216,17 +376,18 @@ static void test_lcd_composition(void)
     qtest_writel(t.qts, draw_end, 0x1cd00001);
     qtest_writel(t.qts, end - 4, 0x1cd00002);
 
-    /* Record1 ends at index5's exact base; the index5 right edge is a hole. */
+    /* Records1 and6 are independent partitions of the same owner pool. */
     qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x87654321);
     g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
-    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
 
     qtest_system_reset(t.qts);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x1cd00000);
     g_assert_cmphex(qtest_readl(t.qts, draw_end), ==, 0x1cd00001);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x1cd00002);
     g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
     memory_quit(&t);
 }
 
@@ -297,16 +458,18 @@ static void test_resource57_record7(void)
     qtest_writel(t.qts, fill_end, 0x57070001);
     qtest_writel(t.qts, end - 4, 0x57070002);
 
-    /* Record7 is exact; record8 begins at its end and remains a hole. */
+    /* Records6 and8 are independently published neighbors within kind57. */
     qtest_writel(t.qts, base - 4, 0x12345678);
     qtest_writel(t.qts, end, 0x87654321);
-    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0);
-    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
 
     qtest_system_reset(t.qts);
     g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57070000);
     g_assert_cmphex(qtest_readl(t.qts, fill_end), ==, 0x57070001);
     g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57070002);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x87654321);
     memory_quit(&t);
 }
 
@@ -323,6 +486,401 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_writel(qts, 0x04251028, 0x9000);
     qtest_writel(qts, 0x04251028, 0x11109003);
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_gui_pool(void)
+{
+    const uint32_t base = 0xbec5f200, end = 0xc24cb400;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = {
+        base, 0xbf7b9600, 0xbff43ac0, 0xc175d5fc,
+        0xc1c0d600, 0xc24cb2fc, end - 4,
+    };
+    const uint32_t copies[] = {
+        0xbf7b95f0, 0xbff44340, 0xc175d5f0, 0xc1c0d5f0,
+    };
+    const uint32_t holes[] = { base - 1, 0xc33cb400, 0x38e5f200 };
+    uint8_t expected[0x7e0], actual[sizeof(expected)];
+    MemoryTest t = memory_init("");
+
+    /* The complete pool includes both large partitions and its100-byte tail. */
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x57000000 | i);
+    }
+    qtest_writeb(t.qts, 0xbff43ac2, 0x80);
+    g_assert_cmphex(qtest_readb(t.qts, 0xbff43ac2), ==, 0x80);
+    qtest_writel(t.qts, end, 0x74000000);
+    for (unsigned i = 0; i < ARRAY_SIZE(copies); i++) {
+        g_test_message("GUI pool COPY%u destination=0x%08x", i, copies[i]);
+        for (unsigned j = 0; j < sizeof(expected); j++) {
+            expected[j] = j * 29 + i * 17;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        /* COPY retains completion until ACK; each submission needs it clear. */
+        qtest_writel(t.qts, 0x04251030, 0);
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 0);
+        prefix_copy(t.qts, source, copies[i], sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, copies[i], actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x57000000);
+    g_assert_cmphex(qtest_readb(t.qts, 0xbff43ac2), ==, 0x80);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x57000006);
+    /* Kind74 begins at the exact pool end and keeps its own bytes. */
+    g_assert_cmphex(qtest_readl(t.qts, end), ==, 0x74000000);
+    qtest_memread(t.qts, copies[ARRAY_SIZE(copies) - 1], actual,
+                  sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    memory_quit(&t);
+}
+
+static void test_interpolation_pool(void)
+{
+    const uint32_t base = 0xc24cb400, end = 0xc33cb400;
+    const uint32_t record = 0xc33ab400, length = 0x19c80;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = { base, base + 0xc00, record, end - 4 };
+    const uint32_t holes[] = { end, 0x3c6cb400, 0x3d5ab400 };
+    g_autofree uint8_t *expected = g_malloc(length);
+    g_autofree uint8_t *actual = g_malloc(length);
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x74000000 + i);
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x74000000 + i);
+    }
+    /* The preceding byte belongs to kind57's declared100-byte tail. */
+    qtest_writel(t.qts, base - 4, 0x5700ffff);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
+    for (unsigned i = 0; i < length; i++) {
+        expected[i] = (i * 29 + (i >> 8) * 11 + 7) & 0xff;
+    }
+    qtest_memwrite(t.qts, source, expected, length);
+    prefix_copy(t.qts, source, record, length);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    qtest_memread(t.qts, record, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+
+    /* Exact pool edges and the logical view are not physical RAM aliases. */
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    qtest_memread(t.qts, record, actual, length);
+    g_assert_cmpmem(actual, length, expected, length);
+    g_assert_cmphex(qtest_readl(t.qts, base), ==, 0x74000000);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x74000003);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x5700ffff);
+    memory_quit(&t);
+}
+
+static void test_grid_pool(void)
+{
+    const uint32_t base = 0x5d170000, length = 0x12000, count = 6;
+    const uint32_t source = 0xb1804000;
+    g_autofree uint8_t *expected = g_malloc(length * count);
+    g_autofree uint8_t *actual = g_malloc(length);
+    MemoryTest t = memory_init("");
+
+    for (unsigned slot = 0; slot < count; slot++) {
+        uint32_t destination = base + slot * length;
+        uint8_t *pattern = expected + slot * length;
+
+        g_assert_cmphex(qtest_readl(t.qts, destination), ==, 0);
+        g_assert_cmphex(qtest_readl(t.qts, destination + length - 4), ==, 0);
+        for (unsigned i = 0; i < length; i++) {
+            pattern[i] = (i * 29 + (i >> 8) * 11 + slot * 37 + 7) & 0xff;
+        }
+        qtest_memwrite(t.qts, source, pattern, length);
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, destination, length);
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    }
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned slot = 0; slot < count; slot++) {
+            qtest_memread(t.qts, base + slot * length, actual, length);
+            g_assert_cmpmem(actual, length, expected + slot * length, length);
+        }
+    }
+    memory_quit(&t);
+}
+
+static void test_large_grid_pool(void)
+{
+    const uint32_t base = 0x5df45400, size = 0x198d000;
+    const uint32_t source = 0xb1804000;
+    const uint32_t cells[] = {
+        base, base + 0x663400 - 4, base + 0x663400,
+        base + 254 * 0x12000, base + 255 * 0x12000 - 4,
+        base + size - 4,
+    };
+    const uint32_t holes[] = { base - 1, base + size };
+    uint8_t expected[0x300], actual[0x300];
+    MemoryTest t = memory_init("");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+        g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0);
+        qtest_writel(t.qts, cells[i], 0x32000000 + i);
+    }
+    /* The first-read consumer subdivides this pool into 12000-byte slots. */
+    for (unsigned slot = 0; slot < 255; slot++) {
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 29 + slot * 7;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, base + slot * 0x12000 + 0x7f1,
+                    sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, base + slot * 0x12000 + 0x7f1,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    /* Ordinary kind18 has independent storage, even at the same slot offset. */
+    qtest_writel(t.qts, 0x5d170000, 0x18000000);
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(cells); i++) {
+            g_assert_cmphex(qtest_readl(t.qts, cells[i]), ==, 0x32000000 + i);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, 0x5d170000), ==, 0x18000000);
+        qtest_memread(t.qts, base + 254 * 0x12000 + 0x7f1,
+                      actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    memory_quit(&t);
+}
+
+static void test_capture_pools(void)
+{
+    static const struct {
+        uint32_t base, unit, count;
+    } pools[] = {
+        { 0x54900000, 0x220d000, 4 },
+        { 0x5d134000, 0xa000, 6 },
+        { 0x5d1dc000, 0x36000, 6 },
+        { 0xafa00000, 0x10e00, 4 },
+        { 0x5d320000, 0x65400, 4 },
+        { 0xafc3dc00, 0x18000, 4 },
+        { 0x5d4b5000, 0xc00, 5 },
+        { 0x5f914400, 0xd800, 4 },
+        { 0xdec7fc00, 0x1a82a00, 2 },
+        { 0xe2185000, 0x248a00, 2 },
+        { 0xdcb3c800, 0x1c4000, 4 },
+        { 0xdbb1d000, 0x339800, 5 },
+        { 0xbe5d2200, 0x182200, 3 },
+    };
+    static const uint32_t holes[] = {
+        0x548fffff, 0x5d4b8c00,
+        0xaf8d3fff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
+        0x5f9143ff, 0x5f94a400, 0xdec7fbff, 0xe2616400,
+        0xdbb1cfff, 0xdd24c800, 0xbe5d21ff, 0xbea58800,
+    };
+    const uint32_t source = 0xb1804000;
+    uint8_t expected[259], actual[259];
+    MemoryTest t = memory_init("");
+
+    for (unsigned p = 0; p < ARRAY_SIZE(pools); p++) {
+        for (unsigned slot = 0; slot < pools[p].count; slot++) {
+            uint32_t base = pools[p].base + slot * pools[p].unit;
+            uint32_t tag = 0xc0170000 | p << 8 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, 0);
+            g_assert_cmphex(qtest_readl(t.qts, base + pools[p].unit - 4), ==, 0);
+            qtest_writel(t.qts, base, tag);
+            qtest_writel(t.qts, base + pools[p].unit - 4, ~tag);
+            for (unsigned i = 0; i < sizeof(expected); i++) {
+                expected[i] = i * 29 + p * 17 + slot * 7;
+            }
+            qtest_memwrite(t.qts, source, expected, sizeof(expected));
+            qtest_writel(t.qts, 0x04251030, 0);
+            prefix_copy(t.qts, source, base + 0x7f1, sizeof(expected));
+            g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+            qtest_memread(t.qts, base + 0x7f1, actual, sizeof(actual));
+            g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        }
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned p = 0; p < ARRAY_SIZE(pools); p++) {
+        for (unsigned slot = 0; slot < pools[p].count; slot++) {
+            uint32_t base = pools[p].base + slot * pools[p].unit;
+            uint32_t tag = 0xc0170000 | p << 8 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base), ==, tag);
+            g_assert_cmphex(qtest_readl(t.qts, base + pools[p].unit - 4), ==,
+                            (uint32_t)~tag);
+        }
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    memory_quit(&t);
+}
+
+static void test_readout_pools(void)
+{
+    const uint32_t base = 0x61654800, unit = 0x201000;
+    const uint32_t source = 0xb1804000;
+    const uint32_t holes[] = { base - 1, 0x36354800, 0x36957800 };
+    uint8_t expected[4099], actual[4099];
+    MemoryTest t = memory_init("");
+
+    /*
+     * Three kind38 units, then two separate kind39 units, then kind40.
+     * Exercise first/last bytes, an interior page crossing and DMA backing.
+     */
+    for (unsigned slot = 0; slot < 5; slot++) {
+        uint32_t address = base + slot * unit;
+
+        g_assert_cmphex(qtest_readl(t.qts, address), ==, 0);
+        g_assert_cmphex(qtest_readl(t.qts, address + unit - 4), ==, 0);
+        qtest_writel(t.qts, address, 0x38270000 + slot);
+        qtest_writel(t.qts, address + unit - 4, 0x39270000 + slot);
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 37 + slot * 13;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, address + 0x17ff, sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, address + 0x17ff, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned slot = 0; slot < 5; slot++) {
+        g_assert_cmphex(qtest_readl(t.qts, base + slot * unit), ==,
+                        0x38270000 + slot);
+        g_assert_cmphex(qtest_readl(t.qts, base + (slot + 1) * unit - 4), ==,
+                        0x39270000 + slot);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    memory_quit(&t);
+}
+
+static void test_kind41_buffer(void)
+{
+    const uint32_t base = 0x62221800, size = 0x400000, end = base + size;
+    const uint32_t holes[] = { 0x36f21800, 0x372219bc, end };
+    uint8_t expected[4099], actual[4099];
+    const uint32_t source = 0xb1804000;
+    MemoryTest t = memory_init("");
+
+    /* Original constructor's first 24-byte clear starts at pool+3001bc. */
+    qtest_writel(t.qts, base + 0x3001bc, 0x41290000);
+    g_assert_cmphex(qtest_readl(t.qts, base + 0x3001bc), ==, 0x41290000);
+    for (unsigned offset = 0; offset < size; offset += 4096) {
+        g_assert_cmphex(qtest_readl(t.qts, base + offset), ==, 0);
+        qtest_writel(t.qts, base + offset, 0x41000000 + offset);
+    }
+    qtest_writel(t.qts, base - 4, 0x40290000); /* Independent kind40 tail. */
+    qtest_writel(t.qts, end - 4, 0x4129ffff);
+    qtest_system_reset(t.qts);
+    for (unsigned offset = 0; offset < size; offset += 4096) {
+        g_assert_cmphex(qtest_readl(t.qts, base + offset), ==,
+                        0x41000000 + offset);
+    }
+    g_assert_cmphex(qtest_readl(t.qts, base + 0x3001bc), ==, 0x41290000);
+    g_assert_cmphex(qtest_readl(t.qts, base - 4), ==, 0x40290000);
+    g_assert_cmphex(qtest_readl(t.qts, end - 4), ==, 0x4129ffff);
+    for (unsigned i = 0; i < sizeof(expected); i++) {
+        expected[i] = i * 37 + (i >> 8) * 11;
+    }
+    qtest_memwrite(t.qts, source, expected, sizeof(expected));
+    qtest_writel(t.qts, 0x04251030, 0);
+    prefix_copy(t.qts, source, base + 0x17ff, sizeof(expected));
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+    qtest_memread(t.qts, base + 0x17ff, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    for (unsigned i = 0; i < ARRAY_SIZE(holes); i++) {
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", holes[i]);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    memory_quit(&t);
+}
+
+static void test_processing_arenas(void)
+{
+    static const struct {
+        uint32_t base, unit, count;
+    } arenas[] = {
+        { 0xb0100000, 0x80000, 16 },
+        { 0xaf8d4000, 0x4b000, 4 },
+    };
+    const uint32_t source = 0xb1804000;
+    uint8_t expected[4099], actual[4099];
+    MemoryTest t = memory_init("");
+
+    for (unsigned a = 0; a < ARRAY_SIZE(arenas); a++) {
+        uint32_t base = arenas[a].base;
+        uint32_t end = base + arenas[a].unit * arenas[a].count;
+
+        for (unsigned slot = 0; slot < arenas[a].count; slot++) {
+            uint32_t start = base + slot * arenas[a].unit;
+            uint32_t tag = 0xa0e00000 | a << 12 | slot;
+
+            qtest_writel(t.qts, start, tag);
+            g_assert_cmphex(qtest_readl(t.qts, start), ==, tag);
+            qtest_writel(t.qts, start + arenas[a].unit - 4, ~tag);
+        }
+        /* Exact ends are independently owned by download/capture pools. */
+        qtest_writel(t.qts, end, 0xa0eff000 | a);
+        g_assert_cmphex(qtest_readl(t.qts, end), ==, 0xa0eff000 | a);
+        for (unsigned i = 0; i < sizeof(expected); i++) {
+            expected[i] = i * 29 + (i >> 8) * 7 + a * 31;
+        }
+        qtest_memwrite(t.qts, source, expected, sizeof(expected));
+        qtest_writel(t.qts, 0x04251030, 0);
+        prefix_copy(t.qts, source, base + 0x17ff, sizeof(expected));
+        g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 8);
+        qtest_memread(t.qts, base + 0x17ff, actual, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+        g_autofree char *reply = qtest_hmp(t.qts, "xp /1bx 0x%x", base - 1);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    qtest_system_reset(t.qts);
+    for (unsigned a = 0; a < ARRAY_SIZE(arenas); a++) {
+        uint32_t base = arenas[a].base, unit = arenas[a].unit;
+
+        for (unsigned slot = 0; slot < arenas[a].count; slot++) {
+            uint32_t tag = 0xa0e00000 | a << 12 | slot;
+
+            g_assert_cmphex(qtest_readl(t.qts, base + slot * unit), ==, tag);
+            g_assert_cmphex(qtest_readl(t.qts, base + (slot + 1) * unit - 4),
+                            ==, (uint32_t)~tag);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, base + unit * arenas[a].count), ==,
+                        0xa0eff000 | a);
+    }
+    memory_quit(&t);
 }
 
 static void G_GNUC_UNUSED test_dynamic_load(void)
@@ -640,6 +1198,88 @@ static void test_descriptor17_input(void)
     unlink(path);
 }
 
+static void test_row_input(gconstpointer opaque)
+{
+    const unsigned id = GPOINTER_TO_UINT(opaque);
+    const uint32_t base = id == 11 ? 0x12a80000 : 0x12ce0000;
+    const size_t size = id == 11 ? 0x260000 : 0xe0000;
+    g_autofree uint8_t *input = g_malloc(size);
+    g_autofree char *path = NULL;
+    g_autofree char *machine = NULL;
+    MemoryTest t;
+    int fd;
+
+    for (size_t i = 0; i < size; i++) {
+        input[i] = (i * 13 + (i >> 12) * 19 + id) & 0xff;
+    }
+    fd = g_file_open_tmp("nikon-row-input-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (char *)input, size, NULL));
+    machine = g_strdup_printf(",mas-boot-prefix=erased,descriptor%u-input=%s",
+                              id, path);
+    t = memory_init_machine(machine, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    for (unsigned i = 0; i < 3; i++) {
+        size_t offset = i == 0 ? 0 : i == 1 ? size / 2 : size - 2;
+
+        g_assert_cmphex(qtest_readw(t.qts, base + offset), ==,
+                        lduw_le_p(input + offset));
+    }
+    g_assert_cmphex(qtest_readw(t.qts, base - 2), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x3e0000), ==, 0xffff);
+    /* File input populates NOR only, never its destination RAM or an event. */
+    g_assert_cmphex(qtest_readl(t.qts, id == 11 ? 0x50300000 : 0x50560000),
+                    ==, 0);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base, 0);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==,
+                    lduw_le_p(input + size - 2));
+    memory_quit(&t);
+    unlink(path);
+}
+
+static void test_row_input_rejection(gconstpointer opaque)
+{
+    const unsigned id = GPOINTER_TO_UINT(opaque);
+    const size_t size = id == 11 ? 0x260000 : 0xe0000;
+    g_autofree uint8_t *input = g_malloc0(size + 1);
+    g_autofree char *path = NULL;
+    g_autofree char *expected = NULL;
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(",descriptor%u-input=%s",
+            id, g_getenv("NIKON_ROW_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-row-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_ROW_FIXTURE", path, true);
+    expected = g_strdup_printf(
+        "*descriptor%u input must contain exactly %zu KiB*", id, size / 1024);
+    for (unsigned i = 0; i < 2; i++) {
+        g_assert_true(g_file_set_contents(path, (char *)input,
+                                          i ? size + 1 : size - 1, NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(expected);
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor*input*");
+    g_unsetenv("NIKON_ROW_FIXTURE");
+}
+
 static void test_descriptor17_rejection(void)
 {
     if (g_test_subprocess()) {
@@ -669,6 +1309,205 @@ static void test_descriptor17_rejection(void)
         g_unsetenv("NIKON_DESCRIPTOR17_FIXTURE");
         unlink(path);
     }
+}
+
+static void test_descriptor18_input(void)
+{
+    const size_t size = 0xa0000;
+    g_autofree uint8_t *input = g_malloc(size);
+    g_autofree char *path17 = NULL;
+    g_autofree char *path18 = NULL;
+    g_autofree char *machine = NULL;
+    MemoryTest t;
+    int fd;
+
+    for (size_t i = 0; i < size; i++) {
+        input[i] = (i * 31 + (i >> 9) * 13 + 9) & 0xff;
+    }
+    memcpy(input + size - 4, "ENDM", 4);
+    fd = g_file_open_tmp("nikon-descriptor18-XXXXXX", &path18, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path18, (char *)input, size, NULL));
+    fd = g_file_open_tmp("nikon-descriptor17-pair-XXXXXX", &path17, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path17, (char *)input, 0x20000, NULL));
+    machine = g_strdup_printf(",mas-boot-prefix=erased,"
+                              "descriptor17-input=%s,descriptor18-input=%s",
+                              path17, path18);
+    t = memory_init_machine(machine, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132dfffe), ==,
+                    lduw_le_p(input + 0x1fffe));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0000), ==, lduw_le_p(input));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0100), ==,
+                    lduw_le_p(input + 0x100));
+    g_assert_cmphex(qtest_readw(t.qts, 0x13370000), ==,
+                    lduw_le_p(input + 0x90000));
+    g_assert_cmphex(qtest_readw(t.qts, 0x1337fffc), ==,
+                    lduw_le_p(input + size - 4));
+    g_assert_cmphex(qtest_readw(t.qts, 0x1337fffe), ==,
+                    lduw_le_p(input + size - 2));
+    g_assert_cmphex(qtest_readw(t.qts, 0x133a0000), ==, 0xffff);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, 0x132e0000, 0);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0000), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, 0x132e0100), ==,
+                    lduw_le_p(input + 0x100));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==, lduw_le_p(input));
+    memory_quit(&t);
+    unlink(path17);
+    unlink(path18);
+}
+
+static void test_descriptor18_rejection(void)
+{
+    g_autofree char *path = NULL;
+    g_autofree uint8_t *input = g_malloc0(0xa0001);
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(
+            ",descriptor18-input=%s",
+            g_getenv("NIKON_DESCRIPTOR18_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-descriptor18-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_DESCRIPTOR18_FIXTURE", path, true);
+    for (unsigned i = 0; i < 2; i++) {
+        g_assert_true(g_file_set_contents(path, (char *)input,
+                                          i ? 0xa0001 : 4, NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(
+            "*descriptor18 input must contain exactly 640 KiB*");
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor18 input*");
+    g_unsetenv("NIKON_DESCRIPTOR18_FIXTURE");
+}
+
+static void test_descriptor32_input(void)
+{
+    const uint32_t base = 0x13e80000;
+    const size_t size = 0x180000;
+    const unsigned ids[] = { 11, 12, 17, 18, 32 };
+    const size_t sizes[] = { 0x260000, 0xe0000, 0x20000, 0xa0000, 0x180000 };
+    const uint32_t bases[] = {
+        0x12a80000, 0x12ce0000, 0x132c0000, 0x132e0000, 0x13e80000,
+    };
+    g_autofree uint8_t *input = g_malloc(sizes[0]);
+    g_autofree uint8_t *actual = g_malloc(size);
+    g_auto(GStrv) paths = g_new0(char *, ARRAY_SIZE(ids) + 1);
+    g_autoptr(GString) machine = g_string_new(",mas-boot-prefix=erased");
+    MemoryTest t = memory_init_machine(machine->str, "");
+
+    /* The shared descriptor31/32 physical span is still erased by default. */
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==, 0xffff);
+    memory_quit(&t);
+    for (size_t i = 0; i < sizes[0]; i++) {
+        input[i] = (i * 37 + (i >> 9) * 11 + 0x39) & 0xff;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        int fd = g_file_open_tmp("nikon-descriptor-pair-XXXXXX", &paths[i],
+                                 NULL);
+
+        g_assert_cmpint(fd, >=, 0);
+        close(fd);
+        g_assert_true(g_file_set_contents(paths[i], (char *)input, sizes[i],
+                                          NULL));
+        g_string_append_printf(machine, ",descriptor%u-input=%s", ids[i],
+                                paths[i]);
+    }
+    t = memory_init_machine(machine->str, "");
+    qtest_writel(t.qts, 0x04264000, 0x21);
+    qtest_writel(t.qts, 0x04264020, 0x153b0902);
+    qtest_memread(t.qts, base, actual, size);
+    g_assert_cmpmem(actual, size, input, size);
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        g_assert_cmphex(qtest_readw(t.qts, bases[i]), ==, lduw_le_p(input));
+        g_assert_cmphex(qtest_readw(t.qts, bases[i] + sizes[i] - 2), ==,
+                        lduw_le_p(input + sizes[i] - 2));
+    }
+    /* Exact NOR boundaries do not turn adjacent physical holes into cells. */
+    g_assert_cmphex(qtest_readw(t.qts, base - 2), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, base + size), ==, 0);
+    g_assert_cmphex(qtest_readw(t.qts, 0x13e3fffe), ==, 0xffff);
+    /* Installation is not the module loader and does not prefill cold RAM. */
+    g_assert_cmphex(qtest_readl(t.qts, 0xb7d00000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0xbaa00000), ==, 0);
+    g_assert_cmphex(qtest_readl(t.qts, 0xb0d00000), ==, 0);
+
+    /* Command state and array bytes use the existing shared NOR domain. */
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base, 0x00ff);
+    nor_unlock(t.qts, 0xa0);
+    qtest_writew(t.qts, base + size - 2, 0xff00);
+    nor_unlock(t.qts, 0x80);
+    qtest_writew(t.qts, 0x10000aaa, 0xaa);
+    qtest_writew(t.qts, 0x10000554, 0x55);
+    qtest_writew(t.qts, base + 0x20000, 0x30);
+    qtest_system_reset(t.qts);
+    g_assert_cmphex(qtest_readw(t.qts, base), ==, lduw_le_p(input) & 0x00ff);
+    g_assert_cmphex(qtest_readw(t.qts, base + size - 2), ==,
+                    lduw_le_p(input + size - 2) & 0xff00);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x20000), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x3fffe), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(t.qts, base + 0x40000), ==,
+                    lduw_le_p(input + 0x40000));
+    g_assert_cmphex(qtest_readw(t.qts, 0x132c0000), ==, lduw_le_p(input));
+    g_assert_cmphex(qtest_readl(t.qts, 0xb7d00000), ==, 0);
+    memory_quit(&t);
+    for (unsigned i = 0; i < ARRAY_SIZE(ids); i++) {
+        unlink(paths[i]);
+    }
+}
+
+static void test_descriptor32_rejection(void)
+{
+    const size_t size = 0x180000;
+    g_autofree uint8_t *input = g_malloc0(size + 1);
+    g_autofree char *path = NULL;
+    int fd;
+
+    if (g_test_subprocess()) {
+        g_autofree char *machine = g_strdup_printf(
+            ",descriptor32-input=%s", g_getenv("NIKON_DESCRIPTOR32_FIXTURE"));
+        MemoryTest t = memory_init_machine(machine, "");
+
+        memory_quit(&t);
+        return;
+    }
+    fd = g_file_open_tmp("nikon-descriptor32-invalid-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_setenv("NIKON_DESCRIPTOR32_FIXTURE", path, true);
+    for (unsigned i = 0; i < 3; i++) {
+        const size_t lengths[] = { 0, size - 1, size + 1 };
+
+        g_assert_true(g_file_set_contents(path, (char *)input, lengths[i],
+                                          NULL));
+        g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_failed();
+        g_test_trap_assert_stderr(
+            "*descriptor32 input must contain exactly 1536 KiB*");
+    }
+    unlink(path);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*cannot load descriptor32 input*");
+    g_unsetenv("NIKON_DESCRIPTOR32_FIXTURE");
 }
 
 static void test_sysconfig_profile(void)
@@ -736,10 +1575,76 @@ static void test_sysconfig_profile(void)
     }
 }
 
+static void test_sysconfig_controls(void)
+{
+    const uint32_t base = 0x04280000;
+    const unsigned offsets[] = { 0x64, 0x68, 0x6c };
+    MemoryTest t = memory_init("");
+
+    for (unsigned phase = 0; phase < 2; phase++) {
+        if (phase) {
+            qtest_system_reset(t.qts);
+        }
+        for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+            uint32_t addr = base + offsets[i];
+
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0);
+            for (unsigned bit = 0; bit < 32; bit++) {
+                uint32_t value = 1U << bit;
+
+                qtest_writel(t.qts, addr, value);
+                g_assert_cmphex(qtest_readl(t.qts, addr), ==, value);
+            }
+            qtest_writel(t.qts, addr, 0xffffffff);
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0xffffffff);
+            qtest_writeb(t.qts, addr, 0);
+            qtest_writew(t.qts, addr, 0);
+            qtest_writel(t.qts, addr + 1, 0);
+            g_assert_cmphex(qtest_readl(t.qts, addr), ==, 0xffffffff);
+        }
+        /* Whole-word replacement of independent groups, without strobes. */
+        qtest_writel(t.qts, base + 0x64, 0x10);
+        qtest_writel(t.qts, base + 0x68, 0xa55a5aa5);
+        qtest_writel(t.qts, base + 0x6c, 0xffff0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x10);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0xffff0);
+        qtest_writel(t.qts, base + 0x64, 0x3c0);
+        qtest_writel(t.qts, base + 0x6c, 0x1e000000);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x3c0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0x1e000000);
+        for (unsigned hole = 0x60; hole <= 0x70; hole += 0x10) {
+            qtest_writel(t.qts, base + hole, 0xffffffff);
+            g_assert_cmphex(qtest_readl(t.qts, base + hole), ==, 0);
+        }
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x64), ==, 0x3c0);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x68), ==, 0xa55a5aa5);
+        g_assert_cmphex(qtest_readl(t.qts, base + 0x6c), ==, 0x1e000000);
+    }
+    memory_quit(&t);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/memory/storage-profile", test_storage_profile);
+    qtest_add_func("/nikon/memory/cpu-ram", test_cpu_ram);
+    qtest_add_func("/nikon/memory/kind40-buffer", test_kind40_buffer);
+    qtest_add_func("/nikon/memory/kind41-buffer", test_kind41_buffer);
+    qtest_add_func("/nikon/memory/processing-arenas", test_processing_arenas);
+    qtest_add_func("/nikon/memory/interpolation-pool", test_interpolation_pool);
+    qtest_add_func("/nikon/memory/grid-pool", test_grid_pool);
+    qtest_add_func("/nikon/memory/large-grid-pool", test_large_grid_pool);
+    qtest_add_func("/nikon/memory/readout-pools", test_readout_pools);
+    qtest_add_func("/nikon/memory/capture-pools", test_capture_pools);
+    qtest_add_func("/nikon/memory/row-storage", test_row_storage);
+    qtest_add_data_func("/nikon/memory/descriptor11-input",
+                        GUINT_TO_POINTER(11), test_row_input);
+    qtest_add_data_func("/nikon/memory/descriptor12-input",
+                        GUINT_TO_POINTER(12), test_row_input);
+    qtest_add_data_func("/nikon/memory/descriptor11-rejection",
+                        GUINT_TO_POINTER(11), test_row_input_rejection);
+    qtest_add_data_func("/nikon/memory/descriptor12-rejection",
+                        GUINT_TO_POINTER(12), test_row_input_rejection);
     qtest_add_func("/nikon/memory/no-physical-logical-mirror",
                    test_no_bus_mirror);
     qtest_add_func("/nikon/memory/decode-retention", test_decode_retention);
@@ -752,6 +1657,7 @@ int main(int argc, char **argv)
                    test_resource57_record1);
     qtest_add_func("/nikon/memory/resource57-record7",
                    test_resource57_record7);
+    qtest_add_func("/nikon/memory/gui-pool", test_gui_pool);
     qtest_add_func("/nikon/memory/download-scratch", test_download_scratch);
     qtest_add_func("/nikon/memory/selector-one-download",
                    test_selector_one_download);
@@ -761,6 +1667,13 @@ int main(int argc, char **argv)
                    test_descriptor17_input);
     qtest_add_func("/nikon/memory/descriptor17-rejection",
                    test_descriptor17_rejection);
+    qtest_add_func("/nikon/memory/descriptor18-input", test_descriptor18_input);
+    qtest_add_func("/nikon/memory/descriptor18-rejection",
+                   test_descriptor18_rejection);
+    qtest_add_func("/nikon/memory/descriptor32-input", test_descriptor32_input);
+    qtest_add_func("/nikon/memory/descriptor32-rejection",
+                   test_descriptor32_rejection);
     qtest_add_func("/nikon/memory/sysconfig", test_sysconfig_profile);
+    qtest_add_func("/nikon/memory/sysconfig-controls", test_sysconfig_controls);
     return g_test_run();
 }

@@ -1,4 +1,7 @@
-/* Source-bounded save handoff state contract. SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Source-bounded save handoff state contract.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/nikon/save.h"
@@ -98,6 +101,52 @@ static void test_save_rejects_invalid(void)
     object_unref(OBJECT(dev));
 }
 
+static void test_save_qom_properties(void)
+{
+    DeviceState *dev = save_device();
+    Object *obj = OBJECT(dev);
+    Error *error = NULL;
+
+    object_property_set_uint(obj, "request-source", 0x54900000, &error_abort);
+    object_property_set_uint(obj, "request-length", 91586560, &error_abort);
+    object_property_set_uint(obj, "request-format", NIKON_SAVE_FORMAT_RAW,
+                             &error_abort);
+    object_property_set_uint(obj, "request-token", 42, &error_abort);
+
+    g_assert_cmpuint(object_property_get_uint(obj, "phase", &error_abort),
+                     ==, NIKON_SAVE_REQUESTED);
+    g_assert_cmpuint(object_property_get_uint(obj, "requests", &error_abort),
+                     ==, 1);
+    g_assert_cmpuint(object_property_get_uint(obj, "token", &error_abort),
+                     ==, 42);
+    g_assert_cmphex(object_property_get_uint(obj, "source", &error_abort),
+                    ==, 0x54900000);
+    g_assert_cmpuint(object_property_get_uint(obj, "length", &error_abort),
+                     ==, 91586560);
+    g_assert_cmpuint(object_property_get_uint(obj, "format", &error_abort),
+                     ==, NIKON_SAVE_FORMAT_RAW);
+
+    /* Mismatched commit token is rejected. */
+    g_assert_false(object_property_set_uint(obj, "commit-token", 43, &error));
+    g_assert_nonnull(error);
+    error_free(error);
+    error = NULL;
+
+    /* Correct commit token accepted. */
+    object_property_set_uint(obj, "commit-token", 42, &error_abort);
+    g_assert_cmpuint(object_property_get_uint(obj, "phase", &error_abort),
+                     ==, NIKON_SAVE_COMMITTED);
+    g_assert_cmpuint(object_property_get_uint(obj, "commits", &error_abort),
+                     ==, 1);
+
+    /* Cold reset returns device to clean idle state. */
+    device_cold_reset(dev);
+    g_assert_cmpuint(object_property_get_uint(obj, "phase", &error_abort),
+                     ==, NIKON_SAVE_IDLE);
+
+    object_unref(obj);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -120,6 +169,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/save/lifecycle", test_save_lifecycle);
     g_test_add_func("/nikon/save/failure-cancel", test_save_failure_and_cancel);
     g_test_add_func("/nikon/save/reject-invalid", test_save_rejects_invalid);
+    g_test_add_func("/nikon/save/qom-properties", test_save_qom_properties);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

@@ -13,13 +13,21 @@
 #define TYPE_NIKON_FILL "nikon-fill-functional"
 #define TYPE_NIKON_USIO "nikon-usio-functional"
 #define TYPE_NIKON_SPI "nikon-spi-functional"
+#define TYPE_NIKON_LENS "nikon-lens-functional"
 #define TYPE_NIKON_SYSCONFIG "nikon-sysconfig-functional"
 #define TYPE_NIKON_GPIO "nikon-gpio-functional"
+#define TYPE_NIKON_CCOMP "nikon-ccomp-functional"
+#define TYPE_NIKON_CAPTURE_ENDPOINTS "nikon-capture-endpoints-functional"
+#define TYPE_NIKON_CAPTURE_BANKS "nikon-capture-banks-functional"
+#define TYPE_NIKON_CAPTURE_GROUP "nikon-capture-group-functional"
+#define TYPE_NIKON_CAPTURE_PARAMETERS "nikon-capture-parameters-functional"
+#define TYPE_NIKON_CAPTURE_WORK "nikon-capture-work"
 #define TYPE_NIKON_EXIU "nikon-exiu-functional"
 #define TYPE_NIKON_EX_RNG "nikon-ex-rng-functional"
 #define TYPE_NIKON_HDMAC "nikon-hdmac-functional"
 #define TYPE_NIKON_I2C "nikon-i2c-functional"
 #define TYPE_NIKON_EYE_SENSOR "nikon-eye-sensor-functional"
+#define TYPE_NIKON_ACCELERATION "nikon-acceleration-functional"
 #define TYPE_NIKON_AUDIO "nikon-audio-functional"
 #define TYPE_NIKON_TIMING "nikon-timing-functional"
 #define TYPE_NIKON_COPY "nikon-copy-functional"
@@ -36,6 +44,7 @@
 #define TYPE_NIKON_SHARED_PARAMETER_EVENTS "nikon-shared-parameter-events-functional"
 #define TYPE_NIKON_PARAMETER_EVENTS "nikon-parameter-events-functional"
 #define TYPE_NIKON_DUAL_EVENT_BANKS "nikon-dual-event-banks-functional"
+#define TYPE_NIKON_PANEL "nikon-panel-functional"
 #define TYPE_NIKON_BYTE_EVENT_ROUTER "nikon-byte-event-router-functional"
 #define TYPE_NIKON_REQUEST_STATUS "nikon-request-status-functional"
 #define TYPE_NIKON_SDI "nikon-sdi-functional"
@@ -55,6 +64,15 @@ MemTxResult nikon_memc_nor_backend_access(DeviceState *dev, hwaddr address,
                                          uint64_t value);
 void nikon_access_error(bool *reported, hwaddr addr, unsigned size,
                        bool write, uint64_t value, const char *reason);
+
+/*
+ * A guest poll loop whose modelled completion can never happen used to be
+ * silent: the firmware spins on a status bit forever.  Devices call this from
+ * the status read; after `limit` consecutive polls that observed no state
+ * change the wait is reported as an uncovered stall and the VM stops.
+ */
+bool nikon_wait_stall(bool *reported, hwaddr addr, unsigned size,
+                      uint64_t value, unsigned limit, const char *reason);
 void nikon_mxic_attach_ram(DeviceState *dev, MemoryRegion *ram, hwaddr address);
 /* Return the controller's real upstream I2C bus after realization. */
 I2CBus *nikon_i2c_bus(DeviceState *dev);

@@ -1,0 +1,61 @@
+{
+  "scope": "Current graph command/configuration import; actual processing, terminal completion and slot reuse unsupported; not complete GUI startup",
+  "dependency_baseline": "27f328a5",
+  "source_facts": {
+    "component": "C1.70 MAS; code/ROM/software objects VA, device addresses board PA; hexadecimal addresses/offsets and decimal counts/types/resources",
+    "submission": "103bd04a selects setters through1078a2a0;103bdc72->103bded0 pulses backend+14=1,0 then writes payload pointer+10; resource37 backend20100800",
+    "packet": "Header low16 logical offset, next8 total words including header, high8=11 continue/01 final; consecutive full32 logical data words",
+    "type4": "72 bytes:4/2,10/16; register4 is graph route, register10 bits4..7 upstream slot; other arithmetic meanings unresolved",
+    "layouts": {"4":72,"7":248,"10":140,"11":140,"12":176,"15":68,"17":116},
+    "backend_count":27,
+    "type10_auxiliary": "103bdc92 writes backend+8/+c before the local reset pulse",
+    "paired": "103bdc12 configures8 type1 resources16..23,20104000 stride10 words0/4, generated masks773/3fff7fff",
+    "LUT": "103bdcee reads6 length/pointer records after176-byte packet; observed6*1024 halfwords stored asDWORDs at24000000/2000/4000/1000/3000/5000",
+    "workspace": "103bdd0e reads148 but overwrites it for valid LUT indices;103bdd8c tests148.bit8 and CPU-clears4096 bytes at24010000 when absent;103bd552 selects4 subbanks",
+    "status_predicate": "103bdbbe tests(status&3)!=3; no single-bit busy encoding recovered",
+    "completion": "103b4adc configures;103b4cea starts terminal nodes/waits.103bce38->103bde3e dispatches original IRQ callbacks;103b4b9e maps terminal mask classes to worker events",
+    "release": "10388b3c->1038897e clears software ownership; normal421930f1 wakes waiter; no write to hardware slot query bank",
+    "new_boundary": "1036a2ac writes an8-field paired-bank parameter group; bank selector object byte4,203800a8 receives payload byte2"
+  },
+  "model": {
+    "implemented": "Selected reset/one-import arm; complete RAM-only preflight/QEMU DMA; atomic fixed-layout decode/snapshot; type10 auxiliary preservation;8 paired endpoint configurations;6 full CPU-populated LUT banks;4 workspace banks",
+    "functional_conventions": "Cold empty state, retained readback, reset cancellation and one-import admission; status0 means incomplete, not idle/completed",
+    "workspace_hypothesis": "148.bit8 becomes100 only after actual CPU writes cover all1024 workspace words; whole reset clears coverage, command reset preserves it. Physical bit meaning is not established; current original run does not validate this transition",
+    "unsupported": "Actual processor activation remains an explicit error; no speculative input-port dependency. No pixel arithmetic/output DMA, terminal raw event, IRQ, guest callback/state update or automatic slot release",
+    "negative_boundaries": "Unknown variants/ports/local words/holes/widths/alignment, held/unarmed/duplicate import, malformed headers/final markers, unreadable or non-RAM DMA reject without partial packet replacement"
+  },
+  "native": {
+    "red": "Old device cannot read reset20100814 in focused native check",
+    "green": {"decoder_subtests":2,"SLA_subtests":23,"failures":0},
+    "coverage": "All27 ports/seven layouts, truncation/header corruption, valid/invalid DMA, reset isolation/cancellation, auxiliary preservation, unsupported activation retains config/no pending/no IRQ/no time completion,8 paired endpoint masks,6 complete LUT banks, full workspace coverage/reset"
+  },
+  "original_execution": {
+    "profile": "Unchanged firmware, bounded resource35 descriptor17/cold-neutral resource80, quadrant PGM, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "graph_type_resource_decimal":[[0,1],[4,37],[15,69],[12,65],[17,72],[17,73],[11,61],[1,20],[7,40],[10,53],[0,2]],
+    "loaded_packets":8,
+    "loaded_words":269,
+    "configured_mask_decimal":8527113,
+    "processing_activation": "Not reached; would remain an explicit error",
+    "slot_busy":[0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "input_enable_nibbles":[0,0],
+    "map2200_nonzero_index_value": {"1":"5d27e000","2":"5f914400","17":"5d2b4000","18":"5f921c00","33":"5d2ea000","34":"5f92f400","49":"5d1dc000","50":"5f93cc00"},
+    "map2300":"All64 words zero",
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":436,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "error_property6433":"All280 observed bytes zero",
+    "GUI_readiness":0,
+    "information_records":"Both464-hex-byte records zero",
+    "uncovered":"CPU1 PC1036a2ee WRITE32 PA203800a8=4, paired-event-banks-access-or-command-not-supported",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a QemuConsole",
+    "battery_peer_rejections":[]
+  },
+  "observer_limits": "QMP counters precede read-only GDB and are not atomic/rates. Earlier incomplete model stopped at20100148; its first observer used the wrong QOM typename and failed before full snapshot. A separate CPU-trace diagnostic completed but is not the final normal run. Post-call heap snapshots reused an earlier object address; neither their function-pointer interpretation nor apparent disassembly establishes the operator algorithm. No such claim is accepted.",
+  "omissions": "Firmware, factory disassembly/arrays, full logs/debugger snapshots and generated artifacts stay ignored. No physical arithmetic/status law, terminal output result, normal GUI frame or processing-slot reuse is claimed. Historical slot-stage receipt retains its original scope."
+}

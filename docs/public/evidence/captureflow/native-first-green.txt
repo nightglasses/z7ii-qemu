@@ -1,0 +1,33 @@
+Native test output excerpt
+Run: captureflow-20261022
+Original log: native-first-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1..25
+ok 1 /arm/nikon/sensor/frame
+ok 2 /arm/nikon/sensor/chunks
+ok 3 /arm/nikon/sensor/cancel
+ok 4 /arm/nikon/sensor/invalid
+ok 5 /arm/nikon/sensor/buserror
+ok 6 /arm/nikon/sensor/eof
+ok 7 /arm/nikon/sensor/eye
+ok 8 /arm/nikon/sensor/display-buffer
+ok 9 /arm/nikon/sensor/controller/configuration
+ok 10 /arm/nikon/sensor/controller/status
+ok 11 /arm/nikon/sensor/controller/publication
+ok 12 /arm/nikon/sensor/capture/configuration
+ok 13 /arm/nikon/sensor/capture/controls
+ok 14 /arm/nikon/sensor/capture/runstop
+ok 15 /arm/nikon/sensor/capture/status
+ok 16 /arm/nikon/sensor/capture/publication
+ok 17 /arm/nikon/sensor/readout/configuration
+ok 18 /arm/nikon/sensor/readout/buffers
+ok 19 /arm/nikon/sensor/readout/request
+ok 20 /arm/nikon/sensor/readout/provider
+ok 21 /arm/nikon/sensor/channels/configuration
+ok 22 /arm/nikon/sensor/channels/request
+ok 23 /arm/nikon/sensor/channels/reset
+ok 24 /arm/nikon/sensor/channels/global
+ok 25 /arm/nikon/sensor/eye/nak
+Ok:                1
+Fail:              0

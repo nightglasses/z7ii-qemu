@@ -1,0 +1,51 @@
+{
+  "scope": "Sixteen type0 parameter slots with retained submitted ownership; downstream processing/completion unsupported, not complete GUI startup",
+  "dependency_baseline": "fcba0c01",
+  "source_facts": {
+    "component": "C1.70 MAS; code/ROM/software objects VA, device addresses board PA; hexadecimal addresses/sizes, decimal counts and type/resource pairs",
+    "domain": "10388c3a writes type0 count16;103bd930 selects16-byte records at10789dc0..10789ebf with slots0..15 and three zero completion-mask words",
+    "admission": "1038917c checks software resource bit then103bd1d6 reads20102040+4*slot; zero admits, nonzero retries/waits before claiming the software resource",
+    "submission": "103bd04a selects103bda1e through1078a2a0;10789cc0 maps slots to20100400+40*slot; writes13 words, selector2010002c=slot, then waits8 counter ticks",
+    "release": "103b4adc/103b4cea use terminal graph nodes for the worker wait;103bce38/103bde3e dispatch original IRQ callbacks;10388b3c->1038897e clears software ownership, with no hardware query-bank write",
+    "next_source": "Graph node1 type4/resource37 uses103bdc72->103bded0: backend20100800 reset+14=1,0 then payload pointer+10; observed payload VA b2bdb3a8 is72 bytes"
+  },
+  "model": {
+    "packets": "16 independent aligned little-endian32 packets,13 words each,40-byte strides; three trailing words remain holes",
+    "queries": "Read-only[20102040,20102080), zero idle/nonzero busy; only complete source-shaped enabled packets can submit an idle slot through write-only2c",
+    "ownership": "Submit sets only selected busy bit; busy packet immutable; partial/invalid/repeated requests reject before changing state",
+    "reset": "Whole-model reset cancels pending requests and clears packets/staging/ownership; stop ACK and W1C do not retire submitted work",
+    "hypotheses": "Cold idle, retained packet readback, full-packet admission, immutable busy ownership, boolean0/1 query encoding and whole-model reset empty state; source does not establish physical busy duration/encoding",
+    "completion_limit": "No slot-retirement timer, processing DMA, data result, raw event, IRQ, guest callback or software flag is inferred. Busy remains retained pending a real downstream graph consumer"
+  },
+  "native": {
+    "red": "Old device reports Cannot access memory for HMP READ32 at first query20102040",
+    "green": {"sla_subtests":23,"failures":0},
+    "coverage": "All16 full packets and queries; generated-bit unions/full32 payloads; partial vs complete staging; independent busy transitions; busy immutability; no elapsed-time/stop-ACK/W1C retirement; reset cancellation; invalid slots, reserved bits, holes, widths and alignment"
+  },
+  "original_execution": {
+    "profile": "Unchanged firmware, same bounded resource35 descriptor17/cold-neutral resource80, quadrant PGM, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "slot1_packet": ["00020121","00015500","00000000","00000000","00000080","00000080","00000080","00000000","0022003c","00000000","00012000","00024000","00000000"],
+    "slot_busy": [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "graph_type_resource_decimal": [[0,1],[4,37],[15,69],[12,65],[17,72],[17,73],[11,61],[1,20],[7,40],[10,53],[0,2]],
+    "input_enable_nibbles": [0,0],
+    "input_maps": "Both retained64-word maps zero; no port data consumption observed before this stop",
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":448,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "error_property6433": "All280 observed bytes zero",
+    "GUI_readiness":0,
+    "information_records": "Both464-hex-byte records zero",
+    "queued_root_pending":"0x40001",
+    "uncovered":"CPU1 PC103bdedc WRITE32 PA20100814=1, event-gate-access-or-command-not-supported",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a QemuConsole",
+    "battery_peer_rejections":[]
+  },
+  "observer_limit": "A separate follow-up read-only observer attempted a contiguous input-group read including reserved0c and received E14; no completed snapshot was claimed. The final observer reads only supported sparse words. QMP counters precede debugger reads and are not atomic or physical rates.",
+  "omissions": "Raw source/disassembly, firmware, full debugger/trace records and generated artifacts stay ignored. No physical busy law, decoded downstream processing result or complete GUI claim is published."
+}

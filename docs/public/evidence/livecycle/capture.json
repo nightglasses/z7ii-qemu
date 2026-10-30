@@ -1,0 +1,160 @@
+{
+  "scope": "Bounded functional model and unchanged C1.70 execution; not physical timing or complete boot",
+  "source_commits": [
+    "d4fe9ab",
+    "1b1511fe"
+  ],
+  "inputs": {
+    "firmware": "Unchanged decoded C1.70 MAS/SLA/EX",
+    "execution": "five CPUs, MTTCG",
+    "nor": "cold-neutral",
+    "scene": "explicit quadrant PGM, inverted through normal CMOS image input after30 host seconds",
+    "paired_profile": "explicit opaque calibration; newly interpreted660..678 left zero in the input file and published by original firmware",
+    "media": "fresh blank8GiB slot0",
+    "lens": "finite virtual50mm F2.8",
+    "battery": "normal UART deterministic peer",
+    "input": "F4 held before initial EX sampling, AUTO"
+  },
+  "native": {
+    "red": {
+      "path": "/arm/nikon/cmos/paired/cycle",
+      "expected": "fifth independent RAW completion",
+      "observed": "4 == 5 assertion failure before lifecycle fix"
+    },
+    "green": [
+      {
+        "suite": "nikon_cmos",
+        "selection": "-r /arm/nikon/cmos/paired",
+        "subtests": 36
+      },
+      {
+        "suite": "nikon_pairedpixels_unit",
+        "subtests": 15
+      },
+      {
+        "suite": "nikon_gatework_unit",
+        "subtests": 8
+      }
+    ],
+    "coverage": [
+      "12 real RAW generations without continuation kicks",
+      "four-phase watermark cadence and no RAW replay from ACK/time",
+      "front-only/back-only/partial publication barrier and complete explicit commit",
+      "same-value publication cancels owned snapshot without consuming RAW",
+      "phase/history/pending preservation and inactive-group isolation",
+      "stop/drain/reset and invalid packet boundaries",
+      "complete numerical NR output and independent rounding references"
+    ]
+  },
+  "original_before": {
+    "profile": "same AUTO profile before cyclic correction",
+    "paired30": 8,
+    "paired45": 8,
+    "graph30": 8,
+    "graph45": 8,
+    "processing_errors": 0,
+    "running": true
+  },
+  "original_cyclic": {
+    "scope": "cyclic-only correction, no in-window debugger",
+    "paired30": 70,
+    "paired45": 163,
+    "graph30": 70,
+    "graph45": 163,
+    "processing_errors": 0,
+    "running": true,
+    "diagnostic_limit": "post-window GDB export used a stale port; QMP observations remain valid; subsequent integrated capture corrected this"
+  },
+  "original_integrated": {
+    "scope": "cyclic correction plus numerical NR; no in-window debugger",
+    "paired30": 67,
+    "paired45": 158,
+    "graph30": 68,
+    "graph45": 158,
+    "processing_errors": 0,
+    "running": true,
+    "panic_length_post_window": 0,
+    "sequential_counters": "QMP reads are not an atomic paired/graph snapshot",
+    "display": "Original1024x682 head1 changes from before.png to after.png after normal scene input changes; head0 unbound",
+    "battery_peer_rejections": 0
+  },
+  "facts": [
+    "400 callback sets retry latch without a stop command",
+    "failed four-descriptor fetch preserves latch and skips RAW publication/kick",
+    "only successful numerical processing/output DMA consumes RAW and publishes result"
+  ],
+  "hypotheses": [
+    "400 is a four-read watermark of a cyclic ring, not an unconditional stop",
+    "complete selected front/back address writes plus10 commit form a publication barrier",
+    "NR field roles, units, neighborhood and arithmetic are finite numerical choices"
+  ],
+  "limits": [
+    "120host-second continuation does not prove indefinite stability or physical frame rate",
+    "false color remains a finite monochrome/color model",
+    "non-AUTO exposure acceptance, optical shutter/aperture effects, still capture, recording and file saving remain unverified"
+  ],
+  "original_manual": {
+    "scope": "Separate unchanged direct-M input; QMP samples at10/20/30 host seconds, then read-only snapshot",
+    "mode_position": 3,
+    "paired_jobs": 0,
+    "first_rejection": {
+      "offset": "744",
+      "value": "40040600",
+      "family": "Separate57-field interpolated packet; not the seven-word denoise group"
+    },
+    "denoise_decoded": {
+      "threshold": 21,
+      "low": 8,
+      "high": 10,
+      "axial": 5,
+      "diagonal": 2,
+      "bias": 4,
+      "retain": 27
+    },
+    "normal_rotary_input": "Two waves of eight positive detents per dial through QOM quadrature, not guest exposure writes",
+    "MAS_rotary_aggregate": [
+      14,
+      13
+    ],
+    "rotary_limit": "The strict paired error stops execution before all queued inputs are proved consumed; counts establish transport, not complete detent/exposure acceptance",
+    "aperture": {
+      "lens_current": 0,
+      "target": 0,
+      "policy_cache_enabled_byte": 0,
+      "policy_denominator": 192,
+      "lens_ready": 1,
+      "permission_word": 7
+    },
+    "panic_length": 0,
+    "running": false,
+    "status": "debug at strict numerical boundary"
+  },
+  "original_soak": {
+    "scope": "Separate fresh120host-second originalAUTO run, same integrated profile, no in-window debugger",
+    "samples": [
+      {
+        "host_seconds": 40,
+        "paired": 123,
+        "graph": 123
+      },
+      {
+        "host_seconds": 80,
+        "paired": 363,
+        "graph": 363
+      },
+      {
+        "host_seconds": 120,
+        "paired": 603,
+        "graph": 604
+      }
+    ],
+    "processing_errors": 0,
+    "paired_rejected_final": 0,
+    "paired_cancelled_final": 0,
+    "running": true,
+    "panic_length_post_window": 0,
+    "input_change": "Normal image input inverted after80hostseconds; originalhead1 reflects the changed scene at120seconds in soak.png",
+    "counter_limit": "Sequential sampling permits graph count to exceed an earlier paired read by one; no atomic snapshot or physical frame-rate claim",
+    "battery_peer_rejections": 0
+  }
+}

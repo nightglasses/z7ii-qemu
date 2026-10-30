@@ -1,8 +1,9 @@
 /*
  * Five-route signal-control functional profile, not a bound physical IP.
  * The original interface supplies permutations and fields. Reset/gate/mask
- * polarity, raw/filtered banks, W1C and 1MHz debounce are virtual assumptions.
- * External inputs alone produce sampled edges.
+ * polarity for edge capture, W1C and 1MHz debounce are virtual assumptions.
+ * Source consumers require live levels independently of capture controls.
+ * External inputs alone produce sampled levels and eligible edges.
  * Five outputs aggregate to IRQ237.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -39,7 +40,7 @@ struct NikonSignalState {
 static const unsigned signal_bits[] = { 0, 1, 4, 2, 3 };
 static const unsigned signal_gates[] = { 4, 5, 3, 2, 2 };
 
-static bool nikon_signal_active(NikonSignalState *s, unsigned i)
+static bool nikon_signal_capture_enabled(NikonSignalState *s, unsigned i)
 {
     return (s->released & (1U << signal_bits[i])) &&
            (s->gates & (1U << signal_gates[i]));
@@ -63,13 +64,12 @@ static void nikon_signal_sample(void *opaque)
     unsigned bit = 1U << signal_bits[r->index];
     bool level = !!(s->raw & bit);
 
-    if (!nikon_signal_active(s, r->index)) {
-        return;
-    }
     if (!!(s->filtered & bit) != level) {
         s->filtered = (s->filtered & ~bit) | (level ? bit : 0);
-        s->pending |= 1U << (2 * signal_bits[r->index] + !level);
-        nikon_signal_outputs(s);
+        if (nikon_signal_capture_enabled(s, r->index)) {
+            s->pending |= 1U << (2 * signal_bits[r->index] + !level);
+            nikon_signal_outputs(s);
+        }
     }
 }
 
@@ -78,10 +78,8 @@ static void nikon_signal_rebase(NikonSignalState *s, unsigned i)
     unsigned bit = 1U << signal_bits[i];
 
     timer_del(s->route[i].timer);
-    if (nikon_signal_active(s, i)) {
-        s->filtered = (s->filtered & ~bit) | (s->raw & bit);
-    } else {
-        s->filtered &= ~bit;
+    s->filtered = (s->filtered & ~bit) | (s->raw & bit);
+    if (!nikon_signal_capture_enabled(s, i)) {
         s->pending &= ~(3U << (2 * signal_bits[i]));
     }
 }
@@ -97,9 +95,6 @@ static void nikon_signal_input(void *opaque, int n, int level)
     }
     s->raw = (s->raw & ~bit) | (level ? bit : 0);
     timer_del(s->route[n].timer);
-    if (!nikon_signal_active(s, n)) {
-        return;
-    }
     if (!(s->debounce & bit)) {
         nikon_signal_sample(&s->route[n]);
         return;
@@ -282,7 +277,8 @@ static void nikon_signal_reset(DeviceState *dev)
     unsigned i;
 
     s->released = s->gates = s->masks = s->debounce = s->config = 0;
-    s->filtered = s->pending = 0;
+    s->filtered = s->raw;
+    s->pending = 0;
     s->opaque_configuration = 0;
     s->reported_error = false;
     /* Preserve live provider levels; only cold disconnected inputs are low. */

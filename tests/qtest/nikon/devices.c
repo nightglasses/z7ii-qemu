@@ -221,13 +221,14 @@ static void test_gpio_input(void)
     const char *path = "/machine/gpio";
     unsigned port;
 
-    /* No producer: input follows the explicitly configured pull profile. */
+    /* Unconnected inputs follow pulls; the CComp ACK producer holds low. */
     for (port = 0; port < 12; port++) {
         uint64_t offset = port * 4;
 
         qtest_writel(q, GPIO + 0x300 + offset, 0xffff);
         qtest_writel(q, GPIO + 0x400 + offset, 0xffff);
-        g_assert_cmphex(qtest_readl(q, GPIO + offset), ==, 0xffff);
+        g_assert_cmphex(qtest_readl(q, GPIO + offset), ==,
+                        port == 5 ? 0xff7f : 0xffff);
         for (unsigned pin = 0; pin < 16; pin++) {
             unsigned index = port * 16 + pin;
             unsigned bit = 1U << pin;
@@ -247,7 +248,31 @@ static void test_gpio_input(void)
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
     /* Configuration resets, while external producers remain connected. */
     for (port = 0; port < 12; port++) {
-        g_assert_cmphex(qtest_readl(q, GPIO + port * 4), ==, 0xffff);
+        g_assert_cmphex(qtest_readl(q, GPIO + port * 4), ==,
+                        port == 5 ? 0xff7f : 0xffff);
+    }
+    qtest_quit(q);
+}
+
+static void test_gpio_card_absent(void)
+{
+    QTestState *q = start(false, 1);
+    const unsigned bit = 1U << 14;
+
+    for (unsigned reset = 0; reset < 2; reset++) {
+        if (reset) {
+            qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+        }
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x114) & bit, ==, 0);
+        qtest_writel(q, GPIO + 0x314, 0);
+        qtest_writel(q, GPIO + 0x414, 0);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
+        qtest_writel(q, GPIO + 0x114, bit);
+        qtest_writel(q, GPIO + 0x14, bit << 16);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, 0);
+        qtest_writel(q, GPIO + 0x114, 0);
+        g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & bit, ==, bit);
     }
     qtest_quit(q);
 }
@@ -347,7 +372,7 @@ static void test_gpio_irq(void)
     qtest_writel(q, EXIU, 0xfffe);
     qtest_writel(q, GPIO + 0x114, 0x80);
     qtest_writel(q, GPIO + 0x14, 0x00800080);
-    g_assert_cmphex(qtest_readl(q, GPIO + 0x14), ==, 0x80);
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x14), ==, 0x4080);
     g_assert_cmphex(qtest_readl(q, EXIU + 0xc), ==, 1);
     g_assert_true(qtest_get_irq(q, 65 - 32));
     /* CLR is a command register: read zero, acknowledge only selected bits. */
@@ -370,6 +395,198 @@ static void test_gpio_level(void)
     qtest_writel(q, GPIO + 0x14, 0x00800000);
     qtest_writel(q, EXIU + 0x10, 1);
     g_assert_cmphex(qtest_readl(q, EXIU + 8), ==, 0);
+    qtest_quit(q);
+}
+
+static void ccomp_setup(QTestState *q)
+{
+    qtest_writel(q, EXIU, 0xfffe);
+    qtest_writel(q, GPIO + 0x118, 0x100);
+    qtest_writel(q, GPIO + 0x18, 0x01000000);
+}
+
+static void ccomp_request(QTestState *q, bool high)
+{
+    qtest_writel(q, GPIO + 0x18, 0x01000000 | (high ? 0x100 : 0));
+}
+
+static void ccomp_levels(QTestState *q, bool ack, bool pending)
+{
+    g_assert_cmphex(qtest_readl(q, GPIO + 0x14) & 0x80, ==, ack ? 0x80 : 0);
+    g_assert_cmphex(qtest_readl(q, EXIU + 0xc) & 1, ==, pending);
+    g_assert_cmpint(qtest_get_irq(q, 65 - 32), ==, pending);
+}
+
+static void ccomp_complete(QTestState *q)
+{
+    ccomp_request(q, true);
+    ccomp_request(q, true);
+    ccomp_levels(q, false, false);
+    ccomp_request(q, false);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 999);
+    ccomp_levels(q, false, false);
+    qtest_clock_step(q, 1);
+    ccomp_levels(q, true, true);
+    qtest_writel(q, EXIU + 0x10, 1);
+    ccomp_levels(q, true, false);
+    qtest_clock_step(q, 999);
+    ccomp_levels(q, true, false);
+    qtest_clock_step(q, 1);
+    ccomp_levels(q, false, false);
+    qtest_clock_step(q, 10000);
+    ccomp_levels(q, false, false);
+}
+
+static void test_ccomp_pulses(void)
+{
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    ccomp_setup(q);
+    ccomp_levels(q, false, false);
+    /* Guest states 1 and 2 reuse this same electrical exchange. */
+    ccomp_complete(q);
+    ccomp_complete(q);
+    /* A late service callback must not extend the scheduled ACK width. */
+    ccomp_request(q, true);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 10000);
+    ccomp_levels(q, false, true);
+    qtest_writel(q, EXIU + 0x10, 1);
+    ccomp_levels(q, false, false);
+    qtest_quit(q);
+}
+
+static void test_ccomp_cancellation(void)
+{
+    QTestState *q = start(false, 1);
+
+    nikon_intercept_gic(q);
+    ccomp_setup(q);
+    /* An unconfigured output latch is not an electrical request pulse. */
+    qtest_writel(q, GPIO + 0x118, 0);
+    ccomp_request(q, true);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 10000);
+    ccomp_levels(q, false, false);
+    ccomp_setup(q);
+
+    /* Neither held high nor host time can complete an unfinished pulse. */
+    ccomp_request(q, true);
+    qtest_clock_step(q, 10000);
+    ccomp_request(q, true);
+    g_usleep(10000);
+    ccomp_levels(q, false, false);
+    ccomp_request(q, false);
+    g_usleep(10000);
+    ccomp_levels(q, false, false);
+    qtest_clock_step(q, 1000);
+    ccomp_levels(q, true, true);
+    qtest_clock_step(q, 1000);
+    ccomp_levels(q, false, true);
+    qtest_writel(q, EXIU + 0x10, 1);
+    ccomp_levels(q, false, false);
+
+    /* Overlap while waiting cancels, discarding the overlapping pulse. */
+    ccomp_request(q, true);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 500);
+    ccomp_request(q, true);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 10000);
+    ccomp_levels(q, false, false);
+    ccomp_complete(q);
+
+    /* A request during ACK cannot produce another completion. */
+    ccomp_request(q, true);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 1000);
+    ccomp_levels(q, true, true);
+    qtest_writel(q, EXIU + 0x10, 1);
+    ccomp_request(q, true);
+    ccomp_levels(q, false, false);
+    ccomp_request(q, false);
+    qtest_clock_step(q, 10000);
+    ccomp_levels(q, false, false);
+    ccomp_complete(q);
+
+    for (unsigned phase = 0; phase < 3; phase++) {
+        ccomp_request(q, true);
+        if (phase) {
+            ccomp_request(q, false);
+        }
+        if (phase == 2) {
+            qtest_clock_step(q, 1000);
+            ccomp_levels(q, true, true);
+        }
+        qtest_system_reset(q);
+        ccomp_setup(q);
+        qtest_clock_step(q, 10000);
+        ccomp_levels(q, false, false);
+        ccomp_complete(q);
+    }
+    qtest_quit(q);
+}
+
+static void ccomp_store(GArray *code, uint32_t address, uint32_t value)
+{
+    const uint32_t store = 0xe5801000; /* str r1, [r0] */
+
+    constant(code, 0, address);
+    constant(code, 1, value);
+    g_array_append_val(code, store);
+}
+
+static void test_ccomp_iar(void)
+{
+    g_autoptr(GArray) code = g_array_new(false, false, sizeof(uint32_t));
+    const uint32_t observe[] = {
+        0xe590100c, /* ldr r1, [r0, #0xc]: actual secure GICC IAR */
+        0xe3510041, /* cmp r1, #65 */
+        0x1afffffc, /* bne to IAR read */
+        0xe5821000, /* str r1, [r2]: observed ID */
+    };
+    const uint32_t acknowledge[] = {
+        0xe3a01001, /* mov r1, #1 */
+        0xe5831000, /* str r1, [r3]: EXIU W1C */
+        0xe3a01041, /* mov r1, #65 */
+        0xe5801010, /* str r1, [r0, #0x10]: GICC EOI */
+        0xe3a01001,
+        0xe5821004, /* str r1, [r2, #4]: finished */
+        0xeafffffe,
+    };
+    QTestState *q;
+    int64_t deadline;
+
+    /* Self-written secure CPU fixture: qtest MMIO is nonsecure and cannot
+     * configure this CPU interface or establish its actual IAR result. */
+    ccomp_store(code, 0xf8101000, 1);
+    ccomp_store(code, 0xf8101440, 0x80808080);
+    ccomp_store(code, 0xf8101840, 0x01010101);
+    ccomp_store(code, 0xf8101108, 2);
+    ccomp_store(code, 0xf8102004, 0xff);
+    ccomp_store(code, 0xf8102000, 1);
+    ccomp_store(code, EXIU, 0xfffe);
+    ccomp_store(code, GPIO + 0x118, 0x100);
+    ccomp_store(code, GPIO + 0x18, 0x01000100);
+    ccomp_store(code, GPIO + 0x18, 0x01000000);
+    constant(code, 0, 0xf8102000);
+    constant(code, 2, RAM);
+    g_array_append_vals(code, observe, ARRAY_SIZE(observe));
+    constant(code, 3, EXIU + 0x10);
+    g_array_append_vals(code, acknowledge, ARRAY_SIZE(acknowledge));
+    write_image((uint32_t *)code->data, code->len);
+    q = start(true, 1);
+    qtest_qmp_assert_success(q, "{'execute':'cont'}");
+    deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (!qtest_readl(q, RAM + 4)) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+    qtest_qmp_assert_success(q, "{'execute':'stop'}");
+    g_assert_cmphex(qtest_readl(q, RAM), ==, 65);
+    g_assert_cmphex(qtest_readl(q, EXIU + 0xc) & 1, ==, 0);
     qtest_quit(q);
 }
 
@@ -417,20 +634,18 @@ static void test_fill(void)
 static void test_fill_gui(void)
 {
     static const struct {
-        uint32_t width;
-        uint32_t stride;
+        uint32_t pitch;
+        uint32_t row_bytes;
         uint32_t rows;
         uint32_t destination;
     } rejected[] = {
-        { 0x0b3f, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { 0x0b41, 0x0b41, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, 0x0b3f, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01df, GUI_FILL_DESTINATION },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0x01e1, GUI_FILL_DESTINATION },
+        { 0, 0, GUI_FILL_ROWS, GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH - 1, GUI_FILL_WIDTH, GUI_FILL_ROWS,
+          GUI_FILL_DESTINATION },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, 0, GUI_FILL_DESTINATION },
         { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-          GUI_FILL_DESTINATION + 4 },
-        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-          RESOURCE57_RECORD0_END - GUI_FILL_LENGTH / 2 },
+          GUI_FILL_DESTINATION + 1 },
+        { GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS, 0xfffffff0 },
     };
     const uint32_t draw_end = GUI_FILL_DESTINATION + GUI_FILL_LENGTH;
     g_autofree uint8_t *bytes = g_malloc(GUI_FILL_LENGTH);
@@ -444,18 +659,25 @@ static void test_fill_gui(void)
     qtest_writel(q, RESOURCE57_RECORD0_END - 4, 0xdec0ad02);
 
     for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
-        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+        fill_request(q, FILL, rejected[i].pitch, rejected[i].row_bytes,
                      rejected[i].rows, rejected[i].destination);
         g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
         g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
         g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
     }
 
-    /* This runtime profile is observed only on engine0. */
+    /* The common software producer configures either engine identically. */
     fill_request(q, FILL + 0x40, GUI_FILL_WIDTH, GUI_FILL_WIDTH,
                  GUI_FILL_ROWS, GUI_FILL_DESTINATION);
-    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_DESTINATION), ==, 0xa5a5a5a5);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 1);
+    g_assert_true(qtest_get_irq(q, 104 - 32));
+    qtest_memread(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_LENGTH, zero, GUI_FILL_LENGTH);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0xdec0ad01);
+    qtest_writel(q, FILL + 0x48, 1);
+    g_assert_false(qtest_get_irq(q, 104 - 32));
+    memset(bytes, 0xa5, GUI_FILL_LENGTH);
+    qtest_memwrite(q, GUI_FILL_DESTINATION, bytes, GUI_FILL_LENGTH);
 
     g_assert_false(qtest_get_irq(q, 103 - 32));
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
@@ -496,16 +718,27 @@ static void test_fill_gui_record7(void)
     qtest_writel(q, draw_end, 0x57070001);
     qtest_writel(q, RESOURCE57_RECORD7_END - 4, 0x57070002);
 
-    /* Only the exact firmware-published base is this second GUI profile. */
+    /* Unaligned requests reject; aligned row geometry has no base whitelist. */
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-                 GUI_FILL_RECORD7 + 4);
+                 GUI_FILL_RECORD7 + 1);
     g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
     g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
     g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
-                 RESOURCE57_RECORD7_END);
-    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
-    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
+                 GUI_FILL_DESTINATION - 4);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0x10);
+    g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 1U << 16);
+    g_assert_true(qtest_get_irq(q, 103 - 32));
+    qtest_writel(q, FILL + 8, 0x11);
+    g_assert_false(qtest_get_irq(q, 103 - 32));
+
+    fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, 1,
+                 GUI_FILL_RECORD7 + 4);
+    g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 1);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7), ==, 0x7a7a7a7a);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 + 4), ==, 0);
+    g_assert_cmphex(qtest_readl(q, draw_end), ==, 0x57070001);
+    qtest_writel(q, FILL + 8, 1);
 
     fill_request(q, FILL, GUI_FILL_WIDTH, GUI_FILL_WIDTH, GUI_FILL_ROWS,
                  GUI_FILL_RECORD7);
@@ -526,34 +759,31 @@ static void test_fill_gui_record7(void)
     g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END - 4), ==,
                     0x57070002);
 
-    /* Record8 starts at this exact boundary and remains an unmapped hole. */
+    /* Records6 and8 are valid neighbors inside the complete GUI owner. */
     qtest_writel(q, GUI_FILL_RECORD7 - 4, 0x12345678);
     qtest_writel(q, RESOURCE57_RECORD7_END, 0x87654321);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 - 4), ==, 0);
-    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END), ==, 0);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD7 - 4), ==, 0x12345678);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD7_END), ==, 0x87654321);
     qtest_quit(q);
 }
 
 static void test_fill_gui_record1(void)
 {
     static const struct {
-        uint32_t width;
-        uint32_t stride;
+        uint32_t pitch;
+        uint32_t row_bytes;
         uint32_t rows;
         uint32_t destination;
     } rejected[] = {
-        { 0x0eff, 0x0eff, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
-        { 0x0f01, 0x0f01, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, 0x0eff, GUI_FILL_RECORD1_ROWS,
-          GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021b,
-          GUI_FILL_RECORD1 },
-        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0x021d,
+        { 0, 0, GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH - 1, GUI_FILL_RECORD1_WIDTH,
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 },
+        { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH, 0,
           GUI_FILL_RECORD1 },
         { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
-          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 + 4 },
+          GUI_FILL_RECORD1_ROWS, GUI_FILL_RECORD1 + 1 },
         { GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
-          GUI_FILL_RECORD1_ROWS, GUI_FILL_DESTINATION },
+          GUI_FILL_RECORD1_ROWS, 0xfffffff0 },
     };
     g_autofree uint8_t *bytes = g_malloc(GUI_FILL_RECORD1_LENGTH);
     g_autofree uint8_t *zero = g_malloc0(GUI_FILL_RECORD1_LENGTH);
@@ -566,19 +796,28 @@ static void test_fill_gui_record1(void)
     qtest_writel(q, RESOURCE57_RECORD1_END, 0x57010001);
 
     for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
-        fill_request(q, FILL, rejected[i].width, rejected[i].stride,
+        fill_request(q, FILL, rejected[i].pitch, rejected[i].row_bytes,
                      rejected[i].rows, rejected[i].destination);
         g_assert_cmphex(qtest_readl(q, FILL + 8), ==, 0);
         g_assert_cmphex(qtest_readl(q, FILL + 0xc), ==, 0);
         g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
     }
 
-    /* The recovered request selects engine0, not the identical engine1 bank. */
+    /* Engine1 executes the same byte-row operation and acknowledges alone. */
     fill_request(q, FILL + 0x40, GUI_FILL_RECORD1_WIDTH,
                  GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_ROWS,
                  GUI_FILL_RECORD1);
-    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 0);
-    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1), ==, 0x1a1a1a1a);
+    g_assert_cmphex(qtest_readl(q, FILL + 0x48), ==, 1);
+    g_assert_true(qtest_get_irq(q, 104 - 32));
+    qtest_memread(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmpmem(bytes, GUI_FILL_RECORD1_LENGTH,
+                    zero, GUI_FILL_RECORD1_LENGTH);
+    g_assert_cmphex(qtest_readl(q, GUI_FILL_RECORD1 - 4), ==, 0x57010000);
+    g_assert_cmphex(qtest_readl(q, RESOURCE57_RECORD1_END), ==, 0x57010001);
+    qtest_writel(q, FILL + 0x48, 1);
+    g_assert_false(qtest_get_irq(q, 104 - 32));
+    memset(bytes, 0x1a, GUI_FILL_RECORD1_LENGTH);
+    qtest_memwrite(q, GUI_FILL_RECORD1, bytes, GUI_FILL_RECORD1_LENGTH);
 
     g_assert_false(qtest_get_irq(q, 103 - 32));
     fill_request(q, FILL, GUI_FILL_RECORD1_WIDTH, GUI_FILL_RECORD1_WIDTH,
@@ -1089,8 +1328,12 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/gpio/irq", test_gpio_irq);
     qtest_add_func("/nikon/gpio/level", test_gpio_level);
     qtest_add_func("/nikon/gpio/input", test_gpio_input);
+    qtest_add_func("/nikon/gpio/card-absent", test_gpio_card_absent);
     qtest_add_func("/nikon/gpio/descriptors", test_gpio_descriptors);
     qtest_add_func("/nikon/gpio/mux", test_gpio_mux);
+    qtest_add_func("/nikon/ccomp/pulses", test_ccomp_pulses);
+    qtest_add_func("/nikon/ccomp/cancellation", test_ccomp_cancellation);
+    qtest_add_func("/nikon/ccomp/iar", test_ccomp_iar);
     qtest_add_func("/nikon/completion", test_completion);
     qtest_add_func("/nikon/bridge", test_bridge);
     nikon_transfer_add_tests(image);
@@ -1099,6 +1342,7 @@ int main(int argc, char **argv)
     nikon_sdi_add_tests(image);
     nikon_spi_add_tests(image);
     nikon_i2c_add_tests(image);
+    nikon_acceleration_add_tests(image);
     nikon_pressure_add_tests(image);
     nikon_processing_add_tests(image);
     nikon_config_add_tests(image);

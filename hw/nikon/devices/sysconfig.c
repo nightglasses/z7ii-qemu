@@ -16,7 +16,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NikonSysconfigState, NIKON_SYSCONFIG)
 struct NikonSysconfigState {
     SysBusDevice parent_obj;
     MemoryRegion regs;
-    uint32_t config[8];
+    uint32_t config[11];
     uint32_t initialized;
     uint32_t banks[5];
     uint8_t identity, variant;
@@ -27,6 +27,8 @@ struct NikonSysconfigState {
 
 static const unsigned config_offsets[] = {
     4, 8, 0x24, 0x28, 0x30, 0x74, 0x34, 0x38,
+    /* 103c5d68 with source wrapper indices0/1/2: full-word replacement. */
+    0x64, 0x68, 0x6c,
 };
 
 static MemTxResult nikon_sysconfig_error(NikonSysconfigState *s, hwaddr offset,

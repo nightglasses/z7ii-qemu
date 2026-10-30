@@ -1,0 +1,9 @@
+Native test output excerpt
+Run: groupcursor-20261024
+Original log: native-cursor-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/2 nikon+qtest+qtest-arm - qemu:nikon_sla    OK             11.16s   23 subtests passed
+2/2 nikon+qtest+qtest-arm - qemu:nikon_sensor OK              8.01s   33 subtests passed
+Ok:                2
+Fail:              0

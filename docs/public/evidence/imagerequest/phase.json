@@ -1,0 +1,202 @@
+{
+  "scope": "Curated unchanged C1.70 firmware observations on baseline b30e15a1; no accepted hardware behavior change",
+  "address_domain": "MAS CPU VA unless a physical MMIO address is explicitly identified",
+  "input": {
+    "resource80": "cold-neutral descriptor32",
+    "rng": 0,
+    "battery": "healthy paced UART peer",
+    "key": "F4 held after initial QMP cont",
+    "execution": "MTTCG; five CPUs total",
+    "debugger": "read-only snapshot after execution; no in-transaction pause"
+  },
+  "observations": {
+    "phase": {
+      "window_host_seconds": 20,
+      "trace": "cpu,nochain; root creation, job creation and dispatcher filters",
+      "distinct_root_sequences": {
+        "first": 1,
+        "last": 37
+      },
+      "job_creation_observations": 37,
+      "job_type": 2,
+      "selector": 4,
+      "task_table": "b2bd43c8",
+      "conclusion": "Both parities are created and queued. Eligible jobs are cancelled at an earlier prerequisite; surviving opposite-phase jobs fail image admission."
+    },
+    "cancel": {
+      "window_host_seconds": 20,
+      "trace": "cpu,nochain; prerequisite and cancellation filters",
+      "first_cache_readiness_returns_zero": 20,
+      "second_cache_readiness_resume_observations": 0,
+      "cancellation_store_observations_at_10266a8c": 20,
+      "short_circuit": "10272c9e(1) && 10272c9e(2)",
+      "effect": "job[1]=1; dispatcher skips remaining steps"
+    },
+    "producer": {
+      "window_host_seconds": 20,
+      "cache1": {
+        "context": "b26c13b0",
+        "length_bytes": 10,
+        "allocation": "b2cc2758",
+        "dirty": 0,
+        "published": 0
+      },
+      "cache2": {
+        "context": "b26c13c8",
+        "length_bytes": 11,
+        "allocation": "b2cc2778",
+        "dirty": 0,
+        "published": 0
+      },
+      "other_published_indices": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "request_10273268_observed": false,
+      "calculation_10272d62_observed": false,
+      "frontend_gate": {
+        "mode_byte_b1887d72": 0,
+        "synchronized_b1887dc8": 0
+      },
+      "source_chain": [
+        "10235afe",
+        "10235e5c",
+        "10237d0e/10",
+        "10237bf8(041a000a)",
+        "1022f318",
+        "1022ef30",
+        "10273268",
+        "10272d62",
+        "10272d20",
+        "10272c7e",
+        "102de840"
+      ]
+    },
+    "join": {
+      "window_host_seconds": 20,
+      "trace": "cpu,nochain; service queue, callbacks, frontend configuration and GUI phase filters",
+      "queue": {
+        "address": "b23ede14",
+        "capacity": 60,
+        "record_bytes": 92,
+        "final_occupancy": 60,
+        "completed_matched_enqueue_results": {
+          "10326677": {
+            "accepted": 2,
+            "rejected": 31
+          },
+          "10325ff7": {
+            "accepted": 94,
+            "rejected": 442
+          }
+        },
+        "consumer_103191b2": "38 OnVd entries observed; no 10326676 entry",
+        "source_overflow_behavior": "1022587c returns0; 10319d56 ignores that result and still wakes worker"
+      },
+      "initial_10232de6_returns": true,
+      "requested_transition": {
+        "callback": "10326676",
+        "producer": "10327976(041a0002) -> 10319d56",
+        "action": "10323198(10,2)",
+        "table_result": "service2/event10 -> state3",
+        "executed": false
+      },
+      "readout_accepted": 1913,
+      "readout_completed": 1912,
+      "readout_rejected": 0,
+      "statistics_completed": 525,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "statistics_blocked": 0,
+      "six_original_loader_COPY_ranges_equal_input": true,
+      "qmp_running": true,
+      "battery_peer_rejection_observed": false,
+      "display_console": false
+    },
+    "display": {
+      "source_routes": {
+        "selection": "1053fe10 -> primary8000 -> 1053d0ec phase17 -> 10540be2 -> guarded operation5",
+        "configuration": "primary4 -> phase5 -> 105413d6 -> index ed change -> empty6433 and clear flag42 -> operation5",
+        "completion": "10631c7e -> primary400 -> phase18 -> guarded operation5"
+      },
+      "selection_observation": {
+        "calculated_target_mask": 1,
+        "selected_target": 1,
+        "selector_1063192c": 0,
+        "primary8000_post_observed": false
+      },
+      "configuration_observation": {
+        "join_10541578_observations": 99,
+        "all_R4_change_indicators": 0,
+        "property_id": 6433,
+        "index_hex": "ed",
+        "original_map_record": "12449ff0",
+        "runtime_map": "b2bb1080",
+        "enable_snapshot_index_enabled": 1,
+        "enable_snapshot_index_pending": 0,
+        "mark_index_ed_observed": false,
+        "clear_list_helper_1035ed5c_observed": false
+      },
+      "policy": "0410000b callback writes policy1; policy0 is not invariant",
+      "first_normal_activation_route": "not yet established by runtime join"
+    }
+  },
+  "experiments": [
+    {
+      "scope": "Hypothesis execution; temporary board input period only",
+      "period_ns": 100000000,
+      "window_host_seconds": 45,
+      "final_queue_occupancy": 0,
+      "service_state": 10,
+      "cache1_published": 0,
+      "cache2_published": 0,
+      "image_task_observed": false,
+      "display_console": false,
+      "verdict": "No validated pacing repair; original period restored"
+    },
+    {
+      "scope": "Hypothesis execution; temporary board input period only",
+      "period_ns": 1000000000,
+      "window_host_seconds": 45,
+      "complete_final_snapshot": false,
+      "verdict": "Old snapshot failed non-null descriptor precondition; no success claim; original period restored"
+    },
+    {
+      "scope": "Unchanged default period; sparse chained CPU trace",
+      "window_host_seconds": 30,
+      "final_queue_occupancy": 0,
+      "service_state": 4,
+      "cpu0_snapshot_pc": "10100008",
+      "display_console": false,
+      "verdict": "Different guest state; QMP running is not a healthy-startup verdict"
+    },
+    {
+      "scope": "CPU logging disabled",
+      "complete_final_snapshot": false,
+      "verdict": "Old snapshot failed non-null descriptor precondition; excluded from successful checkpoint receipts"
+    }
+  ],
+  "inference": "The focused cadence/cache failure is established. Queue backlog explains non-consumption in that window, but is not proved to be the universal or sole startup blocker. Reduced cadence did not restore normal GUI startup.",
+  "not_changed": [
+    "firmware bytes",
+    "job numbers and sampling tables",
+    "guest callbacks or task state",
+    "AF6 state",
+    "cache publication flags",
+    "display enables",
+    "accepted board input period or device models"
+  ],
+  "next_evidence": [
+    "Identify the outstanding OnVd call/wait and a consumed service transition under controlled execution conditions.",
+    "Join property6433/selection notifications to the first genuine enable request; multiple source routes exist."
+  ],
+  "omissions": [
+    "Raw firmware/disassembly, argv, CPU traces and full snapshots are private and not shipped.",
+    "Entry counts are scoped observations, not exact physical event counts. Interrupted TBs can repeat entries.",
+    "QMP counters are sequential reads, not atomic snapshots or physical frame-rate measurements.",
+    "No native device behavior changed; prior81-case statistics fixture receipt remains separate.",
+    "No complete boot, enabled scanout or physical-camera evidence is claimed."
+  ]
+}

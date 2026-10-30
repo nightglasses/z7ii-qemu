@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: captureflow-20261022
+Original log: native-pair-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/sensor/capture/runstop - ERROR:../../config/source/tests/qtest/nikon/sensor.c:903:test_capture_runstop: assertion failed (qtest_readl(q, CAPTURE_BASE + 0x210) == 0): (0x00008000 == 0x00000000) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.03s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/sensor.c:903:test_capture_runstop: assertion failed (qtest_readl(q, CAPTURE_BASE + 0x210) == 0): (0x00008000 == 0x00000000)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_sensor ERROR           1.03s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

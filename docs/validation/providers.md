@@ -43,16 +43,16 @@ is introduced.
 ## Actual native qualification
 
 The sole compiler linked the fixed ARM source and full-system units in
-`work/providerlayerfixedbuild.log`. The earlier API-name collision remains
-separate in `work/providerlayerbuild.log`; it is not counted as a passing build.
+`run providerlayerfixedbuild.log`. The earlier API-name collision remains
+separate in `run providerlayerbuild.log`; it is not counted as a passing build.
 Seven necessary native cases passed through four invocations:
 
 | Cases | Canonical ignored receipt | Duration / result |
 |---|---|---|
-| Results protocol, one case | `work/readoutprotocolnativereceipt.log` | 0.65 s / exit0 |
-| Lookup profiles/provider lifecycle, four cases | `work/lookupprotocolnativereceipt.log` | 0.65 s / exit0 |
-| Private paired banks, one case | `work/slapairsnativereceipt.log` | 1.34 s / exit0 |
-| Complete private provider topology, one case | `work/slaprovidertopologynativereceipt.log` | 1.34 s / exit0 |
+| Results protocol, one case | `run readoutprotocolnativereceipt.log` | 0.65 s / exit0 |
+| Lookup profiles/provider lifecycle, four cases | `run lookupprotocolnativereceipt.log` | 0.65 s / exit0 |
+| Private paired banks, one case | `run slapairsnativereceipt.log` | 1.34 s / exit0 |
+| Complete private provider topology, one case | `run slaprovidertopologynativereceipt.log` | 1.34 s / exit0 |
 
 Topology checks all eight children/configuration and six real event-input paths
 through the private GIC with acknowledgement. Typed-only IRQ105/106/115 are
@@ -63,7 +63,7 @@ these existing receipts; it performs no compilation, testing or VM operation.
 ## Bounded original execution and COPY comparison
 
 The separate fixed-source five-context observation is preserved under
-`local-gdb-observers/work/gui/providers/`: `receipt.json`, `launch.json`, `gdb.log`,
+`local-gdb-observers/run gui/providers/`: `receipt.json`, `launch.json`, `gdb.log`,
 `telemetry.json`, `qemu.log` and `qmp.json`. Independent MAS and SLA prefix
 inputs were explicitly counterfactual erased FF. At 58.905961 virtual seconds,
 the original had no MMIO rejection, MAS/SLA were in kernel idle and the known
@@ -72,7 +72,7 @@ process absent and original input bundle unchanged. QMP reported no display
 QemuConsole; no GUI completion is established.
 
 The observer completed direct byte comparisons, reported in
-[the fixed-run Issue326 receipt](https://github.com/mashiro01/nightglass/issues/326#issuecomment-6089956742).
+[unchanged-firmware startup](/startup/first).
 `expected-full.bin` is the original SLA package payload `[0,0x6e0000)`;
 `full-known.bin` is actual private guest memory `[0xc8220000,0xc8900000)`.
 Their 7,208,960 bytes compared equal with exit0; the `0x2e0000` subset also

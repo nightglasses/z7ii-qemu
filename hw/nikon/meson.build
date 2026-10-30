@@ -24,6 +24,11 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/fill.c',
   'devices/flags.c',
   'devices/gate.c',
+  'devices/gategrid.c',
+  'devices/gateplane.c',
+  'devices/gatepacket.c',
+  'devices/gatepixels.c',
+  'devices/gatework.c',
   'devices/gpio.c',
   'devices/hdmac.c',
   'devices/i2c.c',
@@ -33,6 +38,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_MEMORY', if_true: files(
   'devices/mxic.c',
   'devices/notifier.c',
   'devices/pairs.c',
+  'devices/pairedpixels.c',
   'devices/parameters.c',
   'devices/readout.c',
   'devices/router.c',
@@ -52,24 +58,38 @@ arm_common_ss.add(when: 'CONFIG_NIKON_EX', if_true: files(
   'machines/ex.c', 'components/exboot.c', 'devices/exio.c',
   'devices/extimer.c', 'devices/expower.c', 'devices/exrng.c',
   'devices/input.c'))
-arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files('devices/sensor.c'))
+arm_common_ss.add(when: 'CONFIG_NIKON_SENSOR', if_true: files(
+  'devices/sensor.c', 'devices/endpoints.c', 'devices/capture.c',
+  'devices/capturegroup.c', 'devices/captureparams.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_CMOS', if_true: files('devices/cmos.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_STORAGE', if_true: files('devices/storage.c'))
 arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'machines/z7ii.c',
+  'components/exconfig.c',
   'devices/dispatcher.c',
+  'devices/ccomp.c',
   'devices/banks.c',
+  'devices/panel.c',
   'peers/i2c.c',
   'devices/eyesensor.c',
+  'devices/lens.c',
+  'devices/acceleration.c',
   'devices/ipud.c',
   'devices/processing.c',
   'devices/processor.c',
   'devices/frame.c',
   'devices/readoutpipeline.c',
+  'devices/statistics.c',
+  'devices/capturework.c',
   'peers/spi.c',
   'devices/transfer.c',
+  'devices/path.c',
   'devices/save.c',
 ))
+if config_all_devices.has_key('CONFIG_NIKON_Z7II')
+  arm_common_ss.add(when: 'CONFIG_NIKON_Z7II',
+                    if_true: dependency('cairo', version: '>=1.16'))
+endif
 
 rx_ss.add(when: 'CONFIG_NIKON_VR', if_true: files(
   'machines/vr.c',

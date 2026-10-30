@@ -2,7 +2,11 @@
 
 This repository contains a diagnostic QEMU machine for unchanged Nikon Z7II C1.70 firmware components. It adds Nikon machines, devices, peers, and native tests beside a pinned upstream QEMU checkout. The machine is intended to make firmware execution and device contracts observable while each assumption is recorded and bounded.
 
-The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally; unchanged firmware has not yet naturally reached its first GUI frame. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
+The [handbook](docs/index.md) organizes architecture, startup, device contracts,
+runtime, explicit inputs, address references and validation. Start with the
+[current startup frontier](docs/validation/frontier.md) for the latest result.
+
+The project is a software model of selected firmware interfaces. It does not claim a recovered BootROM, a complete board flash, a physical sensor or display specification, or real camera performance. The embedded Z7II machine's complete bundle composition installs the bounded loader contract internally. Declared-input profiles reach numerical RAW processing, scene updates in the original AUTO photo GUI and an original NVMe media read. The maintained input selects the original photo/movie policies; their separate startup boundaries are recorded in the current frontier. Indefinite live-view stability, exposure control and file saving remain unresolved. Unknown register fields, access widths, commands, and addresses remain errors until a source-backed contract and a focused test exist. Functional-model acceptance and physical-camera fidelity are separate results.
 
 ## Supported machine types
 
@@ -12,7 +16,7 @@ component or software-domain profiles and do not claim a complete camera boot.
 
 | Machine type | Domain and CPU | Current role | Status |
 |---|---|---|---|
-| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Primary development target; original firmware has not reached a verified GUI first frame |
+| `z7ii-mas-diagnostic` | Z7II MAS, Cortex-A7 SMP | Main camera startup, peer wiring, capture, display, and storage integration | Continuing numerical RAW processing, status GUI and first original NVMe sector read; complete boot unverified |
 | `nikonsla` | SLA software domain, Cortex-A7 | Standalone decoded SLA loading and private peripheral contracts | Supported standalone profile; not a complete camera board |
 | `nikonex` | EX component, Cortex-M4 | Independent EX firmware and device contract tests | Supported component profile |
 | `nikonvr` | VR software profile, RX62N | Independent RX software and peripheral tests | Supported software profile |
@@ -21,6 +25,178 @@ New Nikon bodies or component domains should add a named machine under
 `hw/nikon/machines` and a focused qtest before they are described as supported.
 
 ## Firmware input modes
+
+The [current readiness investigation](docs/runtime/readiness.md#current-normal-input-observation)
+shows why ready0 does not mean no output. The bank YYUV+A8 and visible-area
+corrections pass15 image subtests; the original20-second run publishes the
+complete1024x682 error GUI on `display` head1. The
+[descriptor32 input/loader contract](docs/inputs/nor/module.md) now passes28
+memory subtests and original segmented COPY verification with a diagnostic
+structural input. A factory resource80 body remains unrecovered. The explicit
+[cold-neutral input](docs/inputs/nor/virtual.md) now defines the inspected cold
+readsets and nonzero timing: its native generator passes4 cases, original
+loading compares all six COPY ranges and the original version guard returns0,
+with no ID68 at the new checkpoint. The [CComp GPIO peer](docs/devices/ccomp/protocol.md)
+now removes ID54 through the original IRQ/callback/event path in a normal
+20-second run (3 handshake and5 GPIO cases pass). The separate
+[capture parameter packet](docs/devices/sensor/packet.md) passes all26 Sensor
+cases. The [endpoint/global parameter group](docs/devices/endpoints/protocol.md)
+and [two service banks](docs/devices/capture/banks.md) cover their source-selected
+fields. The [capture configuration group](docs/devices/capturegroup/protocol.md) adds144
+identified words. Its eight-word cold-empty result profile is an explicit
+functional hypothesis, invalidated as a whole at commit/effective run. The
+later [active-cursor profile](docs/devices/capturegroup/protocol.md#finite-active-cursor-assumptions)
+publishes generated target addresses only on automatic TG rises after a
+complete commit/run; it does not echo staging writes or assert completion.
+The [paired parameter family](docs/devices/captureparams/protocol.md)
+now retains141 source-written words, including both complete packets and the
+shared128-word table; all32 Sensor cases pass. With the same generated
+cold-neutral input, unchanged execution consumes the initial snapshot, reaches
+unit20 and unit200 commit/run. The [interpolation pool](docs/runtime/interpolation.md)
+now backs the complete source-declared15MiB kind74 range. The subsequent
+[grid pool](docs/runtime/grid.md) covers all six kind18 units; all30 memory
+cases pass. Original code crosses the grid read using explicitly assumed
+cold-zero RAM. Under the explicit cursor assumptions, the later original run
+crosses the post-submit bb70 read and completes39 getters with no new MMIO
+error in20 host seconds;33 Sensor and23 SLA cases pass. QMP remains running
+without a console; CMOS/readout counts were still0 at that checkpoint.
+The later [readout producer join](docs/runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join)
+connects initial unit2 commit/run, immutable descriptors, actual primary DMA
+and mode-selected capture completion. It backs the complete kind38/39 pools.
+Two20-second cold-neutral runs now complete about1500–1650 functional
+transfers through the original IRQ/owner/marker loop, with no request rejection
+or console; all99 applicable CMOS/Sensor/memory/SLA cases pass. The separate
+owner data-consumer bit2/raw0.bit6 path was initially unproduced. The subsequent
+[capture data audit](docs/runtime/capturedata.md) traces its four queues,
+statistics/scalar readers and pending40000 retirement callback. All33 sampled
+requests have root[16]=0, so their upper image-delivery branch is not selected.
+The complete source-declared capture pools16..23 now have exact RAM (kind18
+was already mapped); all32 memory cases pass. The complete-bundle
+[finite statistics profile](docs/devices/statistics/protocol.md) now joins
+committed endpoint configuration, immutable completed input, all ten output
+DMAs, twelve-word bank results, four global scalars and bit6 publication.
+Its numerical arithmetic and input association are explicit functional
+assumptions. All81 applicable memory/CMOS/Sensor cases pass. Unchanged
+cold-neutral execution completes519 processing jobs in20 host seconds with
+no processing rejection/cancellation or uncovered access; the original
+consumer and request retirement execute, with all four queues empty at the
+checkpoint. There is still no display console. The separate conditional
+image request requires service state9, while this run remains in state2.
+The [normal image request audit](docs/runtime/imagerequest.md) separates
+information/activation producers from AF6/state9. Qualified input synchronization
+now reaches the original FE mask4 setter, closing OnVd's mask5 wait. The earlier
+callback backlog naturally resolves to service4 with an empty queue.
+The [finite grayscale stream](docs/devices/capturework/protocol.md) now joins
+unit1 identity forwarding, unit2 geometry and paired LUT/packing to actual
+kind16 output DMA under explicit arithmetic/input hypotheses. In the final
+40-second cold-neutral explicit-scene run,388 stream jobs write737300880 payload
+bytes and original unit1/2/paired fence setters execute. All92 applicable
+Memory/CMOS/Sensor subtests pass. Aggregate processing still waits for group's
+independent payload operation; its address cursor is not a data completion.
+The computed caches remain unpublished and the first-enable chain has no
+console. No guest event, cache value or display enable is forced.
+Physical result semantics,
+normal-menu startup and later mode coverage remain unverified. Zero-valued
+module metadata is a bounded functional assumption, not
+physical calibration or a universal block-disable setting.
+Resource31's erased timing parameter
+is a separate input limitation. Earlier checkpoints below retain their scope.
+
+The [bounded statistics storage](docs/devices/statistics/protocol.md#completion-sequence-and-bounded-output-storage)
+and [explicit region input](docs/inputs/nor/descriptor.md#resource35-first-read-region-input)
+support the original first-read acquisition and its region consumers. The
+[sequence start/stop model](docs/devices/sensor/protocol.md#global-sequence-start-and-stop)
+supplies normal router IRQ87 completion, while the result latch preserves
+actually published capture-group packets across restart. Storage reuse,
+virtual region coefficients and lifecycle timing remain explicit hypotheses.
+No guest event or requested cursor is forced.
+
+The [kind41 workspace](docs/runtime/storage.md#kind41-processing-workspace)
+backs its source-owned 4 MiB unit and crosses the original record clear.
+The complete [processing scratch arenas](docs/runtime/storage.md#processing-scratch-arenas)
+also support the original allocator's two block families; the latest72
+memory/sensor cases pass. The [complete graph-type inventory](docs/devices/gate/family.md)
+establishes19 types and76 resources, with15 processing types across42 command
+ports. All42 imports and pending starts share the finite command contract;
+type14's24-byte template remains explicitly hypothetical. The
+[paired-table family](docs/devices/pairs/tables.md) retains all36 tables/590
+words in both banks. The [stream-request contract](docs/devices/pairs/requests.md)
+adds both paired-bank request lifecycles and the complete active kind25/26/31
+RAM owners. It also corrects the earlier busy-on-parameter-publication model:
+all sixteen [type0 slots](docs/devices/gate/slots.md) atomically capture complete
+parameters, and legal quiescent reloads replace the prior snapshot. Actual
+processing ownership and results remain separate, with no invented completion.
+All35 memory and23 SLA subtests pass. Unchanged region/cold-neutral execution
+imports18 packets/649 words and performs nine parameter captures, crossing
+paired start and slot3/4/5 configuration-only reloads. Pending paired
+input and correction arithmetic were the substantive processing boundary at
+that checkpoint. The
+[initialized path family](docs/devices/transfer/prefix.md#initialized-indirect-path-batches)
+and [two-engine byte-row fills](docs/devices/fill/protocol.md#source-produced-byte-rows)
+also cross the later graphics and clear requests. The
+[complete kind57 GUI arena](docs/runtime/storage.md#kind57-gui-arena) replaces
+four fragments with its exact declared owner. In the earlier 60-host-second
+kind57 continuation,
+QMP stays running with no uncovered access and the formerly failing clear
+performs real DMA. Paired pixels and the downstream graph remain pending at
+that historical checkpoint.
+The error property is empty. That earlier window displays1024×682 status widgets,
+a thin border and a memory-card error overlay on head1, while head0 is unbound.
+Both image-information records are populated; GUI readiness remains zero and
+normal live view remains incomplete. Earlier diagnostic windows did not all
+bind a console; this bounded result does not establish long-duration stability.
+The earlier ID63 error frame is separately archived. The
+[current frontier](docs/validation/frontier.md) distinguishes these results
+from complete-boot and physical-camera evidence.
+
+The [paired pixel model](docs/devices/pairs/pixels.md) now consumes actual
+completed RAW buffers, applies bounded mono/CFA filtering and guest color
+parameters, writes main/work/grid outputs and publishes completion through
+normal IRQ handling. Select its explicit `paired-calibration` input alongside
+the scene and cold-neutral inputs. Cycle-selected noise and both source-selected
+address groups now have finite numerical models. In the earlier selected-card
+profile with no virtual lens, original firmware completes 108 jobs and 287,426,880 payload bytes while
+reading its first NVMe sector. This establishes the connected numerical data
+path. The later full-resolution AUTO validation below establishes bounded
+continued live view under its explicit profile. See the [storage input](docs/devices/storage/protocol.md#explicit-media-input)
+for `slot0-drive`, raw images and the host-folder boundary.
+
+The explicit `virtual-lens=on` input attaches the
+[normal-family virtual lens](docs/devices/lens/protocol.md) to its original
+SPI and GPIO paths. It supplies a coherent 50 mm F2.8 profile, complete
+initialization/calibration replies, receiver-bound history and bounded iris
+travel through six stops. Iris position and busy state follow actual modeled
+motion; command acknowledgement is independent of motor completion. Scene pixels
+remain a separate CMOS/RAW input; a future 3D application adapter must feed that
+acquisition boundary and coordinate capture metadata with the lens state.
+No 3D application bridge or optical exposure simulation is implemented yet.
+The lens protocol and ordered vector batches produce a status
+GUI without the former lens-extension warning in the movie-input profile. The
+current frontier records the distinct photo/movie startup boundaries and
+bounded photo live view; complete camera operation remains unverified.
+The [maintained capture selector](docs/devices/gpio/input.md#maintained-photomovie-selector)
+starts in photo and toggles with F13. It drives the original EX I2C input path;
+the guest chooses photo/movie policy. F14/F15 move the eight-position mode ADC
+ladder; F16/F17 and F18/F19 drive the two quadrature command dials. The original
+EX and MAS firmware own mode selection, dial sampling, shutter/aperture policy
+and lens requests. These electrical inputs do not establish every exposure
+mode's processing or end-to-end exposure acceptance. F4 remains a separate
+application input.
+
+The [continuous graph](docs/devices/gate/processing.md) now consumes owned MAIN
+pixels, applies the neutral carrier, grid warp and three affine branches, and
+writes all three terminal images before publishing completion. The
+[primary scanout](docs/devices/banks/image.md#primary-yuv-view) consumes the
+original display queue's Y/UV view and programmed matrices before composing
+the GUI overlays. The [full-resolution validation](docs/validation/color.md)
+now shows a detailed 1200 × 800 photo input in the original 1024 × 682 GUI.
+Twenty normal dynamic replacements reach distinct visible positions, with
+neutral gray and increasing processing counters throughout an 83.13-host-second
+window. Separate MAIN/auxiliary ownership and frozen RAW transfer metadata
+correct the earlier detail and neutral-color errors. Numerical color fidelity,
+indefinite stability, rare startup rejection and exposure control remain open. The
+[current frontier](docs/validation/frontier.md) separates actual DMA images,
+original GUI output, finite color hypotheses and native fixture evidence.
 
 The combined Z7II run is the target for system-level startup. Use the
 `bundle=` machine property with a validated decoded container to load the five
@@ -36,12 +212,172 @@ A complete bundle installs the bounded loader contract and connects
 the MAS/SLA notification endpoints before either bridge is realized, and
 joins readout-control requests to the existing CMOS timing/DMA
 engine. That join validates the finite C1.70 mapping, writes only the submitted
-primary buffer and publishes generation-checked completion. An explicit
+primary buffer and publishes generation-checked capture causes after DMA.
+Initial unit2 run and the mode0/1 completion join are explicit functional
+hypotheses, grounded in original producer/consumer ordering. An explicit
 PGM/PPM source is used when configured; otherwise the bundle path selects
 the deterministic CMOS provider. It does not inject guest event objects, task
 state or a prefilled UI. Missing physical-camera evidence, exact Bayer fidelity
 or full GPU precision does not block functional implementation. Raw `-bios`
 remains the isolated MAS input mode.
+
+Persistent parameter data can be supplied separately through the explicit
+[`descriptor17-input` / `descriptor18-input` properties](docs/inputs/nor/descriptor.md).
+The resource80 module-bank input uses the separate full-slot
+[`descriptor32-input`](docs/inputs/nor/descriptor.md#descriptor32-module-bank-input).
+A
+[constructed functional profile](docs/inputs/nor/functional.md) uses unchanged
+firmware to parse a hypothetical virtual-camera configuration; recovering a
+physical factory image is a separate fidelity objective. The current experiment
+passes ID34 initialization, RGBA clears, a gray panel and131 original glyph
+outlines through original IRQ129. Those glyphs render the battery communication
+warning into guest memory. Five subsequent gray rectangles also complete;
+an inline A8 image submission adds the red warning icon through IRQ129.
+The224/1736-byte conversion from a separate1024-wide RGBA buffer to YUV105
+also completes, followed by720x480 scaling into1024x682 YUVA107. The current
+176/1552-byte continuation now composites the warning surface with SRC_OVER
+using retained107 context. The following bounded run has no graphics error
+and returns from warning worker4 to worker0; GUI readiness remains unarmed.
+The [current policy trace](docs/runtime/policy.md) crosses main mode5 using
+the existing F4 input held before initial EX sampling. Original code selects
+main mode1 and starts GUI worker3/mode1 while BatCk remains2. The finite
+[channel9 initial-count load](docs/devices/timing/protocol.md) now reaches
+the original timer callback with status1. The subsequent720x480 zero fill to
+resource57 record5 at `0xbf309600` now completes through the original IRQ,
+callback and waiter; readiness remains unarmed in the bounded continuation.
+The [reproducible RNG input](docs/inputs/ex/rng.md) and
+[finite UART battery peer](docs/runtime/batterypeer.md) now support the complete
+finite battery command inventory, including status/metrics, configuration/control
+and the conditional echo. Unchanged EX accepts authentication and normal class1
+query continuation through this peer.
+Source-backed9600-baud byte pacing now sustains normal UART polling; original
+EX reaches charge100/diagnostic0 and MAS BatCk becomes1. See the
+[protocol inventory](docs/runtime/batteryprotocol.md) for the modeled scope.
+Joining that healthy peer with cold F4 changes the earlier warning path:
+BatCk remains1, worker0 keeps processing events, and GUI stays idle rather
+than entering the earlier warning-driven mode1. The [ordinary GUI investigation](docs/runtime/guiupdate.md)
+captures the actual divergence: the no-peer battery report sets properties6401/6402,
+and6401=1 selects GUI action8; the healthy report clears both properties and
+skips that branch. Input lock80 and its delivered value0 are derived policy state, not a
+missing readiness notification.
+The subsequent [normal-request continuation](docs/runtime/guiupdate.md)
+supplies complete acceleration/TEMP records and explicit raw sensor samples.
+Unchanged firmware initializes the acceleration device through I2C2, completes
+the direction contribution and selects application state2. Both qualified TEMP
+candidates make the normal display request return0 and enter primary state1,
+with BatCk1 and power1. The [MXIC read-view correction](docs/devices/config/view.md)
+now completes the full configuration transaction with active readback selected.
+The [timing divider/load model](docs/devices/timing/load.md) now covers the
+complete source byte/load interface; raw31 means divide-by50. Original channel7
+crosses all seven waits. The [capture-control model](docs/devices/sensor/control.md)
+now completes complemented-mask and paired reset/enable initialization. The
+[kind40 allocation](docs/runtime/kind40.md) now has exact source-backed RAM;
+the original mapping from VA `0x36d59800` to PA `0x62059800` and complete clear
+are verified. The [resource11/12 producer join](docs/runtime/rows.md) now covers
+both target capacities and explicit primary NOR input. Original code loads and
+converts all eight row layouts, with the complete2640-row output verified.
+The [SYS configuration family](docs/devices/sysconfig/runtime.md) now supports
+all three full-word ports `0x04280064/68/6c`; all25 memory qtests pass.
+The [router timing model](docs/devices/router/timing.md) now covers all three
+requests and a virtual TG input under explicit functional hypotheses. All23
+SLA and25 memory qtests pass. Original IRQ87 callbacks release both subsequent
+waits and application state advances to03/02; the next first rejection is
+the capture-control stop request at that checkpoint. The complete
+[capture run/stop model](docs/devices/sensor/runstop.md) now covers all11 unit
+bits, separate low-level/upper quiescence causes and shared4/8 lifetime;
+all25 sensor qtests pass. Original execution crosses that store and a later
+GUI completion callback. The [audio format profile](docs/devices/audio/format.md)
+now covers the complete source-shaped format/port/divider fields and block
+programming, with15 native audio/DMA/HDMAC cases passing. The subsequent
+[HDMAC reload model](docs/devices/hdmac/reload.md) covers all8 RC/RS/RD
+combinations and passes21 applicable native cases plus focused boundary/guard
+checks. Original setup crosses both input descriptor stores/starts, sets audio
+input enable and reaches the microphone initializer's return sequence.
+The subsequent [Audio observation profile](docs/devices/audio/monitor.md)
+supports both paired getters under explicit last-observed/packing assumptions;
+all22 applicable Audio/DMA/HDMAC cases pass. The original input getter and
+amplitude conversion now return. At that Audio-only checkpoint the next rejection is CPU1 WRITE32
+`0x201810e0=1`, PC `0x106ee3c6`, with `transfer-stream-truncated` in the
+graphics parser. Input selectors5/6 still lack a sample producer; actual sample
+transfer and audio completion remain unverified.
+The [inline rectangle model](docs/devices/transfer/rectangles.md) now handles
+that856/1088-byte family, including variable counts/colors, SRC alpha clearing,
+key wrap and strict RAM/alias boundaries.
+Unchanged original execution submits the four rectangles and receives IRQ129.
+The [RAM backing fix](docs/startup/ram.md) resolves the subsequent host IOTLB
+assertion in resource57 record0 while preserving exact physical boundaries;
+that 43-case memory/transfer native batch passes. The later
+[context continuation model](docs/devices/transfer/continuation.md) completes
+the 2120/2368-byte, ten-rectangle batch without its earlier initialization
+prefix. The [RGBA SRC_OVER model](docs/devices/transfer/over.md) then completes
+the 176/368-byte indirect rectangle with paint `cc000000`, including subsequent
+path/image compositing over nonopaque destinations. All 16 transfer unit cases
+pass at that checkpoint. The later [image context model](docs/devices/transfer/image.md)
+corrects the shared-prefix misclassification, accepts full image initialization
+and retains the actual target across image continuations. All17 transfer unit
+cases pass at that checkpoint. The [mixed path model](docs/devices/transfer/stroke.md)
+then supports bounded fill/stroke batches, target-matched context, object-space
+stroke widths and all nine cap/join combinations. All19 transfer unit cases
+pass. Original execution completes mixed280/352 and1680/2072 packets plus later
+graphics work. The [matrix overwrite correction](docs/devices/transfer/overwrite.md)
+then permits cached state fully replaced before latching, with all20 transfer
+subtests passing. Original execution completes a late1280/1560-byte six-clear
+batch. The [paint-state correction](docs/devices/transfer/paint.md) then accepts
+optional color-transform disable writes and retains that clear's shared RGBA
+context. All20 transfer subtests pass; original execution completes three840/1048
+packets and later work. The [temporary conversion mode model](docs/devices/transfer/mode.md)
+then accepts the producer's four inherited modes before final mode2 in all
+three conversion/composite forms. All20 transfer subtests pass. Original
+execution completes nine newly accepted YUVA107 conversions and later work,
+then reaches a216/344-byte A8 image with cached-state prefixes. The
+[image prefix model](docs/devices/transfer/prefix.md) covers both prefixes
+independently, with all21 transfer subtests passing. Original execution completes
+ten prefixed images and later work, reaching a176/368 RGBA clear whose target
+bec5f200 differs from the old single-clear profile's c175d600 restriction.
+Application bytes are01/03 and primary request0 at that checkpoint.
+The [initialized target contract](docs/devices/transfer/target.md) now accepts
+the explicit validated720x480 RGBA target, with22 transfer subtests passing.
+Original execution completes that record0 rectangle and two subsequent jobs;
+a separate read-only before/IRQ comparison verifies all active pixels and
+the unchanged slot tail. The next224/1648 YUVA107 clear rejects at temporary
+mode0 before final8, while its historical profile requires temporary8. The
+[clear mode model](docs/devices/transfer/clearmode.md) now covers temporary0/8
+in both105/107 clears;22 transfer subtests pass. Original execution completes
+that clear and147 IRQ129 entries through later graphics, then encounters
+timing channel4 extra-feature enable at PA2c011538. GUI readiness remains0.
+Parallel work extends the[source-backed cached-matrix rule](docs/devices/transfer/overwrite.md)
+to initialized105/107 clears/converters, including232 native variants and
+strict retained active matrices. The transfer batch now passes23 subtests.
+The[panel observer](docs/devices/panel/protocol.md) now compares every visible
+pixel, fixing missed updates outside sampled row starts;3 panel subtests pass.
+The [finite extra-feature model](docs/devices/timing/extra.md) now supports
+the source's five-channel enable/configuration/result interface and single-shot
+wrapper. Its period-budget result, terminal bit3 and stop are explicit functional
+assumptions. All20 timing subtests pass, including unrealize cancellation.
+Parallel explicit two-path RGBA targets and [per-record rectangle prefixes /
+shared context](docs/devices/transfer/prefix.md) pass25 transfer subtests.
+The final110-second unchanged run completes the formerly rejected1232/1416
+pair and continues without uncovered accesses. Channel4 reaches original
+dispatch `410a1805/status9`, callback `1039578c`, waiter return `1039a408`
+and the guest stop; result40 is1 and pending0. This verifies original software
+acceptance of the functional timer profile, not physical terminal semantics.
+Its long delay comes from resource31's erased parameter42 (`ffffffff * 500`);
+the [normal input value](docs/inputs/nor/descriptor.md#resource31-timing-parameters)
+remains unrecovered. The later [readiness investigation](docs/runtime/readiness.md)
+checks the actual bank console: ready0 still permits an original error-GUI
+frame. The source-bound YYUV+A8 and visible-area corrections pass15 native
+image cases. The next frontier is the resource80 body: the erased default
+fails descriptor32 validation, while the diagnostic structural input copies
+normally but retains version0/ID68. Normal-menu startup and physical scanout
+remain unverified. Visible dimensions come from1328/132c rather than the1308
+timing counts. The earlier
+432/616-byte pair belongs to the erased-TEMP failure continuation.
+
+The [wire-only battery tool](docs/runtime/batterytool.md) is built as
+`work/build/qemu/tools/nikon/nikon-battery` by the normal source graph, with
+native arithmetic, range, cancellation and CLI fixtures. It derives first-auth
+replies and provides the complete finite protocol described above; unknown
+commands and fields remain explicit errors.
 
 The raw `-bios mas-component.payload.bin` form is a focused MAS-only diagnostic
 input. It is useful for isolating MAS startup and RTOS behavior, but it is not a
@@ -62,7 +398,7 @@ or ambiguous component input before any component becomes visible to a machine.
 - CPU reset, ROM loading, RAM, MMIO, DMA, GIC, timers, storage, serial, input, processing, and display paths are implemented only where their firmware-facing contracts are known.
 - CMOS input is an independent, guest-configured transport endpoint. It accepts mode, crop, scale, format, byte geometry, buffer rotation, exposure, period, readout timing, and opaque source fields; it preserves unknown words and can sample an explicitly supplied binary PGM/PPM image into the guest-configured buffers. The deterministic byte source is available to the complete bundle and explicit fixtures. This is a functional transport contract, not a recovered sensor specification.
 - Eye proximity input is a separate I2C device contract. It never supplies image rows, CMOS completion, ISP data, or a display frame. Its register access can be exercised independently; measurement values, physical wiring, and an interrupt producer remain unbound.
-- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The complete bundle joins a bounded readout mapping to CMOS primary-buffer DMA and generation-checked completion; capture/SDES and downstream ISP/display joins remain independent boundaries.
+- SDES channel/global control, `capture-control`, and `readout-control` retain their source-backed MMIO fields, command/status publication, buffer descriptors, and request boundaries. The complete bundle joins unit2 run/marker requests to primary-buffer DMA and finite mode0/1 capture IRQ94 completion; other capture/SDES data paths and downstream ISP/display joins remain independent boundaries.
 - The display path composes supplied guest buffers and can publish a QEMU console image after a completed transaction. A rendered image is not evidence of the original camera menu or LCD.
 - The 8x8 fixture is transport-only. It checks packet and buffer delivery through the declared seam; it is not a CMOS, ISP, display, or complete-camera-startup fixture.
 - Storage uses QEMU's mature NVMe and `BlockBackend` paths with an explicitly attached medium. It does not assert a particular card, filesystem image, capacity, or physical bus implementation.
@@ -73,7 +409,7 @@ or ambiguous component input before any component becomes visible to a machine.
 The detailed CPU, memory, device, and runtime pipeline diagrams are in
 [`docs/architecture.md`](docs/architecture.md). The parameter matrix and
 evidence classification are maintained in
-[`docs/startup/cpu_board.md`](docs/startup/cpu_board.md).
+[`docs/startup/cpuboard.md`](docs/startup/cpuboard.md).
 
 ```mermaid
 flowchart TD
@@ -90,6 +426,8 @@ flowchart TD
   Readout -->|"complete bundle only"| CMOS["Finite readout mapping<br/>CMOS timed DMA / generation completion"]
   Source["Explicit image or<br/>bundle deterministic input"] --> CMOS
   CMOS --> RAM["Submitted primary guest buffer"]
+  CMOS -->|"actual DMA DONE, mode0/1 profile"| CaptureIRQ["capture IRQ94 / original ISR"]
+  CaptureIRQ -->|"original owner / marker"| Readout
   MAS --> Graphics["Finite paired graphics LUT executor<br/>actual output, IRQ129, completed status58 read"]
   GraphicsRAM["Guest-selected graphics input RAM"] --> Graphics
   Graphics --> Output["Descriptor-selected output RAM"]
@@ -118,13 +456,17 @@ The readout join validates the primary destination, stride, span and the two
 accepted C1.70 format pairs before timed CMOS DMA. Secondary ranges are
 validated but not written. Busy requests, stale generations, cancellation and
 reset preserve ownership boundaries. This is a functional mapping, not a
-recovered sensor format, timing law, GIC route or CMOS-to-ISP/display path.
+recovered sensor format, timing law or CMOS-to-ISP/display path. IRQ94
+raw0.bit3/5 completion is an explicit functional join to an original consumer.
 
 Graphics stream counts 28/211 are 64-bit units, yielding full 224/1688-byte
 snapshots. The finite LUT executor validates the supported program family,
-reads a 128x128 input and writes a 32x32 result before raising IRQ129. Its
-post-completion offset `0x58` read reports bit26 clear; other status semantics,
-fences, IRQ131 and other program families remain unsupported. Ordinary
+reads a 128x128 input and writes a 32x32 result before raising IRQ129. Finite
+RGBA profiles also clear surfaces and fill bounded affine MOVE/LINE/QUAD/CLOSE
+outlines using Cairo coverage, retained720x480 context and black SRC_OVER.
+No host font or replacement text is used. The post-completion offset `0x58`
+read reports bit26 clear; other status semantics, fences, IRQ131 and unsupported
+program families remain explicit boundaries. Ordinary
 byte-copy IRQ130 and image-bank composition/console publication are separate
 implemented paths. No graphics output buffer is presumed to be a screen.
 
@@ -133,6 +475,8 @@ The MAS request-only processor at PA `0x2c040000` plus bootstrap view
 naturally timed out there; earlier full-stream receipts also predate the LUT
 executor and retain pending graphics work. See [runtime evidence](docs/runtime/coprocessor.md)
 and [native receipts](docs/validation/native.md) for those historical results.
+[The startup frontier](docs/validation/frontier.md) states what the supplied EX
+component demonstrably reaches and which gates it cannot reach at all.
 No new original-firmware GUI result is implied by the current source graph.
 D100/D200/C0A0 retain bounded scalar state with no event/completion side effect;
 C010 and PA `0x2c012000` remain strict boundaries. The `1046bfxx` image-start
@@ -148,7 +492,7 @@ packets and save decisions.
 
 The `qemu/` submodule is the official QEMU source pinned to `v11.1.2` (`4fc49f46dc95d4a27de2509e7fceb2931e91faeb`). Keep that checkout clean; the project-owned source is under `hw/nikon`, `include/hw/nikon`, `tests/qtest/nikon`, and `tests/unit/nikon`.
 
-Install CMake 3.24 or newer, a C compiler, Make, Meson/Ninja, `pkg-config`, GLib, pixman, and the Python packages required by the upstream QEMU build. Then run:
+Install CMake 3.24 or newer, a C compiler, Make, Meson/Ninja, `pkg-config`, GLib, pixman, Cairo 1.16 or newer, and the Python packages required by the upstream QEMU build. Then run:
 
 ```sh
 git submodule update --init --recursive

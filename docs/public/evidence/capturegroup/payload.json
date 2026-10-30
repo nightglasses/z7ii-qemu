@@ -1,0 +1,281 @@
+{
+  "scope": "C1.70 group source audit, finite statistics ring-completion hypothesis, native fixtures and unchanged-firmware original execution under explicit cold-neutral virtual inputs",
+  "source_baseline": "68b2696ef1275d419f656e2a55987e40b4ac0ecd",
+  "input_profile": {
+    "module": "cold-neutral resource80",
+    "CMOS": "same explicit PGM quadrant scene [32,192,64,224] as stream receipt",
+    "battery": "healthy paced UART, RNG0, acceleration0/0/1024",
+    "input": "held F4",
+    "CPUs": "five, MTTCG"
+  },
+  "source": {
+    "descriptor_copy": "10235afe ->1021f424 ->103a5bd8; input ring VA b217b7f8, stride0xd18, descriptor offset0x14",
+    "conditional_consumer": "1021e130 ->103dd76c ->103dcbfa ->102ab7fa ->102a9c54",
+    "pair": "102a9bd6; first pointer advances40 bytes, second24; descriptor decimal104 enable and108 count",
+    "grid": "102a9b20; descriptor decimal128 enables; count-plus-one geometry;32-byte contiguous input cells;288-byte compact output row stride",
+    "prefix": {
+      "P": "W0 &0xfff",
+      "S": "(W0>>12)|((W1&7)<<20)",
+      "T": "W1>>3",
+      "limit": "wire decoding established; metric meaning and pixel-to-record algorithm unresolved"
+    },
+    "completion": "raw3.bit0 ->10239436 ->processed software bit0x40 and event0x01000000; no payload decode/cache/latch writes",
+    "admission": "103197fc writes metadata decimal10132=1 when B1868B1E nonzero;10324960 sets B1E only from0 in CaptureService state12;041a0003 posts FE worker8 only if B1887DD8 nonzero, else0x20000",
+    "normal_first_read": "OnVd10325ff6 state4 and B1868B50==0 ->10233cf6 sets DD8=1, queues root B25EEBC4, calls10235c84 then conditionally10232040",
+    "mode1_completion": "10239480 raw3.bit7 ->owner0x80 ->10238d4a ->1023c57a(1,B26B44CC); lane flag4 and mode1: first invocation selects alternate endpoint1 address set, clears stride and commits8; second stops capture and emits041a0003",
+    "input_lifetime": "Board capture run-state bit1 ->auxiliary readout run; falling edge cancels request and invalidates pipeline input. Main-input bit0 remains running in first-read mask0x1d; current provider submits CMOS only for auxiliary requests"
+  },
+  "windows": {
+    "baseline": {
+      "host_observation_seconds": 25,
+      "pipeline_completed": 299,
+      "pipeline_rejected": 0,
+      "statistics_completed": 298,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "display_console": false,
+      "peer_rejections": [],
+      "read_watchpoint": {
+        "VA": "[5d4b5000,5d4b8c00)",
+        "hits": 0,
+        "limit": "no hit in this instrumented window; not proof of no future or aliased access"
+      }
+    },
+    "retire": {
+      "host_observation_seconds": 25,
+      "pipeline_completed": 301,
+      "pipeline_rejected": 0,
+      "statistics_completed": 300,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "display_console": false,
+      "peer_rejections": [],
+      "breakpoint_counts": {
+        "selected": 28,
+        "worker2": 1,
+        "group_callback": 1
+      },
+      "retire_compare_worker8_FECLCTRK_entries": 0,
+      "all_selected_guards": {
+        "mode": 0,
+        "metadata_decimal10132": 0,
+        "synchronization_latch": 0
+      }
+    },
+    "payload": {
+      "host_observation_seconds": 25,
+      "pipeline_completed": 290,
+      "pipeline_rejected": 0,
+      "statistics_completed": 289,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "display_console": false,
+      "peer_rejections": [],
+      "breakpoint_counts": {
+        "selected": 27,
+        "worker2": 1,
+        "group_callback": 1
+      },
+      "retire_compare_worker8_FECLCTRK_entries": 0,
+      "all_selected_guards": {
+        "mode": 0,
+        "metadata_decimal10132": 0,
+        "synchronization_latch": 0
+      }
+    },
+    "firstread": {
+      "host_observation_seconds": 25,
+      "breakpoint_counts": {
+        "fe_init": 1,
+        "read_setup": 37,
+        "read_program": 2,
+        "state4": 54,
+        "first_submit": 1,
+        "notify3": 0,
+        "post8": 0,
+        "post20000": 0,
+        "worker8": 0
+      },
+      "excluded_probe": "after_setup breakpoint was at interior of BL instruction10233d2c; its absence is not evidence of a blocked return",
+      "pipeline_completed": 394,
+      "pipeline_rejected": 0,
+      "statistics_completed": 393,
+      "statistics_rejected": 0,
+      "final": {
+        "DD8": 1,
+        "FE_read_queue_roots": 1,
+        "software_requested_active_masks": [
+          "0xb",
+          "0xb"
+        ],
+        "capture_selected_active_masks": [
+          "0xb",
+          "0xb"
+        ],
+        "run": "0x1d",
+        "enable": "0x1d",
+        "reset": 0,
+        "raw_words": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "unit2_columns_rows": [
+          8288,
+          58
+        ],
+        "unit2_output_columns_rows": [
+          2072,
+          58
+        ]
+      },
+      "interpretation": "Normal first-read producer runs; group0x40 and paired0x200 are excluded. Units are running/enabled/out of reset. First-read input/work producer and completion notification remain unresolved. Instrumented scheduling, no stable-runtime claim."
+    },
+    "control": {
+      "host_observation_seconds": 25,
+      "in_window_GDB_attachment_or_pause": false,
+      "final_read_only_GDB_snapshot": true,
+      "pipeline_completed": 367,
+      "pipeline_rejected": 0,
+      "statistics_completed": 366,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "final": {
+        "CaptureService_state": 4,
+        "B1868B50": 54,
+        "DD8": 1,
+        "FE_read_queue_roots": 1,
+        "software_requested_active_masks": [
+          "0xb",
+          "0xb"
+        ],
+        "capture_selected_active_masks": [
+          "0xb",
+          "0xb"
+        ],
+        "reset": 0,
+        "run": "0x1d",
+        "enable": "0x1d",
+        "display_console": false
+      },
+      "limit": "Reproduces pending first-read state without live breakpoints; no complete-result, boot or long-term stability claim"
+    },
+    "ring": {
+      "model": "finite endpoint1 ring completion added to source_baseline",
+      "host_observation_seconds": 55,
+      "in_window_GDB_attachment_or_pause": false,
+      "pipeline_completed": 378,
+      "pipeline_rejected": 0,
+      "statistics_completed": 377,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "trace": {
+        "owner_0x80_entries_including_combined_masks": 62,
+        "041a0003_FEworker8_FECLCTRK_entries": 0,
+        "limit": "bounded CPU trace entries, not one-to-one hardware IRQ counts; dispatcher entry1023162c is not itself FE worker8"
+      },
+      "display_console": false,
+      "peer_rejections": [],
+      "excluded_queries": "Three readout-control QOM queries had a renamed object path; DeviceNotFound replies excluded, corrected in longring"
+    },
+    "longring": {
+      "model": "same finite endpoint1 ring completion",
+      "host_observation_seconds": 120,
+      "in_window_GDB_attachment_or_pause": false,
+      "logging": "guest errors only",
+      "readout_requests": 381,
+      "pipeline_completed": 380,
+      "pipeline_rejected": 0,
+      "pipeline_active_generation": 0,
+      "statistics_completed": 379,
+      "statistics_rejected": 0,
+      "statistics_cancelled": 0,
+      "statistics_blocked": 1,
+      "final": {
+        "CaptureService_state": 4,
+        "DD8": 1,
+        "requested_active_masks": ["0xb", "0xb"],
+        "run_enable": ["0x1d", "0x1d"],
+        "reset": 0,
+        "mode": 1,
+        "count": 255,
+        "endpoint1_address_set": 0,
+        "endpoint1_count_minus1": 254,
+        "endpoint1_stride": "0x12000",
+        "display_console": false
+      },
+      "peer_rejections": [],
+      "interpretation": "Normal first-read switch disables auxiliary readout, the sole implemented CMOS request source; main-input acquisition has no independent producer. Ring completion does not repair this input lifetime"
+    }
+  },
+  "payload_samples": {
+    "count": 27,
+    "first_pointer_values": [
+      "0x5d4b5000",
+      "0x5d4b5c00",
+      "0x5d4b6800",
+      "0x5d4b7400",
+      "0x5d4b8000"
+    ],
+    "pair_enable_count": [
+      [
+        1,
+        1
+      ]
+    ],
+    "grid_selection_words": [
+      0
+    ],
+    "grid_counts": [
+      [
+        8,
+        8
+      ]
+    ],
+    "first_two_geometry_variants_decimal": [
+      [
+        8,
+        8,
+        270,
+        88,
+        246,
+        82,
+        0,
+        0
+      ],
+      [
+        8,
+        8,
+        270,
+        88,
+        246,
+        82,
+        0,
+        0
+      ]
+    ],
+    "possible_grid_extent": "provider offset0xd0 +9*9*32=0xaf0, inside unit0xc00; selected samples do not enable this decoder"
+  },
+  "model_change": {
+    "group": "wire formats recovered; no generating arithmetic or group DMA/completion added",
+    "statistics": "Endpoint3c bit0 selects address set; zero stride fixed destination; after every required DMA/result succeeds, endpoint1 tail cursor additionally publishes raw3.bit7",
+    "hypotheses": "Ring-end event timing and address-set interpretation; bits2:1 modes0/1 use finite gray layout, modes2/3 rejected",
+    "native_red": "ring fixture tail: raw3.bit7 expected0x80, actual0 after successful DMA",
+    "native_green": "28 CMOS,33 sensor,32 memory cases pass; includes silent non-tail slot, real DMA, latency, IRQ/W1C, address-set/fixed-stride, cancellation, ROM rejection, reset",
+    "firmware_and_guest_state": "unchanged"
+  },
+  "remaining_boundary": "Independent main-input acquisition after run1d stops auxiliary readout; first-read work/041a0003 remains incomplete. Group generating arithmetic remains open but group is excluded from this mask",
+  "omissions": "Raw firmware/disassembly, full traces, debugger memory and host paths omitted. baseline/retire/payload/firstread have instrumented scheduling; control/ring/longring have no in-window GDB attachment. Source projections and original records retained in ignored run groupwork/. No physical-camera or long-term stability receipt.",
+  "shared_callback_sample": {
+    "count": 1,
+    "notification": "41072800",
+    "raw0": "10000000",
+    "raw3": 0,
+    "interpretation": "shared raw0 bit28; neither group raw0.bit27 stop nor raw3.bit0 completion branch qualifies"
+  }
+}

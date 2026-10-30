@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: capturecompletion-20261024
+Original log: native-bankcancel.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_cmos OK              1.35s   1 subtests passed
+Ok:                1
+Fail:              0

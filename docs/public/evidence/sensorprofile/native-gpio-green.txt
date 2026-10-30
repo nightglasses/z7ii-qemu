@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: sensorprofile-20261024
+Original log: native-gpio-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon OK              0.79s   5 subtests passed
+Ok:                1
+Fail:              0

@@ -21,6 +21,7 @@
 #include "hw/core/qdev-clock.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h"
+#include "chardev/char.h"
 #include "hw/arm/armv7m.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/char/stm32f2xx_usart.h"
@@ -62,6 +63,7 @@ typedef struct EXSPI {
 typedef struct EXI2C {
     uint32_t reg[9];
     bool sr1_seen;
+    bool sr1_stalled;
     bool receive;
     uint8_t rx[2];
     unsigned rx_count;
@@ -121,6 +123,7 @@ struct NikonEXState {
     Clock *timerclk[14];
     DeviceState *gpio[9];
     DeviceState *uart[6];
+    Chardev *uart0_chardev;
     DeviceState *timer[14];
     DeviceState *io;
     OrIRQState timer_or[6];
@@ -1047,7 +1050,8 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                     ex_i2c_update(s, i);
                 }
                 if (consume && reg == 4 && p->receive &&
-                    (p->reg[0] & (1 << 10)) && i2c_bus_busy(p->bus)) {
+                    (p->reg[0] & (1 << 10)) && i2c_bus_busy(p->bus) &&
+                    !(p->reg[5] & 0x02)) {
                     ex_i2c_fill(p);
                     ex_i2c_update(s, i);
                 }
@@ -1060,10 +1064,27 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                 v = p->reg[reg];
                 if (consume && reg == 5) {
                     p->sr1_seen = true;
+                    /* The original HAL polls SR1; a modelled event that never
+                     * arrives must report instead of spinning silently. */
+                    nikon_wait_stall(&p->sr1_stalled, addr, size, v, 50000,
+                                     "i2c-sr1");
                 } else if (consume && reg == 6 && p->sr1_seen) {
-                    /* SR1 followed by SR2 clears ADDR and STOPF. */
+                    /* SR1 followed by SR2 clears ADDR and STOPF.  For a
+                     * receive, that is also the moment the stretched bus
+                     * releases and the first data byte is clocked. */
+                    bool addr_cleared = p->reg[5] & 0x02;
+
                     p->reg[5] &= ~0x12u;
                     p->sr1_seen = false;
+                    if (addr_cleared && p->receive && !p->rx_count &&
+                        i2c_bus_busy(p->bus)) {
+                        ex_i2c_fill_limit(p, 1);
+                        if (p->reg[0] & (1 << 10)) {
+                            timer_mod(p->rx_timer,
+                                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                                      ex_i2c_byte_ns(s, p));
+                        }
+                    }
                     ex_i2c_update(s, i);
                 }
                 goto found;
@@ -1303,16 +1324,15 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                         if (i2c_start_transfer(p->bus, (v >> 1) & 0x7f, p->receive)) {
                             p->reg[5] |= 1 << 10; /* real absent slave NACK */
                         } else {
-                            p->reg[5] |= 2 | (p->receive ? 0x40 : 0x80);
+                            /*
+                             * Real hardware stretches SCL after the address
+                             * phase: the first data byte is clocked only
+                             * once the guest clears ADDR by reading SR1 then
+                             * SR2.  Delivering a byte here would set
+                             * RXNE/BTF before the guest ever clears ADDR.
+                             */
+                            p->reg[5] |= p->receive ? 2 : (2 | 0x80);
                             p->reg[6] = p->receive ? 3 : 7;
-                            if (p->receive) {
-                                ex_i2c_fill_limit(p, 1);
-                                if (p->reg[0] & (1 << 10)) {
-                                    timer_mod(p->rx_timer,
-                                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                                              ex_i2c_byte_ns(s, p));
-                                }
-                            }
                         }
                     } else if (i2c_bus_busy(p->bus) && !p->receive) {
                         p->reg[5] |= i2c_send(p->bus, v) ? 1 << 10 : 0x84;
@@ -1740,7 +1760,9 @@ static void ex_realize(DeviceState *dev, Error **errp)
     for (unsigned i = 0; i < ARRAY_SIZE(uart_base); i++) {
         DeviceState *uart = qdev_new(TYPE_STM32F2XX_USART);
         s->uart[i] = uart;
-        qdev_prop_set_chr(uart, "chardev", serial_hd(i));
+        qdev_prop_set_chr(uart, "chardev",
+                          i == 0 && s->uart0_chardev ? s->uart0_chardev :
+                                                     serial_hd(i));
         ex_map_device(s, uart, uart_base[i], uart_irq[i]);
     }
     for (unsigned i = 0; i < ARRAY_SIZE(timer_base); i++) {
@@ -1824,6 +1846,9 @@ static void ex_realize(DeviceState *dev, Error **errp)
 
         object_property_add_child(OBJECT(s), "monitor", OBJECT(monitor));
         object_property_add_child(OBJECT(s), "status", OBJECT(status));
+        /* 0802b998 binds the status driver's polled change input to PC0. */
+        qdev_connect_gpio_out_named(DEVICE(status), "interrupt", 0,
+                                   nikon_ex_gpio_input(s, 2, 0));
         i2c_slave_realize_and_unref(monitor, s->i2c[0].bus, &error_fatal);
         i2c_slave_realize_and_unref(status, s->i2c[0].bus, &error_fatal);
     }
@@ -1936,11 +1961,18 @@ static void ex_finalize(Object *obj)
     }
 }
 
+static const Property ex_properties[] = {
+    /* A raw EX endpoint must not share MAS serial0's multiplexed backend. */
+    DEFINE_PROP_LINK("uart0-chardev", NikonEXState, uart0_chardev,
+                     TYPE_CHARDEV, Chardev *),
+};
+
 static void ex_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
     dc->realize = ex_realize;
+    device_class_set_props(dc, ex_properties);
     rc->phases.hold = ex_reset_hold;
     rc->phases.exit = ex_reset_exit;
     dc->desc = "Nikon EX Cortex-M4 software functional profile";

@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: imageprefix-20261023
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 unit+nikon - qemu:nikon_transfer_unit OK              1.38s   21 subtests passed
+Ok:                1
+Fail:              0

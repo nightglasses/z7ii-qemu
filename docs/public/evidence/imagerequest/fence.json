@@ -1,0 +1,214 @@
+{
+  "scope": "Original C1.70 FE synchronization and processing-fence audit; finite statistics stage completion, not full GUI startup",
+  "source": {
+    "baseline": "f7383be5",
+    "firmware": "unchanged 02_eg1840_mas_01700.payload.bin at MAS VA 10020000",
+    "implementation": "accompanying statistics.c change; native fixture and original model runs use that code",
+    "notation": "addresses and masks hexadecimal; dimensions, field indices and host durations decimal; code/data MAS VA, explicitly named MMIO board PA"
+  },
+  "input": {
+    "descriptor32": "cold-neutral",
+    "rng": 0,
+    "battery": "healthy paced UART peer",
+    "key": "F4 held after cont, no additional input",
+    "execution": "five CPUs, MTTCG",
+    "debugger": "read-only final snapshot; no in-transaction pause",
+    "tg_period_ns": 33333334,
+    "firmware_patches": false,
+    "host_software_event_injection": false
+  },
+  "FE": {
+    "object": "b1887d9c",
+    "handle": "01000038",
+    "kernel_record_pattern": "3b",
+    "kernel_contract": {
+      "handler": "10111410",
+      "predicate": "10111608..1011162c: mode bit0 clear requires (requested & ~pattern)==0",
+      "success_clear": "10111640..1011165c: mode20 clears only requested bits",
+      "wrapper": "103611b2 supplies mode20; 100 is timeout low argument, high0",
+      "timeout_units": "unverified",
+      "constructor": "10361082: pattern0, attribute8"
+    },
+    "onvd_wait": {
+      "call": "102339d8",
+      "mask": "5",
+      "initial_mode1_mask": "1",
+      "return_use": "102339dc immediately reloads R0 from stack; wait failure is not tested",
+      "conclusion": "timeout-tolerant synchronization; lack of mask4 alone does not establish a hardware-ready gate"
+    },
+    "bounded_source_search": {
+      "coverage": "96 functions reached from nearby FE global literals plus direct 103610cc setter calls in1022de00..10236000",
+      "identified_masks": [
+        "1",
+        "2",
+        "8",
+        "10",
+        "20"
+      ],
+      "mask4_producer": "not found in this scope",
+      "limit": "does not exclude indirect/global producers; does not establish deliberate timeout or obsolete firmware"
+    },
+    "next": "follow indirect registration/shared-tail provenance together with actual calculation-entry guards; never substitute capture-stage events into this FE object",
+    "indirect_candidate_snapshot": {
+      "host_seconds": 8,
+      "profile": "same unchanged-firmware cold-neutral; read-only post-window snapshot",
+      "candidates": [
+        {
+          "callback": "10206576",
+          "pointer_slot": "b18a7a60",
+          "event_object": "b18a79e8"
+        },
+        {
+          "callback": "104aee2e",
+          "pointer_slot": "b188bb9c",
+          "event_object": "b188bb98"
+        },
+        {
+          "wrapper": "1037156a",
+          "handle_slot": "b180943c",
+          "handle": "01000095"
+        }
+      ],
+      "conclusion": "none aliases FE object b1887d9c / handle01000038 at this sample; other callbacks and later pointer changes remain possible"
+    }
+  },
+  "fence": {
+    "software_request": "2eb",
+    "selected_fence_software_units": [
+      "1",
+      "2",
+      "8",
+      "40",
+      "200"
+    ],
+    "aggregate_wait": "05b00000",
+    "ordering": "1023b00e waits/clears before new 1023aed8 configuration/commit",
+    "unit8_source": {
+      "producer": "1023a07e ->1020c862/c86c/c880/c894/c89e",
+      "commit": "8",
+      "run": "10",
+      "data": "existing ten configured output DMAs, twelve running-bank numerical words and four scalars",
+      "consumer": "10239480, event41072802, capture raw word3.bit5",
+      "effect": "processed8 at b26b38c4, event800000 at b188814c",
+      "status": "source-established configuration/consumer association; linking actual modeled work completion to this cause is a functional hypothesis"
+    },
+    "other_units": {
+      "1": "capture packet/init commit1; independent front-end input/work join unresolved; auxiliary mode0/1 transport does not authorize a universal unit1 replay",
+      "2": "front-end packet/control configuration; actual image transfer/result contract unresolved",
+      "4": "five PA20069200 fields, commit200; not selected in observed2eb",
+      "40": "group eight-word address/cursor metadata exists, but no associated buffer processing is proven",
+      "100": "five-word PA20069500 parameters, getter10209186; four result fields unimplemented; not selected in2eb",
+      "200": "six-word PA20069514 parameters, getter102091a8; incremental kind3 may preserve prior configuration; four actual result fields unresolved"
+    },
+    "unmodelled_requested_flags": [
+      "100000",
+      "200000",
+      "1000000",
+      "4000000"
+    ],
+    "no_shortcut": "no universal commit ACK, result identity/zero fill, new memory extent or synthesized FE bit"
+  },
+  "native": {
+    "command": "make check MTESTARGS='nikon_cmos nikon_sensor'",
+    "red": {
+      "subject": "new /arm/nikon/cmos/statistics/stage-completion against baseline implementation",
+      "actual": "after real DMA and numerical result, PA20068270 reads0 instead of20; assertion fails",
+      "result": "FAIL as expected"
+    },
+    "green": {
+      "nikon_cmos": {
+        "subtests": 18,
+        "duration_seconds": 9.06
+      },
+      "nikon_sensor": {
+        "subtests": 33,
+        "duration_seconds": 7.75
+      },
+      "total_subtests": 51,
+      "result": "PASS"
+    },
+    "boundaries": [
+      "no input/commit silence",
+      "one ns before/at job deadline",
+      "real DMA and numerical result before stage cause",
+      "mask-disable/re-enable and W1C",
+      "stage ACK independent of raw6 ACK",
+      "no replay during raw6 backpressure",
+      "invalid ROM rejects without stage completion",
+      "active cancellation followed by a valid generation",
+      "reset clears pending and suppresses late active completion"
+    ]
+  },
+  "observations": [
+    {
+      "run": "stages",
+      "model": "f7383be5 baseline",
+      "host_seconds": 30,
+      "trace": "scoped CPU/nochain including low-level set wrapper10104844",
+      "accepted_readouts": 800,
+      "completed_readouts": 799,
+      "completed_statistics": 798,
+      "stage8_event_setters": 0,
+      "stage8_note": "no source-associated event800000 setter was observed; old implementation has no raw3.bit5 producer",
+      "fe_mask5_waits": 54,
+      "aggregate_waits": 54
+    },
+    {
+      "run": "end",
+      "model": "accompanying finite stage completion",
+      "host_seconds": 30,
+      "trace": "scoped CPU/nochain; high-level setter103610cc replaces broad low-level filter",
+      "accepted_readouts": 735,
+      "completed_readouts": 735,
+      "completed_statistics": 734,
+      "stage8_event_setters": 734,
+      "stage8_set": {
+        "object": "b188814c",
+        "mask": "800000",
+        "LR": "102394c9"
+      },
+      "matched_wait_returns": {
+        "fe_mask8_success": 51,
+        "fe_mask1_success": 1,
+        "fe_mask5_ffce0000": 50,
+        "unit_mask100000_ffce0000": 1,
+        "unit_mask05b00000_ffce0000": 50
+      },
+      "transition10_2_observations": 3
+    },
+    {
+      "run": "quiet",
+      "model": "accompanying finite stage completion",
+      "host_seconds": 30,
+      "trace": "guest_errors only; no CPU trace",
+      "accepted_readouts": 726,
+      "completed_readouts": 725,
+      "completed_statistics": 724,
+      "stage8_event_setters": "not measured without CPU trace"
+    }
+  ],
+  "common_final": {
+    "service": 4,
+    "queue_occupancy": 0,
+    "cache1_published": 0,
+    "cache2_published": 0,
+    "information_buffer_b201c038": "all zero",
+    "display_masks": "all zero",
+    "display_console": false,
+    "readout_rejected": 0,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "battery_peer_rejected": [],
+    "FE_pattern": "3b",
+    "processed_shadow_b26b38c4": 0,
+    "note": "a final shadow of0 does not negate earlier observed ISR/setter execution; no full startup or healthy-mode identity inferred from service4"
+  },
+  "omissions": [
+    "No physical-camera measurements or recovered proprietary processing arithmetic.",
+    "Firmware/disassembly/full CPU traces and binary snapshots are excluded from the public archive.",
+    "Trace filters differ, so counts are not timing/performance comparisons or physical frame rates.",
+    "Post-window sequential QMP and debugger reads are not atomic.",
+    "No new loader COPY comparison is claimed; previous receipt identities retain their historical scope.",
+    "FE mask4 production and the remaining stages remain unresolved; normal GUI output has not been demonstrated."
+  ]
+}

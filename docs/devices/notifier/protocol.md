@@ -2,7 +2,7 @@
 
 `notifier.c` implements the complete finite interface consumed by the official SLA source family at VA `1005fda8..1005ffb8`. The original private PA is `2c0b0000`; registration at `1005fe2c` binds IRQ218 (`da`) to Thumb handler `1005fda9`. These facts do not establish a physical audio, GPIO or signal-controller identity.
 
-The source asset is `sla-whole-source-5/sla-rows.jsonl`. Its exact original instruction bytes, Thumb contexts, references and literals are retained in ignored `work/source/families.json`. The two-family packet contains456 official rows. Literal VA `10060040` supplies PA `2c0b0004`; `10060044` supplies software object `c100549c`; `10060050` supplies PA `2c0b0000`. ROM COPY1 offset `83c4d4` maps to VA `c1000000`. The seven words at `c1005480..549c` are initialized payload zero, not a hardware reset witness. Registry ID119 is a software handle, not an IRQ or MMIO address.
+The source asset is `sla-whole-source-5/sla-rows.jsonl`. Its exact original instruction bytes, Thumb contexts, references and literals are retained in ignored `run source/families.json`. The two-family packet contains456 official rows. Literal VA `10060040` supplies PA `2c0b0004`; `10060044` supplies software object `c100549c`; `10060050` supplies PA `2c0b0000`. ROM COPY1 offset `83c4d4` maps to VA `c1000000`. The seven words at `c1005480..549c` are initialized payload zero, not a hardware reset witness. Registry ID119 is a software handle, not an IRQ or MMIO address.
 
 | Offset | Complete source consumer | Functional device interface |
 | --- | --- | --- |

@@ -162,7 +162,9 @@ static void eye_pointer(QTestState *q, uint8_t reg)
     eye_i2c_write(q, 0, 0x3e);
     eye_i2c_write(q, 8, 0x38);
     eye_wait(q, 0x40, 0);
-    g_assert_cmphex(eye_i2c_read(q, 0x10) & 5, ==, 0);
+    /* HOLD retains the bus, while the transmitted selector batch completes. */
+    g_assert_cmphex(eye_i2c_read(q, 0x10) & 5, ==, 1);
+    g_assert_cmphex(eye_i2c_read(q, 4) & 0x100, ==, 0x100);
     eye_clear_irq(q);
 }
 
@@ -278,6 +280,8 @@ static void display_packet(QTestState *q)
 
     qtest_writel(q, DISPLAY_BANK + 0x1100, 1);
     qtest_writel(q, DISPLAY_BANK + 0x1308, (8U << 16) | 8);
+    qtest_writel(q, DISPLAY_BANK + 0x1328, 8);
+    qtest_writel(q, DISPLAY_BANK + 0x132c, 8);
     qtest_writel(q, DISPLAY_BANK + 0x1c00, 0);
     qtest_writel(q, DISPLAY_BANK + 0x1c04, 0);
     qtest_writel(q, DISPLAY_BANK + 0x2100, 1);
@@ -704,7 +708,7 @@ static void test_capture_configuration(void)
     qtest_writel(q, CAPTURE_BASE + 0x18, 0xfff);
     qtest_writel(q, CAPTURE_BASE + 0xc, 0xc);
     g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==, 0xfff);
-    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xc), ==, 0xc);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xc), ==, 0);
     for (i = 0; i < 8; i++) {
         uint64_t mask = CAPTURE_BASE + 0x200 + i * 0x20;
 
@@ -746,6 +750,1212 @@ static void test_capture_configuration(void)
     for (i = 0; i < 64; i++) {
         g_assert_false(qtest_get_irq(q, i));
     }
+    qtest_quit(q);
+}
+
+static void test_capture_packet(void)
+{
+    static const struct {
+        unsigned first, last;
+        uint32_t mask;
+    } bounded[] = {
+        { 0x08, 0x08, 0xfffff }, { 0x0c, 0x20, 0xffff },
+        { 0xcc, 0xcc, 0xffffff }, { 0x174, 0x174, 0xffffff },
+        { 0x1d4, 0x1d4, 0xffff }, { 0x1d8, 0x1d8, 0xfffff },
+        { 0x1dc, 0x1e4, 0xffff }, { 0x1e8, 0x1e8, 0xffffff },
+        { 0x1f8, 0x1f8, 0xffff00ff }, { 0x1fc, 0x1fc, 0xff },
+        { 0x200, 0x200, 0x11 },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa5a55a5a, 0x01020304, 0x80000000, 0,
+    };
+    const uint32_t base = 0x20069d00;
+    uint32_t expected[0x204 / 4] = { 0 };
+    QTestState *q = capture_start(NULL);
+
+    /* Original first rejected scalar; no firmware packet array is embedded. */
+    qtest_writel(q, base, 0x03960000);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0x03960000);
+    qtest_writel(q, CAPTURE_BASE + 0xd00, 0xfeedc0de);
+    qtest_writel(q, 0x20069850, 0x01234567);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned offset = 0; offset < sizeof(expected); offset += 4) {
+            uint32_t mask = UINT32_MAX;
+
+            for (unsigned i = 0; i < ARRAY_SIZE(bounded); i++) {
+                if (offset >= bounded[i].first && offset <= bounded[i].last) {
+                    mask = bounded[i].mask;
+                    break;
+                }
+            }
+            expected[offset / 4] = (patterns[pass] ^ (offset * 0x01010101)) & mask;
+            qtest_writel(q, base + offset, expected[offset / 4]);
+            g_assert_cmphex(qtest_readl(q, base + offset), ==,
+                            expected[offset / 4]);
+            /* Every unknown bit rejects the write instead of truncating it. */
+            for (unsigned bit = 0; bit < 32; bit++) {
+                if (!(mask & (1U << bit))) {
+                    qtest_writel(q, base + offset,
+                                 expected[offset / 4] | (1U << bit));
+                    g_assert_cmphex(qtest_readl(q, base + offset), ==,
+                                    expected[offset / 4]);
+                }
+            }
+        }
+        for (unsigned offset = 0; offset < sizeof(expected); offset += 4) {
+            g_assert_cmphex(qtest_readl(q, base + offset), ==,
+                            expected[offset / 4]);
+        }
+    }
+    /* RMW bit0/bit4 are independent retained controls, not capture requests. */
+    for (unsigned i = 0; i < 4; i++) {
+        const uint32_t controls[] = { 1, 0x11, 0x10, 0 };
+
+        qtest_writel(q, base + 0x200, controls[i]);
+        g_assert_cmphex(qtest_readl(q, base + 0x200), ==, controls[i]);
+    }
+    qtest_writeb(q, base, 0xff);
+    qtest_writew(q, base + 4, 0xffff);
+    qtest_writel(q, base + 1, UINT32_MAX);
+    qtest_writel(q, base - 4, UINT32_MAX);
+    qtest_writel(q, base + 0x204, UINT32_MAX);
+    g_assert_cmphex(qtest_readl(q, base), ==, expected[0]);
+    g_assert_cmphex(qtest_readl(q, base + 4), ==, expected[1]);
+    g_assert_cmphex(qtest_readl(q, base + 0x200), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0xd00), ==, 0xfeedc0de);
+    g_assert_cmphex(qtest_readl(q, 0x20069850), ==, 0x01234567);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_system_reset(q);
+    for (unsigned offset = 0; offset < sizeof(expected); offset += 4) {
+        g_assert_cmphex(qtest_readl(q, base + offset), ==, 0);
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void endpoint_read_error(QTestState *q, uint32_t address)
+{
+    g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+    /* HMP uses address_space_read and reports MEMTX_ERROR, unlike qtest readl. */
+    g_assert_nonnull(strstr(reply, "Cannot access memory"));
+}
+
+static void test_capture_banks(void)
+{
+    static const uint32_t bases[] = { 0x2006a000, 0x2006be00 };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x01020304, 0x80000000, 0,
+    };
+    static const char widths[] = { 'b', 'h' };
+    uint32_t expected[2][11];
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, bases[0], 0x1234);
+    g_assert_cmphex(qtest_readl(q, bases[0]), ==, 0x1234);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+            for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+                unsigned offset = word == 10 ? 0x40 : word * 4;
+                uint32_t mask = word < 8 ? 0xffff :
+                                word < 10 ? 0xff : UINT32_MAX;
+                uint32_t value = patterns[pass] ^ (bank * 0x01010000 + offset);
+
+                value &= mask;
+                expected[bank][word] = value;
+                qtest_writel(q, bases[bank] + offset, value);
+                g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==,
+                                value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(mask & (1U << bit))) {
+                        qtest_writel(q, bases[bank] + offset,
+                                     value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, bases[bank] + offset),
+                                        ==, value);
+                    }
+                }
+            }
+        }
+        /* Both regions retain separate data, including the unmasked40 word. */
+        for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+            for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+                unsigned offset = word == 10 ? 0x40 : word * 4;
+
+                g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==,
+                                expected[bank][word]);
+            }
+        }
+    }
+    for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+        uint32_t base = bases[bank];
+
+        qtest_writeb(q, base, 0xff);
+        qtest_writew(q, base, 0xffff);
+        qtest_writel(q, base + 1, UINT32_MAX);
+        g_assert_cmphex(qtest_readl(q, base), ==, expected[bank][0]);
+        for (unsigned i = 0; i < ARRAY_SIZE(widths); i++) {
+            g_autofree char *reply = qtest_hmp(q, "xp /1%cx 0x%08x",
+                                               widths[i], base);
+
+            g_assert_nonnull(strstr(reply, "Cannot access memory"));
+        }
+        endpoint_read_error(q, base + 1);
+        endpoint_read_error(q, base - 4);
+        for (unsigned offset = 0x28; offset <= 0x3c; offset += 4) {
+            qtest_writel(q, base + offset, UINT32_MAX);
+            endpoint_read_error(q, base + offset);
+        }
+        qtest_writel(q, base + 0x44, UINT32_MAX);
+        endpoint_read_error(q, base + 0x44);
+        for (unsigned offset = 0x100; offset <= 0x12c; offset += 4) {
+            qtest_writel(q, base + offset, UINT32_MAX);
+            endpoint_read_error(q, base + offset);
+        }
+        g_assert_cmphex(qtest_readl(q, base + 0x40), ==, expected[bank][10]);
+    }
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned bank = 0; bank < ARRAY_SIZE(bases); bank++) {
+        for (unsigned word = 0; word < ARRAY_SIZE(expected[bank]); word++) {
+            unsigned offset = word == 10 ? 0x40 : word * 4;
+
+            g_assert_cmphex(qtest_readl(q, bases[bank] + offset), ==, 0);
+        }
+        endpoint_read_error(q, bases[bank] + 0x28);
+        endpoint_read_error(q, bases[bank] + 0x44);
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_parameters(void)
+{
+    static const struct {
+        unsigned first, last;
+        uint32_t mask;
+    } fields[] = {
+        { 0, 8, UINT32_MAX }, { 0xc, 0xc, 0xff },
+        { 0x10, 0x10, 0xffff }, { 0x14, 0x1c, UINT32_MAX },
+        { 0x20, 0x20, 0xff }, { 0x24, 0x24, UINT32_MAX },
+        { 0x28, 0x28, 0xffffff }, { 0x2c, 0x2c, 3 },
+        { 0x30, 0x30, 0x03ff03ff }, { 0x100, 0x2fc, UINT32_MAX },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x80000000, 0,
+    };
+    const uint32_t base = 0x20069500;
+    uint32_t expected[0x300 / 4] = { 0 };
+    bool known[ARRAY_SIZE(expected)] = { false };
+    unsigned count = 0;
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, base + 0x14, 0x80000006);
+    g_assert_cmphex(qtest_readl(q, base + 0x14), ==, 0x80000006);
+    qtest_writel(q, 0x20069808, 0x5aa5); /* Independent following device. */
+    qtest_memset(q, RAM + 0x1000, 0xa7, 64);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            for (unsigned offset = fields[i].first; offset <= fields[i].last;
+                 offset += 4) {
+                unsigned word = offset / 4;
+                uint32_t value = (patterns[pass] ^ (offset * 0x01010101)) &
+                                 fields[i].mask;
+
+                if (!pass) {
+                    g_assert_false(known[word]);
+                    known[word] = true;
+                    count++;
+                }
+                expected[word] = value;
+                qtest_writel(q, base + offset, value);
+                g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, base + offset, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                    }
+                }
+            }
+        }
+        for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+            if (known[word]) {
+                g_assert_cmphex(qtest_readl(q, base + word * 4), ==,
+                                expected[word]);
+            }
+        }
+    }
+    g_assert_cmpuint(count, ==, 141);
+    /* The original swap helper exchanges high halves, retaining low halves. */
+    qtest_writel(q, base + 0x18, 0x12345678);
+    qtest_writel(q, base + 0x24, 0x9abcdef0);
+    uint32_t first = qtest_readl(q, base + 0x18);
+    uint32_t second = qtest_readl(q, base + 0x24);
+
+    expected[0x18 / 4] = (second & 0xffff0000) | (first & 0xffff);
+    expected[0x24 / 4] = (first & 0xffff0000) | (second & 0xffff);
+    qtest_writel(q, base + 0x18, expected[0x18 / 4]);
+    qtest_writel(q, base + 0x24, expected[0x24 / 4]);
+    g_assert_cmphex(qtest_readl(q, base + 0x18), ==, 0x9abc5678);
+    g_assert_cmphex(qtest_readl(q, base + 0x24), ==, 0x1234def0);
+    qtest_writel(q, base + 0x2c, 0);
+    qtest_writel(q, base + 0x2c, qtest_readl(q, base + 0x2c) | 1);
+    qtest_writel(q, base + 0x2c, qtest_readl(q, base + 0x2c) | 2);
+    g_assert_cmphex(qtest_readl(q, base + 0x2c), ==, 3);
+    qtest_writel(q, base + 0x2c, qtest_readl(q, base + 0x2c) & ~1U);
+    g_assert_cmphex(qtest_readl(q, base + 0x2c), ==, 2);
+    expected[0x2c / 4] = 0;
+    qtest_writel(q, base + 0x2c, 0);
+    expected[0x14 / 4] = 0;
+    qtest_writel(q, base + 0x14, 0); /* Does not clear other fields/table. */
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (!known[word]) {
+            qtest_writel(q, base + word * 4, UINT32_MAX);
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_writeb(q, base + 0x14, 0xff);
+    qtest_writew(q, base + 0x14, 0xffff);
+    qtest_writel(q, base + 0x15, UINT32_MAX);
+    endpoint_read_error(q, base + 0x15);
+    endpoint_read_error(q, base - 4);
+    for (unsigned i = 0; i < 2; i++) {
+        g_autofree char *reply = qtest_hmp(q, "xp /1%cx 0x%08x",
+                                           i ? 'h' : 'b', base + 0x14);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x80);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x80);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x200);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x200);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0x200);
+    for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+        if (known[word]) {
+            g_assert_cmphex(qtest_readl(q, base + word * 4), ==, expected[word]);
+        }
+    }
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 64; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    g_assert_cmphex(qtest_readl(q, 0x20069808), ==, 0x5aa5);
+    qtest_system_reset(q);
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (known[word]) {
+            g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x",
+                                               base + word * 4);
+
+            g_assert_null(strstr(reply, "Cannot access memory"));
+            g_assert_cmphex(qtest_readl(q, base + word * 4), ==, 0);
+        } else {
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static const uint32_t capture_group_results[] = {
+    0x2006bb70, 0x2006bb74, 0x2006bb78, 0x2006bc78,
+    0x2006bd78, 0x2006bb7c, 0x2006bc7c, 0x2006bd7c,
+};
+
+static void capture_group_result_packet(QTestState *q, bool cold)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+
+        if (cold) {
+            g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+            /* qtest's zero-filled error buffer cannot prove a readable zero. */
+            g_assert_null(strstr(reply, "Cannot access memory"));
+            g_assert_cmphex(qtest_readl(q, address), ==, 0);
+        } else {
+            endpoint_read_error(q, address);
+        }
+    }
+}
+
+static void test_capture_group_results(void)
+{
+    QTestState *q = capture_start(NULL);
+
+    capture_group_result_packet(q, true);
+    qtest_writel(q, 0x2006bb44, 0x5a);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        qtest_writel(q, capture_group_results[i], UINT32_MAX);
+    }
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE + 0x100, 2);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 1);
+    qtest_writel(q, CAPTURE_BASE + 8, 1); /* Another effective unit. */
+    capture_group_result_packet(q, true);
+    qtest_writeb(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x100); /* Reserved unit, rejected. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20); /* Not enabled. */
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20); /* Held in unit reset. */
+    capture_group_result_packet(q, true);
+    qtest_writel(q, CAPTURE_BASE + 4, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    capture_group_result_packet(q, false);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0x20);
+    qtest_writel(q, CAPTURE_BASE, 0x20);
+    qtest_writel(q, 0x2006bb44, 0x5a);
+    qtest_clock_step(q, 1000000);
+    capture_group_result_packet(q, false);
+    for (unsigned port = 0; port < 2; port++) {
+        qtest_system_reset(q);
+        capture_group_result_packet(q, true);
+        qtest_writel(q, CAPTURE_BASE + 0x100 + 4 * port, 0x12);
+        capture_group_result_packet(q, false);
+        qtest_writel(q, CAPTURE_BASE + 0x100 + 4 * port, 0);
+        qtest_clock_step(q, 1000000);
+        capture_group_result_packet(q, false);
+    }
+    qtest_system_reset(q);
+    capture_group_result_packet(q, true);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+        g_autofree char *byte = qtest_hmp(q, "xp /1bx 0x%08x", address);
+        g_autofree char *halfword = qtest_hmp(q, "xp /1hx 0x%08x", address);
+
+        g_assert_nonnull(strstr(byte, "Cannot access memory"));
+        g_assert_nonnull(strstr(halfword, "Cannot access memory"));
+        endpoint_read_error(q, address + 1);
+    }
+    qtest_quit(q);
+}
+
+static void capture_group_cursor_configure(QTestState *q)
+{
+    static const uint32_t offsets[] = {
+        0x33c, 0x344, 0x348, 0x380, 0x480, 0x580,
+        0x350, 0x450, 0x550, 0x360, 0x460, 0x560,
+    };
+    static const uint32_t values[] = {
+        1, 2, 3, 0x20, 0x30, 0x40,
+        0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+        qtest_writel(q, 0x2006b800 + offsets[i], values[i]);
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+}
+
+static void capture_group_cursor_packet(QTestState *q, const uint32_t *expected)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        uint32_t address = capture_group_results[i];
+        g_autofree char *reply = qtest_hmp(q, "xp /1wx 0x%08x", address);
+
+        g_assert_null(strstr(reply, "Cannot access memory"));
+        g_assert_cmphex(qtest_readl(q, address), ==, expected[i]);
+    }
+}
+
+static void test_capture_group_cursor(void)
+{
+    static const uint32_t first[] = {
+        1, 2, 0x41000040, 0x42000060, 0x43000080,
+        0x51000040, 0x52000060, 0x53000080,
+    };
+    static const uint32_t next[] = {
+        1, 3, 0x41000060, 0x42000090, 0x430000c0,
+        0x51000060, 0x52000090, 0x530000c0,
+    };
+    static const uint32_t wrapped[] = {
+        1, 0, 0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+    static const uint32_t bank0[] = {
+        0, 0, 0x41000000, 0x42000000, 0x43000000,
+        0x51000000, 0x52000000, 0x53000000,
+    };
+    QTestState *q = capture_start(NULL);
+
+    capture_group_cursor_configure(q);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false); /* TG disabled. */
+    qtest_writel(q, 0x20060070, 3); /* Forced high is not an automatic edge. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false);
+    qtest_writel(q, 0x20060070, 3);
+    capture_group_result_packet(q, false);
+
+    qtest_system_reset(q);
+    capture_group_cursor_configure(q);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666666);
+    capture_group_result_packet(q, false);
+    qtest_clock_step(q, 1);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, 0x2006bb44, 0); /* Staging cannot echo into BB74. */
+    qtest_writel(q, 0x2006bb50, 0xdeadbeef);
+    qtest_writel(q, 0x2006bb80, 0x10);
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 16666667); /* Falling edge. */
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 16666667);
+    capture_group_cursor_packet(q, next);
+    qtest_clock_step(q, 33333334);
+    capture_group_cursor_packet(q, wrapped);
+    qtest_writel(q, 0x2006bb50, 0x41000000);
+    qtest_writel(q, 0x2006bb80, 0x20);
+    qtest_writel(q, 0x2006bb3c, 0);
+    capture_group_cursor_packet(q, wrapped);
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+    capture_group_cursor_packet(q, wrapped);
+    qtest_clock_step(q, 33333334);
+    capture_group_cursor_packet(q, bank0); /* New start0/bank0 after commit. */
+    qtest_writel(q, 0x20060028, 1); /* Resync itself is not a cursor tick. */
+    capture_group_cursor_packet(q, bank0);
+
+    for (unsigned cancel = 0; cancel < 3; cancel++) {
+        static const unsigned controls[] = { 0xc, 0x14, 0 };
+
+        qtest_system_reset(q);
+        capture_group_cursor_configure(q);
+        qtest_writel(q, 0x20060010, 1);
+        qtest_clock_step(q, 16666667);
+        capture_group_cursor_packet(q, first);
+        qtest_writel(q, CAPTURE_BASE + controls[cancel], 0x20);
+        qtest_clock_step(q, 100000000);
+        capture_group_cursor_packet(q, first);
+    }
+
+    for (unsigned invalid = 0; invalid < 6; invalid++) {
+        static const uint32_t offsets[] = {
+            0x33c, 0x344, 0x348, 0x480, 0x350, 0x560,
+        };
+        static const uint32_t values[] = {
+            2, 4, 1, 0, 0xfffffff0, 0xfffffff0,
+        };
+
+        qtest_system_reset(q);
+        capture_group_cursor_configure(q);
+        qtest_writel(q, 0x2006b800 + offsets[invalid], values[invalid]);
+        qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+        qtest_writel(q, 0x20060010, 1);
+        qtest_clock_step(q, 100000000);
+        capture_group_result_packet(q, false);
+        /* Configuration retention remains independent of qualification. */
+        g_assert_cmphex(qtest_readl(q, 0x2006b800 + offsets[invalid]), ==,
+                       values[invalid]);
+    }
+
+    qtest_system_reset(q);
+    qtest_writel(q, 0x2006bb44, 2); /* Missing the other required fields. */
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0x20);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_result_packet(q, false);
+
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_group_latch(void)
+{
+    static const uint32_t first[] = {
+        1, 2, 0x41000040, 0x42000060, 0x43000080,
+        0x51000040, 0x52000060, 0x53000080,
+    };
+    static const uint32_t replacement[] = {
+        0, 1, 0x41000020, 0x42000030, 0x43000040,
+        0x51000020, 0x52000030, 0x53000040,
+    };
+    QTestState *q = capture_start(NULL);
+
+    capture_group_cursor_configure(q);
+    capture_group_result_packet(q, false); /* No publication yet. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666667);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, 0x20060014, 1); /* Stop automatic input. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x20);
+    qtest_writel(q, 0x2006bb3c, 2); /* Unsupported generator snapshot. */
+    qtest_writel(q, CAPTURE_BASE + 0x104, 0x10);
+    capture_group_cursor_packet(q, first);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x20);
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 100000000);
+    capture_group_cursor_packet(q, first); /* Invalid input cannot replace it. */
+    qtest_writel(q, 0x20060014, 1);
+    qtest_writel(q, 0x2006bb3c, 0);
+    qtest_writel(q, 0x2006bb44, 1);
+    qtest_writel(q, CAPTURE_BASE + 0x100, 0x10);
+    capture_group_cursor_packet(q, first); /* Commit alone cannot replace it. */
+    qtest_writel(q, 0x20060010, 1);
+    qtest_clock_step(q, 16666666);
+    capture_group_cursor_packet(q, first);
+    qtest_clock_step(q, 1);
+    capture_group_cursor_packet(q, replacement);
+    qtest_system_reset(q);
+    capture_group_result_packet(q, true); /* Whole-device reset clears latch. */
+    capture_group_cursor_configure(q);
+    capture_group_result_packet(q, false); /* No stale result after reset. */
+    qtest_quit(q);
+}
+
+static void test_capture_group(void)
+{
+    static const struct {
+        unsigned first, last, step;
+        uint32_t mask;
+    } fields[] = {
+        { 0, 4, 4, 0xff }, { 8, 0x18, 4, 0xffff },
+        { 0x1c, 0x1c, 4, 0xff }, { 0x20, 0x60, 0x20, 0xff },
+        { 0x24, 0x3c, 4, 0x7f }, { 0x44, 0x5c, 4, 0x7f },
+        { 0x64, 0x7c, 4, 0x7f }, { 0x80, 0x180, 4, 0xffff },
+        { 0x184, 0x184, 4, UINT32_MAX }, { 0x200, 0x20c, 4, 0xffff },
+        { 0x210, 0x210, 4, UINT32_MAX }, { 0x214, 0x228, 4, 0xff },
+        { 0x22c, 0x22c, 4, UINT32_MAX }, { 0x230, 0x230, 4, 1 },
+        { 0x234, 0x250, 4, 0xffff }, { 0x294, 0x294, 4, 0xffff },
+        { 0x298, 0x29c, 4, 0x7fffff }, { 0x2a0, 0x2a0, 4, UINT32_MAX },
+        { 0x2a4, 0x2ac, 4, 0xffff }, { 0x2b0, 0x2b8, 4, 0xff },
+        { 0x318, 0x318, 4, 0xff }, { 0x324, 0x324, 4, 0xff },
+        { 0x33c, 0x33c, 4, UINT32_MAX }, { 0x344, 0x34c, 4, 0xff },
+        { 0x350, 0x550, 0x100, UINT32_MAX },
+        { 0x360, 0x560, 0x100, UINT32_MAX },
+        { 0x380, 0x580, 0x100, UINT32_MAX },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x80000000, 0,
+    };
+    const uint32_t base = 0x2006b800;
+    uint32_t expected[0x584 / 4] = { 0 };
+    bool known[ARRAY_SIZE(expected)] = { false };
+    unsigned count = 0;
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, base, 0xff);
+    g_assert_cmphex(qtest_readl(q, base), ==, 0xff);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 64);
+    for (unsigned i = 0; i < 8; i++) {
+        qtest_writel(q, CAPTURE_BASE + 0x200 + i * 0x20, UINT32_MAX);
+    }
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            for (unsigned offset = fields[i].first; offset <= fields[i].last;
+                 offset += fields[i].step) {
+                unsigned word = offset / 4;
+                uint32_t value = (patterns[pass] ^ (offset * 0x01010101)) &
+                                 fields[i].mask;
+
+                if (!pass) {
+                    g_assert_false(known[word]);
+                    known[word] = true;
+                    count++;
+                }
+                expected[word] = value;
+                qtest_writel(q, base + offset, value);
+                g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, base + offset, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                    }
+                }
+            }
+        }
+        for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+            if (known[word]) {
+                g_assert_cmphex(qtest_readl(q, base + word * 4), ==,
+                                expected[word]);
+            }
+        }
+    }
+    g_assert_cmpuint(count, ==, 144);
+    for (unsigned i = 0; i < ARRAY_SIZE(capture_group_results); i++) {
+        known[(capture_group_results[i] - base) / 4] = true;
+    }
+    capture_group_result_packet(q, true);
+    for (unsigned i = 0; i < 8; i++) {
+        expected[0x234 / 4 + i] = 0x1200 + i;
+        qtest_writel(q, base + 0x234 + i * 4, expected[0x234 / 4 + i]);
+    }
+    qtest_writel(q, base + 0x230, 1);
+    qtest_writel(q, base + 0x230, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x234 + i * 4), ==, 0x1200 + i);
+    }
+    const uint32_t unsupported_masks[] = { 2, 3, 7 };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(unsupported_masks); i++) {
+        qtest_writel(q, base + 0x230, unsupported_masks[i]);
+        g_assert_cmphex(qtest_readl(q, base + 0x230), ==, 0);
+    }
+    /* Opaque plane addresses are retained independently, without DMA. */
+    for (unsigned bank = 0; bank < 3; bank++) {
+        const unsigned offsets[] = { 0x350, 0x360, 0x380 };
+
+        for (unsigned i = 0; i < ARRAY_SIZE(offsets); i++) {
+            unsigned offset = offsets[i] + bank * 0x100;
+            uint32_t value = RAM + 0x1000 + bank * 16 + i * 4;
+
+            qtest_writel(q, base + offset, value);
+            g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+        }
+    }
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (!known[word]) {
+            qtest_writel(q, base + word * 4, UINT32_MAX);
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_writeb(q, base, 0x5a);
+    qtest_writew(q, base, 0xa5);
+    qtest_writel(q, base + 1, UINT32_MAX);
+    g_assert_cmphex(qtest_readl(q, base), ==, expected[0]);
+    for (unsigned i = 0; i < 2; i++) {
+        g_autofree char *reply = qtest_hmp(q, "xp /1%cx 0x%08x",
+                                           i ? 'h' : 'b', base);
+
+        g_assert_nonnull(strstr(reply, "Cannot access memory"));
+    }
+    endpoint_read_error(q, base + 1);
+    endpoint_read_error(q, base - 4);
+    endpoint_read_error(q, base + 0x584);
+    qtest_clock_step(q, 1000000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 64; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned word = 0; word < ARRAY_SIZE(known); word++) {
+        if (known[word]) {
+            g_assert_cmphex(qtest_readl(q, base + word * 4), ==, 0);
+        } else {
+            endpoint_read_error(q, base + word * 4);
+        }
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_endpoints(void)
+{
+    static const struct {
+        unsigned offset;
+        uint32_t mask;
+    } fields[] = {
+        { 0x14, UINT32_MAX }, { 0x18, 0xff }, { 0x24, 0xff }, { 0x3c, 7 },
+        { 0x40, UINT32_MAX }, { 0x44, 0xff }, { 0x48, 0xff }, { 0x4c, 0xff },
+        { 0x50, UINT32_MAX }, { 0x54, UINT32_MAX }, { 0x58, UINT32_MAX },
+        { 0x5c, UINT32_MAX }, { 0x60, UINT32_MAX }, { 0x64, UINT32_MAX },
+        { 0x68, UINT32_MAX }, { 0x6c, UINT32_MAX }, { 0x80, UINT32_MAX },
+    };
+    static const uint32_t patterns[] = {
+        UINT32_MAX, 0xa55a3cc3, 0x01020304, 0x80000000, 0,
+    };
+    const uint32_t base = 0x2006a400;
+    uint32_t expected[10][ARRAY_SIZE(fields)] = { 0 };
+    QTestState *q = capture_start(NULL);
+
+    /* The full-word constructor is not a boolean or a whitelist for value3. */
+    qtest_writel(q, base + 0x14, 0x80000003);
+    g_assert_cmphex(qtest_readl(q, base + 0x14), ==, 0x80000003);
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    qtest_writel(q, CAPTURE_BASE + 0x200, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x220, UINT32_MAX);
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+            bool extended = endpoint == 2 || endpoint == 3 ||
+                            endpoint == 4 || endpoint == 9;
+
+            for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+                unsigned offset = fields[i].offset;
+                uint32_t address = base + endpoint * 0x100 + offset;
+                uint32_t value = patterns[pass] ^ (endpoint * 0x01010000 + offset);
+                bool sparse = (offset >= 0x54 && offset <= 0x5c) ||
+                              (offset >= 0x64 && offset <= 0x6c);
+
+                if (sparse && !extended) {
+                    if (!pass) {
+                        qtest_writel(q, address, value);
+                        endpoint_read_error(q, address);
+                    }
+                    continue;
+                }
+                value &= fields[i].mask;
+                expected[endpoint][i] = value;
+                qtest_writel(q, address, value);
+                g_assert_cmphex(qtest_readl(q, address), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, address, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, address), ==, value);
+                    }
+                }
+            }
+        }
+        /* Later endpoints cannot alias earlier retained configurations. */
+        for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+            bool extended = endpoint == 2 || endpoint == 3 ||
+                            endpoint == 4 || endpoint == 9;
+
+            for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+                unsigned offset = fields[i].offset;
+
+                if (!extended && ((offset >= 0x54 && offset <= 0x5c) ||
+                                  (offset >= 0x64 && offset <= 0x6c))) {
+                    continue;
+                }
+                g_assert_cmphex(qtest_readl(q, base + endpoint * 0x100 + offset),
+                                ==, expected[endpoint][i]);
+            }
+        }
+    }
+    for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+        uint32_t address = base + endpoint * 0x100;
+
+        /* Reproduce the independent selector bits and the separate low bit. */
+        qtest_writel(q, address + 0x3c, 1);
+        for (unsigned selector = 0; selector < 4; selector++) {
+            uint32_t value = (qtest_readl(q, address + 0x3c) & ~6U) |
+                             (selector << 1);
+
+            qtest_writel(q, address + 0x3c, value);
+            g_assert_cmphex(qtest_readl(q, address + 0x3c), ==,
+                            1 | (selector << 1));
+            qtest_writel(q, address + 0x3c, value & ~1U);
+            g_assert_cmphex(qtest_readl(q, address + 0x3c), ==, selector << 1);
+            qtest_writel(q, address + 0x3c, value);
+        }
+        qtest_writeb(q, address + 0x14, 0xff);
+        qtest_writew(q, address + 0x14, 0xffff);
+        qtest_writel(q, address + 0x15, UINT32_MAX);
+        g_assert_cmphex(qtest_readl(q, address + 0x14), ==, expected[endpoint][0]);
+        qtest_writel(q, address + 0x1c, UINT32_MAX);
+        endpoint_read_error(q, address + 0x1c);
+        for (unsigned status = 0x70; status <= 0x7c; status += 4) {
+            qtest_writel(q, address + status, UINT32_MAX);
+            endpoint_read_error(q, address + status);
+        }
+    }
+    endpoint_read_error(q, base - 4);
+    endpoint_read_error(q, base + 0x984);
+    endpoint_read_error(q, base + 10 * 0x100 + 0x14);
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < 8; i++) {
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210 + i * 0x20), ==, 0);
+    }
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned endpoint = 0; endpoint < 10; endpoint++) {
+        bool extended = endpoint == 2 || endpoint == 3 ||
+                        endpoint == 4 || endpoint == 9;
+
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            unsigned offset = fields[i].offset;
+
+            if (!extended && ((offset >= 0x54 && offset <= 0x5c) ||
+                              (offset >= 0x64 && offset <= 0x6c))) {
+                continue;
+            }
+            g_assert_cmphex(qtest_readl(q, base + endpoint * 0x100 + offset),
+                            ==, 0);
+        }
+        endpoint_read_error(q, base + endpoint * 0x100 + 0x70);
+    }
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_quit(q);
+}
+
+static void test_capture_endpoint_globals(void)
+{
+    static const struct {
+        unsigned first, last, step;
+        uint32_t mask;
+    } fields[] = {
+        { 0x200, 0x200, 4, 0xffff00ff }, { 0x204, 0x204, 4, UINT32_MAX },
+        { 0x208, 0x210, 4, 0xffff }, { 0x214, 0x21c, 4, 0x0fffffff },
+        { 0x220, 0x220, 4, 0xffff }, { 0x224, 0x258, 4, 0x0fffffff },
+        { 0x25c, 0x25c, 4, 0xffffff }, { 0x260, 0x26c, 4, 0xffff },
+        { 0x270, 0x274, 4, 0x0fffffff }, { 0x278, 0x278, 4, 0xffff },
+        { 0x27c, 0x27c, 4, UINT32_MAX }, { 0x280, 0x280, 4, 0xff },
+        { 0x284, 0x284, 4, 0x03ffffff }, { 0x288, 0x288, 4, 0xffff },
+        { 0x28c, 0x28c, 4, 0x7fffffff }, { 0x290, 0x290, 4, 0xffff },
+        { 0x294, 0x2a0, 4, 0x03ffffff }, { 0x2a4, 0x2a4, 4, 0xffff },
+        { 0x2a8, 0x2b4, 4, 0x03ffffff }, { 0x2b8, 0x2b8, 4, 0xffff },
+        { 0x2bc, 0x304, 0x18, UINT32_MAX },
+        { 0x2c0, 0x308, 0x18, 0xffffff },
+        { 0x2c4, 0x30c, 0x18, 0xffff },
+        { 0x2c8, 0x310, 0x18, 0xffff },
+        { 0x2cc, 0x314, 0x18, 0x03ffffff },
+        { 0x2d0, 0x318, 0x18, 0xffff }, { 0x31c, 0x31c, 4, 0xff },
+        { 0x320, 0x358, 0x1c, UINT32_MAX },
+        { 0x324, 0x35c, 0x1c, 0xffff },
+        { 0x328, 0x360, 0x1c, 0xffff },
+        { 0x32c, 0x364, 0x1c, 0x03ffffff },
+        { 0x330, 0x368, 0x1c, 0xffff },
+        { 0x334, 0x36c, 0x1c, 0xffff },
+        { 0x338, 0x338, 4, 0x03ffffff },
+        { 0x354, 0x354, 4, 0x07ffffff },
+        { 0x370, 0x370, 4, 0x03ffffff },
+    };
+    static const uint32_t patterns[] = { UINT32_MAX, 0xa55a3cc3, 0x80000000, 0 };
+    const uint32_t base = 0x2006a000;
+    uint32_t expected[0x174 / 4];
+    bool covered[ARRAY_SIZE(expected)] = { false };
+    QTestState *q = capture_start(NULL);
+
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned pass = 0; pass < ARRAY_SIZE(patterns); pass++) {
+        for (unsigned i = 0; i < ARRAY_SIZE(fields); i++) {
+            for (unsigned offset = fields[i].first; offset <= fields[i].last;
+                 offset += fields[i].step) {
+                unsigned word = (offset - 0x200) / 4;
+                uint32_t value = (patterns[pass] ^ (offset * 0x01010101)) &
+                                 fields[i].mask;
+
+                if (!pass) {
+                    g_assert_false(covered[word]);
+                    covered[word] = true;
+                    g_assert_cmphex(qtest_readl(q, base + offset), ==, 0);
+                }
+                expected[word] = value;
+                qtest_writel(q, base + offset, value);
+                g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                for (unsigned bit = 0; !pass && bit < 32; bit++) {
+                    if (!(fields[i].mask & (1U << bit))) {
+                        qtest_writel(q, base + offset, value | (1U << bit));
+                        g_assert_cmphex(qtest_readl(q, base + offset), ==, value);
+                    }
+                }
+            }
+        }
+        for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+            g_assert_true(covered[word]);
+            g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==,
+                            expected[word]);
+        }
+    }
+    /* AF18 skips remaining stores when204 is zero; it does not clear them. */
+    qtest_writel(q, base + 0x204, 0);
+    expected[1] = 0;
+    for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==,
+                        expected[word]);
+    }
+    qtest_writeb(q, base + 0x200, 0xff);
+    qtest_writew(q, base + 0x200, 0xffff);
+    qtest_writel(q, base + 0x201, UINT32_MAX);
+    g_assert_cmphex(qtest_readl(q, base + 0x200), ==, expected[0]);
+    for (unsigned offset = 0x374; offset < 0x400; offset += 4) {
+        qtest_writel(q, base + offset, UINT32_MAX);
+        endpoint_read_error(q, base + offset);
+    }
+    endpoint_read_error(q, base + 0x1fc);
+    qtest_clock_step(q, 1000000);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    g_assert_cmpuint(property_at(q, "/machine/readout-control",
+                                 "request-generation"), ==, 0);
+    for (unsigned offset = 0; offset < 32; offset += 4) {
+        g_assert_cmphex(qtest_readl(q, RAM + 0x1000 + offset), ==, 0xa7a7a7a7);
+    }
+    qtest_system_reset(q);
+    for (unsigned word = 0; word < ARRAY_SIZE(expected); word++) {
+        g_assert_cmphex(qtest_readl(q, base + 0x200 + word * 4), ==, 0);
+    }
+    endpoint_read_error(q, base + 0x3e0);
+    qtest_quit(q);
+}
+
+static void test_capture_controls(void)
+{
+    QTestState *q = capture_start(NULL);
+    uint32_t selected = 0x2bf;
+
+    /* 10239740 complements 102396e8's selected units before initialization. */
+    qtest_writel(q, CAPTURE_BASE, ~selected);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, (~selected & 0xfff));
+    qtest_writel(q, CAPTURE_BASE + 4, 0xfff);
+    for (unsigned bit = 0; bit < 12; bit++) {
+        uint32_t unit = 1U << bit;
+
+        qtest_writel(q, CAPTURE_BASE, unit);
+        qtest_writel(q, CAPTURE_BASE, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 4), ==, unit);
+        qtest_writel(q, CAPTURE_BASE + 4, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, 0);
+        qtest_writel(q, CAPTURE_BASE + 0x10, 0xfff);
+        qtest_writel(q, CAPTURE_BASE + 0x14, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x10), ==,
+                        (0xfff & ~unit));
+        qtest_writel(q, CAPTURE_BASE + 0x10, unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x14), ==, 0xfff);
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x18, selected);
+    qtest_writel(q, CAPTURE_BASE + 0x18,
+                 qtest_readl(q, CAPTURE_BASE + 0x18) & ~0x20);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==,
+                    (selected & ~0x20));
+    qtest_writel(q, CAPTURE_BASE + 0x24, 15);
+    qtest_writel(q, CAPTURE_BASE + 0x20, 31);
+    qtest_writel(q, CAPTURE_BASE + 0x28, 1);
+    qtest_writel(q, CAPTURE_BASE + 0x60, 0x80000001);
+    qtest_writel(q, CAPTURE_BASE + 0x70, (3 << 3) | (1 << 5) | (1 << 1));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x24), ==, 15);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x20), ==, 31);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x28), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x60), ==, 0x80000001);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0x3a);
+    qtest_writel(q, CAPTURE_BASE, 0x1000); /* Neither mask nor complement. */
+    qtest_writew(q, CAPTURE_BASE + 0x10, 0);
+    qtest_writel(q, CAPTURE_BASE + 0x18, 0x1000);
+    qtest_writel(q, CAPTURE_BASE + 0x28, 2);
+    qtest_writel(q, CAPTURE_BASE + 0x70, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x10), ==, 0xfff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x18), ==,
+                    (selected & ~0x20));
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x28), ==, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0x3a);
+    for (unsigned i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
+        g_assert_false(qtest_get_irq(q, i));
+    }
+    qtest_writel(q, CAPTURE_BASE + 0x200, 8);
+    status_word(q, CAPTURE_PATH, 0, 8);
+    status_word(q, CAPTURE_PATH, 1, 0);
+    publish_capture(q, 0);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0xfff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 8);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    for (unsigned offset = 0; offset <= 0x28; offset += 4) {
+        if (offset != 0x1c) {
+            g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + offset), ==, 0);
+        }
+    }
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x60), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x70), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_quit(q);
+}
+
+static void test_capture_runstop(void)
+{
+    static const struct {
+        uint32_t unit, first, second, last;
+    } stops[] = {
+        { 1, 0x200, 0, 0 }, { 2, 0, 0, 0x38 }, { 4, 0x8000, 0, 0 },
+        { 8, 0x8000, 0, 0 }, { 0x10, 0x80000000, 1, 0 },
+        { 0x20, 0x18000000, 0, 0 }, { 0x40, 0x20000, 0, 0 },
+        { 0x80, 0x80000, 0, 0 }, { 0x200, 0, 0x180, 0 },
+        { 0x400, 0, 0x18, 0 }, { 0x800, 0, 0x1800, 0 },
+    };
+    QTestState *q = capture_start(NULL);
+
+    qtest_writel(q, CAPTURE_BASE + 0x200, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x220, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x2e0, UINT32_MAX);
+    qtest_writel(q, CAPTURE_BASE + 0x10, 0xeff);
+    for (unsigned i = 0; i < ARRAY_SIZE(stops); i++) {
+        qtest_writel(q, CAPTURE_BASE + 8, stops[i].unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, stops[i].unit);
+        qtest_clock_step(q, 2000);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+        qtest_writel(q, CAPTURE_BASE + 0xc, stops[i].unit);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+        qtest_clock_step(q, 999);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+        qtest_clock_step(q, 1);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==,
+                        stops[i].first);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==,
+                        stops[i].second);
+        g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x2f0), ==,
+                        stops[i].last);
+        g_assert_cmpint(qtest_get_irq(q, 4), ==, !!stops[i].last);
+        g_assert_cmpint(qtest_get_irq(q, 0), ==,
+                        !!(stops[i].first | stops[i].second));
+        qtest_writel(q, CAPTURE_BASE + 0x210, UINT32_MAX);
+        qtest_writel(q, CAPTURE_BASE + 0x230, UINT32_MAX);
+        qtest_writel(q, CAPTURE_BASE + 0x2f0, UINT32_MAX);
+    }
+
+    /* Quiescence is idempotent; independent units keep separate deadlines. */
+    qtest_writel(q, CAPTURE_BASE + 0x200, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 1);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x401);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x200);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    g_assert_false(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE + 0x200, 0x200);
+    g_assert_true(qtest_get_irq(q, 0));
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x200);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0x18);
+    qtest_writel(q, CAPTURE_BASE + 0x230, 0x18);
+
+    /* The4/8 drain consumer is shared: one live half prevents notification. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0xc);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 8);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+
+    qtest_writel(q, CAPTURE_BASE + 8, 0xc);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_writel(q, CAPTURE_BASE, 8);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 4, 8);
+
+    /* An expired half retains its identity if the other half is cancelled. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 4);
+    qtest_clock_step(q, 999);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 8);
+    qtest_clock_step(q, 501);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE, 8);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0x8000);
+    qtest_writel(q, CAPTURE_BASE + 0x210, 0x8000);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 4, 8);
+
+    /* Start supersedes an uncompleted stop; reset/disable cancel per unit. */
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xeff);
+    qtest_writel(q, CAPTURE_BASE + 8, 3);
+    qtest_writel(q, CAPTURE_BASE, 0x2fc);
+    qtest_writel(q, CAPTURE_BASE + 0x14, 0xc00);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    /* Disabled/reset units stay idle. */
+    qtest_writel(q, CAPTURE_BASE + 8, 0xeff);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    qtest_writel(q, CAPTURE_BASE + 8, 0x100);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0x1000);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xffffffff);
+    qtest_writeb(q, CAPTURE_BASE + 0xc, 1);
+    qtest_writew(q, CAPTURE_BASE + 0xc, 1);
+    qtest_writel(q, CAPTURE_BASE + 0xd, 1);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 3);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 0xeff);
+    qtest_system_reset(q);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 8), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x230), ==, 0);
+    qtest_writel(q, CAPTURE_BASE + 0xc, 1);
+    qtest_qmp_assert_success(q, "{'execute':'qom-set','arguments':{"
+                            "'path':%s,'property':'realized','value':false}}",
+                            CAPTURE_PATH);
+    qtest_clock_step(q, 2000);
+    g_assert_cmphex(qtest_readl(q, CAPTURE_BASE + 0x210), ==, 0);
     qtest_quit(q);
 }
 
@@ -960,13 +2170,14 @@ static void test_readout_provider(void)
                      0);
     g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
 
-    /* An explicit provider can publish the source-backed ready observation;
-     * this updates only the proven control word and emits an observation
-     * pulse.  Completion remains a separate, explicit provider action. */
+    /*
+     * Provider readiness is an observation, not a host rewrite of the guest
+     * enable configuration. Completion remains a separate provider action.
+     */
     qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 1);
     qtest_set_irq_in(q, READOUT_PATH, "provider-ready", 0, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "ready-generation"), ==, 1);
-    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 1);
+    g_assert_cmphex(qtest_readl(q, READOUT_PARAMETERS + 0x3c0), ==, 0);
     g_assert_cmpuint(property_at(q, READOUT_PATH, "completion-generation"), ==,
                      0);
 
@@ -1015,7 +2226,9 @@ static QTestState *channels_start(const char *outputs)
     QTestState *q = qtest_initf(
         "-M z7ii-mas-diagnostic -smp 1 -bios %s -serial none", bios);
 
-    qtest_irq_intercept_out_named(q, CHANNEL_PATH, outputs);
+    if (outputs) {
+        qtest_irq_intercept_out_named(q, CHANNEL_PATH, outputs);
+    }
     return q;
 }
 
@@ -1160,13 +2373,14 @@ static void test_channels_global(void)
     qtest_memset(q, RAM + 0x1000, 0xa7, 32);
     for (i = 0; i < ARRAY_SIZE(fields); i++) {
         uint64_t address = CHANNEL_BASE + fields[i];
-        uint32_t value = fields[i] == 0x2ec ? 0xfff : 0xfedcba98;
+        uint32_t value = fields[i] == 0x2ec ? 0xfff :
+                         fields[i] < 0x2ec ? 0x7ff : 0xfedcba98;
 
         g_assert_cmphex(qtest_readl(q, address), ==, 0);
         qtest_writel(q, address, value);
         g_assert_cmphex(qtest_readl(q, address), ==, value);
     }
-    /* Replay both actual OR-mask protocols without manufacturing a response. */
+    /* Both RMW command masks are consumed by their own commit. */
     for (i = 0; i < 2; i++) {
         uint64_t configuration = CHANNEL_BASE + 0x2d0 + i * 0x10;
         uint64_t command = configuration + 4;
@@ -1178,6 +2392,7 @@ static void test_channels_global(void)
         g_assert_cmpuint(property_at(q, CHANNEL_PATH, "global-requests"), ==,
                          i * 2);
         qtest_writel(q, command, 1);
+        g_assert_cmphex(qtest_readl(q, configuration), ==, 0);
         qtest_writel(q, command, 1);
         qtest_writel(q, command, 0);
         qtest_writel(q, command, 2);
@@ -1190,7 +2405,7 @@ static void test_channels_global(void)
     qtest_writew(q, CHANNEL_BASE + 0x2d0, 0xffff);
     qtest_writel(q, CHANNEL_BASE + 0x2d8, UINT32_MAX); /* Unqualified offset. */
     g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2ec), ==, 0xfff);
-    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0x403);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0);
     g_assert_cmpuint(property_at(q, CHANNEL_PATH, "requests"), ==, 0);
     g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
     qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
@@ -1203,6 +2418,126 @@ static void test_channels_global(void)
         g_assert_false(qtest_get_irq(q, i));
     }
     g_assert_cmpuint(property_at(q, CHANNEL_PATH, "global-requests"), ==, 0);
+    qtest_quit(q);
+}
+
+static void channels_commit(QTestState *q, bool stop, uint32_t mask)
+{
+    unsigned offset = stop ? 0x2e0 : 0x2d0;
+
+    qtest_writel(q, CHANNEL_BASE + offset, mask);
+    qtest_writel(q, CHANNEL_BASE + offset + 4, 1);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + offset), ==, 0);
+}
+
+static void test_channels_stop(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    qtest_memset(q, RAM + 0x1000, 0xa7, 32);
+    for (unsigned i = 0; i < 11; i++) {
+        uint32_t cause = i == 8 ? 0x40000 : i == 0 ? 0x400 : 0;
+
+        channels_commit(q, false, 0x7ff);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0x7ff);
+        channels_commit(q, true, 1u << i);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 1u << i);
+        qtest_clock_step(q, 999);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0x7ff);
+        /* Repeated stop must not postpone the already pending transition. */
+        channels_commit(q, true, 1u << i);
+        qtest_clock_step(q, 1);
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==,
+                        0x7ff & ~(1u << i));
+        g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, cause);
+        /* Pending survives disabled masking; W1C owns acknowledgement. */
+        qtest_writel(q, 0x20060040, cause);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, cause);
+        qtest_writel(q, 0x20060044, cause);
+        channels_commit(q, true, 1u << i);
+        qtest_clock_step(q, 10000);
+        g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    }
+    channels_commit(q, true, 0x7ff);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40400);
+    g_assert_cmphex(qtest_readl(q, RAM + 0x1000), ==, 0xa7a7a7a7);
+    g_assert_cmphex(qtest_readl(q, 0x20064014), ==, 0);
+    qtest_quit(q);
+}
+
+static void test_channels_stop_cancel(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x101);
+    channels_commit(q, false, 1); /* Only channel0 restarts. */
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0x100);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    qtest_writel(q, 0x20060044, 0x40000);
+    channels_commit(q, true, 1);
+    channels_commit(q, false, 1); /* Full cancellation owns no completion. */
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    /* Mask stores, malformed commits and unsupported bits cannot run work. */
+    qtest_writel(q, CHANNEL_BASE + 0x2d0, 0x100);
+    qtest_writel(q, CHANNEL_BASE + 0x2d4, 0);
+    qtest_writel(q, CHANNEL_BASE + 0x2d4, 2);
+    qtest_writew(q, CHANNEL_BASE + 0x2d4, 1);
+    qtest_writel(q, CHANNEL_BASE + 0x2d0, 0x800);
+    g_assert_cmphex(qtest_readl(q, CHANNEL_BASE + 0x2d0), ==, 0x100);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    channels_commit(q, true, 1);
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+    qtest_clock_step(q, 10000);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 0);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 0);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    channels_commit(q, false, 0x107);
+    channels_commit(q, true, 0x107);
+    qtest_clock_step(q, 1000);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40400);
+    qtest_quit(q);
+}
+
+static void test_channels_stop_stagger(void)
+{
+    QTestState *q = channels_start(NULL);
+
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x100);
+    qtest_clock_step(q, 999);
+    channels_commit(q, true, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "stopping"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    qtest_writel(q, 0x20060044, 0x40000);
+    qtest_clock_step(q, 998);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x400);
+    qtest_writel(q, 0x20060044, 0x400);
+    /* Restart followed by a new stop must not reuse the cancelled deadline. */
+    channels_commit(q, false, 0x101);
+    channels_commit(q, true, 0x101);
+    qtest_clock_step(q, 999);
+    channels_commit(q, false, 1);
+    channels_commit(q, true, 1);
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(property_at(q, CHANNEL_PATH, "running"), ==, 1);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x40000);
+    qtest_writel(q, 0x20060044, 0x40000);
+    qtest_clock_step(q, 999);
+    g_assert_cmphex(qtest_readl(q, 0x20060044), ==, 0x400);
     qtest_quit(q);
 }
 
@@ -1232,6 +2567,20 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/controller/publication", test_sdes_publication);
     qtest_add_func("/nikon/sensor/capture/configuration",
                     test_capture_configuration);
+    qtest_add_func("/nikon/sensor/capture/packet", test_capture_packet);
+    qtest_add_func("/nikon/sensor/capture/banks", test_capture_banks);
+    qtest_add_func("/nikon/sensor/capture/group", test_capture_group);
+    qtest_add_func("/nikon/sensor/capture/group-results",
+                   test_capture_group_results);
+    qtest_add_func("/nikon/sensor/capture/group-cursor",
+                   test_capture_group_cursor);
+    qtest_add_func("/nikon/sensor/capture/group-latch", test_capture_group_latch);
+    qtest_add_func("/nikon/sensor/capture/parameters", test_capture_parameters);
+    qtest_add_func("/nikon/sensor/capture/endpoints", test_capture_endpoints);
+    qtest_add_func("/nikon/sensor/capture/endpoint-globals",
+                    test_capture_endpoint_globals);
+    qtest_add_func("/nikon/sensor/capture/controls", test_capture_controls);
+    qtest_add_func("/nikon/sensor/capture/runstop", test_capture_runstop);
     qtest_add_func("/nikon/sensor/capture/status", test_capture_status);
     qtest_add_func("/nikon/sensor/capture/publication", test_capture_publication);
     qtest_add_func("/nikon/sensor/readout/configuration",
@@ -1244,6 +2593,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sensor/channels/request", test_channels_request);
     qtest_add_func("/nikon/sensor/channels/reset", test_channels_reset);
     qtest_add_func("/nikon/sensor/channels/global", test_channels_global);
+    qtest_add_func("/nikon/sensor/channels/stop", test_channels_stop);
+    qtest_add_func("/nikon/sensor/channels/stop-cancel", test_channels_stop_cancel);
+    qtest_add_func("/nikon/sensor/channels/stop-stagger",
+                    test_channels_stop_stagger);
     qtest_add_func("/nikon/sensor/eye", test_eye_sensor);
     qtest_add_func("/nikon/sensor/eye/nak", test_eye_sensor_nak);
     qtest_add_func("/nikon/sensor/display-buffer", test_sensor_display_buffer);

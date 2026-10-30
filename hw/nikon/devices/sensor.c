@@ -15,6 +15,7 @@
 #include "system/dma.h"
 #include "system/reset.h"
 #include "hw/nikon/sensor.h"
+#include "hw/nikon/statistics.h"
 #include "hw/nikon/devices.h"
 
 #define SENSOR_CHUNK 4096
@@ -772,23 +773,57 @@ static const TypeInfo nikon_sdes_type = {
 };
 
 /* Capture configuration packet10238fbc and handlers1020a836..1020a9b2.
- * Status has an explicit provider. Register writes never manufacture it.
+ * Data status has an explicit provider. Finite stop fences below do no DMA.
  */
 #define CAPTURE_SIZE 0x1180
-#define CAPTURE_WORDS (CAPTURE_SIZE / 4)
+#define CAPTURE_PACKET_BASE 0x1d00
+#define CAPTURE_PACKET_SIZE 0x204
+#define CAPTURE_WORDS ((CAPTURE_PACKET_BASE + CAPTURE_PACKET_SIZE) / 4)
 #define CAPTURE_STATUS_WORDS 8
 OBJECT_DECLARE_SIMPLE_TYPE(NikonCaptureControl, NIKON_CAPTURE_CONTROL)
+
+/*
+ * 1023858a and10239298..10239548 identify upper quiescence causes;
+ * 1020a71a identifies separate low-level stop causes. No pixel work implied.
+ */
+static const struct {
+    uint32_t unit;
+    uint32_t causes[CAPTURE_STATUS_WORDS];
+} nikon_capture_stops[] = {
+    { 1,     { [0] = 0x200 } },
+    { 2,     { [7] = 0x38 } },
+    { 4,     { [0] = 0x8000 } },
+    { 8,     { [0] = 0x8000 } },
+    { 0x10,  { [0] = 0x80000000, [1] = 1 } },
+    { 0x20,  { [0] = 0x18000000 } },
+    { 0x40,  { [0] = 0x20000 } },
+    { 0x80,  { [0] = 0x80000 } },
+    { 0x200, { [1] = 0x180 } },
+    { 0x400, { [1] = 0x18 } },
+    { 0x800, { [1] = 0x1800 } },
+};
+
+typedef struct NikonCaptureStop {
+    NikonCaptureControl *s;
+    QEMUTimer *timer;
+    unsigned index;
+} NikonCaptureStop;
 
 struct NikonCaptureControl {
     SysBusDevice parent_obj;
     MemoryRegion memory;
+    MemoryRegion packet_memory;
     qemu_irq irq[NIKON_CAPTURE_EVENTS];
     qemu_irq command_data[64], command_publish[2];
+    qemu_irq run_state[12];
     uint32_t configuration[CAPTURE_WORDS];
     bool known[CAPTURE_WORDS];
     uint32_t pending[CAPTURE_STATUS_WORDS];
+    qemu_irq front_capacity, data_capacity, group_capacity;
     uint32_t levels[CAPTURE_STATUS_WORDS], seen[CAPTURE_STATUS_WORDS];
     uint32_t event_levels;
+    NikonCaptureStop stop[ARRAY_SIZE(nikon_capture_stops)];
+    uint32_t drained_shared;
     bool reported_error;
 };
 
@@ -799,6 +834,38 @@ static const unsigned nikon_capture_events[CAPTURE_STATUS_WORDS] = {
 static bool nikon_capture_config(unsigned offset, uint32_t *mask)
 {
     *mask = UINT32_MAX;
+    /* 102094aa/102093ec/10209578 store every word of this complete packet. */
+    if (offset >= CAPTURE_PACKET_BASE &&
+        offset < CAPTURE_PACKET_BASE + CAPTURE_PACKET_SIZE) {
+        unsigned word = offset - CAPTURE_PACKET_BASE;
+
+        if ((word >= 0xc && word <= 0x20) ||
+            (word >= 0x1dc && word <= 0x1e4)) {
+            *mask = 0xffff;
+        } else {
+            switch (word) {
+            case 0x08: case 0x1d8:
+                *mask = 0xfffff;
+                break;
+            case 0xcc: case 0x174: case 0x1e8:
+                *mask = 0xffffff;
+                break;
+            case 0x1d4:
+                *mask = 0xffff;
+                break;
+            case 0x1f8:
+                *mask = 0xffff00ff;
+                break;
+            case 0x1fc:
+                *mask = 0xff;
+                break;
+            case 0x200:
+                *mask = 0x11;
+                break;
+            }
+        }
+        return true;
+    }
     /* Complete original stores, not an enclosing peripheral aperture.
      * Six seven-word subtables at871c..87c0 fill the middle of this range.
      */
@@ -813,13 +880,23 @@ static bool nikon_capture_config(unsigned offset, uint32_t *mask)
         return true;
     }
     switch (offset) {
-    case 0: case 4: case 0x18:
+    case 0: case 4: case 0x10: case 0x14: case 0x18:
         *mask = 0xfff;
         return true;
-    case 0xc:
-        *mask = 0xc;
+    case 8: case 0xc:
+        /* All eleven recovered unit bits, not reserved bit8. */
+        *mask = 0xeff;
         return true;
-    case 8: case 0x8c: case 0x100: case 0x104:
+    /* 1020bfc2/1020ab3c: raw word parameters, separate boolean enable. */
+    case 0x20: case 0x24: case 0x60:
+    case 0x8c: case 0x100: case 0x104:
+        return true;
+    case 0x28:
+        *mask = 1;
+        return true;
+    case 0x70:
+        /* 1020bfde: boolean bits5/1 and the two-bit selector at bits4:3. */
+        *mask = 0x3a;
         return true;
     case 0x88:
         *mask = 0xff;
@@ -835,7 +912,7 @@ bool nikon_capture_configuration(DeviceState *dev, unsigned offset,
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
     uint32_t mask;
 
-    if (!value || offset >= CAPTURE_SIZE || (offset & 3) ||
+    if (!value || offset >= CAPTURE_WORDS * 4 || (offset & 3) ||
         !nikon_capture_config(offset, &mask) || !s->known[offset / 4]) {
         return false;
     }
@@ -862,6 +939,82 @@ static void nikon_capture_irqs(NikonCaptureControl *s)
     for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
         qemu_set_irq(s->irq[i], !!active[i]);
     }
+}
+
+static void nikon_capture_shared(NikonCaptureControl *s)
+{
+    if (!s->drained_shared || (s->configuration[8 / 4] & 0xc)) {
+        return;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        if ((nikon_capture_stops[i].unit & 0xc) &&
+            timer_pending(s->stop[i].timer)) {
+            return;
+        }
+    }
+    s->drained_shared = 0;
+    s->pending[0] |= 0x8000;
+    nikon_capture_irqs(s);
+}
+
+static void nikon_capture_stopped(void *opaque)
+{
+    NikonCaptureStop *stop = opaque;
+    NikonCaptureControl *s = stop->s;
+    unsigned i = stop->index;
+
+    if (nikon_capture_stops[i].unit & 0xc) {
+        /* Keep expired identities until the shared drain can be delivered. */
+        s->drained_shared |= nikon_capture_stops[i].unit;
+        nikon_capture_shared(s);
+        return;
+    }
+    if (s->configuration[8 / 4] & nikon_capture_stops[i].unit) {
+        return;
+    }
+    for (unsigned word = 0; word < CAPTURE_STATUS_WORDS; word++) {
+        s->pending[word] |= nikon_capture_stops[i].causes[word];
+    }
+    nikon_capture_irqs(s);
+}
+
+static void nikon_capture_cancel(NikonCaptureControl *s, uint32_t units)
+{
+    s->configuration[8 / 4] &= ~units;
+    s->configuration[0xc / 4] = s->configuration[8 / 4];
+    s->drained_shared &= ~units;
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        if (units & nikon_capture_stops[i].unit) {
+            timer_del(s->stop[i].timer);
+        }
+    }
+}
+
+static void nikon_capture_run_state(NikonCaptureControl *s)
+{
+    for (unsigned i = 0; i < ARRAY_SIZE(s->run_state); i++) {
+        qemu_set_irq(s->run_state[i], !!(s->configuration[8 / 4] & (1U << i)));
+    }
+}
+
+bool nikon_capture_data_pending(DeviceState *dev)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+
+    /* Mode1 masks per-frame raw6 and consumes endpoint ring completion. */
+    return s->pending[0] & s->configuration[0x200 / 4] & 0x40;
+}
+
+bool nikon_capture_group_pending(DeviceState *dev)
+{
+    return NIKON_CAPTURE_CONTROL(dev)->pending[3] & 1;
+}
+
+bool nikon_capture_front_pending(DeviceState *dev)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
+
+    return (s->pending[0] & 0x18) || (s->pending[4] & 0x80);
 }
 
 bool nikon_capture_publish(DeviceState *dev, enum NikonCaptureEvent event,
@@ -972,8 +1125,80 @@ static MemTxResult nikon_capture_write(void *opaque, hwaddr offset,
         return nikon_capture_error(s, offset, size, true, value);
     }
     if (offset >= 0x210 && offset <= 0x2f0 && (offset & 0x1f) == 0x10) {
+        bool front = nikon_capture_front_pending(DEVICE(s));
+        bool data = nikon_capture_data_pending(DEVICE(s));
+        bool group = nikon_capture_group_pending(DEVICE(s));
+
         s->pending[(offset - 0x210) / 0x20] &= ~value;
         nikon_capture_irqs(s);
+        front &= !nikon_capture_front_pending(DEVICE(s));
+        data &= !nikon_capture_data_pending(DEVICE(s));
+        group &= !nikon_capture_group_pending(DEVICE(s));
+        if (front) {
+            qemu_irq_pulse(s->front_capacity);
+        }
+        if (data) {
+            qemu_irq_pulse(s->data_capacity);
+        }
+        if (group) {
+            qemu_irq_pulse(s->group_capacity);
+        }
+        return MEMTX_OK;
+    }
+    if (offset == 8 || offset == 0xc) {
+        if (value & ~0xeffU) {
+            return nikon_capture_error(s, offset, size, true, value);
+        }
+        if (offset == 8) {
+            nikon_capture_cancel(s, value);
+            /* Run intent alone implies no pixels or normal completion. */
+            s->configuration[8 / 4] |= value & s->configuration[0x10 / 4] &
+                                        ~s->configuration[0];
+        } else {
+            s->configuration[8 / 4] &= ~value;
+            for (i = 0; i < ARRAY_SIZE(s->stop); i++) {
+                if ((value & nikon_capture_stops[i].unit) &&
+                    !(s->drained_shared & nikon_capture_stops[i].unit) &&
+                    !timer_pending(s->stop[i].timer)) {
+                    /* Hypothesis: idempotent quiescence takes1us, no data. */
+                    timer_mod(s->stop[i].timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000);
+                }
+            }
+        }
+        /* Functional readback mirrors run state, not the last stop mask. */
+        s->configuration[0xc / 4] = s->configuration[8 / 4];
+        nikon_capture_run_state(s);
+        nikon_capture_shared(s);
+        return MEMTX_OK;
+    }
+    if (offset == 0 || offset == 4 || offset == 0x10 || offset == 0x14) {
+        unsigned first = offset < 8 ? 0 : 4;
+        uint32_t padding = value & ~0xfffU;
+        uint32_t bits = value & 0xfff;
+        uint32_t state = s->configuration[first];
+
+        /*
+         * 1020a50c/1020a518 expose paired set/clear commands. 10239740
+         * submits a complemented unit mask, whose upper bits are padding.
+         * Keep a finite mask/complement grammar, not arbitrary upper bits.
+         */
+        if (padding && padding != ~0xfffU) {
+            return nikon_capture_error(s, offset, size, true, value);
+        }
+        if (offset == 0 || offset == 0x10) {
+            state |= bits;
+        } else {
+            state &= ~bits;
+        }
+        /* Functional readback mirrors effective state through both aliases. */
+        s->configuration[first] = s->configuration[first + 1] = state;
+        s->known[first] = s->known[first + 1] = true;
+        if (offset == 0 || offset == 0x14) {
+            nikon_capture_cancel(s, bits);
+            nikon_capture_run_state(s);
+            nikon_capture_shared(s);
+        }
         return MEMTX_OK;
     }
     if (!nikon_capture_config(offset, &mask) || (value & ~mask)) {
@@ -1007,6 +1232,30 @@ static const MemoryRegionOps nikon_capture_ops = {
                .unaligned = false },
 };
 
+static MemTxResult nikon_capture_packet_read(void *opaque, hwaddr offset,
+                                            uint64_t *value, unsigned size,
+                                            MemTxAttrs attrs)
+{
+    return nikon_capture_read(opaque, CAPTURE_PACKET_BASE + offset,
+                              value, size, attrs);
+}
+
+static MemTxResult nikon_capture_packet_write(void *opaque, hwaddr offset,
+                                             uint64_t value, unsigned size,
+                                             MemTxAttrs attrs)
+{
+    return nikon_capture_write(opaque, CAPTURE_PACKET_BASE + offset,
+                               value, size, attrs);
+}
+
+static const MemoryRegionOps nikon_capture_packet_ops = {
+    .read_with_attrs = nikon_capture_packet_read,
+    .write_with_attrs = nikon_capture_packet_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4,
+               .unaligned = false },
+};
+
 static void nikon_capture_reset(DeviceState *dev)
 {
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(dev);
@@ -1023,6 +1272,8 @@ static void nikon_capture_reset(DeviceState *dev)
     memset(s->seen, 0, sizeof(s->seen));
     s->event_levels = 0;
     s->reported_error = false;
+    nikon_capture_cancel(s, 0xeff);
+    nikon_capture_run_state(s);
     for (i = 0; i < ARRAY_SIZE(s->command_data); i++) {
         qemu_set_irq(s->command_data[i], 0);
     }
@@ -1037,9 +1288,18 @@ static void nikon_capture_init(Object *obj)
     NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(obj);
     unsigned i;
 
+    for (i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        s->stop[i].s = s;
+        s->stop[i].index = i;
+        s->stop[i].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                       nikon_capture_stopped, &s->stop[i]);
+    }
     memory_region_init_io(&s->memory, obj, &nikon_capture_ops, s,
                           "nikon-capture-control", CAPTURE_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
+    memory_region_init_io(&s->packet_memory, obj, &nikon_capture_packet_ops, s,
+                          "nikon-capture-packet", CAPTURE_PACKET_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->packet_memory);
     for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
         sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq[i]);
     }
@@ -1049,6 +1309,22 @@ static void nikon_capture_init(Object *obj)
                             NIKON_CAPTURE_EVENTS);
     qdev_init_gpio_out_named(DEVICE(s), s->command_data, "command-data", 64);
     qdev_init_gpio_out_named(DEVICE(s), s->command_publish, "command-publish", 2);
+    qdev_init_gpio_out_named(DEVICE(s), s->run_state, "run-state", 12);
+    qdev_init_gpio_out_named(DEVICE(s), &s->front_capacity,
+                             "front-capacity-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->data_capacity,
+                             "data-capacity-ready", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->group_capacity,
+                             "group-capacity-ready", 1);
+}
+
+static void nikon_capture_finalize(Object *obj)
+{
+    NikonCaptureControl *s = NIKON_CAPTURE_CONTROL(obj);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(s->stop); i++) {
+        timer_free(s->stop[i].timer);
+    }
 }
 
 static const VMStateDescription nikon_capture_vmstate = {
@@ -1061,6 +1337,7 @@ static void nikon_capture_class_init(ObjectClass *oc, const void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->vmsd = &nikon_capture_vmstate;
+    dc->unrealize = nikon_capture_reset;
     device_class_set_legacy_reset(dc, nikon_capture_reset);
 }
 
@@ -1069,6 +1346,7 @@ static const TypeInfo nikon_capture_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonCaptureControl),
     .instance_init = nikon_capture_init,
+    .instance_finalize = nikon_capture_finalize,
     .class_init = nikon_capture_class_init,
 };
 
@@ -1088,18 +1366,34 @@ struct NikonReadoutControl {
     SysBusDevice parent_obj;
     NikonReadoutBank bank[NIKON_READOUT_REGIONS];
     uint32_t configuration[NIKON_READOUT_REGIONS][READOUT_WORDS];
+    uint32_t committed[READOUT_WORDS];
+    uint32_t submitted[READOUT_WORDS];
+    bool commit_selected[2];
+    bool committed_valid;
+    bool running;
+    bool request_valid;
+    bool provider_active;
+    uint8_t fields_written;
+    uint8_t committed_fields;
+    uint8_t submitted_fields;
     bool known[NIKON_READOUT_REGIONS][READOUT_WORDS];
     uint32_t observed[11];
     bool observed_known[11];
     qemu_irq request;
     qemu_irq ready;
     qemu_irq completion;
+    qemu_irq cancel;
     uint64_t requests;
     uint64_t generation;
     uint64_t ready_generation;
     uint64_t completion_generation;
     uint64_t provider_errors;
     bool reported_error;
+};
+
+/* Complete finite transport profile, including an explicitly written mode0. */
+static const unsigned nikon_readout_fields[] = {
+    0x394, 0x3c0, 0x3e8, 0x3ec, 0x3f0, 0x3f4, 0x3f8, 0x3fc,
 };
 
 /* Exact data words consumed by102092fa. Selector2 shares69870 with0. */
@@ -1198,13 +1492,13 @@ bool nikon_readout_request(DeviceState *dev, NikonReadoutRequest *request)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!request || !s->generation) {
+    if (!request || !s->request_valid) {
         return false;
     }
     request->generation = s->generation;
-    request->ready = s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4];
+    request->ready = s->submitted[0x3c0 / 4];
     request->completion_marker =
-        s->configuration[NIKON_READOUT_PARAMETERS][0x400 / 4];
+        s->submitted[0x400 / 4];
     return true;
 }
 
@@ -1214,19 +1508,33 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
     uint32_t destination, stride, span, secondary, secondary_stride, format;
+    unsigned mode;
 
-    if (!mapping || !generation || generation != s->generation ||
-        s->configuration[NIKON_READOUT_PARAMETERS][0x400 / 4] != 1) {
+    if (!mapping || !s->request_valid || !s->running ||
+        !generation || generation != s->generation) {
         error_setg(errp, "C1.70 readout request generation is stale");
         return false;
     }
-    destination = s->configuration[NIKON_READOUT_PARAMETERS][0x3e8 / 4];
-    stride = s->configuration[NIKON_READOUT_PARAMETERS][0x3ec / 4];
-    span = s->configuration[NIKON_READOUT_PARAMETERS][0x3f0 / 4];
-    secondary = s->configuration[NIKON_READOUT_PARAMETERS][0x3f4 / 4];
+    destination = s->submitted[0x3e8 / 4];
+    stride = s->submitted[0x3ec / 4];
+    span = s->submitted[0x3f0 / 4];
+    secondary = s->submitted[0x3f4 / 4];
     secondary_stride =
-        s->configuration[NIKON_READOUT_PARAMETERS][0x3f8 / 4];
-    format = s->configuration[NIKON_READOUT_PARAMETERS][0x3fc / 4];
+        s->submitted[0x3f8 / 4];
+    format = s->submitted[0x3fc / 4];
+
+    /*
+     * 1020a2ae packs B26B489E into394[23:16]. 102391b2 consumes
+     * raw0.bit3 in mode0 and bit5 in mode1. Their use after actual transport
+     * completion is an explicit functional profile, not a physical claim.
+     */
+    mode = (s->submitted[0x394 / 4] >> 16) & 0xff;
+
+    if (s->submitted_fields != 0xff ||
+        s->submitted[0x3c0 / 4] != 1 || mode > 1) {
+        error_setg(errp, "C1.70 functional readout enable/mode is unsupported");
+        return false;
+    }
 
     if (format != NIKON_READOUT_C170_FORMAT_PRIMARY &&
         format != NIKON_READOUT_C170_FORMAT_ALTERNATE) {
@@ -1235,7 +1543,7 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
         return false;
     }
     if (!destination || !secondary || stride < 256 || (stride & 0xff) ||
-        (stride & 1) || !span || span > 64U * 1024 * 1024 || span % stride ||
+        (stride & 1) || !span || span > 144U * 1024 * 1024 || span % stride ||
         secondary_stride < 256 || (secondary_stride & 0xff) ||
         destination > UINT32_MAX - (span - 1) ||
         (uint64_t)secondary_stride * (span / stride) > UINT32_MAX ||
@@ -1253,6 +1561,7 @@ bool nikon_readout_c170_mapping(DeviceState *dev, uint64_t generation,
     mapping->format = format;
     mapping->width = stride / 2;
     mapping->height = span / stride;
+    mapping->completion_cause = mode ? 0x20 : 8;
     return true;
 }
 
@@ -1260,12 +1569,11 @@ bool nikon_readout_publish_ready(DeviceState *dev, uint64_t generation)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!generation || generation != s->generation) {
+    if (!s->request_valid || !generation || generation != s->generation) {
         return false;
     }
-    s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4] = 1;
-    s->known[NIKON_READOUT_PARAMETERS][0x3c0 / 4] = true;
     s->ready_generation = generation;
+    s->provider_active = true;
     qemu_set_irq(s->ready, 1);
     qemu_set_irq(s->ready, 0);
     return true;
@@ -1275,17 +1583,31 @@ bool nikon_readout_publish_completion(DeviceState *dev, uint64_t generation)
 {
     NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
 
-    if (!generation || generation != s->generation ||
+    if (!s->request_valid || !generation || generation != s->generation ||
         s->ready_generation != generation) {
         return false;
     }
     s->completion_generation = generation;
-    /* No guest IRQ or status write is made: the completion consumer is not
-     * recovered yet.  This pulse is an observation boundary for the future
-     * source-backed provider and for focused qtests only. */
+    s->provider_active = false;
+    /*
+     * The bundle pipeline joins this observation to capture IRQ94 only
+     * after actual CMOS transport. This interface itself has no guest IRQ.
+     */
     qemu_set_irq(s->completion, 1);
     qemu_set_irq(s->completion, 0);
     return true;
+}
+
+void nikon_readout_release(DeviceState *dev, uint64_t generation)
+{
+    NikonReadoutControl *s = NIKON_READOUT_CONTROL(dev);
+
+    if (generation == s->generation) {
+        s->provider_active = false;
+        s->request_valid = false;
+        s->ready_generation = 0;
+        s->completion_generation = 0;
+    }
 }
 
 static void nikon_readout_provider_ready(void *opaque, int n, int level)
@@ -1368,6 +1690,74 @@ static MemTxResult nikon_readout_read(void *opaque, hwaddr offset,
     return nikon_readout_error(bank, offset, size, false, 0);
 }
 
+static void nikon_readout_begin(NikonReadoutControl *s, const uint32_t *record,
+                                uint8_t fields)
+{
+    s->requests++;
+    /*
+     * A busy provider rejects another pulse without superseding its live
+     * descriptor. Staging remains available for a subsequent guest command.
+     */
+    if (s->provider_active) {
+        qemu_set_irq(s->request, 1);
+        qemu_set_irq(s->request, 0);
+        return;
+    }
+    memcpy(s->submitted, record, sizeof(s->submitted));
+    s->submitted_fields = fields;
+    s->generation++;
+    if (!s->generation) {
+        s->generation++;
+    }
+    s->request_valid = true;
+    s->ready_generation = s->submitted[0x3c0 / 4] == 1 ? s->generation : 0;
+    s->completion_generation = 0;
+    qemu_set_irq(s->request, 1);
+    qemu_set_irq(s->request, 0);
+}
+
+static void nikon_readout_commit_selected(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    s->commit_selected[n] = !!level;
+}
+
+static void nikon_readout_commit(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    if (level && s->commit_selected[n]) {
+        memcpy(s->committed, s->configuration[NIKON_READOUT_PARAMETERS],
+               sizeof(s->committed));
+        s->committed_valid = true;
+        s->committed_fields = s->fields_written;
+    }
+}
+
+static void nikon_readout_run(void *opaque, int n, int level)
+{
+    NikonReadoutControl *s = opaque;
+
+    if (s->running == !!level) {
+        return;
+    }
+    s->running = !!level;
+    if (level) {
+        if (s->committed_valid) {
+            nikon_readout_begin(s, s->committed, s->committed_fields);
+        }
+    } else {
+        s->request_valid = false;
+        s->provider_active = false;
+        s->ready_generation = 0;
+        s->completion_generation = 0;
+        s->committed_valid = false;
+        qemu_set_irq(s->cancel, 1);
+        qemu_set_irq(s->cancel, 0);
+    }
+}
+
 static MemTxResult nikon_readout_write(void *opaque, hwaddr offset,
                                       uint64_t value, unsigned size,
                                       MemTxAttrs attrs)
@@ -1382,18 +1772,17 @@ static MemTxResult nikon_readout_write(void *opaque, hwaddr offset,
     }
     s->configuration[bank->region][offset / 4] = value;
     s->known[bank->region][offset / 4] = true;
-    if (bank->region == NIKON_READOUT_PARAMETERS && offset == 0x400 && value) {
-        s->generation++;
-        if (!s->generation) {
-            s->generation++;
+    if (bank->region == NIKON_READOUT_PARAMETERS) {
+        for (unsigned i = 0; i < ARRAY_SIZE(nikon_readout_fields); i++) {
+            if (offset == nikon_readout_fields[i]) {
+                s->fields_written |= 1u << i;
+                break;
+            }
         }
-        s->ready_generation =
-            s->configuration[NIKON_READOUT_PARAMETERS][0x3c0 / 4] == 1 ?
-            s->generation : 0;
-        s->completion_generation = 0;
-        s->requests++;
-        qemu_set_irq(s->request, 1);
-        qemu_set_irq(s->request, 0);
+    }
+    if (bank->region == NIKON_READOUT_PARAMETERS && offset == 0x400 && value) {
+        nikon_readout_begin(s, s->configuration[NIKON_READOUT_PARAMETERS],
+                           s->fields_written);
     }
     return MEMTX_OK;
 }
@@ -1413,6 +1802,18 @@ static void nikon_readout_reset(DeviceState *dev)
     uint32_t mask;
 
     memset(s->configuration, 0, sizeof(s->configuration));
+    memset(s->committed, 0, sizeof(s->committed));
+    memset(s->submitted, 0, sizeof(s->submitted));
+    memset(s->commit_selected, 0, sizeof(s->commit_selected));
+    s->committed_valid = false;
+    s->running = false;
+    s->request_valid = false;
+    s->provider_active = false;
+    s->fields_written = 0;
+    s->committed_fields = 0;
+    s->submitted_fields = 0;
+    qemu_set_irq(s->cancel, 1);
+    qemu_set_irq(s->cancel, 0);
     memset(s->known, 0, sizeof(s->known));
     memset(s->observed, 0, sizeof(s->observed));
     memset(s->observed_known, 0, sizeof(s->observed_known));
@@ -1450,6 +1851,11 @@ static void nikon_readout_init(Object *obj)
         sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->bank[i].memory);
     }
     qdev_init_gpio_out_named(DEVICE(s), &s->request, "readout-request", 1);
+    qdev_init_gpio_out_named(DEVICE(s), &s->cancel, "readout-cancel", 1);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_commit_selected,
+                            "commit-selected", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_commit, "commit", 2);
+    qdev_init_gpio_in_named(DEVICE(s), nikon_readout_run, "run", 1);
     qdev_init_gpio_out_named(DEVICE(s), &s->ready, "readout-ready", 1);
     qdev_init_gpio_out_named(DEVICE(s), &s->completion,
                              "readout-completion", 1);
@@ -1520,6 +1926,10 @@ struct NikonSdesChannels {
     uint32_t values[NIKON_SDES_CHANNEL_SIZE / 4];
     qemu_irq command[NIKON_SDES_CHANNEL_COUNT];
     qemu_irq global_command[2];
+    qemu_irq stopped[2];
+    QEMUTimer *stop_timer;
+    int64_t stop_deadline[NIKON_SDES_CHANNEL_COUNT];
+    uint32_t running, stopping;
     uint64_t requests;
     uint64_t global_requests;
     bool reported_error;
@@ -1563,6 +1973,8 @@ static bool nikon_sdes_channel_field(hwaddr offset, unsigned *channel,
     switch (offset) {
     case 0x2d0:
     case 0x2e0:
+        *mask = (1u << NIKON_SDES_CHANNEL_COUNT) - 1;
+        return true;
     case 0x2f4:
     case 0x2f8:
         return true;
@@ -1627,6 +2039,74 @@ static MemTxResult nikon_sdes_channels_error(NikonSdesChannels *s,
     return MEMTX_ERROR;
 }
 
+static void nikon_sdes_channels_schedule(NikonSdesChannels *s)
+{
+    int64_t deadline = INT64_MAX;
+
+    for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+        if (s->stopping & (1u << i)) {
+            deadline = MIN(deadline, s->stop_deadline[i]);
+        }
+    }
+    if (deadline == INT64_MAX) {
+        timer_del(s->stop_timer);
+    } else {
+        timer_mod(s->stop_timer, deadline);
+    }
+}
+
+static void nikon_sdes_channels_stopped(void *opaque)
+{
+    NikonSdesChannels *s = opaque;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    uint32_t stopped = 0;
+
+    for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+        if ((s->stopping & (1u << i)) && s->stop_deadline[i] <= now) {
+            stopped |= 1u << i;
+        }
+    }
+    s->stopping &= ~stopped;
+    s->running &= ~stopped;
+    nikon_sdes_channels_schedule(s);
+    /* Functional route hypotheses: 102d986e waits for router bit18 after
+     * stop101, or bit10 after stop107. No pixel work or frame is completed.
+     */
+    if (stopped & 0x100) {
+        qemu_irq_pulse(s->stopped[0]);
+    }
+    if (stopped & 1) {
+        qemu_irq_pulse(s->stopped[1]);
+    }
+}
+
+static void nikon_sdes_channels_commit(NikonSdesChannels *s, unsigned command)
+{
+    unsigned offset = command ? 0x2e0 : 0x2d0;
+    uint32_t mask = s->values[offset / 4];
+
+    /* Source RMW/strobe pairs become fresh requests after each submission.
+     * Consumption and 1us deferred quiescence are functional hypotheses.
+     * A restart cancels only the selected unfinished stops.
+     */
+    s->values[offset / 4] = 0;
+    if (command) {
+        uint32_t added = mask & s->running & ~s->stopping;
+
+        for (unsigned i = 0; i < NIKON_SDES_CHANNEL_COUNT; i++) {
+            if (added & (1u << i)) {
+                s->stop_deadline[i] =
+                    qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000;
+            }
+        }
+        s->stopping |= mask & s->running;
+    } else {
+        s->running |= mask;
+        s->stopping &= ~mask;
+    }
+    nikon_sdes_channels_schedule(s);
+}
+
 static MemTxResult nikon_sdes_channels_read(void *opaque, hwaddr offset,
                                            uint64_t *value, unsigned size,
                                            MemTxAttrs attrs)
@@ -1666,6 +2146,8 @@ static MemTxResult nikon_sdes_channels_write(void *opaque, hwaddr offset,
             qemu_irq_pulse(s->command[channel]);
         } else {
             s->global_requests++;
+            nikon_sdes_channels_commit(s,
+                                      channel - NIKON_SDES_CHANNEL_COUNT);
             qemu_irq_pulse(s->global_command[
                            channel - NIKON_SDES_CHANNEL_COUNT]);
         }
@@ -1688,6 +2170,10 @@ static void nikon_sdes_channels_reset(DeviceState *dev)
 
     /* Functional cold-zero applies only to fields admitted by the decoder. */
     memset(s->values, 0, sizeof(s->values));
+    timer_del(s->stop_timer);
+    s->running = 0;
+    s->stopping = 0;
+    memset(s->stop_deadline, 0, sizeof(s->stop_deadline));
     s->requests = 0;
     s->global_requests = 0;
     s->reported_error = false;
@@ -1696,6 +2182,7 @@ static void nikon_sdes_channels_reset(DeviceState *dev)
     }
     for (i = 0; i < ARRAY_SIZE(s->global_command); i++) {
         qemu_set_irq(s->global_command[i], 0);
+        qemu_set_irq(s->stopped[i], 0);
     }
 }
 
@@ -1703,6 +2190,8 @@ static void nikon_sdes_channels_init(Object *obj)
 {
     NikonSdesChannels *s = NIKON_SDES_CHANNELS(obj);
 
+    s->stop_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                nikon_sdes_channels_stopped, s);
     memory_region_init_io(&s->memory, obj, &nikon_sdes_channels_ops, s,
                           "nikon-sdes-channels", NIKON_SDES_CHANNEL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->memory);
@@ -1711,10 +2200,21 @@ static void nikon_sdes_channels_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(s), s->global_command,
                             "global-command-publish",
                             ARRAY_SIZE(s->global_command));
+    qdev_init_gpio_out_named(DEVICE(s), s->stopped, "stopped",
+                            ARRAY_SIZE(s->stopped));
+    object_property_add_uint32_ptr(obj, "running", &s->running,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "stopping", &s->stopping,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "requests", &s->requests,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "global-requests", &s->global_requests,
                                    OBJ_PROP_FLAG_READ);
+}
+
+static void nikon_sdes_channels_finalize(Object *obj)
+{
+    timer_free(NIKON_SDES_CHANNELS(obj)->stop_timer);
 }
 
 static const VMStateDescription nikon_sdes_channels_vmstate = {
@@ -1735,6 +2235,7 @@ static const TypeInfo nikon_sdes_channels_type = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NikonSdesChannels),
     .instance_init = nikon_sdes_channels_init,
+    .instance_finalize = nikon_sdes_channels_finalize,
     .class_init = nikon_sdes_channels_class_init,
 };
 

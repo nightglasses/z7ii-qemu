@@ -1,5 +1,21 @@
 # Complete software storage profile
 
+The [MAS RAM backing alignment fix](../startup/ram.md) preserves all physical
+intervals below using exact aliases into private, offset-adjusted RAM backing.
+It resolves the original resource57 record0 host TLB assertion without mapping
+padding or changing guest allocation boundaries. Real TCG and bus accesses
+share the same cells, including after reset and MXIC decoder changes.
+
+The additional exact [kind40 allocation](kind40.md) at
+`[62059800,62221800)` is backed separately. Its original VA conversion and
+section PTE are verified; the surrounding address class remains uncovered.
+The independently owned [kind41 workspace](#kind41-processing-workspace)
+continues at `[62221800,62621800)`; it does not grant backing to the rest of
+the conversion class.
+The [resource11/12 phased loader](rows.md) additionally owns contiguous
+destination capacities `[50300000,50640000)`. NOR inputs populate only flash;
+the original guest produces this RAM's content.
+
 The Z7II functional board backs the six complete source-bound storage classes
 21 through 26. This replaces allocation-sized module memory and separate kernel
 copy, BSS, table and stack fragments. Each physical byte has one RAM cell shared
@@ -38,6 +54,139 @@ ends at `bd1e0000`. Their complete classes extend to `bc100000` and `bd200000`.
 Those class tails are storage in this declared functional profile, without a
 claim about their original purpose or pixel format. The original descriptor,
 allocator pointers, metadata, guard checks and copies remain guest-authored.
+
+### Kind57 GUI arena
+
+Original C1.70 MAS ROM VA `11982938[57]` selects row `11983530`:
+`{8,386c200,386c200,0,bec5f200,700}`. All five mode overrides for kind57
+are NULL. This declares one complete PA `[bec5f200,c24cb400)` owner, not six
+unrelated allocations or a broad DDR class. Hexadecimal addresses, offsets and
+sizes below use exclusive ends; record indices are decimal.
+
+The enabled resource57 table at VA `123b73ec` partitions that one unit. Disabled
+rows consume no bytes; inserting space for disabled record2 would give wrong
+bases. Normal execution confirms all published pointer cells:
+
+| Record | Pointer-cell VA | Complete PA range | Bytes |
+|---|---|---|---|
+|0|`b181d384`|`[bec5f200,bf10f200)`|`4b0000`|
+|1|`b181d390`|`[bf10f200,bf309600)`|`1fa400`|
+|5|`b181d388`|`[bf309600,bf7b9600)`|`4b0000`|
+|6|`b181d394`|`[bf7b9600,c175d600)`|`1fa4000`|
+|7|`b181d38c`|`[c175d600,c1c0d600)`|`4b0000`|
+|8|`b181d398`|`[c1c0d600,c24cb300)`|`8bdd00`|
+
+The partitions sum to `386c100`, leaving the owned `100`-byte tail through
+`c24cb400`. The separately declared kind74 interpolation pool starts exactly
+there; it keeps its own MemoryRegion. Record6 owns both the48×42-byte zero
+request at PA `bff44340` and the original byte store at `bff43ac2`.
+
+The board replaces the four older record0/1/5/7 RAM fragments with one exact
+kind57 region through the existing offset-aware `z7ii_ram` helper. Cold zero
+and reset retention are explicit board conventions. No guest allocator,
+pointer cell, pixel or completion is supplied. CPU and DMA share the same
+bytes, and the guest retains all partition/heap ownership. The preceding byte,
+the end of the independent kind74 pool and the logical-view mirror remain
+unmapped. The [arena receipt](/evidence/imagerequest/guipool.json) separates
+source, native tests and unchanged-firmware continuation.
+
+### Kind41 processing workspace
+
+The C1.70 MAS initializer VA `1026fbb0`, called lazily by `102712e6`, requests
+`1030d96e(0,41,355600)` and stores the returned object at VA `b186ac88`.
+Kind41 is decimal; addresses, masks and layout offsets here are hexadecimal.
+ROM VA `11982938[41]` selects `11983488`, whose six words are
+`{8,400000,400000,0,62221800,700}`. The source pool has one `400000`-byte
+unit; all five mode override entries for this kind are NULL.
+
+The [workspace receipt](/evidence/imagerequest/workspace.json) joins this
+declaration to unchanged execution: the holder returns object `b2c8766c`,
+whose buffer record contains PA `62221800` and capacity `400000`. The request
+fits this owned unit; its smaller requested length does not shrink the
+allocated capacity. The existing converter `103c5a7a` returns VA `36f21800`
+using record15's `34600000 + PA -5f900000` formula. Original section PTEs
+`62214426` and `62514426` independently map the logical base and later
+record access back to this physical pool.
+
+The initializer's complete declared layout is bounded by its request:
+
+| Pool-relative interval, exclusive end | Source use |
+|---|---|
+| `[0,300000)` | Workspace passed by later `10270f1c` |
+| `[300000,311600)` | 128 records of size `22c`, initialized by `102ed14c` |
+| `[311600,311d68)` | Three elements of size `278` |
+| `[311d80,3555d0)` | Four elements of size `10e14` |
+| End `355600` | Requested extent including alignment slack |
+
+The first constructor calls `102ebe2a(record+1bc,...)`, which invokes
+`10361034(record+1bc,24)` with a decimal24-byte length. At the old fault,
+`record=37221800`, so VA `372219bc` maps to PA `625219bc`. This is the first
+small record clear, not a request to clear2GiB: the helper subtracts32 then
+shifts its scratch length register left28 before the failing tail store,
+producing the later sampled `r1=80000000` from entry length24.
+
+The board backs exactly `[62221800,62621800)` through the existing
+offset-adjusted QEMU RAM helper, with one shared cell for CPU and DMA.
+Cold zero and persistence across machine reset are functional board choices,
+not recovered physical power-on contents. The guest owns allocation,
+construction and all later data. There is no PA mirror at either logical VA,
+page-table installation, replacement allocation result, broader conversion
+aperture, produced frame or completion event. Kind40 remains an independent
+lower neighbor; the upper address at `62621800` remains uncovered.
+
+The native case first fails at the original fault address on the preceding
+model. Its passing scope covers every4KiB page, exact endpoints, neighbor
+independence, reset persistence, actual HDMAC4099-byte cross-page DMA and
+logical/upper-bound HMP transaction errors. The existing real-TCG RAM fixture
+also checks four points from first byte-page to last word with CPU/bus
+visibility across reset. These fixtures establish backing, separately from
+the original continuation recorded in the receipt and startup frontier.
+
+### Processing scratch arenas
+
+The C1.70 MAS initializer VA `103a34c0` sets up two independent scratch
+allocators alongside the download arenas. Addresses and byte sizes below are
+hexadecimal; slot counts and allocation types are decimal. The object at VA
+`b1808c98` receives `b0100000` at field `10` and `af8d4000` at field `14`.
+It also initializes sixteen and four free descriptors, respectively, plus
+their separate busy arrays. `103a354e(size,type)` dispatches allocation to
+the original guest functions; QEMU does not replace that API or its results.
+
+| Allocation type / function VA | Slot size | Slots | Board PA extent, exclusive end |
+|---|---|---:|---|
+| 1 / `103a37aa` | `80000` | 16 | `[b0100000,b0900000)` |
+| 2 / `103a3718` | `4b000` | 4 | `[af8d4000,afa00000)` |
+
+Both functions assign `base + slot*unit` and record the reserved byte count,
+slot index, slot count and type in the returned descriptor. Their requested
+count is `floor(size/unit)+1`, not the usual ceiling formula. The free-slot
+arrays bound the declared storage capacities; this does not prove that the
+original contiguous-span search rejects every oversized request. Original
+allocation, locking, free lists, busy bits and errors remain guest execution.
+
+The old original write at PA `b0100000` is the first decimal200-byte clear
+in `10271abe`, with saved return `10271ae9`. The earlier kind41 initializer
+also obtains a type1 scratch descriptor through `103a354e`. These facts join
+the processing consumer to the existing source-declared pool; neither the
+small clear length nor the fault address defines a one-off RAM window.
+
+The functional board supplies exactly both ranges through ordinary shared
+QEMU RAM. Cold zero and persistence across reset are explicit assumptions.
+The type1 upper neighbor is the separately owned selector-one download arena;
+type2 ends at the independent kind20 capture pool. Distinct MemoryRegions
+preserve both ownership boundaries. The lower addresses remain uncovered;
+there is no expansion of the enclosing address class, host allocator, object
+injection, frame generation or completion event. The historical `b0800000`
+hole now has a source-derived owner inside type1; the download arena itself
+has not expanded.
+
+The [scratch receipt](/evidence/imagerequest/arenas.json) records native
+red→green and72 passing memory/sensor cases. Fixtures check all20 slot
+boundaries with independent values, both adjacent owners, actual4099-byte
+HDMAC transfers crossing pages, reset persistence and real HMP errors below
+each range. The existing real-TCG case covers both pools, including the former
+hole and final words, to check CPU/bus backing visibility. These are memory
+fixtures, not validation of all guest allocation requests or image processing.
 
 ### Resource57 record0, record1 and record7 GUI slots
 
@@ -176,7 +325,7 @@ The GDB command completed with exit0 in **0.380554292 s** of host wall time.
 QEMU exited0 through QMP `quit`; direct comparison of the complete container
 against its pre-run APFS clone passed. This host duration is not a guest clock
 or performance measurement. Ignored receipts and original logs are
-`work/gui/original/{receipt.json,qemu.log,gdb.log,observer.gdb}`. The first host
+`run gui/original/{receipt.json,qemu.log,gdb.log,observer.gdb}`. The first host
 launch rejected an overlong UNIX QMP socket path before guest initialization;
 the actual run used the local TCP QMP endpoint. No GUI or whole-boot success is
 claimed.
@@ -207,7 +356,7 @@ this coordinator. The full entry body and its later initialization calls are
 captured together so the next dependency is the complete worker/producer
 protocol, rather than another guessed memory range or a forced event bit.
 
-Ignored evidence is `work/gui/namespace/{receipt.json,gdb.log,events.bin,
+Ignored evidence is `{receipt.json,gdb.log,events.bin
 tasks.bin,stacks.log,producer.log,trace.json,waits.json}`. Complete GDB capture,
 the additional stack capture and native mapped-byte disassembly all exit0;
 QEMU exits0 and the input remains directly equal to the pre-run clone. The

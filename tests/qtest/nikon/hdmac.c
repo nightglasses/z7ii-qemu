@@ -220,11 +220,10 @@ static void test_requests(void)
         qtest_set_irq_in(q, device, NULL, selector, 1);
         qtest_clock_step_next(q);
         qtest_set_irq_in(q, device, NULL, selector, 0);
-        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
+        /* A continuously available real request accepts both beats. */
+        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 8);
         qtest_clock_step(q, 100000);
-        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
-        qtest_set_irq_in(q, device, NULL, selector, 1);
-        qtest_clock_step_next(q);
+        g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 8);
         result(q, 5);
         qtest_set_irq_in(q, device, NULL, selector, 0);
     }
@@ -255,6 +254,54 @@ static void test_requests(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_reload_requests(void)
+{
+    g_autofree char *path = NULL;
+    int fd = backing(&path);
+    QTestState *q = start(path, false);
+    g_autofree char *device = controller(q);
+    uint32_t cb = CB | 0xe00000;
+    uint8_t actual[8], expected[] = { 0x78, 0x56, 0x34, 0x12,
+                                     0xef, 0xcd, 0xab, 0x90 };
+
+    request(q, SOURCE, DESTINATION, cb, 0x85000001);
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb);
+    qtest_set_irq_in(q, device, NULL, 5, 1);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x1c), ==, DESTINATION);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x10), ==, 0x05000001);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb | 0x50000);
+    g_assert_true(qtest_get_irq(q, 150 - 32));
+    g_assert_cmpint(pread(fd, actual, sizeof(actual), DESTINATION), ==,
+                    sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
+    /* A still-high request cannot re-enable a normally completed channel. */
+    qtest_writel(q, HDMAC + 0x14, cb);
+    qtest_clock_step(q, 100000);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE);
+    g_assert_false(qtest_get_irq(q, 150 - 32));
+
+    /* First beat succeeds; second genuinely fails in the private root.
+     * Errors retain accepted progress and never restore the initial address. */
+    qtest_set_irq_in(q, device, NULL, 5, 0);
+    request(q, SOURCE, BACKEND_SIZE - 4, cb, 0xa0000001);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb | 0x40000);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, SOURCE + 4);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x1c), ==, BACKEND_SIZE);
+    g_assert_false(qtest_readl(q, HDMAC + 0x10) & 0x80000000);
+    request(q, BACKEND_SIZE - 4, DESTINATION, cb, 0xa0000001);
+    qtest_clock_step_next(q);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x14), ==, cb | 0x30000);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x18), ==, BACKEND_SIZE);
+    g_assert_cmphex(qtest_readl(q, HDMAC + 0x1c), ==, DESTINATION + 4);
+    qtest_quit(q);
+    close(fd);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 int main(int argc, char **argv)
 {
     const uint8_t idle[] = { 0xfe, 0xff, 0xff, 0xea };
@@ -269,6 +316,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/hdmac/readonly", test_readonly);
     qtest_add_func("/nikon/hdmac/fifo", test_fifo);
     qtest_add_func("/nikon/hdmac/requests", test_requests);
+    qtest_add_func("/nikon/hdmac/reload", test_reload_requests);
     status = g_test_run();
     unlink(image);
     g_free(image);

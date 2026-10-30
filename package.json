@@ -1,0 +1,19 @@
+{
+  "name": "nightglass-handbook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nikon Z7II C1.70 Firmware Emulation Handbook on QEMU",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs --force",
+    "docs:build": "node --test docs/.vitepress/checks.test.mjs && vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.44"
+  },
+  "dependencies": {
+    "pele": "^1.8.0"
+  }
+}

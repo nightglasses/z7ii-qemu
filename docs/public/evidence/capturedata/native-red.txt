@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: capturedata-20261024
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/memory/capture-pools - ERROR:../../config/source/tests/qtest/nikon/memory.c:591:test_capture_pools: assertion failed (qtest_readl(t.qts, 0x04251030) == 8): (0x00000001 == 0x00000008) FAIL
+▶ 1/1                                         ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           1.41s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/memory.c:591:test_capture_pools: assertion failed (qtest_readl(t.qts, 0x04251030) == 8): (0x00000001 == 0x00000008)
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           1.41s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

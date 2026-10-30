@@ -1,0 +1,55 @@
+{
+  "scope": "Ordered finite solid vector batches: native validation and unchanged firmware execution are separate",
+  "source_revision": "2a39c62a; integrated with fixed-lens operating/mode repair cabb6601",
+  "model": {
+    "commands": "Ordered SRC rectangles and SRC_OVER fills/strokes, full and inherited state, relative M/L/H/V/QUAD pairs; unknown cubic/arc reject",
+    "execution": "Private copy of actual destination, complete revalidation including late indirect reads, then one commit; no guest event/status/framebuffer patches",
+    "assumptions": "Cairo coverage, stored-channel straight RGBA mixing; not physical GPU precision"
+  },
+  "native": {
+    "command": "make check MTESTARGS=nikon_transfer_unit",
+    "subtests": 28,
+    "seconds": 2.45,
+    "mixed_variants": 19,
+    "red": "Old model rejects first valid mixed batch; old path decoder rejects relative family",
+    "coverage": "Full output and guard pixels, literal anchors, exact captured 744/920-byte family, independent stroke matrix, alpha0/partial/opaque, inheritance, key wrap, size-classification collisions, command immutability, aliases, late path error, mapping loss, reset and unrealize",
+    "development": "One signed-extension literal assertion failed after full image comparison passed; corrected uint32_t fixture casts, no product pixel change",
+    "review": "Independent read-only review found no blocking issue; pinned checkpatch zero errors and warnings"
+  },
+  "original": {
+    "profile": "Unchanged decoded C1.70 bundle; cold-neutral/region inputs, fixed 50mm F2.8 virtual lens, selected paired tuple, 2x2 grayscale scene, blank8GiB card slot0, paced healthy battery UART RNG0, heldF4/EXC5, five CPU MTTCG",
+    "window_host_seconds": 60,
+    "debugger": "No in-window GDB; sequential read-only observations after window are not an atomic snapshot",
+    "qmp_15_30_45_60_seconds": [
+      "running",
+      "running",
+      "debug",
+      "debug"
+    ],
+    "paired_15_30_45_60_seconds": [
+      0,
+      36,
+      76,
+      76
+    ],
+    "paired_bytes": 202263360,
+    "paired_rejected": 1,
+    "paired_cancelled": 0,
+    "lens_completed": 843,
+    "lens_rejected": 0,
+    "configuration_generation": 1,
+    "head0": "unbound",
+    "head1": "1024x682 original status GUI; no lens-extension warning; black scene background",
+    "capture_family": "0x800 LvMovie, not 0x400 LvMovieRec",
+    "gui_readiness": 0,
+    "panic_length": 0,
+    "next_stop": "CPU1 MAS VA1036a4a2 WRITE32 PA20380010=1 rejects bank-relative598=17c717c7 against selected1a6a1a6a",
+    "omissions": "Not 60 seconds continued execution, normal liveview, photo mode/capture, movie recording, physical lens/GPU fidelity or3D bridge"
+  },
+  "diagnostic_capture_selection": {
+    "scope": "Separate original hardware-breakpoint diagnostic; no firmware or guest state writes",
+    "producer": "MAS VA102324cc configuration at B3C78040: byte0=0,byte24=1,byte263=0,byte11879=0; argument2=0",
+    "result": "This secondary selection takes LvMovie; property5772 and B23D6748 cache are1",
+    "unresolved": "Actual external photo/movie selector and possible EX merged switch report source, not equivalent to lens50 selector or app main_mode"
+  }
+}

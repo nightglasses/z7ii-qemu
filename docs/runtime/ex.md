@@ -21,6 +21,12 @@ domain CPU count. The existing source-qualified SLA bridge and memory links
 remain independent from EX. VR and TPJ are retained bundle components; their
 execution is not implied by this composition.
 
+The [battery comparison](battery.md) reproduces the EX system
+handshake, client-4 report and BatCk publication with this multi-thread baseline.
+Single-thread/`icount` probes instead fail a timed EX SPI/ACK condition before
+the first system completion; their missing battery update is scoped to that
+execution profile and must not replace the composed-runtime baseline.
+
 The source EX TxA task uses MAS SSI0 to clock EX SPI1's slave RX endpoint. RxA
 uses SSI1 to clock EX SPI4's slave TX endpoint. Both source MAS resource records
 contain the no-DMA sentinel `158`; these channels remain FIFO/IRQ driven. The
@@ -209,10 +215,19 @@ keeps running (`0x10243468` is hit repeatedly), so the lane is not dead at the
 transport; the EX simply has no further records to dispatch.
 
 The next producer to identify is therefore the MAS-side builder of the type
-`0x12` record; its absence is what keeps the EX power-record path, the MAS
-power classification and LCD start at zero hits. This is separate from the TL4
-coprocessor boundary, which the guest reaches and leaves through its own
-timeout branch.
+`0x12` record. This is separate from the TL4 coprocessor boundary, which the
+guest reaches and leaves through its own timeout branch.
+
+**Correction: type `0x12` is not a demonstrated boot requirement.** The
+dispatcher table at `0x0804e15c` does map `0x12` to the handler `0x08033328`,
+but that handler only stores one payload byte into `0x200138da` and updates a
+period (`sub_80214fe(0x2000f..., 16)`, `sub_8020670(8, 17)`). A cross-reference
+pass over the EX image shows `0x200138da` has **one writer (that handler) and no
+readers at all**, so the delivered byte is consumed by nothing. The earlier
+sentence in this section that tied the missing `0x12` to the MAS power
+classification and LCD start was an inference from the lane narrative, not a
+code-supported dependency; it is withdrawn. The `0x12` producer is therefore a
+dead data feed in this image, not the gate on the first GUI frame.
 
 ### Power dispatch and transport are running
 
@@ -265,7 +280,7 @@ teardown path, so reaching it is phase completion rather than GUI progress.
   relocates the vector table; a boot loader produces the descriptor image at
   `0x2000d000` from the scatter table at `0x080038cc`. The loader and its two
   decoders run at cold boot and on every MCU reset
-  ([`exboot.c`](../../hw/nikon/components/exboot.c)).
+  (`hw/nikon/components/exboot.c`).
 - The earlier reset loop also included status `14`: the board profile drove
   the seven declared power-good wires (`PA10`, `PB1`, `PB15`, `PB11`, `PB12`,
   `PF3`, `PG2`) low, and the firmware treats all of them low as a rail fault.
@@ -414,16 +429,59 @@ The id-130 object is created but not started, so the next check is which
 object each of those six start calls covers and whether the id-130 object is
 skipped by a condition inside the power module.
 
-### `0x08020AB0` is not the cyclic start path
+### `0x08020AB0` is the cyclic start path (earlier withdrawal was wrong)
 
-Resolving the literals at the six call sites shows they pass only two
-targets: `0x20013924` (five calls) and `0x200139A0` (one). Neither is a
-cyclic object: the created objects live at `0x20022738` (id 114) and
-`0x200229A8` (id 130). So `0x08020AB0` operates on the power/event blocks,
-not on cyclic handlers, and the earlier guess that it is the start API is
-withdrawn.
+The six call sites pass `0x20013924` (five) and `0x200139A0` (one). Those are
+not the objects but 20-byte RAM descriptors: `0x08020A5A` builds a create
+record, calls the create API `0x0804BF38`, and writes the allocated object
+index back into the descriptor's first halfword. `0x08020AB0` reads `*a1`
+(that index) and finishes with `BL 0x0804D388`, the start writer that sets the
+object's state bit and arms its timer. So `0x08020AB0` is the stop/configure/
+start wrapper, and the earlier "not the cyclic start path" withdrawal is
+reversed.
 
-The cyclic start/link call for the RTOS objects is still unidentified.
+Two more facts complete the chain:
+
+- the battery monitors have their own wrapper,
+  `0x08029264(idx) -> 0x08020AB0(0x2001FC2C + 20*idx, handler)`. The 16
+  descriptors come from the ROM record table at `0x08051444` (`BatCmCy1..G`;
+  the catalogue is in the EX config document), and all 36 call sites carry a
+  literal index.
+- the literal index set is `{0,1,3,4,6,7,8,9,10,11,12,13,14,15}`.
+  **Index 2 (`BatCmCy3`, id 130) appears in no start site; the only code that
+  can select it is `0x08027D48`.**
+
+### Why the id-130 timer never starts
+
+Host id `131`, when `0x2001F5B6` is `9` or `10`, clears `0x2001F5BD` and calls
+`0x08027D48`, the monitor selector:
+
+```text
+if (battery_state[0] == 1) { start(1); v = 2; }   /* BatCmCy2 + BatCmCy3 */
+else                       {           v = 0; }   /* BatCmCy1 */
+start(v); start(4); start(3);
+```
+
+So `battery_state[0]` (`0x2001FBA6`) is the single boolean that decides whether
+the id-130 publisher timer exists at all. In this image **nothing ever sets it
+to 1**:
+
+- static: the only direct store to byte `0x2001FBA6` is the battery-state reset
+  `0x08027174`, which writes `0`. Every other reference loads the block base
+  and touches `+1`, `+0x12`, `+0x14`, `+0x29`, `+0x2C`, `+0x33`, `+0x34`.
+- runtime: a write watchpoint on `0x2001FBA6` over 120 s records one write,
+  the boot clear to `0`, and `0x08027D48` is entered once with
+  `battery_state[0]=0` and `0x2001F5B6=0x0a`.
+
+Consequently the selector always starts descriptor 0 (BatCmCy1), 4 and 3. That
+matches the lane: ids `113`, `114` and `115` are published (113 as `1113`,
+114/115 as `1114`/`1115`), while `130`/`135` never are, and the dispatcher only
+takes inbound ids `101`, `102`, `103`, `104` and `131`.
+
+The remaining question is closed: **the id-130 publisher is unreachable in this
+EX image because its start is gated on a battery-variant byte that the firmware
+never sets.** It is not a missing MAS producer, not an unmodelled input, not a
+device contract and not a configuration value.
 
 ### The RTOS start writer leaves the id-130 object untouched
 

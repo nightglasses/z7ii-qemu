@@ -1,0 +1,45 @@
+{
+  "scope": "Source-owned kind41 storage, original record construction and continuation to independent processing scratch; not complete GUI startup",
+  "dependency_baseline": "da7f76a6",
+  "source_facts": {
+    "component": "C1.70 MAS; source/helper addresses VA, storage board PA; address/layout fields hexadecimal, kind/record counts decimal",
+    "owner": "102712e6 lazily calls1026fbb0, which requests1030d96e(0,41,0x355600) and retains object at VAb186ac88",
+    "ROM": "11982938[41] selects11983488: {8,400000,400000,0,62221800,700}, five mode overrides NULL",
+    "allocation_observation": "Original holder returns objectb2c8766c; its buffer record has PA62221800 and capacity400000",
+    "translation": "103c5a7a returns VA36f21800 through record15 formula34600000+PA-5f900000; original PTE62214426 maps base and62514426 maps faultVA372219bc",
+    "layout": "Workspace[0,300000),128 records of22c in[300000,311600),3 elements of278 at311600,4 elements of10e14 at311d80; all end before requested355600",
+    "clear": "102ed14c(record) calls102ebe2a(record+1bc,...); latter10361034 clears24 decimal bytes. First record37221800 gives VA372219bc/PA625219bc",
+    "scratch_register": "Entry length24 subtracts32 then shifts left28, yielding later r1=80000000; no2GiB request"
+  },
+  "model": {
+    "range": "[62221800,62621800), exactly one source-declared400000-byte unit",
+    "backing": "Existing offset-adjusted QEMU RAM helper, shared CPU/DMA cells; cold-zero/persistence across reset functional assumptions",
+    "limits": "No logical-address physical mirror, allocation replacement, page-table/firmware edit, broad conversion-class mapping, pixel production or completion injection; independent kind40 below, unmapped upper neighbor"
+  },
+  "native": {
+    "red": "Preceding model reads0 after write41290000 to the original fault address625219bc",
+    "green": {"memory_cases":34,"sensor_cases":37,"failures":0},
+    "coverage": "Every4KiB page and exact endpoints, independent kind40 tail, reset persistence, actual4099-byte HDMAC cross-page transfer, logical/upper HMP errors; existing real-TCG fixture adds base/interior/fault/end points and CPU/bus visibility over reset"
+  },
+  "original_execution": {
+    "profile": "Unchanged firmware, same bounded resource35 descriptor17 and cold-neutral resource80, quadrant PGM, healthy paced UART/RNG0/acceleration0,0,1024/heldF4/five-CPU MTTCG",
+    "host_seconds":60,
+    "in_window_GDB_pause":false,
+    "main_completed":128,
+    "main_rejected":0,
+    "main_cancelled":1,
+    "statistics_completed":413,
+    "statistics_rejected":0,
+    "statistics_cancelled":0,
+    "error_count":0,
+    "crossed":"Original kind41 record clear at PA625219bc",
+    "uncovered":"CPU1 PC10361044 WRITE32 PAb0100000=0; saved stack return10271ae9 joins10271abe clear of200 decimal bytes",
+    "QMP_status":"debug/stopped",
+    "display":"Neither head bound to a console",
+    "GUI_readiness":0,
+    "information_record":"zero",
+    "battery_peer_rejections":[]
+  },
+  "measurement_limit":"Sequential QMP counts and later read-only GDB state are not atomic or physical rates. A new memory stop with empty errors is not normal GUI startup. Scratch allocation beyond kind41 is a separate owner contract.",
+  "omissions":"Original firmware, full source/debugger/trace records and generated files remain ignored; only curated contracts and verdicts are published."
+}

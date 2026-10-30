@@ -13,15 +13,21 @@
  *   0x04 status:  bit0 data ready, bits 5/6 write-zero-to-clear error flags
  *   0x08 data:    32 random bits, reading clears data ready
  *
- * Randomness comes from the host generator; no sequence is invented and no
- * value is reused.  Any other offset or width is an explicit error, so an
+ * The default input is a fresh draw from the host generator. The optional
+ * -global nikon-ex-rng-functional.input-word=0x12345678 selects a fixed input
+ * word for reproducible runs. All 32-bit values, including zero, are valid;
+ * this fixed-word profile is not entropy and keeps the ready protocol intact.
+ * Any other offset or width is an explicit error, so an
  * unmodelled access still stops the guest.  The block is a functional
  * register-level model, not a claim about the vendor silicon.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
+#include "qemu/cutils.h"
+#include "qapi/error.h"
 #include "migration/vmstate.h"
+#include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "hw/nikon/devices.h"
 
@@ -39,6 +45,8 @@ struct NikonEXRngState {
     MemoryRegion regs;
     uint32_t control;
     uint32_t status;
+    char *input_word;
+    uint32_t fixed_word;
     bool reported_error;
 };
 
@@ -79,7 +87,7 @@ static MemTxResult nikon_exrng_read(void *opaque, hwaddr offset, uint64_t *value
              * the ready bit stays clear; no synthetic value is produced. */
             return MEMTX_OK;
         }
-        random = g_random_int();
+        random = s->input_word ? s->fixed_word : g_random_int();
         *value = random;
         s->status &= ~EX_RNG_SR_DRDY;
         return MEMTX_OK;
@@ -146,6 +154,25 @@ static void nikon_exrng_init(Object *obj)
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
 }
 
+static void nikon_exrng_realize(DeviceState *dev, Error **errp)
+{
+    NikonEXRngState *s = NIKON_EX_RNG(dev);
+    uint64_t value;
+
+    if (s->input_word) {
+        if (parse_uint(s->input_word, NULL, 0, &value) || value > UINT32_MAX) {
+            error_setg(errp,
+                       "EX RNG input-word must be an unsigned 32-bit integer");
+            return;
+        }
+        s->fixed_word = value;
+    }
+}
+
+static const Property nikon_exrng_properties[] = {
+    DEFINE_PROP_STRING("input-word", NikonEXRngState, input_word),
+};
+
 static const VMStateDescription nikon_exrng_vmstate = {
     .name = "nikon-ex-rng",
     .unmigratable = true,
@@ -155,6 +182,8 @@ static void nikon_exrng_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
+    dc->realize = nikon_exrng_realize;
+    device_class_set_props(dc, nikon_exrng_properties);
     dc->vmsd = &nikon_exrng_vmstate;
     dc->user_creatable = false;
     device_class_set_legacy_reset(dc, nikon_exrng_reset);

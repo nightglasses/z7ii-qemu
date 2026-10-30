@@ -1,0 +1,106 @@
+{
+  "scope": "Finite independent main acquisition, mode1 output selection, native regressions and unchanged C1.70 execution; not GUI boot or physical-camera evidence",
+  "source_baseline": "ccc72224",
+  "inputs": {
+    "module": "unchanged cold-neutral resource80",
+    "scene": "explicit PGM quadrants [32,192,64,224]",
+    "battery": "healthy paced UART; RNG0; acceleration0/0/1024",
+    "key": "held F4",
+    "CPUs": "five, MTTCG"
+  },
+  "source_facts": {
+    "main": "MAS VA1023abaa ->1023aafe ->1020c444; independent callback/configuration, commit1 and physical main-input enable",
+    "geometry": "MAS VA1023a9d2 ->1020c3ec/c3fa; commit4; input/output extent fields at board PA20069d00/04 and20069e78/7c, control20069f00",
+    "first_read": "run/enable0x1d, reset0; main bit0 and frontend bits2/3 remain effective while auxiliary bit1 stops; input8288x58 and output2072x58",
+    "mask": "PA20068200=0x10000020 masks raw0.bit0/bit6;1023abaa changes bit6 for mode1; source consumer uses endpoint1 ring completion",
+    "partial_outputs": "Mode1 sets packed extents for endpoints0/8/9 to0 while retaining endpoint routes; endpoint1 requests30x12",
+    "large_pool": "1030ad70 chooses kind18 for count<=6, kind32 otherwise; unit0x12000, total unit*count; final kind32 base VA b26b4bd0=0x5df45400 matches endpoint1/root descriptor"
+  },
+  "functional_hypotheses": {
+    "pixels": "Existing provider produces normalized LE16 gray at committed frontend output dimensions; identity correction only, zero origin, non-expansion, max4096 per dimension and4M samples; not raw Bayer fidelity",
+    "timing": "Fresh existing automatic TG admits work; existing CMOS1ns exposure and1ns per at-most4096-byte row-bounded chunk; no physical timing claim",
+    "arbitration": "One CMOS engine; accepted auxiliary request waits for active main frame, then has priority on next fresh TG; no accumulated early/busy/repeated-high credits",
+    "publication": "Only token-qualified actual CMOS DONE delivers immutable input and raw0.bit0; downstream work still requires real configured output DMA",
+    "backpressure": "Only enabled pending raw6 requires per-frame ACK; masked raw status coalesces and cannot block mode1 ring progress",
+    "partial_outputs": "Packed extent0 disables an output; partial-zero dimensions reject; at least one real output DMA required; no ring event from disabled endpoint1"
+  },
+  "ownership": {
+    "main_cancel": "Changed selected main/geometry commit or any effective run1/4/8 falling cancels main only; staging/equal commits preserve work",
+    "auxiliary_cancel": "Pending/active auxiliary cancellation or failed snapshot cannot invalidate a delivered main input",
+    "generations": "Single monotonic input namespace; job-owned copies; no token collision between auxiliary and main deliveries",
+    "reset": "Clears ownership/configuration validity/input data; retains external TG level, so repeated high is not fresh input",
+    "guest": "Firmware bytes, guest counters, queues, callbacks, task state and flags unchanged"
+  },
+  "native": {
+    "red": [
+      "Main-only run0x1d: expected CMOS frame-count1, actual0",
+      "Masked main stream: expected next real statistics completion, actual previous count",
+      "Cancelling submitted auxiliary DMA: expected statistics consumption of delivered main frame, actual completed0",
+      "Mode1 disabled output extents: expected completed1, actual0"
+    ],
+    "green": {
+      "CMOS_cases": 32,
+      "sensor_cases": 33,
+      "memory_cases": 32,
+      "coverage": "Actual scene/scalar/output bytes; no auxiliary request/raw guest RAM destination for main acquisition; shared-engine arbitration; cancellation in both directions; masked ring completion; disabled/partial/all-disabled outputs; equal/changed commits and staging; all three run gates; reset/fresh edges; missing provider and unsupported correction/geometry"
+    },
+    "intermediate_timeout": "One full CMOS invocation exceeded its unchanged60s host limit; isolated processing/lifecycle and subsequent full97-case batch passed. Cause not established; no timeout increase. Latest extra all-disabled assertion passes the32-case CMOS batch."
+  },
+  "original_windows": {
+    "baseline": {
+      "model": "source_baseline without independent main producer; earlier120s receipt",
+      "input_DMA_completed": 380,
+      "statistics_completed": 379,
+      "main_producer": "absent",
+      "first_read_pending": true
+    },
+    "continuous": {
+      "model": "main acquisition and mask-qualified flow, before partial-output correction",
+      "host_seconds": 60,
+      "in_window_GDB_pause": false,
+      "auxiliary_DMA_completed": 381,
+      "main_completed": 1325,
+      "main_rejected": 0,
+      "main_cancelled": 0,
+      "statistics_completed": 380,
+      "statistics_rejected": 1324,
+      "stop": "zero packed extents rejected by preceding complete-output model",
+      "display_console": false
+    },
+    "boundary": {
+      "model": "final finite main and partial-output profile",
+      "host_seconds": 45,
+      "in_window_GDB_pause": false,
+      "final_GDB_snapshot": "read-only, after QMP observation window",
+      "QEMU_running": true,
+      "provider_bound": true,
+      "fixture_provider": false,
+      "auxiliary_requests": 291,
+      "auxiliary_DMA_completed": 290,
+      "auxiliary_rejected": 0,
+      "main_completed": 985,
+      "main_rejected": 0,
+      "main_cancelled": 0,
+      "statistics_completed": 290,
+      "statistics_rejected": 984,
+      "statistics_cancelled": 0,
+      "statistics_blocked": 0,
+      "diagnostic": "nikon statistics output PA=0x5df45400 bytes=0x300 region=z7ii.uncovered is not writable RAM",
+      "final": {
+        "CaptureService_state": 4,
+        "run_enable": ["0x1d", "0x1d"],
+        "reset": 0,
+        "requested_active_software_masks": ["0xb", "0xb"],
+        "raw0": 1,
+        "other_raw_words": 0,
+        "GUI_readiness": 0,
+        "information_record": "still zero",
+        "display_console": false
+      },
+      "battery_peer_rejections": []
+    }
+  },
+  "measurement_limit": "Sequential QMP and later debugger/log samples are not atomic counts or physical rates. Diagnostic counts can grow after QMP queries before final snapshot. No first-read completion, FECLCTRK admission or long-term stability claim.",
+  "remaining_boundary": "Kind32 complete output backing/allocation/address conversion for first-read endpoint1. No broad DDR mapping, forced completion or fabricated zero results added.",
+  "omissions": "Raw firmware/disassembly, full debugger memory, traces and host paths remain ignored; public record includes curated field meanings, claims and verdicts only."
+}

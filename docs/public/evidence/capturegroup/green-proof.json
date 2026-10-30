@@ -1,0 +1,184 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "calls": [
+    {
+      "pc": "102d7254",
+      "r": [
+        "00000000",
+        "00000015",
+        "00000150",
+        "00000000"
+      ],
+      "lr": "102d7255"
+    },
+    {
+      "pc": "1023abaa",
+      "r": [
+        "00000001",
+        "00000000",
+        "b51ddfb0",
+        "b26b38b4"
+      ],
+      "lr": "1022fcf1"
+    },
+    {
+      "pc": "1020aafc",
+      "r": [
+        "b1806814",
+        "00000001",
+        "60000013",
+        "00000000"
+      ],
+      "lr": "1023aba5"
+    },
+    {
+      "pc": "1023abaa",
+      "r": [
+        "000002ea",
+        "00000000",
+        "b25f2368",
+        "b26b38b4"
+      ],
+      "lr": "102320fd"
+    },
+    {
+      "pc": "1020aafc",
+      "r": [
+        "b1806814",
+        "00000008",
+        "00000010",
+        "00000028"
+      ],
+      "lr": "1023ac43"
+    },
+    {
+      "pc": "1020aafc",
+      "r": [
+        "b1806814",
+        "00000004",
+        "00000010",
+        "00000028"
+      ],
+      "lr": "1023ac49"
+    },
+    {
+      "pc": "1020aafc",
+      "r": [
+        "b1806814",
+        "00000010",
+        "00000180",
+        "2006a038"
+      ],
+      "lr": "1023c9fb"
+    },
+    {
+      "pc": "1020aafc",
+      "r": [
+        "b1806814",
+        "00000080",
+        "2006a000",
+        "00000007"
+      ],
+      "lr": "1023c94b"
+    },
+    {
+      "pc": "10239e36",
+      "r": [
+        "b1887ef8",
+        "00000000",
+        "60000013",
+        "00000000"
+      ],
+      "lr": "1023aced"
+    },
+    {
+      "pc": "10208e96",
+      "r": [
+        "b1806790",
+        "b26b4774",
+        "60000013",
+        "00000000"
+      ],
+      "lr": "10239e47"
+    },
+    {
+      "pc": "10239dc6",
+      "r": [
+        "b1887ef8",
+        "00000001",
+        "b26b47fc",
+        "5d4b5080"
+      ],
+      "lr": "1023acf5"
+    },
+    {
+      "pc": "1020c17a",
+      "r": [
+        "b51dfd28",
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "lr": "10239ddf"
+    },
+    {
+      "pc": "10208e0a",
+      "r": [
+        "b1806790",
+        "b51dfd28",
+        "00000000",
+        "00000000"
+      ],
+      "lr": "10239ddf"
+    },
+    {
+      "pc": "10208e14",
+      "r": [
+        "2006bb70",
+        "b51dfd28",
+        "00000000",
+        "00000000"
+      ],
+      "lr": "10239ddf"
+    }
+  ],
+  "count": 1,
+  "identity": 0,
+  "property_empty": true,
+  "first_error": [
+    "qemu-system-arm: nikon: uncovered access cpu=0 pc=0x10208e14 address=0x2006bb70 direction=read width=4 value=0x0 transaction=error reason=capture-group-configuration-not-supported"
+  ],
+  "copy_ranges": [
+    {
+      "offset": "0x0",
+      "size": "0xbe000",
+      "equal": true
+    },
+    {
+      "offset": "0xbe000",
+      "size": "0x6000",
+      "equal": true
+    },
+    {
+      "offset": "0xc4000",
+      "size": "0x99c0",
+      "equal": true
+    },
+    {
+      "offset": "0xcd9c0",
+      "size": "0x1f60",
+      "equal": true
+    },
+    {
+      "offset": "0xcf920",
+      "size": "0x9d950",
+      "equal": true
+    },
+    {
+      "offset": "0x16dffc",
+      "size": "0x4",
+      "equal": true
+    }
+  ],
+  "unit20_run_entries": []
+}

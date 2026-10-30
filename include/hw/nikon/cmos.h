@@ -10,6 +10,7 @@
 #define HW_NIKON_CMOS_H
 
 #include "hw/core/qdev.h"
+#include "hw/nikon/raw.h"
 
 #define TYPE_NIKON_CMOS "nikon-cmos-functional"
 #define NIKON_CMOS_REGS 0x1000
@@ -49,20 +50,34 @@ typedef struct NikonCmosSubmission {
     uint64_t readout_ns;
 } NikonCmosSubmission;
 
-/* The direct producer contract uses the diagnostic aperture's validation,
- * DMA, timing, cancellation, and completion state machine. */
-bool nikon_cmos_submit(DeviceState *dev, const NikonCmosSubmission *submission,
-                       Error **errp);
+/* Submission returns its nonzero provider generation, or zero on failure.
+ * DONE is qualified against that token and the actual completed DMA phase.
+ */
+uint64_t nikon_cmos_submit(DeviceState *dev,
+                           const NikonCmosSubmission *submission, Error **errp);
+bool nikon_cmos_completed(DeviceState *dev, uint64_t generation);
+/* Encoding of the token-qualified completed frame; no pixels bypass its DMA. */
+NikonRawEncoding nikon_cmos_encoding(DeviceState *dev);
+
+/* Explicit internal LE16 stream, without a guest RAM destination. It uses the
+ * same provider, chunk timer and generation ownership as DMA submissions.
+ * Dimensions and CFA encoding describe the finite virtual frontend output.
+ */
+uint64_t nikon_cmos_acquire(DeviceState *dev, uint32_t width, uint32_t height,
+                            Error **errp);
+bool nikon_cmos_copy_frame(DeviceState *dev, uint64_t generation,
+                           uint8_t *data, size_t size);
 
 /* Cancellation is a guest command; no physical sensor pin or IRQ number is
  * assigned here.  A machine may wire the single SysBus IRQ if a source-bound
  * consumer is recovered later. */
 void nikon_cmos_cancel(DeviceState *dev);
 
-/* The diagnostic CMOS transport is inert until a source provider is bound.
- * `image` accepts an explicit binary PGM/PPM input; the guest still supplies
- * geometry, Bayer order, packing, timing and destination buffers. The fixture
- * qtests opt in to the deterministic byte source through `fixture-provider`.
+/* An image path or explicit fixture provider binds the transport; malformed
+ * image inputs still reject before DMA. PGM/PPM scenes are sampled in the
+ * configured sensor coordinate system. C170 transports mono PGM or virtual
+ * RGGB PPM as LE16, without a physical CFA/packing claim. Other formats stay opaque.
+ * Fixture qtests opt in to deterministic bytes through `fixture-provider`.
  */
 bool nikon_cmos_provider_bound(DeviceState *dev);
 

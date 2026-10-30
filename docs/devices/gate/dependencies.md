@@ -1,7 +1,7 @@
 # Startup IRQ and event dependencies
 
-Issue [398](https://github.com/mashiro01/nightglass/issues/398), parent
-[326](https://github.com/mashiro01/nightglass/issues/326). This inventory reads
+This historical inventory relates saved device IRQ and event contracts to
+[unchanged-firmware startup](/startup/first). It reads
 the eight device sources at QEMU `193ee98138c85c2b2848836952228078a64e4f20`
 and their saved firmware contracts. It describes every operation family in
 those contracts, rather than counting refusal branches as missing devices.
@@ -10,12 +10,20 @@ are relative to the diagnostic machine mappings, whose physical placement is
 a model assumption. No new firmware extraction, native query or execution
 was performed for this inventory.
 
-## Saved consumers and current behavior
+The later [type0 ownership contract](slots.md) supersedes this historical
+inventory's unbounded2040-query boundary: sixteen packet/submit/busy slots are
+implemented. The subsequent [continuous processing contract](processing.md)
+adds one bounded output-DMA path and its separately qualified terminal causes.
+The operation inventory and measurements below retain their earlier source
+scope; their unresolved processing entries are historical checkpoints, not
+the current continuous profile's capability list.
+
+## Saved consumers and historical behavior
 
 | Device / saved consumer family | Implemented operation families | Source-bound work still required |
 |---|---|---|
 | `access` / all eight devices | Shared first-stop report includes the actual CPU, PC, direction, width, value and mapped address; unsupported transactions return `MEMTX_ERROR` and stop the virtual machine. Debugger-only accesses do not substitute for a firmware observation. | This is the device error boundary, with no independent firmware register family or event producer. The router's fixed-base diagnostic is corrected to its mapped region address. |
-| `router` / `102dc5ac..102dcc9a`, 1,728B/696 continuous candidate instructions, 13 saved function metadata bodies; registrar `102dcc20` separately has 13BB/100B/37 instructions | Two selector/configuration groups, all six lane word/byte fields, packet tail words, whole-word OR/BIC masks, A4 retained low-five-bit RMW, three raw/W1C domains, IRQ86/87/88 and explicit external pending inputs. The guest owns the eleven callback slots and service/clock state. | Requests `28/2c/30` and compound `102dcb4e` activation need the real request/input/result protocol. No producer of raw38/44/50 is bound. IRQ89..93, lane index bounds, data addresses and completion timing are unproved. Mask40/4c filtering remains a declared virtual convention. |
+| `router` / `102dc5ac..102dcc9a`, 1,728B/696 continuous candidate instructions, 13 saved function metadata bodies; registrar `102dcc20` separately has 13BB/100B/37 instructions | Five paired set/clear groups, all six lane word/byte fields, packet tail words, whole-word OR/BIC masks, A4 retained low-five-bit RMW, three raw/W1C domains and IRQ86/87/88. The [finite timing profile](../router/timing.md) adds28/2c/30 resync/fences and a virtual MAS input under explicit hypotheses. Guest callbacks and flags remain guest-owned. | The virtual cadence/phase and30 ACK identity remain assumptions;2c/30 have native coverage only before the current original stop. Physical sensor data, compound A4 data effects, IRQ89..93 and lane index bounds remain unproved. Mask40/4c filtering remains a declared virtual convention. |
 | `dispatcher` / `1047ee48..10480b1a`, 46 saved metadata ranges and 5,148B/2,074 candidate instructions; setup `1047f178` separately has 10BB/118B/58 instructions | Sparse byte configuration, disabled setup at C0A4/F81C, unavailable C0A8/F824 state, nine child masks, four explicit child input banks, raw/W1C and top-level routing to IRQ132/133. The two original setup polls naturally time out; their caller does not check those return values. | Enabling either setup with value8 needs a causal request/status producer. Child408/410/414/41c/420 involve `201620xx`, C014/C01C, F80C/F880..89C and guest buffers; the data publishing and ownership protocol must be bound before enabling those inputs. Other saved configuration families (0800/20xx/4000..4528/C400/C404/C40C/C818/CC00/CC04/F850) remain separate evidence work, not a zero register file. |
 | `gate` / `103bce38..103bd75c`, 2,248B/906 candidate instructions; dispatcher `103bde3e` separately has 19BB/150B/58 instructions | All recovered finite configuration/table fields, three full-word mask/raw/W1C domains, external event admission, source-bound stop request with internal confirmation, original IRQ102 delivery and guest callback. Runtime OR/BIC at30/34 and generated packed-field masks are retained. | Asserted pulses20a4/2620/2660, submit2680/2800 and indexed/data/monitor reads at200/220..2ac/1b4..1bc/2040/38..44/140..144 need their actual resources and producers. The later indirect backend/packet family beyond the saved range is incomplete. No frame or table-commit completion is inferred from the stop confirmation. |
 | `status` / `10243938..10243c4a`, 786B/306 candidate instructions, two saved metadata bodies/48 instructions | Packet setter08/0c, full-word10/14, bool00, retained unchanged20, unavailable24/30. Word widths are independent of packet byte widths. | Request20.bit0, stop20.bit16 and state24/30 need the real active resource/state lifecycle. The service154 request, callback1024396a and software event at object+18 are a distinct guest protocol. IRQ229's wrapper has no device status read/ACK, so its physical wire is not established. |
@@ -34,14 +42,19 @@ None establishes all consumers beyond its recorded scope.
 
 ## Producers and startup ordering
 
-The currently closed startup event is the [stop lifecycle](stop.md): original
+The closed startup event at this inventory checkpoint is the
+[stop lifecycle](stop.md): original
 `103bd4b2` writes global04=0; the explicitly virtual stop controller produces
 raw18.bit0; mask0.bit0 admits IRQ102; original ISR `103bce38` calls the guest
 service146 callback with R1.bit0; `10388c18` sets F0.bit2; the original ID88
 wait can return. Its nominal delay is a model input. This is not a frame,
 image-data or physical drain result. Ordinary activation04=1 produces no
 completion, and closing external admission cannot suppress the internal
-stop acknowledgment.
+stop acknowledgment. The later [continuous profile](processing.md) admits
+completion only after actual output DMA, uses source-selected terminal raw1
+causes separately from software allocation bits, and labels whole-frame raw2
+bit3 as a functional hypothesis. It does not turn stop acknowledgment into a
+frame result.
 
 The DMA/source lane independently binds Audio output to HDMAC DREQ3/7 and
 each engine's own completion IRQ (COPY45..48, FILL103/104, HDMAC150..157 and

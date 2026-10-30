@@ -21,6 +21,14 @@
 #define NIKON_TRANSFER_RGBA_SETUP_BYTES 232U
 #define NIKON_TRANSFER_RGBA_DRAW_BYTES 416U
 
+/* Finite C1.70 black RGBA8888 720x480 single-path profile. */
+#define NIKON_TRANSFER_RGBA_SINGLE_SETUP_BYTES 176U
+#define NIKON_TRANSFER_RGBA_SINGLE_DRAW_BYTES 368U
+
+/* Finite C1.70 gray rectangle using the preceding 720x480 context. */
+#define NIKON_TRANSFER_RGBA_GRAY_SETUP_BYTES 168U
+#define NIKON_TRANSFER_RGBA_GRAY_DRAW_BYTES 232U
+
 typedef struct NikonTransferStreamRequest {
     uint64_t token;
     uint32_t source;

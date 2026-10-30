@@ -1,0 +1,90 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "calls": [
+    {
+      "pc": "1023c846",
+      "r": [
+        "b25eeff8",
+        "00000000",
+        "6219c800",
+        "00000001"
+      ],
+      "lr": "1023ad31",
+      "sp": "b51dfd58"
+    },
+    {
+      "pc": "1023994c",
+      "r": [
+        "b25eeff8",
+        "00000000",
+        "60000013",
+        "00000000"
+      ],
+      "lr": "1023c895",
+      "sp": "b51dfd28"
+    },
+    {
+      "pc": "102ce57e",
+      "r": [
+        "00000003",
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "lr": "1023996b",
+      "sp": "b51dfce8"
+    },
+    {
+      "pc": "1023c830",
+      "r": [
+        "00000002",
+        "119c0a00",
+        "00000006",
+        "00000000"
+      ],
+      "lr": "1023997d",
+      "sp": "b51dfce8"
+    },
+    {
+      "pc": "1020c2d4",
+      "r": [
+        "b51dfce8",
+        "00000002",
+        "00000006",
+        "00000000"
+      ],
+      "lr": "102399db",
+      "sp": "b51dfce8"
+    },
+    {
+      "pc": "102090a0",
+      "r": [
+        "b1806798",
+        "b51dfce8",
+        "00000006",
+        "00000000"
+      ],
+      "lr": "102399db",
+      "sp": "b51dfce8"
+    },
+    {
+      "pc": "102090bc",
+      "r": [
+        "00000006",
+        "20069514",
+        "00000004",
+        "00000001"
+      ],
+      "lr": "102399db",
+      "sp": "b51dfcd8"
+    }
+  ],
+  "input": "03000000000000000000000000000000000000000000000028ddc9b201000000",
+  "descriptor": {
+    "omitted": "binary snapshot",
+    "bytes": 64
+  },
+  "first_error": [
+    "qemu-system-arm: nikon: uncovered access cpu=0 pc=0x102090bc address=0x20069514 direction=write width=4 value=0x6 transaction=error reason=uncovered-address"
+  ]
+}

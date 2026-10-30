@@ -1,0 +1,9 @@
+Native test output excerpt
+Run: ramalignment-20261023
+Original log: native-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.87s   killed by signal 6 SIGABRT
+1/1 nikon+qtest+qtest-arm - qemu:nikon_memory ERROR           0.87s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

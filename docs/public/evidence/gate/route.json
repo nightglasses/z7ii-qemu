@@ -1,0 +1,52 @@
+{
+  "scope": "Shared route configuration application; not processing or completion",
+  "baseline": "22122e5a maintained photo/movie input with fixed lens and ordered vectors",
+  "source": {
+    "domains": "C1.70 MAS VA for code; boardPA20100000 plus hex registeroffsets",
+    "setters": "103BD2D8 packs10B into2684;103BD31E packs3B into2690;103B1FF2/102E1A7C allocate source-owned routeindices",
+    "request": "103BD2CC writes2680=1 andreturns0 withoutread/poll/wait",
+    "normal_photo": "102E1B86 request42193083 finds route andcalls10389BAC,then103894A0\u2192103B527C kicksoriginalsoftwareworker",
+    "teardown": "1038897E clears selected2684/2690 andmakes sameapplicationrequest beforeclearing48Brecord"
+  },
+  "model": {
+    "inference": "Bothstagedwords capturedtogether onalignedW32 value1; finitefunctional snapshot,not recoveredphysicalatomiclatch",
+    "lifecycle": "Staging changeswaitfornextrequest; clearonefamily+commitpreservesotherstaging;resetclearsstaging,appliedstate,count;repeatscaptureagain",
+    "boundaries": "Existing32bit/16bitstaging shapes;unknownrequestvalues,width,alignment andcommandreadsreject",
+    "side_effects": "Onlyapplied2words androute-commitschange;no timer,pending,mask,IRQ,command,type0slot,DMA,readyorcompletion",
+    "limitation": "No data-routingoperatorcurrentlyconsumestheserecords; configurationacceptance isnotrouting/pixelfidelity"
+  },
+  "native": {
+    "command": "make check MTESTARGS='nikon_sla --test-args=\"-p /arm/nikon/sla/gate\"'",
+    "subtests": 1,
+    "seconds": 1.11,
+    "coverage": "ExistingfullSLA/gate fixtureplusstagingvsapplied,singlefamilyclear,bothmodified,repeats,invalidvalues,width,unalignedwrites,unknownread,reset,nonzeropending/mask/IRQpreservation,andnofabricatedparameter/loadedstate",
+    "red": "Oldmodelhasnoapplied-routeinterface andoriginalW1requeststrictlyrejects",
+    "development": "InitialfixtureusedexistinguncheckedQOMreturnhelper andsegfaultedonmissingproperty;addedassertandobtainedexplicitred. Aninitialpatchputcommitinreadhandler,compilerrejectedpointer/value mismatch;correctedbeforeanyoriginalrun. Finalnativegreen follows correction andnonzeropendingcoverage",
+    "review": "Independentread-onlyreviewfoundnoimplementationblocker;sourcecommentanddocsclassifytwo-wordatomiccaptureasfiniteinference",
+    "style": "Pinnedcheckpatch0errors0warnings"
+  },
+  "original": {
+    "profile": "UnchangeddecodedC1.70bundle,cold-neutral/regioninputs,defaultphotoEXIOpad0high,virtualfixed50mmF2.8,selectedpairedtuple,2x2scene,blank8GiBslot0,pacedhealthyUARTbatteryRNG0,heldF4,fiveCPU MTTCG",
+    "window_host_seconds": 60,
+    "debugger": "No in-windowGDB;postwindowsequentialreadsnotatomic",
+    "qmp15_30_45_60": [
+      "running",
+      "debug",
+      "debug",
+      "debug"
+    ],
+    "route_commits": 1,
+    "applied_route1": "0x0",
+    "applied_route2": "0x141",
+    "capture_family": "0x100 LvStill",
+    "property5772": 0,
+    "lens_completed": 583,
+    "lens_rejected": 0,
+    "configuration_generation": 1,
+    "paired_completed": 0,
+    "heads": "bothunbound",
+    "panic_length": 0,
+    "next_stop": "CPU1MASVA10369fc0 WRITE32 PA20380008=1;pairedprofileoffset88=2unsupported",
+    "acceptance": "Routeapplicationcrossed;not60secondsofcontinuousexecution,normalphotoliveview,shuttercapture,recordingorfilesaving"
+  }
+}

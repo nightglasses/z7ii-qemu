@@ -1,10 +1,10 @@
 # External CMOS frame input and readout
 
-This device adds an executable frame endpoint to the [运行 Z7II 原版 QEMU machine 并恢复启动设备依赖](https://github.com/mashiro01/nightglass/issues/326). It reads an explicitly supplied byte file through official QIOChannelFile and writes its bytes through the actual physical-memory DMA bus. It supplies exposure, readout, completion and error lifecycle outputs. It does not identify a physical sensor, invent a controller register map or connect an unbound guest interrupt.
+This device adds an executable frame endpoint to the [unchanged-firmware startup](/startup/first). It reads an explicitly supplied byte file through official QIOChannelFile and writes its bytes through the actual physical-memory DMA bus. It supplies exposure, readout, completion and error lifecycle outputs. It does not identify a physical sensor, invent a controller register map or connect an unbound guest interrupt.
 
 ## Current source boundary
 
-The saved complete native source index is `nightglass` CODE `ec048f9fde8723ba2db9657f2e88410933b21099`, with the read-only local index at `work/issue377/gui-saved-facts/facts.sqlite` in `native-arm-exception-roots`. The bounded `Capture-consumer-source-projection.json` preserves complete original Listing/raw P-code/reference owners for MAS outer VA `103ba6ea` (O3778282) and `103f40ec`; requested `104909bc` has no containing current Listing/function. The first two owners have no direct reference targets in the currently known `04/20/24/2b/2c` peripheral ranges. Indirect runtime addresses and their callees remain separate evidence work. Capture requests and callbacks do not establish the CMOS slave address, CSI/receiver registers, exposure units, ROI, packing, physical buffers or completion IRQ.
+The saved complete native source index is `nightglass` CODE `ec048f9fde8723ba2db9657f2e88410933b21099`, with the read-only local index at `run eventwait/gui-saved-facts/facts.sqlite` in `native-arm-exception-roots`. The bounded `Capture-consumer-source-projection.json` preserves complete original Listing/raw P-code/reference owners for MAS outer VA `103ba6ea` (O3778282) and `103f40ec`; requested `104909bc` has no containing current Listing/function. The first two owners have no direct reference targets in the currently known `04/20/24/2b/2c` peripheral ranges. Indirect runtime addresses and their callees remain separate evidence work. Capture requests and callbacks do not establish the CMOS slave address, CSI/receiver registers, exposure units, ROI, packing, physical buffers or completion IRQ.
 
 The current machine has no source-bound CMOS controller. SDI `2002x` implements DDR training; it is not assigned a sensor role. IPUD `24020000` is a three-word packet transport, not an image ingress. Sampler `20201000` and the `2b` signal inputs retain their disconnected external-data/pin semantics. The DMP `2018` transfer has actual buffer-to-buffer byte geometry and numeric selectors, but is not an established sensor/ISP output. The frame endpoint therefore remains disconnected in default original runs. Machine/control decoding belongs to its own owner and must supply actual firmware geometry and routing when that chain is recovered.
 
@@ -30,11 +30,11 @@ Preflight requires nonzero byte geometry and durations, stride at least the actu
 
 `tests/qtest/nikon/sensor.c` contains six native cases using explicit synthetic geometry and repeatable file bytes: exposure-before-write and complete strided rows; two4096-byte chunks; active-request refusal/cancel/system-reset; missing input, bad stride, length/address/deadline mismatches; a causal unmapped destination error; and input truncation after one accepted row. Tests observe the endpoint's real output lines and actual RAM, preserving padding and bytes beyond completed progress. They run with the qtest accelerator and an enabled virtual clock, without executing camera instructions.
 
-Build registration, compilation and execution belong to the sole build owner. The six frame-endpoint cases passed in2.95s, exit0, on QEMU `d3d69c38ed2845852ae6187c8bf038e8c2eb7e6a`, implementation `fad3bcffbe16edf978928c1a797259722bf229bc`. The preserved official receipt is `native-qemu-source/work/validation/gui/sensorfinal.log`. This establishes the explicit endpoint, not a firmware sensor controller, image quality, full camera functionality or reconstructed-source acceptance.
+Build registration, compilation and execution belong to the sole build owner. The six frame-endpoint cases passed in2.95s, exit0, on QEMU `d3d69c38ed2845852ae6187c8bf038e8c2eb7e6a`, implementation `fad3bcffbe16edf978928c1a797259722bf229bc`. The preserved official receipt is `native-qemu-source/run validation/gui/sensorfinal.log`. This establishes the explicit endpoint, not a firmware sensor controller, image quality, full camera functionality or reconstructed-source acceptance.
 
-The first native sensor binary compiled and linked, then its test process exited with SIGTRAP before reporting a passing case (`native-qemu-source/work/validation/gui/domaincheck.log`, sensor section). Source inspection found a concrete fixture ownership error: QMP `%p` interpolation transfers the supplied QObject into the request; official `libqmp.c` frees that request after sending it, but the fixture freed its QBool again. The corrected fixture uses official `%i` boolean interpolation, whose type is explicitly QBool in `qobject/json-parser.c`; it allocates no separately owned value. Device lifecycle and all six test assertions were preserved. The first failure remains separate from the later passing receipt.
+The first native sensor binary compiled and linked, then its test process exited with SIGTRAP before reporting a passing case (`native-qemu-source/run validation/gui/domaincheck.log`, sensor section). Source inspection found a concrete fixture ownership error: QMP `%p` interpolation transfers the supplied QObject into the request; official `libqmp.c` frees that request after sending it, but the fixture freed its QBool again. The corrected fixture uses official `%i` boolean interpolation, whose type is explicitly QBool in `qobject/json-parser.c`; it allocates no separately owned value. Device lifecycle and all six test assertions were preserved. The first failure remains separate from the later passing receipt.
 
-The ownership correction then passed the first five native cases and failed the final truncation assertion (`native-qemu-source/work/validation/gui/runtimecases.log`): phase remained reading instead of error. Official `block.c` defines BlockBackend length in512-byte sectors, and disk reads can supply zero padding beyond the underlying EOF. Those disk semantics cannot implement an exact-byte frame contract. The current implementation removes the drive route and uses official QIOChannelFile/read-all with exact file size, preserving the truncation assertion. The later six-case pass includes the51-byte three-row positive sequence and the original EOF/no-DONE negative.
+The ownership correction then passed the first five native cases and failed the final truncation assertion (`native-qemu-source/run validation/gui/runtimecases.log`): phase remained reading instead of error. Official `block.c` defines BlockBackend length in512-byte sectors, and disk reads can supply zero padding beyond the underlying EOF. Those disk semantics cannot implement an exact-byte frame contract. The current implementation removes the drive route and uses official QIOChannelFile/read-all with exact file size, preserving the truncation assertion. The later six-case pass includes the51-byte three-row positive sequence and the original EOF/no-DONE negative.
 
 Next source dependencies are the actual sensor configuration/trigger writer, receiver-to-physical-buffer descriptor, encoding/ROI/stride producer, and consumer/IRQ route. ISP, display and storage owners must join those identities before connecting the endpoint. Default disconnection is preserved until then; an independently supplied frame is an external input, not a recovered factory component.
 
@@ -62,13 +62,77 @@ The new `nikon-sdes` SysBus object lives in `sensor.c`, separate from the tested
 
 `nikon_sdes_publish(dev,event,words,count,errp)` requires exactly1/1/4/1/4 status words in table order and validates the entire packet before mutation. A provider must supply a real event and its complete status; no event is assigned frame-ready semantics. Named `status-data` inputs hold eleven32-bit words in table order; five `status-publish` rising-edge inputs call the same API. Publication requires every bit of every required word to have been explicitly supplied, including zeros, then consumes that qualification. These functional provider inputs are not352 invented physical pins. There is no default provider, connection from `nikon-sensor` completion, or host call of guest callbacks.
 
-Five bounded official source exports using TOOL `e9b738a423db452bc1061809fcc01656e59d6631` are saved in `nightglass/work/worktrees/slicer/work/controller`: session93262 exited0 in6.553s, with five owners and191 original Listing/official block CODE instructions, without analysis or a new checkpoint. Four candidate C bodies are `ok`; `10295e9a` retains its scope rejection. Original Listing/bytes remain authoritative. Source-qualified direct branch `10297976` (O2586998, bytes `fef7f6b9`, TMode1) was then recovered by TOOL `f5f8d0e` into `work/precision/raw/1029796e-original.c`: it writes five byte values at offsets `400..410` plus the selector offset from `10295d5a`. Original table `1078a844` begins `20061400/420/440/460/4a0`, giving offsets `0/20/40/60/a0` after the original subtraction. This qualifies configuration groups; their status values require a real producer.
+Five bounded official source exports using TOOL `e9b738a423db452bc1061809fcc01656e59d6631` are saved in `nightglass/run controller`: session93262 exited0 in6.553s, with five owners and191 original Listing/official block CODE instructions, without analysis or a new checkpoint. Four candidate C bodies are `ok`; `10295e9a` retains its scope rejection. Original Listing/bytes remain authoritative. Source-qualified direct branch `10297976` (O2586998, bytes `fef7f6b9`, TMode1) was then recovered by TOOL `f5f8d0e` into `run precision/raw/1029796e-original.c`: it writes five byte values at offsets `400..410` plus the selector offset from `10295d5a`. Original table `1078a844` begins `20061400/420/440/460/4a0`, giving offsets `0/20/40/60/a0` after the original subtraction. This qualifies configuration groups; their status values require a real producer.
 
 The recovered capture route reaches software workers `103250f2`/`103259cc`, then `10233570`/`10233db8`, `10398206`/`103986ca`, and backend worker `1026c66e`. One concrete outlet is `102d9c54`→`102d9a2c(2)`→`102ff398(1)`→`1029790a`, writing SDES parameters. The full word at `20061250` comes from a zero-extended mode-table halfword in `102fefc0`, not a proven physical frame address. Actual chain `102feda2`→`103063bc`→`10297914`→`10295c04` writes a table pointer and aligned byte span at `20061264/268`; original arithmetic is `align16((pointer&15)+2*count)`. This establishes a configuration-data input, not image output DMA. The separate eleven-channel pointer table `1078a92c` identifies `200630xx` control/strobe registers; its pixel-readout relationship remains unproved and is not absorbed by proximity.
 
 Three new focused qtest cases cover independent configuration banks without IRQ, complete eleven-word publication and partial W1C, and incomplete/stale publication plus reset. They passed individually in0.69s each, exit0, on integrated QEMU `7f241eb9d9c046db4cc3c3ccf5719697ae8ea02c` (SDES `229b68af57333e2791641377416337cb0b51bde4`, machine glue `85bac47`, named-IRQ fixture correction `f8672cacdf2590814cfc6eb6cf29c1973536a7f3`). The sole builder saved `sdesconfigurationfixedreceipt.log`, `sdesstatusfixedreceipt.log` and `sdespublicationfixedreceipt.log` under `qemu-submodule/work`. Their first attempt compiled/linked but failed before assertions because unnamed IRQ interception found no outputs; official SysBus IRQs are named `sysbus-irq`. The cold-zero configuration extension subsequently passed in1.17s on integrated ARM `49e63fc9b3cd1e43c0f15da6de7f6169a4503895`; `sdescoldconfigurationnativereceipt.log` records that distinct run. The six prior endpoint cases are unchanged. Actual exposure trigger, reset profile, sensor serial slave, pixel geometry/encoding, frame destination and readout completion cause are still required before joining this controller to frame input, ISP, display or save. This implements the source-bound control/status layer, not completed original CMOS capture.
 
+## Global sequence start and stop
+
+The C1.70 MAS helpers `102976b6` and `102976c2` perform RMW/strobe pairs
+at board PA `200632d0/d4` and `200632e0/e4`. These belong to the separate
+eleven-selector table at MAS VA `1078a92c`, implemented by
+`NikonSdesChannels` in `sensor.c`. They do not publish SDES IRQ89–93 status.
+Addresses, register masks and event masks are hexadecimal; channel indices,
+bit positions, IRQ numbers, timeouts and error IDs are decimal.
+
+**Source facts:** `102d986e(0)` clears Sensor event `0x10`, submits mask `0x101`
+through `102ff522 ->102976c2`, then waits with timeout150 in original API
+units. Its other arm submits `0x107` and waits for event `0x20`. The original
+router ISR `102dc5c0` invokes registered callback `102d6b6a`: raw bit18
+sets event `0x10`, and raw bit10 sets event `0x20`, at Sensor object VA `b18a764c`.
+Thus these completions belong to router IRQ87, not the SDES status banks.
+An instrumented pre-model probe isolates the first wait returning0 with
+accumulated status0 before OR `100`; the upper mapper reports Sensor state9
+and ID63.
+
+**Functional hypotheses:** the `d0/d4` pair starts selected sequences and
+`e0/e4` stops them. Each commit consumes its mask, so a later RMW starts a
+fresh request. The eleven selectors bound the accepted masks to `7ff`.
+Each active selected channel takes1µs of virtual time to stop. Channel8
+publishes router bit18; channel0 publishes bit10. This interpretation also
+matches the independently implemented Z7
+[sequence experiment](https://github.com/WonderLantern/z7-qemu/blob/97abf0b81cd3211f8374a38987a0beaf4549b90f/qemu/nikon-z7-lab.c#L1890),
+which explicitly labels its own timing as assumed. It corroborates a finite
+functional interpretation, not a physical timing specification.
+
+The model tracks all eleven running/stopping bits. A mask store alone does
+no work. WRITE32 `1` to its commit applies the selected transition; other
+values, widths, unaligned accesses and unknown mask bits reject. Stop affects
+only running channels; empty or already stopped requests publish nothing.
+Each newly stopping channel retains its own deadline; a repeated pending
+stop cannot postpone it or borrow another channel's earlier deadline.
+Restart cancels only the selected unfinished stops. One QEMU virtual timer
+serves the earliest deadline, and expiry updates actual sequence state before
+publishing only the two established causes. Other channels stop without
+invented causes. Reset clears masks/state and cancels all deadlines; finalize
+frees the timer. Read-only QOM `running`/`stopping` expose model state.
+
+Machine wiring sends `stopped[0/1]` to router domain1 bits18/10. Existing
+router masking, pending/W1C, GIC delivery, original ISR and callback own the
+rest of the path. No guest flag is set by the host. Configuration, data DMA,
+pixel work and frame completion remain separate; sequence stop creates none.
+
+The [sequence receipt](/evidence/imagerequest/sequence.json) records native
+red→green for consumed masks and staggered stops, followed by36 sensor and33
+memory cases. The fixtures cover every selector, actual router pending,
+inactive/duplicate requests, partial/full restart cancellation, independent
+deadlines, malformed transactions, reset/reuse and unchanged RAM/SDES status.
+Its original continuation uses unchanged firmware and the same explicit
+resource35/cold-neutral inputs. The following capture-group result boundary
+is tracked in the [startup frontier](../../validation/frontier.md); passing
+sequence tests do not establish normal GUI startup or physical fidelity.
+
 ## Original capture configuration and commit family
+
+The [mask and enable audit](control.md) supersedes independent0/4 storage.
+The current [run/stop profile](runstop.md) also replaces08 retention and the
+restricted0c mask with the whole11-unit control family and explicit deferred
+quiescence hypotheses. All25 sensor cases pass; original execution crosses
+the old0c rejection without generating data or a completed frame. The original
+coefficient/publication audit and historical receipts below retain their
+fixed scope; current control semantics and runtime limits are in runstop.md.
 
 The same saved `ec048f9fde8723ba2db9657f2e88410933b21099` source closes a separate control outlet: `102d8606`/`102d8810`/`102d8c54`→`102dab42`/`102dabca`→23-pointer configuration packet→`103003dc`. Its callback field is RAM `b18a7798`, derived from original literal `10300450`=`b18a778c`. Initializer `1023954a`, at callsite `102396b4`, registers original literal `10239a00` (bytes `2d912310`, Thumb `1023912d`) through `103981cc`→`1026d72a`/`102fe10e`, only when that callback field is zero. `1023912c` copies the packet into local storage and invokes `10238fbc`, whose nonnull pointer checks select twenty accessors `1020c46a..1020c536`. These are software provenance and configuration facts, not an observation that original capture has run.
 
@@ -90,15 +154,15 @@ Initializer `1020aa18` registers these five handlers. Each snapshots the complet
 
 `nikon_capture_publish` requires exactly2/1/2/2/1 words for `NikonCaptureEvent` in table order. Named `status-data` supplies eight32-bit words, and five `status-publish` rising edges use the same API. Every required bit, including zero, must be explicitly supplied before publication; a successful packet consumes qualification. Partial or stale packets do not become events. These256 functional data inputs are not inferred hardware wires. No status bit is labelled exposure, frame-ready or readout-complete without its actual producer.
 
-Three new focused tests target `/machine/capture-control`: every accepted coefficient-table word and both independent command-data outputs/reset without IRQ; complete eight-word publication with mask-disable/re-enable and partial W1C; incomplete/stale publication and reset. The sole builder compiled integrated ARM `49e63fc9b3cd1e43c0f15da6de7f6169a4503895` successfully and these cases passed in1.33/1.17/1.17s, exit0, with implementation `2c7dfd7b50b2531ca213e5daa5aef68745eb131c` and MAS glue `58e0a31`. Receipts are `qemu-submodule/work/captureconfigurationnativereceipt.log`, `capturestatusnativereceipt.log` and `capturepublicationnativereceipt.log`. They do not repeat the six validated endpoint cases. The serial-control dependency is separately source-bound through `102fe1ea`→`1030621e`→`10367fe0`→`10370a14`: logical instance7 is mapped by signed board-map byte `+e` plus `17` hex, using literal `10368b98`=`b1800008` and pointer `[b1800014]`. The actual selected peer, exposure/readout law, pixel format, receiver destination and downstream processing/display/save join are still unbound. Register configuration, a commit pulse and software callback provenance do not complete that missing image pipeline.
+Three new focused tests target `/machine/capture-control`: every accepted coefficient-table word and both independent command-data outputs/reset without IRQ; complete eight-word publication with mask-disable/re-enable and partial W1C; incomplete/stale publication and reset. The sole builder compiled integrated ARM `49e63fc9b3cd1e43c0f15da6de7f6169a4503895` successfully and these cases passed in1.33/1.17/1.17s, exit0, with implementation `2c7dfd7b50b2531ca213e5daa5aef68745eb131c` and MAS glue `58e0a31`. Receipts are `qemu-submodule/run captureconfigurationnativereceipt.log`, `capturestatusnativereceipt.log` and `capturepublicationnativereceipt.log`. They do not repeat the six validated endpoint cases. The serial-control dependency is separately source-bound through `102fe1ea`→`1030621e`→`10367fe0`→`10370a14`: logical instance7 is mapped by signed board-map byte `+e` plus `17` hex, using literal `10368b98`=`b1800008` and pointer `[b1800014]`. The actual selected peer, exposure/readout law, pixel format, receiver destination and downstream processing/display/save join are still unbound. Register configuration, a commit pulse and software callback provenance do not complete that missing image pipeline.
 
-The independently restored SLA SOURCE11 `sla.S` also qualifies both shared device types. Its fixed TOOL producer is `ef6395d18386f58f8551fc663df309ee7f8475f5` (project10 `work/sla-source-project-10`) and canonical SOURCE is `9a9fd191f4cbe4ed0f0a38c2a3fc345ea2f0ad30`; project11/12 change ROM COPY resources while preserving these source rows. Its initializer `1009e27c` registers IRQ89–93, with literal callbacks `1009e267/24d/20b/1f3/1b5`; handlers `1009e1b4..1009e27a` read and acknowledge the same eleven SDES words. All stores in `1009e330`, `1009e470`, `1009e4c2`, `1009e724`, `1009e9ae` and `1009ea0a..1009eba4` fit the existing finite SDES fields and generated-value bounds. Initializer `1009cfd0` registers IRQ94–98, with callbacks `1009cf6b/cf19/ceb3/ce4f/cdef`; `1009cdee..1009cfd0` independently demonstrates the same eight status words, W1C sequence and masks. Literal `1009d25c` is `20068000`; `1009d134` performs all eight hardware-mask RMW operations and saves independent shadows at `c1005d3c+38..54`. Two additional source-known controls are accepted: `1009d056` writes `fff` to `+18`, and `1009d3c0` writes `c` to `+c`. They have explicit cold-zero configuration/readback and bounded12-bit/2-bit values respectively; no undocumented effect clears status or completes a frame. SLA must instantiate its own devices, address space and GIC wiring, without sharing MAS configuration, pending events or providers. This is a source-based match, not a conclusion from matching IRQ numbers.
+The independently restored SLA SOURCE11 `sla.S` also qualifies both shared device types. Its fixed TOOL producer is `ef6395d18386f58f8551fc663df309ee7f8475f5` (project10 `run sla-source-project-10`) and canonical SOURCE is `9a9fd191f4cbe4ed0f0a38c2a3fc345ea2f0ad30`; project11/12 change ROM COPY resources while preserving these source rows. Its initializer `1009e27c` registers IRQ89–93, with literal callbacks `1009e267/24d/20b/1f3/1b5`; handlers `1009e1b4..1009e27a` read and acknowledge the same eleven SDES words. All stores in `1009e330`, `1009e470`, `1009e4c2`, `1009e724`, `1009e9ae` and `1009ea0a..1009eba4` fit the existing finite SDES fields and generated-value bounds. Initializer `1009cfd0` registers IRQ94–98, with callbacks `1009cf6b/cf19/ceb3/ce4f/cdef`; `1009cdee..1009cfd0` independently demonstrates the same eight status words, W1C sequence and masks. Literal `1009d25c` is `20068000`; `1009d134` performs all eight hardware-mask RMW operations and saves independent shadows at `c1005d3c+38..54`. Two additional source-known controls are accepted: `1009d056` writes `fff` to `+18`, and `1009d3c0` writes `c` to `+c`. They have explicit cold-zero configuration/readback and bounded12-bit/2-bit values respectively; no undocumented effect clears status or completes a frame. SLA must instantiate its own devices, address space and GIC wiring, without sharing MAS configuration, pending events or providers. This is a source-based match, not a conclusion from matching IRQ numbers.
 
 ## Source-bound readout profile
 
 The unchanged MAS builder at `0x1023869e` creates the record later passed to
 `0x1020c7c6`. Its exact field and pointer arithmetic is recorded in
-[`../readout/profile.json`](../readout/profile.json). The record contains
+[`../readout/mapping.md`](../readout/mapping.md). The record contains
 aligned spans and double-indirect pointers derived from firmware RAM tables.
 These are source facts only: current evidence does not identify them as image
 width, height, stride, Bayer format, DMA direction, or buffer rotation. The
@@ -117,10 +181,217 @@ Accessors `1020c334/340/34c` supply finite scalar configuration at buffer offset
 
 The parameter contract comes from `1020c788/794/79e/7a8/7ba/7c6/8a8`. Literal `1020b21c`=`2006b000` anchors the129-word zero-extended halfword coefficient loop at offsets `0..200` hex. All original stores in `310..3fc` hex are retained, including packed8/10/16/24-bit fields with their actual masks. Independently, fixed SLA source `1009c76e`, `1009c832`, `1009c866` and tail wrapper `1009c96c`, with literals `1009ca04`=`2006b000` and `1009ca08`=`2006b3b8`, produce the same `318..3bc` subset and generated-value bounds. This is a full accessor-family match, without inferring an IP identity from its address. Existing `20060000` routing/IRQ86–88 remains independent.
 
-`1023869e` builds a profile passed to `1020c7c6`. In that actual producer, `2006b3e8` and `2006b3f4` come from allocator objects' `+4` pointers; `3ec` is `align256(2*profile.u16[14])`, `3f0` is that span times `profile.byte[c0]*2`, and `3f8` is `align256((3*profile.u16[14])>>1)` (field offsets hexadecimal). These prove the bounded pointer/span record without proving physical DMA direction, image dimensions or color format. Record bytes `34/35` produce the two observed packed values `00400040` and `00010001` at `3fc`. `1023c610` alternates a bank and writes another record's `+c` word through `1020c7ba` to `3c4/3c8`. The generated MAS shows `1020c7b2` loading the parameter base and tail-calling `1020a3b6`; `1020a3b6` waits until `[0x2006b000+0x3c0] == 1`. The `2006b400` store is `1020a3c2`: it loads `0x1020a450 = 0x2006b3b8`, adds `0x48`, and stores caller-supplied `r0`. The caller separately commits `20068100=2`.
+`1023869e` builds a profile passed to `1020c7c6`. In that actual producer, `2006b3e8` and `2006b3f4` come from allocator objects' `+4` pointers; `3ec` is `align256(2*profile.u16[14])`, `3f0` is that span times `profile.byte[c0]*2`, and `3f8` is `align256((3*profile.u16[14])>>1)` (field offsets hexadecimal). These prove the bounded pointer/span record without proving physical DMA direction, image dimensions or color format. Record bytes `34/35` produce the two observed packed values `00400040` and `00010001` at `3fc`. `1023c610` alternates a bank and writes another record's `+c` word through `1020c7ba` to `3c4/3c8`, then calls `1020c7b2` and commits `20068100=2`. Original instructions at `1020a3b6..c8` show a conditional, not a polling loop: load `3c0`, compare with1, return if unequal, otherwise store1 to `2006b400` at `1020a3c6`. Firmware itself writes `3c0=1` while configuring the descriptor.
 
-The complete bundle composition assigns that finite C1.70 record a functional, not physical, producer contract. A valid `2006b400=1` owns a generation. `3e8` is its primary destination, `3ec` its 256-byte-aligned primary stride, and `3f0` its exact primary span. `3f4/3f8` are a required, range-validated secondary destination/stride pair but are not written. Only `00400040` and `00010001` at `3fc` are accepted. Functional geometry is two-byte samples with `width = stride / 2` and `height = span / stride`; this naming is intentionally not a physical sensor-width or pixel-format claim. Span is bounded to64 MiB, all arithmetic and both submitted ranges are checked, and the existing CMOS engine performs timed normal-memory DMA only to the primary submitted writable guest buffer. An explicit PGM/PPM source is used when configured; otherwise the composed bundle uses the deterministic CMOS provider.
+The complete bundle composition assigns that finite C1.70 record a functional, not physical, producer contract. Initial wrapper `10238876` builds the descriptor then calls `1020c728`: shared commit100/104 mask2 followed by effective unit2 run. The model snapshots parameters on either selected commit and reserves the first request only on effective run rising. Repeated high levels do not request. Subsequent `2006b400=1` commands snapshot the current staging record, consistent with the marker preceding its following commit. This first-run interpretation is an explicit functional hypothesis supported by the producer/consumer ordering; it does not synthesize a `b400` write. Eight profile fields (`394/3c0/3e8/3ec/3f0/3f4/3f8/3fc`) must have been explicitly written. Enable `3c0` must equal1 and mode `394[23:16]` must be0 or1.
 
-At accepted start the provider publishes `2006b3c0=1` for the owned generation. CMOS completion then uses the existing `nikon_readout_publish_completion` generation check and named completion observation. A busy request is rejected without replacing ownership; because the control device still advances the newly submitted generation, the older completion becomes stale and cannot publish. CMOS cancel and machine reset delete the timer, clear ownership and prevent later writes or completion. Unsupported format, malformed geometry, overflow, non-RAM destination and unbound/default-profile requests remain silent failures with no software success flag. The join never writes the secondary plane, guest event objects or callback addresses, never invokes guest code, and never changes an ISR, PC, task or display buffer. No Nikon GIC line is inferred.
+`3e8` is the functional primary destination, `3ec` its 256-byte-aligned stride, and `3f0` its exact span. `3f4/3f8` are a required, range-validated secondary pair but are not written. Only `00400040` and `00010001` at `3fc` are accepted. Geometry is two-byte samples, `width = stride / 2`, `height = span / stride`; these are not physical sensor dimensions or pixel-format claims. Span is bounded to64 MiB, both address ranges are checked, and the CMOS engine performs timed DMA only to the primary writable guest buffer. An explicit PGM/PPM source is used when configured; otherwise the bundle uses the deterministic CMOS provider.
 
-The raw MAS path remains disconnected: it does not pre-set `2006b3c0`, attach a provider, perform DMA or publish completion. Existing readout tests continue to cover configuration, selectors, explicit publication and reset without implicit RAM writes. Focused pipeline qtests additionally cover no-submit silence, valid primary-buffer production, format/geometry/range/RAM rejection, busy backpressure, stale-generation suppression, cancellation and reset-before-deadline. These functional tests are not evidence of physical-camera semantics, original sensor fidelity, a CMOS-to-ISP/display edge or a recovered IRQ route.
+Provider ready is an ownership observation and does not rewrite guest `3c0`.
+The request reserves its immutable descriptor/generation immediately, including
+while waiting for input. Busy pulses cannot replace that ownership. As an
+explicit functional input association, the bundle connects the existing event
+router's automatic TG rising edge to the pipeline: the next fresh edge admits
+one owned request to the CMOS engine. There is no queued credit for earlier or
+busy edges, no admission on repeated high or forced router levels, and no DMA
+before input. The existing TG period remains33333334ns. Processing on that
+edge sees the previous completed input; the new transfer finishes afterwards.
+The engine retains1ns exposure and1ns per bounded DMA chunk, not per frame;
+this is a deterministic quantum, not physical sensor bandwidth.
+
+Auxiliary physical unit2 stop/reset/disable releases its waiting generation or
+cancels the CMOS timer only when that auxiliary transfer owns it. It does not
+cancel independent main acquisition or invalidate a delivered main frame.
+Machine reset clears ownership/input data, preserves the externally driven
+input level, and does not cancel unrelated CMOS work for a merely waiting
+request. Cancellation and errors produce no completion. A request counted as
+accepted/reserved may later fail CMOS admission checks at the input boundary;
+that increments rejection and releases ownership. Only actual successful DMA
+DONE for the submitted live generation publishes capture IRQ94 raw0.bit3 in
+mode0 or bit5 in mode1; unrelated DONE while waiting is ignored. Original
+`102391b2` checks that cause, the aggregate predicate and software mode before
+setting its owner event bit29; `10238d4a` then calls `1023c610`. Joining actual
+transport completion to those hardware causes is an explicit functional
+hypothesis. Mask, pending, GIC and W1C behavior use the existing capture device.
+The host never writes the owner event, calls an ISR/callback or changes a guest
+PC/task. Unsupported profiles or non-RAM destinations remain rejected, with a
+diagnostic reason and no completion.
+
+Without the bundle the provider remains disconnected: configuration, commit/run and request observation do not perform DMA or publish an IRQ. Native pipeline fixtures cover first-run with `b400` still0, selected commit/staging isolation, mode0/1 completion causes, repeated high, busy ownership, format/geometry/RAM rejection and cancellation by stop/reset/disable. The input-boundary fixture additionally covers pending ownership, immutable mapping/mode, no-input silence, ignored unrelated DONE, discarded early/busy edges, pending cancellation/reset and actual automatic-TG board wiring versus forced levels. It fails on the former immediate-submit model; the scoped17 CMOS,33 Sensor and1 readout-unit batch passes. These tests establish the finite contract, separately from unchanged-firmware progress and physical fidelity. [Readout ownership](../../runtime/readoutstate.md#current-cold-neutral-producer-and-completion-join) records the original source chain; the [coordination audit](../../runtime/imagerequest.md#acquisition-on-the-normal-input-clock) and [receipt](/evidence/imagerequest/coordination.json) qualify original-firmware execution.
+
+### Shared acquisition input synchronization
+
+The C1.70 source route `102391b2 -> owner1 ->10238d4a ->041a000f ->1022f318`
+reaches the shared tail `1022f526 ->1022f37c`, setting mask `4` on FE wait
+object MAS VA `b1887d9c`. This resolves the software producer of the OnVd
+AND wait for mask `5`. It is not the property notification's worker mask `20`,
+and it is not a unit1/2 processing-completion cause.
+
+**Functional hypothesis, implemented:** the bundle's virtual camera acquisition
+supplies both the existing auxiliary transport and input synchronization. The
+capture controller's effective physical run bit0 reaches pipeline `input-run`.
+Qualification starts at successful CMOS submission on a fresh automatic TG
+edge, **not** at earlier request reservation. Only a qualified generation's
+actual successful DMA, immutable snapshot and accepted readout completion can
+add raw word0 bit0 to the existing auxiliary cause. A falling run0 revokes the
+current generation permanently; restarting or starting during DMA cannot
+restore it. That revocation does not cancel auxiliary work owned by run bit1.
+A start while merely waiting for acquisition may qualify the next fresh edge.
+
+CMOS submission now returns a nonzero producer-generation token. Before a DONE
+signal consumes its request, the pipeline requires the same token and actual
+CMOS DONE phase. A premature external DONE is ignored without retiring the
+live transfer; cancellation, error, reset and a newer provider generation do
+not become success. No input status is generated from an old frame, run intent,
+commit, elapsed time, repeated/forced/busy TG, invalid input or a failed snapshot.
+Reset clears in-flight qualification and tokens; the existing input GPIO levels
+and monotonic diagnostic counters follow the established pipeline lifecycle.
+The read-only `input-notifications` count measures qualified status publications,
+including masked ones, rather than guest callback invocations.
+
+The additional native `pipeline/input-sync` case is red on baseline raw0=`20`
+instead of `21`. A further red catches premature DONE during active acquisition.
+The passing 22-CMOS/33-Sensor batch verifies actual RAM before sync, mask enable/
+W1C, no added frontend processing bits, stop/restart and late-start revocation,
+fresh-input requalification, unbound input, cancellation and reset. Existing
+no-input, busy/stale, DMA-error and statistics cases also pass. The
+[runtime audit](../../runtime/imagerequest.md#notification-routing-and-actual-submission)
+records original ISR delivery and successful FE synchronization separately.
+Neither those observations nor this shared virtual input identify the physical
+main stream, unit1/2 pixel operations, their result buffers or complete GUI boot.
+
+### Independent main acquisition
+
+The first-read transition exposes a separate input lifetime. Its original
+run mask becomes1d, retaining main input bit0 and frontend bits2/3 while
+clearing auxiliary readout bit1. The preceding provider only acquired frames
+for auxiliary requests. Auxiliary stop invalidated the shared generation,
+leaving the main-input and statistics units running without a producer.
+The [source and execution receipt](/evidence/imagerequest/acquisition.json)
+separates that baseline, native regressions and the finite continuation.
+
+Code/data addresses here are original C1.70 MAS VAs; register addresses are
+board PAs, with masks/offsets hexadecimal and dimensions/counts decimal.
+
+**Source facts:** `1023abaa` selects `1023aafe` for software unit1.
+`1023aafe` independently installs its callback mask and calls `1020c444`;
+the latter selects shared commit1 and `102097cc` enables the corresponding
+capture unit. `1023a9d2 ->1020c3ec/c3fa` programs the frontend geometry and
+uses `1020c3c0` for commit4. The retained packet at PA `20069d00/04`
+contains input extent/origin fields, `20069e78/7c` the output fields and
+`20069f00` the geometry control. This is separate from the auxiliary
+`2006b3c8` request descriptor and its physical unit2 lifecycle.
+
+The observed first read requests 8288 by58 input and2072 by58 output,
+zero origins, correction control `20068500=0` and geometry control11.
+Its event mask `20068200=10000020` excludes raw0.bit0 and bit6. The
+`1023abaa` mask builder toggles bit6 for the mode1 statistics record.
+Mode1's source consumer uses endpoint1 ring completion rather than per-frame
+retirement. A masked raw status is retained by the capture controller, but
+cannot be a requirement for a guest ACK that this mode does not request.
+
+**Finite functional hypothesis:** on a fresh automatic TG rising edge,
+committed correction0 and zero-origin, non-expanding geometry define an
+internal LE16 gray stream at the frontend output dimensions. Both commit
+ports snapshot only their selected main/geometry groups. All three effective
+run gates1/4/8 must be active. Width/height are bounded to4096 and the frame
+to4M samples; unknown correction arithmetic, disabled geometry, nonzero
+origins and expansion are rejected. The externally selected PGM/PPM scene
+and existing normalized sampling supply pixels. A fixture provider remains
+explicit. No implicit scene is supplied when the provider is unbound.
+
+This direct normalized stream simplifies the inline identity/geometry stages;
+it is not a physical Bayer/readout reconstruction. The same CMOS engine,
+provider-generation token, exposure timer and row-bounded4096-byte chunks
+produce its bytes into an owned internal buffer. It does not allocate an
+invented raw guest RAM aperture or prefill a GUI surface. Only a real DONE
+for that token copies a completed frame into the processing input namespace
+and publishes raw0.bit0. A premature DONE leaves the active job intact.
+Statistics and paired processing retain their own configured DMA/result and
+completion requirements; acquisition emits none of their completion causes.
+
+The single engine is not preempted. One fresh automatic TG rise admits a
+finite batch of at most two views: the eligible MAIN snapshot and the
+auxiliary generation already owned at that edge. MAIN runs first; its actual
+DONE, ERROR or CANCEL releases the engine to that admitted auxiliary without
+another TG edge. An invalid MAIN profile does not discard valid auxiliary
+ownership, and invalid auxiliary transport does not discard eligible MAIN.
+This serial two-view batch is a functional acquisition assumption motivated
+by the independent source unit lifecycles; it is not physical sensor timing
+or proof that these views represent one measured exposure.
+
+Earlier/busy/repeated-high edges create no credits. An auxiliary request
+arriving after batch admission waits for a later fresh TG even if the current
+MAIN view subsequently completes. A cancelled queued auxiliary generation
+cannot be replaced inside that batch by a newer request. No generic request
+queue or accumulated TG scheduler is introduced.
+Main and auxiliary deliveries use one monotonic input-generation namespace,
+and each processing job copies its selected input. Masked main notifications
+coalesce in retained status without stopping acquisition. A pending **enabled**
+raw6 data notification backpressures statistics alone; a masked raw6 does not
+block mode1's ring completion. The earlier acquisition/statistics cross-gate
+was a finite scheduling assumption, superseded by independent packet ownership:
+MAIN continues fresh eligible acquisitions and capture-work blocks only on
+its raw0 mask18 or raw4 mask80. Each processing job already owns a private input
+copy. This separation is a functional inference from the independent unit
+controls and consumers, not a physical cross-unit timing measurement.
+Mask changes do not themselves
+produce a frame, numerical result or completion.
+
+Only a successful immutable snapshot and normal capture publication pulse
+`input-ready`. MAIN additionally pulses `main-input-ready`, after its dedicated
+MAIN snapshot is visible. These outputs carry actual input availability,
+never a TG promise, readiness fabrication or downstream completion. The pulse
+handlers can snapshot the published bytes before the admitted auxiliary
+begins. Failed, cancelled, stale or merely submitted views produce no pulse.
+
+Changed selected configuration or a falling main/geometry run gate cancels
+only active main ownership. Equal commits and staging preserve the active
+frame. Auxiliary stop cancels only its own pending/active request; it cannot
+invalidate a main frame already delivered to the shared input. A failed
+auxiliary snapshot/completion also cannot replace that frame. Reset clears
+ownership, configuration validity and input data, preserving the external TG
+level: a repeated high after reset is not a new rising edge. No callback,
+guest event object, queue, latch, program counter or guest counter is modified
+by the host to complete the transaction.
+
+Native red cases establish three independent faults: main-only run1d
+produces zero frames instead of one; a masked stream cannot finish its
+configured endpoint ring; and cancelling an active auxiliary DMA loses a
+previously delivered main frame before statistics can consume it. The focused
+fixtures check actual scene-dependent scalar/output bytes, no auxiliary
+request or raw RAM write for main acquisition, cross-channel arbitration and
+cancellation, equal/changed commits, staging, each run gate, reset and fresh
+edges, missing provider and unsupported geometry/correction. These are finite
+device tests, separately from original-firmware startup.
+
+The later `/nikon/cmos/pipeline/two-views` fixture checks one fresh TG against
+the former alternating-view behavior: both actual auxiliary DMA and one MAIN
+snapshot must complete, with two CMOS frame completions and no second TG.
+Its companion fixtures cover busy-edge discard, a late/replaced auxiliary
+request, independent MAIN/auxiliary cancellation, changed MAIN configuration,
+whole-model reset and invalid profiles in either domain. The existing MAIN
+domain fixture still checks that auxiliary pixels cannot replace the dedicated
+MAIN input consumed by capture processing. Native results for this batch
+change are reported separately from the historical execution below.
+
+The earlier applicable batch passed32 CMOS,33 sensor and32 memory cases. In a final
+45-host-second unchanged-firmware cold-neutral window,985 independent main
+frames complete with no main rejection/cancellation, after290 auxiliary DMAs.
+Acquisition therefore survives the auxiliary stop. Statistics completes290
+earlier jobs and rejects984 later jobs at the sequential QMP sampling point.
+Its first active endpoint now rejects PA `5df45400`, span300, because the
+resolved region is `z7ii.uncovered`, rather than rejecting the disabled
+outputs. The diagnostic remains explicit and publishes no result/completion.
+
+Source `1030ad70` selects ordinary kind18 for up to6 requested units, but
+kind32 above6, with stride12000 and total size `12000 * count`. The final
+kind32 base table VA `b26b4bd0` contains `5df45400`, matching endpoint1's
+committed address and the root descriptor. At this acquisition revision, its
+complete backing/allocation and address conversion are the next boundary;
+this change does not map a single failing address or extend the surrounding
+DDR class. The first read
+remains pending, information storage remains zero and both heads lack a
+console. These observations do not establish FECLCTRK admission or GUI boot.
+The later [pool continuation](../../runtime/capturedata.md#large-count-grid-storage-and-the-remaining-address-contract)
+resolves that storage boundary and records the next RGB address-control limit.

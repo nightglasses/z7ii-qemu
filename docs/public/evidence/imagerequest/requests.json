@@ -1,0 +1,100 @@
+{
+  "scope": "Whole paired/graph request admission, atomic type0 parameter capture and all currently programmed pool owners; no actual image operator or completion",
+  "dependency_baseline": "6bfd962f",
+  "source": {
+    "component": "OriginalC1.70MAS; code/ROM/software VA,device/RAM PA;hexadecimal addresses/registeroffsets/masks,decimalcounts",
+    "paired_start": "10369faa selectedbank10=1 then08=1;102e4724 immediately calls original42190804 callback beforehardwarewait.102637c2 mapssoftware04 to coordinator event10. Actualrequest42190803 callback102637c3 cookie0",
+    "paired_finish": "10369fc4 literal203800ec minus e0 writes0c=1, NOT14. Repeatedworker waits110 thenrequestsfinish andwaits120;event10hasseparatesoftwareproducer102c056c->102e5498/54a0",
+    "paired_status": "10369f98 reads18;102e531a testszero/nonzero. Result1036a4fa reads118;numericproducerunknown",
+    "graph_start": "103b4cea reverse-startsconfigurednodes through103bd07c backend0=1;status103bdbbe tests(word&3)!=3.42knownports,includingstrictinferredtype14layout",
+    "capture_correction": "103bda1e writes13words,2c=slot,waits8genericcountertickswithoutdevicepoll.103b4e1e(a2=4) configuresandreturns421930e4withoutprocessorstart.103bd1d6 querybank20102040 isusedbyallocator1038917c,notparameterreload. Normalreloadbeforeanystartfalsifiespermanentbusy-on-configuration",
+    "pools": [
+      {
+        "kind": 25,
+        "row_VA": "11983398",
+        "PA_range_exclusive": "[5f914400,5f94a400)",
+        "unit_hex": "d800",
+        "count": 4
+      },
+      {
+        "kind": 26,
+        "mode": 4,
+        "row_VA": "11982d7c",
+        "PA_range_exclusive": "[dec7fc00,e2185000)",
+        "unit_hex": "1a82a00",
+        "count": 2
+      },
+      {
+        "kind": 31,
+        "mode": 4,
+        "row_VA": "119837b8",
+        "PA_range_exclusive": "[e2185000,e2616400)",
+        "unit_hex": "248a00",
+        "count": 2
+      }
+    ],
+    "pool_selection": "10306fb0 default11982938,mode4overrides11982dac. kind25NULLoverride,26/31selectlistedrows. Allcapturednonzeroaddressfamilies310..31c/398..3a4/430..46c/488..4a4 belongexistingkind16orthesethreeowners;nohighbitmask/VAphysicalmirror",
+    "real_data_join": "kind16ringinputpitch0x820,sourceROI1380x778inside1380x918. kind26mainpairpitch0x560,1372x770geometryandplaneoffset0x102ac0 matchgateslot8. kind25fourgridaddressesmatchslot2map,decimalpitch96/downstream60x34. kind31work/referenceformat42c=3remainsunresolved"
+  },
+  "model": {
+    "paired": "bank-localQuiescent->Armed(10)->AwaitInput(08)->DrainPending(0c),virtual18=0/1,wholeresetcancels;noautomaticresult/draincompletion/IRQ.14and54/60/6c/78remainerrors",
+    "graph": "configured/deassertednot-startednodeadmits0=1,virtualactive1nevercompletion3;localresetisolated. Noactualdataoperator/inputdependencyinvented",
+    "parameters": "Independent13wordstagingandcommittedsnapshot;2cvalidatescompletepacketthenactuallycopiesandclearsstagingcoverage;quiescentreloadallowed,partialreloadretainspriorbytes. QOMparameter-valid/parameter-commits. No busy-clear timer or software resource release",
+    "active_boundary": "Whileanyunboundgraphnodeisrequested,hardwareavailabilityqueryandparameterpublicationremainerrorsratherthanfabricatedidle/activeframeoverwrite. Frameownershipstillunmodeled",
+    "memory": "3exactindependentoffset-awareRAMregions,coldzeroandresetretentionexplicitfunctionalchoices. Noresultbytes,frame orpendingcause supplied",
+    "quiescent_query": "Query0 is an explicit functional availability hypothesis after actual parameter capture with no outstanding graph start, not a recovered physical busy law"
+  },
+  "native": {
+    "red": [
+      "Oldpaired18HMPreadunsupported",
+      "Oldgraphstartremains0insteadpending1",
+      "Oldunmappedkind25DMAsourcecopydoesnotcomplete",
+      "Oldpermanentbusyrejectslegalslotparameterrestaging"
+    ],
+    "green": {
+      "memory_subtests": 35,
+      "SLA_subtests": 23,
+      "failures": 0
+    },
+    "coverage": "All42nodestarts/invalidorder/value/reset/noevents;dualpairedarm/start/finish/reset/noresults;all16fullparametercapture/reload/partialatomicity/activequeryandreloadrejection/reset;3completepoolunitsfirstlast/DMApagecrossing/retention/exactedges",
+    "review_correction": "IndependentprimaryThumbauditcorrectedprovisionalfinish14to0c;finalcapture-greenbatchcoverscorrectedcode. Earliergreenisnotusedasfinalverification"
+  },
+  "original_execution": {
+    "profile": "Unchangedfirmware,boundedNORresource35descriptor17/cold-neutralresource80,quadrantPGM,healthy paced9600baudUART/RNG0/acceleration0,0,1024/heldF4/fiveCPU MTTCG;guest_errors traceonly",
+    "host_seconds": 60,
+    "in_window_GDB_pause": false,
+    "loaded_packets": 18,
+    "loaded_words": 649,
+    "parameter_valid_decimal": 318,
+    "parameter_commits": 9,
+    "paired_bank0_active": 1,
+    "paired_bank0_pending": 0,
+    "paired_bank1_active": 0,
+    "main_completed": 128,
+    "main_rejected": 0,
+    "main_cancelled": 1,
+    "statistics_completed": 507,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "uncovered": "CPU0 PC106ee3c6 WRITE32 PA201810e0=1,transfer-stream-truncated;latergraphicsparserboundaryafterlegalparameterreload",
+    "GUI_readiness": 0,
+    "information_records": {
+      "addresses_VA": [
+        "b201c038",
+        "b1fa375c"
+      ],
+      "bytes_each": 1124,
+      "equal": true,
+      "nonzero_bytes_each": 173,
+      "leading_word": 1,
+      "geometry_word_hex": "02aa0400",
+      "qualification": "RAM records populated; no independent proof of record92 notification, completed GUI call chain or normal live view"
+    },
+    "display": "head1 QMP screendump id11 succeeds:1024x682 status widgets and memory-card error overlay; head0 id10 unbound. Direct screenshot reviewed; GUI readiness0 is not absence of console",
+    "QMP_status": "debug/stopped",
+    "battery_peer_rejections": [],
+    "graph_nodes_active_at_snapshot": 0
+  },
+  "observer_limits": "Separateinputdiagnosticfirst30swasnotatconfiguredphase;first60sfullcaptureabortedonunmappedkind25read. Correctedreadonly60sdiagnosticretainsjob212/core/backing/alladdressgroupsandrecordsE14forunmappedkind25. Theseareprechangeinputevidence,notbootpasses. Originalexecutionaboveisthesubsequentslot-capture-correctednormalwindow;sequentialQMPthenreadonlyGDBnotatomic/physicalrates. Anadditionaldiagnostic-onlybuildpreservessame18/649/9parametercapturebutdifferentthroughput;nooperatorcompletionclaim Later pairedcommands/pairedsegments diagnostic-only runs reject screendump on both heads; stable first-enable timing is not established. The earlier summary claiming neither console in pairedcapture was corrected by direct QMP/screenshot review.",
+  "limits": "Main/referenceencoding,activecorrectionmath,framefreshness/ringselectionandrealresult/eventpublicationremainopen. Rawfirmware/disassembly/fulltracesstayignored. Priorbusy-on-commitreceiptsremainhistoricalhypotheses,notphysicalownershipproof Table roles as signed/trigonometric coefficients are numerical inferences, not recovered correction equations."
+}

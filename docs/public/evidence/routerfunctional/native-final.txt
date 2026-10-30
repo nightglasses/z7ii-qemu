@@ -1,0 +1,9 @@
+Native test output excerpt
+Run: routerfunctional-20261022
+Original log: native-final.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/2 nikon+qtest+qtest-arm - qemu:nikon_memory OK              6.47s   25 subtests passed
+2/2 nikon+qtest+qtest-arm - qemu:nikon_sla    OK             10.44s   23 subtests passed
+Ok:                2
+Fail:              0

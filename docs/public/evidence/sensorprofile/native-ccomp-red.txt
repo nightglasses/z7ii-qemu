@@ -1,0 +1,12 @@
+Native test output excerpt
+Run: sensorprofile-20261024
+Original log: native-ccomp-red.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+▶ 1/1 /arm/nikon/ccomp/pulses - ERROR:../../config/source/tests/qtest/nikon/devices.c:390:ccomp_levels: assertion failed (qtest_readl(q, GPIO + 0x14) & 0x80 == ack ? 0x80 : 0): (0x00000000 == 0x00000080) FAIL
+▶ 1/1                                  ERROR
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.31s   killed by signal 6 SIGABRT
+ERROR:../../config/source/tests/qtest/nikon/devices.c:390:ccomp_levels: assertion failed (qtest_readl(q, GPIO + 0x14) & 0x80 == ack ? 0x80 : 0): (0x00000000 == 0x00000080)
+1/1 nikon+qtest+qtest-arm - qemu:nikon ERROR           1.31s   killed by signal 6 SIGABRT
+Ok:                0
+Fail:              1

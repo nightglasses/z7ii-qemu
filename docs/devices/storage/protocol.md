@@ -30,11 +30,187 @@ guess, host filesystem shortcut, synthetic write acknowledgement or firmware
 request-ring reply. The real guest filesystem must create its own on-media bytes.
 The DDR device called SDI is unrelated to this storage endpoint.
 
+## Explicit media input
+
+The MAS machine property `slot0-drive` selects an existing BlockBackend by ID.
+Omitting it leaves source slot 0 absent even when an unused backend named
+`storage` exists; a selected unknown ID fails initialization. Source slot 0
+uses the implemented NVMe path. Source slot 1 is the separate SD path and remains
+absent: no SD transport or `slot1-drive` option is claimed. Nikon's
+[card-slot documentation](https://onlinemanual.nikonimglib.com/z7II_z6II/en/03_first_step_04.html)
+identifies the physical CFexpress/XQD and SD slots; the source joins below,
+rather than that manual, establish the emulated software routing.
+
+Create a new disposable raw image under ignored `work/`, then append the drive
+argument to the existing complete-bundle launch, retaining its other explicit
+inputs. This example supplies an 8 GiB sparse, zero-filled medium; capacity is a
+virtual input choice, not a recovered card specification. Python is sufficient
+for raw-image creation and requires no additional dependency:
+
+```sh
+mkdir -p work/media
+python3 - <<'PY'
+from pathlib import Path
+
+with Path("work/media/card.raw").open("xb") as media:
+    media.truncate(8 * 1024**3)
+PY
+```
+
+The exclusive create refuses to overwrite an existing medium. Add
+`,slot0-drive=card0` to the existing `-machine z7ii-mas-diagnostic,...` value
+and append this backend argument to `work/build/qemu/qemu-system-arm`:
+
+```text
+-drive if=none,id=card0,file=work/media/card.raw,format=raw,cache=writeback
+```
+
+The guest may modify this scratch image. Blank media has no partition table or
+filesystem and may correctly require formatting. Attachment alone does not
+establish guest Identify, mounting, successful file I/O or normal GUI readiness.
+No host formatting, filesystem fabrication or automatic attachment is part of
+this profile. The checked local build and executable search had no `qemu-img`;
+the recipe therefore uses the available Python runtime rather than requiring an
+installation. Slot choice, capacity and initial image contents are explicit
+virtual inputs. MAS owns this card; its private SLA host does not attach a
+second endpoint to the same backend.
+
+### Filesystem and folder boundary
+
+The supported storage boundary is a sector-addressable image backed by QEMU's
+native block layer. Original firmware owns partition discovery, formatting,
+directories, file allocation and flushes. The host must not acknowledge a guest
+file request by directly writing a host folder: that would skip the filesystem
+and NVMe queues being investigated. Preserve a formatted disposable image to
+reproduce later sessions, or start with a fresh blank image to test formatting.
+
+A host folder is useful as an offline import/export destination. Stop QEMU
+before mounting its image; use a read-only host mount for extraction, copy the
+files, and eject the actual returned device before reusing the image. Blank or
+unrecognized media cannot be exported as though a filesystem existed. For a
+single mountable filesystem on this macOS host, the available interface is:
+
+```sh
+diskutil image attach --readOnly --nobrowse --mountPoint "$PWD/work/media/mounted" "$PWD/work/media/card.raw"
+```
+
+Use the returned mount point for copying and the returned whole-device name
+with `diskutil eject`. For multiple partitions, omit `--mountPoint` and inspect
+the actual mounts. This procedure is a design/usage boundary, not a performed
+mount or verified original-camera file save.
+
+The pinned QEMU also supports `fat:/absolute/folder` through its existing vvfat
+driver. Its default read-only mode can serve experimental prepopulated input;
+it is not the primary writable-card model. The pinned implementation defaults
+to FAT16 with fixed geometry, describes write-back `fat:rw:` as beta, and places
+restrictions on filenames, concurrent folder modification and snapshots.
+FAT32 is explicitly untested in that implementation. A folder backend therefore
+does not establish compatibility with the guest's formatting or filesystem
+expectations. No custom folder bridge or new dependency is introduced.
+
+### Historical execution before insertion correction
+
+An unchanged C1.70 complete-bundle run on revision `81ebe330`, with the
+cold-neutral paired profile and an explicit writable 8 GiB sparse zero raw
+backend, observed a 20-host-second window without GDB interaction during that
+window. QMP exposed the native NVMe endpoint and backend; `query-blockstats`
+reported zero read, write and flush operations and no I/O failure. Subsequent
+sequential reads found MAS VA cells `b1801710`, `b18012ec` and `b1801aec` zero
+and signal PA `2b000010` zero. These samples are not an atomic snapshot.
+
+The run stopped at CPU1 VA `1036a4a2`, with a write of `1` to PA `20380010`
+and paired DF8 value `f8040000`; both display heads remained unbound. Thus this
+window establishes attachment, but no original NVMe Identify or block I/O.
+It does not reproduce the historical card-error overlay or show that adding
+media clears it. The next discriminating execution must pass that paired
+boundary and observe original controller initialization, namespace discovery
+and filesystem accesses before attributing a later failure to the medium or
+the host model.
+
+## Insertion before link training
+
+C1.70 MAS VA `1049d68e` tests card insertion through route 3 of the signal
+controller. Helper `105167fe` maps that route to PA `2b000010` raw bit 2 and
+filtered bit 10. The power-on chain is `104d58e0 -> 1051635a(1) -> 105162a2`;
+it requires filtered insertion before applying card power controls or calling
+the host-training entry. Driving insertion from completed training creates a
+circular dependency even with a real backend attached.
+
+The host's named GPIO `present` therefore reflects an inserted native
+BlockBackend at reset, independently of PHY state. Machine wiring connects it
+to signal route 3; the existing signal gate/debounce/edge logic still owns
+filtered status and IRQ237. Missing media produces a low input. Training and
+cancellation do not remove an inserted card; host/system reset reasserts the
+actual static media level. PHY state 11 and native queue completions retain
+their separate causes. Static media attachment is the supported input profile;
+hot removal is not implemented.
+
+The SD-icon error belongs to a separate path. MAS VA `10482676(slot != 0)`
+resolves semantic service 91 through `*(u32*)b1800008`, then reads its GPIO
+through `10385d76`, interpreting low as inserted. A runtime join found table
+VA `120659c0`, service 91, object VA `b1803884`, pin 14 and PDR PA `04282014`:
+port 5 pin 14. The object is initialized, but that pad previously had no provider;
+its pull-disabled virtual-low fallback falsely represented an inserted SD card.
+
+The machine now supplies an explicit high external level for this unsupported
+empty SD slot. Guest output mode still takes precedence; reset retains the
+external provider. This is a source-backed functional absence input, not a
+measured electrical pull-up or an SD completion. The [whole GPIO audit](../gpio/input.md#whole-source-family-audit)
+keeps other dynamic and unresolved pads separate. No independent SD endpoint
+or successful SD initialization is claimed.
+
+## Root transaction-error consumption
+
+All twelve C1.70 MAS config/BAR 8/16/32-bit access wrappers in VA
+`105183d6..10518596` call `105187e4` after the real transaction. That helper
+reads DWORD PA `2a900104`, tests bit 14 and records software error 6 at VA
+`b1801764` when set. Omitting this read caused an original Data Abort at
+PC VA `105187e6`, DFAR PA `2a900104`, after insertion and link training had
+already succeeded. The later PC VA `b2bb0110` was the relocated fatal-dump
+UART loop, not the initiating storage fault.
+
+The finite host exposes this aligned, read-only DWORD as a sticky transaction
+error latch. Failed config/host-window accesses or actual native BAR
+`MemTxResult` failures set bit 14 and retain the failed transaction result;
+successful operations and status reads do not clear it. Whole-device reset
+clears it. No guest W1C producer is established, so writes remain errors.
+BAR forwarding uses a native AddressSpace over GPEX's PCI memory, preserves
+attributes and endianness, and does not intercept namespace commands or replace
+their CQ status. NVMe command errors do not become root transaction errors.
+
+Mapping a failed host transaction to this bit is an explicit functional
+assumption. Bit 14 resembles standard PCIe Completion Timeout, but no complete
+physical AER capability or timing is claimed. GPEX's root function is a
+256-byte conventional PCI device; expanding its config proxy to 4 KiB or
+inserting an AER helper without a PCIe capability/lifecycle would be incorrect.
+The original extended-capability scanner instead targets the **endpoint**.
+Other root extended addresses remain unsupported.
+
+## Current original execution with selected media
+
+With all three corrections—independent insertion, level sampling separated
+from event capture, and root-error consumption—unchanged C1.70 execution with
+the explicit cold-neutral/PGM/paired profile and an 8 GiB blank raw card remains
+running through a 60-host-second window. QMP reports one actual 512-byte backend
+read, zero writes/flushes and zero failed I/O. Subsequent read-only sampling
+finds signal status `404`, PHY state `11`, link `1`, negotiated guard `2` and
+root transaction errors `0`. Source registry VA `b1801710` holds `b1801738`
+and controller VA `b18012ec` holds `b2d02a28`.
+
+The same window completes 108 paired frames, writes 287,426,880 active bytes
+and binds the 1024×682 head1 status GUI. The absent/non-CPU-lens notice replaces
+the earlier SD-icon error; head0 remains unbound. These observations establish
+original media access alongside image processing, not a mounted filesystem,
+format, saved file, stable normal live view or physical card fidelity. Blank
+media has no filesystem; later original formatting/save requests are the next
+storage acceptance boundary. The [presence receipt](/evidence/storage/presence.json)
+preserves pre-fix failures and native tests separately.
+
 ## Original firmware contract
 
 These execution addresses belong to the C1.70 MAS outer image. The local original
 Listing/P-code projection is
-`nightglass/work/worktrees/qemu-rtos-startup/work/storage/source/`:
+`nightglass/run storage/source/`:
 101 complete entry providers, 3,883 unique original instructions, 330 direct calls,
 2,835 expression nodes and 43 indirect transfers. The original instruction bytes,
 mode, reference sites and expression producers remain in the projection. This is
@@ -63,6 +239,8 @@ string named NVMe. The original debug strings identify `NvmExpressBlockIo.c`,
 available in [TianoCore EDK II](https://github.com/tianocore/edk2/tree/master/MdeModulePkg/Bus/Pci/NvmExpressDxe).
 The observation does not establish an exact EDK II version or equivalence of
 every original instruction to the current upstream source.
+The moving EDK II link is background navigation, not a fixed source binding
+for the recovered guest driver.
 
 Original initialization caller `104d4e8a` calls `1052fa12` at `104d5010`.
 The PCI I/O object lives at controller offset `10`: methods `+0/+4` are BAR
@@ -176,10 +354,10 @@ before a training request can complete. The function model uses an explicitly
 assumed 1ms virtual training delay, state11, DBI98 low4=2, and boolean PHY210=1
 after success. These are software-compatible functional assumptions, not measured
 PCI link speed, timing or performance. PHY +58 state fields never become ready
-from reads alone. Missing media remains offline. The named GPIO output `link`
-index0 is high only in state11; machine glue connects it to the existing signal
-device's route3 input, which owns filtering and raw2b000010 bit10. The host never
-overlaps or seeds that signal register bank.
+from reads alone. Missing media remains offline. The named GPIO output
+`present` supplies insertion independently of state 11, through the existing
+signal device's route 3 input. The host never overlaps or seeds that signal
+register bank.
 
 Cancellation is requested by a rising PHY3c bit4 or PHY50 bit16. It first invokes
 native PCI/NVMe reset, whose existing controller path drains namespaces and cancels
@@ -208,7 +386,7 @@ training producer10517c6a accesses them before PHY start.
 The existing SLA SOURCE11 Listing was audited as a complete related family,
 rather than assigning a role from address similarity. Source ROM execution
 addresses below use `O = VA - 10020000` in component04. The bounded original
-projection is `nightglass/work/worktrees/qemu-rtos-startup/work/storage/sla/`:
+projection is `nightglass/run storage/sla/`:
 `family.json` retains 4,050 original rows and incoming reference sites;
 `phy.json` retains the 821 low-level rows and every observed PHY-offset access.
 The existing source has not been accepted as recovered, compiled source, and
@@ -284,7 +462,7 @@ loop BIOS and the same real backend:
 
 The sole builder compiled and linked the complete host with the actual board
 mapping, then ran all three added host cases successfully in 0.71s. The local
-receipt is `work/worktrees/native-qemu-source/work/validation/gui/storageqomfinal.log`.
+receipt is `run validation/gui/storageqomfinal.log`.
 The tests do not claim original frame-save execution, racing Abort, or card hot
 removal. Build and execution are delegated to the single native
 build owner. The sole build owner ran these three cases successfully in 0.78 s;
@@ -303,13 +481,23 @@ a manufactured link. This catches the duplicate-root-path abort that separate
 MAS and SLA invocations cannot detect. The sole builder compiled production
 and fixture from `c245e238`; the dual-host case exited0 in1.38s and the existing
 roundtrip/cancellation lifecycle case exited0 in1.22s. Their ignored receipts
-are `work/storagedualdomainsnativereceipt.log` and
-`work/storageidentityroundtripnativereceipt.log`. Synthetic input does not
+are `run storagedualdomainsnativereceipt.log` and
+`run storageidentityroundtripnativereceipt.log`. Synthetic input does not
 establish original firmware execution or a frame save.
 
 The private AddressSpace selection was compiled as part of fixed source
 `7f241eb9`. Its necessary native host regression exited0 in1.32s, and the
-cancellation roundtrip exited0 in0.15s: `work/storagedomainhostnativereceipt.log`
-and `work/storagedomainroundtripnativereceipt.log`. These are the existing
+cancellation roundtrip exited0 in0.15s: `run storagedomainhostnativereceipt.log`
+and `run storagedomainroundtripnativereceipt.log`. These are the existing
 synthetic host interfaces; they do not establish original SLA DMA execution,
 physical link training or an original frame save.
+
+The current focused native acceptance adds insertion/reset, explicit backend
+selection, a missing-ID startup failure and the root transaction-error lifecycle.
+All 10 storage cases pass in 2.12 s alongside 23 SLA cases in 11.56 s. The root
+error test accesses a genuine unmapped region inside the host aperture but
+outside the native NVMe BAR, verifies sticky bit 14 across later successful
+accesses and unsupported writes, and verifies reset clearing. It does not
+invent an NVMe completion. The six GPIO cases separately pass, including SD
+absence across reset and direction/pull changes. The receipt also records
+closed-capture debounce and truthful level status across all five signal routes.

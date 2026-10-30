@@ -5,6 +5,7 @@
 #include "hw/nikon/sla.h"
 #include "libqtest-single.h"
 #include "fixture.h"
+#include "router.h"
 
 void nikon_events_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_test_notifier(QTestState *qts);
@@ -12,7 +13,6 @@ void nikon_test_counter(QTestState *qts);
 void nikon_signal_test(QTestState *qts, const char *path, uint64_t signal,
                        uint64_t configuration, uint64_t lanes);
 void nikon_staging_test(QTestState *qts, const char *path, uint64_t base);
-void nikon_router_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_gate_test(QTestState *qts, const char *path, uint64_t base);
 void nikon_status_test(QTestState *qts, uint64_t status, uint64_t system);
 void nikon_test_flags(QTestState *qts);
@@ -761,6 +761,48 @@ static void test_router(void)
     g_assert_cmpint(unlink(path), ==, 0);
 }
 
+static void test_router_requests(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s", path);
+
+    nikon_router_requests_test(qts, "/machine/sla/router", 0x20060000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_router_timing(void)
+{
+    g_autofree char *path = fixture_container();
+    QTestState *qts = qtest_initf("-machine nikonsla -bios %s "
+        "-global nikon-peripheral-event-router.input-period-ns=1000", path);
+
+    nikon_router_timing_test(qts, "/machine/sla/router", 0x20060000);
+    qtest_quit(qts);
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
+static void test_router_period_rejection(void)
+{
+    g_autofree char *path = NULL;
+
+    if (g_test_subprocess()) {
+        QTestState *qts = qtest_initf("-machine nikonsla -bios %s "
+            "-global nikon-peripheral-event-router.input-period-ns=1",
+            g_getenv("NIKON_ROUTER_FIXTURE"));
+
+        qtest_quit(qts);
+        return;
+    }
+    path = fixture_container();
+    g_setenv("NIKON_ROUTER_FIXTURE", path, true);
+    g_test_trap_subprocess(NULL, 5 * G_TIME_SPAN_SECOND, 0);
+    g_test_trap_assert_failed();
+    g_test_trap_assert_stderr("*input-period-ns must be0 or at least2*");
+    g_unsetenv("NIKON_ROUTER_FIXTURE");
+    g_assert_cmpint(unlink(path), ==, 0);
+}
+
 static void test_status(void)
 {
     g_autofree char *path = fixture_container();
@@ -1007,6 +1049,10 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/sla/signal", test_signal);
     qtest_add_func("/nikon/sla/staging", test_staging);
     qtest_add_func("/nikon/sla/router", test_router);
+    qtest_add_func("/nikon/sla/router-requests", test_router_requests);
+    qtest_add_func("/nikon/sla/router-timing", test_router_timing);
+    qtest_add_func("/nikon/sla/router-period-rejection",
+                   test_router_period_rejection);
     qtest_add_func("/nikon/sla/gate", test_gate);
     qtest_add_func("/nikon/sla/status", test_status);
     qtest_add_func("/nikon/sla/flags", test_flags);

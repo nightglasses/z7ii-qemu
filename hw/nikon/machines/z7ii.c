@@ -6,10 +6,13 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/cutils.h"
+#include "exec/target_page.h"
 #include "hw/core/boards.h"
 #include "hw/core/loader.h"
 #include "hw/core/irq.h" /* IWYU pragma: keep */
+#include "hw/core/split-irq.h"
 #include "hw/core/qdev.h"
+#include "hw/core/qdev-clock.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/qdev-properties-system.h" /* IWYU pragma: keep */
@@ -27,13 +30,16 @@
 #include "hw/nikon/sensor.h"
 #include "hw/nikon/cmos.h"
 #include "hw/nikon/readoutpipeline.h"
+#include "hw/nikon/statistics.h"
 #include "hw/nikon/frame.h"
+#include "hw/nikon/save.h"
 #include "hw/nikon/sla.h"
 #include "hw/nikon/bootshim.h"
 #include "hw/nikon/ex.h"
 #include "hw/nikon/expower.h"
 #include "hw/nikon/input.h"
 #include "hw/nikon/events.h"
+#include "hw/nikon/exconfig.h"
 #include "hw/ssi/ssi.h" /* IWYU pragma: keep */
 #include "hw/i2c/i2c.h"
 
@@ -51,59 +57,22 @@ OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 #define Z7II_SLA_CPUS 2
 #define Z7II_EX_CPUS 1
 
-/* Software flash offset of the EX factory config block (VMA 0x08004000). */
-#define EX_CONFIG_OFFSET 0x4000
-#define EX_CONFIG_SIZE 0x0e2c
-#define EX_CONFIG_MAIN_OFFSET 0x10
-#define EX_CONFIG_GATE_OFFSET (EX_CONFIG_OFFSET + EX_CONFIG_MAIN_OFFSET + 0x21d)
-#define EX_CONFIG_MODE_OFFSET (EX_CONFIG_MAIN_OFFSET + 278)
-#define EX_CONFIG_AUX_OFFSET 0x8100
-#define EX_CONFIG_AUX_SIZE 0x0200
 #define EX_ADC_POWER_RAIL_COUNT 4095
-
-typedef struct NikonEXConfigData {
-    uint8_t fill;
-    uint8_t magic[4];
-    uint16_t channel0_offset;
-    uint8_t channel0_value;
-    uint16_t mode_offset;
-    uint8_t mode_value;
-    uint16_t gate_offset;
-    uint8_t gate_value;
-} NikonEXConfigData;
 
 typedef struct NikonEXFunctionalInputs {
     int adc[4];
     uint8_t adc_mask;
-    uint32_t io_mask;
-    uint32_t io_high;
     bool power_good;
     bool gpiod13;
 } NikonEXFunctionalInputs;
-
-static const NikonEXConfigData z7ii_ex_config_power_on = {
-    /* Unknown factory fields are erased/zero until proven otherwise. */
-    .fill = 0,
-    .magic = { 'M', 'A', 'K', 'E' },
-    .channel0_offset = EX_CONFIG_MAIN_OFFSET + 276,
-    .channel0_value = 0,
-    .mode_offset = EX_CONFIG_MODE_OFFSET,
-    .mode_value = 5,
-    .gate_offset = EX_CONFIG_GATE_OFFSET - EX_CONFIG_OFFSET,
-    .gate_value = 1,
-};
 
 /* Deterministic board contract used by the complete bundle composition. */
 static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
     /* The configured power path samples channel 0 against a firmware
      * threshold of 3819.  Full-scale is a finite synthetic board-rail input,
      * not a recovered voltage measurement. */
-    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, 3500, 3500 },
-    .adc_mask = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3),
-    /* The power-monitor expander setup leaves the four observed control
-     * pins low; an omitted pin remains electrically disconnected. */
-    .io_mask = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 10),
-    .io_high = 0,
+    .adc = { EX_ADC_POWER_RAIL_COUNT, 3500, -1, 3500 },
+    .adc_mask = (1u << 0) | (1u << 1) | (1u << 3),
     .power_good = true,
     .gpiod13 = true,
 };
@@ -114,21 +83,42 @@ static const NikonEXFunctionalInputs z7ii_ex_functional_inputs = {
 #define Z7II_DISPLAY_BUFFER_BASE 0xcb4a7000ULL
 #define Z7II_DISPLAY_BUFFER_SIZE 0x1194000ULL
 #define Z7II_LCD_COMPOSITION_BASE 0xbf309600ULL
-#define Z7II_LCD_COMPOSITION_SIZE 0x4b0000ULL
-#define Z7II_RESOURCE57_RECORD0_BASE 0xbec5f200ULL
-#define Z7II_RESOURCE57_RECORD0_SIZE 0x4b0000ULL
-#define Z7II_RESOURCE57_RECORD1_BASE 0xbf10f200ULL
-#define Z7II_RESOURCE57_RECORD1_SIZE 0x1fa400ULL
-#define Z7II_RESOURCE57_RECORD7_BASE 0xc175d600ULL
-#define Z7II_RESOURCE57_RECORD7_SIZE 0x4b0000ULL
+#define Z7II_GUI_POOL_BASE 0xbec5f200ULL
+#define Z7II_GUI_POOL_SIZE 0x386c200ULL
+#define Z7II_KIND40_BASE 0x62059800ULL
+#define Z7II_KIND40_SIZE 0x1c8000ULL
+#define Z7II_KIND41_BASE 0x62221800ULL
+#define Z7II_KIND41_SIZE 0x400000ULL
+#define Z7II_PROCESSING_ARENA_BASE 0xb0100000ULL
+#define Z7II_PROCESSING_ARENA_SIZE 0x800000ULL
+#define Z7II_PROCESSING_SMALL_BASE 0xaf8d4000ULL
+#define Z7II_PROCESSING_SMALL_SIZE 0x12c000ULL
+#define Z7II_READOUT_PRIMARY_BASE 0x61654800ULL
+#define Z7II_READOUT_PRIMARY_SIZE 0x603000ULL
+#define Z7II_READOUT_SECONDARY_BASE 0x61c57800ULL
+#define Z7II_READOUT_SECONDARY_SIZE 0x402000ULL
+#define Z7II_INTERPOLATION_BASE 0xc24cb400ULL
+#define Z7II_INTERPOLATION_SIZE 0xf00000ULL
+#define Z7II_GRID_BASE 0x5d170000ULL
+#define Z7II_GRID_SIZE 0x6c000ULL
+#define Z7II_ROW_STORAGE_BASE 0x50300000ULL
+#define Z7II_ROW_STORAGE_SIZE 0x340000ULL
 #define Z7II_NOR_BASE 0x10000000ULL
 #define Z7II_NOR_SIZE 0x04000000ULL
 #define Z7II_NOR_SECTOR_SIZE 0x00020000ULL
 #define Z7II_NOR_UNLOCK_ONE 0x10000aaaULL
 #define Z7II_NOR_UNLOCK_TWO 0x10000554ULL
 #define Z7II_NOR_CFI_QUERY 0x100000aaULL
+#define Z7II_DESCRIPTOR11_BASE 0x12a80000ULL
+#define Z7II_DESCRIPTOR11_SIZE 0x00260000ULL
+#define Z7II_DESCRIPTOR12_BASE 0x12ce0000ULL
+#define Z7II_DESCRIPTOR12_SIZE 0x000e0000ULL
 #define Z7II_DESCRIPTOR17_BASE 0x132c0000ULL
 #define Z7II_DESCRIPTOR17_SIZE 0x00020000ULL
+#define Z7II_DESCRIPTOR18_BASE 0x132e0000ULL
+#define Z7II_DESCRIPTOR18_SIZE 0x000a0000ULL
+#define Z7II_DESCRIPTOR32_BASE 0x13e80000ULL
+#define Z7II_DESCRIPTOR32_SIZE 0x00180000ULL
 
 /* NOR command protocol state for the mapped flash device. */
 typedef enum Z7IINorReadMode {
@@ -164,11 +154,45 @@ static const struct {
     { "z7ii.pixels",   0xbc100000, 0x1100000 },
 };
 
+/*
+ * Original pool rows119832a8..119833e0 and selected output overrides;
+ * kind18 has its own grid region.
+ * These are separate pool extents, not an enclosing DDR conversion class.
+ */
+static const struct {
+    const char *name;
+    hwaddr base;
+    uint64_t size;
+} z7ii_capture_pools[] = {
+    { "z7ii.capture-kind16", 0x54900000, 0x8834000 },
+    { "z7ii.capture-kind17", 0x5d134000, 0x3c000 },
+    { "z7ii.capture-kind19", 0x5d1dc000, 0x144000 },
+    { "z7ii.capture-kind20", 0xafa00000, 0x43800 },
+    { "z7ii.capture-kind21", 0x5d320000, 0x195000 },
+    { "z7ii.capture-kind22", 0xafc3dc00, 0x60000 },
+    { "z7ii.capture-kind23", 0x5d4b5000, 0x3c00 },
+    { "z7ii.capture-kind25", 0x5f914400, 0x36000 },
+    /* Mode4 overrides selected by the active paired frame descriptors. */
+    { "z7ii.capture-kind26", 0xdec7fc00, 0x3505400 },
+    /* Kind27/28's two source override tables agree on these full extents. */
+    { "z7ii.capture-kind27", 0xdcb3c800, 0x710000 },
+    { "z7ii.capture-kind28", 0xdbb1d000, 0x101f800 },
+    { "z7ii.capture-kind29", 0xbe5d2200, 0x486600 },
+    { "z7ii.capture-kind31", 0xe2185000, 0x491400 },
+    /* Kind32 also supplies 12000-byte slots when kind18's count exceeds6. */
+    { "z7ii.capture-kind32", 0x5df45400, 0x198d000 },
+};
+
 typedef struct Z7IINorSlot {
     MemoryRegion region;
     Z7IIMachineState *machine;
     hwaddr base;
 } Z7IINorSlot;
+
+typedef struct Z7IIRAM {
+    MemoryRegion backing;
+    MemoryRegion view;
+} Z7IIRAM;
 
 struct Z7IIMachineState {
     MachineState parent_obj;
@@ -178,10 +202,17 @@ struct Z7IIMachineState {
     char *sla_boot_prefix;
     char *mas_boot_prefix;
     char *cmos_image;
+    char *paired_calibration;
+    char *slot0_drive;
     DeviceState *ex_input_dev;
     QEMUTimer *ex_input_timer;
     bool frame_contract;
+    bool virtual_lens;
+    char *descriptor11_input;
+    char *descriptor12_input;
     char *descriptor17_input;
+    char *descriptor18_input;
+    char *descriptor32_input;
     Z7IINorReadMode nor_read_mode;
     Z7IINorCommandStage nor_command_stage;
     hwaddr nor_buffer_sector;
@@ -197,18 +228,25 @@ struct Z7IIMachineState {
     Z7IINorSlot nv_slot[5];
     Z7IINorSlot boot_prefix;
     MemoryRegion unknown;
-    MemoryRegion storage[ARRAY_SIZE(z7ii_storage)];
-    MemoryRegion resource57_record0;
-    MemoryRegion resource57_record1;
-    MemoryRegion resource57_record7;
-    MemoryRegion lcd_composition;
-    MemoryRegion display_buffers;
+    Z7IIRAM storage[ARRAY_SIZE(z7ii_storage)];
+    Z7IIRAM gui_pool;
+    Z7IIRAM display_buffers;
+    Z7IIRAM kind40_buffer;
+    Z7IIRAM kind41_buffer;
+    Z7IIRAM processing_arena;
+    Z7IIRAM processing_small;
+    Z7IIRAM readout_primary;
+    Z7IIRAM readout_secondary;
+    Z7IIRAM interpolation_pool;
+    Z7IIRAM grid_pool;
+    Z7IIRAM capture_pools[ARRAY_SIZE(z7ii_capture_pools)];
+    Z7IIRAM row_storage;
     /* Selector-zero download buffer consumed by the RMU peer contract. */
-    MemoryRegion download;
+    Z7IIRAM download;
     /* Selector-one packed download arena; independent from selector zero. */
-    MemoryRegion selector_one_download;
-    MemoryRegion temporary_stack;
-    MemoryRegion early_release;
+    Z7IIRAM selector_one_download;
+    Z7IIRAM temporary_stack;
+    Z7IIRAM early_release;
     MemoryRegion shim_mas[NIKON_BOOT_SHIM_MAS_VIEW_COUNT];
     MemoryRegion peer_window;
     DeviceState *memc;
@@ -534,12 +572,18 @@ static void z7ii_reset(void *opaque)
     }
 }
 
-static void z7ii_ram(MemoryRegion *mr, const char *name,
+static void z7ii_ram(Z7IIRAM *ram, const char *name,
                      hwaddr base, uint64_t size)
 {
+    hwaddr offset = base & (qemu_target_page_size() - 1);
+    g_autofree char *backing_name = g_strdup_printf("%s.storage", name);
+
     /* Migratable board RAM uses NULL; its owner must not be a MachineState. */
-    memory_region_init_ram(mr, NULL, name, size, &error_fatal);
-    memory_region_add_subregion(get_system_memory(), base, mr);
+    memory_region_init_ram(&ram->backing, NULL, backing_name, size + offset,
+                           &error_fatal);
+    /* Match physical and RAM page offsets without mapping the prefix. */
+    memory_region_init_alias(&ram->view, NULL, name, &ram->backing, offset, size);
+    memory_region_add_subregion(get_system_memory(), base, &ram->view);
 }
 
 static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
@@ -555,26 +599,29 @@ static void z7ii_erased_slot(Z7IIMachineState *s, unsigned index,
     memory_region_add_subregion(get_system_memory(), base, &slot->region);
 }
 
-static void z7ii_load_descriptor17_input(Z7IIMachineState *s)
+static void z7ii_load_descriptor_input(Z7IIMachineState *s, const char *path,
+                                      unsigned descriptor, hwaddr base,
+                                      size_t expected_size)
 {
     g_autoptr(GError) error = NULL;
     g_autofree char *data = NULL;
     gsize size;
     uint8_t *destination;
 
-    if (!s->descriptor17_input || !*s->descriptor17_input) {
+    if (!path || !*path) {
         return;
     }
-    if (!g_file_get_contents(s->descriptor17_input, &data, &size, &error)) {
-        error_report("cannot load descriptor17 input '%s': %s",
-                     s->descriptor17_input, error->message);
+    if (!g_file_get_contents(path, &data, &size, &error)) {
+        error_report("cannot load descriptor%u input '%s': %s",
+                     descriptor, path, error->message);
         exit(EXIT_FAILURE);
     }
-    if (size != Z7II_DESCRIPTOR17_SIZE) {
-        error_report("descriptor17 input must contain exactly 128 KiB");
+    if (size != expected_size) {
+        error_report("descriptor%u input must contain exactly %zu KiB",
+                     descriptor, expected_size / 1024);
         exit(EXIT_FAILURE);
     }
-    destination = z7ii_nor_external_pointer(s, Z7II_DESCRIPTOR17_BASE, size);
+    destination = z7ii_nor_external_pointer(s, base, size);
     g_assert(destination);
     memcpy(destination, data, size);
 }
@@ -664,32 +711,16 @@ static void z7ii_ex_input_tick(void *opaque)
 
 static void z7ii_apply_ex_config_data(uint8_t *copy, gsize size)
 {
-    const NikonEXConfigData *config_data = &z7ii_ex_config_power_on;
-    uint8_t *config;
-
-    if (size < EX_CONFIG_OFFSET + EX_CONFIG_SIZE) {
+    /*
+     * The supplied EX component has an erased factory window, so install the
+     * class-factory structure the firmware's own block validator accepts.
+     * This is model data for the bundle board record, not recovered factory
+     * calibration; see include/hw/nikon/exconfig.h for the block layout.
+     */
+    if (!nikon_ex_config_compose(copy, size)) {
         error_report("EX firmware is too small for the factory config input");
         exit(EXIT_FAILURE);
     }
-
-    /* Synthetic functional input, not recovered factory data. */
-    config = copy + EX_CONFIG_OFFSET;
-    memset(config, config_data->fill, EX_CONFIG_SIZE);
-    memcpy(config, config_data->magic, sizeof(config_data->magic));
-    config[config_data->channel0_offset] = config_data->channel0_value;
-    config[config_data->mode_offset] = config_data->mode_value;
-    config[config_data->mode_offset + 1] = config_data->mode_value;
-    /* The complete-config branch reads a second factory view at 0x8100.
-     * It is another erased external region in the supplied image; keep its
-     * synthetic contract adjacent to the primary view rather than exposing a
-     * second runtime input. */
-    /* The auxiliary view is a structured parameter table, not a byte-fill
-     * region.  Unknown fields must retain erased zero rather than becoming
-     * pointers/counts with value 1 (which can make the firmware program an
-     * invalid DMA destination).  We currently provide only the primary
-     * view's proven gate fields. */
-    memset(copy + EX_CONFIG_AUX_OFFSET, 0, EX_CONFIG_AUX_SIZE);
-    config[config_data->gate_offset] = config_data->gate_value;
 }
 
 static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
@@ -716,12 +747,6 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         }
     }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
-    for (i = 0; i < 24; i++) {
-        if (z7ii_ex_functional_inputs.io_mask & (1u << i)) {
-            qemu_set_irq(qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", i),
-                         !!(z7ii_ex_functional_inputs.io_high & (1u << i)));
-        }
-    }
 
     /* Separate source channels: MAS TxA clocks EX SPI1 RX; RxA clocks SPI4 TX.
      * The source MCU uses software NSS. CS zero identifies the SSI endpoint;
@@ -754,6 +779,17 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         qdev_connect_gpio_out_named(input, "pad", i,
                                    nikon_ex_gpio_input(ex, id >> 4, id & 15));
     }
+    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        qdev_connect_gpio_out_named(input, "expander-pad", i,
+            qdev_get_gpio_in_named(nikon_ex_io(ex), "pad",
+                                  nikon_input_expander_ids[i]));
+    }
+    qdev_connect_gpio_out_named(
+        input, "capture-selector", 0,
+        qdev_get_gpio_in_named(nikon_ex_io(ex), "pad", 0));
+    /* Mode ladder ADC1/channel2 has one maintained mechanical source. */
+    qdev_connect_gpio_out_named(input, "mode-adc", 0,
+                               qdev_get_gpio_in_named(dev, "adc", 2));
     qdev_realize_and_unref(input, NULL, &error_fatal);
     s->ex_input_dev = dev;
     s->ex_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
@@ -770,12 +806,21 @@ static void z7ii_init(MachineState *machine)
 {
     Z7IIMachineState *s = Z7II_MACHINE(machine);
     DeviceState *gic;
+    DeviceState *clock;
     DeviceState *mxic;
     DeviceState *gpio;
     DeviceState *exiu;
     DeviceState *bridge;
     DeviceState *readout;
+    DeviceState *capture;
+    DeviceState *work = NULL;
+    DeviceState *paired, *gate;
+    DeviceState *pipeline = NULL;
+    DeviceState *parameters;
+    DeviceState *group;
     DeviceState *cmos;
+    DeviceState *endpoints, *banks, *statistics = NULL;
+    DeviceState *router, *input_split = NULL;
     DeviceState *spi_ports[11];
     SysBusDevice *gic_bus;
     int64_t image_size;
@@ -875,7 +920,21 @@ static void z7ii_init(MachineState *machine)
 
             z7ii_erased_slot(s, i, name, external[i].start, external[i].size);
         }
-        z7ii_load_descriptor17_input(s);
+        z7ii_load_descriptor_input(s, s->descriptor11_input, 11,
+                                  Z7II_DESCRIPTOR11_BASE,
+                                  Z7II_DESCRIPTOR11_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor12_input, 12,
+                                  Z7II_DESCRIPTOR12_BASE,
+                                  Z7II_DESCRIPTOR12_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor17_input, 17,
+                                  Z7II_DESCRIPTOR17_BASE,
+                                  Z7II_DESCRIPTOR17_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor18_input, 18,
+                                  Z7II_DESCRIPTOR18_BASE,
+                                  Z7II_DESCRIPTOR18_SIZE);
+        z7ii_load_descriptor_input(s, s->descriptor32_input, 32,
+                                  Z7II_DESCRIPTOR32_BASE,
+                                  Z7II_DESCRIPTOR32_SIZE);
         s->nor_regions_ready = true;
     }
 
@@ -895,35 +954,15 @@ static void z7ii_init(MachineState *machine)
                  z7ii_storage[i].base, z7ii_storage[i].size);
     }
     /*
-     * ROM table123b73ec record0 publishes a 4b0000-byte resource57 slot.
-     * The natural runtime fill clears a 720x480x4 prefix at BEC5F200. Back
-     * only this cold-zero slot; the guest owns its metadata and contents.
+     * ROM11982938[57] selects11983530: one386c200-byte unit at BEC5F200,
+     * with no mode override. The enabled rows of123b73ec partition386c100
+     * bytes; their six runtime pointer cells agree, including record6's
+     * BF7B9600..C175D600 and record8's C1C0D600..C24CB300. The final100 bytes
+     * remain owned storage, ending exactly at the independent kind74 pool.
+     * Cold zero is a functional assumption; firmware owns all contents.
      */
-    z7ii_ram(&s->resource57_record0, "z7ii.resource57-record0",
-             Z7II_RESOURCE57_RECORD0_BASE, Z7II_RESOURCE57_RECORD0_SIZE);
-    /*
-     * Record1 publishes an exact 1fa400-byte slot through b181d390. The next
-     * natural engine0 fill clears all 960x540x4 bytes at BF10F200. Its end is
-     * the separately published record5 base, so neither neighbor is padding.
-     */
-    z7ii_ram(&s->resource57_record1, "z7ii.resource57-record1",
-             Z7II_RESOURCE57_RECORD1_BASE, Z7II_RESOURCE57_RECORD1_SIZE);
-    /*
-     * The same table's record7 publishes a second 4b0000-byte slot through
-     * b181d38c. The next natural request clears the same 720x480x4 prefix at
-     * C175D600. Keep record8 at the exact record7 end uncovered.
-     */
-    z7ii_ram(&s->resource57_record7, "z7ii.resource57-record7",
-             Z7II_RESOURCE57_RECORD7_BASE, Z7II_RESOURCE57_RECORD7_SIZE);
-    /*
-     * ROM table123b73ec record5 requests 4b0000 bytes and publishes its
-     * resource57 allocation through b181d388. Original writer10634b04/06
-     * stores BF309600 and advances the exact slot end to BF7B9600. Backing
-     * this one cold-zero slot is a functional-board storage assumption; the
-     * guest owns allocation metadata, contents, rendering and later reuse.
-     */
-    z7ii_ram(&s->lcd_composition, "z7ii.lcd-composition",
-             Z7II_LCD_COMPOSITION_BASE, Z7II_LCD_COMPOSITION_SIZE);
+    z7ii_ram(&s->gui_pool, "z7ii.gui-pool",
+             Z7II_GUI_POOL_BASE, Z7II_GUI_POOL_SIZE);
     /*
      * Original image-memory acquire requests publish six contiguous physical
      * buffers. The first triplet starts at CB4A7000 with 384000-byte spacing;
@@ -933,6 +972,96 @@ static void z7ii_init(MachineState *machine)
      */
     z7ii_ram(&s->display_buffers, "z7ii.display-buffers",
              Z7II_DISPLAY_BUFFER_BASE, Z7II_DISPLAY_BUFFER_SIZE);
+    /*
+     * 10238314 acquires kind40, length1c8000, into holder b26b48d8.
+     * Its original object publishes PA62059800; 103c5a7a uses source record15
+     * to return VA36d59800. Guest PTEs translate that view back to this RAM.
+     * Back only this owned allocation, not the enclosing 5f900000 class.
+     */
+    z7ii_ram(&s->kind40_buffer, "z7ii.kind40-buffer",
+             Z7II_KIND40_BASE, Z7II_KIND40_SIZE);
+    /*
+     * 1026fbb0 acquires kind41 for its workspace/record pools. ROM11983488
+     * and the original allocation record own one complete 400000-byte unit
+     * at 62221800. Record constructors start at logical base+300000; the
+     * guest's own PTEs translate those accesses into this exact pool.
+     */
+    z7ii_ram(&s->kind41_buffer, "z7ii.kind41-buffer",
+             Z7II_KIND41_BASE, Z7II_KIND41_SIZE);
+    /*
+     * 103a34c0 initializes both processing allocator bases and free records.
+     * 103a37aa assigns sixteen 80000-byte blocks from b0100000; 103a3718
+     * assigns four 4b000-byte blocks from af8d4000. These are separate
+     * owners from the neighboring download and capture pools.
+     */
+    z7ii_ram(&s->processing_arena, "z7ii.processing-arena",
+             Z7II_PROCESSING_ARENA_BASE, Z7II_PROCESSING_ARENA_SIZE);
+    z7ii_ram(&s->processing_small, "z7ii.processing-small",
+             Z7II_PROCESSING_SMALL_BASE, Z7II_PROCESSING_SMALL_SIZE);
+    /*
+     * ROM11982938 kinds38/39 select11983440/58, with no mode overrides.
+     * 1023cb62 requests201000 bytes from each; 1023869e publishes their
+     * descriptor pointers as readout destinations. Back the complete three-
+     * and two-unit pools, not the enclosing conversion class. Cold zero is
+     * a functional assumption; normal CMOS DMA owns submitted frame bytes.
+     */
+    z7ii_ram(&s->readout_primary, "z7ii.readout-primary",
+             Z7II_READOUT_PRIMARY_BASE, Z7II_READOUT_PRIMARY_SIZE);
+    z7ii_ram(&s->readout_secondary, "z7ii.readout-secondary",
+             Z7II_READOUT_SECONDARY_BASE, Z7II_READOUT_SECONDARY_SIZE);
+    /*
+     * Initializer10306fb0 selects kind74 through ROM table11982938[74].
+     * Row11983548 declares base C24CB400, size F00000, 10000-byte units.
+     * Original102b64b0 acquires 19c80 bytes at C33AB400 and translates it
+     * to VA3D5AB400 for software interpolation-record producer10404354.
+     * Back the complete declared pool; cold zero is a functional-board
+     * assumption. The guest owns allocation, page tables and all records.
+     * Neither a physical VA alias nor adjacent RAM is added.
+     */
+    z7ii_ram(&s->interpolation_pool, "z7ii.interpolation-pool",
+             Z7II_INTERPOLATION_BASE, Z7II_INTERPOLATION_SIZE);
+    /*
+     * ROM table11982938[18] selects row119832f0: six 12000-byte units
+     * at PA5D170000. Original102cd692/1030ac6e publish the descriptors;
+     * 1024feb6 reads the first unit through an identity guest mapping.
+     * Back the whole declared pool with the same cold-zero RAM convention.
+     * This supplies storage, not samples or completion from the separate
+     * endpoint1 statistics path; no producer or status is inferred here.
+     */
+    z7ii_ram(&s->grid_pool, "z7ii.grid-pool", Z7II_GRID_BASE, Z7II_GRID_SIZE);
+    /*
+     * 1030ab92/ad70/af00/b0ee/b9aa/b2ce establish the endpoint pool
+     * family;10239dc6 uses kind23 for capture-group cursors. Back all other
+     * complete declared pools17..23 once, without duplicating kind18.
+     * Cold zero is a functional assumption. Storage performs no statistics,
+     * frame DMA, result publication or EPP completion on the guest's behalf.
+     */
+    for (i = 0; i < ARRAY_SIZE(z7ii_capture_pools); i++) {
+        z7ii_ram(&s->capture_pools[i], z7ii_capture_pools[i].name,
+                 z7ii_capture_pools[i].base, z7ii_capture_pools[i].size);
+    }
+    /*
+     * Resource11/12 destinations from 10248468; full loader extents at
+     * 118d0930/118d09d0. Original code supplies all contents from NOR.
+     */
+    z7ii_ram(&s->row_storage, "z7ii.row-storage",
+             Z7II_ROW_STORAGE_BASE, Z7II_ROW_STORAGE_SIZE);
+    /*
+     * Observational LCD scanout for the composition buffer.  A panel scans its
+     * buffer continuously; this observer samples the guest-owned region on a
+     * virtual-clock cadence and publishes a console surface.  It adds no guest
+     * register, IRQ, completion or status and never writes guest memory.
+     */
+    {
+        DeviceState *panel = qdev_new(TYPE_NIKON_PANEL);
+
+        qdev_prop_set_uint64(panel, "base", Z7II_LCD_COMPOSITION_BASE);
+        qdev_prop_set_uint32(panel, "width", 1024);
+        qdev_prop_set_uint32(panel, "height", 688);
+        qdev_prop_set_uint32(panel, "skip-rows", 6);
+        object_property_add_child(OBJECT(machine), "panel", OBJECT(panel));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(panel), &error_fatal);
+    }
     z7ii_prepare_bundle_loader(s);
     if (s->bundle) {
         DeviceState *processor = qdev_new(TYPE_NIKON_PROCESSOR);
@@ -974,7 +1103,7 @@ static void z7ii_init(MachineState *machine)
     }
     mxic = sysbus_create_simple(TYPE_NIKON_MXIC, 0x20016000, NULL);
     for (i = 0; i < ARRAY_SIZE(z7ii_storage); i++) {
-        nikon_mxic_attach_ram(mxic, &s->storage[i], z7ii_storage[i].base);
+        nikon_mxic_attach_ram(mxic, &s->storage[i].view, z7ii_storage[i].base);
     }
 
     s->num_cpus = machine->smp.cpus;
@@ -987,7 +1116,7 @@ static void z7ii_init(MachineState *machine)
     }
 
     s->memc = sysbus_create_simple(TYPE_NIKON_MEMC, MEMC_BASE, NULL);
-    sysbus_create_simple(TYPE_NIKON_CLOCK_GATES, CLOCK_BASE, NULL);
+    clock = sysbus_create_simple(TYPE_NIKON_CLOCK_GATES, CLOCK_BASE, NULL);
 
     sysbus_create_simple(TYPE_NIKON_TIMESTAMP, 0x04266000, NULL);
     sysbus_create_simple(TYPE_NIKON_SYSCONFIG, 0x04280000, NULL);
@@ -995,6 +1124,9 @@ static void z7ii_init(MachineState *machine)
     object_property_add_child(OBJECT(machine), "gpio", OBJECT(gpio));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(gpio), 0, 0x04282000);
+    /* Service91 reads active-low P5.14: no SD endpoint is attached. */
+    qemu_set_irq(qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 14),
+                 1);
     for (i = 0; i < 2; i++) {
         DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
 
@@ -1033,8 +1165,10 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(gic, 187 + i * 2 - 32));
     }
     {
-        DeviceState *router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
+        router = qdev_new(TYPE_NIKON_PERIPHERAL_EVENT_ROUTER);
 
+        /* Functional virtual camera boundary input; not measured TG timing. */
+        qdev_prop_set_uint32(router, "input-period-ns", 33333334);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(router), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(router), 0, 0x20060000);
         for (i = 0; i < 3; i++) {
@@ -1068,20 +1202,113 @@ static void z7ii_init(MachineState *machine)
                                   OBJECT(channels));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(channels), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(channels), 0, 0x20063000);
-        /* Guest configuration/commands; no default completion provider. */
+        /* Original 102d6b6a consumes IRQ87 bits18/10 for sequence stops. */
+        qdev_connect_gpio_out_named(channels, "stopped", 0,
+            qdev_get_gpio_in_named(router, "external-pending", 11 + 18));
+        qdev_connect_gpio_out_named(channels, "stopped", 1,
+            qdev_get_gpio_in_named(router, "external-pending", 11 + 10));
     }
+    paired = qdev_new(TYPE_NIKON_PAIRED_EVENT_BANKS);
+    if (s->paired_calibration) {
+        qdev_prop_set_string(paired, "calibration", s->paired_calibration);
+    }
+    object_property_add_child(OBJECT(machine), "paired-processing",
+                              OBJECT(paired));
+    gate = sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
+                                qdev_get_gpio_in(gic, 102 - 32));
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 1, 0x24000000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(gate), 2, 0x24010000);
+    object_property_set_link(OBJECT(paired), "gate", OBJECT(gate), &error_fatal);
+    qdev_connect_gpio_out_named(gate, "grid-ready", 0,
+        qdev_get_gpio_in_named(paired, "grid-ready", 0));
+    qdev_connect_gpio_out_named(gate, "input-capacity", 0,
+        qdev_get_gpio_in_named(paired, "input-capacity", 0));
     {
-        DeviceState *capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
+        capture = qdev_new(TYPE_NIKON_CAPTURE_CONTROL);
+        group = qdev_new(TYPE_NIKON_CAPTURE_GROUP);
+        if (s->bundle) {
+            statistics = qdev_new(TYPE_NIKON_STATISTICS);
+            object_property_set_link(OBJECT(statistics), "gate", OBJECT(gate),
+                                     &error_fatal);
+            work = qdev_new(TYPE_NIKON_CAPTURE_WORK);
+            pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
+            object_property_add_child(OBJECT(machine), "readout-pipeline",
+                                      OBJECT(pipeline));
+            object_property_add_child(OBJECT(machine), "capture-processing",
+                                      OBJECT(work));
+            object_property_add_child(OBJECT(machine), "capture-statistics",
+                                      OBJECT(statistics));
+        }
 
         object_property_add_child(OBJECT(machine), "capture-control",
                                   OBJECT(capture));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(capture), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(capture), 0, 0x20068000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(capture), 1, 0x20069d00);
         for (i = 0; i < NIKON_CAPTURE_EVENTS; i++) {
             sysbus_connect_irq(SYS_BUS_DEVICE(capture), i,
                                qdev_get_gpio_in(gic, 94 + i - 32));
         }
         /* Original status/command interface; external publication is unbound. */
+        object_property_add_child(OBJECT(machine), "capture-group", OBJECT(group));
+        if (pipeline) {
+            object_property_set_link(OBJECT(group), "pipeline", OBJECT(pipeline),
+                                      &error_fatal);
+            object_property_set_link(OBJECT(group), "capture", OBJECT(capture),
+                                      &error_fatal);
+        }
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(group), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(group), 0, 0x2006b800);
+        for (i = 0; i < 2; i++) {
+            qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 4,
+                qdev_get_gpio_in_named(group, "commit-selected", i));
+        }
+        qdev_connect_gpio_out_named(capture, "run-state", 5,
+                                   qdev_get_gpio_in_named(group, "run", 0));
+        if (statistics) {
+            DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+            input_split = split;
+            qdev_prop_set_uint16(split, "num-lines", 2);
+            qdev_realize_and_unref(split, NULL, &error_fatal);
+            qdev_connect_gpio_out(split, 0,
+                qdev_get_gpio_in_named(group, "automatic-rise", 0));
+            qdev_connect_gpio_out_named(router, "automatic-rise", 0,
+                                       qdev_get_gpio_in(split, 0));
+            qdev_connect_gpio_out_named(capture, "run-state", 4,
+                qdev_get_gpio_in_named(statistics, "run", 0));
+            for (unsigned i = 0; i < 2; i++) {
+                qdev_connect_gpio_out_named(capture, "run-state", 6 + i,
+                    qdev_get_gpio_in_named(statistics, "bank-run", i));
+            }
+        } else {
+            qdev_connect_gpio_out_named(router, "automatic-rise", 0,
+                qdev_get_gpio_in_named(group, "automatic-rise", 0));
+        }
+    }
+    {
+        parameters = qdev_new(TYPE_NIKON_CAPTURE_PARAMETERS);
+
+        object_property_add_child(OBJECT(machine), "capture-parameters",
+                                  OBJECT(parameters));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(parameters), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(parameters), 0, 0x20069500);
+    }
+    {
+        endpoints = qdev_new(TYPE_NIKON_CAPTURE_ENDPOINTS);
+
+        object_property_add_child(OBJECT(machine), "capture-endpoints",
+                                  OBJECT(endpoints));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(endpoints), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(endpoints), 0, 0x2006a200);
+    }
+    {
+        banks = qdev_new(TYPE_NIKON_CAPTURE_BANKS);
+
+        object_property_add_child(OBJECT(machine), "capture-banks", OBJECT(banks));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(banks), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(banks), 0, 0x2006a000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(banks), 1, 0x2006be00);
     }
     {
         static const hwaddr addresses[NIKON_READOUT_REGIONS] = {
@@ -1096,6 +1323,53 @@ static void z7ii_init(MachineState *machine)
         for (i = 0; i < NIKON_READOUT_REGIONS; i++) {
             sysbus_mmio_map(SYS_BUS_DEVICE(readout), i, addresses[i]);
         }
+        for (i = 0; i < 2; i++) {
+            DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(split, "num-lines", statistics ? 5 : 2);
+            qdev_realize_and_unref(split, NULL, &error_fatal);
+            qdev_connect_gpio_out(split, 0,
+                qdev_get_gpio_in_named(group, "commit", i));
+            qdev_connect_gpio_out(split, 1,
+                qdev_get_gpio_in_named(readout, "commit", i));
+            if (statistics) {
+                static const unsigned work_bits[] = { 0, 2, 7 };
+
+                qdev_connect_gpio_out(split, 2,
+                    qdev_get_gpio_in_named(statistics, "commit", i));
+                qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 3,
+                    qdev_get_gpio_in_named(statistics, "commit-selected", i));
+                qdev_connect_gpio_out(split, 3,
+                    qdev_get_gpio_in_named(work, "commit", i));
+                qdev_connect_gpio_out(split, 4,
+                    qdev_get_gpio_in_named(pipeline, "commit", i));
+                for (unsigned j = 0; j < ARRAY_SIZE(work_bits); j++) {
+                    qemu_irq target = qdev_get_gpio_in_named(work,
+                        "commit-selected", i * 3 + j);
+
+                    if (j < 2) {
+                        DeviceState *select = qdev_new(TYPE_SPLIT_IRQ);
+
+                        qdev_prop_set_uint16(select, "num-lines", 2);
+                        qdev_realize_and_unref(select, NULL, &error_fatal);
+                        qdev_connect_gpio_out(select, 0, target);
+                        qdev_connect_gpio_out(select, 1,
+                            qdev_get_gpio_in_named(pipeline,
+                                "commit-selected", i * 2 + j));
+                        target = qdev_get_gpio_in(select, 0);
+                    }
+                    qdev_connect_gpio_out_named(capture, "command-data",
+                        i * 32 + work_bits[j], target);
+                }
+            }
+
+            qdev_connect_gpio_out_named(capture, "command-data", i * 32 + 1,
+                qdev_get_gpio_in_named(readout, "commit-selected", i));
+            qdev_connect_gpio_out_named(capture, "command-publish", i,
+                                       qdev_get_gpio_in(split, 0));
+        }
+        qdev_connect_gpio_out_named(capture, "run-state", 1,
+                                   qdev_get_gpio_in_named(readout, "run", 0));
         /* Guest requests have no default provider, IRQ or pixel data source. */
     }
     {
@@ -1106,23 +1380,84 @@ static void z7ii_init(MachineState *machine)
             qdev_prop_set_string(cmos, "image", s->cmos_image);
         }
         qdev_prop_set_bit(cmos, "fixture-provider",
-                          s->bundle || !!s->cmos_image);
+                          s->bundle && !s->cmos_image);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(cmos), &error_fatal);
         /* Diagnostic transport aperture; no C1.70 physical MMIO is claimed. */
         sysbus_mmio_map(SYS_BUS_DEVICE(cmos), 0, 0x24080000);
     }
     if (s->bundle) {
-        DeviceState *pipeline = qdev_new(TYPE_NIKON_READOUT_PIPELINE);
-
-        object_property_add_child(OBJECT(machine), "readout-pipeline",
-                                  OBJECT(pipeline));
         object_property_set_link(OBJECT(pipeline), "readout", OBJECT(readout),
                                  &error_fatal);
         object_property_set_link(OBJECT(pipeline), "cmos", OBJECT(cmos),
                                  &error_fatal);
+        object_property_set_link(OBJECT(pipeline), "capture", OBJECT(capture),
+                                 &error_fatal);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(pipeline), &error_fatal);
+        /* One input boundary clocks transport admission and processing. */
+        qdev_connect_gpio_out(input_split, 1,
+            qdev_get_gpio_in_named(pipeline, "automatic-rise", 0));
+        {
+            DeviceState *ready = qdev_new(TYPE_SPLIT_IRQ);
+
+            qdev_prop_set_uint16(ready, "num-lines", 2);
+            qdev_realize_and_unref(ready, NULL, &error_fatal);
+            qdev_connect_gpio_out(ready, 0,
+                qdev_get_gpio_in_named(group, "input-ready", 0));
+            qdev_connect_gpio_out(ready, 1,
+                qdev_get_gpio_in_named(work, "input-ready", 0));
+            qdev_connect_gpio_out_named(pipeline, "main-input-ready", 0,
+                                       qdev_get_gpio_in(ready, 0));
+            qdev_connect_gpio_out_named(pipeline, "input-ready", 0,
+                qdev_get_gpio_in_named(statistics, "input-ready", 0));
+            qdev_connect_gpio_out_named(capture, "front-capacity-ready", 0,
+                qdev_get_gpio_in_named(work, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "data-capacity-ready", 0,
+                qdev_get_gpio_in_named(statistics, "capacity-ready", 0));
+            qdev_connect_gpio_out_named(capture, "group-capacity-ready", 0,
+                qdev_get_gpio_in_named(group, "capacity-ready", 0));
+        }
+        for (unsigned i = 0; i < 4; i++) {
+            static const unsigned bits[] = { 0, 2, 3, 9 };
+            qemu_irq target = qdev_get_gpio_in_named(work, "run", i);
+
+            if (i < 3) {
+                DeviceState *split = qdev_new(TYPE_SPLIT_IRQ);
+
+                qdev_prop_set_uint16(split, "num-lines", 2);
+                qdev_realize_and_unref(split, NULL, &error_fatal);
+                qdev_connect_gpio_out(split, 0, target);
+                qdev_connect_gpio_out(split, 1,
+                    qdev_get_gpio_in_named(pipeline, "input-run", i));
+                target = qdev_get_gpio_in(split, 0);
+            }
+
+            qdev_connect_gpio_out_named(capture, "run-state", bits[i],
+                                       target);
+        }
+        object_property_set_link(OBJECT(work), "capture", OBJECT(capture),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "parameters", OBJECT(parameters),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "readout", OBJECT(readout),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "pipeline", OBJECT(pipeline),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(work), "paired", OBJECT(paired),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(work), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "endpoints",
+                                 OBJECT(endpoints), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "banks", OBJECT(banks),
+                                 &error_fatal);
+        object_property_set_link(OBJECT(statistics), "pipeline",
+                                 OBJECT(pipeline), &error_fatal);
+        object_property_set_link(OBJECT(statistics), "capture", OBJECT(capture),
+                                 &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(statistics), &error_fatal);
         qdev_connect_gpio_out_named(readout, "readout-request", 0,
             qdev_get_gpio_in_named(pipeline, "request", 0));
+        qdev_connect_gpio_out_named(readout, "readout-cancel", 0,
+            qdev_get_gpio_in_named(pipeline, "cancel", 0));
         for (i = 0; i < NIKON_CMOS_PIPELINE_EVENTS; i++) {
             qdev_connect_gpio_out_named(cmos, "pipeline-event", i,
                 qdev_get_gpio_in_named(pipeline, "cmos-event", i));
@@ -1166,8 +1501,6 @@ static void z7ii_init(MachineState *machine)
     }
     sysbus_create_simple(TYPE_NIKON_STAGED_CONFIGURATION, 0x20202000,
                          qdev_get_gpio_in(gic, 123 - 32));
-    sysbus_create_simple(TYPE_NIKON_EVENT_GATE, 0x20100000,
-                         qdev_get_gpio_in(gic, 102 - 32));
     sysbus_create_simple(TYPE_NIKON_EVENTS, 0x2c012000,
                          qdev_get_gpio_in(gic, 158 - 32));
     /* IRQ229 belongs to a software callback registration, not a proven wire. */
@@ -1212,11 +1545,12 @@ static void z7ii_init(MachineState *machine)
         }
     }
     {
-        DeviceState *control = sysbus_create_simple(TYPE_NIKON_PAIRED_EVENT_BANKS,
-                              0x20380000, qdev_get_gpio_in(gic, 99 - 32));
-
-        sysbus_mmio_map(SYS_BUS_DEVICE(control), 1, 0x203c0000);
-        sysbus_connect_irq(SYS_BUS_DEVICE(control), 1,
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(paired), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(paired), 0, 0x20380000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(paired), 0,
+                           qdev_get_gpio_in(gic, 99 - 32));
+        sysbus_mmio_map(SYS_BUS_DEVICE(paired), 1, 0x203c0000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(paired), 1,
                            qdev_get_gpio_in(gic, 100 - 32));
     }
     {
@@ -1235,6 +1569,17 @@ static void z7ii_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(exiu), i,
                            qdev_get_gpio_in(gic, 65 + i - 32));
     }
+    {
+        DeviceState *ccomp = qdev_new(TYPE_NIKON_CCOMP);
+
+        object_property_add_child(OBJECT(machine), "ccomp", OBJECT(ccomp));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(ccomp), &error_fatal);
+        /* Original pulse/ACK roles; service timing is a virtual board law. */
+        qdev_connect_gpio_out_named(gpio, "pad", 6 * 16 + 8,
+                                   qdev_get_gpio_in_named(ccomp, "request", 0));
+        qdev_connect_gpio_out_named(ccomp, "ack", 0,
+            qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 7));
+    }
     for (i = 0; i < 11; i++) {
         DeviceState *spi = qdev_new(TYPE_NIKON_SPI);
         g_autofree char *name = g_strdup_printf("spi%u", i);
@@ -1243,6 +1588,8 @@ static void z7ii_init(MachineState *machine)
         spi_ports[i] = spi;
         qdev_prop_set_uint32(spi, "channel", i);
         qdev_prop_set_bit(spi, "dma", i >= 2 && i <= 4);
+        qdev_connect_clock_in(spi, "spi-clock",
+            qdev_get_clock_out(clock, i == 8 ? "spi8-clock" : "spi-clock"));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x2c0a0000 + i * 0x100);
         /*
@@ -1253,6 +1600,20 @@ static void z7ii_init(MachineState *machine)
                            qdev_get_gpio_in(gic, 193 + i * 2 - 32));
         sysbus_connect_irq(SYS_BUS_DEVICE(spi), 1,
                            qdev_get_gpio_in(gic, 192 + i * 2 - 32));
+    }
+    if (s->virtual_lens) {
+        DeviceState *lens = qdev_new(TYPE_NIKON_LENS);
+
+        object_property_add_child(OBJECT(machine), "lens", OBJECT(lens));
+        object_property_set_link(OBJECT(lens), "gpio", OBJECT(gpio),
+                                  &error_fatal);
+        qdev_prop_set_uint32(lens, "notify", 96);
+        object_property_set_link(OBJECT(lens), "stream", OBJECT(spi_ports[2]),
+                                  &error_fatal);
+        ssi_realize_and_unref(lens,
+            (SSIBus *)qdev_get_child_bus(spi_ports[3], "spi"), &error_fatal);
+        object_property_set_link(OBJECT(cmos), "lens", OBJECT(lens),
+                                 &error_fatal);
     }
     for (i = 0; i < 4; i++) {
         DeviceState *i2c = qdev_new(TYPE_NIKON_I2C);
@@ -1270,6 +1631,12 @@ static void z7ii_init(MachineState *machine)
         if (i == 2 && s->bundle) {
             i2c_slave_create_simple(nikon_i2c_bus(i2c),
                                     TYPE_NIKON_EYE_SENSOR, 0x38);
+            /*
+             * Original unit6 handle 0x00020040 selects this bus. Samples
+             * remain unavailable until explicitly supplied as board input.
+             */
+            i2c_slave_create_simple(nikon_i2c_bus(i2c),
+                                    TYPE_NIKON_ACCELERATION, 0x1d);
         }
     }
     for (i = 0; i < 2; i++) {
@@ -1360,8 +1727,8 @@ static void z7ii_init(MachineState *machine)
                              qdev_get_gpio_in(gic, 237 - 32));
 
         object_property_add_child(OBJECT(machine), "storage", OBJECT(storage));
-        if (blk_by_name("storage")) {
-            qdev_prop_set_string(storage, "drive", "storage");
+        if (s->slot0_drive) {
+            qdev_prop_set_string(storage, "drive", s->slot0_drive);
         }
         object_property_set_link(OBJECT(storage), "memory",
                                  OBJECT(get_system_memory()), &error_fatal);
@@ -1373,8 +1740,14 @@ static void z7ii_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(storage), i,
                                qdev_get_gpio_in(gic, storage_irqs[i] - 32));
         }
-        qdev_connect_gpio_out_named(storage, "link", 0,
+        qdev_connect_gpio_out_named(storage, "present", 0,
                                    qdev_get_gpio_in_named(signal, "signal", 3));
+    }
+    {
+        DeviceState *save = qdev_new(TYPE_NIKON_SAVE);
+
+        object_property_add_child(OBJECT(machine), "save", OBJECT(save));
+        qdev_realize_and_unref(save, NULL, &error_fatal);
     }
     /* The guest registers/enables IRQ250; this is its external SPI input. */
     sysbus_create_simple(TYPE_NIKON_COMPLETION, COMPLETION_BASE,
@@ -1440,9 +1813,12 @@ static void z7ii_init(MachineState *machine)
                  "MEMC=0x04264000 CBAR=0xf8100000 GICv1=256 "
                  "cntfrq=48000000 secure-timer-PPI=29 early-release-RAM=4B; "
                  "storage-classes=6 storage-MiB=186 cold-zero; "
-                 "resource57-record0-base=0xbec5f200 bytes=0x4b0000 cold-zero; "
-                 "resource57-record1-base=0xbf10f200 bytes=0x1fa400 cold-zero; "
-                 "resource57-record7-base=0xc175d600 bytes=0x4b0000 cold-zero; "
+                 "gui-pool-base=0xbec5f200 bytes=0x386c200 source-owned cold-zero; "
+                 "interpolation-pool-base=0xc24cb400 bytes=0xf00000 cold-zero; "
+                 "grid-pool-base=0x5d170000 bytes=0x6c000 cold-zero; "
+                 "capture-pools=16,17,19,20,21,22,23,25,26,27,28,29,31,32 "
+                 "source-extents(26/31 mode4,27/28 paired override) cold-zero; "
+                 "readout-pools=0x61654800+0x603000,0x61c57800+0x402000 cold-zero; "
                  "lcd-composition-base=0xbf309600 bytes=0x4b0000 cold-zero; "
                  "display-buffer-base=0xcb4a7000 bytes=0x1194000 cold-zero; "
                  "no NOR writer/BootROM; private SLA2/EX1 for bundle input",
@@ -1461,6 +1837,48 @@ static void z7ii_set_bundle(Object *obj, const char *value, Error **errp)
 
     g_free(s->bundle_path);
     s->bundle_path = g_strdup(value);
+}
+
+static char *z7ii_get_descriptor11_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor11_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor11_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor11-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor11_input);
+    s->descriptor11_input = g_strdup(value && *value ? value : NULL);
+}
+
+static char *z7ii_get_descriptor12_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor12_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor12_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor12-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor12_input);
+    s->descriptor12_input = g_strdup(value && *value ? value : NULL);
 }
 
 static char *z7ii_get_descriptor17_input(Object *obj, Error **errp)
@@ -1482,6 +1900,48 @@ static void z7ii_set_descriptor17_input(Object *obj, const char *value,
     }
     g_free(s->descriptor17_input);
     s->descriptor17_input = g_strdup(value && *value ? value : NULL);
+}
+
+static char *z7ii_get_descriptor18_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor18_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor18_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor18-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor18_input);
+    s->descriptor18_input = g_strdup(value && *value ? value : NULL);
+}
+
+static char *z7ii_get_descriptor32_input(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->descriptor32_input;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_descriptor32_input(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    if (phase_check(PHASE_MACHINE_INITIALIZED)) {
+        error_setg(errp,
+                   "descriptor32-input must be configured before machine init");
+        return;
+    }
+    g_free(s->descriptor32_input);
+    s->descriptor32_input = g_strdup(value && *value ? value : NULL);
 }
 
 static char *z7ii_get_sla_boot_prefix(Object *obj, Error **errp)
@@ -1521,6 +1981,37 @@ static void z7ii_set_cmos_image(Object *obj, const char *value, Error **errp)
     s->cmos_image = g_strdup(value && *value ? value : NULL);
 }
 
+static char *z7ii_get_paired_calibration(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->paired_calibration;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_paired_calibration(Object *obj, const char *value,
+                                       Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->paired_calibration);
+    s->paired_calibration = g_strdup(value && *value ? value : NULL);
+}
+
+static char *z7ii_get_slot0_drive(Object *obj, Error **errp)
+{
+    const char *value = Z7II_MACHINE(obj)->slot0_drive;
+
+    return g_strdup(value ? value : "");
+}
+
+static void z7ii_set_slot0_drive(Object *obj, const char *value, Error **errp)
+{
+    Z7IIMachineState *s = Z7II_MACHINE(obj);
+
+    g_free(s->slot0_drive);
+    s->slot0_drive = g_strdup(value && *value ? value : NULL);
+}
+
 static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **errp)
 {
     Z7IIMachineState *s = Z7II_MACHINE(obj);
@@ -1532,6 +2023,16 @@ static void z7ii_set_mas_boot_prefix(Object *obj, const char *value, Error **err
 static bool z7ii_get_frame_contract(Object *obj, Error **errp)
 {
     return Z7II_MACHINE(obj)->frame_contract;
+}
+
+static bool z7ii_get_virtual_lens(Object *obj, Error **errp)
+{
+    return Z7II_MACHINE(obj)->virtual_lens;
+}
+
+static void z7ii_set_virtual_lens(Object *obj, bool value, Error **errp)
+{
+    Z7II_MACHINE(obj)->virtual_lens = value;
 }
 
 static void z7ii_set_frame_contract(Object *obj, bool value, Error **errp)
@@ -1552,10 +2053,16 @@ static void z7ii_finalize(Object *obj)
     nikon_bundle_free(s->bundle);
     timer_free(s->ex_input_timer);
     g_free(s->bundle_path);
+    g_free(s->descriptor11_input);
+    g_free(s->descriptor12_input);
     g_free(s->descriptor17_input);
+    g_free(s->descriptor18_input);
+    g_free(s->descriptor32_input);
     g_free(s->sla_boot_prefix);
     g_free(s->mas_boot_prefix);
     g_free(s->cmos_image);
+    g_free(s->paired_calibration);
+    g_free(s->slot0_drive);
 }
 
 static void z7ii_class_init(ObjectClass *oc, const void *data)
@@ -1573,11 +2080,35 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "bundle", z7ii_get_bundle, z7ii_set_bundle);
     object_class_property_set_description(oc, "bundle",
         "Complete decoded five-component container (exclusive with -bios)");
+    object_class_property_add_str(oc, "descriptor11-input",
+                                  z7ii_get_descriptor11_input,
+                                  z7ii_set_descriptor11_input);
+    object_class_property_set_description(oc, "descriptor11-input",
+        "Optional exact 2432 KiB primary NOR input at 0x12a80000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor12-input",
+                                  z7ii_get_descriptor12_input,
+                                  z7ii_set_descriptor12_input);
+    object_class_property_set_description(oc, "descriptor12-input",
+        "Optional exact 896 KiB primary NOR input at 0x12ce0000; "
+        "omitted bytes remain erased");
     object_class_property_add_str(oc, "descriptor17-input",
                                   z7ii_get_descriptor17_input,
                                   z7ii_set_descriptor17_input);
     object_class_property_set_description(oc, "descriptor17-input",
         "Optional exact 128 KiB external NOR input at 0x132c0000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor18-input",
+                                  z7ii_get_descriptor18_input,
+                                  z7ii_set_descriptor18_input);
+    object_class_property_set_description(oc, "descriptor18-input",
+        "Optional exact 640 KiB external NOR input at 0x132e0000; "
+        "omitted bytes remain erased");
+    object_class_property_add_str(oc, "descriptor32-input",
+                                  z7ii_get_descriptor32_input,
+                                  z7ii_set_descriptor32_input);
+    object_class_property_set_description(oc, "descriptor32-input",
+        "Optional exact 1536 KiB shared descriptor31/32 NOR input at 0x13e80000; "
         "omitted bytes remain erased");
     object_class_property_add_str(oc, "sla-boot-prefix", z7ii_get_sla_boot_prefix,
                                  z7ii_set_sla_boot_prefix);
@@ -1593,8 +2124,21 @@ static void z7ii_class_init(ObjectClass *oc, const void *data)
                                   z7ii_set_cmos_image);
     object_class_property_set_description(oc, "cmos-image",
         "Explicit binary PGM/PPM image for the functional CMOS provider");
+    object_class_property_add_str(oc, "paired-calibration",
+        z7ii_get_paired_calibration, z7ii_set_paired_calibration);
+    object_class_property_set_description(oc, "paired-calibration",
+        "Exact 24064-byte calibration tuple accepted by the finite monochrome "
+        "paired operator; validates guest table publication without filling it");
+    object_class_property_add_str(oc, "slot0-drive", z7ii_get_slot0_drive,
+                                  z7ii_set_slot0_drive);
+    object_class_property_set_description(oc, "slot0-drive",
+        "BlockBackend ID for the NVMe card in source slot 0; omitted means absent");
     object_class_property_add_bool(oc, "frame-contract", z7ii_get_frame_contract,
                                    z7ii_set_frame_contract);
+    object_class_property_add_bool(oc, "virtual-lens", z7ii_get_virtual_lens,
+                                   z7ii_set_virtual_lens);
+    object_class_property_set_description(oc, "virtual-lens",
+        "Explicit normal-family virtual 50 mm F2.8 lens on CSIO3/2");
     object_class_property_set_description(oc, "frame-contract",
         "Diagnostic-only CMOS/processing/display descriptor aperture; disabled by default");
 }

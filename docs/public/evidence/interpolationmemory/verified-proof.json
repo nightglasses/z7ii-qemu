@@ -1,0 +1,46 @@
+{
+  "archive_scope": "Curated execution observation; long binary snapshots omitted, not a new run.",
+  "copy_ranges": [
+    {
+      "offset": "0x0",
+      "size": "0xbe000",
+      "equal": true
+    },
+    {
+      "offset": "0xbe000",
+      "size": "0x6000",
+      "equal": true
+    },
+    {
+      "offset": "0xc4000",
+      "size": "0x99c0",
+      "equal": true
+    },
+    {
+      "offset": "0xcd9c0",
+      "size": "0x1f60",
+      "equal": true
+    },
+    {
+      "offset": "0xcf920",
+      "size": "0x9d950",
+      "equal": true
+    },
+    {
+      "offset": "0x16dffc",
+      "size": "0x4",
+      "equal": true
+    }
+  ],
+  "property_empty": true,
+  "guard_context": "00000000 R10=00000000 R11=00000bb8\nR12=802a0100 R13=b53a7f80 R14=102d7255 R15=10305dca\nPSR=60000033 -ZC- T S svc32\nR00=00000000 R01=00000015 R02=00000150 R03=00000000\nR04=00000000 R05=b18a75f8 R06=00000100 R07=00000001\nR08=00000000 R09=00000000 R10=00000000 R11=00000bb8\nR12=802a0100 R13=b53a7f80 R14=102d7255 R15=102d7254\nPSR=60000033 -ZC- T S svc32",
+  "record_tags": {
+    "0x306": 544,
+    "0x305": 24,
+    "0x0": 2072
+  },
+  "last_nonzero_index": 1218,
+  "completion": "not established: another task faults before all records are written",
+  "next_fault": "CPU1 PC1024ffda READ16 PA5d170000",
+  "native_cases": 29
+}

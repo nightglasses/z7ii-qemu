@@ -1,15 +1,18 @@
 # SLA event gate source contract
 
-Provider: `zero-domain-source/work/sla-whole-source-11/sla.S` and original
+Provider: `zero-domain-source/sla.S` and original
 `sla-rows.jsonl`, recovered `100943CE..100953E2` family. The c245 original
 runtime first stopped at CPU3 `PC100944D2`, W32 `20100000=0`. No new decoder,
 native collection, original run or build was executed by this owner.
 
-Reuse `TYPE_NIKON_EVENT_GATE`: one aligned little-endian word MMIO region,
+The historical control profile reused `TYPE_NIKON_EVENT_GATE`: one aligned
+little-endian word MMIO region,
 `20100000..20102928`, one SysBus IRQ output to IRQ102. No DMA address-space
 link, transfer backend or global address space is needed for this finite
 interface. The SLA owner supplies private mapping/wiring; `pending-bit[96]`
-inputs remain disconnected by default.
+inputs remain disconnected by default. The later [command importer](commands.md)
+extends this shared class with bounded RAM DMA and extra storage regions; the
+original narrower SLA observations below do not claim execution of those paths.
 
 `943CE` registers146 at `C10012C4` (literal9473C=C100138C minusC8), then
 registers IRQ102 with Thumb handler94339. Service state at `C10012B4` holds
@@ -55,12 +58,19 @@ method94640 preserves arbitrary high bits and ORs a full argument, so the
 packet setter's generated14-bit value cannot constrain the whole interface.
 This is retained configuration; it supplies no pending, data or completion.
 
-Unknown activation, pulses, submits and monitor/data remain strict errors.
-In particular20A4/2620/2660 assert1,2680/2800, global00=1, selector2C and
-E74/E94 are not assigned fabricated operating effects. The model cannot claim
+The later MAS [type0 slot contract](slots.md) adds sixteen complete parameter
+packets, selector2c and retained busy ownership to the shared class. This is
+source/native MAS scope, not an original SLA slot-cycle observation. Request2800
+records an outstanding submit only. Unknown activation, pulses and monitor/data
+remain strict errors in that historical checkpoint. The later
+[quiescent stop contracts](processing.md#shared-input-quiescent-stop) bound
+20A4/2620/2660 assertion, and the [route commit](routing.md) bounds2680.
+Global00=1 and E74/E94 still have no assigned operating effects. The model cannot claim
 successful execution of a whole compound method that reaches one of those
-unsupported operations. External storage at24010000 belongs outside this
-class. The adjacent95408 family uses literal24073400 and is separate.
+unsupported operations. The later MAS [command contract](commands.md) adds
+source-bounded import, LUT and24010000 workspace storage to the shared class;
+its native SLA fixture is not original SLA processing evidence. The adjacent
+95408 family uses literal24073400 and is separate.
 
 ## Functional conventions and proof limits
 

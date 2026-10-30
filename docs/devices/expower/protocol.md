@@ -1,8 +1,8 @@
 # EX monitor and status endpoints
 
 The EX power lane reaches two I2C endpoints: the `0x6b` monitor register file
-(`0xd6` on the wire) and the `0x0d` status endpoint. Both are one-byte register
-transactions issued by the original firmware through the EX I2C controller, so
+(`0xd6` on the wire) and the `0x0d` status endpoint. Both use transactions
+issued by the original firmware through the EX I2C controller, so
 this page records the command space the image actually uses, the read-back
 rules it enforces, and what the emulator model does and does not claim.
 
@@ -74,7 +74,8 @@ long as it latches the data byte per command and accepts the `0xc0` write.
 
 1. two-byte write `08 01`
 2. four-byte receive into a stack buffer
-3. two-byte write `08 00`
+3. two-byte write `{reply[0], 00}`; this profile supplies `reply[0] = 00`,
+   so the observed release is `00 00`
 4. decode the fourth byte: `raw & 3` is the raw state, `((raw >> 2) & 7) == 1`
    is a flag, and the class table accepts `0xa9`/`0xaa` as class 1, `0xc9`/`0xca`
    as class 2, `0xe9`/`0xea` as class 3 and anything else as class 0
@@ -99,6 +100,40 @@ Consumers are narrow and one-directional:
 The dependency therefore runs `0x0d` read -> class compare -> `0x6b` program,
 never the reverse. The `0x6b` commit itself is gated by the transaction-valid
 dword `0x2001f650`, not by the class.
+
+### Change notification and report production
+
+EX VA `0802b998` configures GPIOC0 as an input without pulls and binds its
+handle at SRAM `2001fe2c` to this driver. VA `080266bc` suppresses another
+acquisition when the device is ready, its presence input is active, PC0 reads
+high and `2001f650` already contains a valid sample. A low PC0 instead permits
+another read on each service cycle. No guest output write drives PC0, and this
+path polls its level rather than enabling a PC0 EXTI completion interrupt.
+
+The timer records use five ticks. The observed EX clock setup gives a nominal
+one-millisecond SysTick, so the service can poll every five milliseconds; this
+is a guest-time cadence, not a measured host throughput guarantee. Service
+cycles114/124 call VA `080266bc` from `08027fa6`; publication of `0202004d`
+reaches VA `08025184`, selects handler12 and posts BatMg event29. VA `080259d8`
+then builds the eight-byte kind`0a` report in the normal class2 send queue.
+That queue's completion callback does not itself post event29.
+
+In a separate original diagnostic, the unwired PC0 read low while the class
+sample was already valid. Two stock trace intervals measured 756 and165 report
+producer entries over about15 host seconds each; these instrumented rates are
+not the nominal service frequency. The consumer also progressed. Another
+independent probe observed11 successful SPI-DMA AND-waits out of12, with
+completion flags`0d`, HAL READY and DMA count zero. These observations establish
+repeated production and congestion, not a permanently stalled DMA engine.
+
+The finite model now connects a **polled, active-low change notification** to
+PC0. This is a functional inference from the driver and its external status
+input, not identification of a physical status IC, interrupt controller or
+electrical open-drain circuit. A changed external class asserts the line; a
+complete acquisition followed by the original release acknowledges only the
+sampled generation. No host timer produces reports, frees queue slots or posts
+firmware events. See [exposure controls](../gpio/exposure.md) for the distinct
+downstream input acceptance boundary.
 
 ## Probes
 
@@ -127,11 +162,21 @@ file:
 - `exstatus` (wire `0x0d`) answers the two-byte request `08 01` with four bytes
   whose fourth byte is the class register: `0x00`, `0xa9`, `0xc9` or `0xe9` for
   class 0..3, with class 1 as the bundle default and a QOM `class` property that
-  reset preserves. The request is acknowledged as data bytes, and the four-byte
-  receive follows the controller's multi-byte path.
+  reset preserves. Values outside0..3 reject. `08 01` freezes the response and
+  its input generation. All four payload bytes must be read before `00 00`
+  can release that generation's notification; controller prefetch returns zero.
+  Partial reads or partial release writes cannot acknowledge it. A change after
+  sampling remains pending after the old release. Identical class writes do
+  not create new notifications. Reset cancels transactions and notifications,
+  retains the external class and publishes idle-high after receiver reset;
+  the driver's invalid-sample path still performs the first normal acquisition.
 - `expower` keeps the source-defined `0x4f` register pair and the auxiliary
   `0x10` endpoint.
 
+`/nikon/ex/status-notification` covers complete and partial acquisitions,
+release, unchanged input, generation races, invalid classes and reset through
+the real I2C bus and wired GPIOC0. The direct fixture uses `-S`: it executes no
+guest instructions and needs no CPU-pause or shutdown workaround.
 `/nikon/ex/power-devices` covers the register-file echo, the ready value, the
 command bound, the class table and reset behaviour. The original bundle run
 reaches the `0x6b` setup comparison and its success exit for commands 0, 1 and

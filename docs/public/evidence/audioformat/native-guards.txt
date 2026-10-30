@@ -1,0 +1,8 @@
+Native test output excerpt
+Run: audioformat-20261023
+Original log: native-guards.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/1 nikon+qtest+qtest-arm - qemu:nikon_audio OK              1.89s   4 subtests passed
+Ok:                1
+Fail:              0

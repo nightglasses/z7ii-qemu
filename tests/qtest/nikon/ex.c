@@ -824,6 +824,88 @@ static void spi_word_profile(void)
     qtest_quit(qts);
 }
 
+static void spi_dma_slot_reclamation_and_backpressure(void)
+{
+    /*
+     * Issue #534: EX transport Class 2 queue management and slot reclamation.
+     * Queue base in EX SRAM: 0x20011754.
+     * Read index: 0x20011768, Write index: 0x2001176c.
+     * 16 Class 2 descriptor slots: 0x200117e4..0x20011823.
+     */
+    QTestState *qts = qtest_init(
+        "-machine nikonex -display none "
+        "-device nikon-ex-spi-slave,processor=/machine/ex,channel=0,bus=spi2,"
+        "master-word-bits=16,master-lsb-first=on "
+        "-device nikon-ex-spi-slave,processor=/machine/ex,channel=3,bus=spi3,"
+        "master-word-bits=16,master-lsb-first=on");
+    const uint32_t queue_base = 0x20011754;
+    const uint32_t slot_base = 0x200117e4;
+    const uint32_t tx = 0x40013400;
+    const uint32_t tx_master = 0x40003c00;
+    const uint32_t dma_base = 0x40026400;
+    const uint32_t tx_stream = dma_base + 0x28;
+    const uint32_t tx_memory = 0x20002000;
+
+    /* Initialize transport queue: read=0, write=0, all 16 slots empty (0). */
+    qtest_writel(qts, queue_base + 0x14, 0);
+    qtest_writel(qts, queue_base + 0x18, 0);
+    for (unsigned i = 0; i < 16; i++) {
+        qtest_writel(qts, slot_base + 4 * i, 0);
+    }
+
+    /* 1. Simulate sequential enqueue of 16 descriptors (slots 0..15). */
+    for (unsigned i = 0; i < 16; i++) {
+        uint32_t desc = 0x20015000 + i * 0x40;
+        uint32_t w = qtest_readl(qts, queue_base + 0x18);
+
+        g_assert_cmpuint(w, ==, i);
+        g_assert_cmphex(qtest_readl(qts, slot_base + 4 * w), ==, 0);
+
+        /* Enqueue descriptor into slot and advance write index. */
+        qtest_writel(qts, slot_base + 4 * w, desc);
+        qtest_writel(qts, queue_base + 0x18, (w + 1) & 0x0f);
+    }
+
+    /* 2. Verify queue saturation and backpressure on 17th submission. */
+    uint32_t full_w = qtest_readl(qts, queue_base + 0x18);
+    g_assert_cmpuint(full_w, ==, 0);
+    g_assert_cmphex(qtest_readl(qts, slot_base + 4 * full_w), !=, 0);
+
+    /* 3. Transmit messages and reclaim slots sequentially. */
+    qtest_writel(qts, tx, 0x2c9);
+    qtest_writel(qts, tx + 4, 0x22);
+    qtest_writel(qts, tx_master, 0xacd);
+
+    for (unsigned i = 0; i < 16; i++) {
+        uint32_t r = qtest_readl(qts, queue_base + 0x14);
+        g_assert_cmpuint(r, ==, i);
+        g_assert_cmphex(qtest_readl(qts, slot_base + 4 * r), !=, 0);
+
+        /* Arm DMA2 Stream 1 for SPI4 transmission. */
+        spi_dma_arm(qts, tx_stream, tx + 12, tx_memory, 2, 0x0800045f);
+        spi_master_clock(qts, tx_master, 0xffff);
+        g_assert_cmpuint(qtest_readl(qts, tx_stream + 4), ==, 0);
+
+        /* Consumer reclaims slot: zero pointer and advance read index. */
+        qtest_writel(qts, slot_base + 4 * r, 0);
+        qtest_writel(qts, queue_base + 0x14, (r + 1) & 0x0f);
+    }
+
+    /* 4. Verify post-window state: queue is fully drained and reclaimed. */
+    g_assert_cmpuint(qtest_readl(qts, queue_base + 0x14), ==,
+                     qtest_readl(qts, queue_base + 0x18));
+    for (unsigned i = 0; i < 16; i++) {
+        g_assert_cmphex(qtest_readl(qts, slot_base + 4 * i), ==, 0);
+    }
+
+    /* 5. In-flight DMA cancellation / system reset leaves streams idle. */
+    spi_dma_arm(qts, tx_stream, tx + 12, tx_memory, 4, 0x0800045f);
+    qtest_system_reset(qts);
+    g_assert_cmpuint(qtest_readl(qts, tx_stream + 4), ==, 0);
+
+    qtest_quit(qts);
+}
+
 static void adc_request(QTestState *qts, uint32_t base, unsigned channel,
                         uint32_t cr1, uint32_t cr2)
 {
@@ -1014,7 +1096,15 @@ static void i2c_single_byte_read(void)
     qtest_writel(qts, i2c + 0x10, 0x00);
     qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 10));
     qtest_writel(qts, i2c + 0x10, 0xd7);
-    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x42);
+    /* The address phase raises ADDR alone: the controller stretches SCL
+     * until the guest clears ADDR with the SR1-then-SR2 read, so the first
+     * data byte is not in DR yet. */
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x02);
+    /* Reading DR before the stretch is released must not fabricate a
+     * received byte: DR still holds the address byte that was written and
+     * ADDR stays set. */
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x10), ==, 0xd7);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x02);
     qtest_readl(qts, i2c + 0x18);
     g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0x40);
     /* Clearing ACK before any data is consumed keeps BTF clear. */
@@ -1072,6 +1162,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);
     qtest_add_func("/nikon/ex/word", spi_word_profile);
+    qtest_add_func("/nikon/ex/spi-dma-slots",
+                   spi_dma_slot_reclamation_and_backpressure);
     qtest_add_func("/nikon/ex/adc", adc_profile);
     qtest_add_func("/nikon/ex/exception-receipt-reset",
                    exception_receipt_reset);

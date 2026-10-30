@@ -2,7 +2,7 @@
 
 `counter.c` implements the complete finite fields consumed by the official SLA family VA `10060444..100607d2`. Its name describes the sixteen-bit parameter/configuration shape; it does not identify silicon, assert a clock frequency or assign physical meanings to the three software modes. It is independent of the existing twelve-channel Timing and five-route Signal devices.
 
-The exact official rows, original bytes, Thumb contexts and resource ranges are in ignored `work/source/families.json`, read from `sla-whole-source-5/sla-rows.jsonl`. Literal VA `100607d8` is PA `2c01500c`. Literal `100607dc` points to VA `c1005bac`, whose three original COPY1 words at O`842080` are `0,20,40` in hexadecimal. Thus each of the three private channel windows is0x20 bytes apart. IRQ169/170/171 (`a9/aa/ab`) are registered through actual wrappers `100604f7/100604f1/100604eb`, each tail calling `10060444` with its channel object. Software handles105/106/107 are not IRQs or address indices.
+The exact official rows, original bytes, Thumb contexts and resource ranges are in ignored `run source/families.json`, read from `sla-whole-source-5/sla-rows.jsonl`. Literal VA `100607d8` is PA `2c01500c`. Literal `100607dc` points to VA `c1005bac`, whose three original COPY1 words at O`842080` are `0,20,40` in hexadecimal. Thus each of the three private channel windows is0x20 bytes apart. IRQ169/170/171 (`a9/aa/ab`) are registered through actual wrappers `100604f7/100604f1/100604eb`, each tail calling `10060444` with its channel object. Software handles105/106/107 are not IRQs or address indices.
 
 | Channel offset | Complete source contract | Device interface |
 | --- | --- | --- |

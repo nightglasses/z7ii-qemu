@@ -1,0 +1,10 @@
+Native test output excerpt
+Run: ramalignment-20261023
+Original log: native-green.log
+Scope: selected verdict/assertion lines from an existing run; not a rerun.
+
+1/3 unit+nikon - qemu:nikon_memory_unit       OK              0.52s   3 subtests passed
+2/3 unit+nikon - qemu:nikon_transfer_unit     OK              0.81s   14 subtests passed
+3/3 nikon+qtest+qtest-arm - qemu:nikon_memory OK              7.40s   26 subtests passed
+Ok:                3
+Fail:              0

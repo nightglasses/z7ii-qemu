@@ -27,7 +27,7 @@ lr              0x10200ceb
 The handle cell therefore resolves to event ID `0x01000003` (EV3). This
 mask `0x2` call has wrapper LR `0x10200ceb`; it is not a call from
 `0x10200d06`. The later read-only
-`work/research/guiresume/graphicsextent1/gdb.log:105–118` separately records `0x10200d06` with r1=`0x1` and wrapper LR `0x10200d0b` for mask `0x1`.
+`run research/guiresume/graphicsextent1/gdb.log:105–118` separately records `0x10200d06` with r1=`0x1` and wrapper LR `0x10200d0b` for mask `0x1`.
 These historical peer EV3 setters publish masks `0x1`/`0x2`, not the GUI
 mask `0x10` produced by MAS VA `0x10200c34`. The original register facts above
 are unchanged; the earlier mask2-to-`10200d06` function binding is withdrawn.
@@ -77,7 +77,7 @@ justified by this receipt.
 
 ## Complete-bundle revalidation before bridge ISR correction
 
-Two bounded eight-second observations (`work/research/guiresume/verified1/`
+Two bounded eight-second observations (`run research/guiresume/verified1/`
 and `verified2/`) use the unchanged complete C1.70 decoded bundle, not the
 raw-MAS configuration above. Both use the internal functional loader,
 `-smp cpus=2,maxcpus=5`, and `-accel tcg,thread=multi`. Their shared rebuilt
@@ -144,7 +144,7 @@ A paired-word reflection experiment produced a natural EV3 `0x10` setter
 and return from its consumer wait, but then rejected the bank0 read at
 `0x20136000`. That experiment was withdrawn: its cold-word reflection and
 bank binding cannot establish the real notification contract. Its ignored
-`work/research/ev3producer/mailbox_candidate.patch` and `mailbox1` receipt
+`run research/ev3producer/mailbox_candidate.patch` and `mailbox1` receipt
 must not be presented as progress from the maintained model.
 
 Final runs do not observe EV3 `0x10`, the transfer producer or a first frame.

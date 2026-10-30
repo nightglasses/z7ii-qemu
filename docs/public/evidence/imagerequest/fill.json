@@ -1,0 +1,72 @@
+{
+  "scope": "Two-engine source-produced byte-row zero fill; no pattern/color/physical timing expansion",
+  "dependency_baseline": "6bfd962f plus paired request/capture and initialized graphics contracts",
+  "source": {
+    "component": "Original C1.70 MAS; code VA,device/destination PA; hexadecimal addresses/offsets and decimal counts",
+    "producer_VA": "10389e3a/10389d08 ->102dba60 ->102dbb9a/102dbb5e",
+    "geometry": "request halfwords at decimal byte2/4/6 become pitch/row_bytes/count; destination=base+x+pitch*y; writer maps to engine offsets20/24/28",
+    "correction": "Old C width/stride names were reversed; equal-valued startup and canvas tuples hid this",
+    "observed_request": {
+      "PC_VA": "102dbba2",
+      "START_PA": "20070010",
+      "mask_hex": "11",
+      "flags": 1,
+      "pattern": 0,
+      "dimension": 0,
+      "parameter": 0,
+      "pitch": 48,
+      "row_bytes": 48,
+      "count": 42,
+      "destination_PA": "bff44340",
+      "end_PA_exclusive": "bff44b20"
+    }
+  },
+  "model": {
+    "rows": "Clear row_bytes at destination+row*pitch for row0..count-1 on either engine; equal pitch/width retains contiguous fast path",
+    "bounds": "Complete configured zero mode,16-bit dimensions,positive width/count,pitch>=width,4-byte-aligned destination,64-bit last-row extent preflight inside32-bit PA; no address/shape whitelist",
+    "storage": "Existing selected AddressSpace only; normal-memory writable/direct RAM spans. No new allocation or address aperture. Padding untouched; prior successful rows/spans remain written on a later bus error",
+    "lifecycle": "Synchronous actual DMA then done1 or error10,independent masks/IRQ103/104/ACK/stop/reset. No timer or callback injection",
+    "unknown": "Nonzero pattern,other flags/dimensions/parameters and zero-count encoding still reject"
+  },
+  "native": {
+    "red": "Old model rejects first legal padded-row request with no success result",
+    "green": {
+      "selected_domain_subtests": 4,
+      "startup_and_GUI_subtests": 4,
+      "failures": 0
+    },
+    "coverage": "Both engines,odd active bytes,padding and guards,alternate contiguous shape,1-byte row,illegal geometry/modes/alignment/overflow,partial third-row bus failure; exact startup/GUI extents,readonly/missing RAM,independent IRQ/ACK/reset",
+    "selection_limits": "A broader114-case nikon run passed its first40 cases including all4 fill board cases,then QEMU was killed by signal9 during an unrelated image case; no full-suite PASS. Repeated GLib -p arguments produced duplicate TAP plans despite4 passed cases,so no Meson PASS claimed for that selection. Correct individually selected native fill/GUI invocations passed; no unrelated full-suite repeat. Raw logs retained privately."
+  },
+  "limits": "Functional row/zero/reset/timing/error conventions,not physical controller precision or complete GUI proof. Raw firmware,disassembly and full logs remain ignored.",
+  "original_execution": {
+    "profile": "Unchanged region/cold-neutral profile as requests.json;60 host seconds,no in-window GDB pause;sequential QMP/GDB",
+    "main_completed": 128,
+    "main_rejected": 0,
+    "main_cancelled": 1,
+    "statistics_completed": 517,
+    "statistics_rejected": 0,
+    "statistics_cancelled": 0,
+    "loaded_packets": 18,
+    "loaded_words": 649,
+    "parameter_commits": 9,
+    "fill": "engine0 PA bff44340 bytes7e0 bus-result1 status10; real bus failure,not done",
+    "uncovered": "CPU1 VA PC1051e322 WRITE8 PA bff43ac2=80 uncovered-address",
+    "display": {
+      "0": {
+        "class": "GenericError",
+        "desc": "Device display (head 0) is not bound to a QemuConsole"
+      },
+      "1": "screendump succeeded"
+    },
+    "GUI_readiness": "0x0",
+    "information_nonzero_bytes_each": [
+      173,
+      173
+    ],
+    "QMP_status": {
+      "status": "debug",
+      "running": false
+    }
+  }
+}
