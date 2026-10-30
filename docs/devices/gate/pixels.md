@@ -69,3 +69,20 @@ non-power-of-two remainders. Negative vectors cover malformed dimensions,
 lengths, coordinate high bits, tags, padding mistaken for a tag, invalid unused
 records, and overlapping buffers. Fixture validation is separate from original
 firmware execution and physical-camera fidelity.
+
+## Hardware abstraction layer and compute pipeline
+
+Heavy pixel transformation operators are abstracted via `NikonComputePipeline`
+(`include/hw/nikon/compute_pipeline.h`), decoupling mathematical definitions
+from execution backends:
+- `NIKON_COMPUTE_BACKEND_CPU`: reference scalar / SIMD algorithm implementation,
+  guaranteeing exact deterministic results across all host architectures.
+- `NIKON_COMPUTE_BACKEND_METAL`: reserved slot for macOS Apple Silicon Metal
+  compute kernels and vImage / NEON hardware execution.
+- `NIKON_COMPUTE_BACKEND_DIRECTML`: reserved slot for Windows DirectML and
+  HLSL compute shaders.
+- `NIKON_COMPUTE_BACKEND_VULKAN`: reserved slot for cross-platform Vulkan.
+
+The unit fixture `nikon_compute_unit` validates lifecycle management, backend
+selection, Bayer CFA demosaicing color responses, and warp parameter boundaries
+under native TAP protocols.
