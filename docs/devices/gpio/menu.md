@@ -27,17 +27,17 @@ Main menu navigation is driven by active-low electrical contacts on EX I2C0
 expander address `0x22`. The frontend models each contact with retained level
 latches and publishes active-low GPIO levels (`0 = pressed`, `1 = released`):
 
-| Property Name | Expander Index | Physical Pad | Host Key | Report Byte | Navigation Role |
+| Property Name | Expander Index | Physical Pad | Host Key (and Aliases) | Report Byte | Navigation Role |
 |---|---|---|---|---|---|
-| `menu` / `menu-button` | 0 | 9 | KEY_F20 | 67 | Open / close main menu, cancel/back |
-| `ok` / `ok-button` | 1 | 3 | KEY_ENTER | 74 | Enter category / confirm selection |
-| `playback` | 2 | 8 | KEY_F21 | 68 | Switch to playback image review |
-| `delete` | 3 | 23 | KEY_DELETE | 69 | Delete prompt / item removal |
-| `i` / `i-button` | 4 | 2 | KEY_I | 72 | Toggle quick i-menu overlay |
-| `right` | 7 | 6 | KEY_RIGHT | 34 | Enter category item list / sub-menu |
-| `left` | 8 | 7 | KEY_LEFT | 35 | Return to category tabs / cancel |
-| `up` | 9 | 5 | KEY_UP | 36 | Navigate category up / item up |
-| `down` | 10 | 4 | KEY_DOWN | 37 | Navigate category down / item down |
+| `menu` / `menu-button` | 0 | 9 | `KEY_F20`, `KEY_M` | 67 | Open / close main menu, cancel/back |
+| `ok` / `ok-button` | 1 | 3 | `KEY_ENTER`, `KEY_KPENTER` | 74 | Enter category / confirm selection |
+| `playback` | 2 | 8 | `KEY_F21`, `KEY_P` | 68 | Switch to playback image review |
+| `delete` | 3 | 23 | `KEY_DELETE`, `KEY_BACKSPACE` | 69 | Delete prompt / item removal |
+| `i` / `i-button` | 4 | 2 | `KEY_I` | 72 | Toggle quick i-menu overlay |
+| `right` | 7 | 6 | `KEY_RIGHT` | 34 | Enter category item list / sub-menu |
+| `left` | 8 | 7 | `KEY_LEFT` | 35 | Return to category tabs / cancel |
+| `up` | 9 | 5 | `KEY_UP` | 36 | Navigate category up / item up |
+| `down` | 10 | 4 | `KEY_DOWN` | 37 | Navigate category down / item down |
 
 ## Navigation State Machine and Transition Matrix
 

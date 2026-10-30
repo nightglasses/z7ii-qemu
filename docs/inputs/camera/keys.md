@@ -25,9 +25,9 @@ original software selects:
 Pads are active low: a pressed key drives level 0, a released key level 1.
 From original EX firmware inspection (`0x0804e458` button scan table and
 `0x0803dd00` scanner):
-- `0x61` (PG1, pad 9, `KEY_F10`) is the physical shutter half-press contact (S1).
-- `0x62` (PG2, pad 10, `KEY_F11`) is the physical AF-ON button contact.
-- `0x6d` (PG13, pad 11, `KEY_F12`) is the physical shutter full-press contact (S2).
+- `0x61` (PG1, pad 9, `KEY_F10`, alias `KEY_J`) is the physical shutter half-press contact (S1).
+- `0x62` (PG2, pad 10, `KEY_F11`, alias `KEY_O`) is the physical AF-ON button contact.
+- `0x6d` (PG13, pad 11, `KEY_F12`, alias `KEY_K`) is the physical shutter full-press contact (S2).
   In the scanner, S2 is conditionally qualified by S1 (`cmp r4, #2; ldrb r1, [r6, #1]; cbz r1 -> force to 0`).
 - `0x25` (PC5, pad 3, `KEY_F4`) is the physical `MAIN` power switch contact (SW0 `MAIN`, `0x200`),
   NOT a shutter half-press contact.
