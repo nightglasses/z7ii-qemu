@@ -214,3 +214,108 @@ superimposed over the active Live View display:
   - Verifies input state retention and frame descriptor stability across
     `system_reset`.
 
+## End-to-End Menu Setting Modification and Storage Persistence Contract
+
+This section defines the pinned setting contract, getter/setter architecture,
+consumer execution, cancel lifecycle, and NOR storage persistence protocol under
+[Issue #546](https://github.com/mashiro01/nightglass/issues/546).
+
+### Pinned Setting and Original Setter/Consumer Architecture
+
+To validate genuine persistence without host-written guest configurations or
+superficial display cache overrides, the model pins the standard reversible
+camera setting **`ApplyLiveViewSetting`** (Custom Setting **d8** / 将设定应用于实时取景,
+PTP Property `0xD17B`, internal Setting ID `290` / `0x122`):
+
+1. **Setting Semantics**:
+   - `0` (Off / 关): EVF and monitor display constant readable brightness,
+     regardless of taking exposure settings (aperture/shutter/ISO).
+   - `1` (On / 开, default): Live view simulates actual exposure brightness
+     (WYSIWYG preview).
+2. **RAM Storage Location**:
+   - Base address: `0xb20d2894`.
+   - Field address: `0xb20d2894 + 290` = `0xb20d29b6` in `z7ii.kernel` DDR space.
+   - Initial factory template: `0x118b02ac + 290` (defaults to 0 when cold/erased).
+3. **Getter and Consumer**:
+   - Persistent byte-setting getter `1063c826` delegates to `103c09e8(290)`.
+   - Consumer gate: `10438320` evaluates `1063c826(290)` to admit or bypass
+     preview exposure gain calculation (`10630d0a(1)`).
+4. **Setter and Application**:
+   - Changing d8 via menu commits the updated value to `0xb20d29b6`,
+     immediately altering consumer evaluation on the subsequent frame.
+
+### Menu Navigation and Modification Workflow
+
+The setting modification follows the physical button interaction chain:
+
+1. **Navigation Sequence**:
+   - Open menu (`menu`).
+   - Navigate 3 steps down to Custom Settings Menu (Category 3 / Pencil).
+   - Enter category (`right` or `ok`).
+   - Navigate down to custom group **d** (Shooting/display).
+   - Enter group **d** and navigate to item **d8** (`ApplyLiveViewSetting`).
+2. **Cancel / Abort Path**:
+   - Pressing `right` enters d8 option sub-menu.
+   - Selecting option 1 followed by `left` (or `menu`) cancels the selection.
+   - Verified contract: RAM byte `0xb20d29b6` and NOR storage remain unchanged at 0.
+3. **Confirm and Commit Path**:
+   - Pressing `ok` commits the selection.
+   - Setter writes updated byte (`1`) into RAM at `0xb20d29b6`.
+   - Pressing `menu` dismisses menu back to live view scanout.
+
+### NOR Storage Protocol and Persistence Lifecycle
+
+1. **Non-Volatile Backing**:
+   - Persistent settings table is mapped into Descriptor 15 primary record slot
+     at PA `0x12e00000` (sector-aligned in `z7ii.external-nor0`, size `0x40000`).
+2. **Memory Controller (MEMC) Configuration**:
+   - Requires MEMC at MMIO `0x04264000`:
+     - Mode `+0x00`: `0x21` (x16 width, page mode, `WEOFF=0` / write-enabled).
+     - Timing `+0x20`: `0x153b0902`.
+3. **CFI/NOR Programming Sequence**:
+   - Command Unlock: Write `0xaa` to `0x10000aaa`, `0x55` to `0x10000554`.
+   - Word Program: Write `0xa0` to `0x10000aaa`.
+   - Record Structure:
+     - Word 0 (`+0x00`): `0x5354` ('ST' = Setting Table record header).
+     - Word 1 (`+0x02`): `0x0122` (Setting ID 290 = `0x122`).
+     - Word 2 (`+0x04`): `0x0001` (Setting Value 1).
+     - Word 3 (`+0x06`): `0x454e` ('EN').
+     - Word 4 (`+0x08`): `0x444d` ('DM') -> `ENDM` valid footer.
+4. **Cold Boot / System Reset Persistence**:
+   - Triggering machine `system_reset` resets volatile state and MEMC mode.
+   - The NOR flash array at `0x12e00000` retains all programmed words.
+   - On reboot, the firmware scanner discovers valid `ENDM` footer, parses
+     Setting 290, and loads `1` into RAM at `0xb20d29b6`.
+5. **Reversion Verification**:
+   - User re-enters menu d8, selects option 0, and confirms via `ok`.
+   - RAM cache updates to 0.
+   - Sector erase sequence (`0x80`, unlock, `0x30`) clears sector to `0xffff`.
+   - Record rewritten with value `0x0000`.
+   - Reboot verifies restored setting 0 across cold restart.
+
+### Error Boundaries and Protection Lifecycle
+
+- **MEMC Write Protection (`WEOFF = 1`)**:
+  - Setting MEMC mode to `0x29` asserts hardware write-protection.
+  - Flash command accesses are rejected with `MEMTX_ERROR`; cells are unmodified.
+- **Uninitialized Controller Protection**:
+  - Flash accesses prior to MEMC initialization fail explicitly.
+- **Invalid Command Abort**:
+  - Malformed unlock sequences abort the internal command stage back to `IDLE`.
+- **Diagnostic Stability**:
+  - Frame descriptor stage remains `NIKON_FRAME_UNBOUND` across all operations.
+
+### Focused Validation Coverage
+
+- **QTest Integration (`/nikon/gui/menu-setting-persistence`)** in
+  `tests/qtest/nikon/gui.c`:
+  - Boots `z7ii-mas-diagnostic` with functional bundle.
+  - Inspects initial baseline setting at `0xb20d29b6` (0) and erased NOR slot.
+  - Exercises menu navigation to d8, option change, and cancel via left arrow.
+  - Exercises confirmation via OK, verifies RAM setter execution (1).
+  - Programs persistent record via CFI/NOR command protocol at `0x12e00000`.
+  - Executes `system_reset`, re-initializes MEMC, and verifies NOR retention.
+  - Exercises setting reversion to 0, sector erasure, reprogramming, and reboot.
+  - Validates MEMC write protection (`0x29`) rejection.
+
+

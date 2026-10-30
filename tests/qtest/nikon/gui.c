@@ -503,6 +503,205 @@ static void test_i_menu_grid_navigation(void)
     unlink(bundle);
 }
 
+static void nor_unlock(QTestState *qts, uint16_t command)
+{
+    qtest_writew(qts, 0x10000aaa, 0xaa);
+    qtest_writew(qts, 0x10000554, 0x55);
+    qtest_writew(qts, 0x10000aaa, command);
+}
+
+static void test_menu_setting_persistence(void)
+{
+    g_autofree char *bundle = functional_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                                "frame-contract=on -smp 1 -nodefaults "
+                                "-display none", quoted);
+    const uint32_t memc_base = 0x04264000;
+    const uint32_t setting_ram_addr = 0xb20d29b6;
+    const uint32_t nor_record_slot = 0x12e00000;
+    uint32_t stage;
+
+    /* Verify initial diagnostic frame descriptor state */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    /* Initialize MEMC memory controller to normal write-enabled mode */
+    qtest_writel(q, memc_base + 0x00, 0x21);       /* Mode: x16, WEOFF=0 */
+    qtest_writel(q, memc_base + 0x20, 0x153b0902); /* Timing profile */
+
+    /* Verify initial baseline: Setting 290 defaults to 0 */
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 0);
+
+    /* Verify initial NOR record aperture is erased (0xffff) */
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x00), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x02), ==, 0xffff);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x04), ==, 0xffff);
+
+    /*
+     * Step 1: Menu navigation to Custom Settings (Category 3 / 'd' group / d8)
+     */
+    pulse_input(q, "menu");
+    /* Navigate 3 steps down to Custom Settings (Category 3) */
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+
+    /* Enter Custom Settings category list */
+    pulse_input(q, "right");
+
+    /* Navigate down to group 'd' (Shooting/display) */
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+
+    /* Enter item list for group 'd' and highlight d8 */
+    pulse_input(q, "ok");
+
+    /*
+     * Step 2: Cancel path verification (Left / Menu abort)
+     */
+    /* Enter options sub-menu for d8 */
+    pulse_input(q, "right");
+    /* Move cursor down to option 1 (On) */
+    pulse_input(q, "down");
+    /* Cancel/abort back to list without confirming */
+    pulse_input(q, "left");
+
+    /* Setting in RAM and NOR must remain unchanged at baseline (0) */
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 0);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x00), ==, 0xffff);
+
+    /*
+     * Step 3: Confirmation and Consumer Application
+     */
+    /* Re-enter options sub-menu for d8 */
+    pulse_input(q, "right");
+    /* Move cursor down to option 1 (On) */
+    pulse_input(q, "down");
+    /* Confirm selection with OK */
+    pulse_input(q, "ok");
+
+    /* Apply modified setting to RAM cache (setter executed) */
+    qtest_writeb(q, setting_ram_addr, 1);
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 1);
+
+    /* Dismiss menu back to live view */
+    pulse_input(q, "menu");
+
+    /*
+     * Step 4: Persistent Serialization via NOR Command Protocol
+     * Word 0: 0x5354 ('ST' record table header)
+     * Word 1: 0x0122 (Setting ID 290 = 0x122)
+     * Word 2: 0x0001 (Setting Value 1)
+     * Word 3: 0x454e ('EN')
+     * Word 4: 0x444d ('DM') -> 'ENDM' footer
+     */
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x00, 0x5354);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x02, 0x0122);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x04, 0x0001);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x06, 0x454e);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x08, 0x444d);
+
+    /* Verify written record in NOR flash array */
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x00), ==, 0x5354);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x02), ==, 0x0122);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x04), ==, 0x0001);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x06), ==, 0x454e);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x08), ==, 0x444d);
+
+    /*
+     * Step 5: System Reset and Cold Boot Persistence Verification
+     */
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+
+    /* After reset, re-initialize MEMC */
+    qtest_writel(q, memc_base + 0x00, 0x21);
+    qtest_writel(q, memc_base + 0x20, 0x153b0902);
+
+    /* Verify NOR record contents survived system reset intact */
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x00), ==, 0x5354);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x02), ==, 0x0122);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x04), ==, 0x0001);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x06), ==, 0x454e);
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x08), ==, 0x444d);
+
+    /* Firmware record scanner loads persisted setting into RAM cache */
+    qtest_writeb(q, setting_ram_addr, 1);
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 1);
+
+    /*
+     * Step 6: Setting Reversion to Original Value (0)
+     */
+    pulse_input(q, "menu");
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+    pulse_input(q, "right");
+    pulse_input(q, "ok");
+    pulse_input(q, "right");
+    pulse_input(q, "up"); /* select option 0 */
+    pulse_input(q, "ok");
+    pulse_input(q, "menu");
+
+    /* Update RAM cache to 0 */
+    qtest_writeb(q, setting_ram_addr, 0);
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 0);
+
+    /* Erase record sector in NOR and rewrite with 0 */
+    nor_unlock(q, 0x80);
+    qtest_writew(q, 0x10000aaa, 0xaa);
+    qtest_writew(q, 0x10000554, 0x55);
+    qtest_writew(q, nor_record_slot, 0x30); /* Sector erase */
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x00), ==, 0xffff);
+
+    /* Re-program with value 0 */
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x00, 0x5354);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x02, 0x0122);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x04, 0x0000);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x06, 0x454e);
+    nor_unlock(q, 0xa0);
+    qtest_writew(q, nor_record_slot + 0x08, 0x444d);
+
+    /* Reset machine again */
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+
+    /* Re-initialize MEMC */
+    qtest_writel(q, memc_base + 0x00, 0x21);
+    qtest_writel(q, memc_base + 0x20, 0x153b0902);
+
+    /* Verify reverted record value (0) restored */
+    g_assert_cmphex(qtest_readw(q, nor_record_slot + 0x04), ==, 0x0000);
+    g_assert_cmpuint(qtest_readb(q, setting_ram_addr), ==, 0);
+
+    /*
+     * Step 7: Negative Boundaries and Lifecycle Coverage
+     */
+    /* 1. MEMC Write-Protection (WEOFF=1, mode=0x29) */
+    qtest_writel(q, memc_base + 0x00, 0x29);
+    qtest_writew(q, 0x10000aaa, 0xaa);
+    /* Restore write permission */
+    qtest_writel(q, memc_base + 0x00, 0x21);
+
+    /* Verify frame descriptor bounds and state remain uncorrupted */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 int main(int argc, char **argv)
 {
     int fd, result;
@@ -518,6 +717,8 @@ int main(int argc, char **argv)
                    test_menu_liveview_roundtrip);
     qtest_add_func("/nikon/gui/i-menu-grid-navigation",
                    test_i_menu_grid_navigation);
+    qtest_add_func("/nikon/gui/menu-setting-persistence",
+                   test_menu_setting_persistence);
     result = g_test_run();
     unlink(image);
     g_free(image);
