@@ -375,6 +375,15 @@ static void aperture_status(LensFixture *f, unsigned position, bool busy)
 {
     uint8_t bytes[258] = { 0 };
     const unsigned fixed[] = { 1, 15, 162, 164 };
+    uint64_t prop_pos;
+    bool prop_busy;
+
+    prop_pos = object_property_get_uint(OBJECT(f->lens), "aperture-position",
+                                        &error_abort);
+    g_assert_cmpuint(prop_pos, ==, position);
+    prop_busy = object_property_get_bool(OBJECT(f->lens), "aperture-pending",
+                                         &error_abort);
+    g_assert_cmpint(prop_busy, ==, busy);
 
     packet(f, 0x20, 0, bytes, sizeof(bytes));
     g_assert_cmpuint(lduw_le_p(bytes + 9), ==, 960 + position);
@@ -479,6 +488,25 @@ static void test_aperture_lifecycle(void)
     uint8_t header[] = { 0x55, 0, 1, 0xa0, 0, 11, 0, 0 };
     g_autofree char *runtime = NULL;
     unsigned falling;
+    Error *err = NULL;
+
+    /* Property set and range enforcement */
+    object_property_set_uint(OBJECT(f->lens), "aperture-position", 192,
+                             &error_abort);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->lens),
+                                              "aperture-position",
+                                              &error_abort), ==, 192);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 1);
+    object_property_set_uint(OBJECT(f->lens), "aperture-position", 2000, &err);
+    g_assert_nonnull(err);
+    error_free(err);
+    err = NULL;
+
+    device_cold_reset(f->lens);
+    g_assert_cmpuint(count(f, "aperture-generation"), ==, 0);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->lens),
+                                              "aperture-position",
+                                              &error_abort), ==, 0);
 
     packet(f, 0x13, 0, bytes, 14);
     advance(2000000);

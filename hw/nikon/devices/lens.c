@@ -163,6 +163,55 @@ static void lens_aperture_done(void *opaque)
     s->aperture_generation++;
 }
 
+static void lens_get_aperture_position(Object *obj, Visitor *v,
+                                       const char *name, void *opaque,
+                                       Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    uint16_t value = lens_aperture_position(s);
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static void lens_set_aperture_position(Object *obj, Visitor *v,
+                                       const char *name, void *opaque,
+                                       Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    uint16_t value;
+
+    if (!visit_type_uint16(v, name, &value, errp)) {
+        return;
+    }
+    if (value > LENS_APERTURE_RANGE) {
+        error_setg(errp, "aperture position %u exceeds range %u",
+                   value, LENS_APERTURE_RANGE);
+        return;
+    }
+    s->aperture = value;
+    s->aperture_start = value;
+    s->aperture_target = value;
+    s->aperture_pending = false;
+    s->aperture_generation++;
+}
+
+static void lens_get_aperture_target(Object *obj, Visitor *v,
+                                     const char *name, void *opaque,
+                                     Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    uint16_t value = s->aperture_target;
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static bool lens_get_aperture_pending(Object *obj, Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+
+    return s->aperture_pending;
+}
+
 static void lens_notify(NikonLensState *s, bool level)
 {
     s->notify_level = level;
@@ -746,6 +795,13 @@ static void lens_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "aperture-generation",
                                    &s->aperture_generation, OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "aperture-position", "uint16",
+                        lens_get_aperture_position, lens_set_aperture_position,
+                        NULL, NULL);
+    object_property_add(obj, "aperture-target", "uint16",
+                        lens_get_aperture_target, NULL, NULL, NULL);
+    object_property_add_bool(obj, "aperture-pending",
+                             lens_get_aperture_pending, NULL);
     object_property_add_uint64_ptr(obj, "focus-noops", &s->focus_noops,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "focus-generation",

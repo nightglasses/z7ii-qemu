@@ -2892,6 +2892,85 @@ static void test_group_lens_focus_loop(void)
     unlink(bundle);
 }
 
+static void test_group_lens_aperture_loop(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+    int64_t prop_pos, prop_target, prop_gen, prop_noops;
+    bool prop_busy;
+    QDict *reply;
+
+    /* 1. Initial state: relative travel is 0 (Av 3.0 / F2.8 wide-open). */
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    prop_target = property_at(q, "/machine/lens", "aperture-target");
+    prop_busy = property_bool_at(q, "/machine/lens", "aperture-pending");
+    prop_gen = property_at(q, "/machine/lens", "aperture-generation");
+    prop_noops = property_at(q, "/machine/lens", "aperture-noops");
+
+    g_assert_cmpint(prop_pos, ==, 0);
+    g_assert_cmpint(prop_target, ==, 0);
+    g_assert_false(prop_busy);
+    g_assert_cmpint(prop_gen, ==, 0);
+    g_assert_cmpint(prop_noops, ==, 0);
+
+    /* 2. Passive live-view: iris stays wide-open without command. */
+    pipeline_step(q, 50000000);
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    prop_gen = property_at(q, "/machine/lens", "aperture-generation");
+    g_assert_cmpint(prop_pos, ==, 0);
+    g_assert_cmpint(prop_gen, ==, 0);
+
+    /* 3. First legal aperture: target 192 (Av 4.0 / F4.0). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':192}}");
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    prop_gen = property_at(q, "/machine/lens", "aperture-generation");
+    g_assert_cmpint(prop_pos, ==, 192);
+    g_assert_cmpint(prop_gen, ==, 1);
+
+    /* 4. Second legal aperture: target 576 (Av 6.0 / F8.0). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':576}}");
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    prop_gen = property_at(q, "/machine/lens", "aperture-generation");
+    g_assert_cmpint(prop_pos, ==, 576);
+    g_assert_cmpint(prop_gen, ==, 2);
+
+    /* 5. Endpoint boundary: target 1152 (Av 9.0 / F22). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':1152}}");
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    prop_gen = property_at(q, "/machine/lens", "aperture-generation");
+    g_assert_cmpint(prop_pos, ==, 1152);
+    g_assert_cmpint(prop_gen, ==, 3);
+
+    /* 6. Negative boundary: out-of-range target (> 1152) is rejected. */
+    reply = qtest_qmp(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':2000}}");
+    g_assert_true(qdict_haskey(reply, "error"));
+    qobject_unref(reply);
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    g_assert_cmpint(prop_pos, ==, 1152);
+    g_assert_cmpint(property_at(q, "/machine/lens",
+                                "aperture-generation"), ==, 3);
+
+    /* 7. Reopening to full aperture (target 0). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':0}}");
+    prop_pos = property_at(q, "/machine/lens", "aperture-position");
+    g_assert_cmpint(prop_pos, ==, 0);
+    g_assert_cmpint(property_at(q, "/machine/lens",
+                                "aperture-generation"), ==, 4);
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 static void test_group_afs_closed_loop_lock(void)
 {
     static const char header[] = "P6\n16 16\n255\n";
@@ -9833,6 +9912,8 @@ int main(int argc, char **argv)
                    test_group_roi_dependence);
     qtest_add_func("/nikon/cmos/group/lens-focus-loop",
                    test_group_lens_focus_loop);
+    qtest_add_func("/nikon/cmos/group/lens-aperture-loop",
+                   test_group_lens_aperture_loop);
     qtest_add_func("/nikon/cmos/group/afs-closed-loop-lock",
                    test_group_afs_closed_loop_lock);
     qtest_add_func("/nikon/cmos/group/afs-low-texture-fail",
