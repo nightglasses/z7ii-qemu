@@ -5015,6 +5015,54 @@ static void test_paired_transfer(void)
     }
 }
 
+static void test_paired_cfa_wb_gain_response(void)
+{
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    QTestState *q = paired_start(&bundle, &scene, true, false);
+    uint8_t ppm[] = "P6\n1 1\n255\n\0\0\0";
+    static const int identity[] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
+    static const int yuv[] = { 153, 300, 59, -86, -170, 256, 256, -214, -42 };
+
+    /* Scene has sensor-attenuated channels: R=64, G=128, B=32 */
+    ppm[sizeof(ppm) - 4] = 64;
+    ppm[sizeof(ppm) - 3] = 128;
+    ppm[sizeof(ppm) - 2] = 32;
+    g_assert_true(g_file_set_contents(scene, (const char *)ppm,
+                                      sizeof(ppm) - 1, NULL));
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+
+    transfer_config(q, 1, 128, 0);
+    paired_matrix(q, PAIRED, 0xb00, identity, 13, false);
+    paired_matrix(q, PAIRED, 0xb64, yuv, 12, false);
+
+    /*
+     * Compensate with live digital white-balance gains at 0x9cc..0x9d4
+     * (Q8, 256 = 1.0x): R gain = 512 (2.0x), G gain = 256 (1.0x),
+     * and B gain = 1024 (4.0x).
+     * This brings unequal input (64, 128, 32) into neutral balance.
+     */
+    qtest_writel(q, PAIRED + 0x9d0, (512 << 16) | 256);
+    qtest_writel(q, PAIRED + 0x9d4, 1024);
+    qtest_writel(q, PAIRED + 0x9cc, 0x01010101);
+
+    qtest_writel(q, PAIRED + 0x400, (3 << 16) | 28);
+    qtest_writel(q, PAIRED + 0x40c, (56 << 16) | 3);
+    qtest_writel(q, PAIRED + 0x10, 1);
+    qtest_writel(q, PAIRED + 8, 1);
+    paired_cfa_input(q);
+
+    g_assert_cmpuint(property_at(q, PAIRED_PATH, "completed"), ==, 1);
+    /* Neutral output should be observed with U=128, V=128 */
+    paired_main_at(q, PAIRED_MAIN, 129, 128, 128);
+
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
 static void test_paired_transfer_boundaries(void)
 {
     for (unsigned variant = 0; variant < 7; variant++) {
@@ -10004,6 +10052,8 @@ int main(int argc, char **argv)
                    test_paired_raw_reuse_boundaries);
     qtest_add_func("/nikon/cmos/paired/cfa/reduction", test_paired_cfa_reduction);
     qtest_add_func("/nikon/cmos/paired/cfa/color", test_paired_cfa_color);
+    qtest_add_func("/nikon/cmos/paired/cfa/wb-gain-response",
+                   test_paired_cfa_wb_gain_response);
     qtest_add_func("/nikon/cmos/paired/transfer/transaction", test_paired_transfer);
     qtest_add_func("/nikon/cmos/paired/transfer/boundaries",
                    test_paired_transfer_boundaries);

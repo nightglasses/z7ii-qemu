@@ -1546,6 +1546,84 @@ static void cfa_color_history(void)
     }
 }
 
+static void cfa_linear_color_response(void)
+{
+    static const uint16_t balanced[] = { 1000, 1000, 1000, 1000 };
+    static const uint16_t attenuated[] = { 500, 1000, 1000, 2000 };
+    static const uint16_t biased[] = { 1256, 1256, 1256, 1256 };
+
+    /*
+     * Verify linear color response according to docs/devices/pairs/color.md
+     * under live WB gains, sensor offsets, and Matrix A/B transformations.
+     */
+    for (unsigned encoding = NIKON_RAW_RGGB;
+         encoding <= NIKON_RAW_BGGR; encoding++) {
+        NikonPairedPixelConfig p = config();
+        uint16_t raw[16];
+        PairedOutputs out;
+
+        p.encoding = encoding;
+
+        /*
+         * Test 1: Neutral Gray Preservation.
+         * Raw inputs equal 1000 for all lanes, unity gains, no black offset.
+         * Matrix A row sums = 1024; Matrix B row sums: Y=512, U=0, V=0.
+         * Output must strictly preserve neutral chrominance (U=128, V=128).
+         */
+        cfa_fill(raw, 4, 4, p.encoding, balanced);
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.y[i], ==, 63);
+        }
+        for (unsigned i = 0; i < 8; i += 2) {
+            g_assert_cmpuint(out.uv[i], ==, 128);
+            g_assert_cmpuint(out.uv[i + 1], ==, 128);
+        }
+
+        /*
+         * Test 2: Live WB Channel Response.
+         * Unequal sensor response (R=500, Gr=1000, Gb=1000, B=2000)
+         * compensated by live 4-lane quad gains (R=1024, Gr=512, Gb=512,
+         * B=256) with 512=1x.
+         * Effective balanced samples equal 1000 across all channels.
+         */
+        p.quad_enabled = true;
+        p.quad_gain[0] = 1024; /* 2.0x for R */
+        p.quad_gain[1] = 512;  /* 1.0x for Gr */
+        p.quad_gain[2] = 512;  /* 1.0x for Gb */
+        p.quad_gain[3] = 256;  /* 0.5x for B */
+        p.quad_limit = 4095;
+        cfa_fill(raw, 4, 4, p.encoding, attenuated);
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.y[i], ==, 63);
+        }
+        for (unsigned i = 0; i < 8; i += 2) {
+            g_assert_cmpuint(out.uv[i], ==, 128);
+            g_assert_cmpuint(out.uv[i + 1], ==, 128);
+        }
+
+        /*
+         * Test 3: Black-level Offset Subtraction.
+         * Input sample is 1256 with black level offset -256.
+         * Net effective sample is 1000 -> output identical to baseline.
+         */
+        p.quad_gain[0] = p.quad_gain[1] = p.quad_gain[2] = p.quad_gain[3] = 512;
+        for (unsigned i = 0; i < 4; i++) {
+            p.quad_offset[i] = -256;
+        }
+        cfa_fill(raw, 4, 4, p.encoding, biased);
+        g_assert_true(run(&p, raw, NULL, NULL, &out));
+        for (unsigned i = 0; i < 16; i++) {
+            g_assert_cmpuint(out.y[i], ==, 63);
+        }
+        for (unsigned i = 0; i < 8; i += 2) {
+            g_assert_cmpuint(out.uv[i], ==, 128);
+            g_assert_cmpuint(out.uv[i + 1], ==, 128);
+        }
+    }
+}
+
 static void cfa_edge(void)
 {
     static const uint8_t expected[2][8] = {
@@ -4985,6 +5063,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/pairedpixels/denoise-invalid", denoise_invalid);
     g_test_add_func("/nikon/pairedpixels/cfa-neutral", cfa_neutral);
     g_test_add_func("/nikon/pairedpixels/cfa-color-history", cfa_color_history);
+    g_test_add_func("/nikon/pairedpixels/cfa-linear-color-response",
+                    cfa_linear_color_response);
     g_test_add_func("/nikon/pairedpixels/cfa-edge", cfa_edge);
     g_test_add_func("/nikon/pairedpixels/cfa-invalid", cfa_invalid);
     g_test_add_func("/nikon/pairedpixels/detail", detail);
