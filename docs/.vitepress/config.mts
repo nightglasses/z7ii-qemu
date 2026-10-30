@@ -246,6 +246,7 @@ export default defineConfig({
               { text: 'Sensor Static Readout Bounds', link: '/devices/sensor/static' },
               { text: 'Endpoint & Global Parameters', link: '/devices/endpoints/protocol' },
               { text: 'Capture Service Banks', link: '/devices/capture/banks' },
+              { text: 'Shutter Trigger & Capture Dispatch', link: '/devices/capture/trigger' },
               { text: 'Capture Configuration & Cursors', link: '/devices/capturegroup/protocol' },
               { text: 'Paired Capture Parameters', link: '/devices/captureparams/protocol' },
               { text: 'Finite Grayscale Stream & DMA', link: '/devices/capturework/protocol' },
@@ -286,6 +287,7 @@ export default defineConfig({
               { text: 'Lookup Table Engine', link: '/devices/lookup/protocol' },
               { text: 'Command Interface', link: '/devices/command/protocol' },
               { text: 'Save Protocol', link: '/devices/save/protocol' },
+              { text: 'File Save Pipeline Boundary', link: '/devices/save/pipeline' },
               { text: 'Input Protocol', link: '/devices/input/protocol' },
               { text: 'Acceleration I2C Device', link: '/devices/acceleration/protocol' },
             ]
