@@ -915,3 +915,36 @@ The Nikon C1.70 firmware incorporates two distinct subject analysis subsystems:
   planar video frames. BA2 provides candidate face/eye bounding boxes to the upper-level
   AF coordinator, which then configures the EXPEED hardware capture-group ROIs
   to track and focus precisely on the detected subject's eye.
+
+### AF-S Single-Point Focus Closed-Loop Workflow (Issue #541)
+
+The complete end-to-end autofocus loop operates through standard input and hardware channels:
+
+1. **Input Assertion**: The user asserts shutter half-press S1 (pad 9, `KEY_F10`,
+   QOM property `half-press`) or AF-ON (pad 10, `KEY_F11`, QOM property `af-on`).
+   The physical main switch (`F4` / pad 3 / `0x25`) is preserved as power control
+   and is explicitly isolated from shutter half-press.
+2. **Contrast AF Search Sweep**: The AF controller steps the lens motor
+   (`/machine/lens` `focus-position`) through candidate focal positions. At each
+   step, the CMOS sensor generates optical defocus blur corresponding to the
+   difference between the lens focus position and the true scene focus position.
+   Capture-group processes the RAW Bayer input raster and writes contrast
+   statistics ($p = W0 \& 0xfff$) into memory.
+3. **Firmware Decision & Lock**: Contrast scores form a unimodal peak at the true
+   scene focal distance. The algorithm detects the peak ($p_{peak} > p_{adjacent}$)
+   and commands the lens motor to return to the peak position, achieving AF lock.
+   Lock is determined entirely by the algorithm's statistical evaluation; no
+   status bit or ready flag is fabricated.
+4. **Boundary & Fallback Behaviors**:
+   - **Low-Texture Scene**: When the scene is uniform (flat, all pixels identical),
+     contrast score $p = 0$ at all focal steps. The algorithm determines that no
+     valid focus peak exists, declares AF failure, and returns the lens to the
+     baseline/safe position.
+   - **Cancellation Mid-Search**: If the user releases half-press or AF-ON during
+     motor transit, the search is cleanly aborted: motorized focus motion freezes
+     immediately, `focus-pending` becomes false, and all pending input slots and
+     descriptors are recycled without memory leakage.
+   - **Manual Focus Mode (MF, `0x8010`)**: When in MF mode, asserting half-press
+     or AF-ON does not trigger lens motor drive. The manual focus plane is strictly
+     preserved.
+

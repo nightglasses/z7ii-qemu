@@ -11,6 +11,12 @@
 #define NIKON_INPUT_PADS 17
 #define NIKON_INPUT_EXPANDER_PADS 16
 
+/* Named GPIO input pad indices backed by original EX sampling. */
+#define NIKON_INPUT_PAD_MAIN_POWER 3  /* PC5, 0x25, KEY_F4: Main power switch */
+#define NIKON_INPUT_PAD_HALF_PRESS 9  /* PG1, 0x61, KEY_F10: Shutter S1 */
+#define NIKON_INPUT_PAD_AF_ON      10 /* PG2, 0x62, KEY_F11: AF-ON button */
+#define NIKON_INPUT_PAD_FULL_PRESS 11 /* PG13, 0x6d, KEY_F12: Shutter S2 */
+
 /* EX registry IDs from the original 0803de88 initializer. Each output is an
  * external electrical level; the guest performs sampling and debouncing.
  * Connect "pad"[i] to EX GPIO [id >> 4][id & 15] before realize.

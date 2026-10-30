@@ -626,6 +626,100 @@ static void test_dial_ownership(void)
     board_reset();
 }
 
+static void test_shutter_af_pads(void)
+{
+    InputFixture *f = input_new();
+    bool val;
+
+    /* Verify defaults are released (false, active-low pads high). */
+    val = object_property_get_bool(OBJECT(f->input), "half-press",
+                                   &error_abort);
+    g_assert_false(val);
+    val = object_property_get_bool(OBJECT(f->input), "shutter-half-press",
+                                   &error_abort);
+    g_assert_false(val);
+    val = object_property_get_bool(OBJECT(f->input), "full-press",
+                                   &error_abort);
+    g_assert_false(val);
+    val = object_property_get_bool(OBJECT(f->input), "shutter-full-press",
+                                   &error_abort);
+    g_assert_false(val);
+    val = object_property_get_bool(OBJECT(f->input), "af-on",
+                                   &error_abort);
+    g_assert_false(val);
+    val = object_property_get_bool(OBJECT(f->input), "main-power",
+                                   &error_abort);
+    g_assert_false(val);
+    levels(f, 0, "default-released");
+
+    /* Test half-press property and pad 9 (PG1, KEY_F10). */
+    object_property_set_bool(OBJECT(f->input), "half-press", true,
+                             &error_abort);
+    val = object_property_get_bool(OBJECT(f->input), "half-press",
+                                   &error_abort);
+    g_assert_true(val);
+    val = object_property_get_bool(OBJECT(f->input), "shutter-half-press",
+                                   &error_abort);
+    g_assert_true(val);
+    levels(f, 1U << NIKON_INPUT_PAD_HALF_PRESS, "half-press-down");
+
+    object_property_set_bool(OBJECT(f->input), "half-press", false,
+                             &error_abort);
+    levels(f, 0, "half-press-up");
+
+    /* Test af-on property and pad 10 (PG2, KEY_F11). */
+    object_property_set_bool(OBJECT(f->input), "af-on", true, &error_abort);
+    val = object_property_get_bool(OBJECT(f->input), "af-on", &error_abort);
+    g_assert_true(val);
+    levels(f, 1U << NIKON_INPUT_PAD_AF_ON, "af-on-down");
+
+    object_property_set_bool(OBJECT(f->input), "af-on", false, &error_abort);
+    levels(f, 0, "af-on-up");
+
+    /* Test full-press property and pad 11 (PG13, KEY_F12). */
+    object_property_set_bool(OBJECT(f->input), "full-press", true,
+                             &error_abort);
+    levels(f, 1U << NIKON_INPUT_PAD_FULL_PRESS, "full-press-down");
+    object_property_set_bool(OBJECT(f->input), "full-press", false,
+                             &error_abort);
+    levels(f, 0, "full-press-up");
+
+    /* Test main-power property and pad 3 (PC5, KEY_F4). */
+    object_property_set_bool(OBJECT(f->input), "main-power", true,
+                             &error_abort);
+    levels(f, 1U << NIKON_INPUT_PAD_MAIN_POWER, "main-power-down");
+    object_property_set_bool(OBJECT(f->input), "main-power", false,
+                             &error_abort);
+    levels(f, 0, "main-power-up");
+
+    /* Test keyboard key events for S1 (F10), AF-ON (F11), S2 (F12). */
+    key(KEY_F10, true);
+    val = object_property_get_bool(OBJECT(f->input), "half-press",
+                                   &error_abort);
+    g_assert_true(val);
+    levels(f, 1U << NIKON_INPUT_PAD_HALF_PRESS, "key-f10-half-press");
+
+    key(KEY_F11, true);
+    val = object_property_get_bool(OBJECT(f->input), "af-on", &error_abort);
+    g_assert_true(val);
+    levels(f, (1U << NIKON_INPUT_PAD_HALF_PRESS) |
+              (1U << NIKON_INPUT_PAD_AF_ON),
+           "key-f10-f11-down");
+
+    /* Reset retains held state. */
+    board_reset();
+    levels(f, (1U << NIKON_INPUT_PAD_HALF_PRESS) |
+              (1U << NIKON_INPUT_PAD_AF_ON),
+           "held-after-reset");
+
+    key(KEY_F10, false);
+    key(KEY_F11, false);
+    levels(f, 0, "keys-released");
+
+    input_free(f);
+    board_reset();
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -650,6 +744,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/input/dial-phases", test_dial_phases);
     g_test_add_func("/nikon/input/dial-queue", test_dial_queue);
     g_test_add_func("/nikon/input/dial-ownership", test_dial_ownership);
+    g_test_add_func("/nikon/input/shutter-af-pads", test_shutter_af_pads);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

@@ -10,21 +10,31 @@ no ready/status bit and no frame.
 `hw/nikon/devices/input.c` maps seventeen host keys onto the EX GPIO pads the
 original software selects:
 
-| Host key | EX pad | Host key | EX pad |
-| --- | --- | --- | --- |
-| F1 | `0x0a` | F10 | `0x61` |
-| F2 | `0x11` | F11 | `0x62` |
-| F3 | `0x1f` | F12 | `0x6d` |
-| F4 | `0x25` | 1 | `0x6e` |
-| F5 | `0x1b` | 2 | `0x6f` |
-| F6 | `0x47` | 3 | `0x1d` |
-| F7 | `0x4d` | 4 | `0x53` |
-| F8 | `0x5b` | 5 | `0x1c` |
-| F9 | `0x5e` | | |
+| Host key | EX pad | Firmware Identity | Host key | EX pad | Firmware Identity |
+| --- | --- | --- | --- | --- | --- |
+| F1 | `0x0a` | Unbound | F10 | `0x61` | Shutter S1 (half-press) |
+| F2 | `0x11` | Unbound | F11 | `0x62` | AF-ON button |
+| F3 | `0x1f` | Unbound | F12 | `0x6d` | Shutter S2 (full-press) |
+| F4 | `0x25` | MAIN power switch | 1 | `0x6e` | Unbound |
+| F5 | `0x1b` | Unbound | 2 | `0x6f` | Unbound |
+| F6 | `0x47` | Dial1 contact A | 3 | `0x1d` | Unbound |
+| F7 | `0x4d` | Dial1 contact B | 4 | `0x53` | Unbound |
+| F8 | `0x5b` | Dial0 contact A | 5 | `0x1c` | Unbound |
+| F9 | `0x5e` | Dial0 contact B | | | |
 
-Pads are active low: a pressed key drives level 0, a released key level 1.  The
-pad assignment and active-low convention remain a functional profile; camera
-button names, rotary/touch wiring and peer packets are still unbound.
+Pads are active low: a pressed key drives level 0, a released key level 1.
+From original EX firmware inspection (`0x0804e458` button scan table and
+`0x0803dd00` scanner):
+- `0x61` (PG1, pad 9, `KEY_F10`) is the physical shutter half-press contact (S1).
+- `0x62` (PG2, pad 10, `KEY_F11`) is the physical AF-ON button contact.
+- `0x6d` (PG13, pad 11, `KEY_F12`) is the physical shutter full-press contact (S2).
+  In the scanner, S2 is conditionally qualified by S1 (`cmp r4, #2; ldrb r1, [r6, #1]; cbz r1 -> force to 0`).
+- `0x25` (PC5, pad 3, `KEY_F4`) is the physical `MAIN` power switch contact (SW0 `MAIN`, `0x200`),
+  NOT a shutter half-press contact.
+
+In addition to host keys, `/machine/input` exposes direct boolean QOM properties:
+`half-press` / `shutter-half-press`, `full-press` / `shutter-full-press`, `af-on`,
+and `main-power`. Setting these updates the corresponding active-low EX pad levels.
 
 ## Driving it
 
