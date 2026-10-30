@@ -103,6 +103,10 @@ struct NikonCmosState {
     int32_t focus_position;
     bool focus_position_set;
     uint32_t defocus_radius;
+    uint32_t exposure_scale; /* Q16 brightness: 65536 = 1.0×. */
+    uint32_t iso_gain; /* Q8 sensor gain: 256 = 1.0× (ISO 100). */
+    uint32_t aperture_position; /* Cached from lens at frame begin. */
+    uint32_t aperture_q16; /* Q16 aperture light factor for frame. */
     DeviceState *lens;
     uint8_t *blurred_image_data;
     gsize blurred_image_size;
@@ -318,6 +322,56 @@ static void nikon_cmos_set_focus_position(Object *obj, Visitor *v,
     s->focus_position_set = true;
 }
 
+static void nikon_cmos_get_exposure_scale(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value = s->exposure_scale;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_exposure_scale(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    s->exposure_scale = value;
+}
+
+static void nikon_cmos_get_iso_gain(Object *obj, Visitor *v,
+                                    const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value = s->iso_gain;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void nikon_cmos_set_iso_gain(Object *obj, Visitor *v,
+                                    const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonCmosState *s = NIKON_CMOS(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    if (!value) {
+        error_setg(errp, "CMOS ISO gain must be nonzero");
+        return;
+    }
+    s->iso_gain = value;
+}
+
 static bool nikon_cmos_writable(hwaddr address, uint64_t length)
 {
     while (length) {
@@ -477,9 +531,21 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
         uint32_t iy = (uint64_t)sy * s->image_height / s->active.height;
         size_t index = ((size_t)iy * s->image_width + ix) *
                        s->image_channels;
-
-        return s->active_image_data[index +
+        uint32_t val = s->active_image_data[index +
                                     MIN(channel, s->image_channels - 1)];
+
+        if (s->exposure_scale != 65536 || s->iso_gain != 256 ||
+            s->aperture_q16 != 65536) {
+            uint64_t scaled = (uint64_t)val * s->exposure_scale;
+
+            scaled = (scaled + 32768) >> 16;
+            scaled = scaled * s->iso_gain;
+            scaled = (scaled + 128) >> 8;
+            scaled = scaled * s->aperture_q16;
+            scaled = (scaled + 32768) >> 16;
+            val = MIN(scaled, 255);
+        }
+        return (uint8_t)val;
     }
 
     uint32_t value = s->active.transport_seed ^ (uint32_t)s->frame_count;
@@ -508,9 +574,44 @@ static uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
                          s->image_data;
     unsigned sample = img[3 * ((size_t)iy * s->image_width + ix) +
                           channel] * 257U;
+    uint64_t scaled;
 
     /* Fixed virtual spectral response, never the inverse of live guest WB. */
-    return (sample * response + 2048) / 4096;
+    sample = (sample * response + 2048) / 4096;
+
+    /*
+     * Optical exposure response.
+     *
+     * exposure_scale (Q16, 65536=1.0x): relative shutter integration
+     * vs reference.  iso_gain (Q8, 256=1.0x): sensor analog+digital
+     * gain vs ISO 100 reference.  aperture_position (1/192 APEX, from
+     * lens QOM): attenuation vs wide-open F2.8.
+     *
+     * Aperture attenuation: each 192 units doubles the Av (halves
+     * the light), so the factor is 2^(-position/192).  We use the
+     * precomputed Q16 factor from nikon_cmos_begin.
+     *
+     * Combined: sample * (exposure_scale / 65536) * (iso_gain / 256)
+     *                   * (aperture_q16 / 65536).
+     * Simplified: sample * exposure_scale * iso_gain * aperture_q16
+     *             / (65536 * 256 * 65536).
+     * To avoid overflow with bounded inputs: compute in two stages.
+     */
+    if (s->exposure_scale != 65536 || s->iso_gain != 256 ||
+        s->aperture_q16 != 65536) {
+        /* Stage 1: sample * exposure_scale / 65536 (max 65535 * 65536). */
+        scaled = (uint64_t)sample * s->exposure_scale;
+        scaled = (scaled + 32768) >> 16;
+        /* Stage 2: * iso_gain / 256. */
+        scaled = scaled * s->iso_gain;
+        scaled = (scaled + 128) >> 8;
+        /* Stage 3: * aperture_q16 / 65536. */
+        scaled = scaled * s->aperture_q16;
+        scaled = (scaled + 32768) >> 16;
+        sample = MIN(scaled, 65535);
+    }
+
+    return sample;
 }
 
 static void nikon_cmos_schedule(NikonCmosState *s, uint64_t delay)
@@ -662,6 +763,43 @@ static bool nikon_cmos_prepare(NikonCmosState *s, bool stream, Error **errp)
     return true;
 }
 
+static uint32_t nikon_cmos_aperture_factor(uint32_t pos)
+{
+    /*
+     * 192 units per EV stop.
+     * 2^(-pos / 192) in Q16 (65536 = 1.0x).
+     * pos clamped to 1152 (F22: 6 stops = factor 1/64 = 1024).
+     */
+    static const uint32_t frac_lut[7] = {
+        65536U, 58386, 52016, 46341, 41285, 36780, 32768
+    };
+    uint32_t clamped = MIN(pos, 1152U);
+    unsigned stops = clamped / 192U;
+    unsigned rem = clamped % 192U;
+    unsigned idx = rem / 32U;
+    unsigned sub = rem % 32U;
+    uint32_t f0 = frac_lut[idx];
+    uint32_t f1 = frac_lut[idx + 1];
+    uint32_t frac = f0 - ((f0 - f1) * sub + 16U) / 32U;
+
+    return frac >> stops;
+}
+
+static uint32_t nikon_cmos_blur_scale(uint32_t pos)
+{
+    /*
+     * Entrance pupil diameter scales as 2^(-pos / 384) in Q16.
+     * Stopping down from F2.8 (pos 0) to F22 (pos 1152 = 3 stops of pupil
+     * diameter reduction) reduces blur radius by factor 8.
+     */
+    uint32_t clamped = MIN(pos, 1152U);
+    unsigned stops = clamped / 384U;
+    unsigned rem = clamped % 384U;
+    uint32_t base = 65536U - (rem * 32768U + 192U) / 384U;
+
+    return base >> stops;
+}
+
 static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
 {
     int64_t now;
@@ -710,8 +848,20 @@ static bool nikon_cmos_begin(NikonCmosState *s, bool stream, Error **errp)
             current_focus = (int32_t)object_property_get_int(OBJECT(lens),
                 "focus-position", NULL);
         }
+        if (lens) {
+            s->aperture_position = (uint32_t)object_property_get_uint(
+                OBJECT(lens), "aperture-position", NULL);
+        } else {
+            s->aperture_position = 0;
+        }
+        s->aperture_q16 = nikon_cmos_aperture_factor(s->aperture_position);
         delta = abs(current_focus - s->scene_focus_position);
-        s->defocus_radius = MIN((uint32_t)delta / 64, 31);
+        {
+            uint32_t raw_radius = MIN((uint32_t)delta / 64, 31);
+            uint32_t blur_scale = nikon_cmos_blur_scale(s->aperture_position);
+
+            s->defocus_radius = (raw_radius * blur_scale + 32768U) >> 16;
+        }
     }
     if (s->image_data) {
         if (s->defocus_radius) {
@@ -1061,6 +1211,10 @@ static void nikon_cmos_reset(DeviceState *dev)
     s->focus_position = 0;
     s->focus_position_set = false;
     s->defocus_radius = 0;
+    s->exposure_scale = 65536;
+    s->iso_gain = 256;
+    s->aperture_position = 0;
+    s->aperture_q16 = 65536;
     s->active_image_data = s->image_data;
     nikon_cmos_irq(s);
 }
@@ -1098,6 +1252,20 @@ static void nikon_cmos_init(Object *obj)
                         nikon_cmos_get_focus_position,
                         nikon_cmos_set_focus_position,
                         NULL, NULL);
+    object_property_add(obj, "exposure-scale", "uint32",
+                        nikon_cmos_get_exposure_scale,
+                        nikon_cmos_set_exposure_scale,
+                        NULL, NULL);
+    object_property_add(obj, "iso-gain", "uint32",
+                        nikon_cmos_get_iso_gain,
+                        nikon_cmos_set_iso_gain,
+                        NULL, NULL);
+    object_property_add_uint32_ptr(obj, "aperture-position",
+                                   &s->aperture_position,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "aperture-factor",
+                                   &s->aperture_q16,
+                                   OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "defocus-radius", &s->defocus_radius,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_link(obj, "lens", TYPE_NIKON_LENS,

@@ -697,6 +697,83 @@ static void test_image_cfa_response(void)
     unlink(path);
 }
 
+static void test_optical_exposure_response(void)
+{
+    g_autofree char *path = NULL;
+    g_autofree char *bios = g_shell_quote(image);
+    static const uint8_t ppm[] = "P6\n1 1\n255\n\x80\x80\x80";
+    int fd = g_file_open_tmp("nikon-exposure-XXXXXX", &path, NULL);
+    QTestState *q;
+    uint32_t val_open, val_f4, val_exp2x, val_iso2x;
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)ppm,
+                                      sizeof(ppm) - 1, NULL));
+
+    q = qtest_initf(
+        "-M z7ii-mas-diagnostic,virtual-lens=true -smp 1 -bios %s -nodefaults "
+        "-display none", bios);
+
+    /* 1. Default exposure capture (F2.8 wide-open, ISO 100, scale 1.0x) */
+    configure(q, 2, 2, 2, 8);
+    qtest_writel(q, CMOS + 0x030, 1);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", path);
+    qtest_writel(q, CMOS + 0x024, NIKON_CMOS_FORMAT_FUNCTIONAL_C170);
+    qtest_memset(q, RAM, 0, 16);
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+
+    /* Read green pixel (offset 2, 2 bytes) */
+    val_open = qtest_readw(q, RAM + 2);
+    g_assert_cmpuint(val_open, >, 0);
+
+    /* 2. Aperture 1 stop down: set lens aperture-position = 192 (F4.0) */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':192}}");
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+    val_f4 = qtest_readw(q, RAM + 2);
+    g_assert_cmpuint(val_f4, ==, (val_open + 1) / 2);
+
+    /* 3. Re-open lens to F2.8, test 2x shutter exposure scale */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'aperture-position','value':0}}");
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'exposure-scale','value':131072}}");
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+    val_exp2x = qtest_readw(q, RAM + 2);
+    g_assert_cmpuint(val_exp2x, ==, MIN(val_open * 2, 65535));
+
+    /* 4. Restore exposure scale, test 2x ISO gain (512 = ISO 200) */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'exposure-scale','value':65536}}");
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'iso-gain','value':512}}");
+    qtest_writel(q, CMOS + 0x060, 1);
+    qtest_clock_step(q, 10000);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_DONE);
+    val_iso2x = qtest_readw(q, RAM + 2);
+    g_assert_cmpuint(val_iso2x, ==, MIN(val_open * 2, 65535));
+
+    /* 5. System reset restores defaults */
+    qtest_system_reset(q);
+    g_assert_cmpuint(qtest_readl(q, CMOS + 0x068), ==, NIKON_CMOS_IDLE);
+    qtest_quit(q);
+    unlink(path);
+}
+
 static void test_image_raster_boundaries(void)
 {
     static const char *const data[] = {
@@ -9905,6 +9982,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/image-raster", test_image_raster_boundaries);
     qtest_add_func("/nikon/cmos/pipeline/image-cfa", test_image_cfa_transport);
     qtest_add_func("/nikon/cmos/pipeline/cfa-response", test_image_cfa_response);
+    qtest_add_func("/nikon/cmos/pipeline/optical-exposure-response",
+                   test_optical_exposure_response);
     qtest_add_func("/nikon/cmos/period", test_period);
     qtest_add_func("/nikon/cmos/pipeline/valid-silent",
                    test_pipeline_valid_and_silent);
