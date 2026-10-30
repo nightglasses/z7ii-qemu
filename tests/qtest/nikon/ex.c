@@ -1118,6 +1118,48 @@ static void i2c_single_byte_read(void)
     qtest_quit(qts);
 }
 
+static void i2c_pos_two_byte_read(void)
+{
+    QTestState *qts = start();
+    const uint32_t i2c = 0x40005400;
+
+    qtest_set_irq_in(qts, "/machine/ex/io", "pad", 9, 0);
+    /* RM0090 master receiver N=2: POS moves the NACK to the second byte. */
+    for (unsigned after_addr = 0; after_addr < 2; after_addr++) {
+        io_start(qts, false);
+        qtest_writel(qts, i2c + 0x10, 0);
+        qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 10) | (1 << 11));
+        qtest_writel(qts, i2c + 0x10, 0x45);
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 2);
+        if (after_addr) {
+            qtest_readl(qts, i2c + 0x18);
+        }
+        qtest_writel(qts, i2c, 1 | (1 << 11));
+        if (!after_addr) {
+            qtest_readl(qts, i2c + 0x18);
+        }
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x44, ==, 0x40);
+        qtest_clock_step(qts, 200000);
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x44, ==, 0x44);
+        qtest_writel(qts, i2c, 1 | (1 << 9) | (1 << 11));
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x10), ==, 0xff);
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x44, ==, 0x40);
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x10), ==, 0xfd);
+        qtest_clock_step(qts, 200000);
+        g_assert_cmphex(qtest_readl(qts, i2c + 0x14) & 0x44, ==, 0);
+    }
+    io_start(qts, false);
+    qtest_writel(qts, i2c + 0x10, 0);
+    qtest_writel(qts, i2c, 1 | (1 << 8) | (1 << 11));
+    qtest_writel(qts, i2c + 0x10, 0x45);
+    qtest_readl(qts, i2c + 0x14);
+    qtest_readl(qts, i2c + 0x18);
+    qtest_qmp_assert_success(qts, "{'execute': 'system_reset'}");
+    qtest_clock_step(qts, 200000);
+    g_assert_cmphex(qtest_readl(qts, i2c + 0x14), ==, 0);
+    qtest_quit(qts);
+}
+
 static void stop_preserves_rx(void)
 {
     QTestState *qts = start();
@@ -1158,6 +1200,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/ex/io", io);
     qtest_add_func("/nikon/ex/stop-preserves-rx", stop_preserves_rx);
     qtest_add_func("/nikon/ex/i2c-single-byte-read", i2c_single_byte_read);
+    qtest_add_func("/nikon/ex/i2c-pos-two-byte-read", i2c_pos_two_byte_read);
     qtest_add_func("/nikon/ex/timer", timer_profile);
     qtest_add_func("/nikon/ex/input", input_reset);
     qtest_add_func("/nikon/ex/power", power_profile);
