@@ -804,6 +804,347 @@ static void test_partial_stream_repeat(void)
     partial_stream_restart(false);
 }
 
+static void focus_request(LensFixture *f, uint8_t sub, int32_t target)
+{
+    uint8_t bytes[14] = { 0 };
+
+    bytes[1] = sub;
+    stl_le_p(bytes + 2, (uint32_t)target);
+    packet(f, 0x70, 0, bytes, sizeof(bytes));
+}
+
+static void focus_stop(LensFixture *f, uint8_t sub)
+{
+    uint8_t bytes[4] = { 0 };
+
+    packet(f, 0x78, sub, bytes, sizeof(bytes));
+}
+
+static void focus_query(LensFixture *f, int32_t *pos, bool *busy)
+{
+    uint8_t bytes[14] = { 0 };
+
+    packet(f, 0x71, 0, bytes, sizeof(bytes));
+    *busy = (bytes[1] & 2) != 0;
+    *pos = (int32_t)ldl_le_p(bytes + 2);
+}
+
+static void focus_status(LensFixture *f, int32_t position, bool busy)
+{
+    uint8_t bytes[258] = { 0 };
+    int64_t prop_pos;
+    bool prop_busy;
+
+    prop_pos = object_property_get_int(OBJECT(f->lens), "focus-position",
+                                       &error_abort);
+    g_assert_cmpint(prop_pos, ==, position);
+    prop_busy = object_property_get_bool(OBJECT(f->lens), "focus-pending",
+                                         &error_abort);
+    g_assert_cmpint(prop_busy, ==, busy);
+    packet(f, 0x20, 0, bytes, sizeof(bytes));
+    g_assert_cmpint((int16_t)lduw_le_p(bytes + 201), ==, (int16_t)position);
+    g_assert_cmphex(bytes[203] & 0x02, ==, busy ? 0x02 : 0);
+}
+
+static void test_focus_idle(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+    int32_t pos;
+    bool busy;
+
+    packet(f, 0x13, 0, bytes, sizeof(bytes));
+    advance(2000000);
+
+    g_assert_cmpint(count(f, "focus-noops"), ==, 0);
+    g_assert_cmpint(count(f, "focus-generation"), ==, 0);
+    focus_status(f, 0, false);
+    focus_query(f, &pos, &busy);
+    g_assert_cmpint(pos, ==, 0);
+    g_assert_false(busy);
+
+    /* Zero move is a noop */
+    focus_request(f, 0, 0);
+    g_assert_cmpint(count(f, "focus-noops"), ==, 1);
+    g_assert_cmpint(count(f, "focus-generation"), ==, 0);
+    focus_status(f, 0, false);
+
+    device_cold_reset(f->lens);
+    g_assert_cmpint(count(f, "focus-noops"), ==, 0);
+    cleanup(f);
+}
+
+static void test_focus_motion(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+    int32_t pos;
+    bool busy;
+
+    packet(f, 0x13, 0, bytes, sizeof(bytes));
+    advance(2000000);
+
+    /* Move 1000 steps at 100 µs/step = 100 ms */
+    focus_request(f, 0, 1000);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 0);
+    /* 1 ms elapsed in focus_request: pos = 10 */
+    focus_status(f, 10, true);
+
+    /* Advance 47 ms: elapsed = 50 ms, pos = 500 */
+    advance(47000000);
+    focus_status(f, 500, true);
+
+    /* Advance to 99.999999 ms: elapsed from 52 ms is 47.999999 ms */
+    advance(47999999);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 0);
+    advance(1);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 1);
+    focus_status(f, 1000, false);
+    focus_query(f, &pos, &busy);
+    g_assert_cmpint(pos, ==, 1000);
+    g_assert_false(busy);
+
+    /* Relative move: subcommand 1 with -500 */
+    focus_request(f, 1, -500);
+    advance(49000000);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 2);
+    focus_status(f, 500, false);
+
+    /* Minimum move duration: 1 step = 2 ms minimum */
+    focus_request(f, 0, 501);
+    advance(999999);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 2);
+    advance(1);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 3);
+    focus_status(f, 501, false);
+
+    cleanup(f);
+}
+
+static void read_stream_frame(LensFixture *f, uint8_t *frame)
+{
+    while (stream_read(f, 0x30) > 0) {
+        stream_read(f, 4);
+    }
+    for (;;) {
+        uint16_t word;
+        unsigned sum = 0;
+
+        while (stream_read(f, 0x30) < 1) {
+            advance(100000);
+        }
+        word = stream_read(f, 4);
+        if ((word & 0xff) == 0x55) {
+            stw_le_p(frame, word);
+            for (unsigned i = 2; i < 42; i += 2) {
+                while (stream_read(f, 0x30) < 1) {
+                    advance(100000);
+                }
+                stw_le_p(frame + i, stream_read(f, 4));
+            }
+            for (unsigned i = 0; i < 42; i++) {
+                sum += frame[i];
+            }
+            if ((sum & 0xff) == 0) {
+                return;
+            }
+        }
+    }
+}
+
+static void test_focus_endpoints(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[42] = { 0 };
+    uint8_t stream_req[4] = { 0, 1, 0, 0 };
+
+    stream_write(f, 0x60, 0);
+    stream_write(f, 0x10, 0xf00);
+    stream_write(f, 0x64, 1);
+    stream_write(f, 0x3c, 1);
+
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+
+    /* Enable stream */
+    packet(f, 0x16, 0, stream_req, sizeof(stream_req));
+
+    /* Move to near limit: +4096 */
+    focus_request(f, 0, 4096);
+    advance(410000000);
+    focus_status(f, 4096, false);
+
+    read_stream_frame(f, bytes);
+    g_assert_cmpint((int32_t)ldl_le_p(bytes + 2), ==, 4096);
+    g_assert_cmpuint(bytes[7], ==, 1);
+
+    /* Move to infinity limit: -4096 */
+    focus_request(f, 0, -4096);
+    advance(820000000);
+    focus_status(f, -4096, false);
+
+    read_stream_frame(f, bytes);
+    g_assert_cmpint((int32_t)ldl_le_p(bytes + 2), ==, -4096);
+    g_assert_cmpuint(bytes[7], ==, 2);
+
+    /* Move back to center (0) */
+    focus_request(f, 0, 0);
+    advance(410000000);
+    focus_status(f, 0, false);
+
+    read_stream_frame(f, bytes);
+    g_assert_cmpint((int32_t)ldl_le_p(bytes + 2), ==, 0);
+    g_assert_cmpuint(bytes[7], ==, 0);
+
+    cleanup(f);
+}
+
+static void test_focus_stop(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+
+    packet(f, 0x13, 0, bytes, sizeof(bytes));
+    advance(2000000);
+
+    /* Start move to 4000 (takes 400 ms) */
+    focus_request(f, 0, 4000);
+    /* Advance to 99 ms (elapsed = 100 ms at stop header) */
+    advance(98000000);
+
+    /* Cancel via 0x78:00 (header reaches at 100 ms -> pos = 1000) */
+    focus_stop(f, 0);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 1);
+    focus_status(f, 1000, false);
+
+    /* Advance another 100 ms; pos remains 1000 */
+    advance(100000000);
+    focus_status(f, 1000, false);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 1);
+
+    /* Stop variants 1 and 2 when already stopped */
+    focus_stop(f, 1);
+    focus_stop(f, 2);
+    focus_status(f, 1000, false);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 1);
+
+    cleanup(f);
+}
+
+static void reject_packet(LensFixture *f, uint8_t command, uint8_t sub,
+                          uint8_t *payload, unsigned size)
+{
+    uint8_t header[] = { 0x55, 1, 1, command, sub, 0, 0, 0 };
+    unsigned falling = f->falling;
+    uint64_t rejected = count(f, "rejected");
+
+    stw_le_p(header + 5, (size - 2) / 2);
+    checksum(header, sizeof(header));
+    exchange(f, header, sizeof(header));
+    advance(1000000);
+    if (count(f, "rejected") == rejected + 1) {
+        g_assert_true(f->level);
+        return;
+    }
+    g_assert_false(f->level);
+    falling = f->falling;
+    payload[0] = 0x55;
+    checksum(payload, size);
+    exchange(f, payload, size);
+    advance(1000000);
+    g_assert_true(f->level);
+    g_assert_cmpuint(f->falling, ==, falling);
+    g_assert_cmpuint(count(f, "rejected"), ==, rejected + 1);
+}
+
+static void test_focus_rejection(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+
+    /* 1. Unconfigured rejection */
+    reject_packet(f, 0x70, 0, bytes, 14);
+
+    /* 2. Configure */
+    device_cold_reset(f->lens);
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+
+    /* 3. Target > 4096 */
+    memset(bytes, 0, sizeof(bytes));
+    stl_le_p(bytes + 2, 4097);
+    reject_packet(f, 0x70, 0, bytes, 14);
+
+    /* 4. Target < -4096 */
+    device_cold_reset(f->lens);
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    memset(bytes, 0, sizeof(bytes));
+    stl_le_p(bytes + 2, (uint32_t)-4097);
+    reject_packet(f, 0x70, 0, bytes, 14);
+
+    /* 5. Subcommand > 3 */
+    device_cold_reset(f->lens);
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    memset(bytes, 0, sizeof(bytes));
+    bytes[1] = 4;
+    reject_packet(f, 0x70, 0, bytes, 14);
+
+    /* 6. Stop subcommand >= 3 (header rejection) */
+    device_cold_reset(f->lens);
+    memset(bytes, 0, sizeof(bytes));
+    reject_packet(f, 0x78, 3, bytes, 4);
+
+    /* 7. Overlapping move while focus_pending */
+    device_cold_reset(f->lens);
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    focus_request(f, 0, 1000);
+    memset(bytes, 0, sizeof(bytes));
+    stl_le_p(bytes + 2, 500);
+    reject_packet(f, 0x70, 0, bytes, 14);
+
+    cleanup(f);
+}
+
+static void test_focus_lifecycle(void)
+{
+    LensFixture *f = fixture();
+    uint8_t bytes[14] = { 0 };
+    g_autofree char *runtime = NULL;
+
+    packet(f, 0x13, 0, bytes, sizeof(bytes));
+    advance(2000000);
+
+    /* Start move to 2000 (takes 200 ms) */
+    focus_request(f, 0, 2000);
+    advance(49000000); /* 50 ms -> pos = 500 */
+    runtime = object_property_get_str(OBJECT(f->lens), "runtime", &error_abort);
+    g_assert_nonnull(strstr(runtime, "focus=500 target=2000 focus-pending=1"));
+
+    /* Cold reset resets position to 0 and clears pending */
+    device_cold_reset(f->lens);
+    advance(200000000);
+    g_assert_cmpuint(count(f, "focus-generation"), ==, 0);
+    focus_status(f, 0, false);
+
+    /* Reconfigure and start another move */
+    packet(f, 0x13, 0, bytes, 14);
+    advance(2000000);
+    focus_request(f, 0, 2000);
+    advance(49000000); /* 50 ms -> pos = 500 */
+
+    /* Unrealize freezes position and clears pending */
+    qdev_unrealize(f->lens);
+    advance(200000000);
+    g_clear_pointer(&runtime, g_free);
+    runtime = object_property_get_str(OBJECT(f->lens), "runtime", &error_abort);
+    g_assert_nonnull(strstr(runtime, "focus=500 target=500 focus-pending=0"));
+
+    cleanup(f);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikon-lens-XXXXXX", NULL);
@@ -843,6 +1184,12 @@ int main(int argc, char **argv)
                     test_partial_stream_restart);
     g_test_add_func("/nikon/lens/partial-stream-repeat",
                     test_partial_stream_repeat);
+    g_test_add_func("/nikon/lens/focus-idle", test_focus_idle);
+    g_test_add_func("/nikon/lens/focus-motion", test_focus_motion);
+    g_test_add_func("/nikon/lens/focus-endpoints", test_focus_endpoints);
+    g_test_add_func("/nikon/lens/focus-stop", test_focus_stop);
+    g_test_add_func("/nikon/lens/focus-rejection", test_focus_rejection);
+    g_test_add_func("/nikon/lens/focus-lifecycle", test_focus_lifecycle);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
