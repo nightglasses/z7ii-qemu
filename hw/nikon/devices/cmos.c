@@ -563,7 +563,7 @@ static uint8_t nikon_cmos_sample(const NikonCmosState *s, uint32_t x,
     return raw;
 }
 
-static uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
+static G_GNUC_UNUSED uint16_t nikon_cmos_cfa(const NikonCmosState *s, unsigned x, unsigned y)
 {
     unsigned ix = s->source_x[x], iy = s->source_y[y];
     unsigned lane = 2 * (y & 1) + (x & 1);
@@ -653,9 +653,58 @@ static void nikon_cmos_step(void *opaque)
             bytes[i] = nikon_cmos_sample(s, x, s->row, channel);
         }
     } else {
+        const uint8_t *img = s->active_image_data ? s->active_image_data :
+                             s->image_data;
+        unsigned iy = s->source_y[s->row];
+        const uint8_t *img_row = img + 3 * ((size_t)iy * s->image_width);
+        unsigned y_bit = s->row & 1;
+        bool has_exposure = (s->exposure_scale != 65536 ||
+                             s->iso_gain != 256 ||
+                             s->aperture_q16 != 65536);
+        uint32_t exp_scale = s->exposure_scale;
+        uint32_t iso_gain = s->iso_gain;
+        uint32_t ap_q16 = s->aperture_q16;
+        uint32_t red_resp = s->red_response;
+        uint32_t blue_resp = s->blue_response;
+        const uint32_t *source_x = s->source_x;
+
         /* Validated CFA rows and their bounded chunks are LE16 aligned. */
         for (uint32_t i = 0; i < count; i += 2) {
-            uint16_t sample = nikon_cmos_cfa(s, (s->column + i) / 2, s->row);
+            unsigned x = (s->column + i) / 2;
+            unsigned ix = source_x[x];
+            unsigned x_bit = x & 1;
+            unsigned channel, response;
+
+            if (!y_bit) {
+                if (!x_bit) {
+                    channel = 0;
+                    response = red_resp;
+                } else {
+                    channel = 1;
+                    response = 4096;
+                }
+            } else {
+                if (!x_bit) {
+                    channel = 1;
+                    response = 4096;
+                } else {
+                    channel = 2;
+                    response = blue_resp;
+                }
+            }
+
+            unsigned sample = (unsigned)img_row[3 * ix + channel] * 257U;
+            sample = (sample * response + 2048) / 4096;
+
+            if (has_exposure) {
+                uint64_t scaled = (uint64_t)sample * exp_scale;
+                scaled = (scaled + 32768) >> 16;
+                scaled = scaled * iso_gain;
+                scaled = (scaled + 128) >> 8;
+                scaled = scaled * ap_q16;
+                scaled = (scaled + 32768) >> 16;
+                sample = MIN(scaled, 65535);
+            }
 
             bytes[i] = sample;
             bytes[i + 1] = sample >> 8;
