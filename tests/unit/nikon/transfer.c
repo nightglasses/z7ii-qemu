@@ -3537,10 +3537,11 @@ static void test_rectangle_prefixes(void)
 static void test_inline_rectangles(void)
 {
     enum { W = 720, H = 480, BYTES = W * H * 4, SLOT = 0x4b0000 };
-    enum { SUCCESS, TRANSPARENT, OVERLAP, ONE, TWO, THREE, FIVE, MAXIMUM,
+    enum { SUCCESS, TRANSPARENT, OVERLAP, ONE, TWO, THREE, FIVE,
+           EARLY_MODE_ZERO, MAXIMUM,
            TOO_MANY, SHORT_SETUP, SHORT_DRAW, SETUP_PAD, DRAW_PAD, HEADER,
            MATRIX, SEGMENTS, COORDINATES, WIDTH, POSITION, SIZE, CLIP, FORMAT,
-           BLEND, MODE, KEY, KEY_ZERO, SCRATCH_ZERO, SCRATCH_ECHO, TARGET,
+           BLEND, MODE, LATE_MODE_ZERO, KEY, KEY_ZERO, SCRATCH_ZERO, SCRATCH_ECHO, TARGET,
            TARGET_ALIGN, RANGE, ADDRESS_WRAP, READONLY, COMMAND_OVERLAP,
            SOURCE_ALIAS,
            ENDING, DATA_CHANGE, MAP_LOSS, RESET, CANCEL, CASES };
@@ -3621,6 +3622,9 @@ static void test_inline_rectangles(void)
             g_assert_cmpuint(draw_bytes, ==, 1088);
         }
         switch (test) {
+        case EARLY_MODE_ZERO:
+            stl_le_p(data + 0x20000 + (35 + 21) * 4, 0);
+            break;
         case SHORT_SETUP: setup_bytes -= 8; break;
         case SHORT_DRAW: draw_bytes -= 8; break;
         case SETUP_PAD:
@@ -3642,6 +3646,9 @@ static void test_inline_rectangles(void)
         case FORMAT: stl_le_p(data + 0x20000 + 9 * 4, 0x105); break;
         case BLEND: stl_le_p(data + 0x20000 + (35 + 41) * 4, 0x10000); break;
         case MODE: stl_le_p(data + 0x20000 + (35 + 21) * 4, 14); break;
+        case LATE_MODE_ZERO:
+            stl_le_p(data + 0x20000 + (35 + 37) * 4, 0);
+            break;
         case KEY: stl_le_p(data + 0x20000 + (35 + 59 * 3 + 54) * 4, 1); break;
         case KEY_ZERO: stl_le_p(data + (2 + 52) * 4, 0x10000); break;
         case SCRATCH_ZERO: stl_le_p(data + (2 + 35) * 4, 0); break;
