@@ -1,10 +1,15 @@
 /*
  * Host keys drive the seventeen GPIO inputs selected by original EX software.
- * F10 (pad 9, PG1) drives shutter half-press (S1); F11 (pad 10, PG2) AF-ON;
- * F12 (pad 11, PG13) shutter full-press (S2); F4 (pad 3, PC5) main power.
- * F13 toggles the maintained capture selector; F14/F15 select mode ADC detents.
- * F16..F19 drive two bounded four-phase command-dial contact sequences.
- * Sixteen independent active-low expander contacts supply normal buttons.
+ * F10 (pad 9, PG1, alias 'J') drives shutter half-press (S1); F11 (pad 10,
+ * PG2, alias 'O') AF-ON; F12 (pad 11, PG13, alias 'K') shutter full-press (S2);
+ * F4 (pad 3, PC5) main power.
+ * F13 (alias 'V') toggles the maintained capture selector; F14/F15 (alias Tab)
+ * select mode ADC detents.
+ * F16..F19 (alias '[', ']', ';', ''') drive two bounded four-phase command-dial
+ * contact sequences.
+ * Sixteen independent active-low expander contacts supply normal buttons, with
+ * standard host keyboard aliases ('M' for menu, 'P' for playback, Backspace for
+ * delete, 'C'/Space for joystick center, '+/-' for zoom/thumbnail).
  * Host key assignments are a functional profile; the guest owns sampling,
  * debounce, message construction and capture policy.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -255,16 +260,83 @@ static void nikon_input_set_expander_bool(Object *obj, Visitor *v,
     }
 }
 
+static int nikon_input_map_control(unsigned int key)
+{
+    if (key >= KEY_F14 && key <= KEY_F19) {
+        return key - KEY_F14;
+    }
+    switch (key) {
+    case KEY_TAB:
+        return 0;
+    case KEY_RIGHTBRACE:
+        return 2;
+    case KEY_LEFTBRACE:
+        return 3;
+    case KEY_APOSTROPHE:
+        return 4;
+    case KEY_SEMICOLON:
+        return 5;
+    default:
+        return -1;
+    }
+}
+
+static int nikon_input_map_expander(unsigned int key)
+{
+    for (unsigned i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
+        if (key == nikon_input_expander_keys[i]) {
+            return i;
+        }
+    }
+    switch (key) {
+    case KEY_M:
+        return NIKON_INPUT_EXP_MENU;
+    case KEY_KPENTER:
+        return NIKON_INPUT_EXP_OK;
+    case KEY_P:
+        return NIKON_INPUT_EXP_PLAYBACK;
+    case KEY_BACKSPACE:
+        return NIKON_INPUT_EXP_DELETE;
+    case KEY_KPPLUS:
+        return NIKON_INPUT_EXP_ZOOM;
+    case KEY_KPMINUS:
+        return NIKON_INPUT_EXP_THUMBNAIL;
+    case KEY_C:
+    case KEY_SPACE:
+        return NIKON_INPUT_EXP_SECOND_CENTER;
+    default:
+        return -1;
+    }
+}
+
+static int nikon_input_map_pad(unsigned int key)
+{
+    for (unsigned i = 0; i < NIKON_INPUT_PADS; i++) {
+        if (key == nikon_input_host_keys[i]) {
+            return i;
+        }
+    }
+    switch (key) {
+    case KEY_J:
+        return NIKON_INPUT_PAD_HALF_PRESS;
+    case KEY_O:
+        return NIKON_INPUT_PAD_AF_ON;
+    case KEY_K:
+        return NIKON_INPUT_PAD_FULL_PRESS;
+    default:
+        return -1;
+    }
+}
+
 static void nikon_input_event(DeviceState *dev, QemuConsole *src,
                               QemuInputEvent *event)
 {
     NikonInputState *s = NIKON_INPUT(dev);
-    unsigned int i;
+    int control, exp, pad;
 
     assert(event->type == INPUT_EVENT_KIND_KEY);
-    if (event->key.key >= KEY_F14 && event->key.key <= KEY_F19) {
-        unsigned control = event->key.key - KEY_F14;
-
+    control = nikon_input_map_control(event->key.key);
+    if (control >= 0) {
         if (event->key.down && !s->control_down[control]) {
             if (control < 2) {
                 s->mode_position = (s->mode_position +
@@ -285,7 +357,7 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
         s->control_down[control] = event->key.down;
         return;
     }
-    if (event->key.key == KEY_F13) {
+    if (event->key.key == KEY_F13 || event->key.key == KEY_V) {
         if (event->key.down && !s->selector_down) {
             s->movie = !s->movie;
             qemu_set_irq(s->capture_selector, !s->movie);
@@ -296,37 +368,35 @@ static void nikon_input_event(DeviceState *dev, QemuConsole *src,
         s->selector_down = event->key.down;
         return;
     }
-    for (i = 0; i < NIKON_INPUT_EXPANDER_PADS; i++) {
-        if (event->key.key == nikon_input_expander_keys[i]) {
-            if (s->expander_down[i] != event->key.down) {
-                s->expander_down[i] = event->key.down;
-                qemu_set_irq(s->expander_pads[i], !s->expander_down[i]);
-                qemu_log_mask(LOG_GUEST_ERROR,
-                    "nikon-input: expander-pad=%u ex-pad=%u %s active-low"
-                    " level=%u\n", i, nikon_input_expander_ids[i],
-                    s->expander_down[i] ? "down" : "up", !s->expander_down[i]);
-            }
-            return;
+    exp = nikon_input_map_expander(event->key.key);
+    if (exp >= 0) {
+        if (s->expander_down[exp] != event->key.down) {
+            s->expander_down[exp] = event->key.down;
+            qemu_set_irq(s->expander_pads[exp], !s->expander_down[exp]);
+            qemu_log_mask(LOG_GUEST_ERROR,
+                "nikon-input: expander-pad=%u ex-pad=%u %s active-low"
+                " level=%u\n", (unsigned)exp, nikon_input_expander_ids[exp],
+                s->expander_down[exp] ? "down" : "up", !s->expander_down[exp]);
         }
+        return;
     }
-    for (i = 0; i < NIKON_INPUT_PADS; i++) {
-        if (event->key.key == nikon_input_host_keys[i]) {
-            if (s->down[i] != event->key.down) {
-                s->down[i] = event->key.down;
-                if (i >= 5 && i <= 8) {
-                    /* Raw contacts take ownership of their whole dial. */
-                    nikon_input_dial_cancel(&s->dial[i < 7 ? 1 : 0]);
-                } else {
-                    qemu_set_irq(s->pads[i], !s->down[i]);
-                }
-                /* Assistance receipt: every host key that reaches a pad. */
-                qemu_log_mask(LOG_GUEST_ERROR,
-                              "nikon-input: pad=%u ex-pad=%#04x %s active-low"
-                              " level=%u\n", i, nikon_input_gpio_ids[i],
-                              s->down[i] ? "down" : "up", !s->down[i]);
+    pad = nikon_input_map_pad(event->key.key);
+    if (pad >= 0) {
+        if (s->down[pad] != event->key.down) {
+            s->down[pad] = event->key.down;
+            if (pad >= 5 && pad <= 8) {
+                /* Raw contacts take ownership of their whole dial. */
+                nikon_input_dial_cancel(&s->dial[pad < 7 ? 1 : 0]);
+            } else {
+                qemu_set_irq(s->pads[pad], !s->down[pad]);
             }
-            return;
+            /* Assistance receipt: every host key that reaches a pad. */
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "nikon-input: pad=%u ex-pad=%#04x %s active-low"
+                          " level=%u\n", (unsigned)pad, nikon_input_gpio_ids[pad],
+                          s->down[pad] ? "down" : "up", !s->down[pad]);
         }
+        return;
     }
 }
 

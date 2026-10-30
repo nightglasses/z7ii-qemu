@@ -859,6 +859,116 @@ static void test_menu_navigation_properties(void)
     board_reset();
 }
 
+static void test_keyboard_aliases(void)
+{
+    InputFixture *f = input_new_full(true);
+    int current_mode;
+
+    /* 1. Expander key aliases */
+    /* KEY_M -> MENU */
+    key(KEY_M, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_MENU], ==, 0);
+    key(KEY_M, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_MENU], ==, 1);
+
+    /* KEY_P -> PLAYBACK */
+    key(KEY_P, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_PLAYBACK], ==, 0);
+    key(KEY_P, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_PLAYBACK], ==, 1);
+
+    /* KEY_BACKSPACE -> DELETE (Mac Delete) */
+    key(KEY_BACKSPACE, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_DELETE], ==, 0);
+    key(KEY_BACKSPACE, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_DELETE], ==, 1);
+
+    /* KEY_KPENTER -> OK */
+    key(KEY_KPENTER, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_OK], ==, 0);
+    key(KEY_KPENTER, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_OK], ==, 1);
+
+    /* KEY_KPPLUS -> ZOOM, KEY_KPMINUS -> THUMBNAIL */
+    key(KEY_KPPLUS, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_ZOOM], ==, 0);
+    key(KEY_KPPLUS, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_ZOOM], ==, 1);
+
+    key(KEY_KPMINUS, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_THUMBNAIL], ==, 0);
+    key(KEY_KPMINUS, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_THUMBNAIL], ==, 1);
+
+    /* KEY_C and KEY_SPACE -> SECOND_CENTER (Joystick center) */
+    key(KEY_C, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_SECOND_CENTER], ==, 0);
+    key(KEY_C, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_SECOND_CENTER], ==, 1);
+
+    key(KEY_SPACE, true);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_SECOND_CENTER], ==, 0);
+    key(KEY_SPACE, false);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_SECOND_CENTER], ==, 1);
+
+    /* 2. GPIO pad aliases */
+    /* KEY_J -> HALF_PRESS (S1, pad 9) */
+    key(KEY_J, true);
+    levels(f, 1U << NIKON_INPUT_PAD_HALF_PRESS, "key-j-half-press");
+    key(KEY_J, false);
+    levels(f, 0, "key-j-released");
+
+    /* KEY_O -> AF_ON (pad 10) */
+    key(KEY_O, true);
+    levels(f, 1U << NIKON_INPUT_PAD_AF_ON, "key-o-af-on");
+    key(KEY_O, false);
+    levels(f, 0, "key-o-released");
+
+    /* KEY_K -> FULL_PRESS (S2, pad 11) */
+    key(KEY_K, true);
+    levels(f, 1U << NIKON_INPUT_PAD_FULL_PRESS, "key-k-full-press");
+    key(KEY_K, false);
+    levels(f, 0, "key-k-released");
+
+    /* 3. Selector alias */
+    /* KEY_V -> toggles photo/movie */
+    g_assert_cmpint(f->selector_level, ==, 1); /* Initial photo */
+    key(KEY_V, true);
+    g_assert_cmpint(f->selector_level, ==, 0); /* Movie */
+    key(KEY_V, false);
+    g_assert_cmpint(f->selector_level, ==, 0);
+    key(KEY_V, true);
+    g_assert_cmpint(f->selector_level, ==, 1); /* Back to photo */
+    key(KEY_V, false);
+
+    /* 4. Mode alias */
+    /* KEY_TAB -> advances mode position */
+    current_mode = f->mode_level;
+    key(KEY_TAB, true);
+    g_assert_cmpint(f->mode_level, !=, current_mode);
+    key(KEY_TAB, false);
+
+    /* 5. Dial aliases */
+    /* '[' and ']' for dial 0 (rear) */
+    key(KEY_RIGHTBRACE, true);
+    key(KEY_RIGHTBRACE, false);
+    advance(50000000);
+    key(KEY_LEFTBRACE, true);
+    key(KEY_LEFTBRACE, false);
+    advance(50000000);
+
+    /* ';' and ''' for dial 1 (front) */
+    key(KEY_APOSTROPHE, true);
+    key(KEY_APOSTROPHE, false);
+    advance(50000000);
+    key(KEY_SEMICOLON, true);
+    key(KEY_SEMICOLON, false);
+    advance(50000000);
+
+    input_free(f);
+    board_reset();
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -887,6 +997,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/input/shutter-af-pads", test_shutter_af_pads);
     g_test_add_func("/nikon/input/menu-navigation-properties",
                     test_menu_navigation_properties);
+    g_test_add_func("/nikon/input/keyboard-aliases", test_keyboard_aliases);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
