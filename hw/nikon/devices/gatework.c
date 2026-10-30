@@ -8,6 +8,7 @@
 #include "qemu/bswap.h"
 #include "hw/nikon/gatework.h"
 #include "hw/nikon/gatepixels.h"
+#include "hw/nikon/compute_pipeline.h"
 #include "system/dma.h"
 
 typedef struct GateWorkSpan {
@@ -704,8 +705,8 @@ NikonGateWorkResult nikon_gate_work_compute(NikonGateWorkPlan *plan)
 {
     unsigned width = plan->pixels.dst_width, height = plan->pixels.dst_height;
 
-    if (!nikon_gate_pixels_nv12(&plan->pixels, plan->warped,
-                                (size_t)width * height * 3 / 2)) {
+    if (!nikon_compute_pipeline_warp_nv12(NULL, &plan->pixels, plan->warped,
+                                          (size_t)width * height * 3 / 2)) {
         return NIKON_GATE_WORK_PIXELS;
     }
     for (unsigned i = 0; i < 3; i++) {
