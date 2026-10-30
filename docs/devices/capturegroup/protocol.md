@@ -862,3 +862,56 @@ the declared fields, exact-size rejection and byte-for-byte preservation
 outside them. These are synthetic fixtures; parent native validation and
 original-firmware execution are reported separately, and no complete boot or
 physical-camera fidelity follows from this implementation contract.
+
+## AF Focus Closed-Loop, Statistics Pipeline, and BA2 Distinction
+
+### Producer and Consumer Chain
+
+EXPEED capture-group (`capturegroup.c`, MMIO `0x2006b800`) serves as the
+hardware accelerator for RAW AF contrast statistics:
+
+1. **Descriptor Setup**: `CaptureService`/`AfService` initializes kind23
+   descriptors at `1023b050 -> 102aa02a` with three destination buffer regions:
+   `base+0x00` (primary record), `base+0x80` (companion record), and
+   `base+0xd0` (grid cells).
+2. **Hardware Acceleration**: Capture-group executes 3 configurable FIR
+   high-pass filter kernels across the sensor Bayer/mono raster within designated
+   focus ROIs (`0x234..0x250`) and cell grids (`0x8..0x14`). It generates a 5-plane
+   integral image, computing 12-bit sharpness score $p = \max(p, \text{agg}_i / \text{count})$,
+   total luminance, and energy.
+3. **Interrupt & Queuing**: Completion raises `NIKON_CAPTURE_THIRD_EVENT` (IRQ 96)
+   bit 0 (`raw3.bit0`). Interrupt callback `10239436` clears the pending flag by writing
+   `1` to `CAPTURE + 0x270` and enqueues the descriptor into the 8-entry AF ring at
+   VA `b217b7f8`.
+4. **Firmware Evaluation**: AfService worker `1021e130 -> 103dd76c -> 103dcbfa -> 102ab7fa -> 102a9c54`
+   invokes primary unpacker `102a9bd6` and grid scanner `102a9b20`. Grid scanner
+   `102a9b20` loops across all cells unpacking $p = W0 \& 0xfff$, locating the cell
+   with maximum $p$ score to guide lens focus motor drive decisions.
+
+### Optical Focus Response
+
+Optical defocus blur is simulated directly at the CMOS sensor input:
+- The effective focus distance is driven by the physical/virtual lens motor
+  (`/machine/lens` `focus-position`), with diagnostic override via `/machine/cmos`
+  `focus-position`.
+- Defocus radius is bounded by $r = \min(|pos - scene\_focus| / 64, 31)$.
+- A separable 2D box filter attenuates high spatial frequencies before Bayer sampling.
+- Luminance is strictly conserved under blur ($\sum I_{defocused} \approx \sum I_{focused}$).
+- Sharpness score $p$ peaks at $pos = scene\_focus$ and degrades symmetrically for $\pm \Delta$.
+- Uniform (flat) scenes produce strictly zero contrast ($p = 0$) across all focus positions.
+- ROI selectivity ensures focus statistics depend strictly on the image content enclosed by the ROI.
+
+### Distinction Between Regular AF and FotoNation BA2
+
+The Nikon C1.70 firmware incorporates two distinct subject analysis subsystems:
+- **Regular AF** (Contrast AF / Phase Hybrid): Implemented in hardware via EXPEED
+  capture-group (`0x2006b800`) and capture-statistics (`0x2006a000`). It operates
+  directly on high-resolution RAW Bayer frames, performing FIR spatial frequency
+  analysis, neighbor difference summation, and intensity variance measurement across
+  programmable focus ROIs and focus grids.
+- **BA2 Face / Eye Detection**: FotoNation licensed library (`LibESB-BA2x-1-2-3-7`,
+  FotoNation Ltd., identified at VA `0x107da09d`). BA2 is a pure software computer-vision
+  pipeline executing on downscaled gray (`GRAY`) and YUV (`YUV_420_P2`, `YUV_420_P3`)
+  planar video frames. BA2 provides candidate face/eye bounding boxes to the upper-level
+  AF coordinator, which then configures the EXPEED hardware capture-group ROIs
+  to track and focus precisely on the detected subject's eye.

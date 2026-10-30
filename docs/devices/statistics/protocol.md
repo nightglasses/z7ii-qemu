@@ -405,3 +405,20 @@ then all four statistics cases pass with revision ownership. The final
 unchanged-firmware run also uses that corrected implementation.
 Original-firmware progression, final counters and the next boundary are
 recorded in the [startup frontier](../../validation/frontier.md).
+
+## AF RAW Statistics and Subject Analysis
+
+Capture-statistics (`statistics.c`, MMIO `0x2006a000`) operates alongside
+capture-group (`capturegroup.c`, MMIO `0x2006b800`) on completed RAW sensor frames.
+While capture-group computes multi-tap FIR contrast scores ($p = W0 \& 0xfff$) across
+focused ROIs and AF grid cells, capture-statistics calculates multi-channel spatial
+variance, neighbor differences, and intensity distributions.
+
+Both hardware blocks process RAW CFA data directly from the optical sensor pipeline,
+which simulates optical defocus blur driven by the lens motor (`/machine/lens`,
+`focus-position`). In contrast, subject/eye detection is executed separately in
+software by FotoNation BA2 (`LibESB-BA2x-1-2-3-7`, VA `0x107da09d`) using downscaled
+YUV/grayscale frames, which in turn directs the hardware focus ROIs for closed-loop
+AF tracking. Detailed protocol, consumer unpackers (`102a9bd6`, `102a9b20`), and
+ring buffer queuing (`b217b7f8`) are documented in
+[capturegroup protocol](../capturegroup/protocol.md).

@@ -1612,6 +1612,8 @@ static void z7ii_init(MachineState *machine)
                                   &error_fatal);
         ssi_realize_and_unref(lens,
             (SSIBus *)qdev_get_child_bus(spi_ports[3], "spi"), &error_fatal);
+        object_property_set_link(OBJECT(cmos), "lens", OBJECT(lens),
+                                 &error_fatal);
     }
     for (i = 0; i < 4; i++) {
         DeviceState *i2c = qdev_new(TYPE_NIKON_I2C);

@@ -2607,6 +2607,276 @@ static void test_group_families(void)
     }
 }
 
+static void test_group_focus_sweep(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    int fd = g_file_open_tmp("nikon-af-sweep-XXXXXX", &scene, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    uint8_t *pixels = img + sizeof(header) - 1;
+    static const int32_t positions[] = { -500, -250, 0, 250, 500 };
+    uint32_t p_scores[5];
+    uint32_t sum_luminance[5];
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 16; y++) {
+        for (unsigned x = 0; x < 16; x++) {
+            uint8_t v = (x & 2) ? 220 : 20;
+
+            pixels[(y * 16 + x) * 3 + 0] = v;
+            pixels[(y * 16 + x) * 3 + 1] = v;
+            pixels[(y * 16 + x) * 3 + 2] = v;
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'scene-focus-position','value':0}}");
+
+    for (unsigned i = 0; i < 5; i++) {
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'focus-position','value':%d}}", positions[i]);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+        g_assert_cmpuint(property_at(q, GROUP_PATH, "completed"), ==, i + 1);
+
+        uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+        uint32_t current_base = qtest_readl(q,
+            GROUP_BASE + (bank ? 0x37c : 0x378));
+        uint32_t w0 = qtest_readl(q, current_base);
+
+        p_scores[i] = w0 & 0xfff;
+        sum_luminance[i] = qtest_readl(q, current_base + 8);
+        qtest_writel(q, CAPTURE + 0x270, 1);
+    }
+
+    g_assert_cmpuint(p_scores[2], >, p_scores[1]);
+    g_assert_cmpuint(p_scores[2], >, p_scores[3]);
+    g_assert_cmpuint(p_scores[1], >, p_scores[0]);
+    g_assert_cmpuint(p_scores[3], >, p_scores[4]);
+
+    g_assert_cmpuint(p_scores[0], ==, p_scores[4]);
+    g_assert_cmpuint(p_scores[1], ==, p_scores[3]);
+
+    g_assert_cmpuint(sum_luminance[0], ==, sum_luminance[4]);
+    g_assert_cmpuint(sum_luminance[1], ==, sum_luminance[3]);
+
+    for (unsigned i = 1; i < 5; i++) {
+        g_assert_cmpuint(abs((int)sum_luminance[i] - (int)sum_luminance[0]),
+                         <, 500);
+    }
+
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_group_flat_scene(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *flat = NULL;
+    int fd = g_file_open_tmp("nikon-af-flat-XXXXXX", &flat, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    static const int32_t positions[] = { 0, -500, 500 };
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    memset(img + sizeof(header) - 1, 128, 16 * 16 * 3);
+    g_assert_true(g_file_set_contents(flat, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, NULL);
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", flat);
+
+    for (unsigned i = 0; i < 3; i++) {
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+            "'property':'focus-position','value':%d}}", positions[i]);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+
+        uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+        uint32_t current_base = qtest_readl(q,
+            GROUP_BASE + (bank ? 0x37c : 0x378));
+        uint32_t w0 = qtest_readl(q, current_base);
+
+        g_assert_cmpuint(w0 & 0xfff, ==, 0);
+        g_assert_cmpuint(qtest_readl(q, current_base + 16), ==, 0);
+        g_assert_cmpuint(qtest_readl(q, current_base + 24), ==, 0);
+        g_assert_cmpuint(qtest_readl(q, current_base + 32), ==, 0);
+
+        for (unsigned cell = 0; cell < 4; cell++) {
+            uint32_t cell_w0 = qtest_readl(q, current_base + 0xd0 + cell * 32);
+
+            g_assert_cmpuint(cell_w0 & 0xfff, ==, 0);
+        }
+        qtest_writel(q, CAPTURE + 0x270, 1);
+    }
+
+    qtest_quit(q);
+    unlink(flat);
+    unlink(bundle);
+}
+
+static void test_group_roi_dependence(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    int fd = g_file_open_tmp("nikon-af-roi-XXXXXX", &scene, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    uint8_t *pixels = img + sizeof(header) - 1;
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 16; y++) {
+        for (unsigned x = 0; x < 16; x++) {
+            uint8_t v = (x < 8) ? ((x & 2) ? 240 : 10) : 128;
+
+            pixels[(y * 16 + x) * 3 + 0] = v;
+            pixels[(y * 16 + x) * 3 + 1] = v;
+            pixels[(y * 16 + x) * 3 + 2] = v;
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+
+    qtest_writel(q, GROUP_BASE + 0x234, 0);
+    qtest_writel(q, GROUP_BASE + 0x238, 0);
+    qtest_writel(q, GROUP_BASE + 0x23c, 4);
+    qtest_writel(q, GROUP_BASE + 0x240, 8);
+    qtest_writel(q, CAPTURE + 0x100, 0x15);
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+
+    uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+    uint32_t current_base = qtest_readl(q, GROUP_BASE + (bank ? 0x37c : 0x378));
+    uint32_t w0_textured = qtest_readl(q, current_base);
+    uint32_t p_textured = w0_textured & 0xfff;
+
+    g_assert_cmpuint(p_textured, >, 0);
+
+    qtest_writel(q, CAPTURE + 0x270, 1);
+    qtest_writel(q, GROUP_BASE + 0x234, 4);
+    qtest_writel(q, GROUP_BASE + 0x238, 0);
+    qtest_writel(q, GROUP_BASE + 0x23c, 4);
+    qtest_writel(q, GROUP_BASE + 0x240, 8);
+    qtest_writel(q, CAPTURE + 0x100, 0x15);
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+
+    bank = qtest_readl(q, GROUP_BASE + 0x370);
+    current_base = qtest_readl(q, GROUP_BASE + (bank ? 0x37c : 0x378));
+    uint32_t w0_flat = qtest_readl(q, current_base);
+    uint32_t p_flat = w0_flat & 0xfff;
+
+    g_assert_cmpuint(p_flat, ==, 0);
+
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_group_lens_focus_loop(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    int fd = g_file_open_tmp("nikon-af-lens-XXXXXX", &scene, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    uint8_t *pixels = img + sizeof(header) - 1;
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 16; y++) {
+        for (unsigned x = 0; x < 16; x++) {
+            uint8_t v = (x & 2) ? 220 : 20;
+
+            pixels[(y * 16 + x) * 3 + 0] = v;
+            pixels[(y * 16 + x) * 3 + 1] = v;
+            pixels[(y * 16 + x) * 3 + 2] = v;
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'scene-focus-position','value':0}}");
+
+    /* Step 1: Set lens motor focus position to 0 (in-focus). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':0}}");
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+
+    uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+    uint32_t current_base = qtest_readl(q,
+        GROUP_BASE + (bank ? 0x37c : 0x378));
+    uint32_t w0_focus = qtest_readl(q, current_base);
+    uint32_t p_focus = w0_focus & 0xfff;
+
+    qtest_writel(q, CAPTURE + 0x270, 1);
+
+    /* Step 2: Set lens motor focus position to 500 (defocused). */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':500}}");
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+
+    bank = qtest_readl(q, GROUP_BASE + 0x370);
+    current_base = qtest_readl(q, GROUP_BASE + (bank ? 0x37c : 0x378));
+    uint32_t w0_defocus = qtest_readl(q, current_base);
+    uint32_t p_defocus = w0_defocus & 0xfff;
+
+    g_assert_cmpuint(p_focus, >, p_defocus);
+
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
 #define WORK_PATH "/machine/capture-processing"
 #define WORK_BUFFER (RAM + 0x100000)
 
@@ -9072,6 +9342,12 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/cmos/group/families", test_group_families);
     qtest_add_func("/nikon/cmos/group/worker", test_group_worker);
     qtest_add_func("/nikon/cmos/group/worker-cancellation", test_group_worker_cancel);
+    qtest_add_func("/nikon/cmos/group/focus-sweep", test_group_focus_sweep);
+    qtest_add_func("/nikon/cmos/group/flat-scene", test_group_flat_scene);
+    qtest_add_func("/nikon/cmos/group/roi-dependence",
+                   test_group_roi_dependence);
+    qtest_add_func("/nikon/cmos/group/lens-focus-loop",
+                   test_group_lens_focus_loop);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/main-boundaries",

@@ -107,6 +107,21 @@ static void lens_get_focus_position(Object *obj, Visitor *v, const char *name,
     visit_type_int32(v, name, &value, errp);
 }
 
+static void lens_set_focus_position(Object *obj, Visitor *v, const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    int32_t value;
+
+    if (!visit_type_int32(v, name, &value, errp)) {
+        return;
+    }
+    s->focus_position = value;
+    s->focus_target = value;
+    s->focus_pending = false;
+    s->focus_generation++;
+}
+
 static void lens_get_focus_target(Object *obj, Visitor *v, const char *name,
                                   void *opaque, Error **errp)
 {
@@ -736,7 +751,8 @@ static void lens_init(Object *obj)
     object_property_add_uint64_ptr(obj, "focus-generation",
                                    &s->focus_generation, OBJ_PROP_FLAG_READ);
     object_property_add(obj, "focus-position", "int32",
-                        lens_get_focus_position, NULL, NULL, NULL);
+                        lens_get_focus_position, lens_set_focus_position,
+                        NULL, NULL);
     object_property_add(obj, "focus-target", "int32",
                         lens_get_focus_target, NULL, NULL, NULL);
     object_property_add_bool(obj, "focus-pending",
