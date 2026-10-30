@@ -135,6 +135,67 @@ post-processing. They supply no hidden RGB source, and are allocated before
 outputs change. The RAW scratch is reused only after every MAIN input has
 been consumed.
 
+## Upstream generation and downstream numerical contract
+
+The C1.70 MAS firmware generates and consumes linear color parameters through
+explicit hardware registers and mathematical primitives:
+
+### 1. RAW encoding and linearization
+- **RAM encoding**: 12-bit packed RAW (3 bytes per 2 pixels):
+  $$S_0 = \text{byte}[0] \mid ((\text{byte}[1] \& 0\text{x0F}) \ll 8), \quad S_1 = (\text{byte}[1] \gg 4) \mid (\text{byte}[2] \ll 4)$$
+  Domain $[0, 4095]$.
+- **Decompand codec**: 256-knot strictly increasing lookup table $K[0..255] \in [0, 4095]$.
+  Reconstructed linear RAW12 sample is $(\text{index} \times 257) \gg 4$.
+- **CFA lane mapping**:
+  Lane index at ROI $(x, y)$:
+  $$\text{lane} = (\text{encoding} - 1) \oplus ((y \& 1) \times 2 + (x \& 1))$$
+  where lanes 0, 1, 2, 3 correspond to R, Gr, Gb, B.
+
+### 2. Four-lane sensor white balance and black level
+- **MMIO registers `0x708..0x720`** (written by `1036b35a`):
+  - `0x708`: `[high16: gain[0] (R), low16: gain[1] (Gr)]`
+  - `0x70c`: `[high16: gain[2] (Gb), low16: gain[3] (B)]`
+  - `0x710`: `[high13: offset[0] (R), low13: offset[1] (Gr)]` (signed 13-bit)
+  - `0x714`: `[high13: offset[2] (Gb), low13: offset[3] (B)]` (signed 13-bit)
+  - `0x718`: `[high16: pedestal[0] (R), low16: pedestal[1] (Gr)]`
+  - `0x71c`: `[high16: pedestal[2] (Gb), low16: pedestal[3] (B)]`
+  - `0x720`: `[high16: 0, low16: shared_bound]`
+- **Fixed-point arithmetic and rounding**:
+  Gains are unsigned Q9 ($1.0 = 512$), offsets are signed 13-bit ($[-4096, 4095]$, nominal $-\text{black\_level}$), pedestals are unsigned 16-bit, and shared bound is unsigned 15-bit:
+  $$\text{lane}[i] = \text{clamp}\left(\text{round\_div}\left((\text{sample} + \text{offset}[i]) \times \text{gain}[i], 512\right) + \text{pedestal}[i], \; 0, \; \min(\text{shared\_bound}, 4095)\right)$$
+  `round_div(n, d)` at `10380388` computes symmetric rounding (ties away from zero).
+
+### 3. C2 color matrices (Matrix A, B, C)
+- **Matrix A (CCM RGB-to-RGB, MMIO `0xb00..0xb10`)**:
+  Signed 13-bit Q10 ($1.0 = 1024$), high-word first packing.
+  Verified sRGB matrix coefficients (`1037fd78`):
+  $$\mathbf{A} = \begin{bmatrix} 925 & 317 & -218 \\ -42 & 1456 & -390 \\ 9 & -206 & 1221 \end{bmatrix} \times \frac{1}{1024}$$
+  Each row sums to exactly 1024, enforcing strict neutral gray invariance.
+- **Matrix B (RGB-to-YUV, MMIO `0xb64..0xb74`)**:
+  Signed 12-bit Q9 ($1.0 = 512$), high-word first packing.
+  Verified matrix coefficients (`1037fdf4`):
+  $$\mathbf{B} = \begin{bmatrix} 153 & 301 & 58 \\ -86 & -170 & 256 \\ 256 & -214 & -42 \end{bmatrix} \times \frac{1}{512}$$
+  Row 0 sum is 512 (BT.601 Luma $Y$); row 1 and 2 sums are 0 (pure chroma difference).
+- **Matrix C (Chroma 2D Hue Rotation, MMIO `0xb94..0xba4`)**:
+  Signed 13-bit Q10 ($1.0 = 1024$), low-word first packing.
+  First row and column are $[1024, 0, 0]$ (Luma invariant). The lower-right 2x2 submatrix executes 2D hue rotation from PictureControl hue parameter.
+- **BAC Chroma Mixing (MMIO `0xbac`)**:
+  $$U_{\text{mixed}} = \text{round\_div}(w_{\text{orig}} \cdot U + w_{\text{trans}} \cdot U', 256)$$
+  where $w_{\text{orig}} + w_{\text{trans}} = 256$.
+
+### 4. Process comparison
+
+| Dimensionality | CPU Routine (`0x102B3B82`) | OpenVG / ImageTransfer | Paired ASIC (Selector 2) |
+|---|---|---|---|
+| **Input Domain** | 8-bit Packed RGB | RGBA Surface Layers | 12-bit RAW DMA Buffer |
+| **Pipeline Scope** | RGB8 to YUV Conversion | sRGB to BT.601 Display Plane | Full linear ISP (RAW -> WB -> Demosaic -> Gain Curves -> CCM -> YUV -> Hue -> Post -> NV12) |
+| **Chroma Decimation** | Horizontal 2:1 only | Scaler / Bilinear Sampling | 2x2 Block Average (Horizontal & Vertical 2:1, NV12) |
+| **Rounding** | Arithmetic right-shift (floor) | Floating-point | `round_div` (Symmetric ties away from zero) |
+
+### 5. Verifiable test vectors
+- **Neutral gray preservation**: $R=G=B=1000 \to Y_{12}=1000, U_{12}=0, V_{12}=0 \to Y_8=63, U_8=128, V_8=128$.
+- **Primary color point**: $R=3072, G=1024, B=512 \to Y_{12}=1578, U_{12}=-600, V_{12}=+1066 \to Y_8=99, U_8=91, V_8=195$ (asserted in `tests/unit/nikon/pairedpixels.c`).
+
 ## Validation scope
 
 The [full-resolution original-firmware validation](../../validation/color.md)
