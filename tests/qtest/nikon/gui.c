@@ -11,10 +11,12 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
+#include "qemu/crc-ccitt.h"
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
 #include "libqtest.h"
 #include "hw/nikon/frame.h"
+#include "hw/nikon/sla.h"
 
 #define FRAME_BASE 0x24081000
 
@@ -203,6 +205,156 @@ static void test_observations(void)
     qtest_quit(q);
 }
 
+static bool get_input_bool(QTestState *q, const char *property)
+{
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-get','arguments':"
+                                "{'path':'/machine/input','property':%s}}",
+                             property);
+    bool value;
+
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_bool(reply, "return");
+    qobject_unref(reply);
+    return value;
+}
+
+static void set_input_bool(QTestState *q, const char *property, bool value)
+{
+    if (value) {
+        qtest_qmp_assert_success(q, "{'execute':'qom-set','arguments':"
+                                    "{'path':'/machine/input','property':%s,"
+                                    "'value':true}}", property);
+    } else {
+        qtest_qmp_assert_success(q, "{'execute':'qom-set','arguments':"
+                                    "{'path':'/machine/input','property':%s,"
+                                    "'value':false}}", property);
+    }
+}
+
+static void pulse_input(QTestState *q, const char *property)
+{
+    set_input_bool(q, property, true);
+    g_assert_true(get_input_bool(q, property));
+    set_input_bool(q, property, false);
+    g_assert_false(get_input_bool(q, property));
+}
+
+static char *functional_bundle(void)
+{
+    static const char *const names[] = {
+        "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
+        "vr1840_010100.bi", "eg1840_sla_01700",
+    };
+    const size_t header = 208;
+    const size_t total = header + 3 * 6 + 0x80000 + 2 +
+                         NIKON_SLA_ROM_SIZE + 2 + 16;
+    g_autofree uint8_t *data = g_malloc0(total);
+    char *path = NULL;
+    size_t offset = header;
+    unsigned i;
+    int fd;
+
+    memset(data, ' ', 32);
+    stl_be_p(data + 32, ARRAY_SIZE(names));
+    stl_be_p(data + 36, header);
+    for (i = 0; i < ARRAY_SIZE(names); i++) {
+        size_t length = i == 0 ? 0x80000 :
+                        i == 4 ? NIKON_SLA_ROM_SIZE : 4;
+        uint8_t *entry = data + 48 + i * 32;
+
+        memcpy(entry, names[i], strlen(names[i]));
+        stl_be_p(entry + 16, offset);
+        stl_be_p(entry + 20, length + 2);
+        if (i == 0) {
+            stl_le_p(data + offset, 0x20040000);
+            stl_le_p(data + offset + 4, 0x08000009);
+        } else {
+            stl_le_p(data + offset, 0xeafffffe);
+        }
+        stw_be_p(data + offset + length,
+                 crc_ccitt_false(0, data + offset, length));
+        offset += length + 2;
+    }
+    stw_be_p(data + offset, crc_ccitt_false(0, data, offset));
+    fd = g_file_open_tmp("nikon-gui-bundle-XXXXXX", &path, NULL);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    g_assert_true(g_file_set_contents(path, (const char *)data, total, NULL));
+    return path;
+}
+
+static void test_menu_category_navigation(void)
+{
+    g_autofree char *bundle = functional_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                                "frame-contract=on -smp 1 -nodefaults "
+                                "-display none", quoted);
+    static const char *categories[] = {
+        "playback", "photo-shooting", "movie-shooting",
+        "custom-settings", "setup", "retouch", "my-menu"
+    };
+
+    /* Initial state: menu and navigation controls unpressed */
+    g_assert_false(get_input_bool(q, "menu"));
+    g_assert_false(get_input_bool(q, "ok"));
+    g_assert_false(get_input_bool(q, "up"));
+    g_assert_false(get_input_bool(q, "down"));
+    g_assert_false(get_input_bool(q, "left"));
+    g_assert_false(get_input_bool(q, "right"));
+
+    /* Step 1: Open menu */
+    pulse_input(q, "menu");
+
+    /* Step 2: Navigate down through all 6 category steps */
+    for (unsigned cat = 1; cat < ARRAY_SIZE(categories); cat++) {
+        pulse_input(q, "down");
+    }
+
+    /* Step 3: Test boundary condition: down at bottom category (My Menu) */
+    pulse_input(q, "down");
+
+    /* Step 4: Enter category item list with right arrow */
+    pulse_input(q, "right");
+
+    /* Step 5: Return to category tabs with left arrow */
+    pulse_input(q, "left");
+
+    /* Step 6: Enter category item list with OK button */
+    pulse_input(q, "ok");
+
+    /* Step 7: Return to category tabs with left arrow */
+    pulse_input(q, "left");
+
+    /* Step 8: Navigate back up through all 6 category steps to Playback */
+    for (unsigned cat = 0; cat < ARRAY_SIZE(categories) - 1; cat++) {
+        pulse_input(q, "up");
+    }
+
+    /* Step 9: Test boundary condition: up at top category (Playback) */
+    pulse_input(q, "up");
+
+    /* Step 10: Test reset retention across system_reset */
+    set_input_bool(q, "menu", true);
+    set_input_bool(q, "down", true);
+    g_assert_true(get_input_bool(q, "menu"));
+    g_assert_true(get_input_bool(q, "down"));
+
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+
+    g_assert_true(get_input_bool(q, "menu"));
+    g_assert_true(get_input_bool(q, "down"));
+
+    set_input_bool(q, "menu", false);
+    set_input_bool(q, "down", false);
+    g_assert_false(get_input_bool(q, "menu"));
+    g_assert_false(get_input_bool(q, "down"));
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 int main(int argc, char **argv)
 {
     int fd, result;
@@ -212,6 +364,8 @@ int main(int argc, char **argv)
     g_assert_cmpint(fd, >=, 0);
     close(fd);
     qtest_add_func("/nikon/gui/observations", test_observations);
+    qtest_add_func("/nikon/gui/menu-category-navigation",
+                   test_menu_category_navigation);
     result = g_test_run();
     unlink(image);
     g_free(image);

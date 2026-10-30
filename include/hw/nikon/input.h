@@ -17,6 +17,24 @@
 #define NIKON_INPUT_PAD_AF_ON      10 /* PG2, 0x62, KEY_F11: AF-ON button */
 #define NIKON_INPUT_PAD_FULL_PRESS 11 /* PG13, 0x6d, KEY_F12: Shutter S2 */
 
+/* Expander button indices matching nikon_input_expander_ids. */
+#define NIKON_INPUT_EXP_MENU          0
+#define NIKON_INPUT_EXP_OK            1
+#define NIKON_INPUT_EXP_PLAYBACK      2
+#define NIKON_INPUT_EXP_DELETE        3
+#define NIKON_INPUT_EXP_I             4
+#define NIKON_INPUT_EXP_ZOOM          5
+#define NIKON_INPUT_EXP_THUMBNAIL     6
+#define NIKON_INPUT_EXP_RIGHT         7
+#define NIKON_INPUT_EXP_LEFT          8
+#define NIKON_INPUT_EXP_UP            9
+#define NIKON_INPUT_EXP_DOWN          10
+#define NIKON_INPUT_EXP_SECOND_RIGHT  11
+#define NIKON_INPUT_EXP_SECOND_LEFT   12
+#define NIKON_INPUT_EXP_SECOND_UP     13
+#define NIKON_INPUT_EXP_SECOND_DOWN   14
+#define NIKON_INPUT_EXP_SECOND_CENTER 15
+
 /* EX registry IDs from the original 0803de88 initializer. Each output is an
  * external electrical level; the guest performs sampling and debouncing.
  * Connect "pad"[i] to EX GPIO [id >> 4][id & 15] before realize.

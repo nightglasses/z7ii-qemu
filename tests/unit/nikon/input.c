@@ -720,6 +720,145 @@ static void test_shutter_af_pads(void)
     board_reset();
 }
 
+static void test_menu_navigation_properties(void)
+{
+    static const struct {
+        const char *name;
+        unsigned exp_idx;
+        const char *alias;
+    } buttons[] = {
+        { "menu", NIKON_INPUT_EXP_MENU, "menu-button" },
+        { "ok", NIKON_INPUT_EXP_OK, "ok-button" },
+        { "playback", NIKON_INPUT_EXP_PLAYBACK, NULL },
+        { "delete", NIKON_INPUT_EXP_DELETE, NULL },
+        { "i-button", NIKON_INPUT_EXP_I, NULL },
+        { "right", NIKON_INPUT_EXP_RIGHT, NULL },
+        { "left", NIKON_INPUT_EXP_LEFT, NULL },
+        { "up", NIKON_INPUT_EXP_UP, NULL },
+        { "down", NIKON_INPUT_EXP_DOWN, NULL },
+        { "zoom", NIKON_INPUT_EXP_ZOOM, NULL },
+        { "thumbnail", NIKON_INPUT_EXP_THUMBNAIL, NULL },
+        { "second-right", NIKON_INPUT_EXP_SECOND_RIGHT, NULL },
+        { "second-left", NIKON_INPUT_EXP_SECOND_LEFT, NULL },
+        { "second-up", NIKON_INPUT_EXP_SECOND_UP, NULL },
+        { "second-down", NIKON_INPUT_EXP_SECOND_DOWN, NULL },
+        { "second-center", NIKON_INPUT_EXP_SECOND_CENTER, NULL },
+    };
+    InputFixture *f = input_new_full(true);
+    Error *err = NULL;
+    bool val;
+
+    /* Verify initial state: all buttons released (high = 1) */
+    for (unsigned i = 0; i < ARRAY_SIZE(buttons); i++) {
+        val = object_property_get_bool(OBJECT(f->input), buttons[i].name,
+                                       &error_abort);
+        g_assert_false(val);
+        g_assert_cmpint(f->expander_level[buttons[i].exp_idx], ==, 1);
+        if (buttons[i].alias) {
+            val = object_property_get_bool(OBJECT(f->input), buttons[i].alias,
+                                           &error_abort);
+            g_assert_false(val);
+        }
+    }
+
+    /* Test press and release for every expander property */
+    for (unsigned i = 0; i < ARRAY_SIZE(buttons); i++) {
+        unsigned before_changes = f->expander_changes[buttons[i].exp_idx];
+
+        /* Press */
+        object_property_set_bool(OBJECT(f->input), buttons[i].name, true,
+                                 &error_abort);
+        val = object_property_get_bool(OBJECT(f->input), buttons[i].name,
+                                       &error_abort);
+        g_assert_true(val);
+        g_assert_cmpint(f->expander_level[buttons[i].exp_idx], ==, 0);
+        g_assert_cmpuint(f->expander_changes[buttons[i].exp_idx], ==,
+                         before_changes + 1);
+
+        /* Idempotent press (no duplicate level change) */
+        object_property_set_bool(OBJECT(f->input), buttons[i].name, true,
+                                 &error_abort);
+        g_assert_cmpuint(f->expander_changes[buttons[i].exp_idx], ==,
+                         before_changes + 1);
+
+        /* Release */
+        object_property_set_bool(OBJECT(f->input), buttons[i].name, false,
+                                 &error_abort);
+        val = object_property_get_bool(OBJECT(f->input), buttons[i].name,
+                                       &error_abort);
+        g_assert_false(val);
+        g_assert_cmpint(f->expander_level[buttons[i].exp_idx], ==, 1);
+        g_assert_cmpuint(f->expander_changes[buttons[i].exp_idx], ==,
+                         before_changes + 2);
+
+        /* Test alias if present */
+        if (buttons[i].alias) {
+            object_property_set_bool(OBJECT(f->input), buttons[i].alias, true,
+                                     &error_abort);
+            val = object_property_get_bool(OBJECT(f->input), buttons[i].name,
+                                           &error_abort);
+            g_assert_true(val);
+            g_assert_cmpint(f->expander_level[buttons[i].exp_idx], ==, 0);
+
+            object_property_set_bool(OBJECT(f->input), buttons[i].alias, false,
+                                     &error_abort);
+            val = object_property_get_bool(OBJECT(f->input), buttons[i].alias,
+                                           &error_abort);
+            g_assert_false(val);
+            g_assert_cmpint(f->expander_level[buttons[i].exp_idx], ==, 1);
+        }
+    }
+
+    /*
+     * Simulate menu category navigation sequence:
+     * 1. Open Menu: press then release "menu"
+     * 2. Navigate through 6 categories down: press/release "down" x 6
+     * 3. Enter category item list: press/release "right"
+     * 4. Return to category list: press/release "left"
+     * 5. Navigate 6 categories back up: press/release "up" x 6
+     * 6. Enter category via "ok": press/release "ok"
+     */
+    const char *seq[] = {
+        "menu", "down", "down", "down", "down", "down", "down",
+        "right", "left",
+        "up", "up", "up", "up", "up", "up",
+        "ok"
+    };
+    for (unsigned s = 0; s < ARRAY_SIZE(seq); s++) {
+        object_property_set_bool(OBJECT(f->input), seq[s], true, &error_abort);
+        val = object_property_get_bool(OBJECT(f->input), seq[s], &error_abort);
+        g_assert_true(val);
+        object_property_set_bool(OBJECT(f->input), seq[s], false, &error_abort);
+        val = object_property_get_bool(OBJECT(f->input), seq[s], &error_abort);
+        g_assert_false(val);
+    }
+
+    /* Test reset retention on expander properties */
+    object_property_set_bool(OBJECT(f->input), "menu", true, &error_abort);
+    object_property_set_bool(OBJECT(f->input), "down", true, &error_abort);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_MENU], ==, 0);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_DOWN], ==, 0);
+
+    board_reset();
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_MENU], ==, 0);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_DOWN], ==, 0);
+
+    object_property_set_bool(OBJECT(f->input), "menu", false, &error_abort);
+    object_property_set_bool(OBJECT(f->input), "down", false, &error_abort);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_MENU], ==, 1);
+    g_assert_cmpint(f->expander_level[NIKON_INPUT_EXP_DOWN], ==, 1);
+
+    /* Negative test: setting invalid type */
+    g_assert_false(object_property_set_int(OBJECT(f->input), "menu", 42,
+                                           &err));
+    g_assert_nonnull(err);
+    error_free(err);
+    err = NULL;
+
+    input_free(f);
+    board_reset();
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikonXXXXXX", NULL);
@@ -727,8 +866,9 @@ int main(int argc, char **argv)
     g_autofree char *chardev = g_strdup_printf("unix:%s,server=on,wait=off",
                                              socket);
     char *qemu_argv[] = {
-        argv[0], "-machine", "none", "-accel", "qtest", "-display", "none",
-        "-nodefaults", "-qtest", chardev, NULL
+        argv[0], (char *)"-machine", (char *)"none", (char *)"-accel",
+        (char *)"qtest", (char *)"-display", (char *)"none",
+        (char *)"-nodefaults", (char *)"-qtest", chardev, NULL
     };
     int result;
 
@@ -745,6 +885,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/input/dial-queue", test_dial_queue);
     g_test_add_func("/nikon/input/dial-ownership", test_dial_ownership);
     g_test_add_func("/nikon/input/shutter-af-pads", test_shutter_af_pads);
+    g_test_add_func("/nikon/input/menu-navigation-properties",
+                    test_menu_navigation_properties);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
