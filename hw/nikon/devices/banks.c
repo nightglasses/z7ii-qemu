@@ -9,6 +9,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/devices.h"
+#include "hw/nikon/display_pipeline.h"
 #include "system/address-spaces.h"
 #include "system/dma.h"
 #include "qemu/bswap.h"
@@ -34,6 +35,7 @@ typedef struct NikonDualEventBanksRegion {
     unsigned index;
     QEMUTimer *timer;
     QemuConsole *console;
+    NikonDisplayPipeline *pipeline;
     uint32_t packet[BANK_SIZE / 4];
     uint64_t period;
     bool active;
@@ -877,9 +879,13 @@ static void nikon_banks_frame(void *opaque)
         qemu_console_resize(r->console, width, height);
         {
             DisplaySurface *surface = qemu_console_surface(r->console);
-            pixman_image_composite32(PIXMAN_OP_SRC, output, NULL,
-                                     surface->image, 0, 0, 0, 0, 0, 0,
-                                     width, height);
+            if (r->pipeline && r->pipeline->ops && r->pipeline->ops->present) {
+                r->pipeline->ops->present(r->pipeline, surface, output, width, height);
+            } else {
+                pixman_image_composite32(PIXMAN_OP_SRC, output, NULL,
+                                         surface->image, 0, 0, 0, 0, 0, 0,
+                                         width, height);
+            }
         }
         qemu_console_update_full(r->console);
     }
@@ -1221,11 +1227,15 @@ static void nikon_dual_event_banks_realize(DeviceState *dev, Error **errp)
     NikonDualEventBanksState *s = NIKON_DUAL_EVENT_BANKS(dev);
 
     /*
-     * Register graphic consoles during realization so display backends (SDL2,
-     * Cocoa) discover the output heads at startup. Region 1 (head 1) is the
-     * primary rear LCD scanout and is registered first to occupy console 0;
-     * Region 0 (head 0) is the secondary EVF scanout head.
+     * Initialize display pipelines (Metal on macOS, D3D12 on Windows, CPU fallback)
+     * and register graphic consoles so display backends discover the output heads.
      */
+    for (unsigned i = 0; i < 2; i++) {
+        if (!s->region[i].pipeline) {
+            s->region[i].pipeline =
+                nikon_display_pipeline_create(nikon_display_detect_optimal_backend());
+        }
+    }
     if (!s->region[1].console) {
         s->region[1].console = qemu_graphic_console_create(dev, 1,
                                                            &nikon_banks_graphics,
@@ -1257,6 +1267,10 @@ static void nikon_dual_event_banks_finalize(Object *obj)
     for (i = 0; i < 2; i++) {
         nikon_banks_primary_clear(&s->primary[i]);
         timer_free(s->region[i].timer);
+        if (s->region[i].pipeline) {
+            nikon_display_pipeline_free(s->region[i].pipeline);
+            s->region[i].pipeline = NULL;
+        }
         if (s->region[i].console) {
             qemu_graphic_console_close(s->region[i].console);
         }
