@@ -312,11 +312,12 @@ enters an explicit error state, reports the reason and produces no successful
 phase edge. Reset is required to recover that failed session.
 
 The read-only `completed`, `rejected`, `configuration-generation`,
-`stream-frames`, `aperture-noops`, `aperture-generation` and `runtime` properties
-expose device work and packet phases. Runtime includes current/target iris
-coordinates and actual motion pending state.
-They are diagnostics, not guest
-readiness or GUI completion.
+`stream-frames`, `aperture-noops`, `aperture-generation`, `aperture-target`,
+`aperture-pending` and `runtime` properties alongside read-write
+`aperture-position` and `focus-position` expose device work, packet phases,
+and mechanical actuator coordinates. Runtime includes current/target iris
+coordinates and actual motion pending state. They are diagnostics and testable
+contracts, not guest readiness or GUI completion.
 
 ## Original exposure request boundary
 
