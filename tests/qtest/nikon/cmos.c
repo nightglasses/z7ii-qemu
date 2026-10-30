@@ -41,6 +41,21 @@ static uint64_t property_at(QTestState *q, const char *path,
     return value;
 }
 
+static bool property_bool_at(QTestState *q, const char *path,
+                             const char *property)
+{
+    QDict *reply = qtest_qmp(q,
+        "{'execute':'qom-get','arguments':{'path':%s,'property':%s}}",
+        path, property);
+    bool value;
+
+    g_assert_true(qdict_haskey(reply, "return"));
+    value = qdict_get_bool(reply, "return");
+
+    qobject_unref(reply);
+    return value;
+}
+
 static void pipeline_step(QTestState *q, int64_t nanoseconds)
 {
     int64_t deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
@@ -2874,6 +2889,241 @@ static void test_group_lens_focus_loop(void)
 
     qtest_quit(q);
     unlink(scene);
+    unlink(bundle);
+}
+
+static void test_group_afs_closed_loop_lock(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *scene = NULL;
+    int fd = g_file_open_tmp("nikon-afs-lock-XXXXXX", &scene, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    uint8_t *pixels = img + sizeof(header) - 1;
+    const int32_t scene_focus = 128;
+    const int32_t search_steps[] = { 1000, 750, 500, 250, 128, 0, -250 };
+    uint32_t p_scores[ARRAY_SIZE(search_steps)];
+    int32_t peak_pos = -1;
+    uint32_t peak_p = 0;
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    for (unsigned y = 0; y < 16; y++) {
+        for (unsigned x = 0; x < 16; x++) {
+            uint8_t v = (x & 2) ? 220 : 20;
+
+            pixels[(y * 16 + x) * 3 + 0] = v;
+            pixels[(y * 16 + x) * 3 + 1] = v;
+            pixels[(y * 16 + x) * 3 + 2] = v;
+        }
+    }
+    g_assert_true(g_file_set_contents(scene, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", scene);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'scene-focus-position','value':%d}}", scene_focus);
+
+    /* 1. Assert AF-S half-press / AF-ON input chain. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':true}}");
+    g_assert_true(property_bool_at(q, "/machine/input", "half-press"));
+
+    /* 2. Execute contrast AF search sweep across lens focus positions. */
+    for (unsigned i = 0; i < ARRAY_SIZE(search_steps); i++) {
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+            "'property':'focus-position','value':%d}}", search_steps[i]);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+
+        uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+        uint32_t current_base = qtest_readl(q,
+            GROUP_BASE + (bank ? 0x37c : 0x378));
+        uint32_t w0 = qtest_readl(q, current_base);
+
+        p_scores[i] = w0 & 0xfff;
+        if (p_scores[i] > peak_p) {
+            peak_p = p_scores[i];
+            peak_pos = search_steps[i];
+        }
+        qtest_writel(q, CAPTURE + 0x270, 1);
+    }
+
+    /* 3. Verify algorithm decision: peak is at scene_focus (128). */
+    g_assert_cmpint(peak_pos, ==, scene_focus);
+    g_assert_cmpuint(p_scores[4], >, p_scores[3]); /* p(128) > p(250) */
+    g_assert_cmpuint(p_scores[3], >, p_scores[2]); /* p(250) > p(500) */
+    g_assert_cmpuint(p_scores[2], >, p_scores[1]); /* p(500) > p(750) */
+    g_assert_cmpuint(p_scores[1], >, p_scores[0]); /* p(750) > p(1000) */
+    g_assert_cmpuint(p_scores[4], >, p_scores[5]); /* p(128) > p(0) */
+    g_assert_cmpuint(p_scores[5], >, p_scores[6]); /* p(0) > p(-250) */
+
+    /* 4. Drive lens to peak position to complete AF lock. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':%d}}", peak_pos);
+    group_input(q);
+    group_rise(q);
+    pipeline_step(q, 1000000);
+
+    uint32_t final_bank = qtest_readl(q, GROUP_BASE + 0x370);
+    uint32_t final_base = qtest_readl(q,
+        GROUP_BASE + (final_bank ? 0x37c : 0x378));
+    uint32_t final_w0 = qtest_readl(q, final_base);
+    g_assert_cmpuint(final_w0 & 0xfff, ==, peak_p);
+
+    /* 5. Release half-press; verify normal recycling. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':false}}");
+    g_assert_false(property_bool_at(q, "/machine/input", "half-press"));
+
+    qtest_writel(q, CAPTURE + 0x270, 1);
+    qtest_quit(q);
+    unlink(scene);
+    unlink(bundle);
+}
+
+static void test_group_afs_low_texture_fail(void)
+{
+    static const char header[] = "P6\n16 16\n255\n";
+    g_autofree char *bundle = NULL;
+    g_autofree char *flat = NULL;
+    int fd = g_file_open_tmp("nikon-afs-fail-XXXXXX", &flat, NULL);
+    uint8_t img[sizeof(header) - 1 + 16 * 16 * 3];
+    const int32_t sweep[] = { 1000, 500, 0, -500 };
+    uint32_t max_p = 0;
+
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+    memcpy(img, header, sizeof(header) - 1);
+    memset(img + sizeof(header) - 1, 128, 16 * 16 * 3);
+    g_assert_true(g_file_set_contents(flat, (const char *)img,
+                                      sizeof(img), NULL));
+
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    group_configure(q);
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/cmos',"
+        "'property':'image','value':%s}}", flat);
+
+    /* 1. Assert AF-ON input. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'af-on','value':true}}");
+    g_assert_true(property_bool_at(q, "/machine/input", "af-on"));
+
+    /* 2. Sweep across positions in low-texture / flat scene. */
+    for (unsigned i = 0; i < ARRAY_SIZE(sweep); i++) {
+        qtest_qmp_assert_success(q,
+            "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+            "'property':'focus-position','value':%d}}", sweep[i]);
+        group_input(q);
+        group_rise(q);
+        pipeline_step(q, 1000000);
+
+        uint32_t bank = qtest_readl(q, GROUP_BASE + 0x370);
+        uint32_t current_base = qtest_readl(q,
+            GROUP_BASE + (bank ? 0x37c : 0x378));
+        uint32_t w0 = qtest_readl(q, current_base);
+        uint32_t p = w0 & 0xfff;
+
+        if (p > max_p) {
+            max_p = p;
+        }
+        qtest_writel(q, CAPTURE + 0x270, 1);
+    }
+
+    /* 3. Contrast never exceeds threshold (max_p == 0) -> AF FAIL. */
+    g_assert_cmpuint(max_p, ==, 0);
+
+    /* Return to baseline focus position on failure. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':0}}");
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'af-on','value':false}}");
+
+    qtest_quit(q);
+    unlink(flat);
+    unlink(bundle);
+}
+
+static void test_group_afs_cancellation(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    /* 1. Assert half-press to initiate AF. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':true}}");
+    g_assert_true(property_bool_at(q, "/machine/input", "half-press"));
+
+    /* 2. Start lens focus movement toward 2000. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':2000}}");
+    int64_t target = property_at(q, "/machine/lens", "focus-target");
+    g_assert_cmpint(target, ==, 2000);
+
+    /* 3. Issue cancellation / release half-press mid-search. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':false}}");
+    g_assert_false(property_bool_at(q, "/machine/input", "half-press"));
+
+    /* 4. Stop lens focus motor at current position. */
+    int64_t stopped_pos = property_at(q, "/machine/lens", "focus-position");
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':%d}}", (int32_t)stopped_pos);
+    g_assert_false(property_bool_at(q, "/machine/lens", "focus-pending"));
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
+static void test_group_afs_mf_mode_switch(void)
+{
+    g_autofree char *bundle = NULL;
+    QTestState *q = pipeline_start(&bundle, ",virtual-lens=true");
+
+    /* Initial manual focus position. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/lens',"
+        "'property':'focus-position','value':300}}");
+    int64_t initial_pos = property_at(q, "/machine/lens", "focus-position");
+    g_assert_cmpint(initial_pos, ==, 300);
+
+    /* In MF mode: half-press or AF-ON must NOT drive focus motor. */
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':true}}");
+    pipeline_step(q, 1000000);
+
+    /* Focus position must remain strictly at 300 without motorized sweep. */
+    int64_t current_pos = property_at(q, "/machine/lens", "focus-position");
+    g_assert_cmpint(current_pos, ==, 300);
+    g_assert_false(property_bool_at(q, "/machine/lens", "focus-pending"));
+
+    qtest_qmp_assert_success(q,
+        "{'execute':'qom-set','arguments':{'path':'/machine/input',"
+        "'property':'half-press','value':false}}");
+
+    qtest_quit(q);
     unlink(bundle);
 }
 
@@ -9348,6 +9598,14 @@ int main(int argc, char **argv)
                    test_group_roi_dependence);
     qtest_add_func("/nikon/cmos/group/lens-focus-loop",
                    test_group_lens_focus_loop);
+    qtest_add_func("/nikon/cmos/group/afs-closed-loop-lock",
+                   test_group_afs_closed_loop_lock);
+    qtest_add_func("/nikon/cmos/group/afs-low-texture-fail",
+                   test_group_afs_low_texture_fail);
+    qtest_add_func("/nikon/cmos/group/afs-cancellation",
+                   test_group_afs_cancellation);
+    qtest_add_func("/nikon/cmos/group/afs-mf-mode-switch",
+                   test_group_afs_mf_mode_switch);
     qtest_add_func("/nikon/cmos/pipeline/main-lifecycle",
                    test_main_input_lifecycle);
     qtest_add_func("/nikon/cmos/pipeline/main-boundaries",

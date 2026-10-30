@@ -1,5 +1,7 @@
 /*
  * Host keys drive the seventeen GPIO inputs selected by original EX software.
+ * F10 (pad 9, PG1) drives shutter half-press (S1); F11 (pad 10, PG2) AF-ON;
+ * F12 (pad 11, PG13) shutter full-press (S2); F4 (pad 3, PC5) main power.
  * F13 toggles the maintained capture selector; F14/F15 select mode ADC detents.
  * F16..F19 drive two bounded four-phase command-dial contact sequences.
  * Sixteen independent active-low expander contacts supply normal buttons.
@@ -184,6 +186,38 @@ static void nikon_input_set_step(Object *obj, Visitor *v, const char *name,
 
     if (visit_type_int(v, name, &step, errp)) {
         nikon_input_dial_step(&s->dial[(uintptr_t)opaque], step, errp);
+    }
+}
+
+static void nikon_input_get_pad_bool(Object *obj, Visitor *v, const char *name,
+                                     void *opaque, Error **errp)
+{
+    uintptr_t pad = (uintptr_t)opaque;
+    bool value = NIKON_INPUT(obj)->down[pad];
+
+    visit_type_bool(v, name, &value, errp);
+}
+
+static void nikon_input_set_pad_bool(Object *obj, Visitor *v, const char *name,
+                                     void *opaque, Error **errp)
+{
+    NikonInputState *s = NIKON_INPUT(obj);
+    uintptr_t pad = (uintptr_t)opaque;
+    bool down;
+
+    if (!visit_type_bool(v, name, &down, errp)) {
+        return;
+    }
+    if (s->down[pad] != down) {
+        s->down[pad] = down;
+        if (qdev_is_realized(DEVICE(s))) {
+            qemu_set_irq(s->pads[pad], !down);
+        }
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon-input: pad=%u ex-pad=0x%02x %s "
+                      "active-low level=%u\n",
+                      (unsigned)pad, nikon_input_gpio_ids[pad],
+                      down ? "down" : "up", !down);
     }
 }
 
@@ -386,6 +420,30 @@ static void nikon_input_class_init(ObjectClass *oc, const void *data)
                               nikon_input_set_step, NULL, (void *)0);
     object_class_property_add(oc, "dial1-step", "int", NULL,
                               nikon_input_set_step, NULL, (void *)1);
+    object_class_property_add(oc, "shutter-half-press", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_HALF_PRESS);
+    object_class_property_add(oc, "half-press", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_HALF_PRESS);
+    object_class_property_add(oc, "shutter-full-press", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_FULL_PRESS);
+    object_class_property_add(oc, "full-press", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_FULL_PRESS);
+    object_class_property_add(oc, "af-on", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_AF_ON);
+    object_class_property_add(oc, "main-power", "bool",
+                              nikon_input_get_pad_bool,
+                              nikon_input_set_pad_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_PAD_MAIN_POWER);
 }
 
 static const TypeInfo nikon_input_type = {
