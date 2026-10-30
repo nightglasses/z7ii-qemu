@@ -334,19 +334,6 @@ static const NikonDisplayOps cpu_display_ops = {
  * Hardware Backend Registry & Placeholders
  * ------------------------------------------------------------------------- */
 
-static const NikonDisplayOps metal_display_stub_ops = {
-    .name = "macOS Metal Pipeline (Reserved)",
-    .type = NIKON_DISPLAY_BACKEND_METAL,
-    .init = cpu_display_init,
-    .cleanup = cpu_display_cleanup,
-    .begin_frame = cpu_display_begin_frame,
-    .composite_primary = cpu_display_composite_primary,
-    .composite_layer = cpu_display_composite_layer,
-    .fill_rectangles = cpu_display_fill_rectangles,
-    .present = cpu_display_present,
-    .end_frame = cpu_display_end_frame,
-};
-
 static const NikonDisplayOps d3d12_display_stub_ops = {
     .name = "Windows Direct3D 12 Pipeline (Reserved)",
     .type = NIKON_DISPLAY_BACKEND_D3D12,
@@ -409,7 +396,10 @@ NikonDisplayBackendType nikon_display_detect_optimal_backend(void)
     }
 
 #if defined(__APPLE__)
-    return NIKON_DISPLAY_BACKEND_CPU; /* Default fallback until Metal shaders bound */
+    if (nikon_metal_is_supported()) {
+        return NIKON_DISPLAY_BACKEND_METAL;
+    }
+    return NIKON_DISPLAY_BACKEND_CPU;
 #elif defined(_WIN32)
     return NIKON_DISPLAY_BACKEND_CPU; /* Default fallback until D3D12 device bound */
 #else
@@ -423,7 +413,11 @@ NikonDisplayPipeline *nikon_display_pipeline_create(NikonDisplayBackendType type
 
     switch (type) {
     case NIKON_DISPLAY_BACKEND_METAL:
-        p->ops = &metal_display_stub_ops;
+        if (nikon_metal_is_supported() && nikon_display_metal_get_ops()) {
+            p->ops = nikon_display_metal_get_ops();
+        } else {
+            p->ops = &cpu_display_ops;
+        }
         break;
     case NIKON_DISPLAY_BACKEND_D3D12:
         p->ops = &d3d12_display_stub_ops;
@@ -438,8 +432,17 @@ NikonDisplayPipeline *nikon_display_pipeline_create(NikonDisplayBackendType type
     }
 
     if (p->ops->init && !p->ops->init(p)) {
-        g_free(p);
-        return NULL;
+        if (p->ops->type != NIKON_DISPLAY_BACKEND_CPU) {
+            /* Graceful fallback to CPU reference if GPU initialization fails */
+            p->ops = &cpu_display_ops;
+            if (p->ops->init && !p->ops->init(p)) {
+                g_free(p);
+                return NULL;
+            }
+        } else {
+            g_free(p);
+            return NULL;
+        }
     }
     return p;
 }

@@ -510,12 +510,19 @@ defining a unified contract (`include/hw/nikon/display_pipeline.h`) with
 dedicated backend dispatch:
 - `NIKON_DISPLAY_BACKEND_CPU`: reference Pixman software renderer, ensuring
   identical execution across host operating systems and non-accelerated CI runs.
-- `NIKON_DISPLAY_BACKEND_METAL`: reserved slot for macOS Apple Silicon Metal
-  zero-copy texture and compute shader rendering.
+- `NIKON_DISPLAY_BACKEND_METAL`: macOS Apple Silicon Metal pipeline utilizing
+  unified memory buffers (`MTLResourceStorageModeShared`) and compute shaders
+  for parallel YUV-to-RGB conversion, color matrix multiplication and layer
+  composition.
 - `NIKON_DISPLAY_BACKEND_D3D12`: reserved slot for Windows Direct3D 12
   hardware compute and presentation pipelines.
 - `NIKON_DISPLAY_BACKEND_VULKAN`: reserved slot for cross-platform Vulkan.
 
+When running on macOS Darwin with available Metal runtime, the display
+controller automatically detects and selects `NIKON_DISPLAY_BACKEND_METAL`,
+executing frame conversion on Apple Silicon GPU threads while falling back
+gracefully to `NIKON_DISPLAY_BACKEND_CPU` in headless or unsupported environments.
+
 The unit fixture `nikon_display_unit` exercises backend discovery, lifecycle,
-frame boundary clamping, layer clipping, color transforms and presentation
-bounds under native TAP protocols.
+frame boundary clamping, layer clipping, color transforms, Metal compute
+pipelines and presentation bounds under native TAP protocols.
