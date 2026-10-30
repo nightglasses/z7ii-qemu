@@ -506,6 +506,10 @@ static void nikon_input_class_init(ObjectClass *oc, const void *data)
                               nikon_input_get_expander_bool,
                               nikon_input_set_expander_bool, NULL,
                               (void *)(uintptr_t)NIKON_INPUT_EXP_I);
+    object_class_property_add(oc, "i", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_I);
     object_class_property_add(oc, "right", "bool",
                               nikon_input_get_expander_bool,
                               nikon_input_set_expander_bool, NULL,

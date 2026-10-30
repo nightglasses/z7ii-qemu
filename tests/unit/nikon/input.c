@@ -731,7 +731,7 @@ static void test_menu_navigation_properties(void)
         { "ok", NIKON_INPUT_EXP_OK, "ok-button" },
         { "playback", NIKON_INPUT_EXP_PLAYBACK, NULL },
         { "delete", NIKON_INPUT_EXP_DELETE, NULL },
-        { "i-button", NIKON_INPUT_EXP_I, NULL },
+        { "i-button", NIKON_INPUT_EXP_I, "i" },
         { "right", NIKON_INPUT_EXP_RIGHT, NULL },
         { "left", NIKON_INPUT_EXP_LEFT, NULL },
         { "up", NIKON_INPUT_EXP_UP, NULL },

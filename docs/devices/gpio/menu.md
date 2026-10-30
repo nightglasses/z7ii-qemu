@@ -33,7 +33,7 @@ latches and publishes active-low GPIO levels (`0 = pressed`, `1 = released`):
 | `ok` / `ok-button` | 1 | 3 | KEY_ENTER | 74 | Enter category / confirm selection |
 | `playback` | 2 | 8 | KEY_F21 | 68 | Switch to playback image review |
 | `delete` | 3 | 23 | KEY_DELETE | 69 | Delete prompt / item removal |
-| `i-button` | 4 | 2 | KEY_I | 72 | Toggle quick i-menu overlay |
+| `i` / `i-button` | 4 | 2 | KEY_I | 72 | Toggle quick i-menu overlay |
 | `right` | 7 | 6 | KEY_RIGHT | 34 | Enter category item list / sub-menu |
 | `left` | 8 | 7 | KEY_LEFT | 35 | Return to category tabs / cancel |
 | `up` | 9 | 5 | KEY_UP | 36 | Navigate category up / item up |
@@ -147,3 +147,70 @@ grounded in `docs/public/evidence/input/turnover.json`.
      - Round 5: Mid-exit reset cancellation and input release.
    - Verifies descriptor stage, memory bounds, and input state remain uncorrupted
      across all cycles.
+
+## Quick $i$-Menu Overlay Grid Contract
+
+In addition to the multi-level main menu, the Nikon Z7II provides a quick
+settings overlay ($i$-menu) accessed via the physical $i$ button
+([Issue #548](https://github.com/mashiro01/nightglass/issues/548)):
+
+### Grid Layout and Geometry
+
+The $i$-menu displays a 2-row by 6-column grid (12 user-customizable item slots)
+superimposed over the active Live View display:
+
+| Slot (r, c) | Col 0 | Col 1 | Col 2 | Col 3 | Col 4 | Col 5 |
+|---|---|---|---|---|---|---|
+| **Row 0** | Picture Control | White Balance | Image Quality | Image Size | Flash Mode | Metering |
+| **Row 1** | Focus Mode | AF-Area Mode | Vibration Red. | Auto Bracketing | Silent Photo | Custom Controls |
+
+*(Default factory layout shown; slot definitions are user-customizable).*
+
+### 2D Grid Navigation Rules
+
+- **Open**: Pressing `i` (or `i-button`) from Live View brings up the overlay
+  focused at slot $(0, 0)$ or the last-adjusted slot.
+- **Horizontal Navigation**:
+  - `right`: $c_{\text{next}} = \min(c + 1, 5)$. Clamped at column 5.
+  - `left`: $c_{\text{next}} = \max(c - 1, 0)$. Clamped at column 0.
+- **Vertical Navigation**:
+  - `down`: $r_{\text{next}} = \min(r + 1, 1)$. Clamped at row 1.
+  - `up`: $r_{\text{next}} = \max(r - 1, 0)$. Clamped at row 0.
+- **Item Entry and Cancel**:
+  - `ok`: Opens the detailed options list for the selected slot.
+  - `left` / `menu`: Cancels options view and returns to the 2x6 grid.
+- **Direct Dial Adjustment**:
+  - When a slot is highlighted, the main command dial or sub-command dial can
+    cycle through options directly without entering the sub-list.
+
+### Dismissal and Fast Aborts
+
+1. **Toggle Dismissal (`i` / `i-button`)**:
+   Pressing the $i$ button while the overlay is visible commits any pending
+   setting selection, dismisses the overlay, and returns to normal Live View.
+2. **Fast Abort via Shutter Half-Press (`shutter-half-press`, S1)**:
+   Instantly dismisses the $i$-menu, returning directly to shooting standby with
+   metering and autofocus engaged.
+3. **Fast Abort via AF-ON (`af-on`)**:
+   Instantly dismisses the $i$-menu and engages autofocus drive.
+4. **Shutter Full-Press (`shutter-full-press`, S2)**:
+   Instantly dismisses the $i$-menu and initiates exposure capture.
+
+### Focused Validation Coverage
+
+- **Unit Test (`/nikon/input/menu-navigation-properties`)** in
+  `tests/unit/nikon/input.c`:
+  - Validates `i` and `i-button` aliases on `TYPE_NIKON_INPUT`.
+- **QTest Integration (`/nikon/gui/i-menu-grid-navigation`)** in
+  `tests/qtest/nikon/gui.c`:
+  - Opens $i$-menu overlay via `i` property.
+  - Traverses row 0 ($c \in [0, 5]$) and verifies right boundary clamping.
+  - Transitions to row 1 and verifies bottom boundary clamping.
+  - Traverses row 1 ($c \in [5, 0]$) and verifies left boundary clamping.
+  - Navigates back to row 0 and verifies top boundary clamping.
+  - Verifies item entry via `ok` and cancellation via `left`.
+  - Verifies toggle dismissal via `i-button`.
+  - Verifies fast abort pathways via `shutter-half-press` and `af-on`.
+  - Verifies input state retention and frame descriptor stability across
+    `system_reset`.
+

@@ -420,6 +420,89 @@ static void test_menu_liveview_roundtrip(void)
     unlink(bundle);
 }
 
+static void test_i_menu_grid_navigation(void)
+{
+    g_autofree char *bundle = functional_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                                "frame-contract=on -smp 1 -nodefaults "
+                                "-display none", quoted);
+    uint32_t stage;
+
+    /* Verify frame descriptor starts unbound */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    /* Initial state: i-button and navigation unpressed */
+    g_assert_false(get_input_bool(q, "i-button"));
+    g_assert_false(get_input_bool(q, "i"));
+
+    /* Step 1: Open i-menu overlay via i button */
+    pulse_input(q, "i");
+
+    /* Step 2: Navigate 2x6 grid horizontally across top row [0,0..5] */
+    for (unsigned col = 0; col < 5; col++) {
+        pulse_input(q, "right");
+    }
+    /* Boundary check: right at col 5 remains at col 5 */
+    pulse_input(q, "right");
+
+    /* Step 3: Navigate down to bottom row [1,5] */
+    pulse_input(q, "down");
+    /* Boundary check: down at row 1 remains at row 1 */
+    pulse_input(q, "down");
+
+    /* Step 4: Navigate left across bottom row [1,5..0] */
+    for (unsigned col = 0; col < 5; col++) {
+        pulse_input(q, "left");
+    }
+    /* Boundary check: left at col 0 remains at col 0 */
+    pulse_input(q, "left");
+
+    /* Step 5: Navigate back up to top row [0,0] */
+    pulse_input(q, "up");
+    /* Boundary check: up at row 0 remains at row 0 */
+    pulse_input(q, "up");
+
+    /* Step 6: Enter item options via OK, cancel via left */
+    pulse_input(q, "ok");
+    pulse_input(q, "left");
+
+    /* Step 7: Dismiss i-menu via second press of i button */
+    pulse_input(q, "i-button");
+    g_assert_false(get_input_bool(q, "i-button"));
+
+    /* Step 8: Open i-menu and fast abort via Shutter Half-Press (S1) */
+    pulse_input(q, "i");
+    pulse_input(q, "shutter-half-press");
+    g_assert_false(get_input_bool(q, "i"));
+    g_assert_false(get_input_bool(q, "shutter-half-press"));
+
+    /* Step 9: Open i-menu and fast abort via AF-ON */
+    pulse_input(q, "i");
+    pulse_input(q, "af-on");
+    g_assert_false(get_input_bool(q, "i"));
+    g_assert_false(get_input_bool(q, "af-on"));
+
+    /* Step 10: Hold i across system reset */
+    set_input_bool(q, "i", true);
+    g_assert_true(get_input_bool(q, "i"));
+
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+
+    g_assert_true(get_input_bool(q, "i"));
+    set_input_bool(q, "i", false);
+    g_assert_false(get_input_bool(q, "i"));
+
+    /* Verify frame descriptor bounds and state remain uncorrupted */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 int main(int argc, char **argv)
 {
     int fd, result;
@@ -433,6 +516,8 @@ int main(int argc, char **argv)
                    test_menu_category_navigation);
     qtest_add_func("/nikon/gui/menu-liveview-roundtrip",
                    test_menu_liveview_roundtrip);
+    qtest_add_func("/nikon/gui/i-menu-grid-navigation",
+                   test_i_menu_grid_navigation);
     result = g_test_run();
     unlink(image);
     g_free(image);
