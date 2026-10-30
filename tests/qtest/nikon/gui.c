@@ -355,6 +355,71 @@ static void test_menu_category_navigation(void)
     unlink(bundle);
 }
 
+static void test_menu_liveview_roundtrip(void)
+{
+    g_autofree char *bundle = functional_bundle();
+    g_autofree char *quoted = g_shell_quote(bundle);
+    QTestState *q = qtest_initf("-M z7ii-mas-diagnostic,bundle=%s,"
+                                "frame-contract=on -smp 1 -nodefaults "
+                                "-display none", quoted);
+    uint32_t stage;
+
+    /* Verify frame descriptor starts unbound */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    /* Round 1: Toggle exit via MENU button */
+    pulse_input(q, "menu");
+    pulse_input(q, "down");
+    pulse_input(q, "down");
+    /* Exit back to live-view */
+    pulse_input(q, "menu");
+    g_assert_false(get_input_bool(q, "menu"));
+    g_assert_false(get_input_bool(q, "down"));
+
+    /* Round 2: Fast abort/exit via Shutter Half-Press (S1 / F10) */
+    pulse_input(q, "menu");
+    pulse_input(q, "right");
+    pulse_input(q, "shutter-half-press");
+    g_assert_false(get_input_bool(q, "shutter-half-press"));
+    g_assert_false(get_input_bool(q, "menu"));
+    g_assert_false(get_input_bool(q, "right"));
+
+    /* Round 3: Fast abort/exit via AF-ON (PG2 / F11) */
+    pulse_input(q, "menu");
+    pulse_input(q, "ok");
+    pulse_input(q, "af-on");
+    g_assert_false(get_input_bool(q, "af-on"));
+    g_assert_false(get_input_bool(q, "menu"));
+    g_assert_false(get_input_bool(q, "ok"));
+
+    /* Round 4: Fast abort/exit via Shutter Full-Press (S2 / F12) */
+    pulse_input(q, "menu");
+    pulse_input(q, "down");
+    pulse_input(q, "shutter-full-press");
+    g_assert_false(get_input_bool(q, "shutter-full-press"));
+    g_assert_false(get_input_bool(q, "menu"));
+
+    /* Round 5: Mid-exit reset cancellation */
+    pulse_input(q, "menu");
+    set_input_bool(q, "shutter-half-press", true);
+    g_assert_true(get_input_bool(q, "shutter-half-press"));
+
+    qtest_qmp_assert_success(q, "{'execute':'system_reset'}");
+    qtest_qmp_eventwait(q, "RESET");
+
+    g_assert_true(get_input_bool(q, "shutter-half-press"));
+    set_input_bool(q, "shutter-half-press", false);
+    g_assert_false(get_input_bool(q, "shutter-half-press"));
+
+    /* Verify frame descriptor bounds and state remain uncorrupted */
+    stage = qtest_readl(q, FRAME_BASE + 0xc0);
+    g_assert_cmpuint(stage, ==, NIKON_FRAME_UNBOUND);
+
+    qtest_quit(q);
+    unlink(bundle);
+}
+
 int main(int argc, char **argv)
 {
     int fd, result;
@@ -366,6 +431,8 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/gui/observations", test_observations);
     qtest_add_func("/nikon/gui/menu-category-navigation",
                    test_menu_category_navigation);
+    qtest_add_func("/nikon/gui/menu-liveview-roundtrip",
+                   test_menu_liveview_roundtrip);
     result = g_test_run();
     unlink(image);
     g_free(image);
