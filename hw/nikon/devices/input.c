@@ -221,6 +221,40 @@ static void nikon_input_set_pad_bool(Object *obj, Visitor *v, const char *name,
     }
 }
 
+static void nikon_input_get_expander_bool(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    uintptr_t pad = (uintptr_t)opaque;
+    bool value = NIKON_INPUT(obj)->expander_down[pad];
+
+    visit_type_bool(v, name, &value, errp);
+}
+
+static void nikon_input_set_expander_bool(Object *obj, Visitor *v,
+                                          const char *name,
+                                          void *opaque, Error **errp)
+{
+    NikonInputState *s = NIKON_INPUT(obj);
+    uintptr_t pad = (uintptr_t)opaque;
+    bool down;
+
+    if (!visit_type_bool(v, name, &down, errp)) {
+        return;
+    }
+    if (s->expander_down[pad] != down) {
+        s->expander_down[pad] = down;
+        if (qdev_is_realized(DEVICE(s))) {
+            qemu_set_irq(s->expander_pads[pad], !down);
+        }
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon-input: expander-pad=%u ex-pad=%u %s active-low "
+                      "level=%u\n",
+                      (unsigned)pad, nikon_input_expander_ids[pad],
+                      down ? "down" : "up", !down);
+    }
+}
+
 static void nikon_input_event(DeviceState *dev, QemuConsole *src,
                               QemuInputEvent *event)
 {
@@ -444,6 +478,78 @@ static void nikon_input_class_init(ObjectClass *oc, const void *data)
                               nikon_input_get_pad_bool,
                               nikon_input_set_pad_bool, NULL,
                               (void *)(uintptr_t)NIKON_INPUT_PAD_MAIN_POWER);
+    object_class_property_add(oc, "menu", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_MENU);
+    object_class_property_add(oc, "menu-button", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_MENU);
+    object_class_property_add(oc, "ok", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_OK);
+    object_class_property_add(oc, "ok-button", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_OK);
+    object_class_property_add(oc, "playback", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_PLAYBACK);
+    object_class_property_add(oc, "delete", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_DELETE);
+    object_class_property_add(oc, "i-button", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_I);
+    object_class_property_add(oc, "right", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_RIGHT);
+    object_class_property_add(oc, "left", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_LEFT);
+    object_class_property_add(oc, "up", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_UP);
+    object_class_property_add(oc, "down", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_DOWN);
+    object_class_property_add(oc, "zoom", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_ZOOM);
+    object_class_property_add(oc, "thumbnail", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_THUMBNAIL);
+    object_class_property_add(oc, "second-right", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_SECOND_RIGHT);
+    object_class_property_add(oc, "second-left", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_SECOND_LEFT);
+    object_class_property_add(oc, "second-up", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_SECOND_UP);
+    object_class_property_add(oc, "second-down", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_SECOND_DOWN);
+    object_class_property_add(oc, "second-center", "bool",
+                              nikon_input_get_expander_bool,
+                              nikon_input_set_expander_bool, NULL,
+                              (void *)(uintptr_t)NIKON_INPUT_EXP_SECOND_CENTER);
 }
 
 static const TypeInfo nikon_input_type = {
