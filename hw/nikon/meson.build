@@ -93,7 +93,7 @@ if config_all_devices.has_key('CONFIG_NIKON_Z7II')
                     if_true: dependency('cairo', version: '>=1.16'))
   if host_os == 'darwin'
     arm_common_ss.add(when: 'CONFIG_NIKON_Z7II',
-                      if_true: files('devices/display_metal.m'))
+                      if_true: files('devices/display_metal.m', 'devices/compute_metal.m'))
   endif
 endif
 

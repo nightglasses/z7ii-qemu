@@ -6,6 +6,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/thread.h"
 #include "hw/nikon/compute_pipeline.h"
 #include "hw/nikon/gatepixels.h"
 
@@ -120,6 +121,11 @@ static const NikonComputeOps vulkan_compute_stub_ops = {
     .demosaic_bayer = cpu_compute_demosaic_bayer,
 };
 
+const NikonComputeOps *nikon_compute_directml_get_ops(void)
+{
+    return NULL;
+}
+
 const char *nikon_compute_backend_name(NikonComputeBackendType type)
 {
     switch (type) {
@@ -164,16 +170,45 @@ NikonComputeBackendType nikon_compute_detect_optimal_backend(void)
 #endif
 }
 
+static NikonComputePipeline *s_default_pipeline = NULL;
+static QemuMutex s_default_pipeline_mutex;
+
+static void __attribute__((constructor)) init_default_pipeline_mutex(void)
+{
+    qemu_mutex_init(&s_default_pipeline_mutex);
+}
+
+NikonComputePipeline *nikon_compute_pipeline_get_default(void)
+{
+    qemu_mutex_lock(&s_default_pipeline_mutex);
+    if (!s_default_pipeline) {
+        NikonComputeBackendType optimal = nikon_compute_detect_optimal_backend();
+        s_default_pipeline = nikon_compute_pipeline_create(optimal);
+    }
+    qemu_mutex_unlock(&s_default_pipeline_mutex);
+    return s_default_pipeline;
+}
+
 NikonComputePipeline *nikon_compute_pipeline_create(NikonComputeBackendType type)
 {
     NikonComputePipeline *p = g_new0(NikonComputePipeline, 1);
 
     switch (type) {
     case NIKON_COMPUTE_BACKEND_METAL:
+#if defined(__APPLE__)
+        p->ops = nikon_compute_metal_get_ops();
+        if (!p->ops) {
+            p->ops = &metal_compute_stub_ops;
+        }
+#else
         p->ops = &metal_compute_stub_ops;
+#endif
         break;
     case NIKON_COMPUTE_BACKEND_DIRECTML:
-        p->ops = &directml_compute_stub_ops;
+        p->ops = nikon_compute_directml_get_ops();
+        if (!p->ops) {
+            p->ops = &directml_compute_stub_ops;
+        }
         break;
     case NIKON_COMPUTE_BACKEND_VULKAN:
         p->ops = &vulkan_compute_stub_ops;
@@ -215,6 +250,9 @@ bool nikon_compute_pipeline_warp_nv12(NikonComputePipeline *p,
                                       uint8_t *output,
                                       size_t output_size)
 {
+    if (!p) {
+        p = nikon_compute_pipeline_get_default();
+    }
     if (!p || !p->ops || !p->ops->warp_nv12) {
         return false;
     }
@@ -224,6 +262,9 @@ bool nikon_compute_pipeline_warp_nv12(NikonComputePipeline *p,
 bool nikon_compute_pipeline_demosaic_bayer(NikonComputePipeline *p,
                                           const NikonComputeBayerDesc *desc)
 {
+    if (!p) {
+        p = nikon_compute_pipeline_get_default();
+    }
     if (!p || !p->ops || !p->ops->demosaic_bayer) {
         return false;
     }

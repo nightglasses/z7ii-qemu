@@ -63,9 +63,14 @@ struct NikonComputePipeline {
 NikonComputePipeline *nikon_compute_pipeline_create(NikonComputeBackendType type);
 void nikon_compute_pipeline_free(NikonComputePipeline *p);
 
-/* Backend probing */
+/* Backend probing & provider hooks */
 NikonComputeBackendType nikon_compute_detect_optimal_backend(void);
 const char *nikon_compute_backend_name(NikonComputeBackendType type);
+const NikonComputeOps *nikon_compute_metal_get_ops(void);
+const NikonComputeOps *nikon_compute_directml_get_ops(void);
+
+/* Global default pipeline instance for transparent hardware acceleration */
+NikonComputePipeline *nikon_compute_pipeline_get_default(void);
 
 /* High-level execution helpers */
 bool nikon_compute_pipeline_warp_nv12(NikonComputePipeline *p,
