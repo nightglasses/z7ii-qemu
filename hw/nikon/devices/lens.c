@@ -5,6 +5,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "qapi/visitor.h"
 #include "qemu/bswap.h"
 #include "qemu/log.h"
 #include "qemu/timer.h"
@@ -25,6 +26,10 @@
 #define LENS_APERTURE_RANGE 1152
 #define LENS_APERTURE_STEP_NS 20000000
 #define LENS_APERTURE_MIN_NS 2000000
+#define LENS_FOCUS_MIN -4096
+#define LENS_FOCUS_MAX 4096
+#define LENS_FOCUS_STEP_NS 100000
+#define LENS_FOCUS_MIN_NS 2000000
 OBJECT_DECLARE_SIMPLE_TYPE(NikonLensState, NIKON_LENS)
 
 typedef enum LensPhase {
@@ -39,7 +44,7 @@ struct NikonLensState {
     uint32_t notify_pin;
     qemu_irq notify;
     QEMUTimer *phase_timer, *operation_timer, *stream_timer, *mode_timer;
-    QEMUTimer *aperture_timer;
+    QEMUTimer *aperture_timer, *focus_timer;
     uint8_t header[8], input[LENS_MAX_PACKET], output[LENS_MAX_PACKET];
     uint8_t configuration[12], history[42];
     unsigned offset, size;
@@ -53,15 +58,70 @@ struct NikonLensState {
     uint64_t stream_frames;
     uint64_t aperture_noops;
     uint64_t aperture_generation;
+    uint64_t focus_noops;
+    uint64_t focus_generation;
     uint16_t aperture, aperture_start, aperture_target;
+    int32_t focus_position, focus_start, focus_target;
     int64_t aperture_begin, aperture_duration;
+    int64_t focus_begin, focus_duration;
     uint64_t mode_generation;
     uint8_t mode, requested_mode;
     uint64_t header_counts[256], packet_counts[256];
     bool configured, pending, stream_enabled, notify_level, reported;
     bool mode_pending;
     bool aperture_pending;
+    bool focus_pending;
 };
+
+static int32_t lens_focus_position(NikonLensState *s)
+{
+    int64_t elapsed;
+    int32_t distance, moved;
+
+    if (!s->focus_pending) {
+        return s->focus_position;
+    }
+    elapsed = MIN(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - s->focus_begin,
+                  s->focus_duration);
+    distance = abs(s->focus_target - s->focus_start);
+    moved = (int64_t)distance * elapsed / s->focus_duration;
+    return s->focus_target >= s->focus_start ?
+        s->focus_start + moved : s->focus_start - moved;
+}
+
+static void lens_focus_done(void *opaque)
+{
+    NikonLensState *s = opaque;
+
+    s->focus_position = s->focus_target;
+    s->focus_pending = false;
+    s->focus_generation++;
+}
+
+static void lens_get_focus_position(Object *obj, Visitor *v, const char *name,
+                                    void *opaque, Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    int32_t value = lens_focus_position(s);
+
+    visit_type_int32(v, name, &value, errp);
+}
+
+static void lens_get_focus_target(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+    int32_t value = s->focus_target;
+
+    visit_type_int32(v, name, &value, errp);
+}
+
+static bool lens_get_focus_pending(Object *obj, Error **errp)
+{
+    NikonLensState *s = NIKON_LENS(obj);
+
+    return s->focus_pending;
+}
 
 static uint16_t lens_aperture_position(NikonLensState *s)
 {
@@ -143,6 +203,9 @@ static unsigned lens_packet_size(uint8_t command, uint8_t subcommand)
     if (command == 0x20) {
         return subcommand == 0 ? 258 : subcommand == 1 ? 24 : 0;
     }
+    if (command == 0x78) {
+        return subcommand < 3 ? 4 : 0;
+    }
     if (command == 0xa0) {
         return subcommand < 8 ? 24 : 0;
     }
@@ -164,6 +227,8 @@ static unsigned lens_packet_size(uint8_t command, uint8_t subcommand)
     case 0x27: return 6;
     case 0x50:
     case 0x51: return 4;
+    case 0x70:
+    case 0x71: return 14;
     case 0xa1: return 10;
     default: return 0;
     }
@@ -210,9 +275,11 @@ static void lens_response(NikonLensState *s)
             stw_le_p(out + 9, LENS_APERTURE_OPEN + lens_aperture_position(s));
             stw_le_p(out + 197, lens_aperture_position(s));
             stw_le_p(out + 199, LENS_APERTURE_RANGE);
+            stw_le_p(out + 201, (int16_t)lens_focus_position(s));
             out[169] = s->configured ? 0x40 : 0x20;
             out[203] = (s->pending ? 8 : 0) |
-                (s->aperture_pending ? 0x18 : 0);
+                (s->aperture_pending ? 0x18 : 0) |
+                (s->focus_pending ? 2 : 0);
             /* Fixed optics remain usable; configuration busy is separate. */
             out[216] = 3;
         } else {
@@ -226,6 +293,13 @@ static void lens_response(NikonLensState *s)
         break;
     case 0x51:
         out[1] = s->mode_pending ? 0x80 : 0;
+        break;
+    case 0x71:
+        out[1] = s->focus_pending ? 2 : 0;
+        stl_le_p(out + 2, (uint32_t)lens_focus_position(s));
+        break;
+    case 0x70:
+    case 0x78:
         break;
     case 0x24:
         /*
@@ -269,9 +343,16 @@ static void lens_stream_word(void *opaque)
         return;
     }
     if (!s->history_offset) {
+        int32_t pos = lens_focus_position(s);
+
         memset(s->history, 0, sizeof(s->history));
         s->history[1] = s->history_sequence;
-        /* Stationary virtual motor coordinate and status. */
+        stl_le_p(s->history + 2, (uint32_t)pos);
+        if (pos >= LENS_FOCUS_MAX) {
+            s->history[7] = 1;
+        } else if (pos <= LENS_FOCUS_MIN) {
+            s->history[7] = 2;
+        }
         lens_finish_packet(s->history, sizeof(s->history));
         s->history_start = s->stream_deadline;
     }
@@ -399,6 +480,65 @@ static bool lens_process(NikonLensState *s)
                   s->aperture_begin + s->aperture_duration);
         break;
     }
+    case 0x70:
+    {
+        int32_t current = lens_focus_position(s);
+        int32_t target;
+        unsigned distance;
+
+        if (!s->configured || s->pending || s->focus_pending) {
+            lens_error(s, "focus-state-not-supported");
+            return false;
+        }
+        if (in[1] == 0) {
+            target = (int32_t)ldl_le_p(in + 2);
+        } else if (in[1] == 1) {
+            target = current + (int32_t)ldl_le_p(in + 2);
+        } else if (in[1] == 2) {
+            target = (int32_t)ldl_le_p(in + 6);
+        } else if (in[1] == 3) {
+            target = current + (int32_t)ldl_le_p(in + 6);
+        } else {
+            lens_error(s, "focus-subcommand-not-supported");
+            return false;
+        }
+        if (target < LENS_FOCUS_MIN || target > LENS_FOCUS_MAX) {
+            lens_error(s, "focus-target-not-supported");
+            return false;
+        }
+        distance = abs(target - current);
+        if (!distance) {
+            s->focus_noops++;
+            break;
+        }
+        s->focus_start = current;
+        s->focus_target = target;
+        s->focus_begin = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        s->focus_duration = MAX(LENS_FOCUS_MIN_NS,
+                                (int64_t)distance * LENS_FOCUS_STEP_NS);
+        s->focus_pending = true;
+        timer_mod(s->focus_timer, s->focus_begin + s->focus_duration);
+        break;
+    }
+    case 0x71:
+        if (!s->configured || s->pending) {
+            lens_error(s, "focus-state-not-supported");
+            return false;
+        }
+        break;
+    case 0x78:
+        if (!s->configured || s->pending) {
+            lens_error(s, "focus-state-not-supported");
+            return false;
+        }
+        if (s->focus_pending) {
+            s->focus_position = lens_focus_position(s);
+            s->focus_target = s->focus_position;
+            s->focus_pending = false;
+            timer_del(s->focus_timer);
+            s->focus_generation++;
+        }
+        break;
     default:
         break;
     }
@@ -473,6 +613,7 @@ static void lens_reset(DeviceState *dev)
     timer_del(s->stream_timer);
     timer_del(s->mode_timer);
     timer_del(s->aperture_timer);
+    timer_del(s->focus_timer);
     s->phase = LENS_HEADER;
     s->offset = s->size = s->sync_anchor = 0;
     s->probe = 0;
@@ -484,6 +625,11 @@ static void lens_reset(DeviceState *dev)
     s->aperture = s->aperture_start = s->aperture_target = 0;
     s->aperture_pending = false;
     s->aperture_begin = s->aperture_duration = 0;
+    s->focus_noops = 0;
+    s->focus_generation = 0;
+    s->focus_position = s->focus_start = s->focus_target = 0;
+    s->focus_pending = false;
+    s->focus_begin = s->focus_duration = 0;
     s->mode = s->requested_mode = 0;
     s->mode_pending = false;
     s->mode_generation = 0;
@@ -505,9 +651,13 @@ static void lens_unrealize(DeviceState *dev)
     timer_del(s->stream_timer);
     timer_del(s->mode_timer);
     timer_del(s->aperture_timer);
+    timer_del(s->focus_timer);
     s->aperture = lens_aperture_position(s);
     s->aperture_start = s->aperture_target = s->aperture;
     s->aperture_pending = false;
+    s->focus_position = lens_focus_position(s);
+    s->focus_start = s->focus_target = s->focus_position;
+    s->focus_pending = false;
     s->stream_enabled = false;
     lens_notify(s, true);
 }
@@ -541,6 +691,11 @@ static char *lens_runtime(Object *obj, Error **errp)
         "aperture=%u target=%u aperture-pending=%u aperture-generation=%"
         PRIu64 "\n", lens_aperture_position(s), s->aperture_target,
         s->aperture_pending, s->aperture_generation);
+    g_string_append_printf(text,
+        "focus=%" PRId32 " target=%" PRId32 " focus-pending=%u "
+        "focus-generation=%" PRIu64 " focus-noops=%" PRIu64 "\n",
+        lens_focus_position(s), s->focus_target, s->focus_pending,
+        s->focus_generation, s->focus_noops);
     for (unsigned i = 0; i < ARRAY_SIZE(s->header_counts); i++) {
         if (s->header_counts[i]) {
             g_string_append_printf(text,
@@ -562,10 +717,11 @@ static void lens_init(Object *obj)
     s->stream_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_stream_word, s);
     s->mode_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_mode_done, s);
     s->aperture_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_aperture_done, s);
+    s->focus_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, lens_focus_done, s);
     object_property_add_uint64_ptr(obj, "completed", &s->completed,
-                                   OBJ_PROP_FLAG_READ);
+                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "rejected", &s->rejected,
-                                   OBJ_PROP_FLAG_READ);
+                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "configuration-generation",
                                    &s->configuration_generation,
                                    OBJ_PROP_FLAG_READ);
@@ -575,6 +731,16 @@ static void lens_init(Object *obj)
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint64_ptr(obj, "aperture-generation",
                                    &s->aperture_generation, OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "focus-noops", &s->focus_noops,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint64_ptr(obj, "focus-generation",
+                                   &s->focus_generation, OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "focus-position", "int32",
+                        lens_get_focus_position, NULL, NULL, NULL);
+    object_property_add(obj, "focus-target", "int32",
+                        lens_get_focus_target, NULL, NULL, NULL);
+    object_property_add_bool(obj, "focus-pending",
+                             lens_get_focus_pending, NULL);
     object_property_add_uint64_ptr(obj, "mode-generation", &s->mode_generation,
                                    OBJ_PROP_FLAG_READ);
     object_property_add_str(obj, "runtime", lens_runtime, NULL);
@@ -589,6 +755,7 @@ static void lens_finalize(Object *obj)
     timer_free(s->stream_timer);
     timer_free(s->mode_timer);
     timer_free(s->aperture_timer);
+    timer_free(s->focus_timer);
 }
 
 static const Property lens_properties[] = {

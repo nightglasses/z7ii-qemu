@@ -10,8 +10,10 @@ readiness, and replacing a warning cannot establish either path.
 50 mm lens with maximum aperture F2.8 and a finite virtual iris. Its identity
 `7ffe` is a virtual input, not a recovered
 physical product identifier. This profile does not advertise optional lens
-families or implement autofocus movement, variable zoom, physical optics or a
-3D application bridge. Unsupported packets fail at the endpoint boundary.
+families, variable zoom, physical optics or a 3D application bridge. It
+implements a stateful virtual focus motor driven by original lens commands and
+real-time history stream feedback. Unsupported packets fail at the endpoint
+boundary.
 
 ## Source and board connections
 
@@ -63,6 +65,9 @@ must be zero modulo256. The native SSI endpoint exchanges 16-bit words.
 | `a3:00..01` |4| Process bounded relative aperture targets |
 | `50:00` |4| Validate and process the source-selected mode request independently of configuration |
 | `51:00` |4| Report actual mode processing busy/done state |
+| `70:00` |14| Validate and drive stateful focus motor displacement/target |
+| `71:00` |14| Report actual focus coordinate and motor busy status |
+| `78:00..02` |4| Immediate focus stop and displacement freeze |
 
 `10311c84` selects the pre-identification path through `10311442` when its
 connection provider has not already admitted the lens. `1037bbfc` builds
@@ -341,6 +346,39 @@ write to the policy cache, exposure values or lens command queue is justified.
 The [cycle receipt](/evidence/livecycle/capture.json) separates these source
 conditions from the actual stopped-M observation.
 
+## Focus actuator and motor motion
+
+The C1.70 MAS software command table at VA `119d8058` selects wire focus
+commands `70:00` (entry 27, 14 bytes TX/RX), `71:00` (entry 28, 14 bytes TX/RX),
+and stop variants `78:00..02` (entries 33..35, 4 bytes TX/RX).
+
+The declared finite virtual actuator range is `[-4096, 4096]` centered at calibrated
+position 0, with -4096 as the infinity endpoint and +4096 as the near endpoint.
+Motion operates with a declared travel rate of $100\,\mu\text{s}$ per step, with a
+minimum 2 ms duration for any non-zero step. Linear interpolation yields the exact
+motor coordinate at any point during active travel.
+
+| Packet | Size | Fields and processing |
+|---|---:|---|
+| `70:00` | 14 | Validates configured state and starts motor travel. Subcommand 0 specifies absolute target in LE32 bytes 2..5; subcommand 1 specifies relative step in LE32 bytes 2..5; subcommand 2 specifies absolute target in LE32 bytes 6..9; subcommand 3 specifies relative step in LE32 bytes 6..9. Rejects if out of range `[-4096, 4096]` or if motor is already moving. Zero distance counts as a no-op (`focus-noops`). Reply bytes 1..2 return status 0 (OK/ready). |
+| `71:00` | 14 | Focus query. Byte 1 returns motor busy bit 1 (`0x02`); bytes 2..5 return the current signed LE32 focus coordinate. |
+| `78:00..02` | 4 | Focus stop / cancellation. If motion is pending, immediately halts movement, freezes the current interpolated coordinate, cancels the motion timer, increments `focus-generation`, and clears motor busy. |
+
+`20:00` reflects the focus motor state alongside aperture:
+- Bytes 201..202: signed LE16 coordinate consumed by getter `1037a6b2` with denominator 192.
+- Byte 203: busy status bit 1 (`0x02`) consumed by getter `1037a74e`. Motor busy is set while motion is active and clears upon completion or cancellation.
+
+The real-time 42-byte history stream reflects active focus motion at 1 ms intervals:
+- Bytes 2..5: signed LE32 motor coordinate consumed by getter `1037b88c`.
+- Byte 7: direction limits consumed by getter `1037b912` low 2 bits: 1 indicates the near limit (`pos >= 4096`), 2 indicates the infinity limit (`pos <= -4096`), and 0 indicates normal in-bounds travel.
+
+QOM properties expose actuator state for inspection and native fixtures:
+- `focus-position`: current signed 32-bit focus coordinate evaluated dynamically.
+- `focus-target`: signed 32-bit target coordinate.
+- `focus-pending`: boolean motor busy flag.
+- `focus-generation`: counter incremented when motion completes or is halted by stop.
+- `focus-noops`: counter incremented when a command requests zero distance.
+
 ## Scene-provider direction
 
 The intended integration keeps the two inputs separate and coordinated:
@@ -371,8 +409,12 @@ synchronization, malformed packet rejection, partial reset and receiver-bound
 stream lifecycle. Iris fixtures cover all A0/A3 selectors and default A1,
 nonzero target endpoints, intermediate/reverse motion, ACK versus actuator
 deadlines, repeated targets, bounds/parameter rejection, busy reentry and
-reset/unrealize cancellation. They use the actual upstream SSI bus and native SPI receive
-FIFO. These synthetic fixtures do not prove that unchanged original firmware
-has accepted the virtual lens, published its GUI cache or displayed scene pixels.
-The current original-run result is tracked separately in the
-[startup frontier](../../validation/frontier.md).
+reset/unrealize cancellation. Focus fixtures cover idle state and zero-step
+no-ops, linear motion interpolation and minimum duration deadlines, forward and
+reverse relative displacement, endpoint limit indicators in real-time stream
+frames, stop/cancellation variants with coordinate freezing, parameter/boundary
+rejection, and cold reset / unrealize lifecycle. They use the actual upstream
+SSI bus and native SPI receive FIFO. These synthetic fixtures do not prove that
+unchanged original firmware has accepted the virtual lens, published its GUI
+cache or displayed scene pixels. The current original-run result is tracked
+separately in the [startup frontier](../../validation/frontier.md).
