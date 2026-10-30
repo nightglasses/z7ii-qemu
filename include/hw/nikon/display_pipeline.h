@@ -119,6 +119,8 @@ void nikon_display_pipeline_free(NikonDisplayPipeline *p);
 /* Backend probing */
 NikonDisplayBackendType nikon_display_detect_optimal_backend(void);
 const char *nikon_display_backend_name(NikonDisplayBackendType type);
+bool nikon_metal_is_supported(void);
+const NikonDisplayOps *nikon_display_metal_get_ops(void);
 
 /* High-level execution helpers */
 bool nikon_display_pipeline_begin_frame(NikonDisplayPipeline *p,

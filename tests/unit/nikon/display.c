@@ -17,9 +17,17 @@ static void test_backend_detection_and_names(void)
     g_assert_cmpstr(nikon_display_backend_name(NIKON_DISPLAY_BACKEND_VULKAN), ==, "vulkan");
     g_assert_cmpstr(nikon_display_backend_name(NIKON_DISPLAY_BACKEND_COUNT), ==, "unknown");
 
-    /* Default without environment override must be CPU */
+    /* Optimal backend matches host capabilities */
     NikonDisplayBackendType optimal = nikon_display_detect_optimal_backend();
+#if defined(__APPLE__)
+    if (nikon_metal_is_supported()) {
+        g_assert_cmpint(optimal, ==, NIKON_DISPLAY_BACKEND_METAL);
+    } else {
+        g_assert_cmpint(optimal, ==, NIKON_DISPLAY_BACKEND_CPU);
+    }
+#else
     g_assert_cmpint(optimal, ==, NIKON_DISPLAY_BACKEND_CPU);
+#endif
 }
 
 static void test_pipeline_lifecycle(void)
@@ -149,6 +157,61 @@ static void test_rectangles_and_present(void)
     nikon_display_pipeline_free(p);
 }
 
+static void test_metal_pipeline(void)
+{
+#if defined(__APPLE__)
+    if (!nikon_metal_is_supported()) {
+        g_test_skip("Metal framework unavailable in test environment");
+        return;
+    }
+    NikonDisplayPipeline *p = nikon_display_pipeline_create(NIKON_DISPLAY_BACKEND_METAL);
+    g_assert_nonnull(p);
+    g_assert_cmpint(p->ops->type, ==, NIKON_DISPLAY_BACKEND_METAL);
+
+    /* Test begin frame */
+    g_assert_true(nikon_display_pipeline_begin_frame(p, 64, 64));
+
+    /* Test primary conversion on Metal compute shader */
+    uint8_t luma[64 * 64];
+    uint8_t chroma[64 * 64];
+    memset(luma, 128, sizeof(luma));
+    memset(chroma, 128, sizeof(chroma));
+
+    NikonDisplayPrimaryDesc desc;
+    memset(&desc, 0, sizeof(desc));
+    desc.luma = luma;
+    desc.chroma = chroma;
+    desc.width = 64;
+    desc.height = 64;
+    desc.pitch_y = 64;
+    desc.pitch_uv = 64;
+    desc.mode = 0;
+    desc.alpha = 255;
+    desc.a = 1; desc.b = 1; desc.e = 1; desc.f = 1;
+    desc.scaled_w = 64; desc.scaled_h = 64;
+
+    /* Identity color matrix */
+    desc.matrix[0][0][0] = 16384; /* Y -> R */
+    desc.matrix[0][1][0] = 16384; /* Y -> G */
+    desc.matrix[0][2][0] = 16384; /* Y -> B */
+
+    g_assert_true(nikon_display_pipeline_composite_primary(p, &desc, 0, 0, 64, 64));
+
+    /* Present and verify output surface */
+    DisplaySurface *surface = qemu_create_displaysurface(64, 64);
+    g_assert_nonnull(surface);
+    nikon_display_pipeline_present(p, surface);
+
+    uint32_t *surf_pixels = surface_data(surface);
+    /* Luma=128, Chroma=128 should produce non-zero RGB output with alpha=0xff */
+    g_assert_cmphex(surf_pixels[0] & 0xff000000u, ==, 0xff000000u);
+
+    qemu_free_displaysurface(surface);
+    nikon_display_pipeline_end_frame(p);
+    nikon_display_pipeline_free(p);
+#endif
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -158,6 +221,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/display/frame-bounds", test_frame_bounds_and_lifecycle);
     g_test_add_func("/nikon/display/layer-composite", test_layer_composite);
     g_test_add_func("/nikon/display/rectangles-and-present", test_rectangles_and_present);
+    g_test_add_func("/nikon/display/metal-pipeline", test_metal_pipeline);
 
     return g_test_run();
 }
