@@ -70,6 +70,7 @@ arm_common_ss.add(when: 'CONFIG_NIKON_Z7II', if_true: files(
   'devices/ccomp.c',
   'devices/banks.c',
   'devices/display_pipeline.c',
+  'devices/compute_pipeline.c',
   'devices/panel.c',
   'peers/i2c.c',
   'devices/eyesensor.c',
