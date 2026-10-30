@@ -251,15 +251,38 @@ The lens runtime retains relative aperture/target0 and no new aperture
 commands during these changes. The actual request is an AE output, not a
 direct property518 mirror: `10210886` publishes the rational from
 `b2114fb8` through its output to `b25ef0a8`; `10233570` then passes it through
-the iris packet to `10398206`. Its576/192 value remains Av3 and equals the
-previous target, explaining why the later comparison sends no new command37.
-The source includes range/qualification checks and a legal retain-old-value
-branch, but this session does not identify which AE branch held the value.
-The next discriminating producer is `10213280` and its exposure context
-offsets11493/11784/11904/11676/11632, together with globals
-`b185f634/b185f664`. Actual iris application and optical exposure therefore
-remain unaccepted; a missing motor command alone does not prove a lens
-transport fault. MENU naturally advances the old GUI worker
+the iris packet to `10398206`. Its 576/192 value remains Av 3 (F2.8) and equals the
+previous target, explaining why the later comparison sends no new command 37.
+
+Reverse-engineering of the MAS C1.70 firmware confirms that maintaining wide-open
+aperture (F2.8 / 576) during still-photo live view is Nikon's intentional optical
+preview strategy (to maximize light for sensor PDAF phase detection and EVF refresh).
+The user's Property 518 (Av setting in 256-base units) is correctly converted via
+`P518 * 3 / 4` to 192-base APEX units and stored into `B2114FB8` by `10233592..9e`.
+The AE decision function at `0x101f3fc2` inspects exposure context triggers:
+- Offset `+11888` (`0x2e70`): S1 / AF Lock flag.
+- Offset `+11892` (`0x2e74`): S2 / Capture release flag.
+- Offset `+11896` (`0x2e78`): Movie / special mode flag.
+- Offset `+11904` (`0x2e80`): Depth-of-Field (DOF) preview flag.
+- Offset `+11493` (`0x2ce5`): 1 for Still Photo (wide-open preview), 0 for Movie Mode.
+- Globals `B185F634` (Aperture drive enable) and `B185F664` (Stop-down active flag).
+
+During normal still-photo live view, all trigger flags are 0. `0x101f3ffa` branches
+directly to `0x101f404e`, loading open aperture baseline `[r8, #44]` (576 = F2.8)
+into `B25EF0A8`.
+
+The user's taking aperture in `B2114FB8` is applied to `B25EF0A8` (and dispatched
+to the physical lens iris via SPI packet `0x10398206`) under four specific conditions:
+1. **Depth-of-Field Preview Button**: `+11904 = 1` and `B185F664 = 1`.
+2. **Shutter Release (S2 Capture Sequence)**: `+11892 != 0`, arming transition flag
+   `[B25F00A0 + 0xf78] = 1`, which commits the taking aperture to `B25EF0A8` at `0x1021089c`.
+3. **Movie Mode Live View**: `+11493 = 0`, where the iris continuously tracks P518.
+4. **Shutter Half-Press (S1)**: `+11888 != 0`, stopping down to taking aperture
+   clamped to F5.6 (to prevent PDAF failure).
+
+At `0x10213280`, routine `0x1021325c` clears the pending aperture transaction
+(`B1887DDC = 0` and `[r1, #8] = 0`). This establishes the complete setting-value
+to applied-value contract without ad-hoc model patching. MENU naturally advances the old GUI worker
 to internal4, Menu to1 and its backend to4, clearing the retained request.
 It initially reaches a separate176/328-byte normal-image grammar boundary.
 After that mode is implemented, an original repeat advances to a168/232-byte
