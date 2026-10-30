@@ -492,3 +492,13 @@ extent, not normal-menu startup or a physical refresh-rate measurement.
 The shared sensor-to-display fixture also programs its explicit8x8 visible
 fields; `/arm/nikon/sensor/display-buffer` passes in0.79s in the separate
 `nikon_sensor` executable (`native-display-buffer-green.log`).
+
+## Scanout DMA and execution throughput
+
+The primary Y/UV scanout reader and overlay layer composition engine batch
+contiguous memory transfers into single bulk DMA operations when strides match
+row widths or when guest RAM spans have been bounded by `nikon_banks_ram`. This
+eliminates per-scanline DMA dispatch overhead during 60Hz display refresh. The
+accompanying JIT execution cache is expanded via the TCG translation block
+parameter `tb-size=1024`, preserving translation blocks across RTOS and GUI menu
+mode handoffs without cache flushes.
