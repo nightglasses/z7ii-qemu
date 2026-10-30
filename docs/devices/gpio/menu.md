@@ -79,6 +79,25 @@ The main menu operates across two distinct focus domains:
   `down` moves item index $i \to \min(i + 1, N-1)$; `up` moves
   $i \to \max(i - 1, 0)$.
 
+## Menu Exit Pathways and Live-View Return
+
+Four distinct hardware inputs allow returning from the menu to normal Live View
+(`GuiLvEv1`, id `0x1000A`):
+
+1. **Root `menu` Button**:
+   When focus is in `FOCUS_TAB` (the category tab column) or top-level list,
+   pulsing `menu` requests the Menu worker to dismiss its UI layer and post
+   `GuiLvEv1` to resume normal Live View scanout. Inside a sub-dialog or setting
+   item, `menu` acts as Cancel/Back to the parent list.
+2. **Shutter Half-Press (`shutter-half-press`, S1, PG1)**:
+   Instantly aborts any active menu level, sub-dialog, or item setting, returning
+   directly to Live View and engaging exposure/autofocus metering.
+3. **AF-ON Button (`af-on`, PG2)**:
+   Instantly aborts the menu from any level, returning directly to Live View and
+   triggering AF drive.
+4. **Shutter Full-Press (`shutter-full-press`, S2, PG13)**:
+   Instantly aborts the menu and initiates full optical exposure capture.
+
 ## Firmware State Evidence
 
 In the firmware GUI engine descriptor at RAM address `0xb181d9b8` (size `0x100`):
@@ -116,3 +135,15 @@ grounded in `docs/public/evidence/input/turnover.json`.
      clamping, item entry via right arrow, category return via left arrow, item
      entry via OK button, 6 category up transitions back to Playback, top boundary
      clamping, and machine `system_reset` retention.
+
+3. **QTest Round-Trip Integration (`/arm/nikon/gui/menu-liveview-roundtrip`)** in
+   `tests/qtest/nikon/gui.c`:
+   - Tests multi-round open/exit sequences between Live View and Menu across
+     all 4 exit mechanisms:
+     - Round 1: Toggle exit via root `menu` button.
+     - Round 2: Fast abort via Shutter Half-Press (`shutter-half-press` / S1).
+     - Round 3: Fast abort via AF-ON (`af-on`).
+     - Round 4: Fast abort via Shutter Full-Press (`shutter-full-press` / S2).
+     - Round 5: Mid-exit reset cancellation and input release.
+   - Verifies descriptor stage, memory bounds, and input state remain uncorrupted
+     across all cycles.
