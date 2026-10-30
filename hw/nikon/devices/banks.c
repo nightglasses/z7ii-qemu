@@ -1167,6 +1167,28 @@ static void nikon_dual_event_banks_init(Object *obj)
                                    &s->primary_reuses, OBJ_PROP_FLAG_READ);
 }
 
+static void nikon_dual_event_banks_realize(DeviceState *dev, Error **errp)
+{
+    NikonDualEventBanksState *s = NIKON_DUAL_EVENT_BANKS(dev);
+
+    /*
+     * Register graphic consoles during realization so display backends (SDL2,
+     * Cocoa) discover the output heads at startup. Region 1 (head 1) is the
+     * primary rear LCD scanout and is registered first to occupy console 0;
+     * Region 0 (head 0) is the secondary EVF scanout head.
+     */
+    if (!s->region[1].console) {
+        s->region[1].console = qemu_graphic_console_create(dev, 1,
+                                                           &nikon_banks_graphics,
+                                                           &s->region[1]);
+    }
+    if (!s->region[0].console) {
+        s->region[0].console = qemu_graphic_console_create(dev, 0,
+                                                           &nikon_banks_graphics,
+                                                           &s->region[0]);
+    }
+}
+
 static void nikon_dual_event_banks_unrealize(DeviceState *dev)
 {
     NikonDualEventBanksState *s = NIKON_DUAL_EVENT_BANKS(dev);
@@ -1203,6 +1225,7 @@ static void nikon_dual_event_banks_class_init(ObjectClass *oc, const void *data)
 
     dc->vmsd = &nikon_dual_event_banks_vmstate;
     dc->user_creatable = false;
+    dc->realize = nikon_dual_event_banks_realize;
     dc->unrealize = nikon_dual_event_banks_unrealize;
     device_class_set_legacy_reset(dc, nikon_dual_event_banks_reset);
 }
