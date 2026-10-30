@@ -9,6 +9,8 @@
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/nikon/cmos.h"
+#include "hw/nikon/devices.h"
+#include "hw/ssi/ssi.h"
 #include "system/address-spaces.h"
 #include "system/cpu-timers.h"
 #include "system/runstate.h"
@@ -446,6 +448,187 @@ static void test_static_fullsize_acquire(void)
     cleanup(f);
 }
 
+static void test_exposure_response(void)
+{
+    g_autofree char *image = cfa_image(17, 11, 0);
+    CmosFixture *f = fixture();
+    DeviceState *spi = qdev_new(TYPE_NIKON_SPI);
+    SSIBus *bus;
+    DeviceState *lens;
+    Error *err = NULL;
+    int64_t start;
+    const uint8_t *ram;
+    uint16_t base_p0, exp_p0, iso_p0, ap_p0;
+
+    object_property_add_child(object_get_objects_root(), "test-spi[*]",
+                              OBJECT(spi));
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(spi), &error_abort));
+    bus = (SSIBus *)qdev_get_child_bus(spi, "spi");
+    lens = qdev_new("nikon-lens-functional");
+    qdev_realize_and_unref(lens, BUS(bus), &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+
+    /* Verify default properties */
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "exposure-scale", &error_abort), ==, 65536);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "iso-gain", &error_abort), ==, 256);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-position", &error_abort), ==, 0);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-factor", &error_abort), ==, 65536);
+
+    /* Zero ISO gain is rejected */
+    object_property_set_uint(OBJECT(f->dev), "iso-gain", 0, &err);
+    g_assert_nonnull(err);
+    error_free(err);
+    err = NULL;
+
+    /* Baseline capture */
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+
+    ram = memory_region_get_ram_ptr(&f->ram);
+    base_p0 = ram[0] | (ram[1] << 8);
+    g_assert_cmpuint(base_p0, >, 0);
+
+    /* Shutter 2x exposure (exposure-scale = 131072) */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_uint(OBJECT(f->dev), "exposure-scale", 131072,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+
+    ram = memory_region_get_ram_ptr(&f->ram);
+    exp_p0 = ram[0] | (ram[1] << 8);
+    g_assert_cmpuint(exp_p0, ==, MIN(base_p0 * 2, 65535));
+
+    /* ISO 2x gain (iso-gain = 512, exposure-scale = 65536) */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_uint(OBJECT(f->dev), "iso-gain", 512,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+
+    ram = memory_region_get_ram_ptr(&f->ram);
+    iso_p0 = ram[0] | (ram[1] << 8);
+    g_assert_cmpuint(iso_p0, ==, MIN(base_p0 * 2, 65535));
+
+    /* Aperture 1 stop down (aperture-position = 192 -> 0.5x light) */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_uint(OBJECT(lens), "aperture-position", 192,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-position", &error_abort), ==, 192);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-factor", &error_abort), ==, 32768);
+
+    ram = memory_region_get_ram_ptr(&f->ram);
+    ap_p0 = ram[0] | (ram[1] << 8);
+    g_assert_cmpuint(ap_p0, ==, (base_p0 + 1) / 2);
+
+    /* Defocus blur reduction with stopping down */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_int(OBJECT(f->dev), "scene-focus-position", 0,
+                            &error_abort);
+    object_property_set_int(OBJECT(f->dev), "focus-position", 1280,
+                            &error_abort);
+    object_property_set_uint(OBJECT(lens), "aperture-position", 0,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "defocus-radius", &error_abort), ==, 20);
+
+    /* Stop down to F5.6 (384) -> blur radius halved to 10 */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_int(OBJECT(f->dev), "scene-focus-position", 0,
+                            &error_abort);
+    object_property_set_int(OBJECT(f->dev), "focus-position", 1280,
+                            &error_abort);
+    object_property_set_uint(OBJECT(lens), "aperture-position", 384,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "defocus-radius", &error_abort), ==, 10);
+
+    /* Stop down to F22 (1152) -> blur radius reduced to 3 (20 * 0.125 = 2.5) */
+    device_cold_reset(f->dev);
+    object_property_set_str(OBJECT(f->dev), "image", image, &error_abort);
+    object_property_set_link(OBJECT(f->dev), "lens", OBJECT(lens),
+                             &error_abort);
+    object_property_set_int(OBJECT(f->dev), "scene-focus-position", 0,
+                            &error_abort);
+    object_property_set_int(OBJECT(f->dev), "focus-position", 1280,
+                            &error_abort);
+    object_property_set_uint(OBJECT(lens), "aperture-position", 1152,
+                             &error_abort);
+    cfa_configure(f, 29, 5);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    write_word(f, 0x60, 1);
+    dispatch_at(start + 100000);
+    g_assert_cmpuint(read_word(f, 0x68), ==, NIKON_CMOS_DONE);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "defocus-radius", &error_abort), ==, 3);
+
+    /* Cold reset restores initial defaults */
+    device_cold_reset(f->dev);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "exposure-scale", &error_abort), ==, 65536);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "iso-gain", &error_abort), ==, 256);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-position", &error_abort), ==, 0);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "aperture-factor", &error_abort), ==, 65536);
+    g_assert_cmpuint(object_property_get_uint(OBJECT(f->dev),
+                     "defocus-radius", &error_abort), ==, 0);
+
+    qdev_unrealize(lens);
+    qdev_unrealize(spi);
+    object_unparent(OBJECT(spi));
+    cleanup(f);
+    unlink(image);
+}
+
 int main(int argc, char **argv)
 {
     g_autofree char *directory = g_dir_make_tmp("nikon-cmos-XXXXXX", NULL);
@@ -474,6 +657,8 @@ int main(int argc, char **argv)
                     test_cfa_coordinate_identity);
     g_test_add_func("/nikon/cmos/static-fullsize-acquire",
                     test_static_fullsize_acquire);
+    g_test_add_func("/nikon/cmos/exposure-response",
+                    test_exposure_response);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);

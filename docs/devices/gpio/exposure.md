@@ -314,3 +314,54 @@ they are not evidence that those actions completed. The last screen still
 shows the Playback Menu. Other categories, actual setting changes inside
 menus and return to live view require separate acceptance. The earlier
 mode-transition failure and unchanged iris application target remain open.
+
+## Optical exposure model and sensor integration
+
+The CMOS sensor simulation couples shutter integration time, lens aperture
+and sensor sensitivity to the RAW CFA sample values and optical defocus blur.
+
+### Flux scaling and mathematical formulation
+
+Given a reference scene input, the effective optical sample is parameterized
+by three independent exposure controls:
+
+1. **Shutter integration scale** ($S_{\text{exp}}$, Q16 fixed-point, $65536 = 1.0\times$):
+   Represents relative shutter duration $T / T_{\text{ref}}$.
+2. **Sensor gain / ISO sensitivity** ($G_{\text{ISO}}$, Q8 fixed-point, $256 = 1.0\times$):
+   Represents analog and sensor-level pre-ADC amplification relative to ISO 100.
+   Zero gain is rejected as an invalid physical configuration.
+3. **Lens aperture attenuation** ($A(\text{pos})$, Q16 fixed-point, $65536 = 1.0\times$):
+   Computed from the physical lens iris travel $\text{pos} \in [0, 1152]$
+   in 1/192 APEX units (0 = F2.8 wide-open baseline):
+   $$\text{Aperture factor} = 2^{-\text{pos} / 192}$$
+   Each 192 units (1 EV stop) halves light transmittance. At F4.0 (192),
+   the factor is $0.5\times$ (32768); at F22 (1152), the factor is $1/64\times$ (1024).
+
+The net CFA sample before Bayer packing is:
+$$\text{Sample}_{\text{out}} = \min\left(65535, \frac{\text{Sample}_{\text{in}} \times S_{\text{exp}} \times G_{\text{ISO}} \times A(\text{pos})}{65536 \times 256 \times 65536}\right)$$
+
+Upper-bound saturation clamps to 16-bit dynamic range without integer overflow
+or wrap-around. Downstream paired white-balance gains (`0x9cc..0x9d4`) and ISP
+matrix transformations consume this RAW signal directly without duplicate
+exposure scaling.
+
+### Depth of field and aperture blur coupling
+
+The circle of confusion (defocus blur radius) is proportional to the entrance
+pupil diameter $D = f / N = f \cdot 2^{-\text{Av} / 2}$:
+$$\text{Scale}_{\text{blur}} = 2^{-\text{pos} / 384}$$
+
+Stopping down from F2.8 ($\text{pos}=0$) to F22 ($\text{pos}=1152$) reduces
+the defocus blur radius by a factor of 8 ($2^{-3}$), expanding the effective
+depth of field:
+$$R_{\text{defocus}} = \left\lfloor\min\left(\frac{|\text{focus} - \text{scene}|}{64}, 31\right) \times \text{Scale}_{\text{blur}} + 0.5\right\rfloor$$
+
+In-focus subjects ($\Delta = 0$) maintain zero blur regardless of aperture.
+
+### Lifecycle and boundary invariance
+
+Cold reset restores default exposure scale (65536), ISO gain (256), aperture
+factor (65536), and clears defocus radius. No residual exposure state leaks
+across sessions or frame restarts. Native unit fixtures (`/nikon/cmos/exposure-response`)
+and integration QTest fixtures (`/arm/nikon/cmos/pipeline/optical-exposure-response`)
+verify independent response across shutter, aperture, and ISO variations.
