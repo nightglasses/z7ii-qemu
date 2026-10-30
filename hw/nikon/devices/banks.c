@@ -770,7 +770,7 @@ static uint32_t nikon_banks_port_checksum(NikonDualEventBanksRegion *r, unsigned
             return 0;
         }
 
-        dma_addr_t map_len = MIN(total_primary, 4096);
+        dma_addr_t map_len = total_primary;
         void *p_ptr = dma_memory_map(&address_space_memory, primary, &map_len,
                                      DMA_DIRECTION_TO_DEVICE, MEMTXATTRS_UNSPECIFIED);
         if (p_ptr) {
@@ -783,7 +783,7 @@ static uint32_t nikon_banks_port_checksum(NikonDualEventBanksRegion *r, unsigned
             if (total_alpha > (1ULL << 32) || !nikon_banks_ram(secondary, total_alpha)) {
                 return 0;
             }
-            dma_addr_t a_map_len = MIN(total_alpha, 4096);
+            dma_addr_t a_map_len = total_alpha;
             void *a_ptr = dma_memory_map(&address_space_memory, secondary, &a_map_len,
                                          DMA_DIRECTION_TO_DEVICE, MEMTXATTRS_UNSPECIFIED);
             if (a_ptr) {
