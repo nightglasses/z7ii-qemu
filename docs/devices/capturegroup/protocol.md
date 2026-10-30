@@ -948,3 +948,28 @@ The complete end-to-end autofocus loop operates through standard input and hardw
      or AF-ON does not trigger lens motor drive. The manual focus plane is strictly
      preserved.
 
+### AF-C Continuous Target Tracking and Lost-Lock Recovery (Issue #542)
+
+In continuous autofocus mode (AF-C), the focus tracking loop repeats across
+successive preview frames without freezing at the first lock:
+
+1. **Continuous Dynamic Tracking**:
+   - As target object distance shifts (e.g. from distance 200 to 600), the next
+     video frame yields a degraded contrast score at the old motor position.
+   - The AF-C controller detects the contrast drop and initiates a multi-step
+     directional sweep, sampling new FIR contrast scores at intermediate
+     motor positions.
+   - When a new peak is detected at distance 600, the lens motor steps to the
+     new focal plane, restoring peak contrast without injecting fabricated
+     ready flags.
+2. **Lost-Lock Detection and Recovery**:
+   - If the subject is temporarily obscured or moves across a low-contrast
+     featureless background (flat scene, $p = 0$), the algorithm flags lost lock
+     and holds or sweeps the bounded search range without panicking.
+   - When the textured subject re-emerges, contrast sharpness immediately
+     spikes, and the closed loop re-acquires lock seamlessly.
+3. **Mode Switching and Task Reclamation**:
+   - Switching modes from AF-C to MF or releasing half-press during an active
+     tracking cycle aborts pending motor motion cleanly, preserves the current
+     position, and releases all DMA slots and descriptors without leakage.
+
