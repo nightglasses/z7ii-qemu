@@ -2,6 +2,11 @@
 
 ## Current initialized path family
 
+The separate [native image-memory initializer](initialize.md) now executes
+the type-4 zero-fill port at offsets `0x10..0x1c` and completes through IRQ131.
+Its bounded descriptor and cancellation contract is distinct from the paired
+drawing streams and from the IRQ130 byte-copy engine below.
+
 The later [initialized indirect-path contract](prefix.md#initialized-indirect-path-batches)
 crosses a complete664/1032-byte four-path initialization using command-family
 recognition and the existing rasterizer. All26 transfer subtests pass. Original
@@ -218,9 +223,11 @@ output write; an execution-time input/map failure preserves the destination.
 A successful timer execution writes the full1024-byte result, consumes the
 pair and raises IRQ129. `1020=0` retains the observed ACK/deassert behavior.
 After successful completion, a word read of offset `58` returns zero for
-the observed bit26-clear path; reads before completion remain errors. IRQ131,
-fences, replies and other graphics programs remain unsupported. The
-ordinary byte-copy engine and IRQ130 remain separate.
+the observed bit26-clear path; reads before completion remain errors. IRQ131
+was unsupported by that earlier stream profile; the later
+[image-memory initializer](initialize.md) supplies its independently evidenced
+type-4 operation. Fences, replies and other graphics programs remain outside
+this LUT profile. The ordinary byte-copy engine and IRQ130 remain separate.
 
 ## Finite black YUV422 rectangle clear
 
