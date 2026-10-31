@@ -1900,6 +1900,31 @@ static void ex_realize(DeviceState *dev, Error **errp)
     }
 }
 
+static bool ex_hard_irq_property(Object *obj, Error **errp)
+{
+    NikonEXState *s = NIKON_EX(obj);
+
+    return s->armv7m.cpu &&
+           (qatomic_read(&CPU(s->armv7m.cpu)->interrupt_request) &
+            CPU_INTERRUPT_HARD);
+}
+
+static bool ex_pending_ready_property(Object *obj, Error **errp)
+{
+    NikonEXState *s = NIKON_EX(obj);
+
+    return s->armv7m.cpu &&
+           armv7m_nvic_can_take_pending_exception(&s->armv7m.nvic);
+}
+
+static void ex_priority_property(Object *obj, Visitor *visitor, const char *name,
+                                void *opaque, Error **errp)
+{
+    int64_t value = *(const int *)opaque;
+
+    visit_type_int64(visitor, name, &value, errp);
+}
+
 static void ex_i2c0_deadline_property(Object *obj, Visitor *visitor, const char *name,
                                      void *opaque, Error **errp)
 {
@@ -1914,6 +1939,15 @@ static void ex_i2c0_deadline_property(Object *obj, Visitor *visitor, const char 
 static void ex_init(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
+    object_property_add_bool(obj, "cpu-hard-irq", ex_hard_irq_property, NULL);
+    object_property_add_bool(obj, "cpu-pending-ready", ex_pending_ready_property,
+                             NULL);
+    object_property_add_uint32_ptr(obj, "nvic-pending", &s->armv7m.nvic.vectpending,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "nvic-pending-priority", "int", ex_priority_property,
+                        NULL, NULL, &s->armv7m.nvic.vectpending_prio);
+    object_property_add(obj, "nvic-active-priority", "int", ex_priority_property,
+                        NULL, NULL, &s->armv7m.nvic.exception_prio);
     object_property_add_uint32_ptr(obj, "i2c0-cr1", &s->i2c[0].reg[0],
                                    OBJ_PROP_FLAG_READ);
     object_property_add_uint32_ptr(obj, "i2c0-cr2", &s->i2c[0].reg[1],

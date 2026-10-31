@@ -255,7 +255,12 @@ The expander exposes its physical, sampled and reference levels, pending
 interrupt state and selected configuration bytes. Reading these properties
 does not acknowledge an interrupt or change a FIFO. The CPU BASEPRI,
 PRIMASK and FAULTMASK properties are separate observations, not an atomic
-cross-device snapshot.
+cross-device snapshot. Additional read-only properties expose the CPU hard
+interrupt request, whether the NVIC can currently take a pending exception,
+and the NVIC's cached pending exception and pending/active priorities. A
+pending exception alone does not establish a stalled core: compare its
+priority against the active priority and CPU masks, and observe subsequent
+guest progress. These getters neither acknowledge nor request an interrupt.
 
 ## MAS mode-1 producer: retire the watchpoint evidence {#mas-mode-1-producer-retire-the-watchpoint-evidence}
 
