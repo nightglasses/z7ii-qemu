@@ -59,7 +59,7 @@ endif
 if have_system and (config_target_mak.has_key('arm-softmmu') and
                    config_all_devices.has_key('CONFIG_NIKON_Z7II'))
   foreach name : ['memory', 'copy', 'transfer', 'bridge', 'dispatcher',
-                  'command', 'input', 'readout', 'panel',
+                  'command', 'input', 'readout', 'panel', 'display', 'compute',
                   'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi', 'cmos',
                   'acceleration', 'lens', 'gatework', 'gateplane', 'gridflow',
                   'paired', 'fill']

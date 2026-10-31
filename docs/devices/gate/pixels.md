@@ -69,3 +69,25 @@ non-power-of-two remainders. Negative vectors cover malformed dimensions,
 lengths, coordinate high bits, tags, padding mistaken for a tag, invalid unused
 records, and overlapping buffers. Fixture validation is separate from original
 firmware execution and physical-camera fidelity.
+
+## Hardware abstraction layer and compute pipeline
+
+Heavy pixel transformation operators are abstracted via `NikonComputePipeline`
+(`include/hw/nikon/compute_pipeline.h`), decoupling mathematical definitions
+from execution backends:
+- `NIKON_COMPUTE_BACKEND_CPU`: reference scalar / SIMD algorithm implementation,
+  guaranteeing exact deterministic results across all host architectures.
+- `NIKON_COMPUTE_BACKEND_METAL`: native macOS Apple Silicon Metal compute
+  shader driver (`hw/nikon/devices/compute_metal.m`) performing GPU-parallel
+  affine grid NV12 warping and RGGB Bayer CFA demosaicing with zero-copy UMA
+  shared memory buffers.
+- `NIKON_COMPUTE_BACKEND_DIRECTML`: reserved slot for Windows DirectML and
+  HLSL compute shaders.
+- `NIKON_COMPUTE_BACKEND_VULKAN`: reserved slot for cross-platform Vulkan.
+
+The compute pipeline is integrated into `nikon_gate_work_compute`
+(`hw/nikon/devices/gatework.c`), automatically delegating geometric warp operations
+to the host GPU when running on Apple Silicon. The unit fixture `nikon_compute_unit`
+validates lifecycle management, backend selection, Bayer CFA demosaicing color responses,
+and warp parameter boundaries under native TAP protocols, including direct
+bit-for-bit equivalence checks between Metal GPU output and CPU reference.

@@ -771,6 +771,12 @@ static void z7ii_attach_ex(Z7IIMachineState *s, DeviceState *gpio,
         qdev_get_gpio_in_named(gpio, "external-level", 6 * 16 + 15));
     nikon_ex_gpio_connect_output(ex, 4, 3,
         qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 10));
+    nikon_ex_gpio_connect_output(ex, 4, 4,
+        qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 11));
+    nikon_ex_gpio_connect_output(ex, 3, 4,
+        qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 12));
+    nikon_ex_gpio_connect_output(ex, 0, 12,
+        qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 13));
     qdev_connect_gpio_out_named(gpio, "pad", 6 * 16 + 12,
                                nikon_ex_gpio_input(ex, 6, 6));
 

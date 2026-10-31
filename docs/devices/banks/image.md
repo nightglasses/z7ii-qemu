@@ -492,3 +492,37 @@ extent, not normal-menu startup or a physical refresh-rate measurement.
 The shared sensor-to-display fixture also programs its explicit8x8 visible
 fields; `/arm/nikon/sensor/display-buffer` passes in0.79s in the separate
 `nikon_sensor` executable (`native-display-buffer-green.log`).
+
+## Scanout DMA and execution throughput
+
+The primary Y/UV scanout reader and overlay layer composition engine batch
+contiguous memory transfers into single bulk DMA operations when strides match
+row widths or when guest RAM spans have been bounded by `nikon_banks_ram`. This
+eliminates per-scanline DMA dispatch overhead during 60Hz display refresh. The
+accompanying JIT execution cache is expanded via the TCG translation block
+parameter `tb-size=1024`, preserving translation blocks across RTOS and GUI menu
+mode handoffs without cache flushes.
+
+## Hardware abstraction layer and cross-platform display pipeline
+
+The display engine abstracts host rendering via `NikonDisplayPipeline`,
+defining a unified contract (`include/hw/nikon/display_pipeline.h`) with
+dedicated backend dispatch:
+- `NIKON_DISPLAY_BACKEND_CPU`: reference Pixman software renderer, ensuring
+  identical execution across host operating systems and non-accelerated CI runs.
+- `NIKON_DISPLAY_BACKEND_METAL`: macOS Apple Silicon Metal pipeline utilizing
+  unified memory buffers (`MTLResourceStorageModeShared`) and compute shaders
+  for parallel YUV-to-RGB conversion, color matrix multiplication and layer
+  composition.
+- `NIKON_DISPLAY_BACKEND_D3D12`: reserved slot for Windows Direct3D 12
+  hardware compute and presentation pipelines.
+- `NIKON_DISPLAY_BACKEND_VULKAN`: reserved slot for cross-platform Vulkan.
+
+When running on macOS Darwin with available Metal runtime, the display
+controller automatically detects and selects `NIKON_DISPLAY_BACKEND_METAL`,
+executing frame conversion on Apple Silicon GPU threads while falling back
+gracefully to `NIKON_DISPLAY_BACKEND_CPU` in headless or unsupported environments.
+
+The unit fixture `nikon_display_unit` exercises backend discovery, lifecycle,
+frame boundary clamping, layer clipping, color transforms, Metal compute
+pipelines and presentation bounds under native TAP protocols.
