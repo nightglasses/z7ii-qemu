@@ -2,6 +2,9 @@
 
 ## Current initialized path family
 
+The [repeated full-target clipping contract](clip.md) handles the original
+Retouch menu's second-path clip update in a336/608-byte initialized batch.
+
 The separate [native image-memory initializer](initialize.md) now executes
 the type-4 zero-fill port at offsets `0x10..0x1c` and completes through IRQ131.
 Its bounded descriptor and cancellation contract is distinct from the paired

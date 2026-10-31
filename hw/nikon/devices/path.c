@@ -43,6 +43,7 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
     cairo_t *cr = NULL;
 
     if (!((width == NIKON_PATH_WIDTH && height == NIKON_PATH_HEIGHT) ||
+          (width == 256 && height == 256) ||
           (width == 1024 && height == 688)) ||
         !segment_count || segment_count > NIKON_PATH_MAX_SEGMENTS ||
         !coordinate_count || coordinate_count > NIKON_PATH_MAX_COORDINATES) {
@@ -229,6 +230,7 @@ out:
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
                       const uint8_t *image, NikonPathImageFormat format,
                       unsigned width, unsigned height,
+                      const NikonPathImageTarget *target,
                       const uint32_t sample[9], uint32_t paint,
                       const char **reason)
 {
@@ -250,7 +252,10 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             return false;
         }
     }
-    if ((format != NIKON_PATH_IMAGE_A8 && format != NIKON_PATH_IMAGE_RGBA) ||
+    if (!target || !((target->width == 720 && target->height == 480) ||
+                     (target->width == 256 && target->height == 256)) ||
+        target->stride != 4 * target->width ||
+        (format != NIKON_PATH_IMAGE_A8 && format != NIKON_PATH_IMAGE_RGBA) ||
         !width || width > NIKON_PATH_IMAGE_MAX_DIMENSION ||
         !height || height > NIKON_PATH_IMAGE_MAX_DIMENSION ||
         (uint64_t)width * height > NIKON_PATH_IMAGE_MAX_PIXELS ||
@@ -262,9 +267,14 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
     if (!overlay) {
         return true;
     }
-    for (unsigned y = 0; y < NIKON_PATH_HEIGHT; y++) {
-        for (unsigned x = 0; x < NIKON_PATH_WIDTH; x++) {
-            unsigned p = y * NIKON_PATH_WIDTH + x;
+    if (!mask || !image) {
+        *reason = "transfer-image-input-not-backed";
+        return false;
+    }
+    for (unsigned y = 0; y < target->height; y++) {
+        for (unsigned x = 0; x < target->width; x++) {
+            unsigned p = y * target->width + x;
+            unsigned out = y * target->stride + 4 * x;
             double u, v;
             unsigned tx, ty, coverage, alpha;
             size_t index;
@@ -288,10 +298,10 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
                 unsigned color = ((paint >> (8 * c)) & 255) *
                     (format == NIKON_PATH_IMAGE_RGBA ? sample[c] : 255);
 
-                overlay[4 * p + c] =
+                overlay[out + c] =
                     (color * coverage + 32512) / 65025;
             }
-            overlay[4 * p + 3] = coverage;
+            overlay[out + 3] = coverage;
         }
     }
     return true;

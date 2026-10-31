@@ -1,10 +1,30 @@
 # Finite image contexts
 
-The image command family supports A8 and straight RGBA textures in the retained
-720 × 480 RGBA context. Exact command state, source format, bounded geometry,
+The image command family supports A8 and straight RGBA textures in retained
+720 × 480 or private 256 × 256 RGBA contexts. Exact command state, source format, bounded geometry,
 target ownership and complete memory preflight remain mandatory. The A8
 execution receipts below are historical checkpoints; the RGBA extension has
 separate fixture coverage and does not itself establish original completion.
+
+## Private target geometry (2026-10-31)
+
+Target and texture geometry are independent. Original `106454da/106454f2`
+emit `reg1a3 = W | (H << 16)` from surface `+88/+8c`.
+`1068c344/1068c386` encode the fixed-precision extent from the VG precision
+field; the supported shift is two, so a 256-square target uses `01000100`
+and `04000400`. Full-clip bounds are inclusive `W-1/H-1`.
+
+The finite sampler receives explicit target width, height and stride and maps
+that exact extent. Source dimensions remain separately decoded. The private
+image context is committed only after successful output; it does not publish
+the 720-wide vector context. ACK preserves completed state, while reset and
+unrealize clear it. Unsupported sizes, formats, clipping and incomplete memory
+ownership still reject the transaction.
+
+`/nikon/transfer/private-image-target` covers 64/128/256 sources against the
+256-square target, actual output pixels and guards, ACK continuation, readonly
+and lost mappings, invalid extents/geometry/formats, cancellation and reset.
+These native model fixtures do not certify camera-side GPU performance.
 
 The normal GUI path now completes the 224/472-byte pair and seven subsequent
 176/336-byte image pairs through original IRQ129. At that checkpoint the next

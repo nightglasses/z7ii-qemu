@@ -19,6 +19,10 @@ typedef enum NikonPathImageFormat {
     NIKON_PATH_IMAGE_RGBA,
 } NikonPathImageFormat;
 
+typedef struct NikonPathImageTarget {
+    unsigned width, height, stride;
+} NikonPathImageTarget;
+
 typedef struct NikonPathStroke {
     float radius, extent; /* Object-space half width and tangent miter extent. */
     unsigned cap, join;
@@ -38,7 +42,8 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
  * NULL overlay validates only the sampler, format and work bounds. */
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
                       const uint8_t *image, NikonPathImageFormat format,
-                      unsigned width, unsigned height,
+                      unsigned source_width, unsigned source_height,
+                      const NikonPathImageTarget *target,
                       const uint32_t sample[9], uint32_t paint,
                       const char **reason);
 

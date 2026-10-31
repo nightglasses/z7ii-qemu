@@ -17,12 +17,15 @@ little-endian 32-bit registers:
 | `0x10` | `+0x04` | First byte to initialize |
 | `0x14` | `+0x08` | Exclusive end address |
 | `0x18` | `+0x0c` | Zero fill value |
-| `0x1c` | `+0x10` | Command `1`, `0x201` or `0x0f100201`; zero acknowledges/cancels |
+| `0x1c` | `+0x10` | Command `0x0f100001` or `0x0f100201`; zero acknowledges/cancels |
 
 A modified C1.70 benchmark's first 64-by-64 image allocation reaches this
 same mode-zero branch with descriptor words `{0, start, start+16384, 0,
-0x0f100201}`. The producer's default literal at `0x106ee284` supplies that
-third command. The preceding finite model rejected its `+0x1c` write at
+0x0f100201}`. The upstream dispatcher at `0x1064d46c..0x1064d470` ORs
+the constructor's low command `1` or `0x201` with `0x0f100000` before placing
+it in the producer record. Both resulting complete commands are admitted;
+the producer also has a `0x0f100201` default literal at `0x106ee284`.
+The preceding finite model rejected the observed `+0x1c` write at
 `0x106ee3c6`; admitting this exact command retains all operand and memory
 checks. Its upper command bits are not generalized to other operations.
 
@@ -43,8 +46,9 @@ any prefix that was actually transferred.
 
 The native `/nikon/transfer/image-memory-init` fixture fails on the preceding
 model's first `+0x10` write. The implemented profile clears an 8200-byte
-interior range for all three commands, preserves guard bytes, waits for real DMA
+interior range for both complete commands, preserves guard bytes, waits for real DMA
 completion, acknowledges IRQ 131 and checks cancellation before and after a
-chunk plus reset. Six negative cases preserve memory and keep the interrupt
+chunk plus reset. Eight negative cases, including the obsolete OR-before
+constructor values `1` and `0x201`, preserve memory and keep the interrupt
 low. This is a synthetic device fixture; actual image API readback and a
 complete benchmark capture require the separate original-code execution run.
