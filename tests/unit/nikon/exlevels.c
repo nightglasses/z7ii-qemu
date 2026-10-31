@@ -4,6 +4,8 @@
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
 #include "qemu/crc-ccitt.h"
+#include "qemu/timer.h"
+#include "qemu/rcu.h"
 #include "qapi/error.h"
 #include "hw/core/irq.h"
 #include "hw/i2c/i2c.h"
@@ -14,6 +16,7 @@
 #include "system/reset.h"
 #include "system/runstate.h"
 #include "system/system.h"
+#include "system/cpu-timers.h"
 
 int (*qemu_main)(void);
 
@@ -78,6 +81,112 @@ static uint32_t io_levels(I2CBus *bus)
         i2c_end_transfer(bus);
     }
     return levels;
+}
+
+static void controller_write(AddressSpace *as, hwaddr address, uint32_t value)
+{
+    uint8_t data[4];
+
+    stl_le_p(data, value);
+    g_assert_cmpint(address_space_write(as, address, MEMTXATTRS_UNSPECIFIED,
+                                       data, sizeof(data)), ==, MEMTX_OK);
+}
+
+static uint32_t controller_read(AddressSpace *as, hwaddr address)
+{
+    uint8_t data[4];
+
+    g_assert_cmpint(address_space_read(as, address, MEMTXATTRS_UNSPECIFIED,
+                                      data, sizeof(data)), ==, MEMTX_OK);
+    return ldl_le_p(data);
+}
+
+static void receive_start(AddressSpace *as, I2CBus *bus, uint32_t control)
+{
+    const hwaddr base = 0x40005400;
+
+    /* Real expander registers, with auto-increment across the three outputs. */
+    io_write(bus, 4, 0x12);
+    io_write(bus, 5, 0x34);
+    io_write(bus, 6, 0x56);
+    g_assert_cmpint(i2c_start_transfer(bus, 0x22, false), ==, 0);
+    g_assert_cmpint(i2c_send(bus, 0x84), ==, 0);
+    i2c_end_transfer(bus);
+    controller_write(as, base, control | 0x101);
+    controller_write(as, base + 0x10, 0x45);
+    g_assert_cmphex(controller_read(as, base + 0x14) & 2, ==, 2);
+    controller_read(as, base + 0x18); /* SR1/SR2 releases address stretching. */
+}
+
+static void i2c_elapsed_receive(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
+    AddressSpace as;
+    const hwaddr base = 0x40005400;
+    int64_t start;
+
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_init(&as, nikon_ex_memory(ex), "i2c-elapsed");
+    vm_start();
+    receive_start(&as, bus, 0x400);
+    start = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    /* Deliberately omit main-loop dispatch, as in the original HAL poll. */
+    cpus_set_virtual_clock(start + 89999);
+    g_assert_cmphex(controller_read(&as, base + 0x14) & 0x44, ==, 0x40);
+    cpus_set_virtual_clock(start + 90000);
+    g_assert_cmphex(controller_read(&as, base + 0x14) & 0x44, ==, 0x44);
+    g_assert_cmphex(controller_read(&as, base + 0x10), ==, 0x12);
+    g_assert_cmphex(controller_read(&as, base + 0x10), ==, 0x34);
+    controller_write(&as, base, 0x201);
+    qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+    vm_stop(RUN_STATE_PAUSED);
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_destroy(&as);
+    drain_call_rcu();
+}
+
+static void i2c_elapsed_boundaries(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    I2CBus *bus = nikon_ex_i2c_bus(ex, 0);
+    AddressSpace as;
+    const hwaddr base = 0x40005400;
+
+    address_space_init(&as, nikon_ex_memory(ex), "i2c-elapsed-boundaries");
+    vm_start();
+    for (unsigned kind = 0; kind < 5; kind++) {
+        qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+        receive_start(&as, bus, kind == 0 ? 0x800 : 0x400);
+        if (kind == 1) {
+            controller_write(&as, base, 1); /* Cancel ACK before the deadline. */
+        } else if (kind == 2) {
+            controller_write(&as, base, 0x601); /* STOP with ACK retained. */
+        } else if (kind == 3) {
+            controller_write(&as, base, 0); /* Peripheral disabled. */
+        } else if (kind == 4) {
+            controller_write(&as, 0x40023820, 1 << 21); /* RCC reset. */
+        }
+        cpus_set_virtual_clock(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+        uint32_t status = controller_read(&as, base + 0x14);
+        g_assert_cmphex(status & 0x44, ==, kind == 0 ? 0x44 :
+                        kind < 3 ? 0x40 : 0);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        if (kind == 0) {
+            /* POS/ACK=0 clocks exactly two bytes, with no replayed callback. */
+            g_assert_cmphex(controller_read(&as, base + 0x10), ==, 0x12);
+            g_assert_cmphex(controller_read(&as, base + 0x10), ==, 0x34);
+            g_assert_cmphex(controller_read(&as, base + 0x14) & 0x44, ==, 0);
+            controller_write(&as, base, 0xa01);
+        } else if (kind < 3) {
+            g_assert_cmphex(controller_read(&as, base + 0x10), ==, 0x12);
+            g_assert_cmphex(controller_read(&as, base + 0x14) & 0x44, ==, 0);
+        }
+    }
+    vm_stop(RUN_STATE_PAUSED);
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_destroy(&as);
+    drain_call_rcu();
 }
 
 static void configured_levels(void)
@@ -468,6 +577,8 @@ int main(int argc, char **argv)
         qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
     }
     g_test_add_func("/nikon/ex/configured-io-levels", configured_levels);
+    g_test_add_func("/nikon/ex/i2c-elapsed-receive", i2c_elapsed_receive);
+    g_test_add_func("/nikon/ex/i2c-elapsed-boundaries", i2c_elapsed_boundaries);
     g_test_add_func("/nikon/ex/power-devices", power_devices);
     g_test_add_func("/nikon/ex/status-notification", status_notification);
     g_test_add_func("/nikon/ex/status-interleaved-lifecycle",

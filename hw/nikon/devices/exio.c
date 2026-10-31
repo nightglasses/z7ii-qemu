@@ -6,6 +6,7 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "qemu/log.h"
+#include "qapi/visitor.h"
 #include "hw/core/irq.h"
 #include "hw/nikon/exio.h"
 #include "migration/vmstate.h"
@@ -69,6 +70,14 @@ static uint32_t exio_status(NikonEXIOState *s)
         }
     }
     return result & exio_bits(s, 0x0c) & ~exio_bits(s, 0x54);
+}
+
+static void exio_status_property(Object *obj, Visitor *visitor, const char *name,
+                                 void *opaque, Error **errp)
+{
+    uint64_t value = exio_status(NIKON_EX_IO(obj));
+
+    visit_type_uint64(visitor, name, &value, errp);
 }
 
 static void exio_irq(NikonEXIOState *s)
@@ -361,6 +370,30 @@ static const VMStateDescription exio_vmstate = {
 static void exio_init(Object *obj)
 {
     NikonEXIOState *s = NIKON_EX_IO(obj);
+    object_property_add_uint32_ptr(obj, "external", &s->external,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "input", &s->input, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "raw", &s->raw, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "reference", &s->reference,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "latched", &s->latched, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "latch-valid", &s->latch_valid,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "pending", &s->pending, OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "clock-cycles", &s->clock_cycles,
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "interrupt-status", "uint64",
+                        exio_status_property, NULL, NULL, NULL);
+    object_property_add_uint8_ptr(obj, "direction0", &s->reg[0x0c],
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "direction1", &s->reg[0x0d],
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "interrupt-mask0", &s->reg[0x54],
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "interrupt-mask1", &s->reg[0x55],
+                                  OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "edges1", &s->reg[0x61], OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(obj, "edges2", &s->reg[0x62], OBJ_PROP_FLAG_READ);
     qdev_init_gpio_in_named(DEVICE(s), exio_input, "pad", 24);
     qdev_init_gpio_in_named(DEVICE(s), exio_reset_input, "reset", 1);
     qdev_init_gpio_out_named(DEVICE(s), s->pad, "pad-out", 24);

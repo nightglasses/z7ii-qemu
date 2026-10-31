@@ -219,6 +219,44 @@ The complete 19-subtest EX batch passes. These are controller fixtures;
 they do not establish the cause of an original-firmware wait, menu operation,
 physical timing, or acceptance of a modified firmware package.
 
+### Elapsed receive deadlines and polling
+
+An original C1.70 run on the composed multi-thread TCG profile stopped in the
+EX HAL's `SR1` polling loop at EX VA `0x080474e4`. The observed controller at
+EX PA `0x40005400` had `CR1=0x401`, `SR1=0x40`, `SR2=3`, one received byte
+and an outstanding shift timer. Its deadline was `3958636500 ns`; virtual
+time was already `3965896000 ns`. The guest reached the finite 50,000-poll
+diagnostic before the main loop dispatched that elapsed byte. This was a
+timer-observation ordering defect, not evidence for supplying an invented BTF
+bit or a fabricated byte.
+
+`ex_i2c_sync` now retires an elapsed pending shift through the same
+`ex_i2c_rx_shift` callback used by normal timer dispatch, before a consuming
+controller read or a controller write. The callback receives the actual
+expander byte through upstream I2C, obeys ACK/POS and the finite receive
+budget, and updates the ordinary interrupt line. Removing the expired timer
+first prevents a later main-loop dispatch from receiving that byte twice.
+Debugger inspection does not trigger this synchronization. Disabling or
+resetting the peripheral also cancels a future receive shift.
+
+The native `/nikon/ex/i2c-elapsed-receive` regression advances virtual time
+without dispatching main-loop timers. With the preceding implementation its
+deadline assertion fails with `0x40 != 0x44`. The corrected model keeps only
+RXNE at `89999 ns`, sets BTF at the default `90000 ns` byte deadline, and
+returns distinct real expander output bytes `0x12` and `0x34` through DR.
+`/nikon/ex/i2c-elapsed-boundaries` additionally covers POS with ACK clear,
+ACK cancellation, STOP, peripheral disable and RCC reset. All six EX-level
+native tests pass together. These controller fixtures do not establish
+physical bus timing or unrestricted original-firmware stability.
+
+Read-only QOM properties expose the I2C0 control/status/FIFO state and the
+signed time remaining until a pending shift (`INT64_MIN` means no timer).
+The expander exposes its physical, sampled and reference levels, pending
+interrupt state and selected configuration bytes. Reading these properties
+does not acknowledge an interrupt or change a FIFO. The CPU BASEPRI,
+PRIMASK and FAULTMASK properties are separate observations, not an atomic
+cross-device snapshot.
+
 ## MAS mode-1 producer: retire the watchpoint evidence {#mas-mode-1-producer-retire-the-watchpoint-evidence}
 
 The "no `0x2c0a0000`/`0x1024...` FIFO write" item is an instrumentation
