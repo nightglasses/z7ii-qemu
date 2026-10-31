@@ -39,6 +39,33 @@ latches and publishes active-low GPIO levels (`0 = pressed`, `1 = released`):
 | `up` | 9 | 5 | `KEY_UP` | 36 | Navigate category up / item up |
 | `down` | 10 | 4 | `KEY_DOWN` | 37 | Navigate category down / item down |
 
+### Observing an input and its menu effect
+
+The MAS buffers at VA `0xb25eae30` and `0xb25eaeac` are not a continuously
+updated held-contact register. The C1.70 converter at VA `0x104343c6` clears
+its 124-byte message output and fills only the fields represented by that
+message. The command-7 producer at VA `0x10433ebc` derives a separate switch
+snapshot. Waiting for a bit in that snapshot to clear can therefore report
+a false key-release failure while the menu has already consumed the input.
+The button-byte offsets in the table are decimal, not hexadecimal.
+
+Use the input frontend and expander's read-only physical-level properties to
+check host contact delivery, then verify the requested menu effect through
+the original Page state and actual scanout. C1.70's Page pool pointer for
+group `g` is stored at VA `0xb201bd08 + 4*g`; each Page is 44 bytes. The group-2
+root is Page 1. Its child pointer at byte offset 8 retains the category Page.
+Within a Page, group/id are u16 at offsets 0/2, selection/scroll are u16 at
+offsets `0x16/0x18`, and the native drawing-container pointer is at `0x24`.
+These are guest virtual addresses and require the current translation before
+physical reads. A retained child pointer alone does not prove that its page
+is visible or that the display queue has presented it.
+
+In a bounded C1.70 menu observation, the Playback Page had id `0x12`; a normal
+Down contact changed its selection from 0 to 1 and actual scanout highlighted
+Playback folder. The Setup Page used by the bench extension has id `0x1ed`.
+Selection and rendered pixels provide a meaningful navigation postcondition;
+counting host key pulses or sampling an unrelated switch snapshot does not.
+
 ## Navigation State Machine and Transition Matrix
 
 The main menu operates across two distinct focus domains:
