@@ -119,6 +119,7 @@ static void test_image_memory_init(void)
     TransferFixture *f = g_new0(TransferFixture, 1);
     MemoryRegion *root = get_system_memory();
     const uint32_t begin = 0x5004, end = begin + 8200;
+    const uint32_t commands[] = { 1, 0x201, 0x0f100201 };
     uint8_t *bytes;
 
     f->dev = qdev_new(TYPE_NIKON_TRANSFER);
@@ -133,12 +134,12 @@ static void test_image_memory_init(void)
     sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 2, f->irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
     device_cold_reset(f->dev);
-    for (unsigned mode = 0; mode < 2; mode++) {
+    for (unsigned mode = 0; mode < ARRAY_SIZE(commands); mode++) {
         memset(bytes, 0xa5, 8256);
         g_assert_cmpint(write_register(f, 0x10, begin), ==, MEMTX_OK);
         g_assert_cmpint(write_register(f, 0x14, end), ==, MEMTX_OK);
         g_assert_cmpint(write_register(f, 0x18, 0), ==, MEMTX_OK);
-        g_assert_cmpint(write_register(f, 0x1c, mode ? 0x201 : 1), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x1c, commands[mode]), ==, MEMTX_OK);
         g_assert_false(f->level);
         g_assert_cmphex(bytes[4], ==, 0xa5);
         for (unsigned n = 0; !f->level; n++) {

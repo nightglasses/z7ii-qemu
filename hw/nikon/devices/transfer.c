@@ -2742,7 +2742,8 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         }
         /* vgCreateImage's type4 descriptor initializes [start,end) with zero.
          * The optional strided/format conversion port remains unsupported. */
-        if ((value != 1 && value != 0x201) || s->fill_running ||
+        if ((value != 1 && value != 0x201 && value != 0x0f100201) ||
+            s->fill_running ||
             s->fill_completed || s->fill_configured != 7 || s->fill_reg[2] ||
             (s->fill_reg[0] & 3) || (s->fill_reg[1] & 3) ||
             s->fill_reg[1] <= s->fill_reg[0] ||
