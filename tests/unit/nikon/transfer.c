@@ -114,6 +114,107 @@ static void advance(void)
                                     100000);
 }
 
+static void test_image_memory_init(void)
+{
+    TransferFixture *f = g_new0(TransferFixture, 1);
+    MemoryRegion *root = get_system_memory();
+    const uint32_t begin = 0x5004, end = begin + 8200;
+    uint8_t *bytes;
+
+    f->dev = qdev_new(TYPE_NIKON_TRANSFER);
+    object_property_add_child(object_get_objects_root(), "transfer-init[*]",
+                              OBJECT(f->dev));
+    memory_region_init_ram_flags_nomigrate(&f->destination, OBJECT(f->dev),
+                                          "test.image-memory", 8256, 0,
+                                          &error_abort);
+    memory_region_add_subregion(root, 0x5000, &f->destination);
+    bytes = memory_region_get_ram_ptr(&f->destination);
+    f->irq = qemu_allocate_irq(irq_level, f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f->dev), 2, f->irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f->dev), &error_abort));
+    device_cold_reset(f->dev);
+    for (unsigned mode = 0; mode < 2; mode++) {
+        memset(bytes, 0xa5, 8256);
+        g_assert_cmpint(write_register(f, 0x10, begin), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x14, end), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x18, 0), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x1c, mode ? 0x201 : 1), ==, MEMTX_OK);
+        g_assert_false(f->level);
+        g_assert_cmphex(bytes[4], ==, 0xa5);
+        for (unsigned n = 0; !f->level; n++) {
+            g_assert_cmpuint(n, <, 4);
+            advance();
+        }
+        for (unsigned i = 0; i < 8256; i++) {
+            g_assert_cmphex(bytes[i], ==, i >= 4 && i < 8204 ? 0 : 0xa5);
+        }
+        g_assert_cmpint(write_register(f, 0x1c, 0), ==, MEMTX_OK);
+        g_assert_false(f->level);
+    }
+    /* Cancel and reset a future operation; neither may clear owned memory. */
+    for (unsigned reset = 0; reset < 2; reset++) {
+        memset(bytes, 0xa5, 8256);
+        g_assert_cmpint(write_register(f, 0x10, begin), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x14, end), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x18, 0), ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x1c, 1), ==, MEMTX_OK);
+        if (reset) {
+            device_cold_reset(f->dev);
+        } else {
+            g_assert_cmpint(write_register(f, 0x1c, 0), ==, MEMTX_OK);
+        }
+        advance();
+        g_assert_false(f->level);
+        for (unsigned i = 0; i < 8256; i++) {
+            g_assert_cmphex(bytes[i], ==, 0xa5);
+        }
+    }
+    for (unsigned invalid = 0; invalid < 6; invalid++) {
+        device_cold_reset(f->dev);
+        memset(bytes, 0xa5, 8256);
+        g_assert_cmpint(write_register(f, 0x10,
+                                      invalid == 2 ? begin + 1 : begin),
+                        ==, MEMTX_OK);
+        g_assert_cmpint(write_register(f, 0x14,
+                                      invalid == 3 ? begin :
+                                      invalid == 4 ? 0x9000 : end),
+                        ==, MEMTX_OK);
+        if (invalid != 5) {
+            g_assert_cmpint(write_register(f, 0x18, invalid == 1 ? 1 : 0),
+                            ==, MEMTX_OK);
+        }
+        g_assert_cmpint(write_register(f, 0x1c, invalid ? 1 : 2),
+                        ==, MEMTX_ERROR);
+        advance();
+        g_assert_false(f->level);
+        for (unsigned i = 0; i < 8256; i++) {
+            g_assert_cmphex(bytes[i], ==, 0xa5);
+        }
+    }
+    /* Cancellation after one real chunk preserves the completed prefix only. */
+    device_cold_reset(f->dev);
+    g_assert_cmpint(write_register(f, 0x10, begin), ==, MEMTX_OK);
+    g_assert_cmpint(write_register(f, 0x14, end), ==, MEMTX_OK);
+    g_assert_cmpint(write_register(f, 0x18, 0), ==, MEMTX_OK);
+    g_assert_cmpint(write_register(f, 0x1c, 1), ==, MEMTX_OK);
+    advance();
+    g_assert_false(f->level);
+    g_assert_cmpint(write_register(f, 0x1c, 0), ==, MEMTX_OK);
+    advance();
+    for (unsigned i = 0; i < 8256; i++) {
+        g_assert_cmphex(bytes[i], ==, i >= 4 && i < 4100 ? 0 : 0xa5);
+    }
+    g_assert_false(f->level);
+    qdev_unrealize(f->dev);
+    memory_region_del_subregion(root, &f->destination);
+    drain_call_rcu();
+    object_unparent(OBJECT(f->dev));
+    qemu_free_irq(f->irq);
+    object_unref(OBJECT(f->dev));
+    drain_call_rcu();
+    g_free(f);
+}
+
 static void test_romd_boundary(void)
 {
     TransferFixture *f = g_new0(TransferFixture, 1);
@@ -6216,6 +6317,7 @@ int main(int argc, char **argv)
     }
     qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
     g_test_add_func("/nikon/transfer/romd-boundary", test_romd_boundary);
+    g_test_add_func("/nikon/transfer/image-memory-init", test_image_memory_init);
     g_test_add_func("/nikon/transfer/empty-configuration",
                     test_empty_configuration);
     g_test_add_func("/nikon/transfer/stream-submission", test_stream_submission);

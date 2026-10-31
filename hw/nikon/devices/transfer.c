@@ -115,6 +115,7 @@ struct NikonTransferState {
     Clock *clock;
     QEMUTimer *timer;
     QEMUTimer *stream_timer;
+    QEMUTimer *fill_timer;
     qemu_irq irq[3];
     uint32_t reg[TRANSFER_REGISTER_COUNT];
     uint32_t setup[ARRAY_SIZE(setup_offsets)];
@@ -130,6 +131,9 @@ struct NikonTransferState {
     uint64_t rgba720_target; /* UINT64_MAX means no initialized profile. */
     bool yuva107;
     bool wait_reported;
+    uint32_t fill_reg[3], fill_configured;
+    uint64_t fill_address, fill_remaining;
+    bool fill_running, fill_completed;
 };
 
 static void nikon_transfer_irq(NikonTransferState *s)
@@ -138,8 +142,8 @@ static void nikon_transfer_irq(NikonTransferState *s)
     qemu_set_irq(s->irq[0], s->stream_irq_pending);
     /* Bit15 is the source-installed transfer completion enable convention. */
     qemu_set_irq(s->irq[1], s->completed && (s->setup[2] & 0x8000));
-    /* The IRQ131 producer remains unknown. */
-    qemu_set_irq(s->irq[2], 0);
+    /* C1.70 106ee0d2 type4 initialization; 106ee3e2 acknowledges 1c. */
+    qemu_set_irq(s->irq[2], s->fill_completed);
 }
 
 static MemTxResult nikon_transfer_error(NikonTransferState *s, hwaddr offset,
@@ -194,6 +198,42 @@ static void nikon_transfer_schedule(NikonTransferState *s)
 {
     timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
               clock_ticks_to_ns(s->clock, MIN(s->plane_remaining, 4096)) + 1);
+}
+
+static void nikon_transfer_fill_schedule(NikonTransferState *s)
+{
+    timer_mod(s->fill_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+              clock_ticks_to_ns(s->clock, MIN(s->fill_remaining, 4096)) + 1);
+}
+
+static void nikon_transfer_fill_step(void *opaque)
+{
+    NikonTransferState *s = opaque;
+    unsigned length;
+    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+
+    if (!s->fill_running) {
+        return;
+    }
+    length = nikon_transfer_span(s->fill_address,
+                                MIN(s->fill_remaining, 4096), true);
+    attrs.memory = true;
+    if (!length || dma_memory_set(&address_space_memory, s->fill_address, 0,
+                                   length, attrs) != MEMTX_OK) {
+        s->fill_running = false;
+        nikon_transfer_error(s, 0x1c, 4, true, s->setup[0],
+                             "transfer-fill-memory-not-backed");
+        return;
+    }
+    s->fill_address += length;
+    s->fill_remaining -= length;
+    if (s->fill_remaining) {
+        nikon_transfer_fill_schedule(s);
+    } else {
+        s->fill_running = false;
+        s->fill_completed = true;
+        nikon_transfer_irq(s);
+    }
 }
 
 static void nikon_transfer_step(void *opaque)
@@ -2680,6 +2720,47 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         (offset >= 0x10e0 && offset <= 0x10ec)) {
         return nikon_transfer_stream_write(s, offset, value);
     }
+    if (offset == 0x10 || offset == 0x14 || offset == 0x18) {
+        if (s->fill_running || s->fill_completed) {
+            goto unsupported;
+        }
+        unsigned field = (offset - 0x10) / 4;
+
+        s->fill_reg[field] = value;
+        s->fill_configured |= 1U << field;
+        return MEMTX_OK;
+    }
+    if (offset == 0x1c) {
+        if (!value) {
+            timer_del(s->fill_timer);
+            s->fill_running = s->fill_completed = false;
+            s->fill_configured = 0;
+            s->fill_remaining = 0;
+            s->setup[0] = 0;
+            nikon_transfer_irq(s);
+            return MEMTX_OK;
+        }
+        /* vgCreateImage's type4 descriptor initializes [start,end) with zero.
+         * The optional strided/format conversion port remains unsupported. */
+        if ((value != 1 && value != 0x201) || s->fill_running ||
+            s->fill_completed || s->fill_configured != 7 || s->fill_reg[2] ||
+            (s->fill_reg[0] & 3) || (s->fill_reg[1] & 3) ||
+            s->fill_reg[1] <= s->fill_reg[0] ||
+            (uint64_t)s->fill_reg[1] - s->fill_reg[0] > 0x1000000) {
+            goto unsupported;
+        }
+        extent = (uint64_t)s->fill_reg[1] - s->fill_reg[0];
+        if (!nikon_transfer_range(s->fill_reg[0], extent, true)) {
+            return nikon_transfer_error(s, offset, size, true, value,
+                                         "transfer-fill-memory-not-backed");
+        }
+        s->fill_address = s->fill_reg[0];
+        s->fill_remaining = extent;
+        s->setup[0] = value;
+        s->fill_running = true;
+        nikon_transfer_fill_schedule(s);
+        return MEMTX_OK;
+    }
     if (setup >= 0) {
         bool kick = offset == 0x1214 && value == TRANSFER_STREAM_KICK;
 
@@ -2862,6 +2943,7 @@ static void nikon_transfer_reset(DeviceState *dev)
 
     timer_del(s->timer);
     timer_del(s->stream_timer);
+    timer_del(s->fill_timer);
     nikon_transfer_stream_clear(s);
     s->stream_setup = 0;
     memset(s->reg, 0, sizeof(s->reg));
@@ -2871,6 +2953,10 @@ static void nikon_transfer_reset(DeviceState *dev)
     s->plane_remaining = s->secondary_source = s->secondary_destination = 0;
     s->running = s->completed = s->reported_error = false;
     s->stream_running = s->stream_ready = s->stream_irq_pending = false;
+    memset(s->fill_reg, 0, sizeof(s->fill_reg));
+    s->fill_configured = 0;
+    s->fill_address = s->fill_remaining = 0;
+    s->fill_running = s->fill_completed = false;
     clock_update_hz(s->clock, 48000000);
     nikon_transfer_irq(s);
 }
@@ -2899,6 +2985,8 @@ static void nikon_transfer_init(Object *obj)
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nikon_transfer_step, s);
     s->stream_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                    nikon_transfer_stream_complete, s);
+    s->fill_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                 nikon_transfer_fill_step, s);
     memory_region_init_io(&s->regs, obj, &nikon_transfer_ops, s,
                           "nikon.transfer", 0x2000);
     sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->regs);
@@ -2916,6 +3004,7 @@ static void nikon_transfer_finalize(Object *obj)
     }
     timer_free(s->timer);
     timer_free(s->stream_timer);
+    timer_free(s->fill_timer);
 }
 
 static const VMStateDescription nikon_transfer_vmstate = {
