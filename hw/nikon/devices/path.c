@@ -227,6 +227,13 @@ out:
     return success;
 }
 
+unsigned nikon_path_tile_index(unsigned x, unsigned y, unsigned width)
+{
+    return (y & ~7U) * width + (x & ~7U) * 8 + (x & 1) +
+           ((x & 2) << 1) + ((x & 4) << 2) + ((y & 1) << 1) +
+           ((y & 2) << 2) + ((y & 4) << 3);
+}
+
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
                       const uint8_t *image, NikonPathImageFormat format,
                       unsigned width, unsigned height,
@@ -264,6 +271,13 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
         *reason = "transfer-image-sampler-not-supported";
         return false;
     }
+    /* Native001b0100 texture setup consumes the original linear-to-tile
+     * copy's RGBA8888 words. A8 has its separately established byte profile. */
+    if (format == NIKON_PATH_IMAGE_RGBA &&
+        ((width & 7) || ((height & 7) && !(width == 8 && height == 4)))) {
+        *reason = "transfer-image-layout-not-supported";
+        return false;
+    }
     if (!overlay) {
         return true;
     }
@@ -288,15 +302,16 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             /* Functional nearest/clamp sampling, as in the fixed Z7 source. */
             tx = floor(CLAMP(u, 0, width - 1));
             ty = floor(CLAMP(v, 0, height - 1));
-            index = ty * width + tx;
+            index = format == NIKON_PATH_IMAGE_RGBA ?
+                    nikon_path_tile_index(tx, ty, width) : ty * width + tx;
             sample = image + index *
                      (format == NIKON_PATH_IMAGE_RGBA ? 4 : 1);
-            alpha = sample[format == NIKON_PATH_IMAGE_RGBA ? 3 : 0];
+            alpha = sample[0];
 
             coverage = (mask[p] * alpha + 127) / 255;
             for (unsigned c = 0; c < 3; c++) {
                 unsigned color = ((paint >> (8 * c)) & 255) *
-                    (format == NIKON_PATH_IMAGE_RGBA ? sample[c] : 255);
+                    (format == NIKON_PATH_IMAGE_RGBA ? sample[3 - c] : 255);
 
                 overlay[out + c] =
                     (color * coverage + 32512) / 65025;

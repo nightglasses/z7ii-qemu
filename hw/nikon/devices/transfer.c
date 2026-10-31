@@ -122,6 +122,9 @@ struct NikonTransferState {
     uint32_t configured;
     uint64_t source, destination, remaining;
     uint64_t plane_remaining, secondary_source, secondary_destination;
+    uint64_t tile_source;
+    uint32_t tile_control, tile_width, tile_height, tile_row;
+    bool tile_copy;
     bool running, completed, reported_error;
     NikonTransferStream stream[2];
     qemu_irq stream_request[2];
@@ -247,6 +250,68 @@ static void nikon_transfer_step(void *opaque)
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
 
     if (!s->running) {
+        return;
+    }
+    if (s->tile_copy) {
+        uint8_t input[720 * 8 * 4], output[720 * 8 * 4];
+        unsigned row_bytes = s->tile_width * 4, batch = row_bytes * 8;
+        unsigned source_y = s->tile_control & 1 ?
+                            s->tile_height - s->tile_row - 8 : s->tile_row;
+        uint64_t address = s->tile_source + source_y * row_bytes;
+        unsigned offset = 0;
+
+        while (offset < batch) {
+            unsigned span = nikon_transfer_span(address + offset,
+                                                 batch - offset, false);
+            if (!span || dma_memory_read(&address_space_memory,
+                    address + offset, input + offset, span, attrs) != MEMTX_OK) {
+                s->running = false;
+                nikon_transfer_error(s, 0xc18, 4, true, 1,
+                                     "transfer-tiled-source-not-backed");
+                return;
+            }
+            offset += span;
+        }
+        for (unsigned y = 0; y < 8; y++) {
+            unsigned sy = s->tile_control & 1 ? 7 - y : y;
+
+            for (unsigned x = 0; x < s->tile_width; x++) {
+                unsigned from, to;
+
+                if (s->tile_control & 2) {
+                    from = sy * s->tile_width + x;
+                    to = nikon_path_tile_index(x, y, s->tile_width);
+                } else {
+                    from = nikon_path_tile_index(x, sy, s->tile_width);
+                    to = y * s->tile_width + x;
+                }
+                memcpy(output + to * 4, input + from * 4, 4);
+            }
+        }
+        if (!nikon_transfer_range(s->destination, batch, true)) {
+            s->running = false;
+            nikon_transfer_error(s, 0xc18, 4, true, 1,
+                                 "transfer-tiled-destination-not-backed");
+            return;
+        }
+        attrs.memory = true;
+        if (dma_memory_write(&address_space_memory, s->destination, output,
+                             batch, attrs) != MEMTX_OK) {
+            s->running = false;
+            nikon_transfer_error(s, 0xc18, 4, true, 1, "transfer-dma-failed");
+            return;
+        }
+        s->destination += batch;
+        s->remaining -= batch;
+        s->plane_remaining = s->remaining;
+        s->tile_row += 8;
+        if (s->remaining) {
+            nikon_transfer_schedule(s);
+        } else {
+            s->running = false;
+            s->completed = true;
+            nikon_transfer_irq(s);
+        }
         return;
     }
     /* Direct ROMD reads are not capped by QEMU at a short alias boundary.
@@ -1215,7 +1280,8 @@ static const NikonTransferField image_draw_fields[] = {
 
 static bool nikon_transfer_image_fields(const uint32_t *words, bool setup,
                                         unsigned count, bool normal,
-                                        const NikonPathImageTarget *target)
+                                        const NikonPathImageTarget *target,
+                                        bool native)
 {
     const NikonTransferField *fields = setup ? image_setup_fields :
                                               image_draw_fields;
@@ -1235,7 +1301,20 @@ static bool nikon_transfer_image_fields(const uint32_t *words, bool setup,
         /* 1068c344/1068c386 encode target dimensions at precision shift2.
          * These are independent of reg158's source-image dimensions. */
         if ((setup && (i == 23 || i == 28)) || (!setup && i == 74)) {
-            expected = (target->width << 2) | (target->height << 18);
+            expected = native ? target->width | target->height << 16 :
+                       (target->width << 2) | (target->height << 18);
+        }
+        if (native) {
+            if (setup && i == 11) {
+                expected = 0x100;
+            } else if (!setup) {
+                switch (i) {
+                case 27: case 61: case 67: case 69: expected = 0; break;
+                case 51: expected = 0x100; break;
+                case 76: expected = 0x01000000; break;
+                default: break;
+                }
+            }
         }
         if ((setup && ((i >= 1 && i <= 9) || i == 25 ||
                        (i >= 36 && i <= 40) || i == 42)) ||
@@ -1255,6 +1334,169 @@ typedef struct NikonTransferImageTarget {
     uint32_t address;
     NikonPathImageTarget layout;
 } NikonTransferImageTarget;
+
+static bool nikon_transfer_rectangle_fields(const uint32_t *words,
+                                            unsigned count,
+                                            const NikonTransferField *fields,
+                                            unsigned field_count,
+                                            uint64_t operands);
+
+static bool nikon_transfer_native_images_candidate(const uint32_t *setup,
+                                                   size_t setup_bytes)
+{
+    return (setup_bytes >= 96 && le32_to_cpu(setup[0]) == 0x00691004 &&
+            le32_to_cpu(setup[22]) == 0x00653004 &&
+            le32_to_cpu(setup[23]) == 0x100) ||
+           (setup_bytes >= 48 && le32_to_cpu(setup[0]) == 0x0041f046 &&
+            le32_to_cpu(setup[10]) == 0x00653004 &&
+            le32_to_cpu(setup[11]) == 0x100);
+}
+
+static bool nikon_transfer_native_images(NikonTransferState *s, uint8_t *overlay,
+                                         NikonTransferImageTarget *output,
+                                         const char **reason)
+{
+    static const NikonTransferField prefix[] = {
+        {0, 0x01408004}, {2, 0x01901004}, {4, 0x014ee004}, {5, 0x001b0000},
+        {6, 0x0156e004}, {7, 0x001b0000}, {8, 0x01a2f004},
+        {10, 0x01a3f004}, {11, 0x01000100}, {12, 0x01844004},
+        {14, 0x01a7f004}, {15, 0x01000101}, {16, 0x011cf004},
+        {17, 0x01000000}, {18, 0x01a08004}, {20, 0x01001004},
+        {22, 0x01151004}, {24, 0x01b01004}, {25, 11}, {26, 0x01b31004},
+        {28, 0x01848004}, {30, 0x01a11004},
+    };
+    static const uint8_t segments[] = {2, 7, 9, 7, 0};
+    const NikonPathImageTarget layout = {256, 256, 256 * 4};
+    const uint32_t *setup, *draw;
+    size_t setup_bytes, draw_bytes;
+    unsigned sa = 0, da = 0, count, first_key = 0;
+    uint32_t target = 0;
+    bool initial;
+
+    setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
+    draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    initial = le32_to_cpu(setup[0]) == 0x00691004;
+    if (initial) {
+        if (setup_bytes < 12 * 4 || draw_bytes < 32 * 4 ||
+            le32_to_cpu(setup[1]) != 0x80 ||
+            le32_to_cpu(setup[2]) != 0x0041f046 ||
+            !nikon_transfer_rectangle_fields(draw, 32, prefix,
+                                             ARRAY_SIZE(prefix), 0)) {
+            *reason = "transfer-image-batch-initial-state-not-supported";
+            return false;
+        }
+        sa = 12;
+        da = 32;
+    }
+    count = (setup_bytes / 4 - sa) / 43;
+    if (!count || count > 8 ||
+        setup_bytes != ROUND_UP(sa + count * 43, 2) * 4 ||
+        draw_bytes != ROUND_UP(da + count * 79 + 2, 2) * 4 ||
+        (((sa + count * 43) & 1) && setup[sa + count * 43]) ||
+        le32_to_cpu(draw[da + count * 79]) != 0x00081004 ||
+        le32_to_cpu(draw[da + count * 79 + 1]) != 1 ||
+        (((da + count * 79) & 1) && draw[da + count * 79 + 2])) {
+        *reason = "transfer-image-batch-count-not-supported";
+        return false;
+    }
+    for (unsigned item = 0; item < count; item++) {
+        uint32_t a[44] = {0}, b[84] = {0}, coordinates[5];
+        uint32_t side, key, address, source, bytes;
+        g_autofree uint8_t *mask = NULL;
+        g_autofree uint8_t *image = NULL;
+
+        memcpy(a, setup + sa + item * 43, 43 * 4);
+        memcpy(b, draw + da + item * 79, 44 * 4);
+        b[44] = cpu_to_le32(0x0185f004);
+        b[45] = cpu_to_le32(0xffffffff);
+        memcpy(b + 46, draw + da + item * 79 + 44, 35 * 4);
+        b[81] = cpu_to_le32(0x00081004);
+        b[82] = cpu_to_le32(1);
+        side = le32_to_cpu(b[11]) & 65535;
+        key = le32_to_cpu(a[42]);
+        address = le32_to_cpu(b[59]);
+        source = le32_to_cpu(b[25]);
+        bytes = side * side * 4;
+        if (!item) {
+            target = address;
+            first_key = key;
+        }
+        if (!nikon_transfer_image_fields(a, true, 44, false, &layout, true) ||
+            !nikon_transfer_image_fields(b, false, 84, true, &layout, true) ||
+            le32_to_cpu(b[13]) != 0x001b0000 ||
+            (side != 64 && side != 128 && side != 256) ||
+            le32_to_cpu(b[11]) != (side << 16 | side) ||
+            b[15] != b[11] || (le32_to_cpu(b[29]) != 0 &&
+                                  le32_to_cpu(b[29]) != 2) ||
+            (first_key >> 16) != 1 || !(first_key & 65535) ||
+            (first_key & 65535) == 65535 || (initial && first_key != 0x10001) ||
+            key != (0x10000 | ((first_key - 0x10001 + item) % 0xfffe + 1)) ||
+            le32_to_cpu(b[78]) != key ||
+            !a[25] || a[25] != b[71] || target != address ||
+            (target & 3) || (source & 3) ||
+            (!initial && (s->image_target != target ||
+                           s->image_target_width != 256 ||
+                           s->image_target_height != 256))) {
+            *reason = "transfer-image-batch-program-not-supported";
+            return false;
+        }
+        for (unsigned i = 0; i < 9; i++) {
+            if (le32_to_cpu(a[1 + i]) != (i % 4 ? 0 : 0x3f800000)) {
+                *reason = "transfer-image-batch-transform-not-supported";
+                return false;
+            }
+        }
+        for (unsigned i = 0; i < 5; i++) {
+            int32_t value = i < 2 ? 0 : i == 4 ? -(int32_t)side : side;
+            float f = value;
+            uint32_t bits;
+
+            if (le32_to_cpu(a[36 + i]) != (uint32_t)value) {
+                *reason = "transfer-image-batch-path-not-supported";
+                return false;
+            }
+            memcpy(&bits, &f, 4);
+            coordinates[i] = cpu_to_le32(bits);
+        }
+        if (!nikon_path_image(NULL, NULL, NULL, NIKON_PATH_IMAGE_RGBA,
+                              side, side, &layout, b + 1, 0xffffffff, reason) ||
+            !nikon_transfer_range(target, 256 * 256 * 4, true) ||
+            !nikon_transfer_range(source, bytes, false) ||
+            nikon_transfer_overlap(target, 256 * 256 * 4, source, bytes) ||
+            nikon_transfer_alias(source, bytes, target, 256 * 256 * 4)) {
+            *reason = "transfer-image-batch-memory-not-supported";
+            return false;
+        }
+        for (unsigned i = 0; i < 2; i++) {
+            uint64_t start = s->stream[i].source;
+            uint64_t length = i ? draw_bytes : setup_bytes;
+
+            if (nikon_transfer_overlap(start, length, source, bytes) ||
+                nikon_transfer_overlap(start, length, target, 256 * 256 * 4) ||
+                nikon_transfer_alias(start, length, target, 256 * 256 * 4)) {
+                *reason = "transfer-image-batch-operands-overlap";
+                return false;
+            }
+        }
+        if (overlay) {
+            mask = g_malloc0(256 * 256);
+            image = g_malloc(bytes);
+            if (dma_memory_read(&address_space_memory, source, image, bytes,
+                                 MEMTXATTRS_UNSPECIFIED) != MEMTX_OK ||
+                !nikon_path_mask(mask, 256, 256, segments, 5, coordinates, 5,
+                                 a + 1, false, NULL, reason) ||
+                !nikon_path_image(overlay, mask, image, NIKON_PATH_IMAGE_RGBA,
+                                  side, side, &layout, b + 1, 0xffffffff,
+                                  reason)) {
+                return false;
+            }
+        }
+    }
+    if (output) {
+        *output = (NikonTransferImageTarget) {target, layout};
+    }
+    return true;
+}
 
 static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
                                        NikonTransferImageTarget *output,
@@ -1276,6 +1518,9 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
 
     setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
     draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
+    if (nikon_transfer_native_images_candidate(setup, setup_bytes)) {
+        return nikon_transfer_native_images(s, overlay, output, reason);
+    }
     initial = setup_bytes == 224 &&
               (draw_bytes == 464 || draw_bytes == 472);
     body_bytes = draw_bytes;
@@ -1330,9 +1575,9 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
         memcpy(normal_draw + 46, draw + 44, body_bytes - 44 * sizeof(*draw));
         draw = normal_draw;
     }
-    if (!nikon_transfer_image_fields(setup, true, 44, false, &target_layout) ||
+    if (!nikon_transfer_image_fields(setup, true, 44, false, &target_layout, false) ||
         !nikon_transfer_image_fields(draw, false, initial ? 83 : 84, normal,
-                                    &target_layout)) {
+                                    &target_layout, false)) {
         *reason = "transfer-image-program-not-supported";
         return false;
     }
@@ -2089,6 +2334,11 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
     const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
 
+    if (nikon_transfer_native_images_candidate(setup, setup_bytes)) {
+        program->kind = TRANSFER_PROGRAM_IMAGE_FILL;
+        return nikon_transfer_image_parse(s, NULL, NULL, reason);
+    }
+
     if (g_bytes_get_size(s->stream[0].bytes) >= 43 * 4 &&
         le32_to_cpu(setup[0]) == 0x00691004 &&
         le32_to_cpu(setup[2]) == 0x005ef00e) {
@@ -2240,7 +2490,17 @@ static bool nikon_transfer_image_execute(NikonTransferState *s,
         return false;
     }
     for (unsigned i = 0; i < target.layout.width * target.layout.height; i++) {
-        nikon_transfer_rgba_over(destination + 4 * i, overlay + 4 * i, 255, true);
+        if (target.layout.width == 256) {
+            /* Native surface3fdf/format0/origin0 is tiled. 105a701c returns
+             * pixel order1, so10682ab8 decodes these ordinary RGBA bytes. */
+            unsigned x = i % 256, y = i / 256;
+            uint8_t *pixel = destination +
+                             4 * nikon_path_tile_index(x, y, 256);
+            nikon_transfer_rgba_over(pixel, overlay + 4 * i, 255, true);
+        } else {
+            nikon_transfer_rgba_over(destination + 4 * i, overlay + 4 * i,
+                                     255, true);
+        }
     }
     address_space_unmap(&address_space_memory, destination, bytes, true, bytes);
     s->image_target = target.address;
@@ -2801,7 +3061,7 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
                         (1U << TRANSFER_CONTROL);
     uint64_t extent;
     unsigned selector;
-    bool secondary = false;
+    bool secondary = false, tile_copy = false;
     int setup = nikon_transfer_setup(offset);
 
     if (size != 4) {
@@ -2917,8 +3177,9 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         required = (1U << TRANSFER_SOURCE_GEOMETRY) |
                    (1U << TRANSFER_DESTINATION_GEOMETRY);
         selector = (s->reg[TRANSFER_CONTROL] >> 8) & 7;
+        tile_copy = s->reg[TRANSFER_CONTROL] <= 3;
         if ((s->configured & required) != required ||
-            s->reg[TRANSFER_CONTROL] & ~0x00007700U ||
+            (s->reg[TRANSFER_CONTROL] & ~0x00007700U && !tile_copy) ||
             selector >= ARRAY_SIZE(byte_factors) ||
             selector != ((s->reg[TRANSFER_CONTROL] >> 12) & 7) ||
             s->reg[TRANSFER_SOURCE_GEOMETRY] !=
@@ -2936,6 +3197,23 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
         extent = (uint64_t)(s->reg[TRANSFER_SOURCE_GEOMETRY] & 0xffff) *
                  (s->reg[TRANSFER_SOURCE_GEOMETRY] >> 16) *
                  byte_factors[selector];
+        if (tile_copy) {
+            unsigned width = s->reg[TRANSFER_SOURCE_GEOMETRY] & 65535;
+            unsigned height = s->reg[TRANSFER_SOURCE_GEOMETRY] >> 16;
+
+            if (secondary ||
+                !((width == 720 && height == 480) ||
+                  (width == height && (width == 64 || width == 128 ||
+                                       width == 256))) ||
+                (s->reg[TRANSFER_SOURCE] & 3) ||
+                (s->reg[TRANSFER_DESTINATION] & 3) ||
+                nikon_transfer_overlap(s->reg[TRANSFER_SOURCE], extent,
+                                        s->reg[TRANSFER_DESTINATION], extent) ||
+                nikon_transfer_alias(s->reg[TRANSFER_SOURCE], extent,
+                                      s->reg[TRANSFER_DESTINATION], extent)) {
+                goto unsupported;
+            }
+        }
     }
     if (!extent || extent > UINT32_MAX ||
         s->reg[TRANSFER_SOURCE] > UINT32_MAX - extent ||
@@ -2961,6 +3239,12 @@ static MemTxResult nikon_transfer_write(void *opaque, hwaddr offset,
                                     "transfer-memory-range-not-backed");
     }
     s->plane_remaining = extent;
+    s->tile_copy = tile_copy;
+    s->tile_source = s->source;
+    s->tile_control = s->reg[TRANSFER_CONTROL];
+    s->tile_width = s->reg[TRANSFER_SOURCE_GEOMETRY] & 65535;
+    s->tile_height = s->reg[TRANSFER_SOURCE_GEOMETRY] >> 16;
+    s->tile_row = 0;
     s->secondary_source = s->reg[TRANSFER_SECONDARY_SOURCE];
     s->secondary_destination = s->reg[TRANSFER_SECONDARY_DESTINATION];
     if (secondary) {

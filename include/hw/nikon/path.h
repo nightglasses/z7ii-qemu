@@ -28,6 +28,9 @@ typedef struct NikonPathStroke {
     unsigned cap, join;
 } NikonPathStroke;
 
+/* Original MAS 106db38a/106da742 eight-row RGBA tile layout. */
+unsigned nikon_path_tile_index(unsigned x, unsigned y, unsigned width);
+
 /* NULL mask validates only. NULL stroke fills; otherwise open contours are valid.
  * Non-NULL mask receives SRC_OVER coverage, with stroke widths in object space.
  */

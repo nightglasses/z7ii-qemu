@@ -114,6 +114,165 @@ static void advance(void)
                                     100000);
 }
 
+static unsigned reference_tile_index(unsigned x, unsigned y, unsigned width)
+{
+    unsigned morton = 0;
+
+    for (unsigned bit = 0; bit < 3; bit++) {
+        morton |= ((x >> bit) & 1) << (2 * bit);
+        morton |= ((y >> bit) & 1) << (2 * bit + 1);
+    }
+    return ((y / 8) * (width / 8) + x / 8) * 64 + morton;
+}
+
+static MemTxResult submit_tile_copy(TransferFixture *f, uint32_t source,
+                                    uint32_t destination, unsigned width,
+                                    unsigned height, unsigned control)
+{
+    const uint32_t packet[][2] = {
+        {0xc1c, 0x8000}, {0xc00, source}, {0xc04, destination},
+        {0xc34, 0}, {0xc38, 0}, {0xc08, height << 16 | width},
+        {0xc0c, height << 16 | width}, {0xc10, control},
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(packet); i++) {
+        g_assert_cmpint(write_register(f, packet[i][0], packet[i][1]), ==,
+                        MEMTX_OK);
+    }
+    return write_register(f, 0xc18, 1);
+}
+
+static void test_tiled_copy(void)
+{
+    enum { BYTES = 256 * 256 * 4, GUARDS = BYTES + 32 };
+    enum { SUCCESS, CANCEL, RESET, READONLY, OUTPUT_LOSS, INPUT_LOSS,
+           ALIGN, GEOMETRY, FORMAT, UNKNOWN_BITS, OVERLAP, ALIAS, CASES };
+    static const uint32_t native[4][3] = {
+        { 0x630ffdc5, 0xce7ecdc5, 0x7c4a9dc5 },
+        { 0x44ebadc5, 0x7f4d4dc5, 0x5a201dc5 },
+        { 0xd7176dc5, 0xf20d1dc5, 0x7f7addc5 },
+        { 0xf978ddc5, 0x66799dc5, 0xc23e5dc5 },
+    };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion source, destination, alias;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *input, *output;
+
+    object_property_add_child(object_get_objects_root(), "transfer-tiled-copy[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&source, OBJECT(f.dev),
+        "test.tiled-source", GUARDS, 0, &error_abort);
+    memory_region_init_ram_flags_nomigrate(&destination, OBJECT(f.dev),
+        "test.tiled-destination", GUARDS, 0, &error_abort);
+    memory_region_init_alias(&alias, OBJECT(f.dev), "test.tiled-alias",
+                            &destination, 0, GUARDS);
+    memory_region_add_subregion(root, 0x2000000, &source);
+    memory_region_add_subregion(root, 0x2100000, &destination);
+    memory_region_add_subregion(root, 0x2200000, &alias);
+    input = memory_region_get_ram_ptr(&source);
+    output = memory_region_get_ram_ptr(&destination);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 1, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned group = 0, side = 64; side <= 256; group++, side *= 2) {
+        unsigned begin = 4 + group * 4, extent = side * side * 4;
+
+        for (unsigned mode = 0; mode < 4; mode++) {
+            for (unsigned test = SUCCESS; test < CASES; test++) {
+                unsigned width = side, control = mode;
+                uint32_t src = 0x2000000 + begin, dst = 0x2100000 + begin;
+                bool accepted = test <= INPUT_LOSS && test != READONLY;
+                g_autofree uint8_t *before = NULL;
+                g_autofree uint8_t *expected = NULL;
+
+                device_cold_reset(f.dev);
+                memset(input, 0x5a, GUARDS);
+                memset(output, 0xa5, GUARDS);
+                for (unsigned i = 0; i < side * side; i++) {
+                    uint32_t value = side == 64 ?
+                        ((i * 1664525U + 1013904223U) & 0xffffff00U) | 255 :
+                        i * 0x9e3779b9U + 0x78563412;
+
+                    stl_le_p(input + begin + 4 * i, value);
+                }
+                before = g_memdup2(output, GUARDS);
+                expected = g_memdup2(output, GUARDS);
+                for (unsigned y = 0; y < side; y++) {
+                    for (unsigned x = 0; x < side; x++) {
+                        unsigned sy = mode & 1 ? side - 1 - y : y;
+                        unsigned a, b;
+
+                        if (mode & 2) {
+                            a = sy * side + x;
+                            b = reference_tile_index(x, y, side);
+                        } else {
+                            a = reference_tile_index(x, sy, side);
+                            b = y * side + x;
+                        }
+                        memcpy(expected + begin + 4 * b,
+                               input + begin + 4 * a, 4);
+                    }
+                }
+                switch (test) {
+                case READONLY: memory_region_set_readonly(&destination, true); break;
+                case ALIGN: src++; break;
+                case GEOMETRY: width--; break;
+                case FORMAT: control |= 0x0100; break;
+                case UNKNOWN_BITS: control |= 4; break;
+                case OVERLAP: src = dst; break;
+                case ALIAS: src = 0x2200000 + begin; break;
+                default: break;
+                }
+                g_test_message("tile copy side=%u mode=%u case=%u control=%x",
+                               side, mode, test, control);
+                g_assert_cmpint(submit_tile_copy(&f, src, dst, width, side,
+                                                 control), ==,
+                                accepted ? MEMTX_OK : MEMTX_ERROR);
+                g_assert_false(f.level);
+                g_assert_cmpmem(output, GUARDS, before, GUARDS);
+                if (test == CANCEL) {
+                    g_assert_cmpint(write_register(&f, 0xc18, 0), ==, MEMTX_OK);
+                } else if (test == RESET) {
+                    device_cold_reset(f.dev);
+                } else if (test == OUTPUT_LOSS) {
+                    memory_region_set_readonly(&destination, true);
+                } else if (test == INPUT_LOSS) {
+                    memory_region_del_subregion(root, &source);
+                }
+                for (unsigned n = 0; n < side / 8 + 2; n++) {
+                    advance();
+                }
+                memory_region_set_readonly(&destination, false);
+                if (test == INPUT_LOSS) {
+                    memory_region_add_subregion(root, 0x2000000, &source);
+                }
+                g_assert_cmpint(f.level, ==, test == SUCCESS);
+                g_assert_cmpmem(output, GUARDS,
+                                test == SUCCESS ? expected : before, GUARDS);
+                if (test == SUCCESS) {
+                    uint32_t checksum = 2166136261U;
+
+                    for (unsigned i = 0; i < side * side; i++) {
+                        checksum = (checksum ^ ldl_le_p(output + begin + 4 * i)) *
+                                   16777619U;
+                    }
+                    g_assert_cmphex(checksum, ==, native[mode][group]);
+                }
+                g_assert_cmphex(ldl_le_p(input), ==, 0x5a5a5a5a);
+                g_assert_cmphex(ldl_le_p(input + begin + extent), ==, 0x5a5a5a5a);
+            }
+        }
+    }
+    memory_region_del_subregion(root, &alias);
+    memory_region_del_subregion(root, &destination);
+    memory_region_del_subregion(root, &source);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 static void test_image_memory_init(void)
 {
     TransferFixture *f = g_new0(TransferFixture, 1);
@@ -4601,15 +4760,182 @@ static void build_private_image(uint8_t *setup, uint8_t *draw,
     stl_le_p(b + 74 * 4, 0x04000400);
 }
 
+typedef struct PrivateImageCopyIRQ {
+    bool level;
+} PrivateImageCopyIRQ;
+
+static void private_image_copy_irq(void *opaque, int n, int level)
+{
+    PrivateImageCopyIRQ *irq = opaque;
+
+    irq->level = !!level;
+}
+
+static void build_native_images(uint8_t *setup, uint8_t *draw, unsigned side,
+                                 unsigned count, bool initial,
+                                 unsigned *setup_bytes, unsigned *draw_bytes)
+{
+    uint8_t a[224] = {0}, b[472] = {0};
+    unsigned sa = initial ? 12 : 0, da = initial ? 32 : 0;
+
+    build_private_image(a, b, side, true);
+    if (initial) {
+        memcpy(setup, a, 12 * 4);
+        memcpy(draw, b, 20 * 4);
+        stl_le_p(draw + 20 * 4, 0x01001004);
+        stl_le_p(draw + 21 * 4, 0);
+        memcpy(draw + 22 * 4, b + 25 * 4, 10 * 4);
+        stl_le_p(draw + 23 * 4, 0);
+        stl_le_p(draw + 25 * 4, 11);
+        stl_le_p(draw + 27 * 4, 0);
+    }
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t key = 0x10001 + i + (initial ? 0 : 8);
+        uint32_t mask = 0x450000 + (i % 2) * 0x1000;
+
+        build_private_image(a, b, side, false);
+        stl_le_p(a + 11 * 4, 0x100);
+        stl_le_p(a + 23 * 4, 0x01000100);
+        stl_le_p(a + 25 * 4, mask);
+        stl_le_p(a + 28 * 4, 0x01000100);
+        stl_le_p(a + 42 * 4, key);
+        stl_le_p(b + 13 * 4, 0x001b0000);
+        stl_le_p(b + 27 * 4, 0);
+        stl_le_p(b + 29 * 4, i ? 2 : 0);
+        stl_le_p(b + 49 * 4, 2);
+        stl_le_p(b + 51 * 4, 0x100);
+        stl_le_p(b + 61 * 4, 0);
+        stl_le_p(b + 67 * 4, 0);
+        stl_le_p(b + 69 * 4, 0);
+        stl_le_p(b + 71 * 4, mask);
+        stl_le_p(b + 74 * 4, 0x01000100);
+        stl_le_p(b + 76 * 4, 0x01000000);
+        stl_le_p(b + 78 * 4, key);
+        memcpy(setup + (sa + i * 43) * 4, a, 43 * 4);
+        memcpy(draw + (da + i * 79) * 4, b, 44 * 4);
+        memcpy(draw + (da + i * 79 + 44) * 4, b + 46 * 4, 35 * 4);
+    }
+    sa += count * 43;
+    da += count * 79;
+    if (sa & 1) {
+        stl_le_p(setup + sa * 4, 0);
+    }
+    stl_le_p(draw + da * 4, 0x00081004);
+    stl_le_p(draw + (da + 1) * 4, 1);
+    if (da & 1) {
+        stl_le_p(draw + (da + 2) * 4, 0);
+    }
+    *setup_bytes = ROUND_UP(sa, 2) * 4;
+    *draw_bytes = ROUND_UP(da + 2, 2) * 4;
+}
+
+static void test_native_images(void)
+{
+    enum { EXTENT = 256 * 256 * 4, GUARDS = EXTENT + 8 };
+    enum { INITIAL, RETAINED, SINGLE, NINE, KEY, FORMAT, HEADER, SOURCE,
+           SHORT_SETUP, SHORT_DRAW, READONLY, MAP_LOSS, RESET, CASES };
+    TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
+    MemoryRegion commands, surface;
+    MemoryRegion *root = get_system_memory();
+    uint8_t *data, *pixels;
+
+    object_property_add_child(object_get_objects_root(), "transfer-native-images[*]",
+                              OBJECT(f.dev));
+    memory_region_init_ram_flags_nomigrate(&commands, OBJECT(f.dev),
+        "test.native-image-command", 0x60000, 0, &error_abort);
+    memory_region_add_subregion(root, 0x400000, &commands);
+    memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
+        "test.native-image-surface", GUARDS, 0, &error_abort);
+    memory_region_add_subregion(root, 0xd00000, &surface);
+    data = memory_region_get_ram_ptr(&commands);
+    pixels = memory_region_get_ram_ptr(&surface);
+    f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
+    for (unsigned side = 64; side <= 256; side *= 2) {
+        for (unsigned test = INITIAL; test < CASES; test++) {
+            unsigned as, bs, count = test == SINGLE ? 1 : test == NINE ? 9 : 8;
+            bool complete = test <= SINGLE;
+            bool accepted = complete || test == MAP_LOSS || test == RESET;
+            g_autofree uint8_t *before = NULL;
+            g_autofree uint8_t *expected = NULL;
+
+            g_test_message("native images side=%u case=%u", side, test);
+            device_cold_reset(f.dev);
+            memset(data, 0, 0x60000);
+            memset(pixels, 0xa5, GUARDS);
+            for (unsigned y = 0; y < side; y++) {
+                for (unsigned x = 0; x < side; x++) {
+                    stl_le_p(data + 0x10000 + 4 *
+                        reference_tile_index(x, y, side),
+                        x << 24 | y << 16 | (x ^ y) << 8 | 255);
+                }
+            }
+            if (test == RETAINED) {
+                build_native_images(data, data + 0x1000, side, 8, true, &as, &bs);
+                g_assert_cmpint(submit_rgba(&f, as, bs), ==, MEMTX_OK);
+                advance();
+                g_assert_true(f.level);
+                g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
+                memset(pixels, 0xa5, GUARDS);
+            }
+            build_native_images(data, data + 0x1000, side, count,
+                                test != RETAINED, &as, &bs);
+            uint8_t *last = data + 0x1000 +
+                ((test == RETAINED ? 0 : 32) + (count - 1) * 79) * 4;
+            switch (test) {
+            case KEY: stl_le_p(last + 76 * 4, 0x10009); break;
+            case FORMAT: stl_le_p(last + 13 * 4, 0x001b0001); break;
+            case HEADER: stl_le_p(last + 48 * 4, 0x01862004); break;
+            case SOURCE: stl_le_p(last + 25 * 4, 0x500000); break;
+            case SHORT_SETUP: as -= 8; break;
+            case SHORT_DRAW: bs -= 8; break;
+            case READONLY: memory_region_set_readonly(&surface, true); break;
+            default: break;
+            }
+            before = g_memdup2(pixels, GUARDS);
+            expected = g_memdup2(pixels, GUARDS);
+            for (unsigned y = 0; y < side; y++) {
+                for (unsigned x = 0; x < side; x++) {
+                    stl_le_p(expected + 4 + 4 * reference_tile_index(x, y, 256),
+                             0xff000000 | (x ^ y) << 16 | y << 8 | x);
+                }
+            }
+            g_assert_cmpint(submit_rgba(&f, as, bs), ==,
+                            accepted ? MEMTX_OK : MEMTX_ERROR);
+            g_assert_false(f.level);
+            g_assert_cmpmem(pixels, GUARDS, before, GUARDS);
+            if (test == MAP_LOSS) {
+                memory_region_set_readonly(&surface, true);
+            } else if (test == RESET) {
+                device_cold_reset(f.dev);
+            }
+            advance();
+            memory_region_set_readonly(&surface, false);
+            g_assert_cmpint(f.level, ==, complete);
+            g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
+        }
+    }
+    memory_region_del_subregion(root, &surface);
+    memory_region_del_subregion(root, &commands);
+    drain_call_rcu();
+    object_unparent(OBJECT(f.dev));
+    object_unref(OBJECT(f.dev));
+    drain_call_rcu();
+    qemu_free_irq(f.irq);
+}
+
 static void test_private_image_target(void)
 {
     enum { EXTENT = 256 * 256 * 4, GUARDS = EXTENT + 8 };
     enum { SUCCESS, REPEAT, GEOMETRY, CLIP, FORMAT, SOURCE_SIZE,
            SOURCE_RANGE, SOURCE_OVERLAP, READONLY, MAP_LOSS, RESET, CASES };
     TransferFixture f = { .dev = qdev_new(TYPE_NIKON_TRANSFER) };
-    MemoryRegion commands, surface;
+    MemoryRegion commands, surface, linear;
     MemoryRegion *root = get_system_memory();
-    uint8_t *data, *pixels;
+    uint8_t *data, *pixels, *raw;
+    qemu_irq copy_irq;
+    PrivateImageCopyIRQ copy = { 0 };
 
     object_property_add_child(object_get_objects_root(), "transfer-private-image[*]",
                               OBJECT(f.dev));
@@ -4619,10 +4945,16 @@ static void test_private_image_target(void)
     memory_region_init_ram_flags_nomigrate(&surface, OBJECT(f.dev),
         "test.private-image-surface", GUARDS, 0, &error_abort);
     memory_region_add_subregion(root, 0xd00000, &surface);
+    memory_region_init_ram_flags_nomigrate(&linear, OBJECT(f.dev),
+        "test.private-image-linear", EXTENT + 8, 0, &error_abort);
+    memory_region_add_subregion(root, 0x600000, &linear);
+    raw = memory_region_get_ram_ptr(&linear);
     data = memory_region_get_ram_ptr(&commands);
     pixels = memory_region_get_ram_ptr(&surface);
     f.irq = qemu_allocate_irq(irq_level, &f, 0);
+    copy_irq = qemu_allocate_irq(private_image_copy_irq, &copy, 0);
     sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 0, f.irq);
+    sysbus_connect_irq(SYS_BUS_DEVICE(f.dev), 1, copy_irq);
     g_assert_true(sysbus_realize(SYS_BUS_DEVICE(f.dev), &error_abort));
     for (unsigned side = 64; side <= 256; side *= 2) {
         for (unsigned test = SUCCESS; test < CASES; test++) {
@@ -4637,13 +4969,23 @@ static void test_private_image_target(void)
             device_cold_reset(f.dev);
             memset(data, 0, 0x60000);
             memset(pixels, 0xa5, GUARDS);
+            memset(raw, 0x5a, EXTENT + 8);
             build_private_image(data, data + 0x1000, side, true);
             for (unsigned y = 0; y < side; y++) {
                 for (unsigned x = 0; x < side; x++) {
-                    stl_le_p(data + 0x10000 + 4 * (y * side + x),
-                             0xff000000 | (x ^ y) << 16 | y << 8 | x);
+                    stl_le_p(raw + 4 + 4 * (y * side + x),
+                             x << 24 | y << 16 | (x ^ y) << 8 | 255);
                 }
             }
+            g_assert_cmpint(submit_tile_copy(&f, 0x600004, 0x410000,
+                                             side, side, 2), ==, MEMTX_OK);
+            for (unsigned n = 0; !copy.level; n++) {
+                g_assert_cmpuint(n, <, side);
+                advance();
+            }
+            g_assert_false(f.level);
+            g_assert_cmpint(write_register(&f, 0xc18, 0), ==, MEMTX_OK);
+            g_assert_false(copy.level);
             switch (test) {
             case GEOMETRY: stl_le_p(a + 28 * 4, 0x040003fc); break;
             case CLIP: stl_le_p(data + 0x1000 + 21 * 4, 254U << 16); break;
@@ -4657,8 +4999,11 @@ static void test_private_image_target(void)
             before = g_memdup2(pixels, GUARDS);
             expected = g_memdup2(pixels, GUARDS);
             for (unsigned y = 0; y < side; y++) {
-                memcpy(expected + 4 + y * 256 * 4,
-                       data + 0x10000 + y * side * 4, side * 4);
+                for (unsigned x = 0; x < side; x++) {
+                    stl_le_p(expected + 4 + 4 *
+                        reference_tile_index(x, y, 256),
+                        bswap32(ldl_le_p(raw + 4 + 4 * (y * side + x))));
+                }
             }
             g_assert_cmpint(submit_rgba(&f, 224, 472), ==,
                             accepted ? MEMTX_OK : MEMTX_ERROR);
@@ -4672,6 +5017,7 @@ static void test_private_image_target(void)
             advance();
             memory_region_set_readonly(&surface, false);
             g_assert_cmpint(f.level, ==, complete);
+            g_assert_false(copy.level);
             g_assert_cmpmem(pixels, GUARDS, complete ? expected : before, GUARDS);
             if (test == REPEAT) {
                 g_assert_cmpint(write_register(&f, 0x1020, 0), ==, MEMTX_OK);
@@ -4683,6 +5029,7 @@ static void test_private_image_target(void)
             }
         }
     }
+    memory_region_del_subregion(root, &linear);
     memory_region_del_subregion(root, &surface);
     memory_region_del_subregion(root, &commands);
     drain_call_rcu();
@@ -4690,6 +5037,7 @@ static void test_private_image_target(void)
     object_unref(OBJECT(f.dev));
     drain_call_rcu();
     qemu_free_irq(f.irq);
+    qemu_free_irq(copy_irq);
 }
 
 static void test_image_prefixes(void)
@@ -5240,17 +5588,18 @@ static void test_rgba_image_family(bool normal)
         stl_le_p(b + 45 * 4, paint);
         for (unsigned y = 0; y < height; y++) {
             for (unsigned x = 0; x < width; x++) {
-                uint8_t *p = data + (SOURCE - 0x400000) + 4 * (y * width + x);
+                uint8_t *p = data + (SOURCE - 0x400000) +
+                             4 * reference_tile_index(x, y, width);
 
                 if (a8) {
                     data[SOURCE - 0x400000 + y * width + x] =
                         (uint8_t[]) { 0, 64, 128, 255 }[(x + y) % 4];
                     continue;
                 }
-                p[0] = 17 * x + 3 * y;
-                p[1] = 5 * x + 11 * y;
-                p[2] = 13 * x + 7 * y;
-                p[3] = (uint8_t[]) { 0, 64, 128, 255 }[(x + y) % 4];
+                p[3] = 17 * x + 3 * y;
+                p[2] = 5 * x + 11 * y;
+                p[1] = 13 * x + 7 * y;
+                p[0] = (uint8_t[]) { 0, 64, 128, 255 }[(x + y) % 4];
             }
         }
         if (test == CLAMP) {
@@ -5359,8 +5708,9 @@ static void test_rgba_image_family(bool normal)
                         ty = height * (2 * (22 - y) + 1) / 8;
                     }
                     sample = data + (SOURCE - 0x400000) +
-                             (a8 ? 1 : 4) * (ty * width + tx);
-                    alpha = sample[a8 ? 0 : 3];
+                             (a8 ? ty * width + tx :
+                              4 * reference_tile_index(tx, ty, width));
+                    alpha = sample[0];
                     if (test == FRACTIONAL && (x == x0 || x == x0 + rw - 1)) {
                         alpha = (alpha * 128 + 127) / 255;
                     }
@@ -5372,7 +5722,7 @@ static void test_rgba_image_family(bool normal)
                     for (unsigned c = 0; c < 3; c++) {
                         unsigned color = (paint >> (8 * c)) & 255;
                         unsigned associated =
-                            ((a8 ? 255 : sample[c]) * color * alpha +
+                            ((a8 ? 255 : sample[3 - c]) * color * alpha +
                              32512) / 65025;
                         uint64_t mixed = associated * 65025ULL +
                             p[c] * p[3] * (255 - alpha);
@@ -6497,6 +6847,7 @@ int main(int argc, char **argv)
     qemu_init(G_N_ELEMENTS(arguments) - 1, qemu_argv);
     g_test_add_func("/nikon/transfer/romd-boundary", test_romd_boundary);
     g_test_add_func("/nikon/transfer/image-memory-init", test_image_memory_init);
+    g_test_add_func("/nikon/transfer/tiled-copy", test_tiled_copy);
     g_test_add_func("/nikon/transfer/empty-configuration",
                     test_empty_configuration);
     g_test_add_func("/nikon/transfer/stream-submission", test_stream_submission);
@@ -6526,6 +6877,7 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/transfer/rgba-image", test_rgba_image);
     g_test_add_func("/nikon/transfer/normal-image", test_normal_image);
     g_test_add_func("/nikon/transfer/private-image-target", test_private_image_target);
+    g_test_add_func("/nikon/transfer/native-images", test_native_images);
     g_test_add_func("/nikon/transfer/image-prefixes", test_image_prefixes);
     g_test_add_func("/nikon/transfer/stroked-paths", test_stroked_paths);
     g_test_add_func("/nikon/transfer/vector-batch", test_vector_batch);

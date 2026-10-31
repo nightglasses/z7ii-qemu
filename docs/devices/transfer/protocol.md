@@ -104,8 +104,9 @@ which supplies byte extent at `c20` and zero extension/padding at `c24/c28`.
 Its extent is computed from the two dimensions and the numeric byte factor;
 neither a color name nor a framebuffer address is assumed. For ordinary
 single-plane packets with equal geometry and equal numeric format selectors,
-the corresponding byte factors are `4/3/2/2/2/1`. The unconverted transfer
-copies the resulting contiguous byte extent. The original selector function
+the corresponding byte factors are `4/3/2/2/2/1`. Selector-0 RGBA now follows
+the [tile and origin contract](copy.md). The other established unconverted
+selectors copy the resulting contiguous byte extent. The original selector function
 `106eeaf0` maps only format `1c` to selector5. Its ordinary command also
 supplies a secondary address pair at `c34/c38`; the same producer's alternate
 byte-stream equivalent gives that second plane the same width*height byte
