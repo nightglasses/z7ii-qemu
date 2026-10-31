@@ -1125,6 +1125,9 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
             if (aligned < base || aligned >= base + 0xd0) {
                 continue;
             }
+            if (size != 4 || (addr & 3)) {
+                return ex_bad(s, addr, size, false);
+            }
             unsigned off = aligned - base;
             if (off < 8) {
                 v = s->dma[c].status[off / 4];
@@ -1386,6 +1389,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             if (aligned < base || aligned >= base + 0xd0) {
                 continue;
             }
+            if (size != 4 || (addr & 3)) {
+                return ex_bad(s, addr, size, true);
+            }
             unsigned off = aligned - base;
             if (off < 8) {
                 return ex_bad(s, addr, size, true);
@@ -1398,7 +1404,18 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 unsigned n = (off - 16) / 24, reg = ((off - 16) % 24) / 4;
                 EXDMAStream *p = &s->dma[c].stream[n];
                 uint32_t old = p->reg[reg];
+                if (reg == 1 && (v & 0xffff0000u)) {
+                    return ex_bad(s, addr, size, true);
+                }
                 if ((p->reg[0] & 1) && reg != 0) {
+                    /* RM0090 10.5.6-.8: NDTR/PAR/M0AR are write-protected
+                     * while a single-buffer stream is active. Keep the live
+                     * count and addresses, rather than reporting an unknown
+                     * bus access or restarting/completing a DMA transfer.
+                     * Double-buffer updates are not part of this model. */
+                    if (reg >= 1 && reg <= 3 && !(p->reg[0] & (1 << 18))) {
+                        return MEMTX_OK;
+                    }
                     return ex_bad(s, addr, size, true);
                 }
                 p->reg[reg] = reg == 1 ? v & 0xffff : v;
