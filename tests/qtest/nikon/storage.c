@@ -6,6 +6,7 @@
 #include "qemu/osdep.h"
 #include "qemu/bswap.h"
 #include "qemu/crc-ccitt.h"
+#include "block/nvme.h"
 #include "libqtest.h"
 #include "hw/nikon/storage.h"
 #include "hw/nikon/sla.h"
@@ -385,8 +386,8 @@ static void test_host_roundtrip_cancel(void)
     g_assert_cmpint(pread(fd, actual, sizeof(actual), 8 * 512), ==, sizeof(actual));
     close(fd);
     g_assert_cmpmem(actual, sizeof(actual), written, sizeof(written));
-    /* Real CQ producer and consumption cause native INTx assertion/deassertion. */
-    g_assert_cmphex(qtest_readl(t.qts, PHY + 0x24) & 0x30000000, ==, 0x30000000);
+    /* Real CQ completion latches bit28; consumption does not create abort29. */
+    g_assert_cmphex(qtest_readl(t.qts, PHY + 0x24) & 0x30000000, ==, 0x10000000);
     g_assert_true(qtest_get_irq(t.qts, 1));
     qtest_writel(t.qts, PHY + 0x24, qtest_readl(t.qts, PHY + 0x24));
     g_assert_false(qtest_get_irq(t.qts, 1));
@@ -550,6 +551,132 @@ static void test_errors_reset(void)
     storage_quit(&t);
 }
 
+static void test_host_intx_deassert(void)
+{
+    StorageTest t = storage_host_init(true, true);
+    uint8_t command[64] = { 0 }, cqe[16], written[512], actual[512];
+    unsigned i;
+    int fd;
+
+    storage_host_start(&t);
+    qtest_writel(t.qts, CFG + 0x10, t.bar | 4);
+    qtest_writel(t.qts, CFG + 0x14, 0);
+    qtest_writew(t.qts, CFG + 4, 6);
+    storage_queues_init(&t);
+    qtest_writel(t.qts, PHY + 0x24, qtest_readl(t.qts, PHY + 0x24));
+    g_assert_false(qtest_get_irq(t.qts, 1));
+    memset(written, 0x69, sizeof(written));
+    qtest_memwrite(t.qts, HOST_DATA, written, sizeof(written));
+    command[0] = 1;
+    stw_le_p(command + 2, 1);
+    stl_le_p(command + 4, 1);
+    stq_le_p(command + 24, HOST_DATA);
+    stl_le_p(command + 40, 8);
+    qtest_memwrite(t.qts, t.io.sq, command, sizeof(command));
+    qtest_writel(t.qts, t.bar + 0x1008, 1);
+    for (i = 0; i < 10000; i++) {
+        qtest_memread(t.qts, t.io.cq, cqe, sizeof(cqe));
+        if (lduw_le_p(cqe + 14) & 1) {
+            break;
+        }
+        qtest_clock_step(t.qts, 100000);
+    }
+    g_assert_cmpuint(i, <, 10000);
+    g_assert_cmphex(lduw_le_p(cqe + 14) >> 1, ==, 0);
+    g_assert_true(qtest_get_irq(t.qts, 1));
+    g_assert_cmphex(qtest_readl(t.qts, PHY + 0x24) & 0x30000000, ==,
+                    0x10000000);
+    /* ISR W1C acknowledges completion before the original driver consumes CQ.
+     * The subsequent native INTx falling edge must not signal abort400.
+     */
+    qtest_writel(t.qts, PHY + 0x24, qtest_readl(t.qts, PHY + 0x24));
+    g_assert_false(qtest_get_irq(t.qts, 1));
+    qtest_writel(t.qts, t.bar + 0x100c, 1);
+    g_assert_cmphex(qtest_readl(t.qts, PHY + 0x24) & 0x30000000, ==, 0);
+    g_assert_false(qtest_get_irq(t.qts, 1));
+    fd = open(t.path, O_RDONLY);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(pread(fd, actual, sizeof(actual), 8 * 512), ==,
+                    sizeof(actual));
+    close(fd);
+    g_assert_cmpmem(actual, sizeof(actual), written, sizeof(written));
+    storage_quit(&t);
+}
+
+static void test_host_power_ps0(void)
+{
+    StorageTest t = storage_host_init(true, true);
+    uint8_t written[512], actual[512];
+    uint32_t result;
+    const uint32_t rejected[] = { 1, 31, 0x60, 0x100 };
+    int fd;
+
+    storage_host_start(&t);
+    qtest_writel(t.qts, CFG + 0x10, t.bar | 4);
+    qtest_writel(t.qts, CFG + 0x14, 0);
+    qtest_writew(t.qts, CFG + 4, 6);
+    storage_queues_init(&t);
+    g_assert_cmpuint(submit(&t, &t.admin, 6, 0, HOST_DATA, 0, 1, 0, 0,
+                            NULL), ==, 0);
+    g_assert_cmpuint(qtest_readb(t.qts, HOST_DATA +
+                                offsetof(NvmeIdCtrl, npss)), ==, 0);
+    g_assert_cmpuint(submit(&t, &t.admin, 0xa, 0, 0, 0, 0x302, 0, 0,
+                            &result), ==, 0);
+    g_assert_cmpuint(result, ==, NVME_FEAT_CAP_CHANGE);
+    for (unsigned hint = 0; hint <= 2; hint++) {
+        g_assert_cmpuint(submit(&t, &t.admin, 9, UINT32_MAX, 0, 0, 2,
+                                hint << 5, 0, NULL), ==, 0);
+        g_assert_cmpuint(submit(&t, &t.admin, 0xa, 0, 0, 0, 2, 0, 0,
+                                &result), ==, 0);
+        g_assert_cmpuint(result, ==, hint << 5);
+    }
+    for (unsigned selection = 1; selection <= 2; selection++) {
+        g_assert_cmpuint(submit(&t, &t.admin, 0xa, 0, 0, 0,
+                                2 | selection << 8, 0, 0, &result), ==, 0);
+        g_assert_cmpuint(result, ==, 0);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(rejected); i++) {
+        g_assert_cmpuint(submit(&t, &t.admin, 9, UINT32_MAX, 0, 0, 2,
+                                rejected[i], 0, NULL), ==,
+                          NVME_INVALID_FIELD | NVME_DNR);
+    }
+    g_assert_cmpuint(submit(&t, &t.admin, 9, UINT32_MAX, 0, 0, 0x80000002,
+                            0, 0, NULL), ==, NVME_FID_NOT_SAVEABLE | NVME_DNR);
+    g_assert_cmpuint(submit(&t, &t.admin, 0xa, 0, 0, 0, 2, 0, 0,
+                            &result), ==, 0);
+    g_assert_cmpuint(result, ==, 0x40);
+    g_assert_cmpuint(submit(&t, &t.admin, 9, UINT32_MAX, 0, 0, 2, 0, 0,
+                            NULL), ==, 0);
+    memset(written, 0x3c, sizeof(written));
+    qtest_memwrite(t.qts, HOST_DATA, written, sizeof(written));
+    g_assert_cmpuint(submit(&t, &t.io, 1, 1, HOST_DATA, 0, 9, 0, 0,
+                            NULL), ==, 0);
+    g_assert_cmpuint(submit(&t, &t.io, 0, 1, 0, 0, 0, 0, 0, NULL), ==, 0);
+    qtest_memset(t.qts, HOST_DATA, 0, sizeof(written));
+    g_assert_cmpuint(submit(&t, &t.io, 2, 1, HOST_DATA, 0, 9, 0, 0,
+                            NULL), ==, 0);
+    qtest_memread(t.qts, HOST_DATA, actual, sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), written, sizeof(written));
+    fd = open(t.path, O_RDONLY);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(pread(fd, actual, sizeof(actual), 9 * 512), ==,
+                    sizeof(actual));
+    close(fd);
+    g_assert_cmpmem(actual, sizeof(actual), written, sizeof(written));
+    g_assert_cmpuint(submit(&t, &t.admin, 9, UINT32_MAX, 0, 0, 2, 0x20, 0,
+                            NULL), ==, 0);
+    qtest_writel(t.qts, t.bar + 0x14, 0);
+    wait_status(&t, 1, 0);
+    t.admin.head = t.admin.tail = t.admin.cid = 0;
+    t.io.head = t.io.tail = t.io.cid = 0;
+    t.admin.phase = t.io.phase = true;
+    storage_queues_init(&t);
+    g_assert_cmpuint(submit(&t, &t.admin, 0xa, 0, 0, 0, 2, 0, 0,
+                            &result), ==, 0);
+    g_assert_cmpuint(result, ==, 0);
+    storage_quit(&t);
+}
+
 static void test_readonly(void)
 {
     StorageTest t = storage_init(true);
@@ -572,5 +699,7 @@ int main(int argc, char **argv)
     qtest_add_func("/nikon/storage/host/roundtrip/cancel", test_host_roundtrip_cancel);
     qtest_add_func("/nikon/storage/host/msi", test_host_msi);
     qtest_add_func("/nikon/storage/host/bus-error", test_host_bus_error);
+    qtest_add_func("/nikon/storage/host/intx-deassert", test_host_intx_deassert);
+    qtest_add_func("/nikon/storage/host/power-ps0", test_host_power_ps0);
     return g_test_run();
 }
