@@ -62,7 +62,7 @@ if have_system and (config_target_mak.has_key('arm-softmmu') and
                   'command', 'input', 'readout', 'panel', 'display', 'compute',
                   'lookup', 'exreset', 'exlevels', 'save', 'processor', 'spi', 'cmos',
                   'acceleration', 'lens', 'gatework', 'gateplane', 'gridflow',
-                  'paired', 'fill']
+                  'paired', 'fill', 'sdimrr']
   fixture = executable('nikon_' + name + '_unit', files(name + '.c'), genh,
     nikon_system['sources'],
     objects: nikon_system['objects'],

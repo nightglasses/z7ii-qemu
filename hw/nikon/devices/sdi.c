@@ -15,7 +15,7 @@
 OBJECT_DECLARE_SIMPLE_TYPE(NikonSDIState, NIKON_SDI)
 
 enum {
-    SDI_PHY, SDI_DDR, SDI_TRAIN, SDI_ARB, SDI_PORT,
+    SDI_PHY, SDI_DDR, SDI_TRAIN, SDI_MRR, SDI_ARB, SDI_PORT,
     SDI_CONFIG_WORDS = 110,
     SDI_LATENCY_NS = 10000,
 };
@@ -94,6 +94,7 @@ static const struct {
     { 0x2000, 0x2100, 0x2300 },
     { 0x3000, 0x3100, 0x3300 },
     { UINT32_MAX, 0x3118, 0x3318 },
+    { UINT32_MAX, 0x311c, 0x331c },
     { 0x4000, 0x4100, 0x4300 },
     { 0x8000, 0x8010, 0x8030 }, { 0x8800, 0x8810, 0x8830 },
     { 0x8c00, 0x8c10, 0x8c30 }, { 0x9000, 0x9010, 0x9030 },
@@ -115,20 +116,23 @@ struct NikonSDIState {
     NikonSDIChannel channel[ARRAY_SIZE(channel_map)];
     uint32_t training_modes;
     uint32_t training_error;
+    uint32_t error_irq_enable[2];
+    uint32_t mrr_irq_enable;
     unsigned next_training_mode;
     bool training_result_known;
+    bool mrr_result_known;
     bool top_reset;
     bool reported_error;
 };
 
-/* SLA callbacks 1005c07c/1005c0ce read and acknowledge all eight DDR flags.
- * Only init[0] and training[6] have established producers in this profile.
- * The virtual bank IRQ is their pending OR; unbound errors/MRR never fire.
+/* SLA callbacks 1005c07c/1005c0ce and MAS 1020384f/102037fd read and W1C
+ * all eight DDR flags. MAS consumes MRR[7] before reading +3a08.
  */
 static void nikon_sdi_irq(NikonSDIState *s)
 {
     qemu_set_irq(s->irq, s->channel[SDI_DDR].done ||
-                         s->channel[SDI_TRAIN].done);
+                         s->channel[SDI_TRAIN].done ||
+                         (s->mrr_irq_enable && s->channel[SDI_MRR].done));
 }
 
 static int nikon_sdi_ddr_status_channel(hwaddr offset)
@@ -138,6 +142,9 @@ static int nikon_sdi_ddr_status_channel(hwaddr offset)
     }
     if (offset == 0x3318) {
         return SDI_TRAIN;
+    }
+    if (offset == 0x331c) {
+        return SDI_MRR;
     }
     return -1;
 }
@@ -237,6 +244,12 @@ static void nikon_sdi_complete(void *opaque)
         }
         s->next_training_mode = (mode + 1) % 5;
         s->training_result_known = true;
+    } else if (channel->index == SDI_MRR) {
+        s->mrr_result_known = true;
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "nikon-sdi: bank=%u mr=%u response=0 "
+                      "model-invalid-default physical-identity=unverified\n",
+                      s->bank, channel->request >> 24);
     }
     nikon_sdi_irq(s);
     qemu_log_mask(LOG_GUEST_ERROR,
@@ -308,17 +321,28 @@ static MemTxResult nikon_sdi_request(NikonSDIState *s, unsigned index,
 
     if (index == SDI_TRAIN) {
         expected = 1 | mode << 16;
+    } else if (index == SDI_MRR) {
+        unsigned mr = value >> 24;
+
+        if (mr < 5 || mr > 8) {
+            return nikon_sdi_error(s, offset, 4, true, value,
+                                  "sdi-mrr-selector-not-supported");
+        }
+        expected = mr << 24 | 0x10001;
     }
     if (value != expected || (index == SDI_TRAIN && mode > 4)) {
         return nikon_sdi_error(s, offset, 4, true, value,
                               "sdi-request-not-supported");
     }
-    if (s->top_reset || (index != SDI_TRAIN && channel->reset) ||
+    if (s->top_reset ||
+        (index != SDI_TRAIN && index != SDI_MRR && channel->reset) ||
         channel->pending || channel->done ||
         !nikon_sdi_configuration_complete(s, index) ||
         (index == SDI_DDR && !s->channel[SDI_PHY].initialized) ||
         (index == SDI_TRAIN && (!s->channel[SDI_DDR].initialized ||
                                mode != s->next_training_mode)) ||
+        (index == SDI_MRR && (s->channel[SDI_DDR].reset ||
+                             !s->channel[SDI_DDR].initialized)) ||
         (index == SDI_ARB && s->training_modes != 0x1f) ||
         (index >= SDI_PORT && !s->channel[SDI_ARB].initialized)) {
         return nikon_sdi_error(s, offset, 4, true, value,
@@ -329,6 +353,8 @@ static MemTxResult nikon_sdi_request(NikonSDIState *s, unsigned index,
         if (mode == 0) {
             s->training_modes = 0;
         }
+    } else if (index == SDI_MRR) {
+        s->mrr_result_known = false;
     }
     channel->request = value;
     channel->pending = true;
@@ -354,6 +380,14 @@ static MemTxResult nikon_sdi_read(void *opaque, hwaddr offset,
         *value = s->top_reset;
         return MEMTX_OK;
     }
+    if (offset == 0x3204 || offset == 0x3208) {
+        *value = s->error_irq_enable[(offset - 0x3204) / 4];
+        return MEMTX_OK;
+    }
+    if (offset == 0x321c) {
+        *value = s->mrr_irq_enable;
+        return MEMTX_OK;
+    }
     if (config >= 0) {
         *value = s->config[config];
         return MEMTX_OK;
@@ -364,6 +398,17 @@ static MemTxResult nikon_sdi_read(void *opaque, hwaddr offset,
                                   "sdi-training-result-uninitialized");
         }
         *value = s->training_error;
+        return MEMTX_OK;
+    }
+    if (offset == 0x3a08) {
+        if (!s->mrr_result_known) {
+            return nikon_sdi_error(s, offset, size, false, 0,
+                                  "sdi-mrr-result-uninitialized");
+        }
+        /* Virtual default: MR8 type zero is invalid for the LPDDR3 decoder.
+         * Completion models the command protocol, not a physical RAM reply.
+         */
+        *value = 0;
         return MEMTX_OK;
     }
     if (offset >= 0x3300 && offset <= 0x331c) {
@@ -402,8 +447,11 @@ static void nikon_sdi_reset(DeviceState *dev)
     }
     s->training_modes = 0;
     s->training_error = 0;
+    memset(s->error_irq_enable, 0, sizeof(s->error_irq_enable));
+    s->mrr_irq_enable = 0;
     s->next_training_mode = 0;
     s->training_result_known = false;
+    s->mrr_result_known = false;
     s->top_reset = true;
     s->reported_error = false;
     nikon_sdi_irq(s);
@@ -431,6 +479,22 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
         } else {
             s->top_reset = false;
         }
+        return MEMTX_OK;
+    }
+    /* MAS 102038f6 enables error[1:2] and MRR[7]; 1020391a disables them.
+     * Error sources have no producer in this functional profile.
+     */
+    if (offset == 0x3204 || offset == 0x3208 || offset == 0x321c) {
+        if (value > 1) {
+            return nikon_sdi_error(s, offset, size, true, value,
+                                  "sdi-irq-enable-not-supported");
+        }
+        if (offset == 0x321c) {
+            s->mrr_irq_enable = value;
+        } else {
+            s->error_irq_enable[(offset - 0x3204) / 4] = value;
+        }
+        nikon_sdi_irq(s);
         return MEMTX_OK;
     }
     if (offset >= 0x3300 && offset <= 0x331c) {
@@ -470,6 +534,7 @@ static MemTxResult nikon_sdi_write(void *opaque, hwaddr offset,
                         s->training_error = 0;
                         s->next_training_mode = 0;
                         s->training_result_known = false;
+                        s->mrr_result_known = false;
                     }
                 }
             } else {

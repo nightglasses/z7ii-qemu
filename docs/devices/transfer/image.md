@@ -1,10 +1,57 @@
 # Finite image contexts
 
-The image command family supports A8 and straight RGBA textures in the retained
-720 × 480 RGBA context. Exact command state, source format, bounded geometry,
+The image command family supports A8 and straight RGBA textures in retained
+720 × 480 or private 256 × 256 RGBA contexts. Exact command state, source format, bounded geometry,
 target ownership and complete memory preflight remain mandatory. The A8
 execution receipts below are historical checkpoints; the RGBA extension has
 separate fixture coverage and does not itself establish original completion.
+
+## Native image batches
+
+The original benchmark's first eight-draw submission is 1424/2664 bytes:
+setup has a 12-word initialization prefix and eight 43-word image records;
+draw has a 32-word prefix, eight 79-word records and one two-word ending.
+The source image is the tiled output of the [native layout transfer](copy.md).
+Its exact texture format is `156=001b0000`, its target geometry uses precision
+zero, and its eight synchronized path/draw keys are `10001..10008` hex.
+The two mask descriptors alternate while every image addresses the same source
+and private 256-square destination. Blend is SRC and final image mode is 2.
+
+The finite batch grammar checks every register header and fixed field, matrix,
+rectangle, mask binding, source/draw key pair, key progression and final padding.
+All memory is checked before target output; a bad final record cannot leave
+an earlier draw committed. A later batch may omit initialization only for the
+successfully established private target. At most eight records are accepted.
+The existing single-image precision-two/A8 grammar remains separate.
+
+The native `/nikon/transfer/native-images` fixture passes 39 cases: the three
+source dimensions 64/128/256, each with first eight-draw batch, continuation,
+single record, excessive count, final-record corruption, truncated streams,
+readonly or lost output mapping and reset. Pixel arrays and allocation guards
+are compared. The initial negative test exposed an omitted draw-key binding;
+the corrected parser rejects that case and the complete targeted fixture
+passes. This establishes fixture execution, not physical-camera behavior.
+
+## Private target geometry (2026-10-31)
+
+Target and texture geometry are independent. Original `106454da/106454f2`
+emit `reg1a3 = W | (H << 16)` from surface `+88/+8c`.
+`1068c344/1068c386` encode the fixed-precision extent from the VG precision
+field. The older single-image profile uses shift two, so a 256-square target
+uses `01000100` and `04000400`; the native image batch above uses shift zero
+and `01000100` for both fields. Full-clip bounds are inclusive `W-1/H-1`.
+
+The finite sampler receives explicit target width, height and stride and maps
+that exact extent. Source dimensions remain separately decoded. The private
+image context is committed only after successful output; it does not publish
+the 720-wide vector context. ACK preserves completed state, while reset and
+unrealize clear it. Unsupported sizes, formats, clipping and incomplete memory
+ownership still reject the transaction.
+
+`/nikon/transfer/private-image-target` covers 64/128/256 sources against the
+256-square target, actual output pixels and guards, ACK continuation, readonly
+and lost mappings, invalid extents/geometry/formats, cancellation and reset.
+These native model fixtures do not certify camera-side GPU performance.
 
 The normal GUI path now completes the 224/472-byte pair and seven subsequent
 176/336-byte image pairs through original IRQ129. At that checkpoint the next

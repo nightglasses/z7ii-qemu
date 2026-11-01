@@ -2,6 +2,14 @@
 
 ## Current initialized path family
 
+The [repeated full-target clipping contract](clip.md) handles the original
+Retouch menu's second-path clip update in a336/608-byte initialized batch.
+
+The separate [native image-memory initializer](initialize.md) now executes
+the type-4 zero-fill port at offsets `0x10..0x1c` and completes through IRQ131.
+Its bounded descriptor and cancellation contract is distinct from the paired
+drawing streams and from the IRQ130 byte-copy engine below.
+
 The later [initialized indirect-path contract](prefix.md#initialized-indirect-path-batches)
 crosses a complete664/1032-byte four-path initialization using command-family
 recognition and the existing rasterizer. All26 transfer subtests pass. Original
@@ -96,8 +104,9 @@ which supplies byte extent at `c20` and zero extension/padding at `c24/c28`.
 Its extent is computed from the two dimensions and the numeric byte factor;
 neither a color name nor a framebuffer address is assumed. For ordinary
 single-plane packets with equal geometry and equal numeric format selectors,
-the corresponding byte factors are `4/3/2/2/2/1`. The unconverted transfer
-copies the resulting contiguous byte extent. The original selector function
+the corresponding byte factors are `4/3/2/2/2/1`. Selector-0 RGBA now follows
+the [tile and origin contract](copy.md). The other established unconverted
+selectors copy the resulting contiguous byte extent. The original selector function
 `106eeaf0` maps only format `1c` to selector5. Its ordinary command also
 supplies a secondary address pair at `c34/c38`; the same producer's alternate
 byte-stream equivalent gives that second plane the same width*height byte
@@ -218,9 +227,11 @@ output write; an execution-time input/map failure preserves the destination.
 A successful timer execution writes the full1024-byte result, consumes the
 pair and raises IRQ129. `1020=0` retains the observed ACK/deassert behavior.
 After successful completion, a word read of offset `58` returns zero for
-the observed bit26-clear path; reads before completion remain errors. IRQ131,
-fences, replies and other graphics programs remain unsupported. The
-ordinary byte-copy engine and IRQ130 remain separate.
+the observed bit26-clear path; reads before completion remain errors. IRQ131
+was unsupported by that earlier stream profile; the later
+[image-memory initializer](initialize.md) supplies its independently evidenced
+type-4 operation. Fences, replies and other graphics programs remain outside
+this LUT profile. The ordinary byte-copy engine and IRQ130 remain separate.
 
 ## Finite black YUV422 rectangle clear
 

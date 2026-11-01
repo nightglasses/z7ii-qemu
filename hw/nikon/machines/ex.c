@@ -7,6 +7,7 @@
  * not an assertion of the unidentified Nikon board's part number.
  */
 #include "qemu/osdep.h"
+#include "qapi/visitor.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/bswap.h"
@@ -780,6 +781,18 @@ static void ex_i2c_rx_shift(void *opaque)
     ex_i2c_update(p->processor, p->channel);
 }
 
+static void ex_i2c_sync(EXI2C *p)
+{
+    /* A vCPU polling SR1 can observe an elapsed byte before the main loop
+     * dispatches its timer. Retire that byte through the normal slave path. */
+    if (timer_pending(p->rx_timer) &&
+        timer_expire_time_ns(p->rx_timer) <=
+        qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)) {
+        timer_del(p->rx_timer);
+        ex_i2c_rx_shift(p);
+    }
+}
+
 static void ex_dma_update(NikonEXState *s, unsigned controller, unsigned stream)
 {
     EXDMA *d = &s->dma[controller];
@@ -1031,6 +1044,9 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
+                if (consume) {
+                    ex_i2c_sync(p);
+                }
                 if (consume && reg == 4 && p->receive && p->rx_count) {
                     p->reg[4] = p->rx[0];
                     bool pipeline = p->rx_count == 2;
@@ -1108,6 +1124,9 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
             uint32_t base = 0x40026000 + c * 0x400;
             if (aligned < base || aligned >= base + 0xd0) {
                 continue;
+            }
+            if (size != 4 || (addr & 3)) {
+                return ex_bad(s, addr, size, false);
             }
             unsigned off = aligned - base;
             if (off < 8) {
@@ -1292,6 +1311,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             if (aligned >= ex_i2c_base[i] && aligned <= ex_i2c_base[i] + 0x20) {
                 EXI2C *p = &s->i2c[i];
                 unsigned reg = (aligned - ex_i2c_base[i]) / 4;
+                ex_i2c_sync(p);
                 uint32_t cr1_prev = p->reg[0];
                 if (reg == 5) {
                     p->reg[5] &= v | 0xff;
@@ -1310,6 +1330,7 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                         }
                     }
                     if ((v & (1 << 15)) || !(v & 1)) {
+                        timer_del(p->rx_timer);
                         i2c_end_transfer(p->bus);
                         p->reg[5] = p->reg[6] = 0;
                         p->rx_count = 0;
@@ -1368,6 +1389,9 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
             if (aligned < base || aligned >= base + 0xd0) {
                 continue;
             }
+            if (size != 4 || (addr & 3)) {
+                return ex_bad(s, addr, size, true);
+            }
             unsigned off = aligned - base;
             if (off < 8) {
                 return ex_bad(s, addr, size, true);
@@ -1380,7 +1404,18 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 unsigned n = (off - 16) / 24, reg = ((off - 16) % 24) / 4;
                 EXDMAStream *p = &s->dma[c].stream[n];
                 uint32_t old = p->reg[reg];
+                if (reg == 1 && (v & 0xffff0000u)) {
+                    return ex_bad(s, addr, size, true);
+                }
                 if ((p->reg[0] & 1) && reg != 0) {
+                    /* RM0090 10.5.6-.8: NDTR/PAR/M0AR are write-protected
+                     * while a single-buffer stream is active. Keep the live
+                     * count and addresses, rather than reporting an unknown
+                     * bus access or restarting/completing a DMA transfer.
+                     * Double-buffer updates are not part of this model. */
+                    if (reg >= 1 && reg <= 3 && !(p->reg[0] & (1 << 18))) {
+                        return MEMTX_OK;
+                    }
                     return ex_bad(s, addr, size, true);
                 }
                 p->reg[reg] = reg == 1 ? v & 0xffff : v;
@@ -1774,6 +1809,15 @@ static void ex_realize(DeviceState *dev, Error **errp)
     if (!sysbus_realize(SYS_BUS_DEVICE(armv7m), errp)) {
         return;
     }
+    object_property_add_uint32_ptr(OBJECT(s), "cpu-basepri",
+                                   &s->armv7m.cpu->env.v7m.basepri[M_REG_NS],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(OBJECT(s), "cpu-primask",
+                                   &s->armv7m.cpu->env.v7m.primask[M_REG_NS],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(OBJECT(s), "cpu-faultmask",
+                                   &s->armv7m.cpu->env.v7m.faultmask[M_REG_NS],
+                                   OBJ_PROP_FLAG_READ);
     s->reset_irq = qemu_allocate_irq(ex_sysresetreq, s, 0);
     qdev_connect_gpio_out_named(armv7m, "SYSRESETREQ", 0, s->reset_irq);
     for (unsigned i = 0; i < ARRAY_SIZE(uart_base); i++) {
@@ -1873,9 +1917,68 @@ static void ex_realize(DeviceState *dev, Error **errp)
     }
 }
 
+static bool ex_hard_irq_property(Object *obj, Error **errp)
+{
+    NikonEXState *s = NIKON_EX(obj);
+
+    return s->armv7m.cpu &&
+           (qatomic_read(&CPU(s->armv7m.cpu)->interrupt_request) &
+            CPU_INTERRUPT_HARD);
+}
+
+static bool ex_pending_ready_property(Object *obj, Error **errp)
+{
+    NikonEXState *s = NIKON_EX(obj);
+
+    return s->armv7m.cpu &&
+           armv7m_nvic_can_take_pending_exception(&s->armv7m.nvic);
+}
+
+static void ex_priority_property(Object *obj, Visitor *visitor, const char *name,
+                                void *opaque, Error **errp)
+{
+    int64_t value = *(const int *)opaque;
+
+    visit_type_int64(visitor, name, &value, errp);
+}
+
+static void ex_i2c0_deadline_property(Object *obj, Visitor *visitor, const char *name,
+                                     void *opaque, Error **errp)
+{
+    EXI2C *p = &NIKON_EX(obj)->i2c[0];
+    int64_t value = timer_pending(p->rx_timer) ?
+        timer_expire_time_ns(p->rx_timer) -
+        qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) : INT64_MIN;
+
+    visit_type_int64(visitor, name, &value, errp);
+}
+
 static void ex_init(Object *obj)
 {
     NikonEXState *s = NIKON_EX(obj);
+    object_property_add_bool(obj, "cpu-hard-irq", ex_hard_irq_property, NULL);
+    object_property_add_bool(obj, "cpu-pending-ready", ex_pending_ready_property,
+                             NULL);
+    object_property_add_uint32_ptr(obj, "nvic-pending", &s->armv7m.nvic.vectpending,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "nvic-pending-priority", "int", ex_priority_property,
+                        NULL, NULL, &s->armv7m.nvic.vectpending_prio);
+    object_property_add(obj, "nvic-active-priority", "int", ex_priority_property,
+                        NULL, NULL, &s->armv7m.nvic.exception_prio);
+    object_property_add_uint32_ptr(obj, "i2c0-cr1", &s->i2c[0].reg[0],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "i2c0-cr2", &s->i2c[0].reg[1],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "i2c0-sr1", &s->i2c[0].reg[5],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "i2c0-sr2", &s->i2c[0].reg[6],
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "i2c0-rx-count", &s->i2c[0].rx_count,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(obj, "i2c0-rx-remaining", &s->i2c[0].rx_remaining,
+                                   OBJ_PROP_FLAG_READ);
+    object_property_add(obj, "i2c0-rx-deadline-left-ns", "int",
+                        ex_i2c0_deadline_property, NULL, NULL, NULL);
     object_initialize_child(obj, "armv7m", &s->armv7m, TYPE_ARMV7M);
     for (unsigned i = 0; i < ARRAY_SIZE(s->timer_or); i++) {
         object_initialize_child(obj, "timer-or[*]", &s->timer_or[i], TYPE_OR_IRQ);

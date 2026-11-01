@@ -43,6 +43,7 @@ bool nikon_path_mask(uint8_t *mask, unsigned width, unsigned height,
     cairo_t *cr = NULL;
 
     if (!((width == NIKON_PATH_WIDTH && height == NIKON_PATH_HEIGHT) ||
+          (width == 256 && height == 256) ||
           (width == 1024 && height == 688)) ||
         !segment_count || segment_count > NIKON_PATH_MAX_SEGMENTS ||
         !coordinate_count || coordinate_count > NIKON_PATH_MAX_COORDINATES) {
@@ -226,9 +227,17 @@ out:
     return success;
 }
 
+unsigned nikon_path_tile_index(unsigned x, unsigned y, unsigned width)
+{
+    return (y & ~7U) * width + (x & ~7U) * 8 + (x & 1) +
+           ((x & 2) << 1) + ((x & 4) << 2) + ((y & 1) << 1) +
+           ((y & 2) << 2) + ((y & 4) << 3);
+}
+
 bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
                       const uint8_t *image, NikonPathImageFormat format,
                       unsigned width, unsigned height,
+                      const NikonPathImageTarget *target,
                       const uint32_t sample[9], uint32_t paint,
                       const char **reason)
 {
@@ -250,7 +259,10 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             return false;
         }
     }
-    if ((format != NIKON_PATH_IMAGE_A8 && format != NIKON_PATH_IMAGE_RGBA) ||
+    if (!target || !((target->width == 720 && target->height == 480) ||
+                     (target->width == 256 && target->height == 256)) ||
+        target->stride != 4 * target->width ||
+        (format != NIKON_PATH_IMAGE_A8 && format != NIKON_PATH_IMAGE_RGBA) ||
         !width || width > NIKON_PATH_IMAGE_MAX_DIMENSION ||
         !height || height > NIKON_PATH_IMAGE_MAX_DIMENSION ||
         (uint64_t)width * height > NIKON_PATH_IMAGE_MAX_PIXELS ||
@@ -259,12 +271,24 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
         *reason = "transfer-image-sampler-not-supported";
         return false;
     }
+    /* Native001b0100 texture setup consumes the original linear-to-tile
+     * copy's RGBA8888 words. A8 has its separately established byte profile. */
+    if (format == NIKON_PATH_IMAGE_RGBA &&
+        ((width & 7) || ((height & 7) && !(width == 8 && height == 4)))) {
+        *reason = "transfer-image-layout-not-supported";
+        return false;
+    }
     if (!overlay) {
         return true;
     }
-    for (unsigned y = 0; y < NIKON_PATH_HEIGHT; y++) {
-        for (unsigned x = 0; x < NIKON_PATH_WIDTH; x++) {
-            unsigned p = y * NIKON_PATH_WIDTH + x;
+    if (!mask || !image) {
+        *reason = "transfer-image-input-not-backed";
+        return false;
+    }
+    for (unsigned y = 0; y < target->height; y++) {
+        for (unsigned x = 0; x < target->width; x++) {
+            unsigned p = y * target->width + x;
+            unsigned out = y * target->stride + 4 * x;
             double u, v;
             unsigned tx, ty, coverage, alpha;
             size_t index;
@@ -278,20 +302,21 @@ bool nikon_path_image(uint8_t *overlay, const uint8_t *mask,
             /* Functional nearest/clamp sampling, as in the fixed Z7 source. */
             tx = floor(CLAMP(u, 0, width - 1));
             ty = floor(CLAMP(v, 0, height - 1));
-            index = ty * width + tx;
+            index = format == NIKON_PATH_IMAGE_RGBA ?
+                    nikon_path_tile_index(tx, ty, width) : ty * width + tx;
             sample = image + index *
                      (format == NIKON_PATH_IMAGE_RGBA ? 4 : 1);
-            alpha = sample[format == NIKON_PATH_IMAGE_RGBA ? 3 : 0];
+            alpha = sample[0];
 
             coverage = (mask[p] * alpha + 127) / 255;
             for (unsigned c = 0; c < 3; c++) {
                 unsigned color = ((paint >> (8 * c)) & 255) *
-                    (format == NIKON_PATH_IMAGE_RGBA ? sample[c] : 255);
+                    (format == NIKON_PATH_IMAGE_RGBA ? sample[3 - c] : 255);
 
-                overlay[4 * p + c] =
+                overlay[out + c] =
                     (color * coverage + 32512) / 65025;
             }
-            overlay[4 * p + 3] = coverage;
+            overlay[out + 3] = coverage;
         }
     }
     return true;
