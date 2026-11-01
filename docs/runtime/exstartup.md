@@ -185,7 +185,8 @@ reached its completion path. Retiring that speculative byte at the `ACK` write
 was tried and reverted, because the original guest then stopped before the 0x6b
 traffic. The receive shift-byte correction times the shift byte instead: one byte
 at address match, the acknowledged byte after nine `CCR`-scaled periods of the
-APB1 clock, and cancellation on a cleared ACK, STOP, START or reset.
+APB1 clock. Clearing ACK cancels the shift for a one-byte receiver with POS
+clear; STOP, START and reset cancel either receive sequence.
 
 With that model the original bundle reaches, for the first time, the read
 helper's event wait `0x0802AE86`, the setup comparison `0x0802B0D6` and the
@@ -197,6 +198,26 @@ same probe also reaches the periodic `0x0d` status service at `0x0802B6F0`, so
 the monitor lane now runs its setup and its status cycle on the original
 image. The structured contract is in
 [the monitor page](../devices/expower/protocol.md).
+
+### Two-byte receiver and POS
+
+The EX-private little-endian controller at PA `0x40005400` also implements
+the two-byte receive sequence specified by ST's
+[RM0090 master receiver N=2 and CR1.POS description](https://www.st.com/resource/zh/reference_manual/DM00031020.pdf).
+With POS set, clearing ACK NACKs the second byte. Clearing ADDR by reading
+SR1 then SR2 releases the first byte; the CCR/APB1-derived timer clocks the
+second byte and raises BTF. ACK may be cleared immediately before or after
+ADDR release. The finite receive budget includes already buffered bytes,
+so two DR reads cannot clock a third byte. BTF clears after the first pop,
+RXNE after the second; STOP preserves buffered data and reset cancels a
+pending shift.
+
+The native `/arm/nikon/ex/i2c-pos-two-byte-read` fixture originally observed
+SR1 `0x40` instead of required `0x44`. Both ACK-clear orders now pass using
+distinct real expander bytes, as do drain and pending-shift reset checks.
+The complete 19-subtest EX batch passes. These are controller fixtures;
+they do not establish the cause of an original-firmware wait, menu operation,
+physical timing, or acceptance of a modified firmware package.
 
 ## MAS mode-1 producer: retire the watchpoint evidence {#mas-mode-1-producer-retire-the-watchpoint-evidence}
 

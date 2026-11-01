@@ -1938,7 +1938,11 @@ static bool nikon_transfer_rectangle_item(const uint32_t *setup, unsigned na,
             (31ULL << 46) | (1ULL << 52)) ||
         !nikon_transfer_rectangle_fields(b, 57, rectangle_draw_fields,
             ARRAY_SIZE(rectangle_draw_fields),
-            (1ULL << 31) | (1ULL << 35) | (1ULL << 47) | (1ULL << 54)) ||
+            (1ULL << 21) | (1ULL << 31) | (1ULL << 35) |
+            (1ULL << 47) | (1ULL << 54)) ||
+        /* The early selector can be zero: word37 overwrites it with 8
+         * before the rectangle latch. Other modes remain unsupported. */
+        (le32_to_cpu(b[21]) != 0 && le32_to_cpu(b[21]) != 8) ||
         !a[35] || a[35] != b[47] || a[52] != b[54] ||
         x < 0 || y < 0 || width <= 0 || height <= 0 ||
         (uint64_t)x + width > NIKON_PATH_WIDTH ||

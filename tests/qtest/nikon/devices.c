@@ -95,6 +95,42 @@ static void wait_reg(QTestState *q, unsigned cpu, const char *name,
     }
 }
 
+static void test_mas_extent(void)
+{
+    const size_t capacity = 0x2940000 - 2;
+    g_autofree char *bytes = g_malloc0(capacity + 1);
+    const size_t sizes[] = { 0x2478004, capacity };
+
+    /* Synthetic image data checks the loader, not firmware startup or flashing. */
+    bytes[0] = 0x5a;
+    for (unsigned i = 0; i < ARRAY_SIZE(sizes); i++) {
+        QTestState *q;
+
+        bytes[sizes[i] - 1] = 0xa5;
+        g_assert_true(g_file_set_contents(image, bytes, sizes[i], NULL));
+        q = start(false, 1);
+        g_assert_cmphex(qtest_readb(q, ROM), ==, 0x5a);
+        g_assert_cmphex(qtest_readb(q, ROM + sizes[i] - 1), ==, 0xa5);
+        qtest_qmp_assert_success(q, "{'execute': 'system_reset'}");
+        g_assert_cmphex(qtest_readb(q, ROM + sizes[i] - 1), ==, 0xa5);
+        qtest_quit(q);
+    }
+    {
+        const char *args[] = {
+            qtest_qemu_binary(NULL), "-machine", "z7ii-mas-diagnostic",
+            "-bios", image, "-display", "none", "-nodefaults", NULL,
+        };
+        g_autofree char *error = NULL;
+        int status;
+
+        g_assert_true(g_file_set_contents(image, bytes, capacity + 1, NULL));
+        g_assert_true(g_spawn_sync(NULL, (char **)args, NULL, 0, NULL, NULL,
+                                  NULL, &error, &status, NULL));
+        g_assert_cmpint(status, !=, 0);
+        g_assert_nonnull(strstr(error, "MAS diagnostic image must contain"));
+    }
+}
+
 static void test_boot(void)
 {
     /* Synthetic MOV r4,#0x5a; B . proves actual TCG execution, not just reset. */
@@ -1322,6 +1358,7 @@ int main(int argc, char **argv)
     close(fd);
     write_image(idle, ARRAY_SIZE(idle));
     qtest_add_func("/nikon/boot", test_boot);
+    qtest_add_func("/nikon/mas-extent", test_mas_extent);
     qtest_add_func("/nikon/smp", test_smp);
     qtest_add_func("/nikon/memc", test_memc);
     qtest_add_func("/nikon/clock", test_clock);

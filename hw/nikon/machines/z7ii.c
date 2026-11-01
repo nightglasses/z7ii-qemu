@@ -47,7 +47,9 @@
 OBJECT_DECLARE_SIMPLE_TYPE(Z7IIMachineState, Z7II_MACHINE)
 
 #define MAS_BASE 0x10020000ULL
-#define MAS_MAX_SIZE 0x2477b78ULL
+/* Native C1.70 descriptor2 region: 0x2940000 bytes including module CRC.
+ * Raw/decoded inputs have already removed that two-byte trailer. */
+#define MAS_MAX_SIZE (0x2940000ULL - 2)
 #define MEMC_BASE 0x04264000ULL
 #define CLOCK_BASE 0x04281000ULL
 #define COMPLETION_BASE 0x04287000ULL

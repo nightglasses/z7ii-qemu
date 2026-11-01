@@ -63,6 +63,14 @@ active transform, segments, ending and padding must match the recovered family.
 The later [matrix overwrite correction](overwrite.md) permits any raw first
 matrix payload only when the next full matrix write replaces it before the
 path latch; the final rectangle matrix must still be identity.
+The early draw-side `01841004` selector may be `0` or `8`: its later write
+must still be `8` before the `00a0f02e` rectangle latch. This bounded overwrite
+case was observed in an unchanged C1.70 GUI submission under `c650ab04` plus
+the MAS admission-limit change. The board-PA streams `bd0e0610`/`bd160930`
+contain 664/904 bytes; their first clear covers `[706,716) x [6,418)`.
+The old parser rejected the early zero despite the later overwrite. Other early
+values and a final zero remain errors. This implements the retained-register
+semantics of the finite model, not a physical GPU register identification.
 Count 1..256 uses the existing functional work bound. Coordinates and colors
 are operands; positive integer rectangles must lie fully inside the submitted
 720x480 context. Other active transforms, geometry, formats and blending remain
@@ -111,6 +119,13 @@ and ACK before the rectangle variants. An independent reviewer found the
 32-bit output-end gap; it was corrected and the complete applicable batch
 rerun. Final read-only review found no remaining concrete defect. These are
 synthetic validation results, separate from original execution.
+
+The selector-overwrite extension adds a positive early-zero variant and a
+negative final-zero variant to the existing complete pixel/guard checks;
+the early value `14` remains rejected. The new positive variant first failed
+with MEMTX_ERROR. The complete 32-subtest `nikon_transfer_unit` batch then
+passed. This is native renderer coverage; original menu lifecycle and modified
+firmware acceptance require separate execution evidence.
 
 The final unchanged-bundle run keeps the prior descriptor/TEMP/acceleration,
 RNG 0, cold F4 and normally paced healthy UART peer. It crosses 856/1088 START

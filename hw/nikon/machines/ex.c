@@ -618,11 +618,16 @@ static void ex_i2c_reset(NikonEXState *s, unsigned i)
 static void ex_i2c_fill_limit(EXI2C *p, unsigned limit)
 {
     if (p->receive && i2c_bus_busy(p->bus)) {
-        limit = MIN(limit, p->rx_remaining);
+        if (p->rx_remaining != EX_I2C_RX_UNBOUNDED) {
+            limit = MIN(limit, p->rx_count + p->rx_remaining);
+        }
         while (p->rx_count < limit && ex_i2c_rx_open(p)) {
             p->rx[p->rx_count++] = i2c_recv(p->bus);
             if (p->rx_remaining != EX_I2C_RX_UNBOUNDED) {
                 p->rx_remaining--;
+                if (!p->rx_remaining) {
+                    i2c_nack(p->bus);
+                }
             }
         }
     }
@@ -765,7 +770,8 @@ static void ex_i2c_rx_shift(void *opaque)
 {
     EXI2C *p = opaque;
 
-    if (!p->receive || !i2c_bus_busy(p->bus) || !(p->reg[0] & (1 << 10))) {
+    if (!p->receive || !i2c_bus_busy(p->bus) ||
+        !(p->reg[0] & ((1 << 10) | (1 << 11)))) {
         return;
     }
     if (p->rx_count < 2) {
@@ -1047,6 +1053,9 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                     if (p->reg[0] & (1 << 10)) {
                         ex_i2c_fill(p);
                     }
+                    p->reg[5] = (p->reg[5] & ~0x44u) |
+                        (p->rx_count ? 0x40 : 0) |
+                        (p->rx_count == 2 ? 4 : 0);
                     ex_i2c_update(s, i);
                 }
                 if (consume && reg == 4 && p->receive &&
@@ -1078,8 +1087,13 @@ static MemTxResult ex_peripheral_access(void *opaque, hwaddr offset,
                     p->sr1_seen = false;
                     if (addr_cleared && p->receive && !p->rx_count &&
                         i2c_bus_busy(p->bus)) {
+                        /* RM0090 N=2: POS shifts the cleared ACK to byte2. */
+                        if ((p->reg[0] & (1 << 11)) &&
+                            !(p->reg[0] & (1 << 10))) {
+                            p->rx_remaining = 2;
+                        }
                         ex_i2c_fill_limit(p, 1);
-                        if (p->reg[0] & (1 << 10)) {
+                        if (p->reg[0] & ((1 << 10) | (1 << 11))) {
                             timer_mod(p->rx_timer,
                                       qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                                       ex_i2c_byte_ns(s, p));
@@ -1288,7 +1302,12 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 }
                 if (reg == 0) {
                     if ((cr1_prev & (1 << 10)) && !(v & (1 << 10))) {
-                        timer_del(p->rx_timer);
+                        if ((v & (1 << 11)) && p->receive) {
+                            /* Two bytes total, including an already clocked DR. */
+                            p->rx_remaining = 2 - MIN(p->rx_count, 2u);
+                        } else {
+                            timer_del(p->rx_timer);
+                        }
                     }
                     if ((v & (1 << 15)) || !(v & 1)) {
                         i2c_end_transfer(p->bus);
