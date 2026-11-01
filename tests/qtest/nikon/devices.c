@@ -150,6 +150,40 @@ static void test_boot(void)
     qtest_quit(q);
 }
 
+static void test_actlr_tcg(void)
+{
+    /* Synthetic CP15 instructions, not modified original firmware. */
+    const uint32_t words[] = {
+        0xee114f30,             /* MRC p15,0,r4,c1,c0,1: reset */
+        0xee110f30,             /* MRC p15,0,r0,c1,c0,1 */
+        0xe3800040,             /* ORR r0,r0,#0x40 */
+        0xe3c00a06,             /* BIC r0,r0,#0x6000 */
+        0xee010f30,             /* MCR p15,0,r0,c1,c0,1 */
+        0xee115f30,             /* MRC p15,0,r5,c1,c0,1: SMP */
+        0xe3e00000,             /* MVN r0,#0 */
+        0xee010f30,             /* MCR p15,0,r0,c1,c0,1 */
+        0xee116f30,             /* MRC p15,0,r6,c1,c0,1: mask */
+        0xe3a0705a, 0xeafffffe, /* completion marker, loop */
+    };
+    QTestState *q;
+
+    write_image(words, ARRAY_SIZE(words));
+    q = start(true, 2);
+    for (unsigned reset = 0; reset < 2; reset++) {
+        qtest_qmp_assert_success(q, "{'execute':'cont'}");
+        wait_reg(q, 0, "R07=", 0x5a);
+        wait_reg(q, 1, "R07=", 0x5a);
+        qtest_qmp_assert_success(q, "{'execute':'stop'}");
+        for (unsigned cpu = 0; cpu < 2; cpu++) {
+            g_assert_cmphex(reg(q, cpu, "R04="), ==, 0x6000);
+            g_assert_cmphex(reg(q, cpu, "R05="), ==, 0x40);
+            g_assert_cmphex(reg(q, cpu, "R06="), ==, 0x1000fc40);
+        }
+        qtest_system_reset(q);
+    }
+    qtest_quit(q);
+}
+
 static void constant(GArray *code, unsigned reg, uint32_t value)
 {
     uint32_t low = value & 0xffff, high = value >> 16;
@@ -1358,6 +1392,7 @@ int main(int argc, char **argv)
     close(fd);
     write_image(idle, ARRAY_SIZE(idle));
     qtest_add_func("/nikon/boot", test_boot);
+    qtest_add_func("/nikon/actlr-tcg", test_actlr_tcg);
     qtest_add_func("/nikon/mas-extent", test_mas_extent);
     qtest_add_func("/nikon/smp", test_smp);
     qtest_add_func("/nikon/memc", test_memc);
