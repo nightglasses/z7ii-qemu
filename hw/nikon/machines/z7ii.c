@@ -829,7 +829,7 @@ static void z7ii_init(MachineState *machine)
     DeviceState *cmos;
     DeviceState *endpoints, *banks, *statistics = NULL;
     DeviceState *router, *input_split = NULL;
-    DeviceState *spi_ports[11];
+    DeviceState *spi_ports[11], *sdi[2];
     SysBusDevice *gic_bus;
     int64_t image_size;
     g_autoptr(GBytes) mas = NULL;
@@ -1136,11 +1136,10 @@ static void z7ii_init(MachineState *machine)
     qemu_set_irq(qdev_get_gpio_in_named(gpio, "external-level", 5 * 16 + 14),
                  1);
     for (i = 0; i < 2; i++) {
-        DeviceState *sdi = qdev_new(TYPE_NIKON_SDI);
-
-        qdev_prop_set_uint32(sdi, "bank", i);
-        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi), &error_fatal);
-        sysbus_mmio_map(SYS_BUS_DEVICE(sdi), 0, 0x20020000 + i * 0x20000);
+        sdi[i] = qdev_new(TYPE_NIKON_SDI);
+        qdev_prop_set_uint32(sdi[i], "bank", i);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sdi[i]), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(sdi[i]), 0, 0x20020000 + i * 0x20000);
     }
 
     /* Whole upstream GIC, independently configured from the CPU's EL2. */
@@ -1155,6 +1154,11 @@ static void z7ii_init(MachineState *machine)
     sysbus_realize_and_unref(gic_bus, &error_fatal);
     sysbus_mmio_map(gic_bus, 0, CBAR_BASE + 0x1000);
     sysbus_mmio_map(gic_bus, 1, CBAR_BASE + 0x2000);
+    for (i = 0; i < ARRAY_SIZE(sdi); i++) {
+        /* MAS 1020384f/102037fd consume each bank's DDR status and W1C. */
+        sysbus_connect_irq(SYS_BUS_DEVICE(sdi[i]), 0,
+                           qdev_get_gpio_in(gic, 125 + i - 32));
+    }
     for (i = 0; i < 3; i++) {
         DeviceState *usio = qdev_new(TYPE_NIKON_USIO);
         g_autofree char *name = g_strdup_printf("usio%u", i);

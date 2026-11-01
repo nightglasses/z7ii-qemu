@@ -4,6 +4,7 @@
 #include "qemu/osdep.h"
 #include "../libqtest.h"
 #include "hw/nikon/devices.h"
+#include "hw/intc/arm_gic.h"
 #include "qobject/qdict.h"
 #include "qobject/qlist.h"
 
@@ -381,6 +382,47 @@ static void test_runtime_status_irq(gconstpointer data)
     qtest_quit(q);
 }
 
+static void test_mrr_board_irq(gconstpointer data)
+{
+    unsigned bank = GPOINTER_TO_UINT(data);
+    uint64_t base = bank_base(bank);
+    QTestState *q = start();
+    QDict *reply = qtest_qmp(q, "{'execute':'qom-list','arguments':"
+                           "{'path':'/machine/unattached'}}");
+    const QListEntry *entry;
+    g_autofree char *gic = NULL;
+
+    QLIST_FOREACH_ENTRY(qdict_get_qlist(reply, "return"), entry) {
+        const QDict *child = qobject_to(QDict, qlist_entry_obj(entry));
+
+        if (!strcmp(qdict_get_str(child, "type"), "child<" TYPE_ARM_GIC ">")) {
+            g_assert_null(gic);
+            gic = g_strdup_printf("/machine/unattached/%s",
+                                   qdict_get_str(child, "name"));
+        }
+    }
+    qobject_unref(reply);
+    g_assert_nonnull(gic);
+    qtest_irq_intercept_in(q, gic);
+    initialize(q, bank, true);
+    g_assert_false(qtest_get_irq(q, 125 - 32));
+    g_assert_false(qtest_get_irq(q, 126 - 32));
+    qtest_writel(q, base + 0x321c, 1);
+    qtest_writel(q, base + 0x311c, 0x05010001);
+    qtest_clock_step(q, 9999);
+    g_assert_false(qtest_get_irq(q, 125 + bank - 32));
+    qtest_clock_step(q, 1);
+    g_assert_cmphex(qtest_readl(q, base + 0x331c), ==, 1);
+    /* Observe the receiving GIC input, preserving its original handler. No
+     * secure CPU interface or firmware ISR is claimed by this board fixture.
+     */
+    g_assert_true(qtest_get_irq(q, 125 + bank - 32));
+    g_assert_false(qtest_get_irq(q, 125 + (1 - bank) - 32));
+    qtest_writel(q, base + 0x331c, 1);
+    g_assert_false(qtest_get_irq(q, 125 + bank - 32));
+    qtest_quit(q);
+}
+
 void nikon_sdi_add_tests(const char *bios)
 {
     sdi_bios = bios;
@@ -393,4 +435,8 @@ void nikon_sdi_add_tests(const char *bios)
                         test_runtime_status_irq);
     qtest_add_data_func("/nikon/sdi/runtime-bank1", GUINT_TO_POINTER(1),
                         test_runtime_status_irq);
+    qtest_add_data_func("/nikon/sdi/mrr-board/bank0", GUINT_TO_POINTER(0),
+                        test_mrr_board_irq);
+    qtest_add_data_func("/nikon/sdi/mrr-board/bank1", GUINT_TO_POINTER(1),
+                        test_mrr_board_irq);
 }
