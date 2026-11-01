@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   arm-smoke:
-    runs-on: [self-hosted, linux, x64, nightglass-qemu]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
